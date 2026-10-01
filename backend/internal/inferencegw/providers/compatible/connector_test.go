@@ -202,7 +202,7 @@ func TestListModelsDescribesServedDialects(t *testing.T) {
 
 func TestMessagesNeedAV1BaseURL(t *testing.T) {
 	_, err := New(Config{BaseURL: "https://example.com/api", APIs: []ip.API{ip.APIMessages}}, "compatible:x", logging.NewLoggerWithOutput(io.Discard))
-	if !errors.Is(err, ErrMessagesBaseURL) {
+	if !errors.Is(err, errMessagesBaseURL) {
 		t.Errorf("err = %v", err)
 	}
 }

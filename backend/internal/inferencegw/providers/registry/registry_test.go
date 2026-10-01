@@ -19,8 +19,8 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw/providers/azure"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/compatible"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
 	ip "github.com/clear-route/orbit/internal/inferencegw/providers/v1alpha1"
+	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -105,17 +105,17 @@ func TestLoadReportsFailuresOnStatus(t *testing.T) {
 	}{
 		{"no-secret", ip.Spec{Type: ip.TypeCompatible, Compatible: &ip.Compatible{
 			BaseURL: "https://x/v1", APIs: []ip.API{ip.APIChatCompletions}, APIKeySecretRef: &ip.SecretKeyRef{Name: "absent", Key: "k"},
-		}}, ReasonSecretNotFound},
+		}}, reasonSecretNotFound},
 		{"no-key", ip.Spec{Type: ip.TypeBedrock, Bedrock: &ip.Bedrock{
 			Region: "us-east-1", Credentials: &ip.BedrockCredentials{SecretRef: ip.SecretNameRef{Name: "partial"}},
-		}}, ReasonSecretKeyNotFound},
+		}}, reasonSecretKeyNotFound},
 		{"unlabelled", ip.Spec{Type: ip.TypeAzure, Azure: &ip.Azure{
 			Endpoint: "https://r", APIVersion: "v", APIKeySecretRef: ip.SecretKeyRef{Name: "plain", Key: "apiKey"},
-		}}, ReasonSecretNotFound},
+		}}, reasonSecretNotFound},
 		{"bad-messages-url", ip.Spec{Type: ip.TypeCompatible, Compatible: &ip.Compatible{
 			BaseURL: "https://x/api", APIs: []ip.API{ip.APIMessages},
-		}}, ReasonInvalidSpec},
-		{"no-block", ip.Spec{Type: ip.TypeBedrock}, ReasonInvalidSpec},
+		}}, reasonInvalidSpec},
+		{"no-block", ip.Spec{Type: ip.TypeBedrock}, reasonInvalidSpec},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -14,18 +14,18 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw/providers/azure"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/compatible"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
 	ip "github.com/clear-route/orbit/internal/inferencegw/providers/v1alpha1"
+	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // Reasons on the status condition of a resource.
 const (
-	ReasonLoaded            = "Loaded"
-	ReasonInvalidSpec       = "InvalidSpec"
-	ReasonSecretNotFound    = "SecretNotFound"
-	ReasonSecretKeyNotFound = "SecretKeyNotFound"
-	ReasonBuildFailed       = "BuildFailed"
+	reasonLoaded            = "Loaded"
+	reasonInvalidSpec       = "InvalidSpec"
+	reasonSecretNotFound    = "SecretNotFound"
+	reasonSecretKeyNotFound = "SecretKeyNotFound"
+	reasonBuildFailed       = "BuildFailed"
 )
 
 // Bedrock credential Secret keys.
@@ -35,25 +35,25 @@ const (
 	keySessionToken    = "sessionToken"
 )
 
-// BuildError is why a resource produced no connector.
-type BuildError struct {
+// buildError is why a resource produced no connector.
+type buildError struct {
 	Reason  string
 	Message string
 }
 
-func (e *BuildError) Error() string { return e.Message }
+func (e *buildError) Error() string { return e.Message }
 
 func buildErr(reason, format string, args ...any) error {
-	return &BuildError{Reason: reason, Message: fmt.Sprintf(format, args...)}
+	return &buildError{Reason: reason, Message: fmt.Sprintf(format, args...)}
 }
 
-// SecretReader returns one key of a Secret in the resource's namespace. It
-// returns a *BuildError when the Secret or the key is missing.
-type SecretReader func(ctx context.Context, name, key string) (string, error)
+// secretReader returns one key of a Secret in the resource's namespace. It
+// returns a *buildError when the Secret or the key is missing.
+type secretReader func(ctx context.Context, name, key string) (string, error)
 
-// Build constructs the connector for one resource and describes it for the
+// buildConnector constructs the connector for one resource and describes it for the
 // admin view. The description never carries a credential.
-func Build(ctx context.Context, p *ip.InferenceProvider, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, inferencegw.ProviderInfo, error) {
+func buildConnector(ctx context.Context, p *ip.InferenceProvider, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, inferencegw.ProviderInfo, error) {
 	info := inferencegw.ProviderInfo{
 		Name:        inferencegw.ProviderName(p.ProviderName()),
 		Type:        string(p.Spec.Type),
@@ -63,9 +63,9 @@ func Build(ctx context.Context, p *ip.InferenceProvider, secret SecretReader, lo
 	}
 	conn, err := build(ctx, p.Spec, &info, secret, logger)
 	if err != nil {
-		var be *BuildError
+		var be *buildError
 		if !errors.As(err, &be) {
-			err = &BuildError{Reason: ReasonBuildFailed, Message: err.Error()}
+			err = &buildError{Reason: reasonBuildFailed, Message: err.Error()}
 		}
 		info.BuildError = err.Error()
 		return nil, info, err
@@ -73,7 +73,7 @@ func Build(ctx context.Context, p *ip.InferenceProvider, secret SecretReader, lo
 	return withModelList(conn, p.Spec.Models), info, nil
 }
 
-func build(ctx context.Context, s ip.Spec, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+func build(ctx context.Context, s ip.Spec, info *inferencegw.ProviderInfo, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	switch {
 	case s.Type == ip.TypeBedrock && s.Bedrock != nil:
 		return buildBedrock(ctx, s.Bedrock, info, secret, logger)
@@ -84,10 +84,10 @@ func build(ctx context.Context, s ip.Spec, info *inferencegw.ProviderInfo, secre
 	case s.Type == ip.TypeCompatible && s.Compatible != nil:
 		return buildCompatible(ctx, s.Compatible, info, secret, logger)
 	}
-	return nil, buildErr(ReasonInvalidSpec, "type %q needs its own config block", s.Type)
+	return nil, buildErr(reasonInvalidSpec, "type %q needs its own config block", s.Type)
 }
 
-func buildBedrock(ctx context.Context, b *ip.Bedrock, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+func buildBedrock(ctx context.Context, b *ip.Bedrock, info *inferencegw.ProviderInfo, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	info.Location = b.Region
 	info.AssumeRoleARN = b.AssumeRoleARN
 	info.CredentialMode = inferencegw.CredentialModeWorkloadIdentity
@@ -101,7 +101,7 @@ func buildBedrock(ctx context.Context, b *ip.Bedrock, info *inferencegw.Provider
 	return bedrock.New(&cfg, info.Name, logger)
 }
 
-func buildVertexAI(ctx context.Context, v *ip.VertexAI, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+func buildVertexAI(ctx context.Context, v *ip.VertexAI, info *inferencegw.ProviderInfo, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	info.Location = v.ProjectID + "/" + v.Location
 	info.CredentialMode = inferencegw.CredentialModeWorkloadIdentity
 	cfg := &vertexai.Config{ProjectID: v.ProjectID, Location: v.Location, AnthropicLocation: v.AnthropicLocation}
@@ -119,7 +119,7 @@ func buildVertexAI(ctx context.Context, v *ip.VertexAI, info *inferencegw.Provid
 	return vertexai.New(cfg, info.Name, logger)
 }
 
-func buildAzure(ctx context.Context, a *ip.Azure, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+func buildAzure(ctx context.Context, a *ip.Azure, info *inferencegw.ProviderInfo, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	info.Location = a.Endpoint
 	info.CredentialMode = inferencegw.CredentialModeSecret
 	key, err := secret(ctx, a.APIKeySecretRef.Name, a.APIKeySecretRef.Key)
@@ -133,7 +133,7 @@ func buildAzure(ctx context.Context, a *ip.Azure, info *inferencegw.ProviderInfo
 	return azure.New(cfg, info.Name, logger)
 }
 
-func buildCompatible(ctx context.Context, c *ip.Compatible, info *inferencegw.ProviderInfo, secret SecretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
+func buildCompatible(ctx context.Context, c *ip.Compatible, info *inferencegw.ProviderInfo, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	info.Location = c.BaseURL
 	info.CredentialMode = inferencegw.CredentialModeNone
 	cfg := compatible.Config{BaseURL: c.BaseURL, APIs: c.APIs}
@@ -147,13 +147,13 @@ func buildCompatible(ctx context.Context, c *ip.Compatible, info *inferencegw.Pr
 	}
 	conn, err := compatible.New(cfg, info.Name, logger)
 	if err != nil {
-		return nil, buildErr(ReasonInvalidSpec, "%s", err.Error())
+		return nil, buildErr(reasonInvalidSpec, "%s", err.Error())
 	}
 	return conn, nil
 }
 
 // readBedrockKeys reads a static key pair and an optional session token.
-func readBedrockKeys(ctx context.Context, secret SecretReader, ref string, cfg *bedrock.Config) error {
+func readBedrockKeys(ctx context.Context, secret secretReader, ref string, cfg *bedrock.Config) error {
 	var err error
 	if cfg.AccessKeyID, err = secret(ctx, ref, keyAccessKeyID); err != nil {
 		return err
@@ -162,8 +162,8 @@ func readBedrockKeys(ctx context.Context, secret SecretReader, ref string, cfg *
 		return err
 	}
 	cfg.SessionToken, err = secret(ctx, ref, keySessionToken)
-	var be *BuildError
-	if errors.As(err, &be) && be.Reason == ReasonSecretKeyNotFound {
+	var be *buildError
+	if errors.As(err, &be) && be.Reason == reasonSecretKeyNotFound {
 		return nil
 	}
 	return err

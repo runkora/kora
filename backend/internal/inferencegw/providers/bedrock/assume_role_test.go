@@ -46,7 +46,7 @@ func TestAssumeRoleCredentials(t *testing.T) {
 		"Action":          "AssumeRole",
 		"RoleArn":         "arn:aws:iam::123456789012:role/bedrock",
 		"ExternalId":      "ext-1",
-		"RoleSessionName": DefaultRoleSessionName,
+		"RoleSessionName": defaultRoleSessionName,
 	}
 	for k, v := range want {
 		if form.Get(k) != v {

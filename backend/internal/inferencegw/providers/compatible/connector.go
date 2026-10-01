@@ -23,8 +23,8 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bridge"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	ip "github.com/clear-route/orbit/internal/inferencegw/providers/v1alpha1"
+	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -36,9 +36,9 @@ type Config struct {
 	APIs    []ip.API
 }
 
-// ErrMessagesBaseURL is returned when an endpoint serving Anthropic messages
+// errMessagesBaseURL is returned when an endpoint serving Anthropic messages
 // has a base URL that does not end in /v1; the Anthropic SDK appends v1/messages.
-var ErrMessagesBaseURL = errors.New("an endpoint serving messages needs a base URL ending in /v1")
+var errMessagesBaseURL = errors.New("an endpoint serving messages needs a base URL ending in /v1")
 
 // Connector implements inferencegw.ProviderConnector for one endpoint.
 type Connector struct {
@@ -75,7 +75,7 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if c.serves[ip.APIMessages] {
 		root, ok := strings.CutSuffix(strings.TrimSuffix(cfg.BaseURL, "/"), "/v1")
 		if !ok {
-			return nil, ErrMessagesBaseURL
+			return nil, errMessagesBaseURL
 		}
 		anthropicOpts := []anthropicopt.RequestOption{
 			anthropicopt.WithBaseURL(root),

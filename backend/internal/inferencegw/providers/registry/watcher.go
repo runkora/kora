@@ -112,7 +112,7 @@ func (w *Watcher) Load(ctx context.Context) (map[inferencegw.ProviderName]infere
 	}
 	for i := range list.Items {
 		p := &list.Items[i]
-		conn, info, err := Build(ctx, p, w.secret, w.logger)
+		conn, info, err := buildConnector(ctx, p, w.secret, w.logger)
 		infos = append(infos, info)
 		if conn != nil {
 			connectors[info.Name] = conn
@@ -186,14 +186,14 @@ func (w *Watcher) secret(ctx context.Context, name, key string) (string, error) 
 	s := &corev1.Secret{}
 	err := w.reader.Get(ctx, client.ObjectKey{Namespace: w.namespace, Name: name}, s)
 	if apierrors.IsNotFound(err) {
-		return "", buildErr(ReasonSecretNotFound, "Secret %q not found in %s with label %s=true", name, w.namespace, ip.SecretLabel)
+		return "", buildErr(reasonSecretNotFound, "Secret %q not found in %s with label %s=true", name, w.namespace, ip.SecretLabel)
 	}
 	if err != nil {
 		return "", fmt.Errorf("get Secret %q: %w", name, err)
 	}
 	v, ok := s.Data[key]
 	if !ok || len(v) == 0 {
-		return "", buildErr(ReasonSecretKeyNotFound, "Secret %q has no key %q", name, key)
+		return "", buildErr(reasonSecretKeyNotFound, "Secret %q has no key %q", name, key)
 	}
 	return string(v), nil
 }
@@ -202,10 +202,10 @@ func (w *Watcher) secret(ctx context.Context, name, key string) (string, error) 
 // gateway replica computes the same status and calls it.
 func (w *Watcher) writeStatus(ctx context.Context, p *ip.InferenceProvider, loadErr error) {
 	next := p.DeepCopy()
-	cond := metav1.Condition{Type: conditionLoaded, Status: metav1.ConditionTrue, Reason: ReasonLoaded,
+	cond := metav1.Condition{Type: conditionLoaded, Status: metav1.ConditionTrue, Reason: reasonLoaded,
 		Message: "loaded by the inference gateway", ObservedGeneration: p.Generation}
 	next.Status.Phase = ip.PhaseReady
-	var be *BuildError
+	var be *buildError
 	if errors.As(loadErr, &be) {
 		cond.Status, cond.Reason, cond.Message = metav1.ConditionFalse, be.Reason, be.Message
 		next.Status.Phase = ip.PhaseInvalid

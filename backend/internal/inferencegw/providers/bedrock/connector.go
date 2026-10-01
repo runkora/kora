@@ -39,7 +39,7 @@ type Config struct {
 	AssumeRoleARN string
 	ExternalID    string
 	// RoleSessionName names the assumed sessions in CloudTrail. Empty uses
-	// DefaultRoleSessionName.
+	// defaultRoleSessionName.
 	RoleSessionName string
 }
 
@@ -456,14 +456,14 @@ func isAnthropicModel(id string) bool {
 	return strings.HasPrefix(base, "claude-")
 }
 
-// DefaultRoleSessionName names assumed sessions when the resource sets none.
-const DefaultRoleSessionName = "orbit-inference-gateway"
+// defaultRoleSessionName names assumed sessions when the resource sets none.
+const defaultRoleSessionName = "orbit-inference-gateway"
 
 // assumeRoleCredentials assumes roleARN with the base credentials in base. The
 // cache refreshes the session before it expires.
 func assumeRoleCredentials(base aws.Config, roleARN, externalID, sessionName string) aws.CredentialsProvider {
 	if sessionName == "" {
-		sessionName = DefaultRoleSessionName
+		sessionName = defaultRoleSessionName
 	}
 	provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(base), roleARN, func(o *stscreds.AssumeRoleOptions) {
 		o.RoleSessionName = sessionName
