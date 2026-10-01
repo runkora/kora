@@ -20,7 +20,7 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/compatible"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders"
+	ip "github.com/clear-route/orbit/internal/inferencegw/providers/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 

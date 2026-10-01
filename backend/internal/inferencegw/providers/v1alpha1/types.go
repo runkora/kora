@@ -1,8 +1,8 @@
-// Package inferenceproviders holds the InferenceProvider API types. The
+// Package v1alpha1 holds the InferenceProvider API types. The
 // inference gateway watches these resources; the chart ships their CRD.
 //
 // See docs/adr/2026-10-01-crd-inference-providers.md.
-package inferenceproviders
+package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"

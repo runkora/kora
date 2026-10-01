@@ -87,7 +87,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 
 ### 1. The `InferenceProvider` resource
 
-`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/orbit-crds`. The Go types live in `internal/platform/inferenceproviders`.
+`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/orbit-crds`. The Go types live in `internal/inferencegw/providers/v1alpha1`.
 
 | Type | Fields | Credential |
 |---|---|---|
@@ -205,7 +205,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 ## Implementation
 
 - `charts/orbit-crds/templates/crd-inferenceprovider.yaml`.
-- `backend/internal/platform/inferenceproviders/`: API types.
+- `backend/internal/inferencegw/providers/v1alpha1/`: API types.
 - `backend/internal/inferencegw/providers/registry/`: build per type, the watcher and status writes.
 - `backend/internal/inferencegw/providers/compatible/`: the compatible connector.
 - `backend/internal/inferencegw/`: swappable connectors, provider status, `GET /v1/catalog/providers`, `InferFamily`, provider-name validation, pricing by type.
