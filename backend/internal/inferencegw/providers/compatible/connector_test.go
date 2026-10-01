@@ -2,7 +2,6 @@ package compatible
 
 import (
 	"context"
-	"encoding/pem"
 	"errors"
 	"io"
 	"net/http"
@@ -193,32 +192,6 @@ func TestMessagesNeedAV1BaseURL(t *testing.T) {
 	_, err := New(Config{BaseURL: "https://example.com/api", APIs: []ip.API{ip.APIMessages}}, "compatible:x", logging.NewLoggerWithOutput(io.Discard))
 	if !errors.Is(err, ErrMessagesBaseURL) {
 		t.Errorf("err = %v", err)
-	}
-}
-
-func TestPrivateCATrust(t *testing.T) {
-	up := &upstream{}
-	srv := httptest.NewTLSServer(http.HandlerFunc(up.handler))
-	defer srv.Close()
-	caPEM := string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: srv.Certificate().Raw}))
-	logger := logging.NewLoggerWithOutput(io.Discard)
-
-	untrusted, err := New(Config{BaseURL: srv.URL + "/v1", APIs: []ip.API{ip.APIChatCompletions}}, "compatible:x", logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := untrusted.ChatCompletion(context.Background(), chatParams()); err == nil {
-		t.Error("an upstream signed by an unknown CA was trusted")
-	}
-	trusted, err := New(Config{BaseURL: srv.URL + "/v1", CACert: caPEM, APIs: []ip.API{ip.APIChatCompletions}}, "compatible:x", logger)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := trusted.ChatCompletion(context.Background(), chatParams()); err != nil {
-		t.Errorf("caCert not trusted: %v", err)
-	}
-	if _, err := New(Config{BaseURL: srv.URL, CACert: "not pem", APIs: []ip.API{ip.APIChatCompletions}}, "compatible:x", logger); err == nil {
-		t.Error("invalid caCert accepted")
 	}
 }
 

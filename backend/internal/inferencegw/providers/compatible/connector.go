@@ -32,7 +32,6 @@ import (
 type Config struct {
 	BaseURL string
 	APIKey  string
-	CACert  string
 	APIs    []ip.API
 }
 
@@ -55,10 +54,7 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	if cfg.BaseURL == "" || len(cfg.APIs) == 0 {
 		return nil, fmt.Errorf("compatible: a base URL and at least one API are required")
 	}
-	transport, err := httpclient.NewTracingTransportWithCA("orbit.compatible", cfg.CACert)
-	if err != nil {
-		return nil, fmt.Errorf("compatible: %w", err)
-	}
+	transport := httpclient.NewTracingTransport("orbit.compatible", nil)
 	c := &Connector{name: name, serves: map[ip.API]bool{}, logger: logger}
 	for _, api := range cfg.APIs {
 		c.serves[api] = true

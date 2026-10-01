@@ -15,8 +15,6 @@ The inference gateway builds its provider connectors once at start from env vars
 
 `RoutingEngine.connectors` is fixed at construction. Postgres holds virtual models, routes, per-model toggles and prices, keyed by provider name. Three CHECK constraints allow only `bedrock`, `vertexai`, `azure` and `bedrock:<alias>`.
 
-The gateway pod carries the identity-proxy ext_proc filter. It replaces the `Authorization` header of every plain HTTP outbound call with the gateway's platform token. TLS calls pass through Envoy untouched.
-
 This touches *How does it connect?*. Provider credentials move from env into Secrets that only the gateway reads, and they stay in the gateway. *Who is this agent?* and *What can it access?* are unchanged. Agents call the gateway with their platform identity. Grants stay on virtual models.
 
 ### Goals
@@ -91,7 +89,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 | `bedrock` | `region` (required), `assumeRoleARN`, `externalID`, `roleSessionName` (default `orbit-inference-gateway`) | `credentials.secretRef.name`: keys `accessKeyID`, `secretAccessKey`, optional `sessionToken`. Absent: workload identity (IRSA, EKS Pod Identity). AssumeRole applies on top of either. |
 | `vertexai` | `projectID`, `location` (required), `anthropicLocation` | `credentialsSecretRef {name, key}`: service account JSON. Absent: Application Default Credentials (GKE Workload Identity). |
 | `azure` | `endpoint`, `apiVersion` (required), `anthropicEndpoint` | `apiKeySecretRef {name, key}`, required. |
-| `compatible` | `baseURL` (required), `apis` (required), `caCert` | `apiKeySecretRef {name, key}`, optional. |
+| `compatible` | `baseURL` (required, http or https), `apis` (required) | `apiKeySecretRef {name, key}`, optional. |
 
 - CEL requires the block named by `spec.type` and forbids the others. `metadata.name` is a DNS label.
 - The provider name is `<type>:<metadata.name>`. Routes, overrides and usage filters accept only that form.
@@ -108,7 +106,6 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 - `messages` and `embeddings` have no bridge. An endpoint that does not declare them refuses them with HTTP 400 and a message naming the API.
 - `baseURL` is the prefix of `/chat/completions` and `/messages`. An endpoint serving `messages` needs a base URL ending in `/v1`; the Anthropic SDK appends `v1/messages`.
 - The key is sent as `Authorization: Bearer` on the OpenAI APIs and as `x-api-key` on messages.
-- `baseURL` must be `https://`. On plain HTTP the gateway's identity-proxy would replace the key with the gateway's platform token. `caCert` is an inline PEM for a private CA, as `Connection.spec.caCert` is.
 - One connector implements the type. It reuses the `convert` and `bridge` packages.
 
 An OpenRouter registration:

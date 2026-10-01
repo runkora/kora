@@ -165,13 +165,13 @@ spec:
                   properties:
                     endpoint:
                       type: string
-                      pattern: '^https://.+'
+                      pattern: '^https?://.+'
                     apiVersion:
                       type: string
                       minLength: 1
                     anthropicEndpoint:
                       type: string
-                      pattern: '^https://.+'
+                      pattern: '^https?://.+'
                     apiKeySecretRef:
                       type: object
                       required:
@@ -200,11 +200,9 @@ spec:
                     baseURL:
                       description: >
                         The prefix of /chat/completions and /messages, e.g.
-                        https://openrouter.ai/api/v1. It must be https: the
-                        gateway's sidecar replaces the Authorization header on
-                        plain HTTP calls.
+                        https://openrouter.ai/api/v1. http and https are allowed.
                       type: string
-                      pattern: '^https://.+'
+                      pattern: '^https?://.+'
                     apis:
                       type: array
                       minItems: 1
@@ -229,9 +227,6 @@ spec:
                         key:
                           type: string
                           minLength: 1
-                    caCert:
-                      description: PEM certificate authority for an upstream signed by a private CA.
-                      type: string
             status:
               type: object
               properties:

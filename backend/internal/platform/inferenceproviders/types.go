@@ -121,7 +121,6 @@ type Compatible struct {
 	BaseURL         string        `json:"baseURL"`
 	APIs            []API         `json:"apis"`
 	APIKeySecretRef *SecretKeyRef `json:"apiKeySecretRef,omitempty"`
-	CACert          string        `json:"caCert,omitempty"`
 }
 
 // Status is written by the inference gateway.

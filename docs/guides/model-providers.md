@@ -42,7 +42,7 @@ spec:
 - An undeclared API is translated when a declared one can carry it. Chat completions and Responses run over `messages`, and Responses over `chatCompletions`. Undeclared `messages` and `embeddings` are refused.
 - Claude Code calls `messages`. Codex calls `responses`. OpenCode calls `chatCompletions`.
 - `baseURL` is the prefix of `/chat/completions` and `/messages`. It must end in `/v1` when `messages` is listed.
-- `baseURL` must be `https://`. For an in-cluster server with a private CA, set `caCert` to the CA's PEM.
+- `baseURL` may be `http://` or `https://`.
 - `apiKeySecretRef` is optional for an unauthenticated server.
 - `models` limits what the provider offers. Leave it out to offer every model the endpoint lists. An endpoint without a model list needs it.
 
