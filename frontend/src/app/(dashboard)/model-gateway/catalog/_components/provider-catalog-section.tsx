@@ -19,7 +19,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@orbit/terra';
-import { SmartTable } from '@orbit/components';
+import { BadgeList, SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost, fmtDate } from '@orbit/utils';
 import { ApiRoute } from '@orbit/lib/routing';
@@ -40,24 +40,6 @@ function providerModelMatchesSearch(m: ProviderModel, q: string): boolean {
     m.modelId.toLowerCase().includes(q) ||
     m.displayName.toLowerCase().includes(q) ||
     m.family.toLowerCase().includes(q)
-  );
-}
-
-function Chips({ values }: { values: string[] }) {
-  if (values.length === 0)
-    return (
-      <Text size="caption" color="muted">
-        —
-      </Text>
-    );
-  return (
-    <Stack direction="horizontal" wrap gap="tight">
-      {values.map((v) => (
-        <Badge key={v} variant="outline" size="sm">
-          {v}
-        </Badge>
-      ))}
-    </Stack>
   );
 }
 
@@ -327,7 +309,7 @@ function PricingOverlay({
                 <Text size="supporting" color="muted">
                   Capabilities
                 </Text>
-                <Chips values={model.capabilities} />
+                <BadgeList values={model.capabilities} maxRows={2} />
               </Stack>
             )}
           </Stack>
@@ -587,12 +569,22 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
       {
         id: 'modelId',
         header: 'Model ID',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '10rem',
         locked: true,
+        // IDs share long prefixes and differ at the end, which truncation cuts
+        // off, so they wrap instead and are always readable in full.
+        wrap: true,
         sortable: true,
         sortAccessor: (m) => m.modelId,
         cell: (m) => (
           <Stack gap="none">
-            <Text size="supporting" weight={m.enabled ? 'emphasis' : 'regular'} mono>
+            <Text
+              size="supporting"
+              weight={m.enabled ? 'emphasis' : 'regular'}
+              mono
+              style={{ overflowWrap: 'anywhere' }}
+            >
               {m.modelId}
             </Text>
             {m.displayName && (
@@ -606,6 +598,9 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
       {
         id: 'provider',
         header: 'Provider',
+        gridWidth: '9rem',
+        // The widest label, "AWS Bedrock (aus)": truncating it drops the account alias.
+        minWidth: '8.5rem',
         sortable: true,
         sortAccessor: (m) => m.provider,
         filter: {
@@ -618,6 +613,8 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
       {
         id: 'family',
         header: 'Family',
+        gridWidth: '8rem',
+        minWidth: '5rem',
         sortable: true,
         sortAccessor: (m) => m.family,
         filter: {
@@ -634,6 +631,8 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
       {
         id: 'effectivePrice',
         header: 'Effective Price',
+        gridWidth: '9rem',
+        minWidth: '7.5rem',
         headerTooltip:
           'The per-1M token price for a standard text request, after any platform overrides are applied.',
         sortable: true,
@@ -647,34 +646,44 @@ export function ProviderCatalogSection({ models: initialModels }: ProviderCatalo
       {
         id: 'capabilities',
         header: 'Capabilities',
+        gridWidth: 'minmax(0, 1.5fr)',
+        minWidth: '6rem',
         filter: {
           mode: 'client',
           options: capabilityOptions,
           filterFn: (m, selected) => [...selected].some((c) => m.capabilities.includes(c)),
         },
-        cell: (m) => <Chips values={m.capabilities} />,
+        cell: (m) => <BadgeList values={m.capabilities} maxRows={2} />,
       },
       {
         id: 'input',
         header: 'Input',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '4.5rem',
         defaultVisible: false,
-        cell: (m) => <Chips values={m.inputModalities} />,
+        cell: (m) => <BadgeList values={m.inputModalities} maxRows={2} />,
       },
       {
         id: 'output',
         header: 'Output',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '4.5rem',
         defaultVisible: false,
-        cell: (m) => <Chips values={m.outputModalities} />,
+        cell: (m) => <BadgeList values={m.outputModalities} maxRows={2} />,
       },
       {
         id: 'dialects',
         header: 'Dialects',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '4.5rem',
         defaultVisible: false,
-        cell: (m) => <Chips values={m.dialects} />,
+        cell: (m) => <BadgeList values={m.dialects} maxRows={2} />,
       },
       {
         id: 'enabled',
         header: 'Enabled',
+        gridWidth: '5.5rem',
+        minWidth: '4.5rem',
         locked: true,
         cell: (m) => (
           <Stack onClick={(e: React.MouseEvent) => e.stopPropagation()}>
