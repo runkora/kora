@@ -507,7 +507,7 @@ func (c *CatalogController) handleSetProviderModelEnabled(w http.ResponseWriter,
 	if !provider.Valid() {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.BadRequestError("invalid_provider",
-				fmt.Sprintf("provider %q is not valid; must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", provider),
+				fmt.Sprintf("provider %q is not valid; must be %s", provider, ProviderNameSyntax),
 				nil),
 			nil)
 		return
@@ -717,7 +717,7 @@ func validateScopeSegmentField(field, value string) error {
 // validateRouteInput validates a single route entry within a virtual model request.
 func validateRouteInput(i int, r routeInput) error {
 	if !ProviderName(r.Provider).Valid() {
-		return fmt.Errorf("route[%d].provider %q is not valid; must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", i, r.Provider)
+		return fmt.Errorf("route[%d].provider %q is not valid; must be %s", i, r.Provider, ProviderNameSyntax)
 	}
 	if r.ModelID == "" {
 		return fmt.Errorf("route[%d].model_id is required", i)
@@ -829,7 +829,7 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
 
 	if !provider.Valid() {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", nil), nil)
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be "+ProviderNameSyntax, nil), nil)
 		return
 	}
 	provider = normalisePricingProvider(provider)
@@ -871,7 +871,7 @@ func (c *CatalogController) handleClearPricingOverride(w http.ResponseWriter, r 
 	modelID := normalisePricingModelID(provider, r.PathValue("modelId"))
 
 	if !provider.Valid() {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be 'bedrock', 'vertexai', 'azure', or a Bedrock alias of the form 'bedrock:<alias>'", nil), nil)
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_provider", "provider must be "+ProviderNameSyntax, nil), nil)
 		return
 	}
 	provider = normalisePricingProvider(provider)

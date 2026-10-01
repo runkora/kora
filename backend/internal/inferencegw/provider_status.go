@@ -51,10 +51,7 @@ type ProviderStatus struct {
 // ProviderStatuses returns every configured provider with its health, sorted by
 // name. A build error or a failed discovery marks it as an error.
 func (r *RoutingEngine) ProviderStatuses() []ProviderStatus {
-	var infos []ProviderInfo
-	if p := r.providers.Load(); p != nil {
-		infos = *p
-	}
+	infos := r.providers.Load().infos
 	var discovered map[ProviderName]discoveryResult
 	if d := r.discovery.Load(); d != nil {
 		discovered = *d

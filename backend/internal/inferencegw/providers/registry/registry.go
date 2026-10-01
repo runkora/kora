@@ -176,7 +176,8 @@ type describer interface {
 
 // modelListConnector offers only the models a resource lists in spec.models.
 // When discovery finds none of them, the list itself is the catalog; some
-// compatible servers have no model list.
+// compatible servers have no model list. A discovery error is still returned
+// with the list, so the provider's health shows it.
 type modelListConnector struct {
 	inferencegw.ProviderConnector
 	models []string
@@ -191,7 +192,7 @@ func withModelList(conn inferencegw.ProviderConnector, models []string) inferenc
 
 // ListModels filters discovery to the listed models.
 func (c *modelListConnector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
-	discovered, _ := c.ProviderConnector.ListModels(ctx)
+	discovered, err := c.ProviderConnector.ListModels(ctx)
 	var kept []inferencegw.ProviderModel
 	for _, m := range discovered {
 		if slices.Contains(c.models, m.ModelID) || slices.ContainsFunc(m.Aliases, func(a string) bool {
@@ -201,7 +202,7 @@ func (c *modelListConnector) ListModels(ctx context.Context) ([]inferencegw.Prov
 		}
 	}
 	if len(kept) > 0 {
-		return kept, nil
+		return kept, err
 	}
 	out := make([]inferencegw.ProviderModel, 0, len(c.models))
 	for _, id := range c.models {
@@ -218,5 +219,5 @@ func (c *modelListConnector) ListModels(ctx context.Context) ([]inferencegw.Prov
 			Capabilities: []inferencegw.ModelCapability{inferencegw.CapabilityChat},
 		})
 	}
-	return out, nil
+	return out, err
 }

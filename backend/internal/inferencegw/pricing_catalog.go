@@ -165,26 +165,35 @@ func (r *PostgresPricingCatalogRepository) UpsertSynced(ctx context.Context, ent
 	return nil
 }
 
-// SetOverride updates the override columns for the given (provider, model_id) pair.
-// Only non-nil pointer arguments change the corresponding DB column; nil arguments
-// leave that column unchanged. If no row exists an error is returned — overrides
-// can only be set on rows created by the sync worker.
+// SetOverride sets the override columns for the given (provider, model_id)
+// pair. Only non-nil arguments change their column. A model with no synced
+// price gets an override-only row; its last_synced_at is the epoch, so it never
+// reads as freshly synced.
 func (r *PostgresPricingCatalogRepository) SetOverride(ctx context.Context, provider ProviderName, modelID string, input, output, cacheRead, cacheWrite *float64) error {
 	const q = `
-		UPDATE model_pricing SET
-			override_input_cost_per_1m       = CASE WHEN $3::boolean THEN $4::numeric ELSE override_input_cost_per_1m END,
-			override_output_cost_per_1m      = CASE WHEN $5::boolean THEN $6::numeric ELSE override_output_cost_per_1m END,
-			override_cache_read_cost_per_1m  = CASE WHEN $7::boolean THEN $8::numeric ELSE override_cache_read_cost_per_1m END,
-			override_cache_write_cost_per_1m = CASE WHEN $9::boolean THEN $10::numeric ELSE override_cache_write_cost_per_1m END,
-			updated_at                       = now()
-		WHERE provider = $1 AND model_id = $2`
+		INSERT INTO model_pricing (provider, model_id,
+			override_input_cost_per_1m, override_output_cost_per_1m,
+			override_cache_read_cost_per_1m, override_cache_write_cost_per_1m,
+			last_synced_at)
+		VALUES ($1, $2,
+			CASE WHEN $3::boolean THEN $4::numeric END,
+			CASE WHEN $5::boolean THEN $6::numeric END,
+			CASE WHEN $7::boolean THEN $8::numeric END,
+			CASE WHEN $9::boolean THEN $10::numeric END,
+			'epoch')
+		ON CONFLICT (provider, model_id) DO UPDATE SET
+			override_input_cost_per_1m       = CASE WHEN $3::boolean THEN $4::numeric ELSE model_pricing.override_input_cost_per_1m END,
+			override_output_cost_per_1m      = CASE WHEN $5::boolean THEN $6::numeric ELSE model_pricing.override_output_cost_per_1m END,
+			override_cache_read_cost_per_1m  = CASE WHEN $7::boolean THEN $8::numeric ELSE model_pricing.override_cache_read_cost_per_1m END,
+			override_cache_write_cost_per_1m = CASE WHEN $9::boolean THEN $10::numeric ELSE model_pricing.override_cache_write_cost_per_1m END,
+			updated_at                       = now()`
 
 	inputVal := floatOrZero(input)
 	outputVal := floatOrZero(output)
 	cacheReadVal := floatOrZero(cacheRead)
 	cacheWriteVal := floatOrZero(cacheWrite)
 
-	tag, err := r.pool.Exec(ctx, q,
+	_, err := r.pool.Exec(ctx, q,
 		string(provider), modelID,
 		input != nil, inputVal,
 		output != nil, outputVal,
@@ -193,9 +202,6 @@ func (r *PostgresPricingCatalogRepository) SetOverride(ctx context.Context, prov
 	)
 	if err != nil {
 		return fmt.Errorf("pricing catalog set override (%s/%s): %w", provider, modelID, err)
-	}
-	if tag.RowsAffected() == 0 {
-		return fmt.Errorf("pricing catalog set override (%s/%s): %w", provider, modelID, ErrModelPricingNotFound)
 	}
 	return nil
 }

@@ -75,7 +75,7 @@ var usageParamBinders = []usageParamBinder{
 		if raw := q.Get("provider"); raw != "" {
 			p := ProviderName(raw)
 			if !p.Valid() {
-				return api.BadRequestError("invalid_param", "'provider' must be a known provider (bedrock, bedrock:<alias>, vertexai, azure)", nil), nil
+				return api.BadRequestError("invalid_param", "'provider' must be "+ProviderNameSyntax, nil), nil
 			}
 			f.Provider = &p
 		}

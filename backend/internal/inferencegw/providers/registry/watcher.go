@@ -29,6 +29,9 @@ const conditionLoaded = "Loaded"
 // reloadDebounce coalesces a burst of watch events into one rebuild.
 const reloadDebounce = 200 * time.Millisecond
 
+// discoveryTimeout bounds one model discovery across every provider.
+const discoveryTimeout = 2 * time.Minute
+
 // providerSink receives each provider set and rediscovers its models.
 type providerSink interface {
 	SetProviders(map[inferencegw.ProviderName]inferencegw.ProviderConnector, []inferencegw.ProviderInfo)
@@ -149,6 +152,8 @@ func (w *Watcher) Run(ctx context.Context, sink providerSink) error {
 			return fmt.Errorf("handle %T events: %w", obj, err)
 		}
 	}
+	cancelDiscovery := func() {}
+	defer func() { cancelDiscovery() }()
 	for {
 		select {
 		case <-ctx.Done():
@@ -162,8 +167,13 @@ func (w *Watcher) Run(ctx context.Context, sink providerSink) error {
 			connectors, infos := w.Load(ctx)
 			sink.SetProviders(connectors, infos)
 			w.logger.Info(ctx, "inference providers loaded", logging.Field{Key: "providers", Value: len(connectors)})
+			// A newer set supersedes the previous discovery; the sink also drops
+			// results from a replaced set.
+			cancelDiscovery()
+			discoverCtx, cancel := context.WithTimeout(ctx, discoveryTimeout)
+			cancelDiscovery = cancel
 			go func() {
-				if _, err := sink.ListModels(context.WithoutCancel(ctx)); err != nil {
+				if _, err := sink.ListModels(discoverCtx); err != nil {
 					w.logger.Warn(ctx, "provider model discovery failed", logging.Field{Key: "error", Value: err.Error()})
 				}
 			}()

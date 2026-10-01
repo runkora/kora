@@ -2,6 +2,7 @@ package registry
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -170,4 +171,30 @@ func TestLoadMarksReadyAndWritesOnlyChanges(t *testing.T) {
 
 func fakeNotFound(name string) error {
 	return apierrors.NewNotFound(corev1.Resource("secrets"), name)
+}
+
+// stubLister lists fixed models with an optional error.
+type stubLister struct {
+	inferencegw.ProviderConnector
+	models []inferencegw.ProviderModel
+	err    error
+}
+
+func (s stubLister) Name() inferencegw.ProviderName { return "compatible:x" }
+func (s stubLister) ListModels(context.Context) ([]inferencegw.ProviderModel, error) {
+	return s.models, s.err
+}
+
+func TestModelListFiltersAndKeepsDiscoveryErrors(t *testing.T) {
+	stub := stubLister{models: []inferencegw.ProviderModel{{ModelID: "a"}, {ModelID: "b"}}}
+	got, err := withModelList(stub, []string{"b"}).ListModels(context.Background())
+	if err != nil || len(got) != 1 || got[0].ModelID != "b" {
+		t.Errorf("filtered = %+v, %v", got, err)
+	}
+
+	stub = stubLister{err: errors.New("list models: 401")}
+	got, err = withModelList(stub, []string{"vendor/m"}).ListModels(context.Background())
+	if err == nil || len(got) != 1 || got[0].ModelID != "vendor/m" || got[0].Family != "vendor" {
+		t.Errorf("fallback = %+v, %v; want the declared model and the error", got, err)
+	}
 }

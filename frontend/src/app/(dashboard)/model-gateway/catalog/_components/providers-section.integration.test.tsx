@@ -51,4 +51,10 @@ describe('ProvidersSection', () => {
     expect(screen.getByText('Ready')).toBeInTheDocument();
     expect(screen.getByText('Error')).toBeInTheDocument();
   });
+
+  it('reports a failed request instead of an empty registry', () => {
+    renderWithProviders(<ProvidersSection providers={[]} error="gateway unavailable" />);
+    expect(screen.getByText(/Failed to load providers: gateway unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText(/No providers are registered/)).not.toBeInTheDocument();
+  });
 });

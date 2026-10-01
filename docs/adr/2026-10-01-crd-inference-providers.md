@@ -94,7 +94,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 | `compatible` | `baseURL` (required), `apis` (required), `caCert` | `apiKeySecretRef {name, key}`, optional. |
 
 - CEL requires the block named by `spec.type` and forbids the others. `metadata.name` is a DNS label.
-- The provider name is `<type>:<metadata.name>`.
+- The provider name is `<type>:<metadata.name>`. Routes, overrides and usage filters accept only that form.
 - `spec.models` optionally limits the offered models. When the upstream has no model list, it is the list.
 - A ValidatingAdmissionPolicy in the `orbit` chart rejects an InferenceProvider outside the system namespace.
 
@@ -135,7 +135,8 @@ spec:
 - At start it waits for the cache, builds every provider and constructs the routing engine with them.
 - Any add, spec change or delete of a resource or a labelled Secret triggers one debounced rebuild. The new connector set is swapped into the routing engine. In-flight requests finish on the connector they started with.
 - A resource that fails to build is left out and described with its error. The others load.
-- Model discovery reruns after every rebuild.
+- Model discovery reruns after every rebuild, bounded by a timeout. A rebuild cancels the previous discovery, and results from a replaced provider set are dropped.
+- When `spec.models` is set and discovery fails, the declared models are still offered and the error shows in the provider's health.
 - RBAC is a Role in the system namespace: `get/list/watch` on `inferenceproviders`, `patch` on `inferenceproviders/status`, and `get/list/watch` on `secrets`. RBAC cannot narrow Secrets by label; the label bounds what the gateway caches and reads.
 - The gateway pod carries `orbit.io/kube-api-client: "true"` to reach the API server.
 - The operator does not reconcile InferenceProviders.
@@ -154,7 +155,7 @@ spec:
 ### 6. Discovery, pricing and policy
 
 - Each type discovers models from its upstream. `inferencegw.InferFamily` names the vendor of a model known only by its id, for every provider.
-- Pricing folds a provider name to its type. `compatible` providers get prices through the override API.
+- Bedrock, Vertex AI and Azure prices sync per type and are shared by every resource of that type. A `compatible` provider is priced under its own name through the override API, which creates the row when no synced price exists.
 - Scopes stay `inference:<family>:<name>:use` on virtual models. Providers never appear in a scope.
 
 ### 7. Database
@@ -183,7 +184,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 
 ### Negative
 
-- The gateway holds Kubernetes API access. Its Role allows reading every Secret in the system namespace, even though it caches and reads only labelled ones.
+- The gateway holds Kubernetes API access. Its Role allows reading every Secret in the system namespace, even though it caches and reads only labelled ones. The gateway is a platform service in that namespace and already receives `orbit-secrets` through `envFrom`.
 - Every provider Secret needs the `orbit.io/inference-provider=true` label. An unlabelled Secret reports `SecretNotFound`.
 - Upgrading needs the resources applied in the same deploy. There is no env fallback.
 - Renaming a resource renames its provider. Routes, overrides and prices keyed on the old name stop matching.
@@ -192,6 +193,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 ### Neutral
 
 - Virtual models, routes, grants and prices are unchanged.
+- A dedicated providers namespace remains open. Moving resources and their Secrets there confines the Role to provider Secrets without changing the resource.
 
 ---
 

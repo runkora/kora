@@ -63,7 +63,7 @@ func TestHandleSetPricingOverride_AllFields(t *testing.T) {
 		CacheReadCostPer1M:  new(0.3),
 		CacheWriteCostPer1M: new(3.75),
 	}
-	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "us.anthropic.claude-sonnet-4-6-v1:0", body)
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock:test", "us.anthropic.claude-sonnet-4-6-v1:0", body)
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusNoContent, w.Body.String())
@@ -91,7 +91,7 @@ func TestHandleSetPricingOverride_PartialFields(t *testing.T) {
 
 	// Only input cost provided — output/cache fields should be nil.
 	body := setPricingOverrideRequest{InputCostPer1M: new(5.0)}
-	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "azure", "gpt-4o", body)
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "azure:test", "gpt-4o", body)
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNoContent)
@@ -136,7 +136,7 @@ func TestHandleSetPricingOverride_AllNilFields(t *testing.T) {
 	c := newPricingOverrideController(t, mock)
 
 	// Empty body — no override fields set.
-	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "some-model", setPricingOverrideRequest{})
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock:test", "some-model", setPricingOverrideRequest{})
 
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
@@ -153,7 +153,7 @@ func TestHandleSetPricingOverride_NotFound(t *testing.T) {
 	c := newPricingOverrideController(t, mock)
 
 	body := setPricingOverrideRequest{InputCostPer1M: new(1.0)}
-	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "nonexistent-model", body)
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock:test", "nonexistent-model", body)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
@@ -170,7 +170,7 @@ func TestHandleSetPricingOverride_RepoError(t *testing.T) {
 	c := newPricingOverrideController(t, mock)
 
 	body := setPricingOverrideRequest{InputCostPer1M: new(1.0)}
-	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "some-model", body)
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock:test", "some-model", body)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
@@ -188,7 +188,7 @@ func TestHandleClearPricingOverride_OK(t *testing.T) {
 	mock := &mockPricingCatalogRepository{}
 	c := newPricingOverrideController(t, mock)
 
-	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "vertexai", "claude-sonnet-4-6@20250514", nil)
+	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "vertexai:test", "claude-sonnet-4-6@20250514", nil)
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusNoContent, w.Body.String())
@@ -225,7 +225,7 @@ func TestHandleClearPricingOverride_NotFound(t *testing.T) {
 	mock := &mockPricingCatalogRepository{clearOverrideErr: ErrModelPricingNotFound}
 	c := newPricingOverrideController(t, mock)
 
-	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "bedrock", "nonexistent-model", nil)
+	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "bedrock:test", "nonexistent-model", nil)
 
 	if w.Code != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
@@ -241,7 +241,7 @@ func TestHandleClearPricingOverride_RepoError(t *testing.T) {
 	mock := &mockPricingCatalogRepository{clearOverrideErr: errTestInternal}
 	c := newPricingOverrideController(t, mock)
 
-	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "bedrock", "some-model", nil)
+	w := doPricingRequest(t, http.MethodDelete, c.handleClearPricingOverride, "bedrock:test", "some-model", nil)
 
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
@@ -260,7 +260,7 @@ func TestHandleSetPricingOverride_ZeroValueField(t *testing.T) {
 	// 0.0 is a valid override (e.g. a free model). The all-nil guard must not
 	// reject a pointer to zero.
 	body := setPricingOverrideRequest{InputCostPer1M: new(0.0)}
-	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock", "some-free-model", body)
+	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock:test", "some-free-model", body)
 
 	if w.Code != http.StatusNoContent {
 		t.Errorf("status = %d, want %d; body: %s", w.Code, http.StatusNoContent, w.Body.String())

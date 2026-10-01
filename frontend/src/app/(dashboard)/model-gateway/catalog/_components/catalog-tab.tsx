@@ -33,6 +33,7 @@ interface CatalogTabProps {
   initialVirtualModels: ApiVirtualModel[];
   initialProviderModels: ApiProviderModel[];
   initialProviders: ProviderStatusWire[];
+  providersError?: string | null;
   initialError?: string | null;
   syncSummary: SyncSummary;
 }
@@ -41,6 +42,7 @@ export function CatalogTab({
   initialVirtualModels,
   initialProviderModels,
   initialProviders,
+  providersError,
   initialError,
   syncSummary,
 }: CatalogTabProps) {
@@ -114,7 +116,13 @@ export function CatalogTab({
           icon={<Icon name="network" size="xs" />}
           label="Providers"
           value={initialProviders.length > 0 ? String(initialProviders.length) : '—'}
-          detail={initialProviders.length > 0 ? `${readyProviders} ready` : 'none registered'}
+          detail={
+            providersError
+              ? 'unavailable'
+              : initialProviders.length > 0
+                ? `${readyProviders} ready`
+                : 'none registered'
+          }
         />
         <StatCard
           icon={<Icon name="shield-check" size="xs" />}
@@ -152,7 +160,7 @@ export function CatalogTab({
           <ProviderCatalogSection models={providerModels} />
         </TabsContent>
         <TabsContent value="providers">
-          <ProvidersSection providers={initialProviders} />
+          <ProvidersSection providers={initialProviders} error={providersError} />
         </TabsContent>
       </Tabs>
 

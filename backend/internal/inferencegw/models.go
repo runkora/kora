@@ -30,8 +30,8 @@ const (
 // ProviderName identifies a cloud AI provider.
 type ProviderName string
 
-// Provider types. A provider name is a type, or a type and an instance name
-// joined by ":" ("bedrock:aus", "compatible:openrouter").
+// Provider types. A provider name is a type and an InferenceProvider resource
+// name joined by ":" ("bedrock:aus", "compatible:openrouter").
 const (
 	ProviderBedrock    ProviderName = "bedrock"
 	ProviderVertexAI   ProviderName = "vertexai"
@@ -39,9 +39,12 @@ const (
 	ProviderCompatible ProviderName = "compatible"
 )
 
-// providerNameRe is the provider name syntax the database CHECK constraints
-// enforce. Underscores stay valid for names already stored in usage rows.
-var providerNameRe = regexp.MustCompile(`^([a-z]+)(:[a-z0-9][-a-z0-9_]*)?$`)
+// providerNameRe is the syntax of a provider name. Underscores stay valid for
+// names already stored in usage rows.
+var providerNameRe = regexp.MustCompile(`^[a-z]+:[a-z0-9][-a-z0-9_]*$`)
+
+// ProviderNameSyntax describes a valid provider name in error messages.
+const ProviderNameSyntax = "<type>:<resource-name>, where type is bedrock, vertexai, azure or compatible"
 
 // Type returns the provider type: the part before ":".
 func (p ProviderName) Type() ProviderName {
@@ -49,7 +52,7 @@ func (p ProviderName) Type() ProviderName {
 	return ProviderName(t)
 }
 
-// Valid reports whether p is well formed and of a known type.
+// Valid reports whether p names a provider: a known type and a resource name.
 func (p ProviderName) Valid() bool {
 	if !providerNameRe.MatchString(string(p)) {
 		return false
@@ -61,10 +64,10 @@ func (p ProviderName) Valid() bool {
 	return false
 }
 
-// IsBedrockFamily reports whether p is "bedrock" or a named Bedrock provider
+// IsBedrockFamily reports whether p is the bedrock type or a Bedrock provider
 // such as "bedrock:aus".
 func (p ProviderName) IsBedrockFamily() bool {
-	return p.Valid() && p.Type() == ProviderBedrock
+	return p.Type() == ProviderBedrock
 }
 
 // ─── Routing ─────────────────────────────────────────────────────────────────

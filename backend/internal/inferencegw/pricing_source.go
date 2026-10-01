@@ -137,14 +137,15 @@ func normalisePricingModelID(provider ProviderName, modelID string) string {
 	return bedrockLookupSuffix.ReplaceAllString(modelID, "")
 }
 
-// normalisePricingProvider collapses a named provider ("bedrock:aus",
-// "compatible:openrouter") to its type. The pricing catalog is keyed on the type.
-// Routes and usage records carry the named provider.
+// normalisePricingProvider returns the provider key of a pricing row. Bedrock,
+// Vertex AI and Azure prices sync per type and are shared by every resource of
+// that type. A compatible provider is priced on its own: two compatible
+// endpoints serve unrelated catalogs.
 func normalisePricingProvider(provider ProviderName) ProviderName {
-	if provider.Valid() {
-		return provider.Type()
+	if provider.Type() == ProviderCompatible {
+		return provider
 	}
-	return provider
+	return provider.Type()
 }
 
 // pricingKey is the canonical key for the pricing catalog: the normalised

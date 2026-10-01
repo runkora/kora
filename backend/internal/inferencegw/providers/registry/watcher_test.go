@@ -63,8 +63,7 @@ func TestRunDebouncesAndSkipsStatusWrites(t *testing.T) {
 	informers := stubInformers{providers: &stubInformer{}, secrets: &stubInformer{}}
 	w.informers = informers
 	sink := &countingSink{}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go func() { _ = w.Run(ctx, sink) }()
 
 	deadline := time.Now().Add(2 * time.Second)
@@ -97,5 +96,44 @@ func TestRunDebouncesAndSkipsStatusWrites(t *testing.T) {
 	settle()
 	if got := sink.sets.Load(); got != 3 {
 		t.Errorf("a Secret update and a delete gave %d reloads in total, want 3", got)
+	}
+}
+
+// blockingSink holds each discovery open until its context ends and counts the
+// ones that were canceled.
+type blockingSink struct {
+	countingSink
+	started  atomic.Int32
+	canceled atomic.Int32
+}
+
+func (b *blockingSink) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
+	b.started.Add(1)
+	<-ctx.Done()
+	b.canceled.Add(1)
+	return nil, ctx.Err()
+}
+
+func TestRunCancelsThePreviousDiscovery(t *testing.T) {
+	w, _ := newWatcher(t)
+	informers := stubInformers{providers: &stubInformer{}, secrets: &stubInformer{}}
+	w.informers = informers
+	sink := &blockingSink{}
+	ctx := t.Context()
+	go func() { _ = w.Run(ctx, sink) }()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for informers.secrets.get() == nil && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	secrets := informers.secrets.get()
+	secrets.OnAdd(&corev1.Secret{}, false)
+	time.Sleep(3 * reloadDebounce)
+	secrets.OnAdd(&corev1.Secret{}, false)
+	time.Sleep(3 * reloadDebounce)
+
+	if sink.started.Load() != 2 || sink.canceled.Load() != 1 {
+		t.Errorf("started %d, canceled %d; want the first discovery canceled by the second reload",
+			sink.started.Load(), sink.canceled.Load())
 	}
 }

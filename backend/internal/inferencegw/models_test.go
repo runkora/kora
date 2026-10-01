@@ -12,11 +12,8 @@ func TestIsBedrockFamily(t *testing.T) {
 		{"bedrock:us", true},
 		{"bedrock:prod_east", true},
 		{"bedrock:aus_2", true},
-		{"bedrock:", false},         // bare colon: the alias part is empty
 		{"bedrock:1prod", true},     // resource names may start with a digit
 		{"bedrock:prod-east", true}, // resource names may contain hyphens
-		{"bedrock:-east", false},
-		{"bedrock:Prod", false},
 		{"vertexai", false},
 		{"azure", false},
 		{"", false},

@@ -2,7 +2,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Badge, CodeBlock, Stack, Text } from '@orbit/terra';
+import { Alert, Badge, CodeBlock, Icon, Stack, Text } from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtDate } from '@orbit/utils';
@@ -11,6 +11,7 @@ import { ProviderBadge } from './provider-badge';
 
 interface ProvidersSectionProps {
   providers: ProviderStatusWire[];
+  error?: string | null;
 }
 
 const EXAMPLE = `apiVersion: orbit.io/v1alpha1
@@ -35,7 +36,7 @@ function providerMatchesSearch(p: ProviderStatusWire, q: string): boolean {
   );
 }
 
-export function ProvidersSection({ providers }: ProvidersSectionProps) {
+export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
   const columns = useMemo<DataTableColumn<ProviderStatusWire>[]>(
     () => [
       {
@@ -124,6 +125,17 @@ export function ProvidersSection({ providers }: ProvidersSectionProps) {
     ],
     [],
   );
+
+  if (error) {
+    return (
+      <Alert variant="error">
+        <Icon name="alert-circle" size="2xs" color="status-error" />
+        <Text size="caption" color="muted">
+          Failed to load providers: {error}
+        </Text>
+      </Alert>
+    );
+  }
 
   if (providers.length === 0) {
     return (

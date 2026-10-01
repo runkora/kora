@@ -18,7 +18,7 @@ func TestValidateVirtualModelRequest_Valid(t *testing.T) {
 		Strategy:    "priority",
 		Enabled:     true,
 		Routes: []routeInput{
-			{Provider: "bedrock", ModelID: "us.anthropic.claude-sonnet-4-6-v1:0", Priority: 1, Enabled: true},
+			{Provider: "bedrock:test", ModelID: "us.anthropic.claude-sonnet-4-6-v1:0", Priority: 1, Enabled: true},
 		},
 	}
 	if err := validateVirtualModelRequest(req); err != nil {
@@ -185,27 +185,27 @@ func TestValidateVirtualModelRequest_RouteValidation(t *testing.T) {
 		},
 		{
 			name:    "missing model_id",
-			route:   routeInput{Provider: "bedrock", ModelID: "", Priority: 1},
+			route:   routeInput{Provider: "bedrock:test", ModelID: "", Priority: 1},
 			wantMsg: "route[0].model_id is required",
 		},
 		{
 			name:    "priority zero",
-			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 0},
+			route:   routeInput{Provider: "bedrock:test", ModelID: "some-model", Priority: 0},
 			wantMsg: "route[0].priority must be ≥ 1",
 		},
 		{
 			name:    "priority negative",
-			route:   routeInput{Provider: "vertexai", ModelID: "some-model", Priority: -1},
+			route:   routeInput{Provider: "vertexai:test", ModelID: "some-model", Priority: -1},
 			wantMsg: "route[0].priority must be ≥ 1",
 		},
 		{
 			name:    "weight above 100",
-			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, Weight: 101},
+			route:   routeInput{Provider: "bedrock:test", ModelID: "some-model", Priority: 1, Weight: 101},
 			wantMsg: "route[0].weight must be between 0 and 100",
 		},
 		{
 			name:    "weight negative",
-			route:   routeInput{Provider: "bedrock", ModelID: "some-model", Priority: 1, Weight: -1},
+			route:   routeInput{Provider: "bedrock:test", ModelID: "some-model", Priority: 1, Weight: -1},
 			wantMsg: "route[0].weight must be between 0 and 100",
 		},
 	}
@@ -239,8 +239,8 @@ func TestValidateVirtualModelRequest_WeightedStrategy(t *testing.T) {
 		t.Parallel()
 		req := base
 		req.Routes = []routeInput{
-			{Provider: "bedrock", ModelID: "model-a", Priority: 1, Weight: 60, Enabled: true},
-			{Provider: "vertexai", ModelID: "model-b", Priority: 2, Weight: 40, Enabled: true},
+			{Provider: "bedrock:test", ModelID: "model-a", Priority: 1, Weight: 60, Enabled: true},
+			{Provider: "vertexai:test", ModelID: "model-b", Priority: 2, Weight: 40, Enabled: true},
 		}
 		if err := validateVirtualModelRequest(req); err != nil {
 			t.Errorf("expected no error when weights sum to 100, got: %v", err)
@@ -251,8 +251,8 @@ func TestValidateVirtualModelRequest_WeightedStrategy(t *testing.T) {
 		t.Parallel()
 		req := base
 		req.Routes = []routeInput{
-			{Provider: "bedrock", ModelID: "model-a", Priority: 1, Weight: 60, Enabled: true},
-			{Provider: "vertexai", ModelID: "model-b", Priority: 2, Weight: 30, Enabled: true},
+			{Provider: "bedrock:test", ModelID: "model-a", Priority: 1, Weight: 60, Enabled: true},
+			{Provider: "vertexai:test", ModelID: "model-b", Priority: 2, Weight: 30, Enabled: true},
 		}
 		err := validateVirtualModelRequest(req)
 		if err == nil {
@@ -280,8 +280,8 @@ func TestValidateVirtualModelRequest_WeightedStrategy(t *testing.T) {
 		req := base
 		// Enabled routes sum to 100; disabled route's weight is irrelevant.
 		req.Routes = []routeInput{
-			{Provider: "bedrock", ModelID: "model-a", Priority: 1, Weight: 100, Enabled: true},
-			{Provider: "vertexai", ModelID: "model-b", Priority: 2, Weight: 50, Enabled: false},
+			{Provider: "bedrock:test", ModelID: "model-a", Priority: 1, Weight: 100, Enabled: true},
+			{Provider: "vertexai:test", ModelID: "model-b", Priority: 2, Weight: 50, Enabled: false},
 		}
 		if err := validateVirtualModelRequest(req); err != nil {
 			t.Errorf("expected no error when enabled weights sum to 100 (disabled routes ignored), got: %v", err)
@@ -311,14 +311,14 @@ func TestValidateVirtualModelRequest_AllStrategiesAccepted(t *testing.T) {
 
 func TestProviderNameValid(t *testing.T) {
 	t.Parallel()
-	valid := []ProviderName{ProviderBedrock, ProviderVertexAI, ProviderAzure, "bedrock:us", "bedrock:prod_east",
+	valid := []ProviderName{"bedrock:us", "bedrock:prod_east",
 		"compatible:openrouter", "vertexai:gcp-prod", "azure:eastus"}
 	for _, p := range valid {
 		if !p.Valid() {
 			t.Errorf("Valid(%q) = false, want true", p)
 		}
 	}
-	invalid := []ProviderName{"mistral", "gcp:x", "", "BEDROCK", "compatible:", "compatible:My-Router", "compatible:a/b", "openai:x"}
+	invalid := []ProviderName{"mistral", "gcp:x", "", "BEDROCK", "compatible:", "compatible:My-Router", "compatible:a/b", "openai:x", ProviderBedrock, ProviderVertexAI, ProviderAzure, ProviderCompatible, "bedrock:", "bedrock:-east", "bedrock:Prod"}
 	for _, p := range invalid {
 		if p.Valid() {
 			t.Errorf("Valid(%q) = true, want false", p)
@@ -564,7 +564,7 @@ func TestVmCatalogPricing_NilWhenNeitherPricing(t *testing.T) {
 	}
 	// Model exists but has no token or non-token costs.
 	pricingMap := map[string]*pricingEntryJSON{
-		"bedrock/free-model": {Provider: "bedrock", ModelID: "free-model"},
+		"bedrock/free-model": {Provider: "bedrock:test", ModelID: "free-model"},
 	}
 	if got := vmCatalogPricing(vm, pricingMap); got != nil {
 		t.Errorf("expected nil when no token or non-token pricing, got %+v", got)
@@ -666,7 +666,7 @@ func TestLookupPricingCrossProviderFallback(t *testing.T) {
 	t.Parallel()
 	azureBare := &pricingEntryJSON{Provider: "azure", ModelID: "gpt-5.4", EffectiveInput: 2.5, EffectiveOutput: 15}
 	azureRegional := &pricingEntryJSON{Provider: "azure", ModelID: "us/gpt-5.4", EffectiveInput: 2.75, EffectiveOutput: 16.5}
-	bedrockExact := &pricingEntryJSON{Provider: "bedrock", ModelID: "openai.gpt-5.4", EffectiveInput: 3, EffectiveOutput: 20}
+	bedrockExact := &pricingEntryJSON{Provider: "bedrock:test", ModelID: "openai.gpt-5.4", EffectiveInput: 3, EffectiveOutput: 20}
 
 	t.Run("no bedrock row borrows azure price, plainest model_id wins", func(t *testing.T) {
 		t.Parallel()

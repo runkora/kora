@@ -62,6 +62,7 @@ export default async function CatalogPage() {
   const providerModels = pmResult.ok ? (pmResult.data.data ?? []) : [];
   const pricingEntries = pricingResult.ok ? (pricingResult.data.data ?? []) : [];
   const providers = providersResult.ok ? (providersResult.data.data ?? []) : [];
+  const providersError = providersResult.ok ? null : providersResult.message;
   const error = !vmResult.ok ? vmResult.message : null;
   const syncSummary = buildSyncSummary(pricingEntries, !pricingResult.ok);
 
@@ -70,6 +71,7 @@ export default async function CatalogPage() {
       initialVirtualModels={virtualModels}
       initialProviderModels={providerModels}
       initialProviders={providers}
+      providersError={providersError}
       initialError={error}
       syncSummary={syncSummary}
     />

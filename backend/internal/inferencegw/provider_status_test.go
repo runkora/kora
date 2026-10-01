@@ -2,6 +2,7 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -43,5 +44,65 @@ func TestProviderStatuses(t *testing.T) {
 	}
 	if st[1].Name != "compatible:ok" || st[1].Status != ProviderStatusReady || st[1].ModelCount != 1 || st[1].LastDiscoveredAt == nil {
 		t.Errorf("ok = %+v", st[1])
+	}
+}
+
+// blockingConnector lists its models only once release is closed.
+type blockingConnector struct {
+	stubConnector
+	release chan struct{}
+}
+
+func (b *blockingConnector) ListModels(ctx context.Context) ([]ProviderModel, error) {
+	<-b.release
+	return b.models, nil
+}
+
+func TestDiscoveryFromAReplacedProviderSetIsNotPublished(t *testing.T) {
+	old := &blockingConnector{
+		stubConnector: stubConnector{name: "compatible:old", models: []ProviderModel{{Provider: "compatible:old", ModelID: "stale"}}},
+		release:       make(chan struct{}),
+	}
+	r := NewRoutingEngine(map[ProviderName]ProviderConnector{old.name: old}, []ProviderInfo{{Name: old.name}})
+	done := make(chan struct{})
+	go func() {
+		_, _ = r.ListModels(context.Background())
+		close(done)
+	}()
+
+	current := &stubConnector{name: "compatible:new", models: []ProviderModel{{Provider: "compatible:new", ModelID: "fresh"}}}
+	r.SetProviders(map[ProviderName]ProviderConnector{current.name: current}, []ProviderInfo{{Name: current.name}})
+	if _, err := r.ListModels(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	close(old.release)
+	<-done
+
+	models := r.ProviderModels()
+	if len(models) != 1 || models[0].ModelID != "fresh" {
+		t.Errorf("catalog = %+v, want only the current provider's model", models)
+	}
+	if st := r.ProviderStatuses(); len(st) != 1 || st[0].ModelCount != 1 {
+		t.Errorf("statuses = %+v", st)
+	}
+}
+
+// failingConnector returns its declared models with a discovery error.
+type failingConnector struct{ stubConnector }
+
+func (f *failingConnector) ListModels(context.Context) ([]ProviderModel, error) {
+	return f.models, errors.New("list models: 401")
+}
+
+func TestDiscoveryErrorKeepsModelsAndMarksTheProvider(t *testing.T) {
+	f := &failingConnector{stubConnector{name: "compatible:x", models: []ProviderModel{{Provider: "compatible:x", ModelID: "declared"}}}}
+	r := NewRoutingEngine(map[ProviderName]ProviderConnector{f.name: f}, []ProviderInfo{{Name: f.name}})
+	_, _ = r.ListModels(context.Background())
+	if models := r.ProviderModels(); len(models) != 1 {
+		t.Errorf("declared models dropped: %+v", models)
+	}
+	st := r.ProviderStatuses()
+	if st[0].Status != ProviderStatusError || st[0].ModelCount != 1 || st[0].Error == "" {
+		t.Errorf("status = %+v", st[0])
 	}
 }
