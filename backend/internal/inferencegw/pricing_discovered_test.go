@@ -67,6 +67,17 @@ func TestDiscoveredPricesClearAProviderThatPublishesNone(t *testing.T) {
 	}
 }
 
+func TestDiscoveredPricesKeepPricesWhenNoModelsAreListed(t *testing.T) {
+	store, cache := &recordingPriceStore{}, &countingRefresher{}
+	d := NewDiscoveredPrices(store, cache, logging.NewLoggerWithOutput(io.Discard))
+
+	d.Record(context.Background(), "compatible:openrouter", nil)
+
+	if store.calls != 0 || cache.calls != 0 {
+		t.Errorf("replace calls = %d, refreshes = %d, want none", store.calls, cache.calls)
+	}
+}
+
 func TestDiscoveredPricesIgnoreProvidersPricedByType(t *testing.T) {
 	store, cache := &recordingPriceStore{}, &countingRefresher{}
 	d := NewDiscoveredPrices(store, cache, logging.NewLoggerWithOutput(io.Discard))

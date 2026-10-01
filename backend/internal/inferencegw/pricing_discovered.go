@@ -31,8 +31,9 @@ func NewDiscoveredPrices(store syncedPriceReplacer, cache pricingRefresher, logg
 
 // Record makes the published prices in models the provider's synced prices,
 // dropping prices for models it no longer lists or prices. Other types sync from LiteLLM.
+// An empty list keeps the last prices, as the catalog keeps the last models.
 func (d *DiscoveredPrices) Record(ctx context.Context, provider ProviderName, models []ProviderModel) {
-	if provider.Type() != ProviderCompatible {
+	if provider.Type() != ProviderCompatible || len(models) == 0 {
 		return
 	}
 	entries := make([]ModelPriceEntry, 0, len(models))
