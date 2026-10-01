@@ -25,6 +25,10 @@ export { ScopeChipList } from './scope-chip-list';
 export type { ScopeChipListProps } from './scope-chip-list';
 export { useClampedRows, rowIndices } from './use-clamped-rows';
 export { TruncatingBadge } from './truncating-badge';
+export { ClampedList } from './clamped-list';
+export type { ClampedListProps } from './clamped-list';
+export { BadgeList } from './badge-list';
+export type { BadgeListProps } from './badge-list';
 export { scopeColumnFilter } from './scope-column-filter';
 
 /** Searchable accordion scope selector grouped by resource type. */

@@ -21,7 +21,7 @@ export function TruncatingBadge({
   textColor,
 }: {
   label: string;
-  variant: 'secondary' | 'outline';
+  variant: 'secondary' | 'outline' | 'elevated';
   textColor: 'muted' | 'foreground';
 }) {
   return (
