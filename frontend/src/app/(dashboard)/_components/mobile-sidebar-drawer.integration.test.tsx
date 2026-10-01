@@ -18,6 +18,7 @@ import { MobileSidebarDrawer } from './mobile-sidebar-drawer';
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 vi.mock('./permissions-provider', () => ({
@@ -68,6 +69,7 @@ describe('MobileSidebarDrawer', () => {
     expect(screen.getByText('Orbit')).toBeInTheDocument();
     expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument();
     // Reused SidebarUserFooter
+    expect(screen.getByText('Dev User')).toBeInTheDocument();
     expect(screen.getByText('dev@orbit.local')).toBeInTheDocument();
     // Accessible dialog title
     expect(screen.getByText('Navigation')).toBeInTheDocument();
