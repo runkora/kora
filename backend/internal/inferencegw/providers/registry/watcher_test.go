@@ -54,7 +54,9 @@ func (c *countingSink) SetProviders(map[inferencegw.ProviderName]inferencegw.Pro
 	c.sets.Add(1)
 }
 
-func (c *countingSink) ListModels(context.Context) ([]inferencegw.ProviderModel, error) { return nil, nil }
+func (c *countingSink) ListModels(context.Context) ([]inferencegw.ProviderModel, error) {
+	return nil, nil
+}
 
 func TestRunDebouncesAndSkipsStatusWrites(t *testing.T) {
 	w, _ := newWatcher(t)
