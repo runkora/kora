@@ -145,6 +145,16 @@ func TestIntrospectorDue(t *testing.T) {
 		t.Error("a server that has never been reached should be due")
 	}
 
+	// A reload-only server that once succeeded with no tools and then failed has
+	// been reached, so it stays reload-only.
+	empty := Server{TenantID: "", Name: "empty", ReintrospectIntervalSeconds: 0}
+	eKey := serverKey(empty.TenantID, empty.Name)
+	i.recordResult(context.Background(), empty, eKey, []Tool{}, nil)
+	i.recordResult(context.Background(), empty, eKey, nil, errors.New("connect: service unavailable"))
+	if i.due(eKey, empty) {
+		t.Error("a reload-only server reached once must not be due after a later failure")
+	}
+
 	fresh := Server{TenantID: "", Name: "fresh", ReintrospectIntervalSeconds: 3600}
 	fKey := serverKey(fresh.TenantID, fresh.Name)
 	i.recordResult(context.Background(), fresh, fKey, []Tool{}, nil)

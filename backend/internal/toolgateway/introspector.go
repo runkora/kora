@@ -101,7 +101,7 @@ func (i *Introspector) Sync(ctx context.Context, servers []Server, force bool) {
 
 // due reports whether a server is due for re-introspection on the periodic
 // timer. A server never introspected this lifetime is always due, and so is one
-// that has failed every attempt and holds no tools. Otherwise a
+// that has never been reached. Otherwise a
 // server with ReintrospectIntervalSeconds <= 0 is reload-only — never due on
 // the timer — and one with a positive interval is due once that many seconds
 // have passed since it was last introspected.
@@ -112,7 +112,7 @@ func (i *Introspector) due(key string, srv Server) bool {
 	neverReached := false
 	if seen {
 		last = snap.LastIntrospectedAt
-		neverReached = snap.State == StateDegraded && len(snap.Tools) == 0
+		neverReached = !snap.Reached
 	}
 	i.mu.RUnlock()
 
@@ -156,6 +156,7 @@ func (i *Introspector) recordResult(ctx context.Context, srv Server, key string,
 	snap.Tools = tools
 	snap.State = StateOK
 	snap.LastErr = ""
+	snap.Reached = true
 	i.logger.Info(ctx, "MCP server introspected",
 		logging.Field{Key: "server", Value: srv.Name},
 		logging.Field{Key: "tenant_id", Value: srv.TenantID},
