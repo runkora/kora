@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { Alert, Badge, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
-import { ScopeChip } from '@orbit/components';
+import { ScopeChip, scopeColumnFilter } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 
 interface RoutesTabProps {
@@ -66,6 +66,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
       {
         id: 'service',
         header: 'Service',
+        minWidth: '9rem',
         sortable: true,
         sortAccessor: (r) => r.service,
         filter: {
@@ -94,6 +95,7 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
       {
         id: 'pathPrefix',
         header: 'Path Prefix',
+        minWidth: '10rem',
         sortable: true,
         sortAccessor: (r) => r.pathPrefix,
         cell: (r) => (
@@ -105,12 +107,14 @@ export function RoutesTab({ initialRegistrations, initialError }: RoutesTabProps
       {
         id: 'requiredScope',
         header: 'Required Scope',
+        minWidth: '12rem',
         sortable: true,
         sortAccessor: (r) => r.requiredScope,
+        filter: scopeColumnFilter(flatRoutes, (r) => [r.requiredScope]),
         cell: (r) => <ScopeChip scope={r.requiredScope} />,
       },
     ],
-    [serviceOptions, methodOptions],
+    [serviceOptions, methodOptions, flatRoutes],
   );
 
   if (flatRoutes.length === 0 && !initialError) {

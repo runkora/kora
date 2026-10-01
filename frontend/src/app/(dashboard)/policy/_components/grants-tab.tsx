@@ -35,6 +35,7 @@ import type {
   PATGrantAttribution,
 } from '../../model-gateway/_services/tokens-server';
 import type { BudgetAssignment, Grant, PrincipalType } from '../_types';
+import { resolveGrantIdentity } from '../_utils/grant-identity';
 
 // budgetSummary renders "$50.00/mo · $5.00/run" for a grant budget.
 function budgetSummary(budget: BudgetAssignment): string {
@@ -51,11 +52,12 @@ import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_act
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import { ScopeChip } from '@orbit/components';
+import { ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components';
 import { ScopeTreePicker } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 import { ConfirmDialog } from '@orbit/components';
 import { FilterChip } from './filter-chip';
+import { GrantDetailModal } from './grant-detail-modal';
 import { PrincipalBadge } from './principal-badge';
 import { ViewToggle } from './view-toggle';
 
@@ -98,6 +100,7 @@ export function GrantsTab({
   const [typeFilter, setTypeFilter] = useState<PrincipalType | 'all'>('all');
   const [viewMode, setViewMode] = useState<'cards' | 'list'>('cards');
   const [creating, setCreating] = useState(false);
+  const [selectedGrant, setSelectedGrant] = useState<Grant | null>(null);
   const [deleteCandidate, setDeleteCandidate] = useState<Grant | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -264,6 +267,7 @@ export function GrantsTab({
           grants={grants}
           patAttribution={patAttribution}
           userAttribution={userAttribution}
+          onSelect={setSelectedGrant}
           onDelete={canWrite ? setDeleteCandidate : undefined}
           viewToggle={<ViewToggle viewMode={viewMode} onToggle={setViewMode} />}
         />
@@ -309,6 +313,16 @@ export function GrantsTab({
       </ConfirmDialog>
 
       {/* Create grant modal */}
+      <GrantDetailModal
+        grant={selectedGrant}
+        identity={
+          selectedGrant
+            ? resolveGrantIdentity(selectedGrant, patAttribution, userAttribution)
+            : null
+        }
+        onClose={() => setSelectedGrant(null)}
+      />
+
       <CreateGrantModal
         key={creating ? 'create' : 'closed'}
         open={creating}
@@ -365,43 +379,6 @@ function GrantsPagination({ page, limit, total }: { page: number; limit: number;
 
 // ── Card grid view ──────────────────────────────────────────────────────────
 
-interface GrantIdentity {
-  primary: string; // display name for HUMAN, UUID for others
-  email?: string; // email for HUMAN
-  ownerName?: string; // PAT owner display name
-  ownerEmail?: string; // PAT owner email
-  rawId?: string; // principal_id, shown when primary is a resolved name
-}
-
-function resolveGrantIdentity(
-  grant: Grant,
-  patAttribution: Record<string, PATGrantAttribution>,
-  userAttribution: Record<string, PATAttributionEntry>,
-): GrantIdentity {
-  if (grant.principal_type === 'HUMAN') {
-    const u = userAttribution[grant.principal_id];
-    if (u) {
-      return {
-        primary: u.display_name || u.email,
-        email: u.display_name ? u.email : undefined,
-        rawId: grant.principal_id,
-      };
-    }
-    return { primary: grant.principal_id };
-  }
-  if (grant.principal_type === 'PAT') {
-    const pat = patAttribution[grant.principal_id];
-    const owner = pat?.owner;
-    return {
-      primary: pat?.pat_name ?? grant.principal_id,
-      ownerName: owner ? owner.display_name || owner.email : undefined,
-      ownerEmail: owner?.display_name ? owner.email : undefined,
-      rawId: grant.principal_id,
-    };
-  }
-  return { primary: grant.principal_id };
-}
-
 function GrantCardGrid({
   grants,
   patAttribution,
@@ -450,11 +427,7 @@ function GrantCardGrid({
             </CardHeader>
 
             <CardContent grow>
-              <Stack direction="horizontal" gap="tight" wrap>
-                {grant.scopes.map((scope) => (
-                  <ScopeChip key={scope} scope={scope} />
-                ))}
-              </Stack>
+              <ScopeChipList scopes={grant.scopes} max={8} />
             </CardContent>
 
             <CardFooter compact justify="between">
@@ -504,12 +477,14 @@ function GrantTable({
   grants,
   patAttribution,
   userAttribution,
+  onSelect,
   onDelete,
   viewToggle,
 }: {
   grants: Grant[];
   patAttribution: Record<string, PATGrantAttribution>;
   userAttribution: Record<string, PATAttributionEntry>;
+  onSelect: (grant: Grant) => void;
   onDelete?: (grant: Grant) => void;
   viewToggle: React.ReactNode;
 }) {
@@ -518,6 +493,8 @@ function GrantTable({
       {
         id: 'principal',
         header: 'Principal',
+        minWidth: '7rem',
+        gridWidth: 'minmax(0, 2fr)',
         locked: true,
         sortable: true,
         sortAccessor: (g) => resolveGrantIdentity(g, patAttribution, userAttribution).primary,
@@ -547,6 +524,8 @@ function GrantTable({
       {
         id: 'id',
         header: 'ID',
+        minWidth: '5rem',
+        gridWidth: 'minmax(0, 1.2fr)',
         cell: (g) => {
           const { rawId, primary } = resolveGrantIdentity(g, patAttribution, userAttribution);
           const id = rawId ?? primary;
@@ -562,6 +541,8 @@ function GrantTable({
       {
         id: 'type',
         header: 'Type',
+        minWidth: '4.5rem',
+        gridWidth: '6rem',
         sortable: true,
         sortAccessor: (g) => g.principal_type,
         filter: {
@@ -574,17 +555,17 @@ function GrantTable({
       {
         id: 'scopes',
         header: 'Scopes',
-        cell: (g) => (
-          <Stack direction="horizontal" gap="tight" wrap>
-            {g.scopes.map((scope) => (
-              <ScopeChip key={scope} scope={scope} />
-            ))}
-          </Stack>
-        ),
+        minWidth: '16rem',
+        gridWidth: 'minmax(0, 3fr)',
+        wrap: true,
+        filter: scopeColumnFilter(grants, (g) => g.scopes),
+        cell: (g) => <ScopeChipList scopes={g.scopes} maxRows={2} />,
       },
       {
         id: 'budget',
         header: 'Budget',
+        minWidth: '5.5rem',
+        gridWidth: '6rem',
         cell: (g) =>
           g.budget ? (
             <Text size="caption" color="muted">
@@ -599,6 +580,8 @@ function GrantTable({
       {
         id: 'created',
         header: 'Created',
+        minWidth: '5.5rem',
+        gridWidth: '6rem',
         sortable: true,
         sortAccessor: (g) => g.created_at,
         cell: (g) => (
@@ -612,6 +595,7 @@ function GrantTable({
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '3rem',
         cell: (g) =>
@@ -630,7 +614,7 @@ function GrantTable({
           ) : null,
       },
     ],
-    [onDelete, patAttribution, userAttribution],
+    [onDelete, patAttribution, userAttribution, grants],
   );
 
   return (
@@ -640,6 +624,10 @@ function GrantTable({
       columns={columns}
       getRowKey={(g) => g.id}
       noun="grants"
+      onRowClick={onSelect}
+      rowLabel={(g) =>
+        `View details for ${resolveGrantIdentity(g, patAttribution, userAttribution).primary}`
+      }
       searchPlaceholder="Search grants…"
       searchFn={(g, q) => {
         const identity = resolveGrantIdentity(g, patAttribution, userAttribution);
