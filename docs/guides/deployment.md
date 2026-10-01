@@ -18,6 +18,8 @@ Orbit installs the identity, policy, and connectivity layers that govern agents.
 
 ### Kubernetes cluster
 
+Orbit is tested on Kubernetes 1.34 to 1.36. The charts require 1.34 or later.
+
 The cluster must provide:
 
 - Cluster-admin access for the initial installation. The charts install CRDs, cluster roles, admission webhooks, and other cluster-scoped resources.
@@ -31,7 +33,7 @@ See [connectivity](../architecture/connectivity.md) for the request path and [id
 
 ### Istio
 
-Orbit runs on Istio in sidecar mode and handles its own sidecar injection through an admission webhook. You must install Istio before installing Orbit, by following the [Istio install guide](https://istio.io/latest/docs/setup/install/) or the reference Helmfile in this repository. The mesh must provide:
+Orbit runs on Istio in sidecar mode and handles its own sidecar injection through an admission webhook. You must install Istio before installing Orbit, by following the [Istio install guide](https://istio.io/latest/docs/setup/install/) or the reference Helmfile in this repository. Orbit supports Istio 1.30 and 1.31. The reference install pins 1.31.1. The operator's preflight rejects any other Istio version. The mesh must provide:
 
 - Sidecar injection on Orbit's namespaces, through `istio-injection: enabled` or an `istio.io/rev` label matching a live revision. Set the revision in the chart's `istio.revision` value when you run a revisioned control plane.
 - `meshConfig.trustDomain` equal to Orbit's `global.trustDomain`.
@@ -39,7 +41,7 @@ Orbit runs on Istio in sidecar mode and handles its own sidecar injection throug
 
 ### SPIRE
 
-Orbit registers workload identities into an existing SPIRE deployment. You must install SPIRE before installing Orbit, using the [spiffe/spire chart](https://github.com/spiffe/helm-charts-hardened), or by following the reference Helmfile in this repository. It must provide:
+Orbit registers workload identities into an existing SPIRE deployment. You must install SPIRE before installing Orbit, using the [spiffe/spire chart](https://github.com/spiffe/helm-charts-hardened), or by following the reference Helmfile in this repository. The reference install pins the `spire` chart 0.30.2 (SPIRE 1.15.3) and `spire-crds` 0.6.1. It must provide:
 
 - A trust domain equal to Orbit's.
 - The SPIFFE CSI driver `csi.spiffe.io` registered, and spire-controller-manager present with the `ClusterSPIFFEID` CRD served.
@@ -55,7 +57,7 @@ The platform's SPIFFE trust domain is part of every workload identity Orbit issu
 
 PostgreSQL and Redis must be reachable from the system namespace. Orbit does not provision, back up, patch, or replicate either service.
 
-The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`orbit-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the services' credentials. That role needs `CREATE` on schema `public` and owns every table the migrations create. PostgreSQL 13 through 17 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
+The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`orbit-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the services' credentials. That role needs `CREATE` on schema `public` and owns every table the migrations create. PostgreSQL 14 through 18 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
 
 - Use private endpoints and TLS in production.
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.

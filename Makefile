@@ -491,7 +491,7 @@ REDEPLOY_ROLLOUT_SERVICES := \
 # on cluster-update so they re-read chart-managed config on the way back up.
 REDEPLOY_RESTART_ONLY := orbit-opa-gateway
 
-OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
+OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
 
 # ===========================================
 # Image bake (CI / multi-arch publishing)
@@ -715,6 +715,14 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 			echo "  Check: kubectl logs deployment/orbit-identity -n orbit-system -c orbit-identity | grep -i tenant"; \
 			exit 1; \
 		fi; \
+	fi
+	@# The egress gateway reads tenant CAs only at startup. One that booted before
+	@# the tenant existed rejects every agent CONNECT until it restarts.
+	@until kubectl get secret orbit-tenant-cas -n orbit-system -o jsonpath='{.data.example\.ca\.crt}' 2>/dev/null | grep -q .; do sleep 2; done
+	@if kubectl logs deployment/orbit-egress-gateway -n orbit-system -c orbit-egress-gateway 2>/dev/null | perl -pe 's/\e\[[0-9;]*m//g' | grep -q "tenant CAs loaded.*tenants=0"; then \
+		echo "$(COLOR_YELLOW)  orbit-egress-gateway booted before the tenant CA existed; restarting it$(COLOR_RESET)"; \
+		kubectl rollout restart deployment/orbit-egress-gateway -n orbit-system >/dev/null; \
+		kubectl rollout status deployment/orbit-egress-gateway -n orbit-system --timeout=180s; \
 	fi
 	@echo "$(COLOR_YELLOW)Creating tenant secrets...$(COLOR_RESET)"
 	@bash scripts/cluster/create-secrets.sh orbit-tenant-example

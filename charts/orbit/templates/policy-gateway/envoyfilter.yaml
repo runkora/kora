@@ -2,7 +2,7 @@
 #
 # Layer 1 coarse-grained enforcement: "Can this principal call this route at all?"
 #
-# The OPA sidecar runs as openpolicyagent/opa:latest-envoy on localhost:9191
+# The OPA sidecar runs as openpolicyagent/opa:<tag>-envoy-static on localhost:9191
 # inside every agent pod (orbit.io/opa-policy: "enabled"). Envoy's outbound
 # filter chain checks OPA before forwarding any outbound request.
 #

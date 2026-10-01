@@ -219,8 +219,9 @@ operator:
     warn: restricted
     audit: restricted
   preflight:
-    # Preflight fails on an istiod outside this list. Release automation stamps it.
-    supportedIstioMinors: ["1.29", "1.28"]
+    # Preflight fails on an istiod outside this list. Edit it by hand with the
+    # Istio pin. The release copies it into compatibility.yaml.
+    supportedIstioMinors: ["1.31", "1.30"]
     intervalSeconds: 300
 
 # Identity-proxy sidecar the operator injects into tenant agent and sandbox pods.
@@ -767,7 +768,7 @@ opaGateway:
   image:
     registry: docker.io
     repository: openpolicyagent/opa
-    tag: 1.15.2-envoy-static
+    tag: 1.21.0-envoy-static
     digest: ""
     pullPolicy: ""
   replicas: 2

@@ -132,7 +132,7 @@ func loadInstall() Install {
 			IdentityProxyImage:      envOr("ORBIT_INJECT_IDENTITY_PROXY_IMAGE", "ghcr.io/clear-route/orbit-identity-proxy:latest"),
 			IdentityProxyPullPolicy: envOr("ORBIT_INJECT_IDENTITY_PROXY_PULL_POLICY", "IfNotPresent"),
 			IdentityProxyResources:  resourcesEnv("ORBIT_INJECT_IDENTITY_PROXY_RESOURCES"),
-			OPAImage:                envOr("ORBIT_INJECT_OPA_IMAGE", "docker.io/openpolicyagent/opa:1.15.2-envoy-static"),
+			OPAImage:                envOr("ORBIT_INJECT_OPA_IMAGE", "docker.io/openpolicyagent/opa:1.21.0-envoy-static"),
 			OPAPullPolicy:           envOr("ORBIT_INJECT_OPA_PULL_POLICY", "IfNotPresent"),
 			OPALogLevel:             envOr("ORBIT_OPA_LOG_LEVEL", "info"),
 			BundlePollingMinDelay:   intEnv("ORBIT_BUNDLE_POLLING_MIN_DELAY", 30),

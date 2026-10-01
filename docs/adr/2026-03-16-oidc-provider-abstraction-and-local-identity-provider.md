@@ -151,7 +151,7 @@ The fail-safe design (`issuerUrl: ""` → `ErrOIDCNotConfigured` → HTTP 400) m
 
 - Dex adds a third container to the Tier 1 Docker Compose stack — `make dev-up` now starts Postgres, Redis, and Dex
 - The `config/dex/.env` file must be generated before the first `make dev-up` via `make dex-env` — this is a one-time step but adds to the onboarding checklist
-- Dex is an additional piece of infrastructure to keep updated; the pinned image version (`ghcr.io/dexidp/dex:v2.41.1`) must be periodically reviewed
+- Dex is an additional piece of infrastructure to keep updated; the pinned Dex image must be reviewed periodically
 
 ### Neutral
 
