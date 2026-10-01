@@ -1,6 +1,6 @@
 # Multi-Account AWS Bedrock Support
 
-**Status:** Accepted  
+**Status:** Superseded by [crd-inference-providers](2026-10-01-crd-inference-providers.md)  
 **Date:** 2026-06-19  
 **Deciders:** Orbit Platform Team  
 **Technical Story:** [Multi-Account Bedrock PRD](../prd/multi-account-bedrock.md) — defines the requirement for supporting multiple simultaneous AWS Bedrock environments in the inference gateway.
