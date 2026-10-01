@@ -8,7 +8,7 @@ Every principal in Orbit has one verifiable identity. Humans authenticate throug
 sequenceDiagram
     autonumber
     participant SPIRE as SPIRE agent (node)
-    participant IP as identity-proxy (sidecar)
+    participant IP as identity-proxy (agent pod sidecar)
     participant ID as identity
     participant SVC as platform service
     Note over SPIRE,IP: pod attested (k8s PSAT node + workload selectors)

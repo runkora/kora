@@ -266,14 +266,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
 	// Decision 3): StartRun on a delegated agent mints a delegation forwarding
 	// the CALLER's bearer; terminal run states revoke it with orbit-agents' own
-	// exchanged SERVICE token (the same token source the policy client uses).
-	// Without an identity service URL the broker stays nil and delegated runs
-	// fail closed.
-	if idClient != nil {
-		broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
-		runSvc.SetDelegationBroker(broker)
-		atSvc.SetDelegationBroker(broker)
-	}
+	// exchanged token (the same token source the policy client uses).
+	broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
+	runSvc.SetDelegationBroker(broker)
+	atSvc.SetDelegationBroker(broker)
 
 	server := apiServer.Server(
 		ctx,

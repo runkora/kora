@@ -32,11 +32,11 @@ type registration struct {
 	Scopes  []routescopes.ScopeDeclaration `json:"scopes"`
 }
 
-// capturingPolicyService stands in for the policy service's
-// POST /api/v1/policy/routes/register endpoint.
 // testToken stands in for the identity client's self token source.
 func testToken(context.Context) (string, error) { return "self-token", nil }
 
+// capturingPolicyService stands in for the policy service's
+// POST /api/v1/policy/routes/register endpoint.
 func capturingPolicyService(t *testing.T, got chan<- registration) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
