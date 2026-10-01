@@ -146,6 +146,7 @@ func (r *RoutingEngine) SetProviders(connectors map[ProviderName]ProviderConnect
 	}
 }
 
+// connectorMap returns the connectors of the current provider set.
 func (r *RoutingEngine) connectorMap() map[ProviderName]ProviderConnector {
 	return r.providers.Load().connectors
 }
