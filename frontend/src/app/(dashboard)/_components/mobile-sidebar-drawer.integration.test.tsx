@@ -67,7 +67,7 @@ describe('MobileSidebarDrawer', () => {
     expect(screen.getByText('Control Plane')).toBeInTheDocument();
     // Reused SidebarBrandHeader (single source of brand + version)
     expect(screen.getByText('Orbit')).toBeInTheDocument();
-    expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument();
+    expect(screen.getByText('dev')).toBeInTheDocument();
     // Reused SidebarUserFooter
     expect(screen.getByText('Dev User')).toBeInTheDocument();
     expect(screen.getByText('dev@orbit.local')).toBeInTheDocument();
