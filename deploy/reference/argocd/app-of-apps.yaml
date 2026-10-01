@@ -182,7 +182,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
-  # orbit's values are environment-specific: database, redis, hosts, bedrock.
+  # orbit's values are environment-specific: database, redis, hosts.
   # Point the second source at your own GitOps values repository and path.
   sources:
     - repoURL: ghcr.io/clear-route/charts
