@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/sync/semaphore"
 
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -22,11 +23,24 @@ type SkillFilePaths struct {
 	DocumentPaths []string
 }
 
+const (
+	// perRepoCap bounds the concurrent GitHub fetches of a single Crawl call.
+	perRepoCap = 20
+	// globalCap bounds the concurrent GitHub fetches across every Crawl call
+	// in the process, protecting the shared GitHub rate limit.
+	globalCap = 100
+)
+
 // Crawler finds the skills in a marketplace repository.
 type Crawler struct {
 	github githubTreeClient
 	tokens githubTokenProvider
 	logger logging.Logger
+
+	// globalSem is shared by every Crawl call on this Crawler. Crawler is
+	// constructed once per process (main.go wires one), so this one instance
+	// is the process-wide cap.
+	globalSem *semaphore.Weighted
 }
 
 // githubTreeClient has the GitHub client methods the crawler uses.
@@ -42,7 +56,7 @@ type githubTokenProvider interface {
 
 // NewCrawler creates a Crawler.
 func NewCrawler(github githubTreeClient, tokens githubTokenProvider, logger logging.Logger) *Crawler {
-	return &Crawler{github: github, tokens: tokens, logger: logger}
+	return &Crawler{github: github, tokens: tokens, logger: logger, globalSem: semaphore.NewWeighted(globalCap)}
 }
 
 // FetchTree lists all files in the marketplace repository with a GitHub call.
@@ -162,11 +176,12 @@ func (c *Crawler) Crawl(ctx context.Context, source MarketplaceSource) ([]Skill,
 
 	var mu sync.Mutex
 	skills := make([]Skill, 0, len(skillPaths))
+	perRepoSem := semaphore.NewWeighted(perRepoCap)
 
 	g, gctx := errgroup.WithContext(ctx)
 	for skillName, paths := range skillPaths {
 		g.Go(func() error {
-			skill, err := c.fetchSkill(gctx, token, source, skillName, paths)
+			skill, err := c.fetchSkill(gctx, token, source, skillName, paths, perRepoSem)
 			if err == nil {
 				mu.Lock()
 				skills = append(skills, skill)
@@ -201,8 +216,8 @@ func (c *Crawler) Crawl(ctx context.Context, source MarketplaceSource) ([]Skill,
 // fetchSkill downloads the SKILL.md of one skill, parses its frontmatter,
 // and then downloads the documents in parallel. SKILL.md comes first, so a
 // skill with bad frontmatter costs one download, not one per document.
-func (c *Crawler) fetchSkill(ctx context.Context, token string, source MarketplaceSource, skillName string, paths SkillFilePaths) (Skill, error) {
-	skillFile, err := c.fetchFile(ctx, token, source, paths.SkillPath)
+func (c *Crawler) fetchSkill(ctx context.Context, token string, source MarketplaceSource, skillName string, paths SkillFilePaths, perRepoSem *semaphore.Weighted) (Skill, error) {
+	skillFile, err := c.fetchFile(ctx, token, source, paths.SkillPath, perRepoSem)
 	if err != nil {
 		return Skill{}, err
 	}
@@ -218,7 +233,7 @@ func (c *Crawler) fetchSkill(ctx context.Context, token string, source Marketpla
 	g, gctx := errgroup.WithContext(ctx)
 	for i, documentPath := range paths.DocumentPaths {
 		g.Go(func() error {
-			document, err := c.fetchFile(gctx, token, source, documentPath)
+			document, err := c.fetchFile(gctx, token, source, documentPath, perRepoSem)
 			if err != nil {
 				return err
 			}
@@ -240,8 +255,21 @@ func (c *Crawler) fetchSkill(ctx context.Context, token string, source Marketpla
 }
 
 // fetchFile downloads one file of the repository. Every download goes
-// through here, so the concurrency caps can wrap this one call.
-func (c *Crawler) fetchFile(ctx context.Context, token string, source MarketplaceSource, filePath string) (SkillFile, error) {
+// through here, so the concurrency caps wrap this one call. Acquiring
+// through semaphore.Weighted (rather than a plain channel) means a goroutine
+// still waiting for a permit returns immediately with ctx.Err() if ctx ends,
+// instead of blocking until a permit happens to free up.
+func (c *Crawler) fetchFile(ctx context.Context, token string, source MarketplaceSource, filePath string, perRepoSem *semaphore.Weighted) (SkillFile, error) {
+	if err := c.globalSem.Acquire(ctx, 1); err != nil {
+		return SkillFile{}, err
+	}
+	defer c.globalSem.Release(1)
+
+	if err := perRepoSem.Acquire(ctx, 1); err != nil {
+		return SkillFile{}, err
+	}
+	defer perRepoSem.Release(1)
+
 	content, err := c.github.GetRawContent(ctx, token, source.Org, source.Repo, source.Branch, filePath)
 	if err != nil {
 		return SkillFile{}, fmt.Errorf("download %s: %w", filePath, err)
