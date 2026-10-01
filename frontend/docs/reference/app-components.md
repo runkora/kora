@@ -202,6 +202,30 @@ Place it inside a row or wrap `Stack`, not directly in a block cell, or it stret
 
 ---
 
+## BadgeList and ClampedList
+
+**Import:** `import { BadgeList, ClampedList } from '@orbit/components'`
+
+**When to use:** `BadgeList` shows plain outline badges (capabilities, dialects, modalities) as many as fit in `maxRows` rows, with the rest behind a "+N more" overlay. `ClampedList` is the layer underneath, shared with `ScopeChipList`: give it `items`, `getKey`, `renderItem` and a `noun` for the trigger's accessible name when the items are something else.
+
+```tsx
+<BadgeList values={row.capabilities} noun="capabilities" maxRows={2} />
+```
+
+---
+
+## PrincipalBadge
+
+**Import:** `import { PrincipalBadge } from '@orbit/components'`
+
+**When to use:** Anywhere a principal's type (agent, human, PAT, service) is shown. One colour per type, so the type reads the same on every page. In a table give it its own column rather than placing it beside the name.
+
+```tsx
+{ id: 'type', header: 'Type', cell: (g) => <PrincipalBadge type={g.principal_type} /> }
+```
+
+---
+
 ## useClampedRows
 
 **Import:** `import { useClampedRows } from '@orbit/components'`

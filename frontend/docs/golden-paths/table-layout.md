@@ -20,7 +20,7 @@ Every `DataTable` gets these without any per-table work:
 - **Horizontal scrolling is the last resort.** The header and body scroll together inside the table, and only once the container is narrower than every column at its minimum width. The page never scrolls sideways.
 - **Columns can opt in to a filter.** `filter.searchable` adds a search box and a scrollable, multi-select list to the filter popover.
 
-Tables built from the raw primitives (`Table`, `TableRow`, `TableCell`) get none of this. Prefer `DataTable`, or apply the rules below by hand.
+Tables built from the raw primitives (`Table`, `TableRow`, `TableCell`) get none of this. Prefer `DataTable`, or apply the rules below by hand. A raw table lays out its columns automatically, so a chip's unbroken text sets its column's minimum width and a header width is ignored. Set `maxWidth: 0` on the chip's cell and a width share on the header.
 
 ---
 
@@ -84,8 +84,8 @@ When the container is too narrow for every column at its minimum width (the Rule
 
 For a column holding many items (scopes, agents), show as many as fit in two rows, then a "+N more" button that opens an overlay listing everything.
 
-- Use `useClampedRows` with `ScopeChipList` (`maxRows={2}`) or a feature-scoped equivalent such as `UsedByList`. The count depends on the width the column gets, so it is measured, not counted.
-- The "+N more" trigger must always fit. When the list overflows, each item is capped narrower so the trigger, with up to a three-digit count (`+999 more`), can share the last row. One wide chip can therefore never push the trigger out.
+- Use `ScopeChipList` for scopes or `BadgeList` for plain labels such as capabilities (both `maxRows={2}`), or a feature-scoped equivalent such as `UsedByList`. Both are built on `ClampedList`, which wraps `useClampedRows`. The count depends on the width the column gets, so it is measured, not counted.
+- The "+N more" trigger must always fit. When the list overflows, each item is capped narrower so the trigger, with up to a three-digit count (`+999 more`), can share the last row. One wide chip can therefore never push the trigger out. The cap never drops below 60% of the cell, so in a narrow cell badges are not squeezed to a few letters; items are dropped until the trigger fits instead.
 - Add a searchable multi-select filter to the column. Selecting several values keeps any row with at least one of them.
 - Keep the row height bounded. Never render an unbounded stack of chips.
 
@@ -97,7 +97,11 @@ When a table has `onRowClick`, stop click propagation on the "+N more" trigger a
 
 Show the human name as the main text and the machine ID as a smaller line beneath it. Do not add a separate ID column that repeats the same value.
 
-The part of an identifier that tells two rows apart must be visible in the cell. If every value shares a long prefix, show the distinguishing part as the main text rather than relying on truncation, which cuts from the end.
+The part of an identifier that tells two rows apart must be visible in the cell. If every value shares a long prefix, show the distinguishing part as the main text rather than relying on truncation, which cuts from the end. When the prefix is already shown elsewhere in the cell (a family label above a `family/name` id), drop it from the id line. When an identifier cannot be shortened and its distinguishing part is at the end, set `wrap: true` on the column and let it break anywhere (`overflowWrap: 'anywhere'`) instead of truncating.
+
+A label that carries its own distinguishing part, such as `AWS Bedrock (aus)`, gets a minimum width that fits its widest value; truncating it drops the part that matters.
+
+A principal's type is its own column, drawn with `PrincipalBadge`, not a badge beside the name.
 
 ## Rule 11: A table whose rows are truncated needs a details view
 
@@ -132,12 +136,12 @@ Do this at two widths, with numbers, not by eye alone.
 
 ## Where the pieces live
 
-| Piece                                                                                  | Location                                                           |
-| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| `ScopeChip`, `ScopeChipList`, `scopeColumnFilter`, `TruncatingBadge`, `useClampedRows` | `src/components/` (import from `@orbit/components`)                |
-| Cell clipping, minimum widths, searchable filter                                       | `DataTable` in `src/packages/terra/src/components/data-table/`     |
-| Reference table                                                                        | `src/app/(dashboard)/connections/_components/connections-page.tsx` |
-| Feature-scoped clamped list                                                            | `src/app/(dashboard)/connections/_components/used-by-list.tsx`     |
+| Piece                                                                                                                                | Location                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| `ScopeChip`, `ScopeChipList`, `BadgeList`, `ClampedList`, `scopeColumnFilter`, `TruncatingBadge`, `PrincipalBadge`, `useClampedRows` | `src/components/` (import from `@orbit/components`)                |
+| Cell clipping, minimum widths, searchable filter                                                                                     | `DataTable` in `src/packages/terra/src/components/data-table/`     |
+| Reference table                                                                                                                      | `src/app/(dashboard)/connections/_components/connections-page.tsx` |
+| Feature-scoped clamped list                                                                                                          | `src/app/(dashboard)/connections/_components/used-by-list.tsx`     |
 
 ## Worked example: Connections
 
