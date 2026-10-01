@@ -75,7 +75,7 @@ func TestPostgres_DiscoveredPricesKeepOverrides(t *testing.T) {
 	ctx := context.Background()
 	override := 1.0
 	discover := func(in, out float64) {
-		NewDiscoveredPrices(repo, noopRefresher{}, logging.NewLoggerWithOutput(io.Discard)).Record(ctx, []ProviderModel{
+		NewDiscoveredPrices(repo, noopRefresher{}, logging.NewLoggerWithOutput(io.Discard)).Record(ctx, provider, []ProviderModel{
 			{Provider: provider, ModelID: "vendor/model", Price: &ModelPriceEntry{InputCostPer1M: in, OutputCostPer1M: out}},
 		})
 	}
@@ -86,23 +86,80 @@ func TestPostgres_DiscoveredPricesKeepOverrides(t *testing.T) {
 	}
 	discover(4, 16)
 
-	entries, err := repo.LoadAll(ctx)
+	rows := providerRows(t, repo, provider)
+	if len(rows) != 1 {
+		t.Fatalf("rows = %+v, want exactly one", rows)
+	}
+	e := rows["vendor/model"]
+	if e.SyncedInput != 4 || e.SyncedOutput != 16 {
+		t.Errorf("synced = %v in, %v out, want the second discovery's 4 and 16", e.SyncedInput, e.SyncedOutput)
+	}
+	if e.EffectiveInput() != override || e.EffectiveOutput() != 16 {
+		t.Errorf("effective = %v in, %v out, want the override and the synced output", e.EffectiveInput(), e.EffectiveOutput())
+	}
+}
+
+func TestPostgres_ReplaceSyncedDropsUnlistedPrices(t *testing.T) {
+	repo, provider := testPricingRepo(t)
+	ctx := context.Background()
+	price := func(id string) ModelPriceEntry {
+		return ModelPriceEntry{Provider: provider, ModelID: id, InputCostPer1M: 2, OutputCostPer1M: 8}
+	}
+	if err := repo.ReplaceSynced(ctx, provider, []ModelPriceEntry{price("kept"), price("gone"), price("overridden")}); err != nil {
+		t.Fatal(err)
+	}
+	override := 5.0
+	if err := repo.SetOverride(ctx, provider, "overridden", &override, nil, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := repo.ReplaceSynced(ctx, provider, []ModelPriceEntry{price("kept")}); err != nil {
+		t.Fatal(err)
+	}
+
+	rows := providerRows(t, repo, provider)
+	if _, ok := rows["gone"]; ok || len(rows) != 2 {
+		t.Fatalf("rows = %v, want kept and overridden only", rows)
+	}
+	o := rows["overridden"]
+	if o.EffectiveInput() != override || o.SyncedOutput != 0 || o.LastSyncedAt.Year() != 1970 {
+		t.Errorf("overridden row = %+v, want its override kept and its synced prices cleared", o)
+	}
+}
+
+func TestPostgres_ReplaceSyncedIsAllOrNothing(t *testing.T) {
+	repo, provider := testPricingRepo(t)
+	ctx := context.Background()
+	// NUMERIC(10,6) holds at most 9999.999999, so the second entry fails.
+	err := repo.ReplaceSynced(ctx, provider, []ModelPriceEntry{
+		{Provider: provider, ModelID: "first", InputCostPer1M: 1},
+		{Provider: provider, ModelID: "second", InputCostPer1M: 1e6},
+	})
+	if err == nil {
+		t.Fatal("want an overflow error")
+	}
+	if rows := providerRows(t, repo, provider); len(rows) != 0 {
+		t.Errorf("rows = %v, want none after a failed batch", rows)
+	}
+}
+
+// providerRows returns the pricing rows of provider by model id.
+func providerRows(t *testing.T, repo *PostgresPricingCatalogRepository, provider ProviderName) map[string]PricingCatalogEntry {
+	t.Helper()
+	entries, err := repo.LoadAll(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
+	rows := map[string]PricingCatalogEntry{}
 	for _, e := range entries {
-		if e.Provider != provider || e.ModelID != "vendor/model" {
-			continue
+		if e.Provider == provider {
+			if _, dup := rows[e.ModelID]; dup {
+				t.Fatalf("duplicate row for %s", e.ModelID)
+			}
+			rows[e.ModelID] = e
 		}
-		if e.SyncedInput != 4 || e.SyncedOutput != 16 {
-			t.Errorf("synced = %v in, %v out, want the second discovery's 4 and 16", e.SyncedInput, e.SyncedOutput)
-		}
-		if e.EffectiveInput() != override || e.EffectiveOutput() != 16 {
-			t.Errorf("effective = %v in, %v out, want the override and the synced output", e.EffectiveInput(), e.EffectiveOutput())
-		}
-		return
 	}
-	t.Fatal("discovered row not found")
+	return rows
 }
 
 type noopRefresher struct{}

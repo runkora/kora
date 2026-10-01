@@ -158,7 +158,7 @@ spec:
 
 - Each type discovers models from its upstream. `inferencegw.InferFamily` names the vendor of a model known only by its id, for every provider.
 - Bedrock, Vertex AI and Azure prices sync per type and are shared by every resource of that type. A `compatible` provider is priced under its own name.
-- When a compatible endpoint's `/models` publishes `pricing`, as OpenRouter's does, each discovery stores those base rates as the provider's synced prices, converted to per 1M tokens. Overrides stay as they are. An endpoint that publishes none, such as Ollama or vLLM, is priced through the override API, which creates the row when no synced price exists.
+- When a compatible endpoint's `/models` publishes `pricing`, as OpenRouter's does, each successful discovery makes those base rates the provider's synced prices, converted to per 1M tokens, in one transaction. A model it stops listing or pricing loses its synced price. Overrides stay as they are. An endpoint that publishes none, such as Ollama or vLLM, is priced through the override API, which creates the row when no synced price exists.
 - Scopes stay `inference:<family>:<name>:use` on virtual models. Providers never appear in a scope.
 
 ### 7. Database

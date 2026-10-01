@@ -67,7 +67,7 @@ func TestDiscoveryFromAReplacedProviderSetIsNotPublished(t *testing.T) {
 	var mu sync.Mutex
 	var recorded []string
 	r := NewRoutingEngine(map[ProviderName]ProviderConnector{old.name: old}, []ProviderInfo{{Name: old.name}},
-		func(_ context.Context, models []ProviderModel) {
+		func(_ context.Context, _ ProviderName, models []ProviderModel) {
 			mu.Lock()
 			defer mu.Unlock()
 			for _, m := range models {

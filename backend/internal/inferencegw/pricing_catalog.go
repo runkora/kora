@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -112,44 +113,89 @@ func NewPostgresPricingCatalogRepository(pool *pgxpool.Pool) *PostgresPricingCat
 	return &PostgresPricingCatalogRepository{pool: pool}
 }
 
-// UpsertSynced performs an INSERT ... ON CONFLICT DO UPDATE for each entry,
-// writing all twelve synced columns and last_synced_at. Override columns are never
-// touched — the conflict target updates only synced_* and metadata columns.
+// upsertSyncedSQL writes every synced column and last_synced_at. Its conflict
+// clause leaves the override columns alone.
+const upsertSyncedSQL = `
+	INSERT INTO model_pricing (
+		provider, model_id,
+		synced_input_cost_per_1m, synced_output_cost_per_1m,
+		synced_cache_read_cost_per_1m, synced_cache_write_cost_per_1m,
+		synced_image_input_cost_per_image, synced_image_output_cost_per_image,
+		synced_request_input_cost, synced_request_output_cost,
+		synced_second_input_cost, synced_second_output_cost,
+		synced_audio_input_cost_per_1m, synced_audio_output_cost_per_1m,
+		last_synced_at, created_at, updated_at
+	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), now())
+	ON CONFLICT (provider, model_id) DO UPDATE SET
+		synced_input_cost_per_1m           = EXCLUDED.synced_input_cost_per_1m,
+		synced_output_cost_per_1m          = EXCLUDED.synced_output_cost_per_1m,
+		synced_cache_read_cost_per_1m      = EXCLUDED.synced_cache_read_cost_per_1m,
+		synced_cache_write_cost_per_1m     = EXCLUDED.synced_cache_write_cost_per_1m,
+		synced_image_input_cost_per_image  = EXCLUDED.synced_image_input_cost_per_image,
+		synced_image_output_cost_per_image = EXCLUDED.synced_image_output_cost_per_image,
+		synced_request_input_cost          = EXCLUDED.synced_request_input_cost,
+		synced_request_output_cost         = EXCLUDED.synced_request_output_cost,
+		synced_second_input_cost           = EXCLUDED.synced_second_input_cost,
+		synced_second_output_cost          = EXCLUDED.synced_second_output_cost,
+		synced_audio_input_cost_per_1m     = EXCLUDED.synced_audio_input_cost_per_1m,
+		synced_audio_output_cost_per_1m    = EXCLUDED.synced_audio_output_cost_per_1m,
+		last_synced_at                     = EXCLUDED.last_synced_at,
+		updated_at                         = now()`
+
+// UpsertSynced writes the synced prices of entries in one transaction.
+// Override columns are never touched.
 func (r *PostgresPricingCatalogRepository) UpsertSynced(ctx context.Context, entries []ModelPriceEntry) error {
 	if len(entries) == 0 {
 		return nil
 	}
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		return upsertSynced(ctx, tx, entries)
+	})
+}
 
-	const q = `
-		INSERT INTO model_pricing (
-			provider, model_id,
-			synced_input_cost_per_1m, synced_output_cost_per_1m,
-			synced_cache_read_cost_per_1m, synced_cache_write_cost_per_1m,
-			synced_image_input_cost_per_image, synced_image_output_cost_per_image,
-			synced_request_input_cost, synced_request_output_cost,
-			synced_second_input_cost, synced_second_output_cost,
-			synced_audio_input_cost_per_1m, synced_audio_output_cost_per_1m,
-			last_synced_at, created_at, updated_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, now(), now())
-		ON CONFLICT (provider, model_id) DO UPDATE SET
-			synced_input_cost_per_1m          = EXCLUDED.synced_input_cost_per_1m,
-			synced_output_cost_per_1m         = EXCLUDED.synced_output_cost_per_1m,
-			synced_cache_read_cost_per_1m     = EXCLUDED.synced_cache_read_cost_per_1m,
-			synced_cache_write_cost_per_1m    = EXCLUDED.synced_cache_write_cost_per_1m,
-			synced_image_input_cost_per_image  = EXCLUDED.synced_image_input_cost_per_image,
-			synced_image_output_cost_per_image = EXCLUDED.synced_image_output_cost_per_image,
-			synced_request_input_cost          = EXCLUDED.synced_request_input_cost,
-			synced_request_output_cost         = EXCLUDED.synced_request_output_cost,
-			synced_second_input_cost           = EXCLUDED.synced_second_input_cost,
-			synced_second_output_cost          = EXCLUDED.synced_second_output_cost,
-			synced_audio_input_cost_per_1m     = EXCLUDED.synced_audio_input_cost_per_1m,
-			synced_audio_output_cost_per_1m    = EXCLUDED.synced_audio_output_cost_per_1m,
-			last_synced_at                     = EXCLUDED.last_synced_at,
-			updated_at                         = now()`
+// ReplaceSynced makes entries the complete synced price list of provider, in one
+// transaction. A model absent from entries loses its row, or keeps only its
+// overrides when it has any.
+func (r *PostgresPricingCatalogRepository) ReplaceSynced(ctx context.Context, provider ProviderName, entries []ModelPriceEntry) error {
+	ids := make([]string, 0, len(entries))
+	for _, e := range entries {
+		ids = append(ids, e.ModelID)
+	}
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		if err := upsertSynced(ctx, tx, entries); err != nil {
+			return err
+		}
+		const drop = `
+			DELETE FROM model_pricing
+			WHERE provider = $1 AND NOT (model_id = ANY($2))
+			  AND override_input_cost_per_1m IS NULL AND override_output_cost_per_1m IS NULL
+			  AND override_cache_read_cost_per_1m IS NULL AND override_cache_write_cost_per_1m IS NULL`
+		if _, err := tx.Exec(ctx, drop, string(provider), ids); err != nil {
+			return fmt.Errorf("pricing catalog drop unlisted (%s): %w", provider, err)
+		}
+		// An overridden model keeps its row as override-only, like one created by SetOverride.
+		const unsync = `
+			UPDATE model_pricing SET
+				synced_input_cost_per_1m = 0, synced_output_cost_per_1m = 0,
+				synced_cache_read_cost_per_1m = 0, synced_cache_write_cost_per_1m = 0,
+				synced_image_input_cost_per_image = 0, synced_image_output_cost_per_image = 0,
+				synced_request_input_cost = 0, synced_request_output_cost = 0,
+				synced_second_input_cost = 0, synced_second_output_cost = 0,
+				synced_audio_input_cost_per_1m = 0, synced_audio_output_cost_per_1m = 0,
+				last_synced_at = 'epoch', updated_at = now()
+			WHERE provider = $1 AND NOT (model_id = ANY($2)) AND last_synced_at <> 'epoch'`
+		if _, err := tx.Exec(ctx, unsync, string(provider), ids); err != nil {
+			return fmt.Errorf("pricing catalog unsync unlisted (%s): %w", provider, err)
+		}
+		return nil
+	})
+}
 
+// upsertSynced writes entries inside tx.
+func upsertSynced(ctx context.Context, tx pgx.Tx, entries []ModelPriceEntry) error {
 	now := time.Now().UTC()
 	for _, e := range entries {
-		if _, err := r.pool.Exec(ctx, q,
+		if _, err := tx.Exec(ctx, upsertSyncedSQL,
 			string(e.Provider), e.ModelID,
 			e.InputCostPer1M, e.OutputCostPer1M,
 			e.CacheReadCostPer1M, e.CacheWriteCostPer1M,
