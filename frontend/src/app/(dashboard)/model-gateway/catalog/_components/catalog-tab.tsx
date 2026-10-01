@@ -20,7 +20,7 @@ import type {
   ProviderModel as ApiProviderModel,
   ProviderStatusWire,
 } from '../../_services/catalog-server';
-import type { VirtualModel } from '../_types/catalog';
+import type { VirtualModel, Provider } from '../_types/catalog';
 import { toVirtualModel, toProviderModel } from '../_utils/catalog-api';
 import { VirtualModelsSection } from './virtual-models-section';
 import { ProviderCatalogSection } from './provider-catalog-section';
@@ -53,6 +53,14 @@ export function CatalogTab({
   const providerModels = useMemo(
     () => initialProviderModels.map(toProviderModel),
     [initialProviderModels],
+  );
+  // Routes may target any registered provider, including one whose discovery failed.
+  const routeProviders = useMemo(
+    () =>
+      Array.from(
+        new Set([...initialProviders.map((p) => p.name), ...providerModels.map((m) => m.provider)]),
+      ).sort() as Provider[],
+    [initialProviders, providerModels],
   );
 
   const handleModelSaved = useCallback((saved: VirtualModel) => {
@@ -171,6 +179,7 @@ export function CatalogTab({
           onSaved={handleModelSaved}
           onDeleted={handleModelDeleted}
           providerModels={providerModels}
+          providers={routeProviders}
         />
       )}
     </Stack>
