@@ -443,9 +443,8 @@ func (c *CatalogController) handleListProviderModels(w http.ResponseWriter, r *h
 		pricingMap = map[string]*pricingEntryJSON{}
 	}
 
-	// Merge with live discovery cache. The cache is warmed at startup via
-	// every provider reload and can be refreshed via
-	// POST /provider-models/refresh — no side effects in GET.
+	// The discovery cache is filled on every provider reload and by
+	// POST /provider-models/refresh, so GET has no side effects.
 	discovered := c.store.ListProviderModels()
 	items := make([]providerModelJSON, 0, len(discovered))
 	for _, m := range discovered {
@@ -852,10 +851,6 @@ func (c *CatalogController) handleSetPricingOverride(w http.ResponseWriter, r *h
 	}
 
 	if err := c.pricingCatalog.SetOverride(ctx, provider, modelID, req.InputCostPer1M, req.OutputCostPer1M, req.CacheReadCostPer1M, req.CacheWriteCostPer1M); err != nil {
-		if errors.Is(err, ErrModelPricingNotFound) {
-			api.ErrorResponse(ctx, w, c.logger, api.NotFoundError("model_pricing_not_found", "no pricing entry found for this provider/model pair", nil), nil)
-			return
-		}
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to set pricing override", nil), err)
 		return
 	}

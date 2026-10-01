@@ -147,23 +147,6 @@ func TestHandleSetPricingOverride_AllNilFields(t *testing.T) {
 	}
 }
 
-func TestHandleSetPricingOverride_NotFound(t *testing.T) {
-	t.Parallel()
-	mock := &mockPricingCatalogRepository{setOverrideErr: ErrModelPricingNotFound}
-	c := newPricingOverrideController(t, mock)
-
-	body := setPricingOverrideRequest{InputCostPer1M: new(1.0)}
-	w := doPricingRequest(t, http.MethodPut, c.handleSetPricingOverride, "bedrock:test", "nonexistent-model", body)
-
-	if w.Code != http.StatusNotFound {
-		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
-	}
-	errBody := decodeErrorBody(t, w)
-	if code, _ := errBody["code"].(string); code != "model_pricing_not_found" {
-		t.Errorf("code = %q, want %q", code, "model_pricing_not_found")
-	}
-}
-
 func TestHandleSetPricingOverride_RepoError(t *testing.T) {
 	t.Parallel()
 	mock := &mockPricingCatalogRepository{setOverrideErr: errTestInternal}
