@@ -75,14 +75,14 @@ describe('ScopeChipList maxRows', () => {
 });
 
 describe('clampRows trigger reservation', () => {
-  function build(itemCount: number) {
+  function build(itemCount: number, width = 300) {
     const container = document.createElement('div');
     for (let i = 0; i < itemCount; i += 1) container.appendChild(document.createElement('span'));
     const trigger = document.createElement('button');
     trigger.setAttribute('data-clamp-trigger', '');
     container.appendChild(trigger);
     document.body.appendChild(container);
-    Object.defineProperty(container, 'clientWidth', { value: 300 });
+    Object.defineProperty(container, 'clientWidth', { value: width });
     return {
       container,
       trigger,
@@ -96,6 +96,15 @@ describe('clampRows trigger reservation', () => {
     clampRows(container, 2);
     // 300 container - 80 trigger - 0 gap (jsdom has no computed gap)
     expect(items[0].style.maxWidth).toBe('220px');
+    container.remove();
+  });
+
+  it('keeps the cap above a share of a narrow container', () => {
+    mockWrapping(2);
+    const { container, items } = build(6, 100);
+    clampRows(container, 2);
+    // 100 - 80 trigger would leave 20px; the floor is 60% of the container.
+    expect(items[0].style.maxWidth).toBe('60px');
     container.remove();
   });
 

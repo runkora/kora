@@ -51,11 +51,20 @@ function rowsOf(elements: readonly HTMLElement[]): number[] {
 const WIDEST_TRIGGER_LABEL = '+999 more';
 
 /**
+ * The cap never goes below this share of the container. In a narrow cell the
+ * trigger alone would leave a few pixels for each item and truncate every
+ * badge to a letter. Allowing a wider item is safe: the loop below still drops
+ * items until the trigger sits within `maxRows`.
+ */
+const MIN_ITEM_CAP_SHARE = 0.6;
+
+/**
  * Shows as many items as fit in `maxRows` rows and hides the rest behind the
  * trigger. When the list overflows, each item is also capped so that the
  * trigger (up to a three-digit count) can always share the last row with it;
  * without the cap a single wide item fills its row and the trigger has
- * nowhere to go.
+ * nowhere to go. The cap has a floor (`MIN_ITEM_CAP_SHARE`) so a narrow cell
+ * does not squeeze every item to a stub.
  */
 export function clampRows(container: HTMLElement, maxRows: number): void {
   const children = Array.from(container.children) as HTMLElement[];
@@ -79,7 +88,10 @@ export function clampRows(container: HTMLElement, maxRows: number): void {
   trigger.style.display = '';
   const gap = parseFloat(getComputedStyle(container).columnGap) || 0;
   const triggerWidth = trigger.getBoundingClientRect().width;
-  const cap = container.clientWidth - triggerWidth - gap;
+  const cap = Math.max(
+    container.clientWidth - triggerWidth - gap,
+    container.clientWidth * MIN_ITEM_CAP_SHARE,
+  );
   trigger.style.display = 'none';
   if (cap > 0) {
     items.forEach((item) => {
