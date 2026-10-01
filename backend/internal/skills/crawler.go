@@ -140,17 +140,6 @@ func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[
 	return skills, nil
 }
 
-// nearestSkill reports the skillName of the nearest skill folder that
-// contains filePath. It returns false if no skill folder contains it.
-func nearestSkill(filePath string, skillFolders map[string]string) (string, bool) {
-	for folder := path.Dir(filePath); folder != "."; folder = path.Dir(folder) {
-		if skillName, ok := skillFolders[folder]; ok {
-			return skillName, true
-		}
-	}
-	return "", false
-}
-
 // Crawl finds the skills in the marketplace repository and downloads their
 // files. It is the entry point the service layer calls on a cache miss.
 //
@@ -246,7 +235,7 @@ func (c *Crawler) fetchSkill(ctx context.Context, token string, source Marketpla
 	}
 
 	return Skill{
-		Slug:        source.Name + "/" + skillName, // ADR "Slug Format": {marketplace-name}/{skill-name}
+		Slug:        source.Org + "/" + source.Repo + "/" + skillName,
 		Name:        frontmatter.Name,
 		Description: frontmatter.Description,
 		Skill:       skillFile,
@@ -275,4 +264,15 @@ func (c *Crawler) fetchFile(ctx context.Context, token string, source Marketplac
 		return SkillFile{}, fmt.Errorf("download %s: %w", filePath, err)
 	}
 	return SkillFile{Path: filePath, Name: path.Base(filePath), Content: string(content)}, nil
+}
+
+// nearestSkill reports the skillName of the nearest skill folder that
+// contains filePath. It returns false if no skill folder contains it.
+func nearestSkill(filePath string, skillFolders map[string]string) (string, bool) {
+	for folder := path.Dir(filePath); folder != "."; folder = path.Dir(folder) {
+		if skillName, ok := skillFolders[folder]; ok {
+			return skillName, true
+		}
+	}
+	return "", false
 }
