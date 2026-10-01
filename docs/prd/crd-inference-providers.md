@@ -157,6 +157,7 @@ Nothing changes. Agents call models through the gateway with their Orbit identit
 - Live pickup of provider changes and credential rotation.
 - A read-only provider list in the dashboard, API and MCP server.
 - A copy-paste example per provider type in the documentation.
+- Prices a generic service publishes with its models, such as OpenRouter's.
 
 ### Out of Scope
 
@@ -169,7 +170,7 @@ Nothing changes. Agents call models through the gateway with their Orbit identit
 ### Future Considerations
 
 - Tenant-owned providers.
-- Price sources per provider, such as OpenRouter's published prices.
+- Tiered prices a service publishes, such as a higher rate past a prompt length.
 - Azure cloud identity.
 
 ---
@@ -190,6 +191,7 @@ Nothing changes. Agents call models through the gateway with their Orbit identit
 - [ ] Dashboard, API and MCP provider list with status.
 - [ ] Optional list of models to offer per provider.
 - [ ] Role assumption for Bedrock.
+- [ ] A generic service's published prices apply to its models. Admin price overrides still win.
 
 **Nice to Have (P2):**
 - [ ] Documentation example per provider type.
@@ -263,7 +265,7 @@ Nothing changes. Agents call models through the gateway with their Orbit identit
    - **Owner:** Justin Wilkin
 
 2. **Should OpenRouter prices sync automatically?**
-   - **Status:** Open
+   - **Status:** Resolved. Prices a service publishes with its models apply on each refresh. Base rates only.
    - **Owner:** Justin Wilkin
 
 ---

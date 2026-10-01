@@ -149,7 +149,7 @@ Runtime health (the model count, the last discovery, any upstream error) is on t
 
 A provider's models appear under Provider Catalog. Agents use virtual models. Create one routed to the provider model on the Catalog page or with `models.virtual.create`, then grant `inference:<family>:<name>:use`.
 
-Bedrock, Vertex AI and Azure prices sync automatically. A `compatible` provider has no synced prices: set them per model on the Catalog page or with `models.pricing.set_override`.
+Bedrock, Vertex AI and Azure prices sync automatically. A `compatible` provider whose `/models` publishes prices, such as OpenRouter, syncs them on each discovery. Ollama, vLLM and other endpoints that publish none have no synced prices: set them per model on the Catalog page or with `models.pricing.set_override`. An override wins over a synced price in both cases.
 
 A mesh on `REGISTRY_ONLY` needs a ServiceEntry for each provider host.
 

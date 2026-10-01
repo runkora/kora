@@ -74,6 +74,11 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 - **Option A: remove it in the same release.** Every install applies resources as it upgrades.
 - **Option B: read env and resources side by side for a window.** Two code paths and a migration guide.
 
+### D7. Prices a compatible endpoint publishes
+
+- **Option A: store the prices `/models` returns as the provider's synced prices** on each discovery. No extra call and no credential beyond discovery's.
+- **Option B: price compatible providers through the override API only.** An admin enters every model by hand. Unpriced models borrow another provider's price for the same model id, or cost nothing.
+
 ---
 
 ## Decision
@@ -152,7 +157,8 @@ spec:
 ### 6. Discovery, pricing and policy
 
 - Each type discovers models from its upstream. `inferencegw.InferFamily` names the vendor of a model known only by its id, for every provider.
-- Bedrock, Vertex AI and Azure prices sync per type and are shared by every resource of that type. A `compatible` provider is priced under its own name through the override API, which creates the row when no synced price exists.
+- Bedrock, Vertex AI and Azure prices sync per type and are shared by every resource of that type. A `compatible` provider is priced under its own name.
+- When a compatible endpoint's `/models` publishes `pricing`, as OpenRouter's does, each discovery stores those base rates as the provider's synced prices, converted to per 1M tokens. Overrides stay as they are. An endpoint that publishes none, such as Ollama or vLLM, is priced through the override API, which creates the row when no synced price exists.
 - Scopes stay `inference:<family>:<name>:use` on virtual models. Providers never appear in a scope.
 
 ### 7. Database
@@ -187,6 +193,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 - A key on an `http://` base URL crosses the network in cleartext unless the network encrypts it. Choosing http is the admin's call.
 - Renaming a resource renames its provider. Routes, overrides and prices keyed on the old name stop matching.
 - `REGISTRY_ONLY` installs add a ServiceEntry for every provider host.
+- Only base rates are read from a published price. Tiered prices, such as a higher rate past a prompt length, are not applied.
 
 ### Neutral
 
