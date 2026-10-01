@@ -8,7 +8,11 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"golang.org/x/sync/semaphore"
 
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -17,6 +21,11 @@ import (
 // fakeGitHubTreeClient is a test double for githubTreeClient. It records the
 // arguments of the last call and returns the files or error the test sets.
 type fakeGitHubTreeClient struct {
+	// treeMu guards the fields GetTree writes, so a test driving concurrent
+	// Crawl calls against one fake (as TestCrawlerGlobalConcurrencyCap does)
+	// doesn't race. Every other test only calls GetTree once, from the test
+	// goroutine, so this is a no-op for them.
+	treeMu                sync.Mutex
 	calls                 int
 	token, org, repo, ref string
 
@@ -30,6 +39,8 @@ type fakeGitHubTreeClient struct {
 }
 
 func (f *fakeGitHubTreeClient) GetTree(_ context.Context, token, org, repo, ref string) ([]ghclient.TreeEntry, error) {
+	f.treeMu.Lock()
+	defer f.treeMu.Unlock()
 	f.calls++
 	f.token, f.org, f.repo, f.ref = token, org, repo, ref
 	return f.files, f.err
@@ -47,6 +58,36 @@ func (f *fakeGitHubTreeClient) GetRawContent(ctx context.Context, _, _, _, _, fi
 		return nil, fmt.Errorf("%w: status 404: no file %s", ghclient.ErrUnexpectedStatus, filePath)
 	}
 	return []byte(content), nil
+}
+
+// trackingGitHubClient wraps fakeGitHubTreeClient and records the highest
+// number of GetRawContent calls that were in flight at the same time. Each
+// call holds its slot for delay, so truly concurrent calls have time to
+// overlap and be counted together.
+type trackingGitHubClient struct {
+	*fakeGitHubTreeClient
+	delay time.Duration
+
+	mu        sync.Mutex
+	active    int
+	maxActive int
+}
+
+func (f *trackingGitHubClient) GetRawContent(ctx context.Context, token, org, repo, ref, filePath string) ([]byte, error) {
+	f.mu.Lock()
+	f.active++
+	if f.active > f.maxActive {
+		f.maxActive = f.active
+	}
+	f.mu.Unlock()
+
+	time.Sleep(f.delay)
+
+	f.mu.Lock()
+	f.active--
+	f.mu.Unlock()
+
+	return f.fakeGitHubTreeClient.GetRawContent(ctx, token, org, repo, ref, filePath)
 }
 
 // fakeGitHubTokenProvider is a test double for githubTokenProvider.
@@ -548,4 +589,109 @@ func TestCrawlParallel(t *testing.T) {
 			t.Errorf("Crawl = %#v, want nil so that no empty list is cached", got)
 		}
 	})
+}
+
+// manySkills returns a tree of n independent skills, each with only a
+// SKILL.md, so Crawl launches n concurrent GetRawContent calls.
+func manySkills(n int) *fakeGitHubTreeClient {
+	files := make([]ghclient.TreeEntry, 0, n)
+	contents := make(map[string]string, n)
+	for i := range n {
+		p := fmt.Sprintf("skills/skill-%02d/SKILL.md", i)
+		files = append(files, file(p))
+		contents[p] = skillMD(fmt.Sprintf("skill-%02d", i), "one of many")
+	}
+	return &fakeGitHubTreeClient{files: files, contents: contents}
+}
+
+func TestCrawlerConcurrencyCap(t *testing.T) {
+	const skillCount = 30
+	const perRepoCap = 20
+
+	t.Run("never exceeds the per-repo cap", func(t *testing.T) {
+		tracking := &trackingGitHubClient{fakeGitHubTreeClient: manySkills(skillCount), delay: 20 * time.Millisecond}
+		c := NewCrawler(tracking, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewDevelopmentLogger())
+
+		got, err := c.Crawl(context.Background(), testSource)
+		if err != nil {
+			t.Fatalf("Crawl: %v", err)
+		}
+		if len(got) != skillCount {
+			t.Fatalf("Crawl returned %d skills, want %d", len(got), skillCount)
+		}
+
+		tracking.mu.Lock()
+		maxActive := tracking.maxActive
+		tracking.mu.Unlock()
+		if maxActive > perRepoCap {
+			t.Errorf("max concurrent GetRawContent calls = %d, want <= %d", maxActive, perRepoCap)
+		}
+	})
+
+	t.Run("a call waiting for a permit returns promptly when the context is canceled", func(t *testing.T) {
+		github := &fakeGitHubTreeClient{contents: map[string]string{"file.md": "content"}}
+		c := NewCrawler(github, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewDevelopmentLogger())
+
+		perRepoSem := semaphore.NewWeighted(perRepoCap)
+		if !perRepoSem.TryAcquire(perRepoCap) {
+			t.Fatal("could not acquire every permit")
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() {
+			_, err := c.fetchFile(ctx, "test-token", testSource, "file.md", perRepoSem)
+			done <- err
+		}()
+
+		time.Sleep(20 * time.Millisecond) // let fetchFile start waiting on the exhausted semaphore
+		cancel()
+
+		select {
+		case err := <-done:
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("fetchFile error = %v, want context.Canceled", err)
+			}
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("fetchFile did not return promptly after the context was canceled while waiting for a permit")
+		}
+	})
+}
+
+// TestCrawlerGlobalConcurrencyCap drives enough concurrent Crawl calls on one
+// Crawler to push total in-flight fetches past globalCap. A single Crawl call
+// can't reach it alone: its own perRepoCap (20) binds first.
+func TestCrawlerGlobalConcurrencyCap(t *testing.T) {
+	const skillsPerCrawl = perRepoCap // each crawl alone maxes its own per-repo budget
+	const concurrentCrawls = 6        // 6 * 20 = 120 > globalCap (100): the global cap must bind
+	tracking := &trackingGitHubClient{fakeGitHubTreeClient: manySkills(skillsPerCrawl), delay: 30 * time.Millisecond}
+	c := NewCrawler(tracking, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewDevelopmentLogger())
+
+	var wg sync.WaitGroup
+	errs := make([]error, concurrentCrawls)
+	for i := range concurrentCrawls {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			source := MarketplaceSource{Name: fmt.Sprintf("marketplace-%d", i), Org: "org", Repo: "repo", Branch: "main"}
+			_, errs[i] = c.Crawl(context.Background(), source)
+		}(i)
+	}
+	wg.Wait()
+
+	for i, err := range errs {
+		if err != nil {
+			t.Fatalf("Crawl %d: %v", i, err)
+		}
+	}
+
+	tracking.mu.Lock()
+	maxActive := tracking.maxActive
+	tracking.mu.Unlock()
+	if maxActive > globalCap {
+		t.Errorf("max concurrent GetRawContent calls across all crawls = %d, want <= %d", maxActive, globalCap)
+	}
+	if maxActive <= perRepoCap {
+		t.Errorf("max concurrent GetRawContent calls = %d, want > %d (otherwise this test never actually exercised the global cap)", maxActive, perRepoCap)
+	}
 }
