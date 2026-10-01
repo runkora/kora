@@ -11,8 +11,9 @@ import {
   PopoverTrigger,
   Stack,
   Text,
+  TruncatingBadge,
 } from '@orbit/terra';
-import { TruncatingBadge, useClampedRows } from '@orbit/components';
+import { useClampedRows } from '@orbit/components';
 import type { ConnectionUsage } from '../_types';
 
 /**

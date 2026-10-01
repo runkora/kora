@@ -3,9 +3,9 @@
 /** @tier 3 — connections-scoped. Read-only UI for the /connections list page. */
 
 import { useMemo, useState } from 'react';
-import { DataTable, Heading, Stack, Text } from '@orbit/terra';
+import { DataTable, Heading, Stack, Text, TruncatingBadge } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import { EmptyState, ScopeChipList, TruncatingBadge, scopeColumnFilter } from '@orbit/components';
+import { EmptyState, ScopeChipList, scopeColumnFilter } from '@orbit/components';
 import { adapterLabel } from '../_types';
 import type { ConnectionRow } from '../_types';
 import { ConnectionDetailModal } from './connection-detail-modal';

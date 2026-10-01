@@ -1,15 +1,15 @@
 'use client';
 
 /**
- * @tier 2 — App-level shared (no Orbit domain knowledge). Used by the model
- * tables for capabilities, dialects and modalities.
+ * @tier 3 — model-gateway-scoped. Used by the model tables for capabilities and
+ * dialects. Promote to src/components/ if a second feature needs it.
  *
  * A `ClampedList` of plain outline badges: as many as fit in `maxRows` rows (or a
  * count), the rest behind a "+N more" overlay. Each badge truncates with its
  * full label as the tooltip.
  */
-import { ClampedList } from './clamped-list';
-import { TruncatingBadge } from './truncating-badge';
+import { ClampedList } from '@orbit/components';
+import { TruncatingBadge } from '@orbit/terra';
 
 export interface BadgeListProps {
   values: readonly string[];

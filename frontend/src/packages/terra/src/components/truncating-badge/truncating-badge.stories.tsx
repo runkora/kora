@@ -1,10 +1,17 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '@orbit/terra';
+import { Stack } from '../layout/stack';
 import { TruncatingBadge } from './truncating-badge';
 
 const meta: Meta<typeof TruncatingBadge> = {
-  title: 'App/Shared/TruncatingBadge',
+  title: 'Terra/Molecules/TruncatingBadge',
   component: TruncatingBadge,
+  parameters: {
+    layout: 'centered',
+    backgrounds: {
+      default: 'orbit',
+      values: [{ name: 'orbit', value: '#060709' }],
+    },
+  },
   tags: ['autodocs'],
   args: { label: 'Kubernetes', variant: 'secondary', textColor: 'muted' },
 };

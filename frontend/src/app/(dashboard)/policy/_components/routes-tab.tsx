@@ -1,10 +1,19 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Alert, Callout, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
+import {
+  Alert,
+  Callout,
+  DataTable,
+  Heading,
+  Icon,
+  Stack,
+  Text,
+  TruncatingBadge,
+} from '@orbit/terra';
 import type { DataTableColumn, TextProps } from '@orbit/terra';
 import type { RouteRegistration } from '../_types';
-import { ScopeChip, TruncatingBadge, scopeColumnFilter } from '@orbit/components';
+import { ScopeChip, scopeColumnFilter } from '@orbit/components';
 import { EmptyState } from '@orbit/components';
 
 interface RoutesTabProps {

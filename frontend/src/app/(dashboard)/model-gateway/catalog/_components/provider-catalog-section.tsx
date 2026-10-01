@@ -19,8 +19,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@orbit/terra';
-import { BadgeList, SmartTable } from '@orbit/components';
+import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
+import { BadgeList } from '../../_components/badge-list';
 import { fmtCost, fmtDate } from '@orbit/utils';
 import { ApiRoute } from '@orbit/lib/routing';
 import type { ProviderModel, PricingEntry } from '../_types/catalog';
