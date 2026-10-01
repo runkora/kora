@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"fmt"
 	"net/http"
 )
 
@@ -24,7 +25,11 @@ func NewTracingTransportWithCA(tracerName, caPEM string) (http.RoundTripper, err
 	if !pool.AppendCertsFromPEM([]byte(caPEM)) {
 		return nil, ErrInvalidCACert
 	}
-	inner := http.DefaultTransport.(*http.Transport).Clone()
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return nil, fmt.Errorf("default transport is %T", http.DefaultTransport)
+	}
+	inner := base.Clone()
 	inner.TLSClientConfig = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
 	return NewTracingTransport(tracerName, inner), nil
 }
