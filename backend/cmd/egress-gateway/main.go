@@ -193,6 +193,7 @@ func realMain() error {
 		republish()
 	})
 	go connRegistry.Watch(ctx)
+	go caBundle.Watch(ctx)
 	go routescopes.KeepRegistered(ctx, logger, egressgw.ServiceName, registerScopes)
 
 	go func() {

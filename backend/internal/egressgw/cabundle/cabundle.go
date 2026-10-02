@@ -8,11 +8,12 @@
 //	{root}/{tenant}.ca.crt
 //	{root}/{tenant}.ca.key
 //
-// Rotating a tenant's CA requires a gateway restart. The rotation cadence is
-// days to months, so hot-reload is a follow-up rather than a gap.
+// Watch re-reads the mount on a short interval, so a new tenant or a rotated
+// CA takes effect without a gateway restart.
 package cabundle
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -20,6 +21,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/clear-route/orbit/internal/egressgw"
 	"github.com/clear-route/orbit/internal/egressgw/tlsca"
@@ -32,30 +34,43 @@ import (
 // an operator misconfiguration, not a request-shaped error.
 var ErrTenantNotFound = errors.New("no issuing CA for tenant")
 
+// ReloadInterval is how often Watch re-reads the mount. Kubelet takes up to a
+// minute to project a Secret change, so a shorter interval buys little.
+const ReloadInterval = 10 * time.Second
+
 // Bundle is a thread-safe map of tenantID → *tlsca.IssuingCA. It satisfies
 // egressgw.CABundle.
 type Bundle struct {
+	root   string
+	logger logging.Logger
+
 	mu  sync.RWMutex
-	cas map[string]*tlsca.IssuingCA
+	cas map[string]tenantCA
+}
+
+// tenantCA keeps the PEM it was built from, so a reload can tell an unchanged
+// CA apart and keep its leaf cache.
+type tenantCA struct {
+	ca      *tlsca.IssuingCA
+	certPEM []byte
+	keyPEM  []byte
 }
 
 // For returns the IssuingCA registered for tenant.
 func (b *Bundle) For(tenant string) (egressgw.IssuingCA, error) {
 	b.mu.RLock()
-	ca, ok := b.cas[tenant]
+	entry, ok := b.cas[tenant]
 	b.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrTenantNotFound, tenant)
 	}
-	return ca, nil
+	return entry.ca, nil
 }
 
 // LoadEager scans root for tenant CA material and loads each tenant into
-// the bundle. Returns an error if the root is unreadable or any tenant's
-// material is malformed. Empty / missing roots are permitted (the operator
-// may not have mounted the secret yet) and yield an empty bundle that
-// rejects every CONNECT with ErrTenantNotFound until the gateway restarts
-// with the secret populated.
+// the bundle. Returns an error only if the root is unreadable. Empty or
+// missing roots are permitted (the operator may not have mounted the secret
+// yet) and yield an empty bundle that Watch fills once the files appear.
 //
 // On-disk layout:
 //
@@ -69,50 +84,107 @@ func (b *Bundle) For(tenant string) (egressgw.IssuingCA, error) {
 // Dev and test setups use the same layout so what we test is what
 // production runs.
 func LoadEager(ctx context.Context, root string, logger logging.Logger) (*Bundle, error) {
-	b := &Bundle{cas: make(map[string]*tlsca.IssuingCA)}
+	b := &Bundle{root: root, logger: logger, cas: make(map[string]tenantCA)}
 
 	if root == "" {
 		logger.Warn(ctx, "tenant CA root is empty; gateway will reject all CONNECTs")
 		return b, nil
 	}
 
-	entries, err := os.ReadDir(root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			logger.Warn(ctx, "tenant CA root does not exist; gateway will reject all CONNECTs",
+	if err := b.Reload(ctx); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			logger.Warn(ctx, "tenant CA root does not exist yet; gateway will reject CONNECTs until it appears",
 				logging.Field{Key: "root", Value: root})
 			return b, nil
 		}
-		return nil, fmt.Errorf("read tenant CA root %q: %w", root, err)
+		return nil, err
 	}
 
-	for _, tenant := range tenantsWithCertAndKey(entries) {
-		ca, err := loadTenantCA(root, tenant)
-		if err != nil {
-			return nil, fmt.Errorf("load CA for tenant %q: %w", tenant, err)
-		}
-		b.cas[tenant] = ca
-	}
-
+	b.mu.RLock()
+	loaded := len(b.cas)
+	b.mu.RUnlock()
 	logger.Info(ctx, "tenant CAs loaded",
 		logging.Field{Key: "root", Value: root},
-		logging.Field{Key: "tenants", Value: len(b.cas)},
+		logging.Field{Key: "tenants", Value: loaded},
 	)
 	return b, nil
 }
 
-// loadTenantCA reads {root}/{tenant}.ca.crt + {tenant}.ca.key and
-// constructs an IssuingCA.
-func loadTenantCA(root, tenant string) (*tlsca.IssuingCA, error) {
+// Watch calls Reload every ReloadInterval until ctx is done.
+func (b *Bundle) Watch(ctx context.Context) {
+	if b.root == "" {
+		return
+	}
+	ticker := time.NewTicker(ReloadInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := b.Reload(ctx); err != nil && !errors.Is(err, os.ErrNotExist) {
+				b.logger.Error(ctx, "tenant CA reload failed; keeping the loaded CAs",
+					logging.Field{Key: "error", Value: err.Error()})
+			}
+		}
+	}
+}
+
+// Reload re-reads the mount and swaps in the result. A tenant whose files no
+// longer parse keeps its previous CA, so one bad entry never takes down the rest.
+func (b *Bundle) Reload(ctx context.Context) error {
+	entries, err := os.ReadDir(b.root)
+	if err != nil {
+		return fmt.Errorf("read tenant CA root %q: %w", b.root, err)
+	}
+
+	b.mu.RLock()
+	prev := b.cas
+	b.mu.RUnlock()
+
+	next := make(map[string]tenantCA, len(prev))
+	for _, tenant := range tenantsWithCertAndKey(entries) {
+		entry, err := loadTenantCA(b.root, tenant, prev[tenant])
+		if err != nil {
+			b.logger.Error(ctx, "tenant CA is unreadable; keeping the previous one if any",
+				logging.Field{Key: "tenant", Value: tenant},
+				logging.Field{Key: "error", Value: err.Error()})
+			if old, ok := prev[tenant]; ok {
+				next[tenant] = old
+			}
+			continue
+		}
+		if entry.ca != prev[tenant].ca {
+			b.logger.Info(ctx, "tenant CA loaded", logging.Field{Key: "tenant", Value: tenant})
+		}
+		next[tenant] = entry
+	}
+
+	b.mu.Lock()
+	b.cas = next
+	b.mu.Unlock()
+	return nil
+}
+
+// loadTenantCA reads {root}/{tenant}.ca.crt + {tenant}.ca.key and builds an
+// IssuingCA. It returns prev unchanged when the files still match it.
+func loadTenantCA(root, tenant string, prev tenantCA) (tenantCA, error) {
 	certPEM, err := os.ReadFile(filepath.Join(root, tenant+".ca.crt"))
 	if err != nil {
-		return nil, fmt.Errorf("read %s.ca.crt: %w", tenant, err)
+		return tenantCA{}, fmt.Errorf("read %s.ca.crt: %w", tenant, err)
 	}
 	keyPEM, err := os.ReadFile(filepath.Join(root, tenant+".ca.key"))
 	if err != nil {
-		return nil, fmt.Errorf("read %s.ca.key: %w", tenant, err)
+		return tenantCA{}, fmt.Errorf("read %s.ca.key: %w", tenant, err)
 	}
-	return tlsca.New(tenant, certPEM, keyPEM)
+	if prev.ca != nil && bytes.Equal(certPEM, prev.certPEM) && bytes.Equal(keyPEM, prev.keyPEM) {
+		return prev, nil
+	}
+	ca, err := tlsca.New(tenant, certPEM, keyPEM)
+	if err != nil {
+		return tenantCA{}, err
+	}
+	return tenantCA{ca: ca, certPEM: certPEM, keyPEM: keyPEM}, nil
 }
 
 // tenantsWithCertAndKey returns the set of tenant names for which both
