@@ -1,12 +1,38 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { dashboardPage, sessionRoutes, ALL_NAV_SCOPES } from '@orbit/storybook/dashboard-frame';
 import CatalogLayout from '../layout';
+import type { ProviderStatusWire } from '../../_services/catalog-server';
 import { CatalogTab } from './catalog-tab';
 import {
   PRICING_ENTRIES,
   PROVIDER_MODELS,
   VIRTUAL_MODELS,
 } from '../../_components/model-mock-data';
+
+/** Two registered providers, one healthy and one failing discovery. */
+const PROVIDERS: ProviderStatusWire[] = [
+  {
+    name: 'bedrock:prod',
+    type: 'bedrock',
+    display_name: 'AWS Bedrock (prod)',
+    resource: 'prod',
+    location: 'us-east-1',
+    credential_mode: 'assume-role',
+    status: 'ready',
+    model_count: 12,
+    last_discovered_at: '2026-10-01T02:00:00Z',
+  },
+  {
+    name: 'compatible:openrouter',
+    type: 'compatible',
+    resource: 'openrouter',
+    location: 'https://openrouter.ai/api/v1',
+    credential_mode: 'secret',
+    status: 'error',
+    error: 'discovery failed: upstream returned 401',
+    model_count: 0,
+  },
+];
 
 /** The platform admin catalog: virtual models, routing, and provider pricing. */
 const meta: Meta<typeof CatalogTab> = {
@@ -35,6 +61,7 @@ type Story = StoryObj<typeof CatalogTab>;
 
 export const Default: Story = {
   args: {
+    initialProviders: PROVIDERS,
     initialVirtualModels: VIRTUAL_MODELS,
     initialProviderModels: PROVIDER_MODELS,
     initialError: null,
@@ -49,6 +76,7 @@ export const Default: Story = {
 
 export const Empty: Story = {
   args: {
+    initialProviders: [],
     initialVirtualModels: [],
     initialProviderModels: [],
     initialError: null,
@@ -63,6 +91,7 @@ export const Empty: Story = {
 
 export const LoadError: Story = {
   args: {
+    initialProviders: [],
     initialVirtualModels: [],
     initialProviderModels: [],
     initialError: 'Failed to reach inference gateway',

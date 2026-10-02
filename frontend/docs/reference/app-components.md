@@ -32,7 +32,7 @@ interface StatusBadgeProps {
 
 **Import:** `import { ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components'`
 
-**When to use:** Any place an kora scope string is shown. `ScopeChip` is one highlighted scope (truncating, with the full scope as its tooltip). `ScopeChipList` shows a list of them, collapsing the surplus into a "+N more" button that opens an overlay with every scope. `scopeColumnFilter` builds the searchable multi-select column filter for a scope column.
+**When to use:** Any place a kora scope string is shown. `ScopeChip` is one highlighted scope (truncating, with the full scope as its tooltip). `ScopeChipList` shows a list of them, collapsing the surplus into a "+N more" button that opens an overlay with every scope. `scopeColumnFilter` builds the searchable multi-select column filter for a scope column.
 
 ```tsx
 interface ScopeChipListProps {

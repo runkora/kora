@@ -20,7 +20,7 @@
  * 2x and 3x of it. Changing the unit rescales every radius and keeps nested
  * radii proportional.
  *
- * Surfaces step lighter with elevation in dark and flip in light. Foreground
+ * Surfaces step lighter with elevation in both themes. Foreground
  * and status colours are chosen to clear WCAG AA 4.5:1 as text on their own
  * tint, and border to clear 3:1 as a non-text boundary.
  */
@@ -245,12 +245,12 @@
   --font-mono: var(--font-geist-mono, 'Geist Mono', ui-monospace, 'Cascadia Code', monospace);
 
   /* Radii are multiples of --terra-radius-unit. A theme changes the unit to   */
-  /* rescale all of them. At the default unit xl and 2xl are 12px and 16px.    */
-  --radius-sm: var(--terra-radius-unit); /* 4px by default  */
-  --radius-md: calc(var(--terra-radius-unit) * 2); /* 8px  */
-  --radius-lg: calc(var(--terra-radius-unit) * 3); /* 12px */
-  --radius-xl: calc(var(--terra-radius-unit) * 3); /* 12px */
-  --radius-2xl: calc(var(--terra-radius-unit) * 4); /* 16px */
+  /* rescale all of them. At the default unit xl and 2xl are 18px and 24px.    */
+  --radius-sm: var(--terra-radius-unit); /* 6px by default  */
+  --radius-md: calc(var(--terra-radius-unit) * 2); /* 12px */
+  --radius-lg: calc(var(--terra-radius-unit) * 3); /* 18px */
+  --radius-xl: calc(var(--terra-radius-unit) * 3); /* 18px */
+  --radius-2xl: calc(var(--terra-radius-unit) * 4); /* 24px */
   --radius-full: 9999px; /* pills, status dots, avatars */
 
   /* Motion */

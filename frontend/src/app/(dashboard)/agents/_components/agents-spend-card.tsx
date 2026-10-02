@@ -233,7 +233,9 @@ export function AgentsSpendCard({
   const [chosen, setChosen] = useState('agent');
   const view = views.some((v) => v.value === chosen) ? chosen : 'agent';
 
-  const used = tenantBudget ? Math.round((tenantBudget.monthToDate / tenantBudget.limit) * 100) : 0;
+  // A zero limit has nothing to measure against, so the budget block is left out.
+  const budget = tenantBudget && tenantBudget.limit > 0 ? tenantBudget : undefined;
+  const used = budget ? Math.round((budget.monthToDate / budget.limit) * 100) : 0;
   const change =
     previousTotal !== undefined && previousTotal > 0
       ? Math.round(((total - previousTotal) / previousTotal) * 100)
@@ -275,7 +277,7 @@ export function AgentsSpendCard({
           ) : (
             <Breakdown rows={agents} total={total} />
           )}
-          {tenantBudget && (
+          {budget && (
             <>
               <Separator />
               <Stack gap="snug" align="stretch">
@@ -284,7 +286,7 @@ export function AgentsSpendCard({
                     Monthly budget
                   </Text>
                   <Text size="caption" color="subtle">
-                    {fmtUsd(tenantBudget.monthToDate)} of {fmtUsd(tenantBudget.limit)}
+                    {fmtUsd(budget.monthToDate)} of {fmtUsd(budget.limit)}
                   </Text>
                 </Stack>
                 <Progress
@@ -294,8 +296,7 @@ export function AgentsSpendCard({
                   size="sm"
                 />
                 <Text size="caption" color="muted">
-                  {fmtUsd(tenantBudget.limit - tenantBudget.monthToDate)} left ·{' '}
-                  {tenantBudget.daysLeft} days to go
+                  {fmtUsd(budget.limit - budget.monthToDate)} left · {budget.daysLeft} days to go
                 </Text>
               </Stack>
             </>

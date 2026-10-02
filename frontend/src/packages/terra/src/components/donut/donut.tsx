@@ -57,7 +57,7 @@ const Donut = React.forwardRef<HTMLDivElement, DonutProps>(
   ({ segments, size = 76, thickness = 7, children, className, style, ...props }, ref) => {
     const radius = (size - thickness) / 2;
     const circumference = 2 * Math.PI * radius;
-    const sum = segments.reduce((n, s) => n + s.value, 0);
+    const sum = segments.reduce((n, s) => n + Math.max(s.value, 0), 0);
     const gap = segments.filter((s) => s.value > 0).length > 1 ? SEGMENT_GAP : 0;
     const starts = segments.map((_, i) =>
       segments.slice(0, i).reduce((n, s) => n + (s.value / sum) * circumference, 0),

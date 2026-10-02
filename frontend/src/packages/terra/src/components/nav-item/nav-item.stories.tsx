@@ -66,7 +66,10 @@ export const Options: Story = {
             </NavItem>
           </div>
         </Option>
-        <Option name='state="active"' use="The page you are on. A bar on the left marks it.">
+        <Option
+          name='state="active"'
+          use="The page you are on. A tinted background and accent text mark it."
+        >
           <div className="w-56">
             <NavItem state="active" icon={<Icon name="cpu" />} asChild>
               <a href="#">Agents</a>

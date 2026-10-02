@@ -292,7 +292,7 @@ export const webhookKind: TriggerKindDefinition = {
   id: 'webhook',
   icon: 'webhook',
   title: 'Webhook',
-  description: 'An external service posts a signed event to an kora endpoint.',
+  description: 'An external service posts a signed event to a kora endpoint.',
   example: 'GitHub · Alertmanager',
   steps: [
     {

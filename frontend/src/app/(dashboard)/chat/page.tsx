@@ -108,7 +108,7 @@ Policy bundles are versioned Rego files that live alongside your infrastructure 
 **The Authentication Flow**
 
 1. **Identity Registration** — Agents present a SPIFFE SVID (X.509 certificate) issued by a trusted Workload API
-2. **Token Exchange** — The SVID is exchanged for an kora-issued session JWT at the \`/identity/svid/exchange\` endpoint
+2. **Token Exchange** — The SVID is exchanged for a kora-issued session JWT at the \`/identity/svid/exchange\` endpoint
 3. **JWT Validation** — All requests carry the JWT; the platform validates the signature and checks the JTI blocklist in Redis
 4. **Context Propagation** — Identity flows through the full execution chain via \`context.Context\`
 
