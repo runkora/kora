@@ -1,6 +1,6 @@
 # Enforcement Sidecar Injection, Preflight and Restricted Pod Security
 
-**Status:** Proposed (Amended 2026-10-01)
+**Status:** Accepted (Amended 2026-10-02)
 **Date:** 2026-09-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Companion to [Install and Distribution Model](2026-09-04-install-and-distribution-model.md). That ADR removes the operator's installation of Istio, which is the only place Orbit's three sidecar injection templates were delivered. This ADR decides how the identity-proxy, the tenant OPA sidecar and the SPIRE proxy wiring reach pods in a mesh Orbit did not install, how the prerequisites contract is verified, and what changes so every Orbit pod admits under the Kubernetes restricted pod security profile. Implements the mesh-portability, fail-closed and restricted-profile requirements of the [Install and Distribution PRD](../prd/install-and-distribution.md).
@@ -420,6 +420,32 @@ Amends Decision 4. Touches *How does it connect?* Platform services stop receivi
 
 ---
 
+## Amendment 2 (2026-10-02): Peer metadata headers stay in the mesh
+
+**Status:** Accepted
+
+Amends Decisions 1 and 4. Touches *Who is this agent?* Workload identity details stop leaving the mesh. *What can it access?* and *How does it connect?* are unchanged.
+
+**Context.** Istio's HTTP metadata exchange filter adds `x-envoy-peer-metadata` and `x-envoy-peer-metadata-id` to outbound plain-HTTP requests. The headers carry the pod name, namespace, labels, service account and cluster. On a call that leaves the mesh they reach a third party: a compatible model provider on plain HTTP, or an upstream the egress gateway relays for a sandbox. Istio's `ProxyConfig.proxyHeaders.metadataExchangeHeaders.mode: IN_MESH` skips both headers when the upstream cluster is `PassthroughCluster` or a `MESH_EXTERNAL` ServiceEntry, and keeps them for in-mesh destinations, where telemetry reads them.
+
+**Options.**
+
+- Set `IN_MESH` in istiod's MeshConfig `defaultConfig`. The cluster's istiod belongs to the customer, and the setting would change every workload in the mesh.
+- An `EnvoyFilter` that removes the headers. It patches Istio's generated listener and route names, which change between releases.
+- Set `IN_MESH` in each Orbit pod's `proxy.istio.io/config` annotation. The `ProxyConfig` CRD cannot carry `proxyHeaders`; the annotation can.
+
+**Decision.**
+
+- Every `proxy.istio.io/config` Orbit writes sets `proxyHeaders.metadataExchangeHeaders.mode: IN_MESH`.
+- `orbit.spireProxyAnnotations` carries it for system pods.
+- A component's `podAnnotations` value cannot set `proxy.istio.io/config`; the chart fails the render.
+- The agent StatefulSet and sandbox pod templates `orbit-agents` renders carry it too, so a reconcile rolls existing agent pods.
+- The webhook's merge sets it on every tenant pod, overriding any mode the pod requests and keeping other `proxyHeaders` fields.
+
+**Consequences.** A non-Orbit workload in the same mesh is unaffected. An external destination that a cluster registers without `MESH_EXTERNAL` still receives the headers.
+
+---
+
 ## Related Decisions
 
 - [Install and Distribution Model](2026-09-04-install-and-distribution-model.md): removes the istiod templates' delivery mechanism; defines the prerequisites contract this preflight verifies and the ClusterRole this ADR's webhooks and preflight need.
@@ -438,4 +464,6 @@ Amends Decision 4. Touches *How does it connect?* Platform services stop receivi
 - Kubernetes Pod Security Standards, restricted: https://kubernetes.io/docs/concepts/security/pod-security-standards/
 - Mutating webhook ordering and reinvocation: https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/
 - Kyverno pod-security policies: https://kyverno.io/policies/pod-security/
+- Istio `ProxyConfig.proxyHeaders.metadataExchangeHeaders`: https://istio.io/latest/docs/reference/config/istio.mesh.v1alpha1/#ProxyConfig-ProxyHeaders-MetadataExchangeHeaders
+- Peer metadata filter, `skipMXHeaders` (Envoy contrib, built into Istio 1.31): https://github.com/envoyproxy/envoy/blob/main/contrib/istio/filters/http/peer_metadata/source/peer_metadata.cc
 - Argo CD sync options (`RespectIgnoreDifferences`): https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/

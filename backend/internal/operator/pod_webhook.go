@@ -324,8 +324,9 @@ func (m *PodMutator) OPAResourcesOrDefault() corev1.ResourceRequirements {
 	}
 }
 
-// mergeProxyConfig sets the SPIRE certificate provider on top of whatever proxy
-// configuration the pod already carries.
+// mergeProxyConfig sets the SPIRE certificate provider and in-mesh-only peer
+// metadata headers on top of whatever proxy configuration the pod already carries.
+// IN_MESH keeps pod details out of plain-HTTP calls that leave the mesh.
 func mergeProxyConfig(existing string) (string, error) {
 	cfg := map[string]any{}
 	if existing != "" {
@@ -343,6 +344,12 @@ func mergeProxyConfig(existing string) (string, error) {
 	meta["PILOT_CERT_PROVIDER"] = "spire"
 	meta["SPIFFE_ENDPOINT_SOCKET"] = spiffeSocketPath
 	cfg["proxyMetadata"] = meta
+	headers, _ := cfg["proxyHeaders"].(map[string]any)
+	if headers == nil {
+		headers = map[string]any{}
+	}
+	headers["metadataExchangeHeaders"] = map[string]any{"mode": "IN_MESH"}
+	cfg["proxyHeaders"] = headers
 	out, err := json.Marshal(cfg)
 	return string(out), err
 }
