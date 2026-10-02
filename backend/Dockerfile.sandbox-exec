@@ -51,7 +51,7 @@ COPY . .
 ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /sandbox-exec ./cmd/sandbox-exec/main.go
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /sandbox-exec ./cmd/sandbox-exec
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a

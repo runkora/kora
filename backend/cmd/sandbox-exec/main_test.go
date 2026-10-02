@@ -1,9 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
+	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"google.golang.org/grpc"
 )
 
 // TestFilterEnv_BlocksHijackVariables locks that env vars capable of hijacking
@@ -101,5 +108,39 @@ func TestSetRunHome_NoWorkspaceIsNoop(t *testing.T) {
 	}
 	if got := os.Getenv("HOME"); got != originalHome {
 		t.Errorf("HOME = %q, want unchanged %q", got, originalHome)
+	}
+}
+
+// fakeExecStream collects a command's stdout from Execute.
+type fakeExecStream struct {
+	grpc.ServerStream
+	stdout bytes.Buffer
+}
+
+func (f *fakeExecStream) Context() context.Context { return context.Background() }
+
+func (f *fakeExecStream) Send(r *execpb.ExecuteResponse) error {
+	f.stdout.Write(r.GetStdout())
+	return nil
+}
+
+func TestExecute_CommandEnvOmitsServerSettings(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv(execauth.TokenEnv, "secret-exec-token")
+	t.Setenv("SANDBOX_EXEC_PORT", "50051")
+	t.Setenv("WORKSPACE_PROBE", "kept")
+
+	stream := &fakeExecStream{}
+	if err := (&execServer{}).Execute(&execpb.ExecuteRequest{Command: "env"}, stream); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	env := stream.stdout.String()
+	for _, key := range []string{execauth.TokenEnv, "SANDBOX_EXEC_PORT"} {
+		if strings.Contains(env, key+"=") {
+			t.Errorf("command env contains %s", key)
+		}
+	}
+	if !strings.Contains(env, "WORKSPACE_PROBE=kept") {
+		t.Error("command env lost the pod environment")
 	}
 }
