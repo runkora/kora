@@ -211,6 +211,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 - `backend/internal/orbitmcp/tools_models.go`: `models.providers.status`.
 - `frontend/src/app/(dashboard)/model-gateway/catalog/`: the Providers tab.
 - `charts/orbit/`: the gateway Role, API server label, namespace env and the admission policy.
+- `backend/internal/operator/inferenceprovider_serviceentry.go` and `charts/orbit/templates/operator/role.yaml`: Amendment 1.
 - `scripts/cluster/refresh-bedrock-creds.sh`, `scripts/cluster/create-secrets.sh`, `Makefile`, `.env.example`.
 - `docs/guides/model-providers.md`.
 
@@ -254,16 +255,17 @@ Touches *How does it connect?* and *What can it access?* The gateway reaches its
   | `compatible` | The host of `baseURL`. |
 
 - Ports come from the URL, or 443 for the fixed hosts. An `https` port has protocol `TLS`. An `http` port has protocol `HTTP`.
-- Decision 3 changes. The operator reads InferenceProviders. It never writes them or their status. The gateway stays read-only on ServiceEntries.
+- Decision 3 changes. The operator reads InferenceProviders. It never writes them or their status. The gateway has no access to ServiceEntries.
 - The operator holds a Role in the system namespace: `get/list/watch` on `inferenceproviders`; `get/create/patch` on `serviceentries`.
 - The API types move to `internal/platform/inferenceproviders/v1alpha1`. Two binaries read them.
 
 **Consequences.**
 
 - A `REGISTRY_ONLY` install needs no ServiceEntry per provider.
-- Tenant namespaces do not see provider hosts. An agent pod has no mesh route to a provider.
+- Tenant namespaces do not see provider hosts. Every workload in the system namespace does.
 - A host the connectors start calling needs a matching change to the operator's host list.
-- A Workload Identity token fetch from the GKE metadata server is outside the ServiceEntry.
+- The credential endpoints of GKE Workload Identity and EKS Pod Identity are link-local and outside the ServiceEntry.
+- A `compatible` base URL on an in-cluster Service or an IP gets no ServiceEntry.
 
 ---
 

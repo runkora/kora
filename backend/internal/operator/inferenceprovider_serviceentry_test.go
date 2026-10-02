@@ -84,8 +84,18 @@ func TestProviderEndpoints(t *testing.T) {
 		},
 		{
 			name: "compatible over http without a port",
-			spec: ip.Spec{Type: ip.TypeCompatible, Compatible: &ip.Compatible{BaseURL: "http://vllm.models.svc/v1"}},
-			want: []providerEndpoint{{host: "vllm.models.svc", port: 80, plain: true}},
+			spec: ip.Spec{Type: ip.TypeCompatible, Compatible: &ip.Compatible{BaseURL: "http://vllm.example.com/v1"}},
+			want: []providerEndpoint{{host: "vllm.example.com", port: 80, plain: true}},
+		},
+		{
+			name: "compatible in-cluster Service",
+			spec: ip.Spec{Type: ip.TypeCompatible, Compatible: &ip.Compatible{BaseURL: "http://vllm.models.svc.cluster.local:8000/v1"}},
+			want: []providerEndpoint{},
+		},
+		{
+			name: "compatible at an IP",
+			spec: ip.Spec{Type: ip.TypeCompatible, Compatible: &ip.Compatible{BaseURL: "http://10.0.0.5:8000/v1"}},
+			want: []providerEndpoint{},
 		},
 		{
 			name: "compatible over https with a port",
@@ -126,9 +136,10 @@ func TestProviderServiceEntry(t *testing.T) {
 		{host: "a.example.com", port: 443},
 		{host: "a.example.com", port: 443},
 		{host: "b.example.com", port: 8080, plain: true},
+		{host: "c.example.com", port: 8080},
 	})
 	hosts, _, _ := unstructured.NestedStringSlice(se.Object, "spec", "hosts")
-	if !slices.Equal(hosts, []string{"a.example.com", "b.example.com"}) {
+	if !slices.Equal(hosts, []string{"a.example.com", "b.example.com", "c.example.com"}) {
 		t.Errorf("hosts = %v", hosts)
 	}
 	ports, _, _ := unstructured.NestedSlice(se.Object, "spec", "ports")

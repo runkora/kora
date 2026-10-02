@@ -6,9 +6,11 @@ package operator
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -19,6 +21,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 )
@@ -135,6 +138,10 @@ func urlEndpoints(raw ...string) ([]providerEndpoint, error) {
 		if u.Hostname() == "" {
 			return nil, fmt.Errorf("provider URL %q has no host", r)
 		}
+		// The mesh already knows in-cluster Services, and an IP has no name to register.
+		if strings.Contains(u.Hostname(), ".svc") || net.ParseIP(u.Hostname()) != nil {
+			continue
+		}
 		out = append(out, providerEndpoint{host: u.Hostname(), port: port, plain: u.Scheme == schemeHTTP})
 	}
 	return out, nil
@@ -179,8 +186,9 @@ func providerServiceEntry(p *ip.InferenceProvider, endpoints []providerEndpoint)
 		if !slices.Contains(hosts, e.host) {
 			hosts = append(hosts, e.host)
 		}
-		if k := (portKey{e.port, e.plain}); !slices.Contains(portKeys, k) {
-			portKeys = append(portKeys, k)
+		// Every host shares every port, so a port number appears once.
+		if !slices.ContainsFunc(portKeys, func(k portKey) bool { return k.number == e.port }) {
+			portKeys = append(portKeys, portKey{e.port, e.plain})
 		}
 	}
 	ports := make([]any, 0, len(portKeys))
@@ -240,7 +248,11 @@ func (r *InferenceProviderReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	}
 	endpoints, err := providerEndpoints(p)
 	if err != nil {
-		return ctrl.Result{}, err
+		// A spec error does not heal on retry; the next spec change reconciles again.
+		return ctrl.Result{}, reconcile.TerminalError(err)
+	}
+	if len(endpoints) == 0 {
+		return ctrl.Result{}, nil
 	}
 	se := providerServiceEntry(p, endpoints)
 	if err := controllerutil.SetControllerReference(p, se, r.Scheme); err != nil {
