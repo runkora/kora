@@ -1479,7 +1479,7 @@ func restrictedPodSecurityContext() *corev1.PodSecurityContext {
 }
 
 // restrictedContainerSecurityContext is the container half of the restricted
-// Pod Security Standard for processes that still need a writable root filesystem.
+// Pod Security Standard, plus a read-only root for the agent and sandbox containers.
 func restrictedContainerSecurityContext() *corev1.SecurityContext {
 	return &corev1.SecurityContext{
 		AllowPrivilegeEscalation: new(false),
