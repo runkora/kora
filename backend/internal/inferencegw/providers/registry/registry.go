@@ -14,8 +14,8 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw/providers/azure"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/compatible"
-	ip "github.com/clear-route/orbit/internal/inferencegw/providers/v1alpha1"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
+	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 

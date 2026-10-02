@@ -1,7 +1,7 @@
 {{- if eq .Values.istio.outboundTrafficPolicy "REGISTRY_ONLY" }}
 # Under REGISTRY_ONLY the mesh drops calls to unknown hosts. Covers only the
-# external hosts derivable from values; the OIDC issuer, model providers and
-# agent upstreams are listed separately in docs/guides/deployment.md.
+# external hosts derivable from values. The operator registers model provider
+# hosts.
 {{- $ns := include "orbit.systemNamespace" . }}
 {{- $db := .Values.config.db.host }}
 {{- if and $db (contains "." $db) (not (contains ".svc" $db)) (not (eq (regexFind "^[0-9.]+$" $db) $db)) }}

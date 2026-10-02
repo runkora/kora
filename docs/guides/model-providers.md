@@ -168,6 +168,8 @@ spec:
 
 The gateway's network policy allows outbound traffic on port 443. For a model server outside the cluster on another port, add its address and port to `networkPolicy.externalServices`.
 
+The operator creates an Istio ServiceEntry, `inference-provider-<name>`, for each provider's hosts. Deleting the provider deletes it.
+
 For local development, `make up` adds Ollama on the host. Use `baseURL: http://host.k3d.internal:11434/v1`.
 
 ## Check a provider

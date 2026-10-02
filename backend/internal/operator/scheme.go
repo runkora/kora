@@ -5,6 +5,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+
+	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 )
 
 // AddToScheme registers the Orbit CRD types into a runtime.Scheme.
@@ -36,5 +38,6 @@ func NewScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	utilruntime.Must(clientgoscheme.AddToScheme(s))
 	utilruntime.Must(AddToScheme(s))
+	utilruntime.Must(ip.AddToScheme(s))
 	return s
 }
