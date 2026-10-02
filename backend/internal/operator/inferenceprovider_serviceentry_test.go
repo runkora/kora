@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 
@@ -12,6 +13,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 )
@@ -74,6 +76,21 @@ func TestProviderEndpoints(t *testing.T) {
 			want: tls("r.openai.azure.com", "r.services.ai.azure.com"),
 		},
 		{
+			name: "azure with one endpoint",
+			spec: ip.Spec{Type: ip.TypeAzure, Azure: &ip.Azure{Endpoint: "https://r.openai.azure.com", APIVersion: "v"}},
+			want: tls("r.openai.azure.com"),
+		},
+		{
+			name: "vertexai with a global Anthropic location",
+			spec: ip.Spec{Type: ip.TypeVertexAI, VertexAI: &ip.VertexAI{ProjectID: "p", Location: "us-central1", AnthropicLocation: "global"}},
+			want: tls("aiplatform.googleapis.com", "us-central1-aiplatform.googleapis.com", "aiplatform.googleapis.com"),
+		},
+		{
+			name: "vertexai with a US multi-region Anthropic location",
+			spec: ip.Spec{Type: ip.TypeVertexAI, VertexAI: &ip.VertexAI{ProjectID: "p", Location: "us-central1", AnthropicLocation: "us"}},
+			want: tls("aiplatform.googleapis.com", "us-central1-aiplatform.googleapis.com", "aiplatform.us.rep.googleapis.com"),
+		},
+		{
 			name: "compatible over https",
 			spec: ip.Spec{Type: ip.TypeCompatible, Compatible: &ip.Compatible{BaseURL: "https://openrouter.ai/api/v1"}},
 			want: tls("openrouter.ai"),
@@ -119,6 +136,8 @@ func TestProviderEndpoints(t *testing.T) {
 func TestProviderEndpointsRejectsBadSpecs(t *testing.T) {
 	for name, spec := range map[string]ip.Spec{
 		"missing block":     {Type: ip.TypeCompatible},
+		"missing azure":     {Type: ip.TypeAzure},
+		"missing vertexai":  {Type: ip.TypeVertexAI},
 		"unknown type":      {Type: "other"},
 		"unsupported URL":   {Type: ip.TypeCompatible, Compatible: &ip.Compatible{BaseURL: "ftp://x"}},
 		"bedrock no region": {Type: ip.TypeBedrock, Bedrock: &ip.Bedrock{}},
@@ -257,5 +276,16 @@ func TestInferenceProviderReconcile(t *testing.T) {
 	}
 	if _, err := r.Reconcile(ctx, req); err != nil {
 		t.Errorf("reconcile after delete: %v", err)
+	}
+}
+
+func TestInferenceProviderReconcileSpecErrorIsTerminal(t *testing.T) {
+	p := provider("broken", ip.Spec{Type: ip.TypeCompatible})
+	c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(p).Build()
+	r := &InferenceProviderReconciler{Client: c, Scheme: c.Scheme()}
+
+	_, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: client.ObjectKeyFromObject(p)})
+	if !errors.Is(err, reconcile.TerminalError(nil)) {
+		t.Errorf("err = %v, want a terminal error", err)
 	}
 }
