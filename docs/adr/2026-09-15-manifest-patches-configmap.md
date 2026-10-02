@@ -234,7 +234,7 @@ A patch is rejected if, compared with the built object, it changes any of:
 - `apiVersion`, `kind`, `metadata.name`, `metadata.namespace`, `metadata.ownerReferences`.
 - The identity labels `spiffe.io/agent`, `spiffe.io/spire-managed-identity`, `orbit.io/identity-proxy`, `orbit.io/tenant`, `orbit.io/agent-type`, `orbit.io/role`, `orbit.io/run-id` and `orbit.io/agent-slug`, on the resource and on the StatefulSet pod template.
 - `spec.selector`, `spec.serviceName`, `spec.scaleTargetRef`, and the StatefulSet's VolumeClaimTemplate names.
-- `serviceAccountName` on the Pod and the StatefulSet pod template.
+- `serviceAccountName`, `automountServiceAccountToken` and `enableServiceLinks` on the Pod and the StatefulSet pod template.
 - Pod `securityContext.runAsNonRoot`, `runAsUser` and `seccompProfile`, and every container's `securityContext`.
 - The sandbox Pod's PVC `claimName`s and the `volumeMounts` of every container and init container.
 
