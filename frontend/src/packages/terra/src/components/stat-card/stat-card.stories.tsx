@@ -53,8 +53,8 @@ export const Overview: Story = {
           />
         </Grid>
       </Example>
-      <Example title="With a change, a breakdown and a link">
-        <Grid cols={3} gap="snug">
+      <Example title="With a change">
+        <Grid cols={2} gap="snug">
           <StatCard
             label="Total requests"
             value="4.8K"
@@ -67,15 +67,45 @@ export const Overview: Story = {
             delta={{ text: '▲ 0.4 points', positive: true, positiveIsBad: true }}
             icon={<Icon name="circle-x" size="xs" />}
           />
+        </Grid>
+      </Example>
+      <Example title="With a breakdown and a link">
+        <Grid cols={3} gap="snug">
           <StatCard
             label="Roles"
-            value={5}
+            value={4}
             breakdown={[
-              { label: 'Reserved', value: 3 },
-              { label: 'Custom', value: 2 },
+              { label: 'Custom', value: 3 },
+              { label: 'Reserved', value: 1 },
             ]}
             footer={<a href="#roles">View all →</a>}
             icon={<Icon name="user-check" size="xs" />}
+          />
+          <StatCard
+            label="Vocabulary"
+            value={20}
+            breakdown={[
+              { label: 'platform', value: 6 },
+              { label: 'mcp', value: 5 },
+              { label: 'agents', value: 4 },
+              { label: 'inference', value: 2 },
+              { label: 'triggers', value: 2 },
+              { label: 'tokens', value: 1 },
+            ]}
+            footer={<a href="#vocabulary">View all →</a>}
+            icon={<Icon name="library" size="xs" />}
+          />
+          <StatCard
+            label="Grants"
+            value={7}
+            breakdown={[
+              { label: 'Agent', value: 3 },
+              { label: 'Human', value: 2 },
+              { label: 'PAT', value: 1 },
+              { label: 'Service', value: 1 },
+            ]}
+            footer={<a href="#grants">View all →</a>}
+            icon={<Icon name="shield-check" size="xs" />}
           />
         </Grid>
       </Example>
@@ -124,16 +154,16 @@ export const Options: Story = {
           </div>
         </Option>
         <Option
-          name="breakdown"
-          use="Label and value rows under a divider, for a figure made of parts."
+          name="breakdown, breakdownLimit"
+          use="The parts of the figure, largest first. Draws a ring with the value in the centre and a legend that lists the first three parts, then +N more."
         >
-          <div className="w-56">
+          <div className="w-72">
             <StatCard
               label="Roles"
               value={5}
               breakdown={[
-                { label: 'Reserved', value: 3 },
-                { label: 'Custom', value: 2 },
+                { label: 'Custom', value: 3 },
+                { label: 'Reserved', value: 2 },
               ]}
               icon={<Icon name="user-check" size="xs" />}
             />

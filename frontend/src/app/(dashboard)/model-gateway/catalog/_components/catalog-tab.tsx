@@ -38,6 +38,14 @@ interface CatalogTabProps {
   syncSummary: SyncSummary;
 }
 
+/** Enabled against disabled for a stat card ring, so a half-switched-off catalog shows at a glance. */
+function enabledSplit(enabled: number, total: number) {
+  return [
+    { label: 'Enabled', value: enabled },
+    { label: 'Disabled', value: total - enabled },
+  ];
+}
+
 export function CatalogTab({
   initialVirtualModels,
   initialProviderModels,
@@ -112,13 +120,13 @@ export function CatalogTab({
           icon={<Icon name="layers" size="xs" />}
           label="Virtual Models"
           value={String(virtualModels.length)}
-          detail={`${enabledVMs} enabled`}
+          breakdown={enabledSplit(enabledVMs, virtualModels.length)}
         />
         <StatCard
           icon={<Icon name="circle-dot" size="xs" />}
           label="Provider Models"
           value={String(providerModels.length)}
-          detail={`${enabledPMs} enabled`}
+          breakdown={enabledSplit(enabledPMs, providerModels.length)}
         />
         <StatCard
           icon={<Icon name="network" size="xs" />}

@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { createRequire } from 'node:module';
+import { dirname, resolve } from 'node:path';
 import { parseEnv } from 'node:util';
 import type { StorybookConfig } from '@storybook/nextjs';
 
@@ -37,6 +38,18 @@ const config: StorybookConfig = {
   },
   docs: { autodocs: 'tag' },
   core: { allowedHosts: readAllowedHosts() },
+  // Terra and the app each resolve their own recharts, and charts render blank
+  // when the container and the chart come from different copies. One copy only.
+  webpackFinal: async (webpackConfig) => {
+    webpackConfig.resolve = {
+      ...webpackConfig.resolve,
+      alias: {
+        ...webpackConfig.resolve?.alias,
+        recharts: dirname(createRequire(import.meta.url).resolve('recharts/package.json')),
+      },
+    };
+    return webpackConfig;
+  },
 };
 
 export default config;

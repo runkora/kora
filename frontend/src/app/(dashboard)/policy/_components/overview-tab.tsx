@@ -38,6 +38,18 @@ import type {
 import { ScopeChipList } from '@orbit/components';
 import { QuickLinkCard } from './quick-link-card';
 
+const PRINCIPAL_TYPE_LABELS: Record<string, string> = {
+  AGENT: 'Agent',
+  HUMAN: 'Human',
+  PAT: 'PAT',
+  SERVICE: 'Service',
+};
+
+/** The ring and its legend read best with the biggest part first. */
+function largestFirst<T extends { value: number }>(items: T[]): T[] {
+  return [...items].sort((a, b) => b.value - a.value);
+}
+
 interface OverviewTabProps {
   stats: StatsResponse | null;
   recentGrants: Grant[];
@@ -58,9 +70,10 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
     return routes.reduce((sum, reg) => sum + reg.routes.length, 0);
   }, [routes]);
 
-  const serviceCount = useMemo(() => {
-    return new Set(routes.map((r) => r.service)).size;
-  }, [routes]);
+  const routesByService = useMemo(
+    () => largestFirst(routes.map((reg) => ({ label: reg.service, value: reg.routes.length }))),
+    [routes],
+  );
 
   if (!stats) {
     return (
@@ -119,40 +132,41 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
           label="Grants"
           value={stats.grants.total}
           footer={<Link href={APP_ROUTES.policy.grants}>View all →</Link>}
-          breakdown={Object.entries(stats.grants.by_principal_type).map(([type, count]) => ({
-            label: type,
-            value: count,
-          }))}
+          breakdown={largestFirst(
+            Object.entries(stats.grants.by_principal_type).map(([type, count]) => ({
+              label: PRINCIPAL_TYPE_LABELS[type] ?? type,
+              value: count,
+            })),
+          )}
         />
         <StatCard
           icon={<Icon name="user-check" size="xs" />}
           label="Roles"
           value={stats.roles.total}
           footer={<Link href={APP_ROUTES.policy.roles}>View all →</Link>}
-          breakdown={[
+          breakdown={largestFirst([
             { label: 'Reserved', value: stats.roles.reserved },
             { label: 'Custom', value: stats.roles.custom },
-          ]}
+          ])}
         />
         <StatCard
           icon={<Icon name="library" size="xs" />}
           label="Vocabulary"
           value={stats.vocabulary.total}
           footer={<Link href={APP_ROUTES.policy.vocabulary}>View all →</Link>}
-          breakdown={Object.entries(stats.vocabulary.by_resource_type).map(([type, count]) => ({
-            label: type,
-            value: count,
-          }))}
+          breakdown={largestFirst(
+            Object.entries(stats.vocabulary.by_resource_type).map(([type, count]) => ({
+              label: type,
+              value: count,
+            })),
+          )}
         />
         <StatCard
           icon={<Icon name="route" size="xs" />}
           label="Routes"
           value={totalRouteCount}
           footer={<Link href={APP_ROUTES.policy.routes}>View all →</Link>}
-          breakdown={[
-            { label: 'Services', value: serviceCount },
-            { label: 'Endpoints', value: totalRouteCount },
-          ]}
+          breakdown={routesByService}
         />
       </Grid>
 

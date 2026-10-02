@@ -100,6 +100,8 @@ export { Skeleton } from './components/skeleton';
 export { OrbitalLoader } from './components/orbital-loader';
 export type { OrbitalLoaderProps } from './components/orbital-loader';
 
+export { Donut, donutSegmentColor } from './components/donut';
+export type { DonutProps, DonutSegment } from './components/donut';
 export { Sparkline, sparklineBarVariants } from './components/sparkline';
 export type { SparklineProps } from './components/sparkline';
 

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils';
 import { sectionLabelVariants } from '../section-label';
+import { Donut, donutSegmentColor } from '../donut';
 
 /** @tier 1 — Zero Orbit domain knowledge. One headline figure in a row of them. */
 
@@ -34,6 +35,9 @@ export type StatCardTone = NonNullable<VariantProps<typeof toneVariants>['tone']
  */
 const VALUE_CLASSES = 'font-mono font-bold text-[25px] tracking-[-0.02em] text-foreground';
 
+/** The total inside the ring, smaller than the plain value so it fits the ring's centre. */
+const RING_VALUE_CLASSES = 'font-mono font-bold text-xl tracking-[-0.02em] text-foreground';
+
 /**
  * A change indicator under the value. It is healthy when `positive` is true and degraded
  * when it is not. Set `positiveIsBad` for figures where up is worse, such as an error rate.
@@ -46,7 +50,7 @@ export interface StatCardDelta {
 
 export interface StatCardBreakdownItem {
   label: string;
-  value: string | number;
+  value: number;
 }
 
 /** Healthy when the change is good news, degraded when it is not. */
@@ -68,8 +72,16 @@ export interface StatCardProps
   detailTone?: StatCardTone;
   /** Change indicator under the value, coloured by `positive`. Renders below `detail` if both are set. */
   delta?: StatCardDelta;
-  /** Small label and value rows under a divider, for a figure split into parts. */
+  /**
+   * The parts that make up the figure, largest first. Draws a ring with `value` in the
+   * centre and a legend beside it, so `value` should be short.
+   */
   breakdown?: StatCardBreakdownItem[];
+  /**
+   * How many breakdown parts the legend lists before "+N more". The ring always draws all of them.
+   * @default 3
+   */
+  breakdownLimit?: number;
   /** Bottom-right slot for a link such as "View all". The caller supplies the link so Terra stays router-free. */
   footer?: React.ReactNode;
   /** Icon rendered top-right, e.g. `<Icon name="activity" size="xs" />`. */
@@ -84,8 +96,9 @@ export interface StatCardProps
  * the figures must be comparable at a glance.
  *
  * Optional `delta`, `breakdown` and `footer` cover overview cards that need a
- * change indicator, a split of the figure or a link to the full view. Leave
- * them off in a five-across row, where the flat form scans best.
+ * change indicator, a split of the figure or a link to the full view. A
+ * `breakdown` turns the card into a ring with a legend; leave it off in a
+ * five-across row, where the flat form scans best.
  *
  * ```tsx
  * <StatCard label="SUCCESS RATE" value="98.9%" detail="2,387 ok · 27 failed"
@@ -101,6 +114,7 @@ const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
       detailTone = 'default',
       delta,
       breakdown,
+      breakdownLimit = 3,
       footer,
       icon,
       tone,
@@ -112,7 +126,10 @@ const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
     <div
       ref={ref}
       data-slot="stat-card"
-      className={cn('rounded-lg border border-border-subtle bg-surface px-4 py-[15px]', className)}
+      className={cn(
+        'flex h-full flex-col rounded-lg border border-border-subtle bg-surface px-4 py-[15px]',
+        className,
+      )}
       {...props}
     >
       <div className="flex items-center justify-between">
@@ -124,7 +141,34 @@ const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
           </span>
         )}
       </div>
-      <div className={cn('mt-[11px]', VALUE_CLASSES, toneVariants({ tone }))}>{value}</div>
+      {breakdown != null && breakdown.length > 0 ? (
+        <div className="mt-4 flex items-center gap-4">
+          <Donut segments={breakdown}>
+            <span className={cn(RING_VALUE_CLASSES, toneVariants({ tone }))}>{value}</span>
+          </Donut>
+          <ul className="min-w-0 flex-1 space-y-1.5 text-[12px]">
+            {breakdown.slice(0, breakdownLimit).map((item, i) => (
+              <li key={item.label} className="flex items-center gap-2">
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: donutSegmentColor(i) }}
+                />
+                <span className="truncate text-muted">{item.label}</span>
+                <span className="ml-auto font-medium tabular-nums text-foreground">
+                  {item.value}
+                </span>
+              </li>
+            ))}
+            {breakdown.length > breakdownLimit && (
+              <li className="pl-4 text-[11px] text-subtle">
+                +{breakdown.length - breakdownLimit} more
+              </li>
+            )}
+          </ul>
+        </div>
+      ) : (
+        <div className={cn('mt-[11px]', VALUE_CLASSES, toneVariants({ tone }))}>{value}</div>
+      )}
       {detail != null && (
         <div className={cn('mt-1 text-[11px] text-subtle', toneVariants({ tone: detailTone }))}>
           {detail}
@@ -135,18 +179,8 @@ const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
           {delta.text}
         </div>
       )}
-      {breakdown != null && breakdown.length > 0 && (
-        <dl className="mt-3 space-y-1 border-t border-border-subtle pt-3 text-[11px]">
-          {breakdown.map((item) => (
-            <div key={item.label} className="flex items-center justify-between gap-2">
-              <dt className="text-muted">{item.label}</dt>
-              <dd className="font-medium text-foreground">{item.value}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
       {footer != null && (
-        <div className="mt-3 flex justify-end text-[11px] text-subtle [&_a]:transition-colors [&_a:hover]:text-foreground">
+        <div className="mt-auto flex justify-end pt-3 text-[11px] text-subtle [&_a]:transition-colors [&_a:hover]:text-foreground">
           {footer}
         </div>
       )}
