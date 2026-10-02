@@ -141,7 +141,7 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
     return (
       <Stack gap="snug">
         <Text size="supporting" color="muted">
-          No providers are registered. Apply an InferenceProvider resource in the Orbit system
+          No providers are registered. Apply an InferenceProvider resource in the kora system
           namespace, with its API key in a Secret labelled orbit.io/inference-provider=true.
         </Text>
         <CodeBlock text={EXAMPLE} filename="openrouter.yaml" />

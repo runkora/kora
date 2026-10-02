@@ -18,7 +18,7 @@ kora installs the identity, policy, and connectivity layers that govern agents. 
 
 ### Kubernetes cluster
 
-Orbit is tested on Kubernetes 1.34 to 1.36. The charts require 1.34 or later.
+kora is tested on Kubernetes 1.34 to 1.36. The charts require 1.34 or later.
 
 The cluster must provide:
 

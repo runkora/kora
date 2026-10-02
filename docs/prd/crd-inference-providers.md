@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Platform administrators register model providers with one declarative resource, the same way they register tenants, connections and MCP servers. Any provider Orbit supports can be added, changed or removed from the deployment's configuration repository, and the change takes effect within seconds without a restart. An evaluator can bring an OpenRouter key and have models flowing in minutes.
+Platform administrators register model providers with one declarative resource, the same way they register tenants, connections and MCP servers. Any provider kora supports can be added, changed or removed from the deployment's configuration repository, and the change takes effect within seconds without a restart. An evaluator can bring an OpenRouter key and have models flowing in minutes.
 
 ---
 
@@ -18,21 +18,21 @@ Platform administrators register model providers with one declarative resource, 
 
 ### Current State
 
-A provider is configured through settings baked into the model gateway when it starts. AWS Bedrock is the only provider with a documented path. Its accounts and regions come from install values or a local settings file. Its credentials come from the gateway's cloud identity or from a shared secret that every Orbit service receives. Vertex AI and Azure have undocumented settings. There is no way to use OpenAI, Anthropic or a service such as OpenRouter.
+A provider is configured through settings baked into the model gateway when it starts. AWS Bedrock is the only provider with a documented path. Its accounts and regions come from install values or a local settings file. Its credentials come from the gateway's cloud identity or from a shared secret that every kora service receives. Vertex AI and Azure have undocumented settings. There is no way to use OpenAI, Anthropic or a service such as OpenRouter.
 
 ### User Pain Points
 
 - Adding, changing or removing a provider means editing install settings and restarting the model gateway.
 - Refreshing short-lived cloud credentials restarts the model gateway.
 - An evaluator with an OpenRouter, OpenAI or Anthropic key cannot use it.
-- Provider credentials reach every Orbit service, not only the one that calls the provider.
+- Provider credentials reach every kora service, not only the one that calls the provider.
 - Nobody can see which providers are configured or whether they work, short of reading logs.
 
 ### Business Impact
 
 - Evaluations stall on AWS setup when the evaluator already has a working key elsewhere.
 - Every provider change is a deployment event, which slows platform teams and invites drift.
-- Wide credential distribution weakens Orbit's promise that credentials stay with the component that needs them.
+- Wide credential distribution weakens kora's promise that credentials stay with the component that needs them.
 
 ---
 
@@ -41,7 +41,7 @@ A provider is configured through settings baked into the model gateway when it s
 ### Primary Goals
 
 1. A platform administrator registers a provider with one resource and, where needed, one secret. No code change and no restart.
-2. Every provider type Orbit supports is registrable: AWS Bedrock, Google Vertex AI, Azure AI, and any service that speaks the OpenAI or Anthropic APIs, including OpenAI, Anthropic and OpenRouter.
+2. Every provider type kora supports is registrable: AWS Bedrock, Google Vertex AI, Azure AI, and any service that speaks the OpenAI or Anthropic APIs, including OpenAI, Anthropic and OpenRouter.
 3. A service that offers several APIs, such as OpenRouter, is one registration.
 4. Credentials stay with the model gateway. Agents and tenants never see them.
 5. Administrators see each provider, its status and its models in the dashboard and the API.
@@ -79,16 +79,16 @@ A provider is configured through settings baked into the model gateway when it s
 
 ---
 
-**As an** evaluator running Orbit on my laptop or in my own cluster,  
+**As an** evaluator running kora on my laptop or in my own cluster,  
 **I want to** register OpenRouter with my API key,  
-**So that** I can try Orbit with models I already pay for.
+**So that** I can try kora with models I already pay for.
 
 **Acceptance Criteria:**
 - [ ] I create a secret with my key and one resource naming OpenRouter's address, the APIs it offers and that secret.
 - [ ] No code change, no install setting and no restart.
 - [ ] Claude Code, Codex and OpenCode agents all work against that one registration.
 - [ ] I choose which OpenRouter models to offer.
-- [ ] My agents use those models through Orbit, governed by grants like any other model.
+- [ ] My agents use those models through kora, governed by grants like any other model.
 
 ---
 
@@ -98,7 +98,7 @@ A provider is configured through settings baked into the model gateway when it s
 
 **Acceptance Criteria:**
 - [ ] The dashboard lists each provider with its type, endpoint or region, credential mode, status, model count and last error.
-- [ ] The same list is available through the API and the Orbit MCP server.
+- [ ] The same list is available through the API and the kora MCP server.
 - [ ] A resource that cannot be used reports why on the resource itself.
 - [ ] A resource with missing required settings, or in the wrong place, is rejected when applied.
 
@@ -127,7 +127,7 @@ Providers become declarative resources owned by the platform. Each resource stat
 1. Create a secret holding the OpenRouter key.
 2. Apply a provider resource: OpenRouter's address, the APIs it offers (chat completions, Responses, Anthropic messages), the secret, and the models to offer.
 3. Open the Catalog page. The OpenRouter provider shows as ready with its models.
-4. Create a model in the catalog routed to an OpenRouter model, or use the Orbit MCP server to do it.
+4. Create a model in the catalog routed to an OpenRouter model, or use the kora MCP server to do it.
 5. Grant it and call it through the gateway from any agent runtime.
 
 #### Platform administrator flow: Bedrock
@@ -138,7 +138,7 @@ Providers become declarative resources owned by the platform. Each resource stat
 
 #### What agents experience
 
-Nothing changes. Agents call models through the gateway with their Orbit identity. They never see a provider, a region or a credential.
+Nothing changes. Agents call models through the gateway with their kora identity. They never see a provider, a region or a credential.
 
 ### Key Components
 
@@ -250,7 +250,7 @@ Nothing changes. Agents call models through the gateway with their Orbit identit
 
 ### Alternative 2: Register providers in the dashboard
 
-**Description:** A form that stores providers and keys in Orbit's database.
+**Description:** A form that stores providers and keys in kora's database.
 
 **Why not chosen:**
 - Keys would travel through the API and live in the database.
@@ -301,4 +301,4 @@ Nothing changes. Agents call models through the gateway with their Orbit identit
 
 - **Provider:** a service that runs models, such as AWS Bedrock or OpenRouter.
 - **Resource:** a declarative object applied to the cluster, reviewed and versioned in the deployment's configuration repository.
-- **Catalog:** Orbit's list of models, how they route to providers, and their prices.
+- **Catalog:** kora's list of models, how they route to providers, and their prices.

@@ -56,9 +56,7 @@ export const Overview: Story = {
 export const Options: Story = {
   render: () => (
     <div className="max-w-5xl">
-      <OptionTable
-        title="Options"
-      >
+      <OptionTable title="Options">
         <Option name='orientation="horizontal"' use="A line across. The default.">
           <Separator />
         </Option>

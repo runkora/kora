@@ -117,7 +117,7 @@ function RunTopbar({
           Canvas
         </Button>
       </Stack>
-      <Separator span="full" />
+      <Separator />
     </Stack>
   );
 }
@@ -186,7 +186,7 @@ function RunRow({
 
         {detail && (
           <CollapsibleContent>
-            <Separator span="full" />
+            <Separator />
             <Stack paddingBlock="snug" paddingInline="comfortable">
               {detail}
             </Stack>
@@ -355,7 +355,7 @@ function SessionDivider({ time }: { time: string }) {
   return (
     <Stack direction="horizontal" align="center" gap="cozy">
       <Stack grow minWidth="none">
-        <Separator span="full" />
+        <Separator />
       </Stack>
       <Stack shrink>
         <Text as="span" size="caption" color="subtle" mono>
@@ -363,7 +363,7 @@ function SessionDivider({ time }: { time: string }) {
         </Text>
       </Stack>
       <Stack grow minWidth="none">
-        <Separator span="full" />
+        <Separator />
       </Stack>
     </Stack>
   );

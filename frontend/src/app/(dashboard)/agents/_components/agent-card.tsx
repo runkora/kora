@@ -50,9 +50,10 @@ export function AgentCard({ agent, usage, totalCost, liveRuns, period, onRun }: 
   const canRun = agent.state === 'active';
 
   return (
+    // The whole card is a mouse target; the settings link is the keyboard route to the same page,
+    // so the card is not given a button role that would nest the buttons inside it.
     <Card
       column
-      role="button"
       onClick={() => router.push(APP_ROUTES.agents.detail(agent.slug))}
       style={{ cursor: 'pointer' }}
     >

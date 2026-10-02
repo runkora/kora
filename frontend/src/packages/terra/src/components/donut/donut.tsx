@@ -68,7 +68,9 @@ const Donut = React.forwardRef<HTMLDivElement, DonutProps>(
         ref={ref}
         data-slot="donut"
         role="img"
-        aria-label={segments.map((s) => `${s.label} ${s.value}`).join(', ')}
+        aria-label={
+          segments.length > 0 ? segments.map((s) => `${s.label} ${s.value}`).join(', ') : 'No data'
+        }
         className={cn('relative shrink-0', className)}
         style={{ width: size, height: size, ...style }}
         {...props}

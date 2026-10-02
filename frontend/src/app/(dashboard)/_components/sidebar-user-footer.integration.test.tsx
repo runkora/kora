@@ -137,11 +137,11 @@ describe('SidebarUserFooter', () => {
       await user.click(screen.getByRole('button', { name: /Dev User/ }));
       await user.click(screen.getByRole('menuitem', { name: /^Log out$/ }));
 
-      expect(screen.getByText('Log out of Orbit?')).toBeInTheDocument();
+      expect(screen.getByText('Log out of kora?')).toBeInTheDocument();
       const dialog = screen.getByRole('dialog');
       await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
-      expect(screen.queryByText('Log out of Orbit?')).not.toBeInTheDocument();
+      expect(screen.queryByText('Log out of kora?')).not.toBeInTheDocument();
       expect(screen.getByRole('menuitem', { name: /View profile/ })).toBeInTheDocument();
     });
   });
