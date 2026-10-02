@@ -154,6 +154,8 @@ export function AgentsPage() {
       {
         id: 'name',
         header: 'Agent',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '10rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
@@ -171,6 +173,8 @@ export function AgentsPage() {
       {
         id: 'framework',
         header: 'Framework',
+        gridWidth: '8rem',
+        minWidth: '6.5rem',
         locked: true,
         cell: (row) => (
           <Badge variant={frameworkVariantMap[row.frameworkKey] ?? 'outline'} size="sm">
@@ -181,6 +185,8 @@ export function AgentsPage() {
       {
         id: 'state',
         header: 'Status',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '8rem',
         locked: true,
         cell: (row) => (
           <Stack direction="horizontal" align="center" gap="tight" wrap>
@@ -196,6 +202,8 @@ export function AgentsPage() {
       {
         id: 'activeRuns',
         header: 'Active Runs',
+        gridWidth: '6.5rem',
+        minWidth: '5rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -206,6 +214,8 @@ export function AgentsPage() {
       {
         id: 'created',
         header: 'Created',
+        gridWidth: '7rem',
+        minWidth: '5.5rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.createdAt,
@@ -218,6 +228,7 @@ export function AgentsPage() {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '6rem',
         cell: (row) => (

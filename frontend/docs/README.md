@@ -14,3 +14,4 @@ the component placement decision tree.
 ## Golden paths
 
 - [golden-paths/frontend-state-pattern.md](golden-paths/frontend-state-pattern.md), the end-to-end pattern for data-driven pages: server service module → BFF route → client service → custom hook → Context → RSC page.
+- [golden-paths/table-layout.md](golden-paths/table-layout.md), how to size, truncate and clamp a table so nothing collapses, overlaps or overflows its card.

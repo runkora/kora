@@ -14,9 +14,9 @@ import {
   Text,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import { EmptyState, MetricCard, StatusBadge } from '@orbit/components';
+import { ClampedList, EmptyState, MetricCard, StatusBadge } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import type { BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
+import type { BudgetCategoryStatus, BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
 import { TenantCapCard } from './tenant-cap-card';
 import { principalDisplay } from './principal-display';
 import { BudgetPrincipalDetailModal } from './budget-principal-detail-modal';
@@ -28,6 +28,9 @@ import {
   principalStatus,
   utilisation,
 } from './budget-principal-format';
+
+// A source is a role or a grant; the pair is what tells two apart.
+const sourceKey = (cat: BudgetCategoryStatus) => `${cat.source}:${cat.id}`;
 
 interface BudgetPrincipalsTabProps {
   principals: BudgetPrincipalsView | null;
@@ -54,6 +57,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'principal',
         header: 'Principal',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '10rem',
         locked: true,
         sortable: true,
         sortAccessor: (p) => principalDisplay(p.principal_id, p.principal_type, p).primary,
@@ -83,27 +88,31 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'sources',
         header: 'Budget Sources',
+        gridWidth: 'minmax(0, 1.5fr)',
+        minWidth: '8rem',
+        wrap: true,
+        filter: {
+          mode: 'client',
+          searchable: true,
+          mono: true,
+          options: [...new Set(rows.flatMap((p) => p.categories.map(sourceKey)))]
+            .sort()
+            .map((key) => ({ value: key, label: key })),
+          filterFn: (p, selected) => p.categories.some((cat) => selected.has(sourceKey(cat))),
+        },
         cell: (p) =>
           p.categories.length > 0 ? (
-            // Reserve a little room past the grid's own column gap.
-            <Stack
-              direction="horizontal"
-              gap="tight"
-              wrap
-              minWidth="none"
-              style={{ maxWidth: 'calc(100% - 12px)' }}
-            >
-              {p.categories.map((cat) => (
-                <Badge
-                  key={`${cat.source}:${cat.id}`}
-                  variant={chipVariant(cat)}
-                  size="sm"
-                  title={chipTitle(cat)}
-                >
+            <ClampedList
+              items={p.categories}
+              getKey={sourceKey}
+              renderItem={(cat) => (
+                <Badge variant={chipVariant(cat)} size="sm" title={chipTitle(cat)}>
                   {chipLabel(cat)}
                 </Badge>
-              ))}
-            </Stack>
+              )}
+              noun="budget sources"
+              maxRows={2}
+            />
           ) : (
             <Text size="caption" color="subtle">
               —
@@ -113,6 +122,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'limit',
         header: 'Effective Limit',
+        gridWidth: '8rem',
+        minWidth: '6rem',
         sortable: true,
         sortAccessor: (p) => p.effective_limit_usd,
         cell: (p) =>
@@ -129,7 +140,10 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       },
       {
         id: 'spend',
-        header: 'Spend (month-to-date)',
+        header: 'Spend (MTD)',
+        gridWidth: '8rem',
+        minWidth: '8rem',
+        headerTooltip: 'Month-to-date spend for the current period',
         sortable: true,
         sortAccessor: (p) => p.current_spend_usd,
         cell: (p) => (
@@ -141,6 +155,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'utilisation',
         header: 'Utilisation',
+        gridWidth: '8rem',
+        minWidth: '5.5rem',
         sortable: true,
         sortAccessor: utilisation,
         cell: (p) => {
@@ -171,6 +187,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'status',
         header: 'Status',
+        gridWidth: '6rem',
+        minWidth: '5rem',
         sortable: true,
         sortAccessor: (p) =>
           p.spend_limit_reached
@@ -188,6 +206,8 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
       {
         id: 'lastActive',
         header: 'Last Active',
+        gridWidth: '8rem',
+        minWidth: '6.5rem',
         sortable: true,
         sortAccessor: (p) => p.last_active_at ?? '',
         cell: (p) => (
@@ -197,7 +217,7 @@ export function BudgetPrincipalsTab({ principals }: BudgetPrincipalsTabProps) {
         ),
       },
     ],
-    [],
+    [rows],
   );
 
   return (

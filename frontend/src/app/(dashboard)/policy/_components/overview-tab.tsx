@@ -35,7 +35,7 @@ import type {
   ScopeEntryWithUsage,
   StatsResponse,
 } from '../_types';
-import { ScopeChip } from '@orbit/components';
+import { ScopeChipList } from '@orbit/components';
 import { QuickLinkCard } from './quick-link-card';
 
 interface OverviewTabProps {
@@ -303,16 +303,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Stack direction="horizontal" gap="tight" wrap>
-                          {grant.scopes.slice(0, 3).map((s) => (
-                            <ScopeChip key={s} scope={s} />
-                          ))}
-                          {grant.scopes.length > 3 && (
-                            <Text size="caption" color="subtle">
-                              +{grant.scopes.length - 3} more
-                            </Text>
-                          )}
-                        </Stack>
+                        <ScopeChipList scopes={grant.scopes} />
                       </TableCell>
                       <TableCell>
                         <Text size="caption" color="subtle">

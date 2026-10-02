@@ -116,6 +116,9 @@ export type { CodeBlockProps } from './components/code-block';
 
 // ─── Molecules ───────────────────────────────────────────────────────────────
 
+export { TruncatingBadge } from './components/truncating-badge';
+export type { TruncatingBadgeProps } from './components/truncating-badge';
+
 export {
   Card,
   CardHeader,

@@ -7,3 +7,4 @@
  *   import { fmtDate, fmtCost } from '@orbit/utils';
  */
 export * from './format';
+export * from './principal';

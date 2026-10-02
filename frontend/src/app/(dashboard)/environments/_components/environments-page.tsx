@@ -4,9 +4,19 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Alert, Badge, Button, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
+import {
+  Alert,
+  Badge,
+  Button,
+  DataTable,
+  Heading,
+  Icon,
+  Stack,
+  Text,
+  TruncatingBadge,
+} from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
-import { ConfirmDialog, EmptyState } from '@orbit/components';
+import { ClampedList, ConfirmDialog, EmptyState } from '@orbit/components';
 import type { ConnectionCatalogEntry } from '@orbit/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentFormModal } from './environment-form-modal';
@@ -60,6 +70,8 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'name',
         header: 'Name',
+        gridWidth: 'minmax(0, 1.2fr)',
+        minWidth: '10rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
@@ -79,6 +91,8 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'egressHosts',
         header: 'Egress hosts',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '12rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.egressHosts.length,
@@ -96,8 +110,19 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'connectors',
         header: 'Connectors',
+        gridWidth: 'minmax(0, 1.5fr)',
+        minWidth: '10rem',
         locked: true,
+        wrap: true,
         sortable: true,
+        filter: {
+          mode: 'client',
+          searchable: true,
+          options: [...new Set(rows.flatMap((row) => row.connectors.map((c) => c.connection)))]
+            .sort()
+            .map((name) => ({ value: name, label: name })),
+          filterFn: (row, selected) => row.connectors.some((c) => selected.has(c.connection)),
+        },
         sortAccessor: (row) => row.connectors.length,
         cell: (row) =>
           row.connectors.length === 0 ? (
@@ -105,23 +130,32 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
               —
             </Text>
           ) : (
-            <Stack direction="horizontal" gap="tight" wrap>
-              {row.connectors.map((c) => {
+            <ClampedList
+              items={row.connectors}
+              getKey={(c) => c.connection}
+              renderItem={(c) => {
                 const resourceCount = c.resources?.length ?? 0;
                 return (
-                  <Badge key={c.connection} variant="outline" size="sm">
-                    {resourceCount > 0
-                      ? `${c.connection} · ${resourceCount} ${resourceCount === 1 ? 'resource' : 'resources'}`
-                      : c.connection}
-                  </Badge>
+                  <TruncatingBadge
+                    label={
+                      resourceCount > 0
+                        ? `${c.connection} · ${resourceCount} ${resourceCount === 1 ? 'resource' : 'resources'}`
+                        : c.connection
+                    }
+                    variant="outline"
+                    textColor="foreground"
+                  />
                 );
-              })}
-            </Stack>
+              }}
+              noun="connectors"
+              maxRows={2}
+            />
           ),
       },
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '5rem',
         cell: (row) => (
@@ -152,7 +186,7 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
         ),
       },
     ],
-    [],
+    [rows],
   );
 
   return (

@@ -2,6 +2,9 @@
 export { EmptyState } from './empty-state';
 export type { EmptyStateProps } from './empty-state';
 
+export { PrincipalBadge } from './principal-badge';
+export type { PrincipalBadgeProps, PrincipalType } from './principal-badge';
+
 /** Maps an OrbitStatus value to a labelled Badge with a status dot. */
 export { StatusBadge } from './status-badge';
 export type { StatusBadgeProps, OrbitStatus } from './status-badge';
@@ -21,6 +24,12 @@ export type { EventFeedItemProps } from './event-feed-item';
 /** Syntax-highlighted Orbit scope chip (resource:path:action). */
 export { ScopeChip } from './scope-chip';
 export type { ScopeChipProps } from './scope-chip';
+export { ScopeChipList } from './scope-chip-list';
+export type { ScopeChipListProps } from './scope-chip-list';
+export { useClampedRows, rowIndices } from './use-clamped-rows';
+export { ClampedList } from './clamped-list';
+export type { ClampedListProps } from './clamped-list';
+export { scopeColumnFilter } from './scope-column-filter';
 
 /** Searchable accordion scope selector grouped by resource type. */
 export { ScopePicker } from './scope-picker';

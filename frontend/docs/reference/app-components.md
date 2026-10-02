@@ -164,6 +164,68 @@ interface EventFeedItemProps {
 
 ---
 
+## ScopeChipList, ScopeChip and scopeColumnFilter
+
+**Import:** `import { ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components'`
+
+**When to use:** Any place an Orbit scope string is shown. `ScopeChip` is one highlighted scope (truncating, with the full scope as its tooltip). `ScopeChipList` shows a list of them, collapsing the surplus into a "+N more" button that opens an overlay with every scope. `scopeColumnFilter` builds the searchable multi-select column filter for a scope column.
+
+```tsx
+interface ScopeChipListProps {
+  scopes: readonly string[];
+  max?: number; // chips shown before "+N more"; default 3
+  maxRows?: number; // instead of a count: as many as fit in this many rows
+}
+
+// In a DataTable column:
+{ id: 'scopes', header: 'Scopes', wrap: true, filter: scopeColumnFilter(rows, (r) => r.scopes),
+  cell: (r) => <ScopeChipList scopes={r.scopes} maxRows={2} /> }
+```
+
+See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules around these.
+
+---
+
+## ClampedList
+
+**Import:** `import { ClampedList } from '@orbit/components'`
+
+**When to use:** A list in a cell that shows as many items as fit in `maxRows` rows, with the rest behind a "+N more" overlay. It is the layer under `ScopeChipList`: give it `items`, `getKey`, `renderItem` and a `noun` for the trigger's accessible name. Anything that follows the table layout golden path for a collection column can render through it.
+
+```tsx
+<ClampedList
+  items={row.connectors}
+  getKey={(c) => c.connection}
+  renderItem={(c) => (
+    <TruncatingBadge label={c.connection} variant="outline" textColor="foreground" />
+  )}
+  noun="connectors"
+  maxRows={2}
+/>
+```
+
+---
+
+## PrincipalBadge
+
+**Import:** `import { PrincipalBadge } from '@orbit/components'`
+
+**When to use:** Anywhere a principal's type (agent, human, PAT, service) is shown. One colour per type, so the type reads the same on every page. In a table give it its own column rather than placing it beside the name.
+
+```tsx
+{ id: 'type', header: 'Type', cell: (g) => <PrincipalBadge type={g.principal_type} /> }
+```
+
+---
+
+## useClampedRows
+
+**Import:** `import { useClampedRows } from '@orbit/components'`
+
+**When to use:** A wrapping list in a cell that should show as many items as fit in a fixed number of rows, then a "+N more" trigger. It is a hook, so the caller owns the markup: render every item, then a trigger element marked `data-clamp-trigger` with no children. The hook hides what does not fit and writes the trigger's text. See `ScopeChipList` and the connections `UsedByList` for both usages.
+
+---
+
 ## ThemeToggle
 
 **Import:** `import { ThemeToggle } from '@orbit/components'`

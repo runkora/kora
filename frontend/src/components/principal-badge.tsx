@@ -1,12 +1,14 @@
 /**
- * @tier 3 — policy scoped. Maps Orbit principal type to a badge variant.
- * @promote-to-tier-2 if: a second feature area outside policy needs to display principal types.
+ * @tier 2 — Orbit-domain-aware: maps a principal type to its badge colour. Used by:
+ * policy (grants, grant detail, evaluate), model-gateway budgets.
  */
 import { Badge } from '@orbit/terra';
-import type { PrincipalType } from '../_types';
+
+export type PrincipalType = 'AGENT' | 'HUMAN' | 'PAT' | 'SERVICE';
 
 export interface PrincipalBadgeProps {
-  type: PrincipalType;
+  /** A principal type. Anything that is not agent, human or PAT takes the service colour. */
+  type: PrincipalType | (string & {});
 }
 
 export function PrincipalBadge({ type }: PrincipalBadgeProps) {
