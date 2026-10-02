@@ -314,6 +314,9 @@ RUN mkdir -p /opt/orbit/shell && ln -sf /bin/bash /opt/orbit/shell/bash
 # Workspaces directory — mounted from the agent pod's PVC at runtime.
 RUN mkdir -p /workspaces && chown 100:100 /workspaces
 
+# Strip setuid and setgid bits. no_new_privs already neutralises them; this keeps it true if that setting is ever dropped.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
+
 USER orbit
 
 EXPOSE 50051
