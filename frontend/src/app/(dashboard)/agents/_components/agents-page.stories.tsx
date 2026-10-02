@@ -16,6 +16,7 @@ import {
   RUN_ROWS,
   USAGE,
 } from './agents-mock-data';
+import { INSIGHTS } from './agents-insights-mock-data';
 
 /** The routes the list page calls on mount and on refresh. */
 function listRoutes(overrides: MockRoutes = {}): MockRoutes {
@@ -28,7 +29,10 @@ function listRoutes(overrides: MockRoutes = {}): MockRoutes {
   };
 }
 
-/** The agents list as an operator sees it, with mock agents and runs. */
+/**
+ * The agents list as an operator sees it, with mock agents and runs. The stories pass `insights`
+ * (period data, a model split, spend over time and budgets) that the live page does not receive yet.
+ */
 const meta: Meta<typeof AgentsShell> = {
   title: 'Pages/Agents',
   component: AgentsShell,
@@ -46,7 +50,64 @@ const withRoutes = (routes: MockRoutes) => [dashboardPage(routes, AgentsLayout)]
 
 export const Default: Story = {
   decorators: withRoutes(listRoutes()),
+  args: {
+    initialAgentTypes: AGENT_ROWS,
+    initialRuns: RUN_ROWS,
+    initialError: null,
+    insights: INSIGHTS,
+  },
+};
+
+/** What the live page renders today: no period control, and the spend card shows only the agent split. */
+export const WithoutInsights: Story = {
+  decorators: withRoutes(listRoutes()),
   args: { initialAgentTypes: AGENT_ROWS, initialRuns: RUN_ROWS, initialError: null },
+};
+
+/** The page header's period control set to 30 days. */
+export const ThirtyDays: Story = {
+  ...Default,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: '30d' }));
+  },
+};
+
+/** The spend card's trend view. */
+export const SpendTrend: Story = {
+  ...Default,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Trend' }));
+  },
+};
+
+/** The spend card's per-agent budgets view. */
+export const SpendBudgets: Story = {
+  ...Default,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Budgets' }));
+  },
+};
+
+/** No runs in flight: the Running now card shows its empty line. */
+export const NothingRunning: Story = {
+  ...Default,
+  args: {
+    ...Default.args,
+    initialRuns: RUN_ROWS.filter(
+      (r) => !['active', 'completing', 'starting', 'pending'].includes(r.state),
+    ),
+  },
+};
+
+/** Two agents and no drafts. */
+export const FewAgents: Story = {
+  decorators: withRoutes(listRoutes({ 'GET /api/agents/types/drafts': { data: [] } })),
+  args: {
+    initialAgentTypes: AGENT_ROWS.slice(0, 2),
+    initialRuns: RUN_ROWS.slice(0, 2),
+    initialError: null,
+    insights: INSIGHTS,
+  },
 };
 
 /** The table layout behind the list toggle. */
@@ -89,7 +150,12 @@ const manyRoutes = listRoutes({
 
 /** Twenty-plus agents, to check the grid and table at scale. */
 export const ManyAgents: Story = {
-  args: { initialAgentTypes: MANY_AGENT_ROWS, initialRuns: MANY_RUN_ROWS, initialError: null },
+  args: {
+    initialAgentTypes: MANY_AGENT_ROWS,
+    initialRuns: MANY_RUN_ROWS,
+    initialError: null,
+    insights: INSIGHTS,
+  },
   decorators: withRoutes(manyRoutes),
 };
 
