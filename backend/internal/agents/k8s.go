@@ -633,10 +633,12 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 			RestartPolicy: corev1.RestartPolicyNever,
 			// Nothing in the sandbox calls the Kubernetes API. A mounted token would only give a compromised agent a credential to steal.
 			AutomountServiceAccountToken: new(false),
-			ImagePullSecrets:             imagePullSecretRefs(p.cfg.ImagePullSecrets),
-			SecurityContext:              restrictedPodSecurityContext(),
-			Volumes:                      sandboxVolumes(workspacesPVC, p.cfg),
-			Containers:                   []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID, execToken)},
+			// Service links would list every Service in the tenant namespace in each command's environment.
+			EnableServiceLinks: new(false),
+			ImagePullSecrets:   imagePullSecretRefs(p.cfg.ImagePullSecrets),
+			SecurityContext:    restrictedPodSecurityContext(),
+			Volumes:            sandboxVolumes(workspacesPVC, p.cfg),
+			Containers:         []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID, execToken)},
 		},
 	}
 
@@ -1493,8 +1495,10 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 					// The agent pod makes no Kubernetes API calls, so it gets no token an agent could read.
 					// Cloud identity webhooks project their own token and are unaffected.
 					AutomountServiceAccountToken: new(false),
-					ImagePullSecrets:             imagePullSecretRefs(p.cfg.ImagePullSecrets),
-					SecurityContext:              restrictedPodSecurityContext(),
+					// Service links would list every Service in the tenant namespace in the agent's environment.
+					EnableServiceLinks: new(false),
+					ImagePullSecrets:   imagePullSecretRefs(p.cfg.ImagePullSecrets),
+					SecurityContext:    restrictedPodSecurityContext(),
 					Containers: []corev1.Container{
 						{
 							Name:            sessionManagerContainerName,
