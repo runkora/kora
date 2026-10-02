@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -68,6 +69,9 @@ func main() {
 	execToken := os.Getenv(execauth.TokenEnv)
 	if execToken == "" {
 		log.Fatalf("%s is not set: refusing to serve an unauthenticated exec server", execauth.TokenEnv)
+	}
+	if err := hideEnviron(); err != nil {
+		log.Fatalf("hide environ: %v", err)
 	}
 
 	srv := grpc.NewServer(
@@ -137,7 +141,7 @@ func (s *execServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStrea
 			cmd.Dir = req.WorkingDir
 		}
 	}
-	cmd.Env = append(os.Environ(), filterEnv(req.Env)...)
+	cmd.Env = append(commandEnv(os.Environ()), filterEnv(req.Env)...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -200,6 +204,18 @@ var deniedEnvNames = map[string]bool{
 	"CDPATH":          true,
 	"GCONV_PATH":      true,
 	"NSS_WRAPPER_LIB": true,
+}
+
+// serverOnlyEnv is sandbox-exec's own configuration, kept from the commands it runs.
+// Anyone holding the exec token can run commands in this sandbox, so a command must not be able to read it.
+var serverOnlyEnv = []string{execauth.TokenEnv, "SANDBOX_EXEC_PORT"}
+
+// commandEnv is the pod environment a command runs with, minus serverOnlyEnv.
+func commandEnv(env []string) []string {
+	return slices.DeleteFunc(slices.Clone(env), func(e string) bool {
+		key, _, _ := strings.Cut(e, "=")
+		return slices.Contains(serverOnlyEnv, key)
+	})
 }
 
 // filterEnv drops entries from req.Env that would let a caller hijack the
