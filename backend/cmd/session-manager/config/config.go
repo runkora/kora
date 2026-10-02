@@ -86,7 +86,7 @@ type Config struct {
 	} `yaml:"opencode"`
 
 	InferenceGateway struct {
-		// URL is the base URL of the Orbit inference gateway.
+		// URL is the base URL of the kora inference gateway.
 		// Injected as OPENAI_BASE_URL for Codex; written into the OpenCode config for OpenCode.
 		URL string `yaml:"url"`
 	} `yaml:"inferenceGateway"`

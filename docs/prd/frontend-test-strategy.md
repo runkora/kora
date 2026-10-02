@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-The Orbit frontend has zero test coverage and no test infrastructure. With the Terra design system (`@orbit/terra`) established as a stable, independent workspace package, and the application growing beyond a placeholder page — with a working OIDC auth flow, a BFF session layer, and a dashboard shell — shipping without a test strategy means every change carries unquantified regression risk.
+The kora frontend has zero test coverage and no test infrastructure. With the Terra design system (`@orbit/terra`) established as a stable, independent workspace package, and the application growing beyond a placeholder page — with a working OIDC auth flow, a BFF session layer, and a dashboard shell — shipping without a test strategy means every change carries unquantified regression risk.
 
 This PRD defines a layered, package-aware test strategy that gives each layer of the frontend stack — workspace packages, app components, BFF routes, and end-to-end flows — the right type of test, the right tooling, and a clear execution model that scales as the monorepo grows. A central principle is that **integration tests prioritise manipulating real application state over mocking** — tests intercept at the HTTP boundary via MSW, not at the module level, so the actual component logic and data-fetching pipeline are exercised. Where mocking is unavoidable, it is centralised in a single, typed `test-utils/` directory shared across all test tiers.
 
@@ -694,7 +694,7 @@ All open questions have been resolved.
 
 ### Related Documents
 
-- [PRD: Orbit Terra Design System](./design-system.md) — establishes the workspace package structure this strategy builds on
+- [PRD: kora Terra Design System](./design-system.md) — establishes the workspace package structure this strategy builds on
 - [Terra README](../../frontend/src/packages/terra/README.md) — AI assistant rules including Rule 8 (do not modify Terra while working on app code)
 - [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) — test tooling selection, Next.js compatibility, E2E strategy
 

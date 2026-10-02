@@ -1,87 +1,70 @@
+import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { useState } from 'react';
-import { Stack } from '../layout/stack';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Text } from '../typography/typography';
 import { Toggle } from './toggle';
 
+/**
+ * Toggle
+ *
+ * An on/off switch for a setting that takes effect straight away.
+ */
 const meta: Meta<typeof Toggle> = {
   title: 'Terra/Atoms/Toggle',
   component: Toggle,
-  parameters: {
-    layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
-  },
   tags: ['autodocs'],
-  argTypes: {
-    checked: { control: 'boolean' },
-    disabled: { control: 'boolean' },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof Toggle>;
 
-function DefaultExample() {
-  const [on, setOn] = useState(false);
+function Labelled({ label, initial = false }: { label: string; initial?: boolean }) {
+  const [on, setOn] = React.useState(initial);
+  const id = React.useId();
   return (
-    <Stack direction="horizontal" gap="snug" align="center">
-      <Toggle checked={on} onChange={setOn} aria-label="Enable feature" />
-      <Text size="caption" color="muted">
-        {on ? 'Enabled' : 'Disabled'}
+    <div className="flex items-center justify-between gap-4">
+      <Text as="span" id={id}>
+        {label}
       </Text>
-    </Stack>
+      <Toggle checked={on} onChange={setOn} aria-labelledby={id} />
+    </div>
   );
 }
 
-/** Interactive — click to switch the toggle */
-export const Default: Story = {
-  render: () => <DefaultExample />,
-};
-
-/** Checked — feature is active */
-export const Checked: Story = {
-  render: () => <Toggle checked onChange={() => {}} aria-label="Enable model" />,
-};
-
-/** Unchecked — feature is inactive */
-export const Unchecked: Story = {
-  render: () => <Toggle checked={false} onChange={() => {}} aria-label="Enable model" />,
-};
-
-/** Disabled states — cannot be interacted with */
-export const Disabled: Story = {
+export const Overview: Story = {
   render: () => (
-    <Stack direction="horizontal" gap="comfortable" align="center">
-      <Stack gap="tight" align="center">
-        <Toggle checked={false} onChange={() => {}} disabled aria-label="Disabled off" />
-        <Text size="micro" color="muted">
-          off
-        </Text>
-      </Stack>
-      <Stack gap="tight" align="center">
-        <Toggle checked onChange={() => {}} disabled aria-label="Disabled on" />
-        <Text size="micro" color="muted">
-          on
-        </Text>
-      </Stack>
-    </Stack>
+    <div className="max-w-sm space-y-8">
+      <Example title="Beside a label">
+        <div className="flex flex-col gap-3">
+          <Labelled label="Enable model" initial />
+          <Labelled label="Send weekly summary" />
+        </div>
+      </Example>
+    </div>
   ),
 };
 
-function WithLabelExample() {
-  const [on, setOn] = useState(true);
-  return (
-    <Stack direction="horizontal" gap="snug" align="center">
-      <Toggle checked={on} onChange={setOn} aria-label="Enable model routing" />
-      <Text size="body">Enable model routing</Text>
-    </Stack>
-  );
-}
-
-/** With an adjacent visible label */
-export const WithLabel: Story = {
-  render: () => <WithLabelExample />,
+export const Options: Story = {
+  render: () => (
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="checked={false}" use="Off.">
+          <Toggle checked={false} onChange={() => {}} aria-label="Off" />
+        </Option>
+        <Option name="checked" use="On.">
+          <Toggle checked onChange={() => {}} aria-label="On" />
+        </Option>
+        <Option name="disabled, off" use="Cannot be changed.">
+          <Toggle checked={false} disabled onChange={() => {}} aria-label="Off, disabled" />
+        </Option>
+        <Option name="disabled, on" use="Cannot be changed.">
+          <Toggle checked disabled onChange={() => {}} aria-label="On, disabled" />
+        </Option>
+        <Option name="aria-label" use="Names the switch when there is no visible text beside it.">
+          <Toggle checked onChange={() => {}} aria-label="Enable model" />
+        </Option>
+      </OptionTable>
+    </div>
+  ),
 };

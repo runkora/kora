@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit users currently have no way to persist UI choices across sessions or devices. This PRD defines a lightweight, backend-synced user preferences system that allows users to customise their Orbit experience — column layouts, analytics time windows, favourited models, and more — with changes that follow them across browsers and devices without any additional action on their part.
+kora users currently have no way to persist UI choices across sessions or devices. This PRD defines a lightweight, backend-synced user preferences system that allows users to customise their kora experience — column layouts, analytics time windows, favourited models, and more — with changes that follow them across browsers and devices without any additional action on their part.
 
 ---
 
@@ -18,18 +18,18 @@ Orbit users currently have no way to persist UI choices across sessions or devic
 
 ### Current State
 
-All UI state in Orbit is ephemeral. Column visibility choices, analytics time windows, and any other display customisations are lost the moment a user closes a tab or switches devices. There is no mechanism for a user to declare "I always want to see these columns" and have that be honoured everywhere they use Orbit.
+All UI state in kora is ephemeral. Column visibility choices, analytics time windows, and any other display customisations are lost the moment a user closes a tab or switches devices. There is no mechanism for a user to declare "I always want to see these columns" and have that be honoured everywhere they use kora.
 
 ### User Pain Points
 
-- Reconfiguring table columns on every session is friction that disproportionately affects power users who open Orbit from multiple machines or browsers.
+- Reconfiguring table columns on every session is friction that disproportionately affects power users who open kora from multiple machines or browsers.
 - Analysts who work primarily with certain metrics have no way to de-clutter views by hiding irrelevant columns or charts.
 - Users who share a machine with colleagues cannot each have their own layout without overwriting the other's local storage.
 
 ### Business Impact
 
 - UX friction increases time-to-insight for analysts using the logs, usage, and analytics tables daily.
-- Missing personalisation reinforces a perception of Orbit as a prototype rather than a production-grade platform.
+- Missing personalisation reinforces a perception of kora as a prototype rather than a production-grade platform.
 
 ---
 

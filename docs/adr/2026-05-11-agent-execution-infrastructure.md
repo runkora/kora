@@ -96,8 +96,8 @@ Each pod in the StatefulSet contains three containers:
 
 | Container | Role |
 |---|---|
-| `session-manager` | Orbit-built main container; manages concurrent sessions, subprocesses, worktrees |
-| `identity-proxy` | Existing Orbit sidecar; SVID → platform JWT; injects JWT on outbound LLM calls via ext_proc |
+| `session-manager` | kora-built main container; manages concurrent sessions, subprocesses, worktrees |
+| `identity-proxy` | Existing kora sidecar; SVID → platform JWT; injects JWT on outbound LLM calls via ext_proc |
 | `envoy` | Istio-injected; mTLS for all pod-to-pod traffic; runs ext_proc for outbound token injection |
 
 ### Naming and Routing

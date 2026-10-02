@@ -1,7 +1,7 @@
 /**
  * Terra Design Tokens
  * ===================
- * Orbit's visual foundation. Import this file once at the application root.
+ * The Kora visual foundation. Import this file once at the application root.
  *
  * Usage:
  *   @import "@orbit/terra/src/tokens/tokens.css";
@@ -11,111 +11,73 @@
  * `border-border-subtle`) without any additional configuration.
  *
  * ── Theming ──────────────────────────────────────────────────────────────────
- * The entire colour scheme is derived from four seed variables. To retheme,
- * override these on :root (or any selector) — nothing else needs to change:
+ * The palette is a set of raw hex values (--terra-raw-*) for dark, with a
+ * [data-theme='light'] block that overrides them. Semantic tokens in @theme
+ * reference the raw values, so a brand changes by redefining them under its own
+ * selector, for example [data-brand='other'].
  *
- *   --terra-neutral-hue:    240   (0–360°  — blue-grey default)
- *   --terra-neutral-chroma: 0.02  (0–0.37  — how tinted the neutrals are)
- *   --terra-accent-hue:     210   (0–360°  — electric cyan default)
- *   --terra-accent-chroma:  0.18  (0–0.37  — accent saturation)
- *   --terra-bg-base:        4%    (0–20%   — base lightness for background surfaces)
- *                                   4%  = near-black (default)
- *                                   13% = charcoal (recommended for most UIs)
- *                                   18% = mid-dark
+ * Corner radii have their own seed, --terra-radius-unit. sm, md and lg are 1x,
+ * 2x and 3x of it. Changing the unit rescales every radius and keeps nested
+ * radii proportional.
  *
- * Only the four background steps (background → surface-overlay) shift with
- * --terra-bg-base. Foreground and mid-tone steps stay fixed so text contrast
- * is never compromised regardless of the base value.
- *
- * All values use OKLCH — a perceptually-uniform colour space built into every
- * modern browser (Chrome 111+, Firefox 113+, Safari 15.4+). No npm dependency
- * or PostCSS plugin is required.
- *
- * Aesthetic: dark and technical — deep backgrounds, accent colours that read
- * as signals or pulses. The nervous-system metaphor guides every value here.
+ * Surfaces step lighter with elevation in both themes. Foreground
+ * and status colours are chosen to clear WCAG AA 4.5:1 as text on their own
+ * tint, and border to clear 3:1 as a non-text boundary.
  */
 
 @import 'tailwindcss';
 
-/* ─── Theme seeds ─────────────────────────────────────────────────────────── */
-/* Override any of these five values to retheme the entire system.             */
-/* The four background steps (background → surface-overlay) are derived from  */
-/* --terra-bg-base via calc() offsets. All other steps are fixed lightness.   */
+/* ─── Radius seed ─────────────────────────────────────────────────────────── */
+/* sm, md and lg are 1x, 2x and 3x of the unit. Changing it rescales every    */
+/* radius and keeps nested radii proportional.                                */
 :root {
   color-scheme: dark;
-  --terra-neutral-hue: 248;
-  --terra-neutral-chroma: 0.005;
-  --terra-accent-hue: 8;
-  --terra-accent-chroma: 0.17;
-  --terra-bg-base: 13%; /* increase to lighten all background surfaces   */
-
-  /* Elevation offsets from --terra-bg-base; light mode flips their sign */
-  --terra-bg-step-1: 5%; /* surface           */
-  --terra-bg-step-2: 10%; /* surface-elevated  */
-  --terra-bg-step-3: 16%; /* surface-overlay   */
+  --terra-radius-unit: 0.375rem;
 }
 
 /* ─── Raw colour palette ─────────────────────────────────────────────────── */
-/* Derived from the seeds above. Do not consume these directly in components. */
+/* Kora palette. Do not consume these directly in components.                  */
 /* Semantic tokens in @theme reference them below.                            */
 
 :root {
-  /* Neutral scale — lightness steps, fixed chroma and hue from seeds          */
-  /* The first four steps derive from --terra-bg-base so background darkness   */
-  /* is controllable without touching individual steps. Default base = 4%:     */
-  /*   raw-black  = base + 0  (background)                                     */
-  /*   raw-950    = base + 5% (surface)                                        */
-  /*   raw-900    = base + 10% (surface-elevated)                              */
-  /*   raw-800    = base + 16% (surface-overlay)                               */
-  --terra-raw-black: oklch(
-    var(--terra-bg-base) var(--terra-neutral-chroma) var(--terra-neutral-hue)
-  );
-  --terra-raw-950: oklch(
-    calc(var(--terra-bg-base) + var(--terra-bg-step-1)) var(--terra-neutral-chroma)
-      var(--terra-neutral-hue)
-  );
-  --terra-raw-900: oklch(
-    calc(var(--terra-bg-base) + var(--terra-bg-step-2)) var(--terra-neutral-chroma)
-      var(--terra-neutral-hue)
-  );
-  --terra-raw-800: oklch(
-    calc(var(--terra-bg-base) + var(--terra-bg-step-3)) var(--terra-neutral-chroma)
-      var(--terra-neutral-hue)
-  );
-  --terra-raw-700: oklch(28% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-600: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-500: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-400: oklch(58% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-300: oklch(72% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-200: oklch(82% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-100: oklch(90% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-white: oklch(96% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  /* Neutral scale — background, three surface steps, then a border-to-text ramp. */
+  --terra-raw-black: #0d0f11;
+  --terra-raw-950: #1a1d20;
+  --terra-raw-900: #22262a;
+  --terra-raw-800: #2b3036;
+  --terra-raw-700: #343a40;
+  --terra-raw-600: #3d434a;
+  --terra-raw-500: #5a6067;
+  --terra-raw-400: #7f858b;
+  --terra-raw-300: #c9c8c2;
+  --terra-raw-200: #dcd9d2;
+  --terra-raw-100: #e6e3db;
+  --terra-raw-white: #ece9e2;
 
   /* Accent scale — vivid steps from dark border through hover */
-  --terra-raw-accent-600: oklch(42% var(--terra-accent-chroma) var(--terra-accent-hue));
-  --terra-raw-accent-500: oklch(58% var(--terra-accent-chroma) var(--terra-accent-hue));
-  --terra-raw-accent-400: oklch(72% var(--terra-accent-chroma) var(--terra-accent-hue));
-  --terra-raw-accent-300: oklch(82% var(--terra-accent-chroma) var(--terra-accent-hue));
+  --terra-raw-accent-600: #4d6b80;
+  --terra-raw-accent-500: #4d6b80;
+  --terra-raw-accent-400: #8aa7bb;
+  --terra-raw-accent-300: #9ab4c6;
 
   /* Accent foreground — dark enough to be legible on any accent background */
-  --terra-raw-accent-fg: oklch(9% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-accent-fg: #0d0f11;
 
-  /* Status — semantic signal colours; independent of the neutral/accent seeds */
-  --terra-raw-healthy: #9ce37d;
-  --terra-raw-degraded: #ffd046;
-  --terra-raw-error: #ef4444;
-  --terra-raw-idle: oklch(45% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-pending: oklch(72% var(--terra-accent-chroma) var(--terra-accent-hue));
+  /* Status — semantic signal colours, chosen to clear 4.5:1 on their own tint  */
+  --terra-raw-healthy: #6fa98a;
+  --terra-raw-degraded: #c9a45c;
+  --terra-raw-error: #e48a82;
+  --terra-raw-pending: #8aa7bb;
 
   /* Provider brand colours — used only for provider identity badges.           */
   /* Raw hex values kept as-is; cloud providers own these brand colours and they */
   /* do not derive from the Terra seed system.                                   */
   --terra-raw-provider-bedrock: #ff9900; /* AWS Orange   */
   --terra-raw-provider-vertexai: #4285f4; /* Google Blue  */
-  --terra-raw-provider-azure: #0078d4; /* Azure Blue   */
+  --terra-raw-provider-azure: #2b8ce0; /* Azure Blue   */
 
   /* Strategy colours — routing-strategy identity badges.                        */
-  --terra-raw-strategy-weighted: #a855f7; /* Purple — weighted split             */
+  --terra-raw-strategy-weighted: #b45bff; /* Purple — weighted split             */
 
   /* Categorical chart series — fixed order, never cycled; CVD-safe hue spacing */
   --terra-raw-chart-1: oklch(60.8% 0.15 250);
@@ -141,46 +103,68 @@
   /* Declared here, not inline in @theme — @theme inline bakes literals into    */
   /* utilities, and only var() references can be re-themed at runtime.           */
   /* subtle: L=63% is the minimum clearing WCAG AA 4.5:1 on every dark layer.    */
-  --terra-raw-subtle: oklch(63% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-subtle: #9aa0a6;
   /* border: L=52% is the minimum clearing WCAG 1.4.11 non-text 3:1.             */
-  --terra-raw-border: oklch(52% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-border: #7f858b;
   /* border-subtle: decorative separators only — WCAG-exempt.                    */
-  --terra-raw-border-subtle: oklch(36% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-border-subtle: rgb(236 233 226 / 10%);
 }
 
 /* ─── Light mode ─────────────────────────────────────────────────────────── */
 /* All values clear the same WCAG thresholds as their dark counterparts.       */
 [data-theme='light'] {
   color-scheme: light;
-  --terra-bg-base: 96%;
+  --terra-raw-white: #0d0f11;
+  --terra-raw-300: #4a4e53;
 
-  --terra-accent-hue: 167;
-  --terra-accent-chroma: 0.14;
+  --terra-raw-accent-400: #445f71;
+  --terra-raw-accent-300: #3b5466;
+  --terra-raw-accent-fg: #ece9e2;
 
-  /* Elevation inverts: cards sit near-white, hover/overlay surfaces recede */
-  --terra-bg-step-1: 3%;
-  --terra-bg-step-2: -4%;
-  --terra-bg-step-3: -8%;
+  --terra-raw-healthy: #2c654b;
+  --terra-raw-degraded: #72561a;
+  --terra-raw-error: #873c34;
+  --terra-raw-pending: #445f71;
 
-  --terra-raw-white: oklch(15% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-300: oklch(40% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-subtle: #575b60;
+  --terra-raw-border: #737980;
+  --terra-raw-border-subtle: rgb(13 15 17 / 12%);
 
-  --terra-raw-accent-400: oklch(52% var(--terra-accent-chroma) var(--terra-accent-hue));
-  --terra-raw-accent-300: oklch(44% var(--terra-accent-chroma) var(--terra-accent-hue));
-  --terra-raw-accent-fg: oklch(98% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-black: #ece9e2;
 
-  --terra-raw-healthy: #3f8f1f;
-  --terra-raw-degraded: #946300;
-  --terra-raw-error: #dc2626;
-  --terra-raw-pending: oklch(48% var(--terra-accent-chroma) var(--terra-accent-hue));
+  --terra-raw-950: #f6f4ef;
 
-  --terra-raw-subtle: oklch(44% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-border: oklch(62% var(--terra-neutral-chroma) var(--terra-neutral-hue));
-  --terra-raw-border-subtle: oklch(85% var(--terra-neutral-chroma) var(--terra-neutral-hue));
+  --terra-raw-900: #f8f6f2;
+
+  --terra-raw-800: #faf8f5;
+
+  --terra-raw-700: #c9c8c2;
+
+  --terra-raw-600: #a9aaa8;
+
+  --terra-raw-500: #7f858b;
+
+  --terra-raw-400: #5f646a;
+
+  --terra-raw-200: #2a2e33;
+
+  --terra-raw-100: #1a1d20;
+
+  --terra-raw-accent-600: #445f71;
+
+  --terra-raw-accent-500: #445f71;
+
+  --terra-raw-provider-bedrock: #824e00;
+
+  --terra-raw-provider-vertexai: #2c58a1;
+
+  --terra-raw-provider-azure: #005ba1;
+
+  --terra-raw-strategy-weighted: #763bad;
 
   /* Shadows — lighter on a light background; reduced opacity vs dark mode */
-  --terra-raw-shadow-sm: 0 2px 8px oklch(0% 0 0 / 0.1);
-  --terra-raw-shadow-elevated: 0 8px 28px oklch(0% 0 0 / 0.12), 0 2px 8px oklch(0% 0 0 / 0.06);
+  --terra-raw-shadow-sm: 0 1px 1px oklch(0% 0 0 / 0.04);
+  --terra-raw-shadow-elevated: 0 2px 6px oklch(0% 0 0 / 0.05);
 
   /* Chart series — same hue order as dark; deeper steps for the light surface */
   --terra-raw-chart-1: oklch(51.8% 0.146 250);
@@ -257,13 +241,16 @@
   --shadow-elevated: var(--terra-raw-shadow-elevated);
 
   /* Typography */
-  --font-sans: var(--font-geist-sans, ui-sans-serif, system-ui, sans-serif);
-  --font-mono: var(--font-geist-mono, ui-monospace, 'Cascadia Code', monospace);
+  --font-sans: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--font-geist-mono, 'Geist Mono', ui-monospace, 'Cascadia Code', monospace);
 
-  /* Radii */
-  --radius-sm: 0.25rem; /* 4px  */
-  --radius-md: 0.5rem; /* 8px  */
-  --radius-lg: 0.75rem; /* 12px */
+  /* Radii are multiples of --terra-radius-unit. A theme changes the unit to   */
+  /* rescale all of them. At the default unit xl and 2xl are 18px and 24px.    */
+  --radius-sm: var(--terra-radius-unit); /* 6px by default  */
+  --radius-md: calc(var(--terra-radius-unit) * 2); /* 12px */
+  --radius-lg: calc(var(--terra-radius-unit) * 3); /* 18px */
+  --radius-xl: calc(var(--terra-radius-unit) * 3); /* 18px */
+  --radius-2xl: calc(var(--terra-radius-unit) * 4); /* 24px */
   --radius-full: 9999px; /* pills, status dots, avatars */
 
   /* Motion */
@@ -347,4 +334,20 @@
   to {
     height: 0;
   }
+}
+
+/* ─── Headings ───────────────────────────────────────────────────────────── */
+/* Inter with slightly tighter spacing as headings get larger. Each Heading   */
+/* variant renders a fixed tag, so tag selectors are enough.                  */
+h1 {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+:is(h2, h3) {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+h4 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
 }

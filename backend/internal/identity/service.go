@@ -468,11 +468,11 @@ func resolveDisplayName(name, preferredUsername, email, sub string) string {
 // client (oidc-client-ts) completes PKCE in the browser and hands the resulting
 // id_token to the BFF, which forwards it here. The backend verifies the token
 // cryptographically via JWKS (go-oidc), extracts standard claims, and issues an
-// Orbit platform session token + refresh token.
+// kora platform session token + refresh token.
 //
 // This is the preferred browser auth path: the OIDC token never leaves the
 // browser-to-backend channel, no PKCE state is stored server-side, and the
-// Orbit JWT is sealed into an HttpOnly iron-session cookie by the BFF.
+// kora JWT is sealed into an HttpOnly iron-session cookie by the BFF.
 func (s *Service) ExchangeIDToken(ctx context.Context, req SessionRequest) (*SessionResponse, error) {
 	ctx, span := s.tracer.Start(ctx, "identity.ExchangeIDToken",
 		trace.WithAttributes(

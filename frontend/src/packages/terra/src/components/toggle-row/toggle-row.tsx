@@ -24,7 +24,7 @@ const toggleTextVariants = cva(['min-w-0', 'flex-1', 'transition-opacity'], {
   variants: {
     checked: {
       true: 'opacity-100',
-      false: 'opacity-60',
+      false: 'opacity-85',
     },
   },
   defaultVariants: { checked: false },

@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// EventType identifies the kind of Orbit standard event.
+// EventType identifies the kind of kora standard event.
 type EventType string
 
 const (
@@ -30,7 +30,7 @@ const (
 	EventTypeToolProgress  EventType = "tool_progress"
 )
 
-// Event is an Orbit standard event emitted by the transform layer. No sequence
+// Event is a kora standard event emitted by the transform layer. No sequence
 // number: orbit-agents assigns one when it records the event, and this pod
 // reaches no database.
 type Event struct {

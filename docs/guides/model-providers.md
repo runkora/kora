@@ -1,6 +1,6 @@
 # Model providers
 
-Register each model provider with an `InferenceProvider` resource in the Orbit system namespace (`orbit-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
+Register each model provider with an `InferenceProvider` resource in the kora system namespace (`orbit-system` by default). The provider's name is `<type>:<metadata.name>`, for example `compatible:openrouter`. Changes to the resource or its Secret apply without a restart.
 
 Store credentials in a Secret in the same namespace. Label it `orbit.io/inference-provider=true` and reference it from the resource.
 
@@ -187,7 +187,7 @@ Provider health shows the model count, the last discovery and any upstream error
 
 - the dashboard: Catalog, Providers
 - the API: `GET /v1/catalog/providers`
-- the Orbit MCP tool: `models.providers.status`
+- the kora MCP tool: `models.providers.status`
 
 ## Offer a model to agents
 

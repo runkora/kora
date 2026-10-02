@@ -45,7 +45,7 @@ func renderedStatefulSet() appsv1.StatefulSet {
 }
 
 // assertRestrictedPodSpec checks the parts of the restricted Pod Security
-// Standard that Orbit sets itself; the remaining fields are Kubernetes defaults.
+// Standard that kora sets itself; the remaining fields are Kubernetes defaults.
 func assertRestrictedPodSpec(t *testing.T, spec corev1.PodSpec) {
 	t.Helper()
 	sc := spec.SecurityContext

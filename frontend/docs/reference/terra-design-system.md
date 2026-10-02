@@ -1,6 +1,6 @@
 # Reference: Terra Design System Usage
 
-**Audience:** Frontend engineers writing any JSX in the Orbit frontend.  
+**Audience:** Frontend engineers writing any JSX in the kora frontend.  
 **Reference implementation:** `src/packages/terra/src/`, the Terra source that is the canonical example of every component used correctly.  
 **Related:** `frontend/docs/reference/component-placement.md`, where to put components (tier placement model, full Terra inventory, `@tier` annotations); `AGENTS.md` → **Frontend Development** for the placement decision tree.
 
@@ -285,7 +285,7 @@ import { Heading } from '@orbit/terra';
 **Heading colors:** `foreground` (default), `muted`, `accent`.
 
 ```tsx
-<Heading variant="display">Orbit</Heading>
+<Heading variant="display">kora</Heading>
 <Heading variant="title">Agents</Heading>
 <Heading variant="metric">4,821</Heading>
 <Heading variant="label" color="muted">Last 7 days</Heading>
@@ -350,7 +350,7 @@ import { Text } from '@orbit/terra';
 
 // Disclaimer centred below a form
 <Text size="caption" align="center" color="subtle">
-  Orbit AI can make mistakes. Review important information.
+  kora AI can make mistakes. Review important information.
 </Text>
 ```
 
@@ -692,7 +692,7 @@ import type {
 
 ## Theming (light & dark)
 
-Orbit ships a dark theme by default and a light theme. Theming is driven entirely
+kora ships a dark theme by default and a light theme. Theming is driven entirely
 by design tokens: **you never write a colour value, and components you author are
 theme-aware for free if (and only if) you consume tokens instead of hardcoding
 colours.**
@@ -711,9 +711,9 @@ colours.**
   `--color-border`, `--color-status-*`, …) is derived from them via Tailwind v4's
   `@theme`, so a single attribute swap re-colours the entire UI. All light values
   are tuned to clear the same WCAG contrast thresholds as their dark counterparts.
-- The user-facing switch is the Tier 2 `ThemeToggle` component
-  (`src/components/theme-toggle.tsx`), which calls `setTheme(...)` from
-  `next-themes`.
+- The user-facing switch is the dashboard's `ThemeToggle`
+  (`src/app/(dashboard)/_components/theme-toggle.tsx`), which calls `setTheme(...)`
+  from `next-themes`.
 
 ### Writing theme-aware components
 

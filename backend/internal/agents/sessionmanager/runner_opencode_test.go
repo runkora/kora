@@ -613,7 +613,7 @@ func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
 		name   string
 		prompt string
 	}{
-		{name: "with a prompt", prompt: "# Runtime environment (Orbit)\n## Workspace"},
+		{name: "with a prompt", prompt: "# Runtime environment (kora)\n## Workspace"},
 		{name: "without one"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

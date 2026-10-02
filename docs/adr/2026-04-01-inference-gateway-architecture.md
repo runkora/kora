@@ -2,8 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-04-01
-**Deciders:** Orbit Core Team  
-**Technical Story:** [Inference Gateway PRD](../prd/inference-gateway.md) — defines the requirement for a unified, provider-agnostic inference layer authenticated via Orbit platform tokens.
+**Deciders:** kora Core Team  
+**Technical Story:** [Inference Gateway PRD](../prd/inference-gateway.md) — defines the requirement for a unified, provider-agnostic inference layer authenticated via kora platform tokens.
 
 ---
 
@@ -11,28 +11,28 @@
 
 ### Background
 
-Orbit is the control plane for AI agents. A central use case of any agent is calling language and multimodal models. Without a platform-level inference layer, every agent developer must:
+kora is the control plane for AI agents. A central use case of any agent is calling language and multimodal models. Without a platform-level inference layer, every agent developer must:
 
 - Implement provider-specific API integrations independently
 - Distribute provider credentials (AWS IAM keys, GCP service account JSON, OpenAI API keys) to agent workloads
 - Implement reliability patterns (retries, failover, connection pooling) in every agent
 - Produce no centralised audit trail of model access, cost, or token usage across the platform
 
-The Model Gateway PRD (now retired) proposed a solution but specified a standalone authentication model — gateway-issued tokens independent of Orbit's identity system. Since that PRD was written, the Orbit identity layer ([unified-identity-model](2026-03-05-unified-identity-model.md)), SPIFFE/SPIRE attestation ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)), the Envoy enforcement topology ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md)), and the ext_proc token injection sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)) have all been fully designed and partially implemented. The Inference Gateway must integrate with this infrastructure from day one rather than creating a parallel identity surface.
+The Model Gateway PRD (now retired) proposed a solution but specified a standalone authentication model — gateway-issued tokens independent of kora's identity system. Since that PRD was written, the kora identity layer ([unified-identity-model](2026-03-05-unified-identity-model.md)), SPIFFE/SPIRE attestation ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)), the Envoy enforcement topology ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md)), and the ext_proc token injection sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)) have all been fully designed and partially implemented. The Inference Gateway must integrate with this infrastructure from day one rather than creating a parallel identity surface.
 
-This ADR documents the architectural decisions for the **Inference Gateway** — the Orbit-native, provider-agnostic inference service that:
+This ADR documents the architectural decisions for the **Inference Gateway** — the kora-native, provider-agnostic inference service that:
 
-- Accepts Orbit platform tokens as its only authentication mechanism
+- Accepts kora platform tokens as its only authentication mechanism
 - Exposes an OpenAI-compatible HTTP API
 - Routes requests to AWS Bedrock, Google Vertex AI, Azure AI, and OpenAI direct via a "Bring Your Own Provider" (BYOP) model
-- Enforces access control through a `PolicyEvaluator` interface designed to receive the Orbit Policy Engine (OPA) with no structural changes
+- Enforces access control through a `PolicyEvaluator` interface designed to receive the kora Policy Engine (OPA) with no structural changes
 - Attributes all cost and token usage at full principal resolution (`tenant_id`, `principal_id`, `principal_type`) on every request
 
 ### Problem Statement
 
 We need to define:
 
-1. How the Inference Gateway authenticates callers — specifically whether it uses Orbit's existing platform token system or a new standalone token system
+1. How the Inference Gateway authenticates callers — specifically whether it uses kora's existing platform token system or a new standalone token system
 2. What API surface the gateway exposes to agent developers
 3. How provider-specific protocol translation is structured (the connector abstraction)
 4. How streaming (SSE) is handled through the gateway layer without buffering or breaking the stream
@@ -43,7 +43,7 @@ We need to define:
 
 ### Goals
 
-- Authenticate all callers via Orbit platform tokens — no additional credential surface
+- Authenticate all callers via kora platform tokens — no additional credential surface
 - OpenAI-compatible API so agents can use any existing OpenAI SDK with no code changes beyond the base URL
 - Clean connector abstraction that allows adding new providers without touching routing or handler code
 - Streaming that is transparent to callers — SSE responses flow directly from provider to client without buffering
@@ -54,7 +54,7 @@ We need to define:
 ### Non-Goals
 
 - OPA policy enforcement (Policy Engine not yet built — interface stubbed)
-- Orbit Event Spine integration (Post-MVP)
+- kora Event Spine integration (Post-MVP)
 - Helm chart / credential provisioning mechanism (separate infrastructure ADR)
 - Per-principal rate limiting (Post-MVP — interface designed to accommodate Redis-backed implementation)
 - Anthropic direct API as a separate provider — Claude models are available via AWS Bedrock
@@ -64,9 +64,9 @@ We need to define:
 
 ## Decision Drivers
 
-* **Platform identity consistency**: Orbit's identity model ([unified-identity-model](2026-03-05-unified-identity-model.md)) defines a unified Principal. The Inference Gateway must consume this model, not define a parallel one.
+* **Platform identity consistency**: kora's identity model ([unified-identity-model](2026-03-05-unified-identity-model.md)) defines a unified Principal. The Inference Gateway must consume this model, not define a parallel one.
 * **Agent transparency**: Agents carry platform tokens issued by the Envoy ext_proc sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)). Adding a second credential would break the transparency principle — agents must not manage infrastructure credentials.
-* **OpenAI SDK ubiquity**: The OpenAI SDK is the de facto standard for model inference across the industry. Agents already written against it should require zero code changes to point at Orbit's gateway.
+* **OpenAI SDK ubiquity**: The OpenAI SDK is the de facto standard for model inference across the industry. Agents already written against it should require zero code changes to point at kora's gateway.
 * **Provider diversity**: Four providers at launch with more anticipated. The architecture must absorb new providers without structural changes.
 * **Policy enforcement topology**: [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) establishes that Envoy (Layer 1) handles coarse-grained access control, but model-level and cost-based policy requires application-layer context (the specific model, estimated cost per token) that Envoy cannot reason about. The Policy Engine integration must be at the application layer.
 * **Streaming correctness**: SSE streams must not be buffered — cost tracking and failover semantics must be designed around the streaming lifecycle, not against it.
@@ -83,33 +83,33 @@ We need to define:
 
 #### Option A: Standalone Gateway Token System (Previous PRD Approach)
 
-**Description:** Issue gateway-specific opaque tokens (user-scoped and app-scoped), store them as SHA-256 hashes in PostgreSQL. The gateway validates incoming tokens against its own table. Orbit identity integration is deferred.
+**Description:** Issue gateway-specific opaque tokens (user-scoped and app-scoped), store them as SHA-256 hashes in PostgreSQL. The gateway validates incoming tokens against its own table. kora identity integration is deferred.
 
 **Pros:**
-- Gateway is self-contained — no dependency on the Orbit identity service at runtime
+- Gateway is self-contained — no dependency on the kora identity service at runtime
 - Simple to implement in isolation
 
 **Cons:**
-- Creates a second identity surface: operators now manage both Orbit platform credentials and Inference Gateway tokens
-- Agents must carry two credentials — a platform token for all Orbit services plus an inference token, breaking the transparency principle from [envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)
+- Creates a second identity surface: operators now manage both kora platform credentials and Inference Gateway tokens
+- Agents must carry two credentials — a platform token for all kora services plus an inference token, breaking the transparency principle from [envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)
 - Attribution is per-gateway-token, not per-principal — `tenant_id`, `principal_type`, and the richness of the Principal model are lost
-- This was explicitly described as a temporary design in the previous PRD, pending Orbit identity integration that is now complete
+- This was explicitly described as a temporary design in the previous PRD, pending kora identity integration that is now complete
 - Contradicts the unified identity model ([unified-identity-model](2026-03-05-unified-identity-model.md)) at the point in the platform's development when that model is fully established
 
-#### Option B: Orbit Platform Token ([unified-identity-model](2026-03-05-unified-identity-model.md))
+#### Option B: kora Platform Token ([unified-identity-model](2026-03-05-unified-identity-model.md))
 
-**Description:** The gateway accepts Orbit platform JWTs as its only authentication mechanism. Envoy (Layer 1, [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)) validates the JWT (signature, expiry, JTI blocklist) and forwards the request to the Inference Gateway with the `Authorization: Bearer` header intact. The Inference Gateway handler parses the JWT a second time — a cheap local operation using the same RS256 public key — to extract principal context directly from `PlatformClaims.Orbit` (tenant ID, principal type, identity source, subject). No header injection; the token is the source of truth.
+**Description:** The gateway accepts kora platform JWTs as its only authentication mechanism. Envoy (Layer 1, [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)) validates the JWT (signature, expiry, JTI blocklist) and forwards the request to the Inference Gateway with the `Authorization: Bearer` header intact. The Inference Gateway handler parses the JWT a second time — a cheap local operation using the same RS256 public key — to extract principal context directly from `PlatformClaims.Orbit` (tenant ID, principal type, identity source, subject). No header injection; the token is the source of truth.
 
 **Pros:**
 - Zero additional credential surface — agents already carry platform tokens issued by the ext_proc sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)); they simply point their OpenAI client at the Inference Gateway base URL
-- Human developers use their existing Orbit session token; service principals use their service identity token — the same session that accesses all other Orbit services
+- Human developers use their existing kora session token; service principals use their service identity token — the same session that accesses all other kora services
 - Full Principal model available on every request: `tenant_id`, `principal_id`, `principal_type`, `identity_source`
 - Consistent with the enforcement topology already designed — Envoy handles authentication, the application handles business logic
 - Attribution is maximally granular at no implementation cost: the token already carries everything we need
 
 **Cons:**
-- Runtime dependency on Orbit Gateway and identity service for JWT validation — if the identity service is unavailable, JTI blocklist checks degrade (mitigated: short-lived JWTs expire naturally; blocklist check is fast Redis lookup per [unified-identity-model](2026-03-05-unified-identity-model.md))
-- Requires the Orbit Gateway (Envoy) to be deployed in the call path — not an issue for production, but local Tier-1 development needs awareness
+- Runtime dependency on kora Gateway and identity service for JWT validation — if the identity service is unavailable, JTI blocklist checks degrade (mitigated: short-lived JWTs expire naturally; blocklist check is fast Redis lookup per [unified-identity-model](2026-03-05-unified-identity-model.md))
+- Requires the kora Gateway (Envoy) to be deployed in the call path — not an issue for production, but local Tier-1 development needs awareness
 
 ---
 
@@ -205,8 +205,8 @@ type ProviderConnector interface {
 - LiteLLM supports 100+ providers out of the box; no translation code to write
 
 **Cons:**
-- Deep integration with Orbit identity and policy requires gateway internals access — not possible through a third-party proxy without forking
-- LiteLLM's broad scope (100+ providers, proxy mode, SDK mode) is architectural noise for Orbit's BYOP-4-provider requirement
+- Deep integration with kora identity and policy requires gateway internals access — not possible through a third-party proxy without forking
+- LiteLLM's broad scope (100+ providers, proxy mode, SDK mode) is architectural noise for kora's BYOP-4-provider requirement
 - Introduces a Python runtime dependency into a Go monorepo
 - License and maintenance risk for core platform infrastructure
 - Cannot embed the `PolicyEvaluator` interface or principal context extraction inside a third-party process
@@ -379,7 +379,7 @@ func (a *AllowAllPolicyEvaluator) EvaluateInferenceRequest(_ context.Context, _ 
 
 | # | Decision | Chosen Option |
 |---|---|---|
-| 1 | Authentication approach | **Option B** — Orbit platform tokens ([unified-identity-model](2026-03-05-unified-identity-model.md)) |
+| 1 | Authentication approach | **Option B** — kora platform tokens ([unified-identity-model](2026-03-05-unified-identity-model.md)) |
 | 2 | API surface | **Option B** — OpenAI-compatible API with translation layer |
 | 3 | Provider abstraction | **Option B** — `ProviderConnector` interface per provider |
 | 4 | Streaming architecture | **Option B** — Direct SSE pipe, usage capture from final chunk |
@@ -388,9 +388,9 @@ func (a *AllowAllPolicyEvaluator) EvaluateInferenceRequest(_ context.Context, _ 
 
 ### Rationale
 
-Every decision in this ADR resolves to the option that integrates cleanly with existing Orbit architecture rather than re-inventing infrastructure already designed and partly built. The common thread:
+Every decision in this ADR resolves to the option that integrates cleanly with existing kora architecture rather than re-inventing infrastructure already designed and partly built. The common thread:
 
-**Authentication**: Platform tokens are already issued to every agent via the ext_proc sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)). Requiring a second token would break agent transparency and create a parallel identity surface immediately after completing the work to unify identity. The Inference Gateway is an Orbit service — it uses Orbit credentials.
+**Authentication**: Platform tokens are already issued to every agent via the ext_proc sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)). Requiring a second token would break agent transparency and create a parallel identity surface immediately after completing the work to unify identity. The Inference Gateway is a kora service — it uses kora credentials.
 
 **API surface**: The OpenAI-compatible API surface is the only choice that delivers zero-code-change integration for agent developers. The translation complexity lives in the connector layer, not in every agent ever written.
 
@@ -400,7 +400,7 @@ Every decision in this ADR resolves to the option that integrates cleanly with e
 
 **Routing engine**: The dedicated `RoutingEngine` with a strategy pattern is the correct structural choice. It cleanly separates the concerns of "which provider and model should serve this request" from "how do I call that provider". Retry and failover logic belongs in the execution loop, not in the HTTP handler.
 
-**Policy evaluator**: Envoy's Layer 1 enforcement answers endpoint-level access control. Model-level policy (which model a tenant can use, cost thresholds, model family restrictions) requires the resolved model and estimated cost — context only available inside the gateway process at request time. The interface-plus-stub pattern is the established Orbit approach to designing integration points before the dependent service ships.
+**Policy evaluator**: Envoy's Layer 1 enforcement answers endpoint-level access control. Model-level policy (which model a tenant can use, cost thresholds, model family restrictions) requires the resolved model and estimated cost — context only available inside the gateway process at request time. The interface-plus-stub pattern is the established kora approach to designing integration points before the dependent service ships.
 
 ---
 
@@ -780,7 +780,7 @@ Claude Code and all tools built on the Anthropic Python/TypeScript SDKs use the 
 
 **Header Normalisation (Edge Envoy — not gateway service):**
 
-Anthropic SDK clients send credentials as `x-api-key`. Orbit platform tokens are JWTs. For human callers (e.g. Claude Code running locally), the developer sets `ANTHROPIC_API_KEY` to their Orbit platform token. The edge Envoy (inbound north-south gateway, [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)) is configured with a Lua or `header_to_metadata` filter that promotes `x-api-key` → `Authorization: Bearer` on the `/v1/messages` path before JWT validation runs. This is a filter-chain configuration on the edge Envoy listener — not a pod sidecar concern:
+Anthropic SDK clients send credentials as `x-api-key`. kora platform tokens are JWTs. For human callers (e.g. Claude Code running locally), the developer sets `ANTHROPIC_API_KEY` to their kora platform token. The edge Envoy (inbound north-south gateway, [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)) is configured with a Lua or `header_to_metadata` filter that promotes `x-api-key` → `Authorization: Bearer` on the `/v1/messages` path before JWT validation runs. This is a filter-chain configuration on the edge Envoy listener — not a pod sidecar concern:
 
 ```
 Claude Code (local)
@@ -994,7 +994,7 @@ inference_gateway:
 
 ### Positive
 
-- **Zero additional credential burden on agents:** Platform tokens already carried via the SPIFFE/SPIRE + Envoy ext_proc flow ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)) are the only credential required. The inference API is just another Orbit service from the agent's perspective.
+- **Zero additional credential burden on agents:** Platform tokens already carried via the SPIFFE/SPIRE + Envoy ext_proc flow ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)) are the only credential required. The inference API is just another kora service from the agent's perspective.
 - **OpenAI SDK compatibility:** Agents written against the OpenAI SDK need only change `base_url`. The translation layer isolates provider churn from agent code permanently.
 - **Full principal attribution from day one:** Every usage record carries `tenant_id`, `principal_id`, and `principal_type` from the platform token — no schema migration will ever be needed to add these columns.
 - **Provider-agnostic gateway internals:** Handlers and the routing engine operate against interfaces. Adding a fifth provider (e.g. Mistral direct API) is a new `providers/mistral/connector.go` implementation — zero changes to routing, handlers, or policy code.
@@ -1082,7 +1082,7 @@ inference_gateway:
 > Dependent on Phase 1–4 completion. Designed in this ADR to confirm architectural fit; implemented as a follow-on sprint.
 
 - `internal/inferencegw/handlers_anthropic.go` — `AnthropicHandler`: translates `POST /v1/messages` request/response to/from internal `ChatCompletionRequest`/`ChatCompletionResponse`; implements the Anthropic SSE event lifecycle serialiser (`message_start`, `content_block_start`, `content_block_delta`, `content_block_stop`, `message_delta`, `message_stop`)
-- Edge Envoy Lua filter configuration: `x-api-key` → `Authorization: Bearer` header promotion scoped to the `/v1/messages` path; added to the Orbit Gateway Envoy listener filter chain (infrastructure change, separate PR)
+- Edge Envoy Lua filter configuration: `x-api-key` → `Authorization: Bearer` header promotion scoped to the `/v1/messages` path; added to the kora Gateway Envoy listener filter chain (infrastructure change, separate PR)
 - `InferenceUsageRepository`: `api_dialect` column is already present in the MVP migration with `DEFAULT 'openai'` — no schema migration required at P1; `AnthropicHandler` writes `'anthropic'` to the field
 - Handler registration: `POST /v1/messages` route registered alongside the existing `POST /v1/chat/completions` route in `cmd/inference-gateway/main.go`
 - `InferenceUsageFilter.APIDialect` field added for filtering usage queries by dialect
@@ -1161,6 +1161,6 @@ There is no existing Inference Gateway service to migrate from. Phase 1 is a gre
 
 ## Notes
 
-The Inference Gateway is the "motor cortex" of Orbit's nervous system metaphor — it translates agent intent (an inference request) into coordinated action (a model call) through the platform's unified identity, policy, and observability infrastructure. Every architectural decision in this ADR is made in service of that metaphor: the agent should be aware only of what it wants to do, not of how the infrastructure does it.
+The Inference Gateway is the "motor cortex" of kora's nervous system metaphor — it translates agent intent (an inference request) into coordinated action (a model call) through the platform's unified identity, policy, and observability infrastructure. Every architectural decision in this ADR is made in service of that metaphor: the agent should be aware only of what it wants to do, not of how the infrastructure does it.
 
 **Last Updated:** 2025-07-15

@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-02-17
 **Deciders:** Engineering Team
-**Technical Story:** Establishing architectural patterns for data access and code organization as Orbit transitions from prototype to production system.
+**Technical Story:** Establishing architectural patterns for data access and code organization as kora transitions from prototype to production system.
 
 ---
 
 ## Context
 
-As Orbit grows from initial prototype to a multi-feature control plane, we need to establish clear patterns for code organization and data access that support:
+As kora grows from initial prototype to a multi-feature control plane, we need to establish clear patterns for code organization and data access that support:
 
 - Multiple feature domains (identity, policy, credentials, agents, runs, gateways, events)
 - Shared database infrastructure
@@ -19,7 +19,7 @@ As Orbit grows from initial prototype to a multi-feature control plane, we need 
 
 ### Background
 
-The Orbit backend is a Go application serving as a control plane for autonomous agents. It manages multiple concerns including authentication, policy enforcement, credential brokering, agent lifecycle, and gateway routing. Each of these domains has its own business logic and data access needs, but they share common platform infrastructure (database connections, migrations, logging, observability).
+The kora backend is a Go application serving as a control plane for autonomous agents. It manages multiple concerns including authentication, policy enforcement, credential brokering, agent lifecycle, and gateway routing. Each of these domains has its own business logic and data access needs, but they share common platform infrastructure (database connections, migrations, logging, observability).
 
 ### Problem Statement
 
@@ -45,7 +45,7 @@ The key tension is between:
 
 ### Non-Goals
 
-- Building a reusable framework or library (Orbit is an application)
+- Building a reusable framework or library (kora is an application)
 - Strict adherence to DDD patterns from other language ecosystems
 - Supporting multiple database backends initially (can add later)
 - Creating a "clean architecture" with rigid layer separation

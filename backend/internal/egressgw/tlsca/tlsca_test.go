@@ -35,8 +35,8 @@ func newCA(t *testing.T, tenant string) (*IssuingCA, []byte) {
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName:   "Orbit Test CA: tenant=" + tenant,
-			Organization: []string{"Orbit Egress Gateway (Test)"},
+			CommonName:   "kora Test CA: tenant=" + tenant,
+			Organization: []string{"kora Egress Gateway (Test)"},
 		},
 		NotBefore:             now.Add(-1 * time.Minute),
 		NotAfter:              now.Add(365 * 24 * time.Hour),

@@ -30,7 +30,7 @@ const (
 
 	// podLabelSpiffeService is matched by the orbit-tenant-service
 	// ClusterSPIFFEID, which issues spiffe://<td>/tenant/<ns>/service/<value>.
-	// An MCP server pod needs it: Orbit's sidecars take their certificates from
+	// An MCP server pod needs it: kora's sidecars take their certificates from
 	// SPIRE, so a pod with no registration has no mesh identity.
 	podLabelSpiffeService = "spiffe.io/service"
 
@@ -79,7 +79,7 @@ type InjectionConfig struct {
 	OPAResources  corev1.ResourceRequirements
 }
 
-// PodMutator injects Orbit enforcement dependencies before Istio injection.
+// PodMutator injects kora enforcement dependencies before Istio injection.
 type PodMutator struct {
 	Client  client.Client
 	Decoder admission.Decoder
@@ -167,8 +167,8 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error
 		pod.Annotations[podAnnotationTenantID] = tenantName
 	}
 
-	// Orbit's own containers below are overwritten by name. Istio's are not
-	// Orbit's to overwrite, and a pod that declares them itself is trying to
+	// kora's own containers below are overwritten by name. Istio's are not
+	// kora's to overwrite, and a pod that declares them itself is trying to
 	// stand in for the sidecar; refuse it rather than let it through.
 	if name := preDeclaredIstioContainer(&pod.Spec); name != "" {
 		return fmt.Errorf("pod declares its own %q container; Istio injects that", name)
@@ -368,8 +368,8 @@ func mergeUserVolumeMounts(existing string) (string, error) {
 	return string(out), err
 }
 
-// ensureVolume sets an Orbit-owned volume by name, overwriting any pod-supplied
-// definition of the same name. Every caller here is one of Orbit's own fixed
+// ensureVolume sets a kora-owned volume by name, overwriting any pod-supplied
+// definition of the same name. Every caller here is one of kora's own fixed
 // volume names (workload-socket, id-proxy-sock, orbit-opa-config): a tenant pod
 // that pre-declares one of these itself must not get its definition kept, or the
 // injected sidecar mounts an attacker-controlled volume instead of the real one.

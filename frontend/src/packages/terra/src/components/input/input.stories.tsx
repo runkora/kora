@@ -1,96 +1,77 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Input } from './input';
+import { Label } from '../label/label';
 
+/**
+ * Input
+ *
+ * A single-line text box. Pair it with a Label so people know what to type.
+ */
 const meta: Meta<typeof Input> = {
   title: 'Terra/Atoms/Input',
   component: Input,
-  parameters: {
-    layout: 'centered',
-    backgrounds: { default: 'orbit' },
-  },
   tags: ['autodocs'],
-  argTypes: {
-    type: {
-      control: 'select',
-      options: ['text', 'email', 'password', 'number', 'search', 'url'],
-    },
-    hasError: { control: 'boolean' },
-    disabled: { control: 'boolean' },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof Input>;
 
-export const Default: Story = {
-  args: { placeholder: 'Enter a value…', className: 'w-72' },
-};
-
-export const WithValue: Story = {
-  args: { defaultValue: 'apollo-3', className: 'w-72' },
-};
-
-export const Email: Story = {
-  args: { type: 'email', placeholder: 'you@example.com', className: 'w-72' },
-};
-
-export const Password: Story = {
-  args: { type: 'password', placeholder: 'Enter password', className: 'w-72' },
-};
-
-export const ErrorState: Story = {
-  args: { hasError: true, defaultValue: 'bad-value', className: 'w-72' },
-};
-
-export const Disabled: Story = {
-  args: { disabled: true, placeholder: 'Not editable', className: 'w-72' },
-};
-
-export const DisabledWithValue: Story = {
-  args: { disabled: true, defaultValue: 'read-only-value', className: 'w-72' },
-};
-
-export const AllStates: Story = {
+export const Overview: Story = {
   render: () => (
-    <div className="flex flex-col gap-3 w-72">
-      <Input placeholder="Default" />
-      <Input defaultValue="With value" />
-      <Input hasError defaultValue="Error state" />
-      <Input disabled placeholder="Disabled" />
-      <Input disabled defaultValue="Disabled with value" />
+    <div className="max-w-sm space-y-8">
+      <Example title="With a label">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="overview-name">Agent name</Label>
+          <Input id="overview-name" placeholder="policy-auditor" />
+        </div>
+      </Example>
+      <Example title="With a value">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="overview-email">Email</Label>
+          <Input id="overview-email" type="email" defaultValue="dev@orbit.local" />
+        </div>
+      </Example>
     </div>
   ),
 };
 
-/** A currency sign pinned inside the left edge — the input text is inset to clear it. */
-export const WithStartAdornment: Story = {
-  args: { startAdornment: '$', type: 'number', defaultValue: '3.00', className: 'w-72' },
-};
-
-/** A unit label pinned inside the right edge. */
-export const WithEndAdornment: Story = {
-  args: { endAdornment: '/ 1M tokens', type: 'number', defaultValue: '15', className: 'w-72' },
-};
-
-/** Both adornments — the pricing-override field anatomy. */
-export const WithBothAdornments: Story = {
-  args: {
-    startAdornment: '$',
-    endAdornment: '/ 1M tokens',
-    type: 'number',
-    defaultValue: '3.00',
-    className: 'w-72',
-  },
-};
-
-/** Adornments compose with `compact` height and error state. */
-export const AdornmentStates: Story = {
+export const Options: Story = {
   render: () => (
-    <div className="flex flex-col gap-3 w-72">
-      <Input startAdornment="$" endAdornment="/ 1M tokens" defaultValue="3.00" />
-      <Input compact startAdornment="$" endAdornment="/ 1M tokens" defaultValue="3.00" />
-      <Input hasError startAdornment="$" defaultValue="not-a-number" />
-      <Input disabled startAdornment="$" placeholder="0.00" />
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="default" use="An empty field with placeholder text.">
+          <Input aria-label="Agent name" placeholder="Agent name" />
+        </Option>
+        <Option name="disabled" use="The field cannot be edited.">
+          <Input aria-label="Agent name, disabled" disabled defaultValue="policy-auditor" />
+        </Option>
+        <Option name="hasError" use="Marks the value as invalid. Show a message next to it.">
+          <Input aria-label="Email, invalid" hasError defaultValue="not-an-email" />
+        </Option>
+        <Option name="readOnly" use="The value can be selected and copied but not changed.">
+          <Input aria-label="Agent ID, read only" readOnly defaultValue="agt_01HXYZ" />
+        </Option>
+        <Option name="mono" use="Fixed-width text for keys, paths and other technical values.">
+          <Input aria-label="Path" mono defaultValue="/api/v1/agents/:id" />
+        </Option>
+        <Option name="compact" use="A shorter field, to line up with small buttons or selects.">
+          <Input aria-label="Search" compact placeholder="Search" />
+        </Option>
+        <Option
+          name="startAdornment"
+          use="Fixed text inside the left edge, such as a currency sign."
+        >
+          <Input aria-label="Input price" type="number" startAdornment="$" defaultValue="3" />
+        </Option>
+        <Option name="endAdornment" use="Fixed text inside the right edge, such as a unit.">
+          <Input aria-label="Output price" type="number" endAdornment="/ 1M" defaultValue="15" />
+        </Option>
+        <Option name='type="password"' use="Hides what is typed. Other types work the same way.">
+          <Input aria-label="Password" type="password" defaultValue="secret-value" />
+        </Option>
+      </OptionTable>
     </div>
   ),
 };

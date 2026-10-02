@@ -79,7 +79,7 @@ The inference-gateway uses this stack in two characteristic ways:
 - `service.go:541-568 checkModelPolicy` — single-resource check before a chat completion.
 - `service.go:576-628 filterTargetsByPolicy` — batch filter of routing candidates against the principal's grants.
 
-Orbit-agents needs the same two shapes: single-resource decisions for `GET/PATCH/DELETE /agent-types/{id}` and friends, batch filtering for `GET /agent-types` and `GET /runs`.
+kora-agents needs the same two shapes: single-resource decisions for `GET/PATCH/DELETE /agent-types/{id}` and friends, batch filtering for `GET /agent-types` and `GET /runs`.
 
 ### Problem Statement
 

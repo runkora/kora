@@ -3,14 +3,14 @@
 **Status:** Implemented  
 **Created:** 2026-05-01  
 **Last Updated:** 2026-05-01  
-**Owner:** Orbit Core Team  
-**Stakeholders:** Orbit Core Team, Agent Developers, Enterprise Platform Operators
+**Owner:** kora Core Team  
+**Stakeholders:** kora Core Team, Agent Developers, Enterprise Platform Operators
 
 ---
 
 ## Executive Summary
 
-The Orbit inference gateway currently exposes two inference endpoints: `POST /v1/chat/completions` (OpenAI dialect) and `POST /v1/messages` (Anthropic dialect). This PRD covers the addition of two new endpoints — `POST /v1/embeddings` and `POST /v1/responses` — to enable embedding model usage and full compatibility with the OpenAI Responses API. The Responses API is the protocol used by OpenAI Codex CLI and is the strategic direction OpenAI is moving toward for agentic workloads.
+The kora inference gateway currently exposes two inference endpoints: `POST /v1/chat/completions` (OpenAI dialect) and `POST /v1/messages` (Anthropic dialect). This PRD covers the addition of two new endpoints — `POST /v1/embeddings` and `POST /v1/responses` — to enable embedding model usage and full compatibility with the OpenAI Responses API. The Responses API is the protocol used by OpenAI Codex CLI and is the strategic direction OpenAI is moving toward for agentic workloads.
 
 ---
 
@@ -18,26 +18,26 @@ The Orbit inference gateway currently exposes two inference endpoints: `POST /v1
 
 ### Current State
 
-Orbit's inference gateway routes chat completion and Anthropic Messages API traffic to three cloud providers (AWS Bedrock, Google Vertex AI, Azure AI). The gateway's virtual model catalog already classifies provider models by capability (`chat`, `embedding`, `image`, etc.), and embedding models are present on all three providers, but there is no handler to serve them. The `CapabilityEmbedding` type is defined in code but models with that capability are intentionally hidden from `GET /v1/models` until a handler ships.
+kora's inference gateway routes chat completion and Anthropic Messages API traffic to three cloud providers (AWS Bedrock, Google Vertex AI, Azure AI). The gateway's virtual model catalog already classifies provider models by capability (`chat`, `embedding`, `image`, etc.), and embedding models are present on all three providers, but there is no handler to serve them. The `CapabilityEmbedding` type is defined in code but models with that capability are intentionally hidden from `GET /v1/models` until a handler ships.
 
 Similarly, OpenAI's Responses API (`POST /v1/responses`) is a distinct, newer wire format that replaces the Chat Completions API for many agentic use cases. Tools like OpenAI Codex CLI use the Responses API exclusively and cannot be pointed at an endpoint that only speaks Chat Completions.
 
 ### User Pain Points
 
 **For Agent Developers:**
-- Cannot use Orbit as a drop-in replacement for the OpenAI API with tools (like Codex) that use the Responses API.
-- Cannot generate embeddings for RAG pipelines, semantic search, or other embedding-dependent workloads through Orbit — must bypass the gateway and call providers directly with raw credentials.
+- Cannot use kora as a drop-in replacement for the OpenAI API with tools (like Codex) that use the Responses API.
+- Cannot generate embeddings for RAG pipelines, semantic search, or other embedding-dependent workloads through kora — must bypass the gateway and call providers directly with raw credentials.
 - Bypassing the gateway means no usage tracking, no cost attribution, no policy enforcement, and no provider failover for these use cases.
 
 **For Platform Operators:**
-- Embedding model calls bypass Orbit entirely, creating a blind spot in cost and usage analytics.
+- Embedding model calls bypass kora entirely, creating a blind spot in cost and usage analytics.
 - Credentials must be distributed to applications that need embeddings, increasing attack surface.
 - No policy control over which principals can use embedding models or Responses API.
 
 ### Business Impact
 
-- **Codex compatibility gap:** Codex CLI is a high-value developer tool. Operators who want to route Codex through Orbit (for auditability, cost control, or model substitution) cannot do so today.
-- **Incomplete provider abstraction:** Orbit promises a unified inference interface; the absence of embeddings and the Responses API are visible gaps in that promise.
+- **Codex compatibility gap:** Codex CLI is a high-value developer tool. Operators who want to route Codex through kora (for auditability, cost control, or model substitution) cannot do so today.
+- **Incomplete provider abstraction:** kora promises a unified inference interface; the absence of embeddings and the Responses API are visible gaps in that promise.
 - **Lost observability:** Usage that bypasses the gateway is invisible to analytics, policy, and cost attribution.
 
 ---
@@ -47,9 +47,9 @@ Similarly, OpenAI's Responses API (`POST /v1/responses`) is a distinct, newer wi
 ### Primary Goals
 
 1. **Embeddings endpoint:** `POST /v1/embeddings` — fully OpenAI-compatible, routable to any provider that exposes an OpenAI-compatible embeddings endpoint, with usage tracking and policy enforcement.
-2. **Responses API endpoint:** `POST /v1/responses` — OpenAI Responses API compatibility, enabling tools like Codex CLI to be pointed at Orbit with zero client-side changes. Streaming and non-streaming supported.
+2. **Responses API endpoint:** `POST /v1/responses` — OpenAI Responses API compatibility, enabling tools like Codex CLI to be pointed at kora with zero client-side changes. Streaming and non-streaming supported.
 3. **Provider parity:** Both endpoints work across all three configured providers (Bedrock, Vertex AI, Azure). Provider-level failures are handled by the existing retry/failover system — the gateway degrades gracefully when a provider does not support an endpoint.
-4. **Full Orbit integration:** Usage tracking, cost attribution, policy enforcement (via OPA), and virtual model routing apply to both new endpoints, identical to existing chat endpoints.
+4. **Full kora integration:** Usage tracking, cost attribution, policy enforcement (via OPA), and virtual model routing apply to both new endpoints, identical to existing chat endpoints.
 
 ### Success Metrics
 
@@ -62,8 +62,8 @@ Similarly, OpenAI's Responses API (`POST /v1/responses`) is a distinct, newer wi
 
 ### Non-Goals
 
-- **Stateful Responses sessions:** The `previous_response_id` field enables stateful multi-turn conversations managed server-side. Orbit is a stateless proxy; it will forward `previous_response_id` to the upstream provider unchanged but will not store or validate response IDs itself. Clients using this field against providers that do not support it will receive provider errors.
-- **Built-in Responses tools:** The Responses API supports provider-hosted tools (`web_search`, `code_interpreter`, `file_search`). These are OpenAI-specific features; Orbit passes them through to the provider unchanged. Whether they work depends entirely on the upstream provider's support.
+- **Stateful Responses sessions:** The `previous_response_id` field enables stateful multi-turn conversations managed server-side. kora is a stateless proxy; it will forward `previous_response_id` to the upstream provider unchanged but will not store or validate response IDs itself. Clients using this field against providers that do not support it will receive provider errors.
+- **Built-in Responses tools:** The Responses API supports provider-hosted tools (`web_search`, `code_interpreter`, `file_search`). These are OpenAI-specific features; kora passes them through to the provider unchanged. Whether they work depends entirely on the upstream provider's support.
 - **Image generation (`POST /v1/images/generations`):** Out of scope for this release.
 - **Rerank (`POST /v1/rerank`):** Out of scope for this release.
 - **Embeddings streaming:** Embeddings are synchronous by nature; no streaming support is required or planned.
@@ -76,8 +76,8 @@ Similarly, OpenAI's Responses API (`POST /v1/responses`) is a distinct, newer wi
 ### Primary User Stories
 
 **As a** developer using Codex CLI,  
-**I want to** point Codex at my Orbit gateway by setting `OPENAI_BASE_URL` and `OPENAI_API_KEY`,  
-**So that** all Codex inference traffic flows through Orbit with full auditability and policy control.
+**I want to** point Codex at my kora gateway by setting `OPENAI_BASE_URL` and `OPENAI_API_KEY`,  
+**So that** all Codex inference traffic flows through kora with full auditability and policy control.
 
 **Acceptance Criteria:**
 - [ ] `POST /v1/responses` accepts the Responses API wire format (`input`, `model`, `tools`, `stream`, etc.)
@@ -88,7 +88,7 @@ Similarly, OpenAI's Responses API (`POST /v1/responses`) is a distinct, newer wi
 ---
 
 **As a** developer building a RAG pipeline,  
-**I want to** call `POST /v1/embeddings` through Orbit using my existing OpenAI SDK client,  
+**I want to** call `POST /v1/embeddings` through kora using my existing OpenAI SDK client,  
 **So that** embedding calls are governed by the same policy, cost tracking, and failover as my chat calls.
 
 **Acceptance Criteria:**
@@ -163,7 +163,7 @@ Both endpoints follow the existing gateway pattern exactly: request decoding →
 
 ### Future Considerations
 
-- `GET /v1/responses/{id}` — retrieve a completed response by ID (requires Orbit to store response IDs)
+- `GET /v1/responses/{id}` — retrieve a completed response by ID (requires kora to store response IDs)
 - Per-capability pricing tiers (embedding tokens priced differently from chat tokens)
 - `CapabilityResponses` detection in provider `models.go` files so `GET /v1/models` can advertise which models support `POST /v1/responses`
 - Image generation and rerank endpoints
@@ -202,7 +202,7 @@ Both endpoints follow the existing gateway pattern exactly: request decoding →
 
 **Security:**
 - No provider credentials exposed to callers
-- All requests require a valid Orbit platform token (enforced by existing `AuthMiddleware`)
+- All requests require a valid kora platform token (enforced by existing `AuthMiddleware`)
 - Policy enforcement via OPA identical to existing chat endpoints
 
 **Reliability:**
@@ -321,5 +321,5 @@ Track Responses API calls distinctly from Chat Completions calls in usage logs.
 
 - **Responses API:** OpenAI's newer inference API (`POST /v1/responses`) with a different wire format from Chat Completions, designed for agentic and tool-use workloads.
 - **Embeddings:** Dense vector representations of text/images produced by embedding models, used for semantic search, RAG, and clustering.
-- **Virtual model:** An Orbit catalog entry that maps a consumer-facing model ID (`family/name`) to one or more provider-specific model routes with configurable failover and routing strategy.
-- **BYOP:** Bring Your Own Provider — operators supply their own cloud credentials; Orbit never holds provider API keys on behalf of customers.
+- **Virtual model:** A kora catalog entry that maps a consumer-facing model ID (`family/name`) to one or more provider-specific model routes with configurable failover and routing strategy.
+- **BYOP:** Bring Your Own Provider — operators supply their own cloud credentials; kora never holds provider API keys on behalf of customers.

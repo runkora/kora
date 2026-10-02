@@ -61,7 +61,7 @@ A modal launched from anywhere in the dashboard, backed by a draft record, with 
 
 The builder opens over whatever the user was doing and returns them to it on close. That is the point of the flow: creating an agent is something you do *from* your context, not somewhere you navigate away to. The mockup draws it exactly this way, launched from the global "New agent" action in the top bar.
 
-This is a new pattern for Orbit. Every existing full-page flow is a route. The builder is the first surface that is a substantial multi-step task rendered over the dashboard, and it is intended to be the template for others.
+This is a new pattern for kora. Every existing full-page flow is a route. The builder is the first surface that is a substantial multi-step task rendered over the dashboard, and it is intended to be the template for others.
 
 **Addressability comes from a search param, not a route.** The builder opens on any dashboard route via `?agent=new` or `?agent={draftId}`. This keeps the modal linkable, refresh-safe, and back-button correct while never taking the user off the page they were on. Once a draft record exists, the builder replaces `?agent=new` with `?agent={draftId}`, so a refresh resumes rather than starting over.
 
@@ -153,7 +153,7 @@ No `Slider`, which existed only for the cut creativity control. Building it woul
 
 ### 6. Feature-scoped compositions stay Tier 3
 
-The step rail, tool tree, guardrail rows, planned block, and review summary live under `agents/_components/builder/`. Each composes Terra primitives and needs no raw elements, so none forces a Terra change. All are single-consumer and Orbit-domain-aware, which is Tier 3 by the decision tree in `component-placement.md`.
+The step rail, tool tree, guardrail rows, planned block, and review summary live under `agents/_components/builder/`. Each composes Terra primitives and needs no raw elements, so none forces a Terra change. All are single-consumer and kora-domain-aware, which is Tier 3 by the decision tree in `component-placement.md`.
 
 ### 7. Environment moves to Tools and access
 

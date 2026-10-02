@@ -4,7 +4,7 @@ package httpclient
 //
 // # When to use these vs Base.Do
 //
-// Use [Base] and [Base.Do] for first-party Orbit service-to-service calls where
+// Use [Base] and [Base.Do] for first-party kora service-to-service calls where
 // your code owns the full request lifecycle (construction, execution, decoding).
 // Base.Do gives you a named OTel span, automatic W3C traceparent injection, HTTP
 // semantic attributes, and structured error helpers — all in one call.

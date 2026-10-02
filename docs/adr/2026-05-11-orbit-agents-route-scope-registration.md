@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-orbit-agents exposes an HTTP management API for agent types and runs. Traffic reaching it from external clients flows through the Orbit policy gateway (Envoy + OPA), which enforces route-level scope checks compiled from the policy-service's OPA bundles.
+orbit-agents exposes an HTTP management API for agent types and runs. Traffic reaching it from external clients flows through the kora policy gateway (Envoy + OPA), which enforces route-level scope checks compiled from the policy-service's OPA bundles.
 
 Until orbit-agents registers its routes with the policy-service, the gateway has no bundle entries for those paths. Depending on the gateway's default posture this means requests are either silently passed through without scope enforcement or blanket-denied — neither is acceptable for a production control-plane API.
 

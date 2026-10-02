@@ -7,10 +7,6 @@ import { useRouter } from 'next/navigation';
 import {
   Badge,
   Button,
-  Card,
-  CardContent,
-  CardFooter,
-  CardHeader,
   DataTable,
   Grid,
   Heading,
@@ -19,18 +15,24 @@ import {
   Separator,
   Stack,
   Text,
+  EmptyState,
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import Link from 'next/link';
-import { EmptyState, MetricCard, StatusBadge } from '@orbit/components';
-import { fmtTokens, fmtUsd } from '@orbit/utils';
+import { StatusBadge } from '@orbit/components';
 import type { AgentTypeUsage } from '@orbit/shared/api';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
 import { fetchAgentTypesUsage } from '../_services/agents-api';
 import { StartRunModal } from './start-run-modal';
 import { openBuilder } from '../_lib/builder-url';
-import { DraftsSection } from './drafts-section';
+import { DraftsButton, DraftsList, useDrafts } from './drafts-section';
+import { AgentCard } from './agent-card';
+import { AgentStatTiles } from './agent-stat-tiles';
+import { AgentsSpendCard } from './agents-spend-card';
+import { RunningNowCard, isLiveRun } from './running-now-card';
+import { PERIOD_OPTIONS, PERIOD_TEXT } from '../_lib/spend';
+import type { AgentsInsights, Period } from '../_lib/spend';
 import { formatRelativeTime } from '../_types';
 import type { AgentTypeRow } from '../_types';
 
@@ -65,71 +67,105 @@ const frameworkVariantMap: Record<string, 'default' | 'outline' | 'secondary'> =
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function AgentsPage() {
+interface AgentsPageProps {
+  /** Data the page cannot fetch yet; see `AgentsInsights`. Each part switches a view on. */
+  insights?: AgentsInsights;
+}
+
+export function AgentsPage({ insights }: AgentsPageProps) {
   const { agentTypes, recentRuns, status, error, refresh } = useAgentsContext();
   const router = useRouter();
+  const { drafts, refresh: refreshDrafts } = useDrafts();
 
   const [startRunTarget, setStartRunTarget] = useState<AgentTypeRow | null>(null);
   const [globalRunOpen, setGlobalRunOpen] = useState(false);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [identityFilter, setIdentityFilter] = useState<'all' | 'autonomous' | 'delegated'>('all');
+  const [draftsOpen, setDraftsOpen] = useState(false);
+  const [period, setPeriod] = useState<Period>('7d');
 
-  // ── Metric card computations ───────────────────────────────────────────────
+  // ── 7-day usage per agent type (inference gateway) ─────────────────────────
+  // Fetched client-side so the list can show spend without blocking the first render.
 
-  const activeAgentCount = useMemo(
-    () => agentTypes.filter((a) => a.state === 'active').length,
-    [agentTypes],
-  );
-
-  const activeRunCount = useMemo(
-    () =>
-      recentRuns.filter((r) => ['active', 'starting', 'pending', 'completing'].includes(r.state))
-        .length,
-    [recentRuns],
-  );
-
-  const completedTodayCount = recentRuns.filter(
-    (r) => r.state === 'completed' && r.completedAt !== null,
-  ).length;
-
-  // ── 7-day cost/usage per agent type (inference gateway) ────────────────────
-  // Fetched client-side so the list can show total + per-agent spend without
-  // blocking the initial render on the usage aggregate.
-
-  const [agentUsage, setAgentUsage] = useState<Record<string, AgentTypeUsage>>({});
+  const [fetchedUsage, setFetchedUsage] = useState<Record<string, AgentTypeUsage>>({});
 
   useEffect(() => {
     let cancelled = false;
     void fetchAgentTypesUsage().then(({ byAgentType }) => {
-      if (!cancelled) setAgentUsage(byAgentType);
+      if (!cancelled) setFetchedUsage(byAgentType);
     });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const totalCost = useMemo(() => {
-    const values = Object.values(agentUsage);
-    if (values.length === 0) return '—';
-    return fmtUsd(values.reduce((acc, u) => acc + u.estimated_cost_usd, 0));
-  }, [agentUsage]);
+  // ── The window the period figures cover ────────────────────────────────────
+  // With per-period data the control picks the window; without it the page is
+  // the fetched 7 days and the run outcomes are whatever the recent runs hold.
 
-  const totalTokensUsed = useMemo(() => {
-    const usageSum = Object.values(agentUsage).reduce((acc, u) => acc + u.total_tokens, 0);
-    return usageSum > 0 ? fmtTokens(usageSum) : '—';
-  }, [agentUsage]);
+  const byPeriod = insights?.byPeriod;
+  const windowData = byPeriod?.[period];
+  const usage = windowData?.usage ?? fetchedUsage;
+  const usageWindow = byPeriod ? period : '7d';
+  const periodText = PERIOD_TEXT[usageWindow].text;
+
+  // ── Figures ────────────────────────────────────────────────────────────────
+
+  const liveRuns = useMemo(() => recentRuns.filter(isLiveRun), [recentRuns]);
+
+  const runCounts = useMemo(() => {
+    const count = (...states: string[]) => liveRuns.filter((r) => states.includes(r.state)).length;
+    return {
+      running: count('active', 'completing'),
+      starting: count('starting'),
+      queued: count('pending'),
+      longestMs: Math.max(0, ...liveRuns.map((r) => r.durationMs ?? 0)),
+    };
+  }, [liveRuns]);
+
+  const outcomes = windowData
+    ? { completed: windowData.completed, failed: windowData.failed }
+    : {
+        completed: recentRuns.filter((r) => r.state === 'completed').length,
+        failed: recentRuns.filter((r) => r.state === 'failed').length,
+      };
+
+  const tokens = useMemo(() => {
+    const values = Object.values(usage);
+    const sum = (pick: (u: AgentTypeUsage) => number) => values.reduce((n, u) => n + pick(u), 0);
+    return {
+      cached: sum((u) => u.cache_read_tokens + u.cache_creation_tokens),
+      input: sum((u) => u.prompt_tokens),
+      output: sum((u) => u.completion_tokens),
+    };
+  }, [usage]);
+
+  const spendByAgent = useMemo(
+    () =>
+      agentTypes
+        .map((a) => ({ name: a.name, cost: usage[a.slug]?.estimated_cost_usd ?? 0 }))
+        .filter((row) => row.cost > 0)
+        .sort((x, y) => y.cost - x.cost),
+    [agentTypes, usage],
+  );
+  const totalCost = spendByAgent.reduce((n, row) => n + row.cost, 0);
+
+  const agentCounts = {
+    total: agentTypes.length,
+    healthy: agentTypes.filter((a) => a.state === 'active').length,
+    provisioning: agentTypes.filter((a) => a.state === 'provisioning').length,
+    delegated: agentTypes.filter((a) => a.identityMode === 'delegated').length,
+  };
 
   // ── Active run counts per agent type ──────────────────────────────────────
 
   const activeRunsByType = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const run of recentRuns) {
-      if (['active', 'starting', 'pending', 'completing'].includes(run.state)) {
-        counts.set(run.agentTypeId, (counts.get(run.agentTypeId) ?? 0) + 1);
-      }
+    for (const run of liveRuns) {
+      counts.set(run.agentTypeId, (counts.get(run.agentTypeId) ?? 0) + 1);
     }
     return counts;
-  }, [recentRuns]);
+  }, [liveRuns]);
 
   // ── Identity filter (list view) ────────────────────────────────────────────
 
@@ -267,6 +303,19 @@ export function AgentsPage() {
           </Text>
         </Stack>
         <Stack direction="horizontal" gap="snug" align="center">
+          {byPeriod && (
+            <SegmentedControl
+              aria-label="Period"
+              value={period}
+              onChange={(value) => setPeriod(value as Period)}
+              options={PERIOD_OPTIONS}
+            />
+          )}
+          <DraftsButton
+            count={drafts.length}
+            open={draftsOpen}
+            onToggle={() => setDraftsOpen((open) => !open)}
+          />
           <Button variant="outline" onClick={() => setGlobalRunOpen(true)}>
             <Icon name="play" size="xs" />
             New Run
@@ -295,27 +344,44 @@ export function AgentsPage() {
         </Stack>
       </Stack>
 
-      {/* The caller's saved builder drafts (own section — a draft has no
-          status, runs, or spend, so it does not merge into the agent table) */}
-      <DraftsSection />
+      {/* The caller's saved builder drafts (a draft has no status, runs, or
+          spend, so it does not merge into the agent list) */}
+      {draftsOpen && drafts.length > 0 && <DraftsList drafts={drafts} onChanged={refreshDrafts} />}
 
-      {/* Metric cards */}
-      <Grid cols={{ base: 2, sm: 3, lg: 5 }} gap="comfortable">
-        <MetricCard icon={<Icon name="bot" />} label="Active Agents" value={activeAgentCount} />
-        <MetricCard icon={<Icon name="activity" />} label="Active Runs" value={activeRunCount} />
-        <MetricCard
-          icon={<Icon name="check-circle" />}
-          label="Completed Runs"
-          value={completedTodayCount}
+      {/* Headline figures beside the spend card */}
+      <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+        <AgentStatTiles
+          agents={agentCounts}
+          runs={runCounts}
+          outcomes={outcomes}
+          tokens={tokens}
+          outcomesText={byPeriod ? periodText : 'recent runs'}
+          periodText={periodText}
         />
-        <MetricCard icon={<Icon name="zap" />} label="Tokens Used" value={totalTokensUsed} />
-        <MetricCard icon={<Icon name="dollar-sign" />} label="Total Cost (7d)" value={totalCost} />
+        <AgentsSpendCard
+          agents={spendByAgent}
+          total={totalCost}
+          periodText={periodText}
+          previousText={PERIOD_TEXT[usageWindow].previous}
+          models={windowData?.models}
+          trend={windowData?.trend}
+          previousTotal={windowData?.previousTotal}
+          budgets={insights?.budgets}
+          tenantBudget={insights?.tenantBudget}
+        />
       </Grid>
 
+      <RunningNowCard runs={liveRuns} />
+
       {/* Section header */}
-      <Text size="supporting" weight="emphasis" color="subtle">
-        Agents
-      </Text>
+      <Stack direction="horizontal" align="baseline" gap="snug">
+        <Text size="supporting" weight="emphasis" color="subtle">
+          Agents
+        </Text>
+        <Text size="caption" color="subtle" mono tabular>
+          {agentTypes.length}
+        </Text>
+      </Stack>
 
       {/* Agent types view — show EmptyState when there are no agents and no error */}
       {status !== 'error' && agentTypes.length === 0 && status !== 'loading' ? (
@@ -329,126 +395,16 @@ export function AgentsPage() {
         /* ── Grid view ─────────────────────────────────────────────────────── */
         <Grid cols={{ base: 1, sm: 2, lg: 3 }} gap="comfortable">
           {agentTypes.map((agent) => (
-            <Card
+            <AgentCard
               key={agent.id}
-              column
-              role="button"
-              onClick={() => router.push(APP_ROUTES.agents.detail(agent.slug))}
-              style={{ cursor: 'pointer' }}
-            >
-              <CardHeader
-                leadingIcon="bot"
-                title={agent.name}
-                description={
-                  <Text mono size="caption" color="muted">
-                    {agent.slug}
-                  </Text>
-                }
-                action={
-                  <Stack direction="horizontal" align="center" gap="tight">
-                    {agent.identityMode === 'delegated' && (
-                      <Badge variant="default" size="sm">
-                        Delegated
-                      </Badge>
-                    )}
-                    <StatusBadge
-                      status={statusMap[agent.state] ?? 'unknown'}
-                      label={labelMap[agent.state]}
-                    />
-                  </Stack>
-                }
-                divider
-              />
-
-              <CardContent padded grow>
-                <Stack gap="snug">
-                  {/* Description — 2 lines truncated */}
-                  <Text
-                    size="supporting"
-                    color="muted"
-                    style={{
-                      display: '-webkit-box',
-                      WebkitLineClamp: 2,
-                      WebkitBoxOrient: 'vertical',
-                      overflow: 'hidden',
-                    }}
-                  >
-                    {agent.description || 'No description.'}
-                  </Text>
-
-                  {/* Meta row: framework badge. The identity model
-                      sits in the header next to status, where posture signals live. */}
-                  <Stack direction="horizontal" gap="tight" wrap>
-                    <Badge variant={frameworkVariantMap[agent.frameworkKey] ?? 'outline'} size="sm">
-                      {agent.framework}
-                    </Badge>
-                  </Stack>
-
-                  {/* Per-agent 7-day cost + tokens (when usage exists) */}
-                  {agentUsage[agent.slug] && (
-                    <Text size="caption" color="muted">
-                      {fmtUsd(agentUsage[agent.slug].estimated_cost_usd)} ·{' '}
-                      {fmtTokens(agentUsage[agent.slug].total_tokens)} tokens · 7d
-                    </Text>
-                  )}
-                </Stack>
-              </CardContent>
-
-              <CardFooter compact justify="between" onClick={(e) => e.stopPropagation()}>
-                <Text size="caption" color="muted">
-                  {activeRunsByType.get(agent.id) ?? 0} active
-                </Text>
-                <Stack direction="horizontal" gap="tight">
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    title="Start run"
-                    aria-label={`Start run for ${agent.name}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setStartRunTarget(agent);
-                    }}
-                  >
-                    <Icon name="play" size="2xs" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Settings for ${agent.name}`}
-                    asChild
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <Link href={APP_ROUTES.agents.detail(agent.slug)}>
-                      <Icon name="settings" size="2xs" />
-                    </Link>
-                  </Button>
-                </Stack>
-              </CardFooter>
-            </Card>
+              agent={agent}
+              usage={usage[agent.slug]}
+              totalCost={totalCost}
+              liveRuns={activeRunsByType.get(agent.id) ?? 0}
+              period={usageWindow}
+              onRun={setStartRunTarget}
+            />
           ))}
-
-          {/* Create new agent card */}
-          <Stack
-            role="button"
-            align="center"
-            gap="tight"
-            onClick={() => openBuilder()}
-            style={{
-              cursor: 'pointer',
-              minHeight: '160px',
-              borderWidth: '1.5px',
-              borderStyle: 'dashed',
-              borderColor: 'var(--color-border)',
-              borderRadius: '8px',
-              justifyContent: 'center',
-              padding: '1.5rem',
-            }}
-          >
-            <Icon name="plus" size="sm" />
-            <Text size="supporting" color="muted">
-              Create new agent
-            </Text>
-          </Stack>
         </Grid>
       ) : (
         /* ── List view ─────────────────────────────────────────────────────── */

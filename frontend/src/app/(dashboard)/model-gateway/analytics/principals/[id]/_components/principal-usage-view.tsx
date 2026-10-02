@@ -3,8 +3,7 @@
 /** @tier 3 — model-gateway/analytics/principals/[id]-scoped. Admin drill-down view. */
 
 import Link from 'next/link';
-import { Button, Icon, Stack } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
+import { Button, Icon, Stack, EmptyState } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { usePrincipalAnalytics } from '../../../../_hooks/use-principal-analytics';
 import { AnalyticsDashboard } from '../../../../_components/analytics/analytics-dashboard';

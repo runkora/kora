@@ -47,7 +47,7 @@ import (
 const appJWTTTL = 10 * time.Minute
 
 // appJWTSkew backdates the App JWT's issued-at to tolerate clock skew between
-// Orbit and GitHub.
+// kora and GitHub.
 const appJWTSkew = 60 * time.Second
 
 // cacheSafetyMargin is how long before true expiry a cached installation token
@@ -741,7 +741,7 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 	})
 	if err != nil {
 		// A 422 permissions rejection is the App installation's own ceiling.
-		// Orbit authorized the action, but the App is not granted this
+		// kora authorized the action, but the App is not granted this
 		// permission level. Translate to the adapter-agnostic sentinel so the
 		// broker returns a forbidden, not a 500.
 		if errors.Is(err, ghclient.ErrInstallationPermissions) {

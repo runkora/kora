@@ -119,8 +119,8 @@ func generateTenantCA(tenant string) (certPEM, keyPEM []byte, err error) {
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName:   "Orbit Tenant CA — " + tenant,
-			Organization: []string{"Orbit Egress Gateway"},
+			CommonName:   "kora Tenant CA — " + tenant,
+			Organization: []string{"kora Egress Gateway"},
 		},
 		NotBefore:             now.Add(-1 * time.Minute),
 		NotAfter:              now.Add(caCertValidity),

@@ -2,7 +2,7 @@
 name: verify-prs
 description: >-
   Triage, locally verify, and drive open GitHub PRs (especially agent/bot-authored
-  ones) toward merge in the Orbit repo. Inventory + audit the queue, deploy each branch
+  ones) toward merge in the kora repo. Inventory + audit the queue, deploy each branch
   to the local k3d cluster and exercise REAL behaviour (not just CI), fix
   lint/tests/review-comments, then merge / close-as-duplicate / send back with documented
   findings. Use when asked to review, triage, "babysit", or shepherd open PRs, to "get PRs
@@ -11,7 +11,7 @@ description: >-
 
 # Verify open PRs and drive them to merge
 
-A repeatable workflow for taking Orbit's open PRs — most authored by the **remote coder
+A repeatable workflow for taking kora's open PRs — most authored by the **remote coder
 agents** from thin specs — to `merged`, `closed`, or `back-to-author` with evidence. The
 defining principle:
 

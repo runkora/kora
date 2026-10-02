@@ -64,7 +64,7 @@ No rule change. Add golden-path guidance for when each element is allowed.
 
 ### `Callout` — Tier 1 (Terra) · `Terra/Atoms/Callout`
 
-A styled informational callout box. Domain-free: any surface could use an informational callout. Does not encode Orbit-specific concepts.
+A styled informational callout box. Domain-free: any surface could use an informational callout. Does not encode kora-specific concepts.
 
 ```ts
 type CalloutVariant = 'info' | 'warning'

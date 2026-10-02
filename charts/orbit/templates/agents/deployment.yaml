@@ -96,7 +96,7 @@ spec:
             - name: ORBIT_GUARDRAILS_SANDBOX_PROVISION_BUDGET_SECS
               value: {{ $guardrails.sandboxProvisionBudgetSecs | quote }}
             - name: ORBIT_SANDBOX_GIT_AUTHOR_NAME
-              value: {{ .Values.agents.config.sandboxGitAuthorName | quote }}
+              value: {{ .Values.agents.config.sandboxGitAuthorName | default "kora-agent" | quote }}
             - name: ORBIT_SANDBOX_GIT_AUTHOR_EMAIL
               value: {{ .Values.agents.config.sandboxGitAuthorEmail | quote }}
             - name: ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB

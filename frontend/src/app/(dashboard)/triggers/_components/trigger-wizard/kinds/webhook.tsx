@@ -1,9 +1,10 @@
 'use client';
 
 /** @tier 3 — triggers-scoped. The webhook kind: an external system posts a
- * signed event to an Orbit endpoint. Step, review rows, draft, done block. */
+ * signed event to a kora endpoint. Step, review rows, draft, done block. */
 
 import {
+  CopyButton,
   FormField,
   Grid,
   Icon,
@@ -16,7 +17,6 @@ import {
   FieldRow,
 } from '@orbit/terra';
 import type { IconName } from '@orbit/terra';
-import { CopyButton } from '@orbit/components';
 import {
   describeMatchCondition,
   matchConditionFrom,
@@ -89,7 +89,7 @@ function StepSource({ state, patch, context }: StepComponentProps) {
         <Stack gap="tight">
           <SectionLabel>Deliver to</SectionLabel>
           <Text size="caption" color="subtle">
-            The Orbit endpoint your provider posts events to. Triggers listen on a source; several
+            The kora endpoint your provider posts events to. Triggers listen on a source; several
             triggers can share one.
           </Text>
         </Stack>
@@ -292,7 +292,7 @@ export const webhookKind: TriggerKindDefinition = {
   id: 'webhook',
   icon: 'webhook',
   title: 'Webhook',
-  description: 'An external service posts a signed event to an Orbit endpoint.',
+  description: 'An external service posts a signed event to a kora endpoint.',
   example: 'GitHub · Alertmanager',
   steps: [
     {
@@ -300,7 +300,7 @@ export const webhookKind: TriggerKindDefinition = {
       railTitle: 'Source',
       railSub: 'Where it comes from',
       description:
-        'Choose the source that posts to Orbit, which of its events starts a run, and what the agent is asked to do.',
+        'Choose the source that posts to kora, which of its events starts a run, and what the agent is asked to do.',
       Component: StepSource,
       validate: validateSource,
     },

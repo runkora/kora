@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-The Orbit Model Gateway currently has a Usage tab populated entirely with mock data and no analytics visibility for individual users. This PRD defines two new analytics experiences: **My Usage** (personal token consumption for any authenticated user) and **Analytics** (tenant-wide aggregated analytics for platform and tenant admins). Both surfaces share the same chart components but operate over different data scopes, gated by a new `platform:analytics:read` policy scope for the admin view.
+The kora Model Gateway currently has a Usage tab populated entirely with mock data and no analytics visibility for individual users. This PRD defines two new analytics experiences: **My Usage** (personal token consumption for any authenticated user) and **Analytics** (tenant-wide aggregated analytics for platform and tenant admins). Both surfaces share the same chart components but operate over different data scopes, gated by a new `platform:analytics:read` policy scope for the admin view.
 
 ---
 

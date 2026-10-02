@@ -1,5 +1,5 @@
 /**
- * General-purpose formatting utilities for the Orbit frontend.
+ * General-purpose formatting utilities for the kora frontend.
  *
  * These helpers are UI-framework-agnostic and carry no dependency on any
  * feature, route segment, or component.

@@ -12,6 +12,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
+  CopyButton,
   Alert,
   Button,
   Card,
@@ -38,8 +39,8 @@ import {
   Toggle,
   ToggleRow,
   SegmentedControl,
+  EmptyState,
 } from '@orbit/terra';
-import { CopyButton, EmptyState } from '@orbit/components';
 import { KIND_ICON, LIMITS } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
@@ -975,7 +976,7 @@ export function TriggerDrawer({
                   )}
                   <SettingRow
                     label="Start timeout"
-                    description="How long dispatch may take to start the run. Orbit gives up after this window."
+                    description="How long dispatch may take to start the run. kora gives up after this window."
                     value={
                       <StepperControl
                         value={trigger.timeoutSeconds}

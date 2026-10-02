@@ -1,4 +1,4 @@
-# Reference release order for SPIRE, Istio and Orbit. The environments carry
+# Reference release order for SPIRE, Istio and kora. The environments carry
 # cluster facts; the orbit chart's own values live in values/orbit.yaml.
 environments:
   local:
@@ -78,7 +78,7 @@ releases:
     chart: {{ .Values.orbit.crdsChart }}
     version: {{ .Values.orbit.version }}
 
-  # Namespace labels must exist before the first Orbit pod; createNamespace cannot set them.
+  # Namespace labels must exist before the first kora pod; createNamespace cannot set them.
   - name: orbit
     namespace: {{ .Values.systemNamespace }}
     disableValidationOnInstall: true

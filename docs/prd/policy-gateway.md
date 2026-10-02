@@ -3,14 +3,14 @@
 **Status:** Implemented  
 **Created:** 2026-04-02  
 **Last Updated:** 2026-04-02  
-**Owner:** Orbit Core Team  
-**Stakeholders:** Orbit Core Team, Agent Developers, Enterprise Platform Operators
+**Owner:** kora Core Team  
+**Stakeholders:** kora Core Team, Agent Developers, Enterprise Platform Operators
 
 ---
 
 ## Executive Summary
 
-The Policy Gateway is Orbit's universal authorisation layer. It governs all principal-to-resource communication across the platform — what agents can call, what humans can invoke, what services can reach other services, and what any delegated principal can do on behalf of another. It is a platform-wide concern, not a feature of any individual service. Every request to every resource passes through policy evaluation before it is fulfilled. The inference gateway, MCP servers, external service proxies, and platform APIs are all consumers of the same policy system.
+The Policy Gateway is kora's universal authorisation layer. It governs all principal-to-resource communication across the platform — what agents can call, what humans can invoke, what services can reach other services, and what any delegated principal can do on behalf of another. It is a platform-wide concern, not a feature of any individual service. Every request to every resource passes through policy evaluation before it is fulfilled. The inference gateway, MCP servers, external service proxies, and platform APIs are all consumers of the same policy system.
 
 ---
 
@@ -18,7 +18,7 @@ The Policy Gateway is Orbit's universal authorisation layer. It governs all prin
 
 ### Current State
 
-Orbit's identity layer is operational. Principals can authenticate and carry verified tokens. However there is no enforcement layer: any authenticated principal can reach any resource on the platform. The absence of policy enforcement means:
+kora's identity layer is operational. Principals can authenticate and carry verified tokens. However there is no enforcement layer: any authenticated principal can reach any resource on the platform. The absence of policy enforcement means:
 
 - An agent token grants access to every inference model, every MCP server, every platform API, and every external service the platform can reach
 - The delegation model ([agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md)) is structurally defined but not enforced — delegation tokens carry scope claims that are never evaluated against any access control
@@ -127,7 +127,7 @@ Orbit's identity layer is operational. Principals can authenticate and carry ver
 ### Platform Operator
 
 **As a** platform operator,  
-**I want** every service request to pass through a policy evaluation point regardless of whether the service is owned by Orbit or third-party,  
+**I want** every service request to pass through a policy evaluation point regardless of whether the service is owned by kora or third-party,  
 **So that** I have a consistent, auditable enforcement boundary across the entire platform.
 
 **Acceptance Criteria:**
@@ -144,7 +144,7 @@ Orbit's identity layer is operational. Principals can authenticate and carry ver
 The Policy Gateway follows the NIST ABAC reference model — three cooperating components:
 
 **Policy Administration Point (PAP) — Policy Service**  
-A database-backed Go service with a REST API for grant management. Tenant administrators create, read, and delete grants through this API or through the Orbit UI. On every write, the service recompiles the OPA policy bundle for the affected tenant and makes the updated bundle available for distribution. No deployment is required for policy changes.
+A database-backed Go service with a REST API for grant management. Tenant administrators create, read, and delete grants through this API or through the kora UI. On every write, the service recompiles the OPA policy bundle for the affected tenant and makes the updated bundle available for distribution. No deployment is required for policy changes.
 
 **Policy Decision Point (PDP) — ext_authz Service**  
 A Go binary serving two interfaces:
@@ -330,7 +330,7 @@ All product and architecture decisions are resolved. The following implementatio
 
 1. **Scope hierarchy resolution in Rego vs pre-computation:** Should `scope_covers` be evaluated entirely in Rego using the `scope_vocabulary` data document, or should the ext_authz service pre-compute the set of covered scopes before calling OPA? Rego approach keeps all policy logic in the bundle; pre-computation reduces Rego complexity.
 
-2. **[agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) alignment:** The delegation token `scope` claim format must be updated in [agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) to specify the Orbit OAuth scope vocabulary format. This is a cross-ADR dependency that must be resolved before the delegation intersection is implemented.
+2. **[agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) alignment:** The delegation token `scope` claim format must be updated in [agent-execution-flow-patterns-and-delegation](../adr/2026-03-05-agent-execution-flow-patterns-and-delegation.md) to specify the kora OAuth scope vocabulary format. This is a cross-ADR dependency that must be resolved before the delegation intersection is implemented.
 
 ---
 
@@ -349,9 +349,9 @@ All product and architecture decisions are resolved. The following implementatio
 
 ### Glossary
 
-- **PAP (Policy Administration Point):** Where policy is authored and stored. In Orbit: the Policy Service.
-- **PDP (Policy Decision Point):** Evaluates policy and returns allow/deny. In Orbit: the ext_authz service with embedded OPA.
-- **PEP (Policy Enforcement Point):** Intercepts requests and enforces PDP decisions. In Orbit: Envoy (Layer 1) and in-application checks (Layer 2).
+- **PAP (Policy Administration Point):** Where policy is authored and stored. In kora: the Policy Service.
+- **PDP (Policy Decision Point):** Evaluates policy and returns allow/deny. In kora: the ext_authz service with embedded OPA.
+- **PEP (Policy Enforcement Point):** Intercepts requests and enforces PDP decisions. In kora: Envoy (Layer 1) and in-application checks (Layer 2).
 - **Grant:** A record asserting that a named principal holds a set of OAuth-style permission scopes. The unit of policy. Covers AGENT, HUMAN, and SERVICE principal types.
 - **Scope:** An OAuth-style permission string in `type:path*:action` format (e.g. `inference:anthropic:invoke`). Parent scopes implicitly cover child scopes via the hierarchy rule.
 - **Scope vocabulary:** The finite registered set of valid scope strings and their hierarchy metadata, managed by the Policy Service and compiled into every OPA bundle.

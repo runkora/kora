@@ -1,7 +1,7 @@
-// Package identity provides a typed HTTP client for the Orbit identity service.
+// Package identity provides a typed HTTP client for the kora identity service.
 //
 // This is the platform-layer client that satisfies the docs/adr/2026-03-19-multi-service-backend-deployment-structure.md mandate for
-// service-to-service HTTP calls. Any Orbit service or sidecar that needs to
+// service-to-service HTTP calls. Any kora service or sidecar that needs to
 // call the identity service must use this client rather than constructing a raw
 // http.Client inline.
 //
@@ -75,7 +75,7 @@ type exchangeResponse struct {
 	IssuedAt    int64  `json:"issued_at"`  // Unix seconds
 }
 
-// Client is a typed HTTP client for the Orbit identity service.
+// Client is a typed HTTP client for the kora identity service.
 //
 // In the Istio mesh, Envoy intercepts outbound HTTP from the caller's pod and
 // upgrades it to mTLS using the pod's SPIRE-issued SVID automatically (via the
@@ -98,7 +98,7 @@ type Client struct {
 	baseURL string
 }
 
-// NewClient constructs a Client for the Orbit identity service.
+// NewClient constructs a Client for the kora identity service.
 //
 // baseURL must be the in-cluster scheme+host only, e.g.
 // "http://orbit-identity.orbit-system.svc.cluster.local" (no path, no trailing

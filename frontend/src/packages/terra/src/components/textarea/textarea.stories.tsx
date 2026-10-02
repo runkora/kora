@@ -1,120 +1,78 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Textarea } from './textarea';
-import { Text } from '../typography/typography';
+import { Label } from '../label/label';
 
+/**
+ * Textarea
+ *
+ * A multi-line text box. It can grow as the person types.
+ */
 const meta: Meta<typeof Textarea> = {
   title: 'Terra/Atoms/Textarea',
   component: Textarea,
-  parameters: {
-    layout: 'centered',
-    backgrounds: { default: 'orbit' },
-  },
   tags: ['autodocs'],
-  argTypes: {
-    variant: {
-      control: 'select',
-      options: ['default', 'bare'],
-    },
-    hasError: { control: 'boolean' },
-    disabled: { control: 'boolean' },
-    autoResize: { control: 'boolean' },
-    rows: { control: { type: 'number', min: 1, max: 20 } },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof Textarea>;
 
-export const Default: Story = {
-  args: {
-    placeholder: 'Enter a description…',
-    rows: 4,
-    className: 'w-80',
-  },
-};
-
-export const WithValue: Story = {
-  args: {
-    defaultValue:
-      'Monitors agent policy compliance and emits structured audit events to the event spine for downstream processing.',
-    rows: 4,
-    className: 'w-80',
-  },
-};
-
-export const ErrorState: Story = {
-  args: {
-    hasError: true,
-    defaultValue: 'This value is invalid.',
-    rows: 4,
-    className: 'w-80',
-  },
-};
-
-export const Disabled: Story = {
-  args: {
-    disabled: true,
-    placeholder: 'Not editable',
-    rows: 4,
-    className: 'w-80',
-  },
-};
-
-export const BareVariant: Story = {
+export const Overview: Story = {
   render: () => (
-    <div className="w-80 rounded-2xl border border-border focus-within:border-accent transition-colors bg-surface-elevated px-1">
-      <Textarea variant="bare" placeholder="Type a message…" rows={3} />
+    <div className="max-w-sm space-y-8">
+      <Example title="With a label">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="overview-description">Description</Label>
+          <Textarea id="overview-description" rows={4} placeholder="What does this agent do?" />
+        </div>
+      </Example>
+      <Example title="Grows as you type">
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="overview-notes">Notes</Label>
+          <Textarea id="overview-notes" autoResize maxRows={6} rows={2} placeholder="Type here" />
+        </div>
+      </Example>
     </div>
   ),
 };
 
-export const BareWithError: Story = {
+export const Options: Story = {
   render: () => (
-    <div className="w-80 rounded-2xl border border-status-error bg-surface-elevated px-1">
-      <Textarea
-        variant="bare"
-        hasError
-        defaultValue="Malformed input that the container signals as invalid."
-        rows={3}
-      />
-    </div>
-  ),
-};
-
-export const AutoResize: Story = {
-  args: {
-    placeholder: 'Start typing — this textarea grows as you type…',
-    autoResize: true,
-    maxRows: 8,
-    className: 'w-80',
-  },
-};
-
-export const ChatInput: Story = {
-  render: () => (
-    <div className="w-96 rounded-2xl border border-border focus-within:border-accent transition-colors bg-surface-elevated">
-      <div className="px-1">
-        <Textarea variant="bare" placeholder="Ask the agent anything…" autoResize maxRows={6} />
-      </div>
-      <div className="flex items-center justify-between px-3 py-2 border-t border-border-subtle">
-        <Text size="micro" color="subtle">
-          Shift+Enter for new line
-        </Text>
-        <button className="text-xs bg-accent text-white rounded-md px-3 py-1 font-medium">
-          Send
-        </button>
-      </div>
-    </div>
-  ),
-};
-
-export const AllStates: Story = {
-  render: () => (
-    <div className="flex flex-col gap-4 w-80">
-      <Textarea placeholder="Default" rows={3} />
-      <Textarea defaultValue="With value" rows={3} />
-      <Textarea hasError defaultValue="Error state" rows={3} />
-      <Textarea disabled placeholder="Disabled" rows={3} />
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name='variant="default"' use="A bordered field for forms.">
+          <Textarea aria-label="Description" rows={3} placeholder="Description" />
+        </Option>
+        <Option
+          name='variant="bare"'
+          use="No border or background. Use inside a box that draws its own border, such as a chat input."
+        >
+          <div className="rounded-2xl border border-border focus-within:border-accent">
+            <Textarea
+              variant="bare"
+              aria-label="Message"
+              rows={2}
+              placeholder="Message the agent"
+            />
+          </div>
+        </Option>
+        <Option name="disabled" use="The field cannot be edited.">
+          <Textarea aria-label="Description, disabled" rows={2} disabled defaultValue="Locked" />
+        </Option>
+        <Option name="hasError" use="Marks the value as invalid. Show a message next to it.">
+          <Textarea aria-label="Description, invalid" rows={2} hasError defaultValue="Too short" />
+        </Option>
+        <Option name="autoResize" use="Grows with the text, up to maxRows lines, then scrolls.">
+          <Textarea
+            aria-label="Notes"
+            autoResize
+            maxRows={4}
+            rows={2}
+            placeholder="Type several lines"
+          />
+        </Option>
+      </OptionTable>
     </div>
   ),
 };

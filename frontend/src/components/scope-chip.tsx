@@ -1,8 +1,8 @@
 /**
  * @tier 2 — App-level shared. Cross-feature; used by policy (all tabs) and
- * model-gateway (keys tab). Renders an Orbit scope string with syntax
+ * model-gateway (keys tab). Renders a kora scope string with syntax
  * highlighting: resource type in accent, separators in subtle, action in foreground.
- * @promote-to-tier-1 if: the Orbit scope format (resource:path:action) is
+ * @promote-to-tier-1 if: the kora scope format (resource:path:action) is
  * removed and a generic token chip is needed by a second non-dashboard surface.
  */
 import { Fragment } from 'react';

@@ -103,9 +103,9 @@ function FilterMenu({ filter }: { filter: TableColumnFilter }) {
           <button
             type="button"
             onClick={() => onToggle(opt.value)}
-            className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-elevated"
+            className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-xs text-foreground transition-colors hover:bg-surface-elevated"
           >
-            <span className="flex size-3.5 shrink-0 items-center justify-center rounded border border-border">
+            <span className="flex size-3.5 shrink-0 items-center justify-center rounded-sm border border-border">
               {selected.has(opt.value) && <span className="size-2 rounded-sm bg-accent" />}
             </span>
             {opt.dot && <span className={cn('size-1.5 shrink-0 rounded-full', opt.dot)} />}
@@ -120,7 +120,7 @@ function FilterMenu({ filter }: { filter: TableColumnFilter }) {
             <button
               type="button"
               onClick={onClear}
-              className="flex w-full items-center rounded px-2 py-1.5 text-xs text-subtle transition-colors hover:bg-surface-elevated hover:text-foreground"
+              className="flex w-full items-center rounded-sm px-2 py-1.5 text-xs text-subtle transition-colors hover:bg-surface-elevated hover:text-foreground"
             >
               Clear filter
             </button>
@@ -176,7 +176,7 @@ export function TableColumnHeader({
           <button
             type="button"
             onClick={onSort}
-            className="group/sort inline-flex items-center gap-1 rounded [font:inherit] [letter-spacing:inherit] [text-transform:inherit] transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
+            className="group/sort inline-flex items-center gap-1 rounded-sm [font:inherit] [letter-spacing:inherit] [text-transform:inherit] transition-colors hover:text-foreground focus:outline-none focus:ring-1 focus:ring-accent"
           >
             {children}
             <SortIcon dir={sortDir ?? null} />

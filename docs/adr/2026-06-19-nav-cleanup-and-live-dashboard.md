@@ -13,7 +13,7 @@
 
 ### Background
 
-During initial scaffolding of the Orbit frontend, several navigation items and their corresponding route entries were created as forward-references — placeholders for features not yet built. These included:
+During initial scaffolding of the kora frontend, several navigation items and their corresponding route entries were created as forward-references — placeholders for features not yet built. These included:
 
 - **Control Plane group**: `Event Spine` (`/events`) and `Credentials` (`/credentials`) — both `wip: true`.
 - **Security group**: `Identity` (`/identity`) — the only item in the group, `wip: true`.

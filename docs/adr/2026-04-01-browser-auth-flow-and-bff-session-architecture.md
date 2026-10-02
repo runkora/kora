@@ -9,12 +9,12 @@
 
 ## Context
 
-Orbit's web UI is currently unauthenticated. Any user who can reach the URL has full access to every page. The Go identity service (`[oidc-provider-abstraction-and-local-identity-provider](2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md)`) implements only the OAuth 2.0 Device Authorization Grant (RFC 8628), which was designed for headless CLI use and is unsuitable for a browser session model. [oidc-provider-abstraction-and-local-identity-provider](2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) listed "supporting OAuth 2.0 Authorization Code Flow" as a deferred non-goal pending a frontend.
+kora's web UI is currently unauthenticated. Any user who can reach the URL has full access to every page. The Go identity service (`[oidc-provider-abstraction-and-local-identity-provider](2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md)`) implements only the OAuth 2.0 Device Authorization Grant (RFC 8628), which was designed for headless CLI use and is unsuitable for a browser session model. [oidc-provider-abstraction-and-local-identity-provider](2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md) listed "supporting OAuth 2.0 Authorization Code Flow" as a deferred non-goal pending a frontend.
 
 The frontend now exists (`[frontend-scaffolding-and-toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md)`) and a browser-native authentication mechanism is required. Three architectural questions must be answered before implementation can begin:
 
 1. **Who executes the Authorization Code Flow with PKCE** — a browser-side OIDC client or the Go identity service?
-2. **How does the browser's OIDC token become an Orbit platform session** — what is the handoff mechanism?
+2. **How does the browser's OIDC token become a kora platform session** — what is the handoff mechanism?
 3. **How is the BFF session represented and persisted**, and which library implements it?
 
 ### Background
@@ -30,7 +30,7 @@ The OIDC provider (Dex in local development) is a standard OIDC-compliant provid
 Design the smallest, most coherent architecture that:
 
 - Enables browser-native login via OIDC Authorization Code Flow with PKCE
-- Results in an Orbit platform JWT sealed into an encrypted HttpOnly cookie — the browser holds no Orbit token in readable form
+- Results in a kora platform JWT sealed into an encrypted HttpOnly cookie — the browser holds no kora token in readable form
 - Protects all non-public routes via Next.js `middleware.ts`
 - Fits within the Edge Runtime constraint for middleware
 - Adds the minimum possible surface to the Go identity service
@@ -38,8 +38,8 @@ Design the smallest, most coherent architecture that:
 
 ### Goals
 
-- Human operators can log in to the Orbit web UI via their configured OIDC provider
-- An encrypted, HttpOnly BFF session cookie represents the logged-in state — opaque to browser JavaScript for Orbit token material
+- Human operators can log in to the kora web UI via their configured OIDC provider
+- An encrypted, HttpOnly BFF session cookie represents the logged-in state — opaque to browser JavaScript for kora token material
 - All non-public routes redirect unauthenticated users to `/login`
 - Logout revokes the backend token and clears the session cookie
 - The flow works against the local OIDC provider (`make dev-up`) with no additional setup
@@ -57,7 +57,7 @@ Design the smallest, most coherent architecture that:
 
 ## Decision Drivers
 
-* **Security**: Orbit `access_token` and `refresh_token` must never reach browser JavaScript. The OIDC `id_token` may be held transiently in browser memory during the callback flow; it must be discarded immediately after the session handoff.
+* **Security**: kora `access_token` and `refresh_token` must never reach browser JavaScript. The OIDC `id_token` may be held transiently in browser memory during the callback flow; it must be discarded immediately after the session handoff.
 * **Minimalism**: The Go identity service should grow by the smallest possible surface. It already validates JWTs — validating an externally-presented `id_token` is a natural, minimal extension.
 * **Tooling alignment**: Browser OIDC clients are mature, well-audited, and purpose-built for the Authorization Code Flow with PKCE. Reimplementing this in Go adds maintenance overhead for no security gain.
 * **Provider agnosticism**: Neither the BFF nor the browser client should be coupled to a specific OIDC provider. The provider is an interchangeable configuration detail.
@@ -77,7 +77,7 @@ Design the smallest, most coherent architecture that:
 **Pros:**
 - PKCE implementation is handled by a purpose-built, well-tested OIDC library — no custom implementation required
 - No server-side state store (Redis) required for PKCE round-trip — the verifier lives in sessionStorage for the lifetime of the callback
-- Code verifier never leaves the browser until it is used for the token exchange — it is not transmitted to any Orbit server
+- Code verifier never leaves the browser until it is used for the token exchange — it is not transmitted to any kora server
 - Aligns with standard practice for SPAs with a BFF: the browser is the OIDC client, the BFF is the session layer
 - OIDC provider changes require only environment variable updates — no Go backend changes
 - Scales horizontally with no shared state on the auth critical path
@@ -89,7 +89,7 @@ Design the smallest, most coherent architecture that:
 
 #### Option 1B: Go backend owns the full flow (BFF as thin proxy)
 
-**Description:** The Go identity service exposes `POST /identity/login` (generates PKCE pair and opaque state, stores verifier in Redis, returns the fully-constructed authorization URL) and an `authorization_code` grant type in `POST /identity/session` (looks up state in Redis, exchanges code with OIDC provider, issues Orbit platform JWT). The BFF calls the Go backend for both operations — it never communicates with the OIDC provider directly and implements no PKCE logic.
+**Description:** The Go identity service exposes `POST /identity/login` (generates PKCE pair and opaque state, stores verifier in Redis, returns the fully-constructed authorization URL) and an `authorization_code` grant type in `POST /identity/session` (looks up state in Redis, exchanges code with OIDC provider, issues kora platform JWT). The BFF calls the Go backend for both operations — it never communicates with the OIDC provider directly and implements no PKCE logic.
 
 **Pros:**
 - PKCE verifier never enters the browser — generated and consumed entirely within the Go process
@@ -119,13 +119,13 @@ Design the smallest, most coherent architecture that:
 
 ---
 
-### Question 2: How does the OIDC token become an Orbit platform session?
+### Question 2: How does the OIDC token become a kora platform session?
 
-This question only applies once Option 1A is chosen — the browser has the `id_token` and must exchange it for an Orbit session.
+This question only applies once Option 1A is chosen — the browser has the `id_token` and must exchange it for a kora session.
 
 #### Option 2A: New `oidc_id_token` grant type in `POST /identity/session`
 
-**Description:** The BFF receives the `id_token` from the browser and forwards it to the Go identity service via `POST /identity/session` with `grant_type: oidc_id_token`. The identity service validates the `id_token` against the OIDC provider's JWKS, extracts claims, and issues an Orbit platform JWT using the existing `createSession` path.
+**Description:** The BFF receives the `id_token` from the browser and forwards it to the Go identity service via `POST /identity/session` with `grant_type: oidc_id_token`. The identity service validates the `id_token` against the OIDC provider's JWKS, extracts claims, and issues a kora platform JWT using the existing `createSession` path.
 
 **Pros:**
 - Single new grant type in an existing endpoint — minimal Go backend surface change
@@ -273,7 +273,7 @@ The library used to seal and unseal this cookie **must be Edge Runtime compatibl
 - Validates the `id_token` signature using the OIDC provider's JWKS (fetched via the already-initialised `go-oidc` provider)
 - Validates standard claims: issuer, audience (`client_id`), expiry
 - Extracts identity claims: `sub`, `email`, `name`, `preferred_username`
-- Calls the existing `createSession` path to issue an Orbit platform JWT and refresh token
+- Calls the existing `createSession` path to issue a kora platform JWT and refresh token
 - Returns the standard `SessionResponse` shape: `{ access_token, refresh_token, expires_in, issued_at }`
 - No Redis dependency — there is no PKCE state to store or retrieve
 
@@ -287,7 +287,7 @@ The library used to seal and unseal this cookie **must be Edge Runtime compatibl
 | `src/server/auth-config.ts` | `iron-session` configuration (`cookieName`, `password`, `cookieOptions`) |
 | `src/app/login/page.tsx` | Login page with a single "Sign in" button that calls `signinRedirect()` on the OIDC client, encoding the post-login destination in the OIDC `state` parameter |
 | `src/app/auth/callback/page.tsx` | Client-rendered callback page; invokes `signinRedirectCallback()` on the OIDC client to complete the token exchange, then POSTs the `id_token` to `/api/auth/session` |
-| `src/app/api/auth/session/route.ts` | Accepts `{ id_token }` from the callback page; forwards to Go identity service with `oidc_id_token` grant; seals returned Orbit tokens into session cookie; redirects to `state.next` or `/` |
+| `src/app/api/auth/session/route.ts` | Accepts `{ id_token }` from the callback page; forwards to Go identity service with `oidc_id_token` grant; seals returned kora tokens into session cookie; redirects to `state.next` or `/` |
 | `src/app/api/auth/session/route.ts` (GET) | Returns non-sensitive session data (`user`, `expiresAt`) for client components; returns 401 if no session |
 | `src/app/api/auth/logout/route.ts` | Calls `POST /identity/revoke`, clears session cookie, redirects to `/login` |
 

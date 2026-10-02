@@ -1,4 +1,4 @@
-// Package inferencegw implements the Orbit Inference Gateway service.
+// Package inferencegw implements the kora Inference Gateway service.
 // It provides a provider-agnostic inference API, routing requests to
 // cloud AI providers (AWS Bedrock, Google Vertex AI, Azure AI Inference)
 // with per-principal usage attribution and policy enforcement hooks.

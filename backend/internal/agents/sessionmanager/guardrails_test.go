@@ -342,7 +342,7 @@ func TestDrain_LoopGuardWarnsThenPauses(t *testing.T) {
 	runner.mu.Lock()
 	sent, interrupted := runner.sent, runner.interrupted
 	runner.mu.Unlock()
-	if len(sent) != 1 || !strings.Contains(sent[0], "Orbit guardrail") {
+	if len(sent) != 1 || !strings.Contains(sent[0], "kora guardrail") {
 		t.Errorf("warnings sent = %q, want one", sent)
 	}
 	if !interrupted {
@@ -421,7 +421,7 @@ func TestApplyLoopGuard_WarningIsSentAndRecorded(t *testing.T) {
 	in := map[string]string{"command": "gh pr view 7"}
 	reg.applyLoopGuard(context.Background(), s, toolUse(t, "a", "Bash", in))
 	reg.applyLoopGuard(context.Background(), s, toolUse(t, "b", "Bash", in))
-	if len(runner.sent) != 1 || !strings.Contains(runner.sent[0], "Orbit guardrail") {
+	if len(runner.sent) != 1 || !strings.Contains(runner.sent[0], "kora guardrail") {
 		t.Errorf("sent %q, want one warning", runner.sent)
 	}
 	if len(n.warnings) != 1 {

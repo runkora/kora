@@ -1,14 +1,16 @@
 import 'server-only';
 
 import type { Metadata, Viewport } from 'next';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { Geist_Mono, Inter } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
 import { TooltipProvider } from '@orbit/terra';
 import './globals.css';
 
-const geistSans = Geist({
-  variable: '--font-geist-sans',
+// Inter is a variable font; the optical size axis tightens it automatically at heading sizes.
+const inter = Inter({
+  variable: '--font-inter',
   subsets: ['latin'],
+  axes: ['opsz'],
 });
 
 const geistMono = Geist_Mono({
@@ -17,7 +19,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Orbit',
+  title: 'kora',
   description: 'Control plane for autonomous AI agents.',
 };
 
@@ -37,7 +39,7 @@ export default function RootLayout({
     // suppressHydrationWarning: next-themes sets data-theme pre-hydration
     <html lang="en" suppressHydrationWarning>
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
+        className={`${inter.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
       >
         <ThemeProvider attribute="data-theme" defaultTheme="system" enableSystem>
           <TooltipProvider>{children}</TooltipProvider>

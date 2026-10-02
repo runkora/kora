@@ -7,7 +7,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// GroupVersion is the API group and version for Orbit CRDs.
+// GroupVersion is the API group and version for kora CRDs.
 var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
 
 // -----------------------------------------------------------------------------

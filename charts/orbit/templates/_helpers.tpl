@@ -18,14 +18,14 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 
 {{/*
-Namespace Orbit runs in: global.systemNamespace when set, else the release namespace.
+Namespace kora runs in: global.systemNamespace when set, else the release namespace.
 */}}
 {{- define "orbit.systemNamespace" -}}
 {{- .Values.global.systemNamespace | default .Release.Namespace }}
 {{- end }}
 
 {{- define "orbit.trustDomain" -}}
-{{- required "global.trustDomain must be set: the SPIFFE trust domain shared by SPIRE, Istio and Orbit" .Values.global.trustDomain }}
+{{- required "global.trustDomain must be set: the SPIFFE trust domain shared by SPIRE, Istio and kora" .Values.global.trustDomain }}
 {{- end }}
 
 {{/*
@@ -52,14 +52,14 @@ api.{{ include "orbit.frontendHost" . }}
 {{- end }}
 
 {{/*
-In-cluster URL of an Orbit service by its Service name.
+In-cluster URL of a kora service by its Service name.
 */}}
 {{- define "orbit.serviceURL" -}}
 http://{{ .name }}.{{ include "orbit.systemNamespace" .root }}.svc.cluster.local
 {{- end }}
 
 {{/*
-Istio Gateway reference every VirtualService binds to: Orbit's own gateway when
+Istio Gateway reference every VirtualService binds to: kora's own gateway when
 gateway.create is true, otherwise gateway.name.
 */}}
 {{- define "orbit.gatewayRef" -}}
@@ -456,7 +456,7 @@ headers:
 {{- end }}
 
 {{/*
-Where the Istio ingress gateway pods run and how to select them: Orbit's own
+Where the Istio ingress gateway pods run and how to select them: kora's own
 (gateway.create) in the system namespace, or an existing one per gateway.byo.
 */}}
 {{- define "orbit.gatewayWorkloadNamespace" -}}

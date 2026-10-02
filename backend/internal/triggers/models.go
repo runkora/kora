@@ -1,4 +1,4 @@
-// Package triggers implements the Orbit Triggers feature: the front door for the
+// Package triggers implements the kora Triggers feature: the front door for the
 // ways something can start in the platform. Three kinds ship today: an inbound
 // webhook, a cron schedule, and a manual fire. See
 // docs/adr/2026-06-20-extended-trigger-types.md and the original

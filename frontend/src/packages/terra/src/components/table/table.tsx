@@ -4,7 +4,7 @@ import { cn } from '../../utils';
 /**
  * Table — raw primitives
  *
- * Semantic HTML table building blocks for Orbit's dense, dark, technical
+ * Semantic HTML table building blocks for kora's dense, dark, technical
  * aesthetic — hairline row dividers, monospaced values, horizontal overflow
  * scrolling via `TableRoot`.
  *

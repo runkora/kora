@@ -19,7 +19,7 @@
 
 The [JIT Credential Brokering ADR](2026-06-06-jit-credential-brokering-egress-gateway.md) designed the egress-gateway credential broker and built it end-to-end for exactly one connection type: GitHub (`github_app`). That ADR's own "Per-Tool Flows" section already sketches a Kubernetes flow and lists it in the adapter/pattern table as **Pattern A — minted**, implying a `TokenRequest`-style per-call mint mirroring GitHub's App-JWT → installation-token exchange. `AdapterKubernetesBearer = "kubernetes"` (`internal/credentials/models.go:29`) has sat as a declared constant with no adapter behind it since Amendment 3 (2026-06-12) reshaped connection registration onto GitOps `Connection` CRs.
 
-The [Kubernetes Connection PRD](../prd/kubernetes-connection.md) scopes the actual v1 build and, in doing so, **narrows** the original ADR's Kubernetes flow: v1 resolves a **static, admin-supplied ServiceAccount bearer token** (Pattern B — header-swap with a static secret), not a per-call minted token (Pattern A). `TokenRequest`-based minting is explicitly deferred (PRD Non-Goals, Alternative 1) because it would require Orbit to hold a credential capable of minting tokens for arbitrary ServiceAccounts on every customer's cluster — a materially larger trust ask with no existing safe design.
+The [Kubernetes Connection PRD](../prd/kubernetes-connection.md) scopes the actual v1 build and, in doing so, **narrows** the original ADR's Kubernetes flow: v1 resolves a **static, admin-supplied ServiceAccount bearer token** (Pattern B — header-swap with a static secret), not a per-call minted token (Pattern A). `TokenRequest`-based minting is explicitly deferred (PRD Non-Goals, Alternative 1) because it would require kora to hold a credential capable of minting tokens for arbitrary ServiceAccounts on every customer's cluster — a materially larger trust ask with no existing safe design.
 
 **This ADR corrects the 2026-06-06 ADR's "Kubernetes — Pattern A" classification for v1** to Pattern B, and designs the two pieces of code that classification actually requires: the `k8sbearer` adapter, and the one genuinely new gateway capability the PRD calls out — per-connection custom CA trust on the re-originated TLS leg (GitHub's upstream is publicly CA-trusted; a Kubernetes API server commonly is not).
 
@@ -40,7 +40,7 @@ Build `kubernetes` as the second `CredentialAdapter` on the existing broker arch
 
 - `TokenRequest`-based minting (tracked as the ADR's own future amendment once a safe cross-cluster minting design exists).
 - Client-certificate authentication (a possible sibling adapter, not this one).
-- Fine-grained (namespace/resource/verb) authorization inside Orbit — delegated to the target cluster's own RBAC on the injected identity.
+- Fine-grained (namespace/resource/verb) authorization inside kora — delegated to the target cluster's own RBAC on the injected identity.
 - `kubectl exec` / `port-forward` (SPDY/WebSocket-upgraded, not plain REST) — see Decision → Verb Classification.
 
 ---
@@ -82,9 +82,9 @@ Build `kubernetes` as the second `CredentialAdapter` on the existing broker arch
 
 **Description:** `ClassifyAction` maps `GET`/`HEAD`/`OPTIONS` → `cluster:read`; `POST`/`PUT`/`PATCH`/`DELETE` → `cluster:write`. This mirrors `githubapp`'s REST verb-mapping exactly (`classifyREST`).
 
-**Pros:** Matches the PRD's shipped scope; matches the existing GitHub precedent bit-for-bit; the target cluster's own RBAC is the documented backstop for anything finer (delete vs. patch vs. create), so Orbit doesn't need to re-derive it from the HTTP verb.
+**Pros:** Matches the PRD's shipped scope; matches the existing GitHub precedent bit-for-bit; the target cluster's own RBAC is the documented backstop for anything finer (delete vs. patch vs. create), so kora doesn't need to re-derive it from the HTTP verb.
 
-**Cons:** A `cluster:write` grant covers `DELETE` too — an admin cannot grant "can create/patch but not delete" through Orbit's own policy layer alone.
+**Cons:** A `cluster:write` grant covers `DELETE` too — an admin cannot grant "can create/patch but not delete" through kora's own policy layer alone.
 
 #### Option 2: Three-tier, adding `cluster:delete`
 
@@ -353,7 +353,7 @@ No other frontend change — the table, action badges, and "used by" computation
 ### Negative
 
 - A long-lived, admin-provisioned bearer token is a standing privileged credential if the referenced Secret leaks — an accepted, documented risk (PRD Risks table) mitigated by admin-side least-privilege RBAC and bounded-TTL token provisioning guidance, not by anything this ADR builds. `TokenRequest` minting remains the fast-follow that closes this gap structurally.
-- The two-tier verb-class (`cluster:write` including `DELETE`) cannot express "can create but not delete" inside Orbit's own policy layer; that granularity is explicitly delegated to the target cluster's RBAC on the injected identity (defense in depth), consistent with the PRD's stated non-goal.
+- The two-tier verb-class (`cluster:write` including `DELETE`) cannot express "can create but not delete" inside kora's own policy layer; that granularity is explicitly delegated to the target cluster's RBAC on the injected identity (defense in depth), consistent with the PRD's stated non-goal.
 - The gateway now holds one more piece of per-connection cached state (a `*http.Transport` per CA-declaring connection) — bounded by connection count, the same class of bound `githubapp`'s existing token cache already accepts, and invalidated wholesale on any registry reload rather than per-connection (simpler, acceptable given connection config changes rarely per the existing ADR's own Amendment 3 argument).
 
 ### Neutral
@@ -425,7 +425,7 @@ The local k3d example (`deploy/local/connections/kubernetes.yaml`) was updated t
 
 ### Related finding, not solved by this amendment: GKE's DNS endpoint is IAM-gated
 
-The obvious next step — give the connection a real hostname by enabling GKE's DNS-based control-plane endpoint (`gcloud container clusters update --enable-dns-access`) — was tried and does not work. That endpoint presents a real, publicly-trusted certificate for a real hostname, but requests to it return an HTTP 401 from Google's own edge **before** the request ever reaches kube-apiserver's bearer-token RBAC check — confirmed with a raw `curl` carrying a valid ServiceAccount token, bypassing Orbit entirely. GKE's built-in endpoints (IP or DNS) are therefore a dead end for this adapter's static-bearer-token design specifically; closing this gap for GKE would need either a self-managed hostname+cert fronting the cluster, or a gateway change decoupling the dial host/SNI from the TLS `ServerName` used for upstream certificate verification (`internal/egressgw/upstreamtransport.go`) — a real architectural change, tracked as a follow-up, not attempted here.
+The obvious next step — give the connection a real hostname by enabling GKE's DNS-based control-plane endpoint (`gcloud container clusters update --enable-dns-access`) — was tried and does not work. That endpoint presents a real, publicly-trusted certificate for a real hostname, but requests to it return an HTTP 401 from Google's own edge **before** the request ever reaches kube-apiserver's bearer-token RBAC check — confirmed with a raw `curl` carrying a valid ServiceAccount token, bypassing kora entirely. GKE's built-in endpoints (IP or DNS) are therefore a dead end for this adapter's static-bearer-token design specifically; closing this gap for GKE would need either a self-managed hostname+cert fronting the cluster, or a gateway change decoupling the dial host/SNI from the TLS `ServerName` used for upstream certificate verification (`internal/egressgw/upstreamtransport.go`) — a real architectural change, tracked as a follow-up, not attempted here.
 
 ### Separate confirmed bug, independent of the above (unfixed)
 
@@ -493,7 +493,7 @@ Separately, because of the unfixed Connector auto-egress bug (previous section),
 
 ## Notes
 
-- Open Question 1 (should Orbit ever mint via `TokenRequest`) remains open, owned by Platform Engineering, and is unaffected by this ADR's decisions — an additive change to the adapter this ADR introduces, not blocked by it. Open Question 2 (verb-class taxonomy) is **resolved** by [Amendment 1](#amendment-1--2026-07-06-resource-category-verb-taxonomy): resource-category actions, not a third verb tier.
+- Open Question 1 (should kora ever mint via `TokenRequest`) remains open, owned by Platform Engineering, and is unaffected by this ADR's decisions — an additive change to the adapter this ADR introduces, not blocked by it. Open Question 2 (verb-class taxonomy) is **resolved** by [Amendment 1](#amendment-1--2026-07-06-resource-category-verb-taxonomy): resource-category actions, not a third verb tier.
 - [Amendment 2](#amendment-2--2026-07-06-basehost-must-be-a-dns-hostname-not-an-ip-literal) was discovered via live-cluster validation against a real GKE cluster (not the local k3d cluster this ADR's examples target) — that validation session's fixture (`deploy/local/connections/kubernetes-cloud.yaml`) has served its purpose and was removed once its findings were folded in here; it is not needed as ongoing infrastructure.
 - [Amendment 3](#amendment-3--2026-07-06-local-re-verification-of-the-full-adapterbroker-path) re-ran the same live validation against the local k3d cluster's own hostname-based connection, confirming the adapter/broker/CA-trust path end-to-end now that GKE (Amendment 2) is a structural dead end for this adapter. The live-agent-sandbox `kubectl` leg specifically — as opposed to the direct-HTTP mechanism both live validation passes actually used — remains open.
 - A resource-category taxonomy is necessarily an incomplete enumeration — CRDs and any resource not yet in the adapter's category map are denied outright (Amendment 1) rather than guessed at. Extending coverage as real usage surfaces gaps is expected, ordinary maintenance of that map, not a new ADR decision each time.

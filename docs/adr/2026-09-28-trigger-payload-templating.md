@@ -64,7 +64,7 @@ The change touches **What can it access?** A webhook trigger's run executes unde
 
 #### 1C: The provider's schema, embedded in the backend
 
-Each adapter supplies its provider's schema in one Orbit format. Shared code builds the catalogue of event types and fields from it and serves it to the console.
+Each adapter supplies its provider's schema in one kora format. Shared code builds the catalogue of event types and fields from it and serves it to the console.
 
 - Pros: the full vocabulary is available before any delivery, with descriptions and allowed values. One list serves the API and the console. A new provider supplies a schema file instead of field-extraction code.
 - Cons: the schema lags the provider until it is updated, and GitHub's adds about 2 MB, minified, to the triggers binary.
@@ -122,7 +122,7 @@ The template is kept with its placeholders as written. The named values follow i
 
 ### Decision 1: Each provider supplies a schema; shared code builds the catalogue
 
-**Schema format.** One JSON document per provider: an `events` object mapping each Orbit event type to a JSON Schema, and a `definitions` object those schemas `$ref` into.
+**Schema format.** One JSON document per provider: an `events` object mapping each kora event type to a JSON Schema, and a `definitions` object those schemas `$ref` into.
 
 ```json
 {
@@ -179,7 +179,7 @@ The builder walks each event's schema:
 
 **Meta fields.** Three fields are supplied by the platform for every provider, under the reserved `meta` group: `meta.event_type`, `meta.delivery_id` (the provider's delivery ID, `ProviderDeliveryID`) and `meta.source` (the source name). The catalogue appends them to every event's fields.
 
-**Importing upstream schemas.** A script in `tools/trigger-schemas/` converts GitHub's OpenAPI description, pinned to a commit, to the Orbit format. It groups the `x-webhooks` operations by event name, taken from the `operationId` with hyphens replaced by underscores, merges each event's action variants with `oneOf`, and copies the referenced component schemas into `definitions`. The Alertmanager schema is written by hand in the Orbit format. A new provider adds its schema file, with an import script only if its upstream schema needs converting.
+**Importing upstream schemas.** A script in `tools/trigger-schemas/` converts GitHub's OpenAPI description, pinned to a commit, to the kora format. It groups the `x-webhooks` operations by event name, taken from the `operationId` with hyphens replaced by underscores, merges each event's action variants with `oneOf`, and copies the referenced component schemas into `definitions`. The Alertmanager schema is written by hand in the kora format. A new provider adds its schema file, with an import script only if its upstream schema needs converting.
 
 **API.**
 

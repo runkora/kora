@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Extract Orbit's own CRD OpenAPI schemas into per-kind JSON files so kubeconform
-# validates Orbit custom resources in the rendered manifests. Third-party mesh
+# Extract kora's own CRD OpenAPI schemas into per-kind JSON files so kubeconform
+# validates kora custom resources in the rendered manifests. Third-party mesh
 # CRDs (Istio, SPIRE) have no local schema and stay skipped via -ignore-missing-schemas.
 # Output filenames match kubeconform's default -schema-location template:
 #   <lowercase-kind>_<version>.json

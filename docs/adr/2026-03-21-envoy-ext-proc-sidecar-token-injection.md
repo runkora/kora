@@ -51,15 +51,15 @@ We need to define:
 2. How the exchange call to the identity service is made from the sidecar layer, including mTLS authentication
 3. How the platform token is cached across concurrent outbound requests
 4. How SVID rotation events trigger proactive token re-exchange
-5. Where the implementation binary lives in the Orbit monorepo and how it is deployed
+5. Where the implementation binary lives in the kora monorepo and how it is deployed
 
 ### Goals
 
 - **Zero agent workload involvement**: Agent workloads — including third-party agents, MCP servers, and open-source frameworks — make plain HTTP calls with no identity-related code
 - **Single shared token cache**: All concurrent outbound requests from a pod share one cached platform token — no redundant exchange calls per request or per Envoy worker thread
 - **Proactive rotation**: SVID rotation and platform token expiry trigger proactive re-exchange, not reactive failure-and-retry
-- **Go native**: The implementation is standard Go — full stdlib, real goroutines, `go test`, and integration with Orbit's existing logging, config, and OpenTelemetry infrastructure
-- **Orbit-owned**: The sidecar binary lives in the Orbit monorepo, is built and deployed by the Orbit platform team, and is injected into agent pods without any workload author involvement
+- **Go native**: The implementation is standard Go — full stdlib, real goroutines, `go test`, and integration with kora's existing logging, config, and OpenTelemetry infrastructure
+- **kora-owned**: The sidecar binary lives in the kora monorepo, is built and deployed by the kora platform team, and is injected into agent pods without any workload author involvement
 
 ### Non-Goals
 
@@ -72,11 +72,11 @@ We need to define:
 
 ## Decision Drivers
 
-* **Go native**: The implementation must be standard Go — not TinyGo, not a restricted embedded environment — so it can share Orbit's existing patterns, models, logging, and observability infrastructure
+* **Go native**: The implementation must be standard Go — not TinyGo, not a restricted embedded environment — so it can share kora's existing patterns, models, logging, and observability infrastructure
 * **Shared token state**: A single platform token must be shared across all concurrent outbound requests from a pod, not independently managed per Envoy worker thread
 * **Proactive SVID rotation handling**: The mechanism must be able to react to SVID rotation events rather than relying solely on TTL-based reactive refresh
-* **Testability**: The implementation must be testable with `go test` and Orbit's standard test patterns
-* **Operational transparency**: The sidecar must emit the same structured logs, traces, and metrics as all other Orbit Go services
+* **Testability**: The implementation must be testable with `go test` and kora's standard test patterns
+* **Operational transparency**: The sidecar must emit the same structured logs, traces, and metrics as all other kora Go services
 * **Zero workload modification**: The mechanism must work for any workload — owned, third-party, MCP server — without code changes or configuration in the workload container
 
 ---
@@ -96,7 +96,7 @@ We need to define:
 - Lua state is per-Envoy-worker-thread: no shared cache across threads. Each worker independently exchanges for a token on startup, resulting in N parallel exchange calls rather than one
 - No goroutines: proactive background refresh is not possible. Refresh is reactive, triggered by the next request after a token approaches expiry
 - Subrequests in Lua are callback-based and asynchronous — not idiomatic and hard to reason about
-- No integration with Orbit's logging, tracing, or metrics infrastructure
+- No integration with kora's logging, tracing, or metrics infrastructure
 - Not `go test`-able; debugging requires Envoy-specific tooling
 
 ### Option B: WASM Plugin
@@ -114,8 +114,8 @@ We need to define:
 - WASM VMs in Envoy are per-worker-thread isolated: the shared-state problem from Option A is unchanged. Each worker thread runs its own WASM VM with its own independent token cache
 - `DispatchHttpCall()` for the exchange subrequest is async and callback-based — cannot be made into a clean blocking call
 - Cannot use `go test`: requires a proxy-wasm host environment for testing
-- Cannot share Orbit's logging, OTel, or config packages (TinyGo stdlib restrictions prevent it)
-- The resulting code looks like Go but is not Go — it would be unfamiliar and difficult to maintain for engineers working in the rest of the Orbit codebase
+- Cannot share kora's logging, OTel, or config packages (TinyGo stdlib restrictions prevent it)
+- The resulting code looks like Go but is not Go — it would be unfamiliar and difficult to maintain for engineers working in the rest of the kora codebase
 
 ### Option C: External Processing (`ext_proc`) Go Binary
 
@@ -130,8 +130,8 @@ Token state is held in a single shared struct behind a `sync.RWMutex`. A backgro
 - Single shared token cache across all Envoy worker threads — one exchange call on startup, not N
 - Proactive refresh via a real background goroutine, not reactive per-request retry
 - SVID rotation handled via `go-spiffe` callback — re-exchange happens immediately when the SVID rotates, not on the next expiry cycle
-- Full integration with Orbit's logging, OTel tracing, metrics, and config packages
-- Binary lives in `backend/cmd/identity-proxy/` — same monorepo, same build pipeline, same patterns as all other Orbit services
+- Full integration with kora's logging, OTel tracing, metrics, and config packages
+- Binary lives in `backend/cmd/identity-proxy/` — same monorepo, same build pipeline, same patterns as all other kora services
 - Exchange HTTP call made via a typed platform client (`internal/platform/clients/identity/`) per [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md) — wire types owned by the client, not imported from the identity service package; Istio handles mTLS transparently
 - Testable with `go test` — the gRPC server, cache logic, and refresh loop are all standard Go constructs
 - Per-request overhead is a Unix domain socket gRPC call — ~50–100µs, negligible for the agent workload profile (LLM calls, tool APIs, platform APIs all operate in the millisecond-to-second range)
@@ -148,7 +148,7 @@ Token state is held in a single shared struct behind a `sync.RWMutex`. A backgro
 
 ### Rationale
 
-Option A (Lua) and Option B (WASM) are rejected on the same fundamental grounds: neither provides shared state across Envoy worker threads, and neither supports a proactive background refresh model. The Lua/WASM per-worker isolation problem means that under any meaningful concurrency, multiple independent exchange calls are made on startup — inelegant and wasteful. More importantly, neither option can use standard Go. TinyGo's restrictions mean WASM cannot use goroutines, full stdlib, or Orbit's existing packages. The result would be a maintenance island — code that looks like Go but cannot be developed, tested, or observed like the rest of the Orbit codebase.
+Option A (Lua) and Option B (WASM) are rejected on the same fundamental grounds: neither provides shared state across Envoy worker threads, and neither supports a proactive background refresh model. The Lua/WASM per-worker isolation problem means that under any meaningful concurrency, multiple independent exchange calls are made on startup — inelegant and wasteful. More importantly, neither option can use standard Go. TinyGo's restrictions mean WASM cannot use goroutines, full stdlib, or kora's existing packages. The result would be a maintenance island — code that looks like Go but cannot be developed, tested, or observed like the rest of the kora codebase.
 
 Option C is selected because it is genuinely Go native. The ext_proc binary is a standard Go service — same build toolchain, same test patterns, same logging and observability infrastructure, same ability to import from `internal/`. It solves the shared-state problem by construction: one process, one cache, one background refresh goroutine, no per-worker isolation. The per-request Unix socket overhead is real but irrelevant for the agent workload profile.
 
@@ -290,11 +290,11 @@ The background refresh goroutine at `expiry − 60s` acts as a safety net for an
 
 The identity exchange endpoint (`POST /api/v1/identity/exchange`) is gateway-exempt: it must be reachable without an existing platform token. The mTLS peer certificate IS the authentication. The identity service's Envoy sidecar must be configured to permit requests to this path without an `Authorization: Bearer` header — the XFCC header injected by Envoy from the validated mTLS peer cert is sufficient for the identity service to perform the lookup and issue the token.
 
-All other Orbit platform API paths enforce the presence of a valid platform token at Layer 1 per [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md).
+All other kora platform API paths enforce the presence of a valid platform token at Layer 1 per [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md).
 
 ### Deployment — Binary Location and Container Injection
 
-The binary is located at `backend/cmd/identity-proxy/` — a standard entrypoint under the Orbit backend monorepo ([multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md)). It is built as a separate Docker image and deployed as an additional container in all agent pod specifications.
+The binary is located at `backend/cmd/identity-proxy/` — a standard entrypoint under the kora backend monorepo ([multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md)). It is built as a separate Docker image and deployed as an additional container in all agent pod specifications.
 
 Agent workload authors do not configure this container. The reference pod spec (maintained by the platform team) includes:
 
@@ -328,9 +328,9 @@ Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWe
 - Third-party agents, MCP servers, and open-source frameworks are fully supported with zero modification — they make plain HTTP calls and the sidecar layer handles everything
 - Single shared token cache across all Envoy workers eliminates redundant exchange calls on startup and under concurrency
 - SVID rotation is handled proactively via go-spiffe's callback API — the token is always bound to the current SVID with no gap window
-- The implementation is standard Go: full stdlib, real goroutines, `go test`, Orbit's logging and OTel packages, platform-layer service clients per [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md)
-- Operational observability is identical to all other Orbit services — structured logs, distributed traces, Prometheus metrics
-- The binary lives in the Orbit monorepo under `backend/cmd/identity-proxy/` and is owned, built, and versioned by the platform team
+- The implementation is standard Go: full stdlib, real goroutines, `go test`, kora's logging and OTel packages, platform-layer service clients per [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md)
+- Operational observability is identical to all other kora services — structured logs, distributed traces, Prometheus metrics
+- The binary lives in the kora monorepo under `backend/cmd/identity-proxy/` and is owned, built, and versioned by the platform team
 
 ### Negative
 
@@ -349,7 +349,7 @@ Future: sidecar injection can be automated via a Kubernetes `MutatingAdmissionWe
 
 ### Prerequisites — go.mod Updates
 
-Neither `go-spiffe/v2` nor `go-control-plane/envoy` are currently in the Orbit go.mod. Both must be added before any code in `internal/identityproxy/` is written:
+Neither `go-spiffe/v2` nor `go-control-plane/envoy` are currently in the kora go.mod. Both must be added before any code in `internal/identityproxy/` is written:
 
 ```bash
 go get github.com/spiffe/go-spiffe/v2@v2.6.0
@@ -361,9 +361,9 @@ The `/envoy` sub-module at v1.37.0 pins to grpc v1.78.0 which matches the existi
 ### Key Dependencies
 
 - `github.com/spiffe/go-spiffe/v2 v2.6.0` — Workload API client, X509Source, SVID rotation callbacks, mTLS TLS config
-- `google.golang.org/grpc` — ext_proc gRPC server (already used in the Orbit backend)
+- `google.golang.org/grpc` — ext_proc gRPC server (already used in the kora backend)
 - `github.com/envoyproxy/go-control-plane/envoy v1.37.0` — generated proto types for `envoy.service.ext_proc.v3`; use the `/envoy` sub-module at v1.37.0 which pins to grpc v1.78.0 matching the existing go.mod
-- Orbit's `internal/platform/logging`, `internal/platform/observability` — logging and OTel integration (same as all other Orbit services)
+- kora's `internal/platform/logging`, `internal/platform/observability` — logging and OTel integration (same as all other kora services)
 
 ### Package Structure
 
@@ -446,7 +446,7 @@ This is an explicit, considered choice. The alternative (`failure_mode_allow: fa
 
 **Why fail-open is correct here:**
 
-1. **Defence-in-depth at the destination.** The orbit-identity service and all other Orbit platform APIs enforce token validation independently — an unauthenticated request without `Authorization: Bearer` will receive a 401 at the application level. The token injection sidecar is a convenience layer, not the sole enforcement point. Fail-closed would make this sidecar a single point of failure for all workload egress traffic.
+1. **Defence-in-depth at the destination.** The orbit-identity service and all other kora platform APIs enforce token validation independently — an unauthenticated request without `Authorization: Bearer` will receive a 401 at the application level. The token injection sidecar is a convenience layer, not the sole enforcement point. Fail-closed would make this sidecar a single point of failure for all workload egress traffic.
 
 2. **Startup race.** identity-proxy takes a small but nonzero amount of time to start, connect to SPIRE, and obtain its initial token. During this window, fail-closed would cause the agent workload's first outbound requests to fail with 500s. Fail-open allows those requests to proceed (and fail with 401 at the destination if they need auth), without permanently erroring before the proxy is ready.
 
@@ -520,7 +520,7 @@ No migration is required. This ADR establishes a new component for a flow that h
 
 ## Notes
 
-The identity-proxy binary is a **platform sidecar** — it is owned, built, versioned, and injected by the Orbit platform team. Agent workload authors have no visibility into or responsibility for its operation. This is the correct architectural boundary: authentication infrastructure is platform infrastructure, not application infrastructure.
+The identity-proxy binary is a **platform sidecar** — it is owned, built, versioned, and injected by the kora platform team. Agent workload authors have no visibility into or responsibility for its operation. This is the correct architectural boundary: authentication infrastructure is platform infrastructure, not application infrastructure.
 
 The choice to have identity-proxy connect to the SPIRE Workload API socket directly via go-spiffe (rather than any intermediary) is intentional. The Workload API is a gRPC streaming protocol with first-class rotation callback support, designed exactly for use cases like this. Using go-spiffe's `X509Source` gives identity-proxy the cleanest possible SVID rotation integration with the least operational coupling — it reads from the same CSI-mounted socket as `istio-proxy`, with no intermediary process in the path.
 

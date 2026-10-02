@@ -667,11 +667,7 @@ export function DataTable<TData>({
 
   return (
     <DataTableCtx.Provider value={{ gridTemplateColumns }}>
-      <div
-        role="table"
-        aria-label={noun}
-        className="overflow-hidden rounded-lg border border-border-subtle bg-surface"
-      >
+      <div className="overflow-hidden rounded-lg border border-border-subtle bg-surface">
         {/* Toolbar */}
         <DataTableToolbar
           searchQuery={searchQuery}
@@ -702,89 +698,101 @@ export function DataTable<TData>({
           className="overflow-x-auto [&::-webkit-scrollbar]:h-2.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border [&::-webkit-scrollbar-thumb:hover]:bg-subtle [&::-webkit-scrollbar-track]:bg-surface-elevated"
         >
           <div style={{ minWidth: tableMinWidth(visibleColDefs) }}>
-            {/* Header row */}
-            <DataTableHeader
-              columnDefs={visibleColDefs}
-              allColumnDefs={columnDefs}
-              sorting={sorting}
-              clientFilters={clientFilters}
-              onSort={handleSort}
-              onToggleClientFilter={toggleClientFilter}
-              onClearClientFilter={clearClientFilter}
-              pinnedColId={pinnedColId}
-              pinnedEndColId={pinnedEndColId}
-              overlap={overlap}
-            />
+            {/* Only the header and rows belong to the table role; the toolbar and pagination are outside it. */}
+            <div role="table" aria-label={noun}>
+              {/* Header row */}
+              <DataTableHeader
+                columnDefs={visibleColDefs}
+                allColumnDefs={columnDefs}
+                sorting={sorting}
+                clientFilters={clientFilters}
+                onSort={handleSort}
+                onToggleClientFilter={toggleClientFilter}
+                onClearClientFilter={clearClientFilter}
+                pinnedColId={pinnedColId}
+                pinnedEndColId={pinnedEndColId}
+                overlap={overlap}
+              />
 
-            {/* Body */}
-            <div role="rowgroup">
-              {error ? (
-                <div className="px-4 py-8">{error}</div>
-              ) : paginatedRows.length === 0 ? (
-                <div className="flex flex-col items-center gap-2 px-5 py-10 text-center">
-                  <p className="text-sm text-subtle">
-                    {hasActiveFilters ? filteredEmptyMessage : emptyMessage}
-                  </p>
-                </div>
-              ) : (
-                paginatedRows.map((row) => {
-                  const label = rowLabel ? rowLabel(row.original) : undefined;
-                  const clickable = !!onRowClick;
-                  return (
-                    <div
-                      key={getRowKey(row.original)}
-                      role="row"
-                      aria-label={label}
-                      tabIndex={clickable ? 0 : undefined}
-                      onClick={clickable ? () => onRowClick(row.original) : undefined}
-                      onKeyDown={
-                        clickable
-                          ? (e) => {
-                              if (
-                                (e.key === 'Enter' || e.key === ' ') &&
-                                e.target === e.currentTarget
-                              ) {
-                                e.preventDefault();
-                                onRowClick(row.original);
-                              }
-                            }
-                          : undefined
-                      }
-                      className={cn(
-                        'group grid items-center border-b border-border-subtle px-4 py-3',
-                        // Remove bottom border from the last row (same CSS trick as DataGrid)
-                        '[&:not(:has(~[role=row]))]:border-b-0',
-                        clickable &&
-                          'cursor-pointer transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
-                      )}
-                      style={{ gridTemplateColumns, columnGap: '14px' }}
-                    >
-                      {visibleColDefs.map((colDef) => {
-                        const isPinned = colDef.id === pinnedColId;
-                        const isPinnedEnd = colDef.id === pinnedEndColId;
-                        return (
-                          <DataTableCell
-                            key={colDef.id}
-                            wrap={colDef.wrap}
-                            className={cn(
-                              colDef.align === 'right' && 'text-right',
-                              colDef.align === 'center' && 'text-center',
-                              isPinned &&
-                                `${PINNED_FILL_BODY} -ml-4 pl-4 sticky left-0 ${pinnedEdge('start', overlap.start)}`,
-                              isPinned && clickable && 'group-hover:bg-surface-elevated',
-                              isPinnedEnd &&
-                                `${PINNED_FILL_BODY} -mr-4 justify-center pl-2 pr-2 sticky right-0 ${pinnedEdge('end', overlap.end)}`,
-                              isPinnedEnd && clickable && 'group-hover:bg-surface-elevated',
-                            )}
-                          >
-                            {colDef.cell(row.original)}
-                          </DataTableCell>
-                        );
-                      })}
+              {/* Body */}
+              <div role="rowgroup">
+                {error ? (
+                  <div role="row">
+                    <div role="cell" className="px-4 py-8">
+                      {error}
                     </div>
-                  );
-                })
-              )}
+                  </div>
+                ) : paginatedRows.length === 0 ? (
+                  <div role="row">
+                    <div
+                      role="cell"
+                      className="flex flex-col items-center gap-2 px-5 py-10 text-center"
+                    >
+                      <p className="text-sm text-subtle">
+                        {hasActiveFilters ? filteredEmptyMessage : emptyMessage}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  paginatedRows.map((row) => {
+                    const label = rowLabel ? rowLabel(row.original) : undefined;
+                    const clickable = !!onRowClick;
+                    return (
+                      <div
+                        key={getRowKey(row.original)}
+                        role="row"
+                        aria-label={label}
+                        tabIndex={clickable ? 0 : undefined}
+                        onClick={clickable ? () => onRowClick(row.original) : undefined}
+                        onKeyDown={
+                          clickable
+                            ? (e) => {
+                                if (
+                                  (e.key === 'Enter' || e.key === ' ') &&
+                                  e.target === e.currentTarget
+                                ) {
+                                  e.preventDefault();
+                                  onRowClick(row.original);
+                                }
+                              }
+                            : undefined
+                        }
+                        className={cn(
+                          'group grid items-center border-b border-border-subtle px-4 py-3',
+                          // Remove bottom border from the last row (same CSS trick as DataGrid)
+                          '[&:not(:has(~[role=row]))]:border-b-0',
+                          clickable &&
+                            'cursor-pointer transition-colors hover:bg-surface-elevated focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent',
+                        )}
+                        style={{ gridTemplateColumns, columnGap: '14px' }}
+                      >
+                        {visibleColDefs.map((colDef) => {
+                          const isPinned = colDef.id === pinnedColId;
+                          const isPinnedEnd = colDef.id === pinnedEndColId;
+                          return (
+                            <DataTableCell
+                              key={colDef.id}
+                              wrap={colDef.wrap}
+                              className={cn(
+                                colDef.align === 'right' && 'text-right',
+                                colDef.align === 'center' && 'text-center',
+                                isPinned &&
+                                  `${PINNED_FILL_BODY} -ml-4 pl-4 sticky left-0 ${pinnedEdge('start', overlap.start)}`,
+                                isPinned && clickable && 'group-hover:bg-surface-elevated',
+                                isPinnedEnd &&
+                                  `${PINNED_FILL_BODY} -mr-4 justify-center pl-2 pr-2 sticky right-0 ${pinnedEdge('end', overlap.end)}`,
+                                isPinnedEnd && clickable && 'group-hover:bg-surface-elevated',
+                              )}
+                            >
+                              {colDef.cell(row.original)}
+                            </DataTableCell>
+                          );
+                        })}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -893,7 +901,7 @@ function ColumnVisibilityToggle({
               <button
                 type="button"
                 onClick={() => onToggle(item.id)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
+                className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-foreground transition-colors hover:bg-surface-elevated"
               >
                 <span
                   className={cn(
@@ -1044,7 +1052,7 @@ function DataTableHeader<TData>({
                 onClick={() => onSort(col.id)}
                 // Buttons reset text-transform, font and tracking; inherit the header row's
                 // overline treatment so every column title is drawn the same way.
-                className="group/sort inline-flex items-center gap-1 rounded [font:inherit] [letter-spacing:inherit] [text-transform:inherit] hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+                className="group/sort inline-flex items-center gap-1 rounded-sm [font:inherit] [letter-spacing:inherit] [text-transform:inherit] hover:text-foreground focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
                 aria-label={`Sort by ${col.header}`}
               >
                 {col.header}
@@ -1147,7 +1155,7 @@ function FilterButton({
           type="button"
           aria-label="Filter"
           className={cn(
-            'inline-flex items-center justify-center rounded p-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
+            'inline-flex items-center justify-center rounded-sm p-0.5 transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-accent',
             active
               ? 'text-accent bg-accent/10 hover:bg-accent/20'
               : 'text-subtle hover:text-foreground hover:bg-surface-elevated',
@@ -1189,7 +1197,7 @@ function FilterButton({
                 aria-pressed={isSelected}
                 onClick={() => onToggle(opt.value)}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface-elevated',
+                  'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-surface-elevated',
                   mono && 'font-mono text-xs',
                 )}
               >
@@ -1212,7 +1220,7 @@ function FilterButton({
             <button
               type="button"
               onClick={onClear}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-sm text-subtle transition-colors hover:bg-surface-elevated"
+              className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-subtle transition-colors hover:bg-surface-elevated"
             >
               Clear filter{selected.size > 1 ? ` (${selected.size})` : ''}
             </button>
@@ -1258,7 +1266,7 @@ function DataTablePagination({
       <span className="grow" />
       <span className="text-xs whitespace-nowrap text-subtle">Rows per page</span>
       <NativeSelect
-        className="h-8 w-auto min-w-0 px-2 py-0 text-xs"
+        className="h-8 w-auto min-w-0 pl-2 py-0 text-xs"
         aria-label={`${noun} per page`}
         value={String(pageSize)}
         onChange={(e) => onPageSizeChange(Number(e.target.value))}

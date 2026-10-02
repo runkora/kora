@@ -55,7 +55,7 @@ const SectionNav = React.forwardRef<HTMLDivElement, SectionNavProps>(
         return (
           <Button
             key={section.key}
-            variant={isActive ? 'secondary' : 'ghost'}
+            variant={isActive ? 'default' : 'ghost'}
             size="tile"
             fullWidth
             onClick={() => onSelect(section.key)}
@@ -63,14 +63,7 @@ const SectionNav = React.forwardRef<HTMLDivElement, SectionNavProps>(
           >
             <Stack direction="horizontal" align="center" gap="cozy" padding="snug" grow>
               {isActive ? (
-                <Icon
-                  name={section.icon}
-                  size="sm"
-                  color="accent"
-                  container
-                  containerVariant="accent"
-                  label=""
-                />
+                <Icon name={section.icon} size="sm" container containerVariant="surface" label="" />
               ) : (
                 <StepDot size="lg" state="pending">
                   {i + 1}
@@ -81,12 +74,18 @@ const SectionNav = React.forwardRef<HTMLDivElement, SectionNavProps>(
                   as="span"
                   size="supporting"
                   weight="heavy"
-                  color={isActive ? 'foreground' : 'muted'}
+                  color="muted"
+                  {...(isActive ? { className: 'text-accent-foreground' } : {})}
                 >
                   {section.title}
                 </Text>
                 {section.sub ? (
-                  <Text as="span" size="micro" color="subtle">
+                  <Text
+                    as="span"
+                    size="micro"
+                    color="subtle"
+                    {...(isActive ? { className: 'text-accent-foreground' } : {})}
+                  >
                     {section.sub}
                   </Text>
                 ) : null}

@@ -6,8 +6,8 @@
  */
 'use client';
 
-import { Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/terra';
-import { CopyButton, ScopeChip } from '@orbit/components';
+import { CopyButton, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/terra';
+import { ScopeChip } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import type { BudgetAssignment, Grant } from '../_types';
 import type { GrantIdentity } from '../_utils/grant-identity';

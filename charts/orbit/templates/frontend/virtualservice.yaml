@@ -1,6 +1,6 @@
-# VirtualService for the Orbit frontend.
+# VirtualService for the kora frontend.
 #
-# Routes the frontend host through the Orbit Gateway (or the customer-owned one
+# Routes the frontend host through the kora Gateway (or the customer-owned one
 # named by gateway.name) to the orbit-frontend Service.
 #
 # Ref: ADR-0034 (frontend cluster deployment and ingress routing)

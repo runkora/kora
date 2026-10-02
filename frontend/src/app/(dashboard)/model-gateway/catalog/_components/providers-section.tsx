@@ -2,8 +2,8 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Alert, Badge, CodeBlock, Icon, Stack, Text } from '@orbit/terra';
-import { SmartTable } from '@orbit/components';
+import { Alert, CodeBlock, Icon, Stack, Text } from '@orbit/terra';
+import { SmartTable, StatusBadge } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtDate } from '@orbit/utils';
 import type { ProviderStatusWire } from '../../_services/catalog-server';
@@ -44,6 +44,8 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
         header: 'Provider',
         sortable: true,
         sortAccessor: (p) => p.name,
+        gridWidth: 'minmax(0, 1.4fr)',
+        minWidth: '10rem',
         cell: (p) => (
           <Stack gap="tight">
             <ProviderBadge provider={p.name} />
@@ -56,8 +58,33 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
         ),
       },
       {
+        id: 'status',
+        header: 'Status',
+        sortable: true,
+        sortAccessor: (p) => p.status,
+        wrap: true,
+        gridWidth: '11rem',
+        minWidth: '8rem',
+        cell: (p) => (
+          // align="start" keeps the badge its natural width; a stretched badge fills the column.
+          <Stack gap="tight" align="start">
+            <StatusBadge
+              status={p.status === 'ready' ? 'healthy' : 'error'}
+              label={p.status === 'ready' ? 'Ready' : 'Error'}
+            />
+            {p.error && (
+              <Text size="caption" color="muted">
+                {p.error}
+              </Text>
+            )}
+          </Stack>
+        ),
+      },
+      {
         id: 'location',
         header: 'Region or endpoint',
+        gridWidth: 'minmax(0, 2.4fr)',
+        minWidth: '12rem',
         cell: (p) => (
           <Text size="supporting" color="muted" mono>
             {p.location || '—'}
@@ -67,6 +94,8 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
       {
         id: 'credentials',
         header: 'Credentials',
+        gridWidth: 'minmax(0, 1.1fr)',
+        minWidth: '7rem',
         cell: (p) => (
           <Stack gap="tight">
             <Text size="supporting">{p.credential_mode}</Text>
@@ -81,6 +110,8 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
       {
         id: 'resource',
         header: 'Resource',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '14rem',
         cell: (p) => (
           <Text size="supporting" mono>
             InferenceProvider/{p.resource}
@@ -88,34 +119,23 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
         ),
       },
       {
-        id: 'status',
-        header: 'Status',
-        sortable: true,
-        sortAccessor: (p) => p.status,
-        cell: (p) => (
-          <Stack gap="tight">
-            <Badge variant={p.status === 'ready' ? 'healthy' : 'error'} size="sm" dot>
-              {p.status === 'ready' ? 'Ready' : 'Error'}
-            </Badge>
-            {p.error && (
-              <Text size="caption" color="muted">
-                {p.error}
-              </Text>
-            )}
-          </Stack>
-        ),
-      },
-      {
         id: 'models',
         header: 'Models',
+        align: 'right',
         sortable: true,
         sortAccessor: (p) => p.model_count,
-        cell: (p) => <Text size="supporting">{String(p.model_count)}</Text>,
+        gridWidth: '5rem',
+        cell: (p) => (
+          <Text mono tabular size="supporting">
+            {String(p.model_count)}
+          </Text>
+        ),
       },
       {
         id: 'discovered',
         header: 'Last discovery',
         defaultVisible: false,
+        gridWidth: '9rem',
         cell: (p) => (
           <Text size="supporting" color="muted">
             {p.last_discovered_at ? fmtDate(p.last_discovered_at) : '—'}
@@ -141,7 +161,7 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
     return (
       <Stack gap="snug">
         <Text size="supporting" color="muted">
-          No providers are registered. Apply an InferenceProvider resource in the Orbit system
+          No providers are registered. Apply an InferenceProvider resource in the kora system
           namespace, with its API key in a Secret labelled orbit.io/inference-provider=true.
         </Text>
         <CodeBlock text={EXAMPLE} filename="openrouter.yaml" />

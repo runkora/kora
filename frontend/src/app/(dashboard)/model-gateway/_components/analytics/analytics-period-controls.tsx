@@ -1,8 +1,8 @@
 'use client';
 
 import { Button, Stack, Text } from '@orbit/terra';
-import { PeriodSelector } from '@orbit/components';
-import type { PeriodPrefKey } from '@orbit/components';
+import { PeriodSelector } from './period-selector';
+import type { PeriodPrefKey } from '../../../_preferences/period';
 import type { AnalyticsDays, AnalyticsGranularity } from '../../_types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

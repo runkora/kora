@@ -3,8 +3,8 @@
 import { useSyncExternalStore } from 'react';
 
 import { usePathname } from 'next/navigation';
-import { Button, Icon, Show, Stack, Text } from '@orbit/terra';
-import { ThemeToggle } from '@orbit/components';
+import { Badge, Button, Icon, Show, Stack, Text } from '@orbit/terra';
+import { ThemeToggle } from './theme-toggle';
 import { useSidebarState } from './sidebar-state';
 import { mcpGatewayHost } from '@orbit/lib/mcp';
 
@@ -128,6 +128,9 @@ export function DashboardHeader() {
             </Text>
           </Text>
         ) : null}
+        <Badge variant="outline" size="sm">
+          {process.env.NEXT_PUBLIC_ORBIT_VERSION ?? 'dev'}
+        </Badge>
         <ThemeToggle />
       </Stack>
     </Stack>

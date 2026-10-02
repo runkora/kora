@@ -52,7 +52,7 @@ target "backend-images" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-${item.service}"
-    "org.opencontainers.image.description" = "Orbit backend service image for ${item.service}"
+    "org.opencontainers.image.description" = "kora backend service image for ${item.service}"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -73,7 +73,7 @@ target "backend-tenant-images" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-${item.service}"
-    "org.opencontainers.image.description" = "Orbit backend service image for ${item.service}"
+    "org.opencontainers.image.description" = "kora backend service image for ${item.service}"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -88,7 +88,7 @@ target "orbit-agents" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-agents"
-    "org.opencontainers.image.description" = "Orbit agents service — agent type registry and run lifecycle management"
+    "org.opencontainers.image.description" = "kora agents service — agent type registry and run lifecycle management"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -103,7 +103,7 @@ target "orbit-triggers" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-triggers"
-    "org.opencontainers.image.description" = "Orbit triggers service — webhook ingestion, trigger management API, manual fire, and the cron scheduler"
+    "org.opencontainers.image.description" = "kora triggers service — webhook ingestion, trigger management API, manual fire, and the cron scheduler"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -118,7 +118,7 @@ target "orbit-shell" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-shell"
-    "org.opencontainers.image.description" = "Orbit shell proxy for agent sandbox environments"
+    "org.opencontainers.image.description" = "kora shell proxy for agent sandbox environments"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -135,7 +135,7 @@ target "orbit-mcp" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-mcp"
-    "org.opencontainers.image.description" = "Orbit MCP server — Orbit's management surface as MCP tools over Streamable HTTP"
+    "org.opencontainers.image.description" = "kora MCP server — kora's management surface as MCP tools over Streamable HTTP"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -150,7 +150,7 @@ target "orbit-runtime-mcp" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-runtime-mcp"
-    "org.opencontainers.image.description" = "Orbit MCP server for agent runtime tooling"
+    "org.opencontainers.image.description" = "kora MCP server for agent runtime tooling"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -164,7 +164,7 @@ target "orbit-session-manager" {
   pull       = true
   labels = {
     "org.opencontainers.image.title" = "orbit-session-manager"
-    "org.opencontainers.image.description" = "Orbit session-manager — Go binary + Node.js for Claude Code integration"
+    "org.opencontainers.image.description" = "kora session-manager — Go binary + Node.js for Claude Code integration"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -178,7 +178,7 @@ target "orbit-sandbox-exec" {
   pull       = true
   labels = {
     "org.opencontainers.image.title" = "orbit-sandbox-exec"
-    "org.opencontainers.image.description" = "Orbit sandbox-exec — gRPC exec server for isolated agent run environments"
+    "org.opencontainers.image.description" = "kora sandbox-exec — gRPC exec server for isolated agent run environments"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -196,7 +196,7 @@ target "orbit-frontend" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-frontend"
-    "org.opencontainers.image.description" = "Orbit frontend service image"
+    "org.opencontainers.image.description" = "kora frontend service image"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -210,7 +210,7 @@ target "orbit-operator" {
   pull       = true
   labels = {
     "org.opencontainers.image.title" = "orbit-operator"
-    "org.opencontainers.image.description" = "Orbit operator image"
+    "org.opencontainers.image.description" = "kora operator image"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"

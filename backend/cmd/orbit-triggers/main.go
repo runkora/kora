@@ -1,5 +1,5 @@
 // The orbit-triggers binary owns the platform's front door for starting work:
-// every way something can begin in Orbit arrives here.
+// every way something can begin in kora arrives here.
 //
 // It serves inbound webhook ingestion, the trigger management API, the manual
 // fire endpoint, and runs the cron scheduler for time-driven triggers. All four

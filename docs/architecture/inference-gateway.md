@@ -1,6 +1,6 @@
 # Inference gateway
 
-The inference-gateway is Orbit's LLM broker. Agents and API clients call one OpenAI/Anthropic-compatible endpoint, and the gateway authenticates, authorizes, budgets, and routes each request to a model provider.
+The inference-gateway is kora's LLM broker. Agents and API clients call one OpenAI/Anthropic-compatible endpoint, and the gateway authenticates, authorizes, budgets, and routes each request to a model provider.
 
 ![Inference gateway](../diagrams/inference-gateway.svg)
 

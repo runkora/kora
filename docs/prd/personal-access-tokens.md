@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit's inference gateway is valuable beyond deployed agent clusters — developers need to point local coding agents (Claude Code, Cursor, Continue, etc.) directly at Orbit inference without spinning up a full SPIFFE-attested workload. Personal Access Tokens (PATs) are user-bound, longer-lived tokens scoped exclusively to inference endpoints, enabling this local development workflow securely and without compromising the platform's identity guarantees.
+kora's inference gateway is valuable beyond deployed agent clusters — developers need to point local coding agents (Claude Code, Cursor, Continue, etc.) directly at kora inference without spinning up a full SPIFFE-attested workload. Personal Access Tokens (PATs) are user-bound, longer-lived tokens scoped exclusively to inference endpoints, enabling this local development workflow securely and without compromising the platform's identity guarantees.
 
 ---
 
@@ -18,24 +18,24 @@ Orbit's inference gateway is valuable beyond deployed agent clusters — develop
 
 ### Current State
 
-Orbit currently issues two classes of platform token:
+kora currently issues two classes of platform token:
 
 - **Human session tokens** — short-lived (60 min), issued via OIDC device flow or id_token exchange, backed by refresh tokens. Designed for browser/CLI sessions.
-- **Agent tokens** — short-lived (60 min), issued via SPIFFE SVID attestation. Designed for workloads running inside Orbit-managed clusters with SPIRE installed.
+- **Agent tokens** — short-lived (60 min), issued via SPIFFE SVID attestation. Designed for workloads running inside kora-managed clusters with SPIRE installed.
 
-Neither type is practical for a developer running a coding agent locally and pointing it at Orbit inference. Human session tokens expire in 60 minutes and require re-authentication via a browser redirect. Agent tokens require a full SPIFFE/SPIRE attestation chain, which is only available inside the cluster.
+Neither type is practical for a developer running a coding agent locally and pointing it at kora inference. Human session tokens expire in 60 minutes and require re-authentication via a browser redirect. Agent tokens require a full SPIFFE/SPIRE attestation chain, which is only available inside the cluster.
 
 ### User Pain Points
 
-- Developers cannot use Orbit inference for local coding agents without re-authenticating every hour.
+- Developers cannot use kora inference for local coding agents without re-authenticating every hour.
 - There is no stable credential a developer can configure once and leave in their local tool (`.env`, settings file, etc.) without it expiring mid-session.
 - Agent tokens require cluster infrastructure that does not exist on a developer laptop.
-- Using human session tokens for automated local tools defeats the purpose of short-lived tokens — developers are forced to either script refresh loops or abandon Orbit inference for direct provider keys.
+- Using human session tokens for automated local tools defeats the purpose of short-lived tokens — developers are forced to either script refresh loops or abandon kora inference for direct provider keys.
 
 ### Business Impact
 
-- Orbit's inference gateway is underused during development because the credential story for local tooling is broken.
-- Developers bypass Orbit and use raw provider API keys locally, eliminating all governance, usage attribution, and cost visibility during development.
+- kora's inference gateway is underused during development because the credential story for local tooling is broken.
+- Developers bypass kora and use raw provider API keys locally, eliminating all governance, usage attribution, and cost visibility during development.
 - Every inference call made with a raw provider key is invisible to the platform — no usage records, no policy enforcement, no auditability.
 
 ---
@@ -44,8 +44,8 @@ Neither type is practical for a developer running a coding agent locally and poi
 
 ### Primary Goals
 
-1. Enable any authenticated Orbit user to create a long-lived token suitable for local development tooling.
-2. Ensure these tokens are scoped exclusively to inference endpoints — they cannot access the main Orbit API.
+1. Enable any authenticated kora user to create a long-lived token suitable for local development tooling.
+2. Ensure these tokens are scoped exclusively to inference endpoints — they cannot access the main kora API.
 3. Give users full lifecycle control: create, list, and revoke their own PATs.
 
 ### Success Metrics
@@ -53,7 +53,7 @@ Neither type is practical for a developer running a coding agent locally and poi
 - A developer can configure a PAT in their local coding agent once and use it for the full 90-day default lifetime without re-authenticating.
 - All inference calls made with PATs produce complete usage records attributed to the correct user and tenant.
 - A revoked PAT is rejected within the Redis TTL window (< 1 second in practice, bounded by the JTI blocklist propagation already used for session revocation).
-- Zero PAT raw values stored in Orbit's database — only SHA-256 hashes.
+- Zero PAT raw values stored in kora's database — only SHA-256 hashes.
 
 ### Non-Goals
 
@@ -71,8 +71,8 @@ Neither type is practical for a developer running a coding agent locally and poi
 ### Primary User Stories
 
 **As a** developer,  
-**I want to** create a Personal Access Token from the Orbit CLI or API,  
-**So that** I can configure my local coding agent (Claude Code, Cursor, Continue) to use Orbit inference without re-authenticating every hour.
+**I want to** create a Personal Access Token from the kora CLI or API,  
+**So that** I can configure my local coding agent (Claude Code, Cursor, Continue) to use kora inference without re-authenticating every hour.
 
 **Acceptance Criteria:**
 - [ ] Authenticated user can `POST /api/v1/identity/tokens` and receive a raw PAT value exactly once.
@@ -109,7 +109,7 @@ Neither type is practical for a developer running a coding agent locally and poi
 **So that** the inference-only scope of the token is enforced by the platform, not by convention.
 
 **Acceptance Criteria:**
-- [ ] A PAT presented to any main Orbit API endpoint (`/api/v1/...` excluding inference) returns 403 Forbidden.
+- [ ] A PAT presented to any main kora API endpoint (`/api/v1/...` excluding inference) returns 403 Forbidden.
 - [ ] The inference gateway accepts PATs alongside existing `AGENT` and `HUMAN` session tokens.
 
 ---
@@ -171,11 +171,11 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 
 #### User Flow
 
-1. Developer authenticates to Orbit via device flow (`make auth-device` or UI).
+1. Developer authenticates to kora via device flow (`make auth-device` or UI).
 2. Developer calls `POST /api/v1/identity/tokens` with their session token and a descriptive name.
-3. Orbit issues the PAT, returns the raw value once, and stores only its hash.
+3. kora issues the PAT, returns the raw value once, and stores only its hash.
 4. Developer sets the PAT as the API key in their local coding agent configuration.
-5. When the agent calls Orbit inference, the `x-api-key` middleware promotes it to `Authorization: Bearer`.
+5. When the agent calls kora inference, the `x-api-key` middleware promotes it to `Authorization: Bearer`.
 6. `AuthMiddleware` verifies the JWT and stores claims (PrincipalType = `PAT`) in context.
 7. The inference gateway's PAT guard middleware confirms the principal type is inference-permitted.
 8. The request proceeds through policy evaluation and provider routing as normal.
@@ -187,7 +187,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 - **PAT issuance service method** — `CreatePAT` on the identity `Service` — signs a JWT with `PrincipalType=PAT`, persists the hash row, returns the raw token once.
 - **PAT management HTTP handlers** — `POST /api/v1/identity/tokens`, `GET /api/v1/identity/tokens`, `DELETE /api/v1/identity/tokens/{id}` on the identity service.
 - **Inference gateway PAT guard** — A thin middleware (`requireInferencePrincipal`) that allows `PAT`, `AGENT`, and `HUMAN` token types at inference routes; rejects all others.
-- **Main API PAT rejection** — The main Orbit API auth flow checks for `PrincipalType=PAT` and returns 403.
+- **Main API PAT rejection** — The main kora API auth flow checks for `PrincipalType=PAT` and returns 403.
 - **Revocation** — Reuses the existing JTI blocklist (Redis) and `revoked_at` column pattern.
 
 ---
@@ -220,7 +220,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 - **`last_used_at` tracking** — Update a `last_used_at` timestamp on the PAT row on each successful inference request.
 - **Rotate / re-roll** — `POST /api/v1/identity/tokens/{id}/rotate` — atomically revoke the old PAT and issue a new one with the same name and TTL.
 - **Admin visibility** — Tenant admins listing and revoking PATs across their tenant.
-- **PAT management UI** — A settings screen in the Orbit web UI.
+- **PAT management UI** — A settings screen in the kora web UI.
 
 ---
 
@@ -238,7 +238,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 - [ ] `DELETE /api/v1/identity/tokens/{id}` immediately revokes a PAT
 - [ ] Revoked PATs are added to the Redis JTI blocklist for fast rejection
 - [ ] PATs are accepted by the inference gateway with full usage attribution
-- [ ] PATs are rejected by the main Orbit API (non-inference endpoints) with 403
+- [ ] PATs are rejected by the main kora API (non-inference endpoints) with 403
 - [ ] All inference calls using PATs produce `InferenceUsageRecord` rows with `principal_type = 'PAT'`
 
 **Should Have (P1):**
@@ -285,7 +285,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 
 ### External Dependencies
 
-- None. PAT issuance, storage, and verification are entirely within the Orbit platform.
+- None. PAT issuance, storage, and verification are entirely within the kora platform.
 
 ---
 
@@ -297,7 +297,7 @@ The `x-api-key` middleware in the inference gateway already normalises the key t
 | User creates a PAT and loses the value | Low | Medium | Document clearly in API response that the token is shown once. Revoke-and-recreate is the recovery path. |
 | PAT used on main API endpoints (privilege escalation) | Medium | Low | `PrincipalType=PAT` check in main API auth path; returns 403. Belt-and-suspenders with inference gateway allow-list. |
 | 365-day PATs create long exposure windows | Medium | Medium | Default is 90 days. Future: scope restriction per PAT (OPA integration). |
-| Token prefix `orb_` collides with future token types | Low | Low | Reserve `orb_` as the platform-wide credential prefix; document convention in ADR. All Orbit-issued programmatic credentials use this prefix. |
+| Token prefix `orb_` collides with future token types | Low | Low | Reserve `orb_` as the platform-wide credential prefix; document convention in ADR. All kora-issued programmatic credentials use this prefix. |
 
 ---
 

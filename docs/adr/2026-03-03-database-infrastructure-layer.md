@@ -9,7 +9,7 @@
 
 ## Context
 
-Orbit uses PostgreSQL as its primary database and follows a repository pattern where each feature owns its data access layer (established in [repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md)). We need a solid infrastructure layer to support these feature repositories.
+kora uses PostgreSQL as its primary database and follows a repository pattern where each feature owns its data access layer (established in [repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md)). We need a solid infrastructure layer to support these feature repositories.
 
 ### Background
 
@@ -137,7 +137,7 @@ db.Create(&user)
 - **Loss of control** - abstracts away SQL, making debugging harder
 - **Performance overhead** - ORMs add reflection and query building cost
 - **Complex queries become awkward** - advanced SQL is harder with ORM
-- **Not idiomatic for this project** - Orbit values explicit SQL for clarity
+- **Not idiomatic for this project** - kora values explicit SQL for clarity
 - **Migration management** - Auto-migrations are risky in production
 - **Testing complexity** - Harder to mock than repository pattern
 
@@ -151,15 +151,15 @@ db.Create(&user)
 
 **Why pgx over database/sql?**
 
-1. **PostgreSQL-native**: Orbit is a PostgreSQL-only application. Using a driver optimized for PostgreSQL makes sense.
+1. **PostgreSQL-native**: kora is a PostgreSQL-only application. Using a driver optimized for PostgreSQL makes sense.
 2. **Performance**: `pgxpool` provides superior connection pooling and batch operations for production workloads.
 3. **Modern tooling**: `pgx` is actively maintained and the Go community's preferred PostgreSQL driver.
 4. **Native types**: We'll likely use JSONB for agent metadata, arrays for tags, etc. - pgx handles these natively.
-5. **Observability**: Built-in support for tracing and logging aligns with Orbit's observability requirements.
+5. **Observability**: Built-in support for tracing and logging aligns with kora's observability requirements.
 
 **Why not GORM?**
 
-Orbit follows a repository pattern ([repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md)) where SQL is explicit. ORMs hide SQL complexity, making debugging and optimization harder. For a control plane where correctness and performance are critical, explicit SQL is preferred.
+kora follows a repository pattern ([repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md)) where SQL is explicit. ORMs hide SQL complexity, making debugging and optimization harder. For a control plane where correctness and performance are critical, explicit SQL is preferred.
 
 **Compatibility note**: pgx can also work with `database/sql` interface if needed for third-party tools, giving us flexibility.
 

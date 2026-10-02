@@ -53,7 +53,7 @@ rules:
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants/status", "mcpservers/status"]
     verbs: ["get", "patch"]
-  # caBundle and failurePolicy on Orbit's own webhooks.
+  # caBundle and failurePolicy on kora's own webhooks.
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
     resourceNames: ["aaa-orbit-agent-pod-mutator", "orbit-agent-pod-validator"]

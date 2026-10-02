@@ -17,7 +17,7 @@ spec:
       app: orbit-sandbox-image-warmer
   template:
     metadata:
-      # Orbit's own keys win the merge, and every value is quoted: label and
+      # kora's own keys win the merge, and every value is quoted: label and
       # annotation values are strings, and an unquoted `true` in values.yaml
       # reaches the API server as a boolean.
       labels:

@@ -15,7 +15,11 @@ const segmentedControlVariants = cva([
   'p-[3px]',
 ]);
 
-/** One option on the track; `selected` lifts it onto an overlay surface. */
+/**
+ * One option on the track; `selected` fills it with the accent, like a primary button.
+ * The radius is the track's (2 units) minus the track's 1px border and 3px padding,
+ * so the selected fill sits concentric inside the track.
+ */
 const segmentedControlOptionVariants = cva(
   [
     'inline-flex',
@@ -23,7 +27,7 @@ const segmentedControlOptionVariants = cva(
     'cursor-pointer',
     'items-center',
     'gap-1.5',
-    'rounded-[6px]',
+    'rounded-[calc(var(--terra-radius-unit)*2_-_4px)]',
     'border-none',
     'px-[11px]',
     'font-sans',
@@ -36,7 +40,7 @@ const segmentedControlOptionVariants = cva(
   {
     variants: {
       selected: {
-        true: 'bg-surface-overlay font-semibold text-foreground',
+        true: 'bg-accent font-semibold text-accent-foreground',
         false: 'bg-transparent font-medium text-muted hover:text-foreground',
       },
     },
@@ -51,6 +55,13 @@ const segmentedControlCountVariants = cva([
   'font-medium',
   'text-subtle',
 ]);
+
+/**
+ * Reserves the width of the bold text with an invisible copy in `::after`, so an
+ * item keeps the same width whether or not it is selected.
+ */
+const reserveBold =
+  'inline-flex flex-col after:invisible after:h-0 after:overflow-hidden after:content-[attr(data-text)]';
 
 export interface SegmentedControlOption {
   /** Stable value passed to `onChange`. */
@@ -130,9 +141,21 @@ const SegmentedControl = React.forwardRef<HTMLDivElement, SegmentedControlProps>
             className={cn(segmentedControlOptionVariants({ selected }))}
           >
             {o.icon}
-            {o.label}
+            <span data-text={o.label} className={cn(reserveBold, 'after:font-semibold')}>
+              {o.label}
+            </span>
             {o.count !== undefined && (
-              <span className={cn(segmentedControlCountVariants())}>{o.count}</span>
+              <span
+                data-text={o.count}
+                className={cn(
+                  segmentedControlCountVariants(),
+                  reserveBold,
+                  'after:font-sans after:text-xs after:font-bold after:tabular-nums',
+                  selected && 'font-sans text-xs font-bold tabular-nums text-accent-foreground',
+                )}
+              >
+                {o.count}
+              </span>
             )}
           </button>
         );

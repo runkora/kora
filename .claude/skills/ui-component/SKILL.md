@@ -41,14 +41,14 @@ Ask the user:
 2. **Component name** — what it's called.
 3. **Consumers** — which file(s) or feature areas use (or will use) it? How many, and do they
    span more than one feature area?
-4. **Orbit domain knowledge** — does it reference any Orbit-specific vocabulary: agent/principal
+4. **kora domain knowledge** — does it reference any kora-specific vocabulary: agent/principal
    types, model or provider names, status tokens (e.g. `OrbitStatus`), or permission/role
-   concepts? A component that renders a plain spinner knows nothing about Orbit; one that renders
+   concepts? A component that renders a plain spinner knows nothing about kora; one that renders
    an agent status badge is domain-aware.
 
 For an **existing** component (promote or verify):
 - Read its current implementation file to find: current path, `@tier` JSDoc comment (if present),
-  any Orbit-specific imports.
+  any kora-specific imports.
 - Check whether a story file exists alongside it.
 - `grep -r "from '.*ComponentName'" frontend/src --include="*.tsx" --include="*.ts" -l` — enumerate
   real consumers (substitute the actual component name for `ComponentName`).
@@ -64,10 +64,10 @@ Apply this decision tree **in order, stopping at the first match**:
 2. **Tier 3 (Feature-scoped)** — all consumers live in the same feature area
    (`src/app/(dashboard)/{feature}/`). Path: `src/app/(dashboard)/{feature}/_components/`.
 3. **Tier 1 (Terra)** — consumers span two or more feature areas **and** the component has zero
-   Orbit domain knowledge. Requires a **human approval gate before any code is written** (see
+   kora domain knowledge. Requires a **human approval gate before any code is written** (see
    below).
 4. **Tier 2 (App-shared)** — consumers span two or more feature areas **and** the component is
-   Orbit-domain-aware. Path: `src/components/`.
+   kora-domain-aware. Path: `src/components/`.
 
 Surface your determination with one paragraph of reasoning. For Tier 1, also confirm with the
 user which Storybook category fits: Atoms / Molecules / Layout / Organisms.
@@ -79,13 +79,13 @@ decision tree above to determine whether the component should move up. Present t
 
 - **Current tier** and **why it was placed there** (from `@tier` JSDoc or by inference).
 - **Evidence for promotion**: new consumers found outside the original scope, loss of any
-  Orbit domain knowledge since it was written, etc.
+  kora domain knowledge since it was written, etc.
 - **Recommendation**: promote, stay, or "promote only if X".
 
 For a Tier 3 component, the trigger for promotion to Tier 2 is a second feature area importing
 it. Run the consumer grep to verify — don't assume.
 
-For a Tier 2 component, the trigger for promotion to Tier 1 is absence of Orbit domain knowledge
+For a Tier 2 component, the trigger for promotion to Tier 1 is absence of kora domain knowledge
 *across the entire implementation*: no status tokens, no principal types, no model/provider names,
 no permission vocabulary. If any domain knowledge exists, the component stays at Tier 2.
 

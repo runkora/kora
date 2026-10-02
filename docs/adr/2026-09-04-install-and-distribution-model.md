@@ -3,7 +3,7 @@
 **Status:** Proposed (amended 2026-09-10: schema application moved into the `orbit` chart, see [Database Migrations](2026-09-10-database-migrations.md))
 **Date:** 2026-09-04
 **Deciders:** Justin Wilkin
-**Technical Story:** Implements the [Install and Distribution PRD](../prd/install-and-distribution.md). Supersedes [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) and amends [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md). The companion decision on how Orbit's sidecars reach pods in a mesh Orbit did not install is [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md).
+**Technical Story:** Implements the [Install and Distribution PRD](../prd/install-and-distribution.md). Supersedes [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) and amends [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md). The companion decision on how kora's sidecars reach pods in a mesh kora did not install is [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md).
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### Background
 
-Orbit ships three Helm charts (`charts/orbit-operator`, `charts/orbit-platform`, `charts/orbit`) and installs them through the operator. The [operator ADR](2026-03-31-orbit-kubernetes-operator.md) made the operator the single install entry point: an `OrbitPlatform` custom resource drives seven Helm releases (spire-crds, spire, istio-base, istiod, gateway, orbit-platform, orbit) with chart versions pinned as Go constants in `backend/internal/operator/util.go`. The operator image bakes `charts/` and `deploy/local/` in at build time (`Dockerfile.operator`), and `loadValuesFile` reads the local development values as the production fallback.
+kora ships three Helm charts (`charts/orbit-operator`, `charts/orbit-platform`, `charts/orbit`) and installs them through the operator. The [operator ADR](2026-03-31-orbit-kubernetes-operator.md) made the operator the single install entry point: an `OrbitPlatform` custom resource drives seven Helm releases (spire-crds, spire, istio-base, istiod, gateway, orbit-platform, orbit) with chart versions pinned as Go constants in `backend/internal/operator/util.go`. The operator image bakes `charts/` and `deploy/local/` in at build time (`Dockerfile.operator`), and `loadValuesFile` reads the local development values as the production fallback.
 
 The operator's second job grew after that ADR: tenant namespaces, per-tenant CA minting, per-tenant OPA configuration, the sandbox egress NetworkPolicy, six aggregators (tenants, OIDC client secrets, tenant CAs, connections, OAuth clients, MCP servers) and a pod mutating webhook that stamps tenant identity and injection templates onto every tenant pod. None of that appears in the ADR, and all of it is continuous reconciliation of state that changes after install.
 
@@ -19,12 +19,12 @@ Several documented behaviours do not exist in code. `spec.version` is echoed int
 
 ### Problem Statement
 
-Orbit has no installable release. The install model it documents fails the three requirements enterprise platform teams put first: do not install my mesh or identity system, reconcile everything from Git with no imperative steps, and separate cluster-scoped from namespaced concerns. Istio removed its own in-cluster operator in 1.24 for the same reasons (see References).
+kora has no installable release. The install model it documents fails the three requirements enterprise platform teams put first: do not install my mesh or identity system, reconcile everything from Git with no imperative steps, and separate cluster-scoped from namespaced concerns. Istio removed its own in-cluster operator in 1.24 for the same reasons (see References).
 
 ### Goals
 
 - Two published, signed charts that install with Helm or Argo CD with no imperative steps.
-- Istio and SPIRE as documented, verifiable prerequisites. Orbit never installs them.
+- Istio and SPIRE as documented, verifiable prerequisites. kora never installs them.
 - The operator does tenant lifecycle and enforcement attachment only, with RBAC to match.
 - One reference install for blank clusters that local development also uses.
 - A release pipeline that cuts charts and images together with pinned digests, signatures and an image inventory.
@@ -43,7 +43,7 @@ Orbit has no installable release. The install model it documents fails the three
 
 - **Enterprise adoption blockers**, in the order they block: BYO mesh and identity, GitOps transparency, cluster-scoped versus namespaced split, restricted pod security, registry and pull-secret overrides, signed and pinned artefacts, existing-secret conventions.
 - **Evaluator time to first agent run** on a blank cluster.
-- **One tested path.** Whatever installs Orbit locally must be what installs it for customers.
+- **One tested path.** Whatever installs kora locally must be what installs it for customers.
 - **Least privilege for the operator.** Its permissions follow from what it reconciles.
 - **Established practice** for a platform with hard infrastructure dependencies: charts as the product, prerequisites documented, an operator only for continuous day-2 work.
 
@@ -53,14 +53,14 @@ Orbit has no installable release. The install model it documents fails the three
 
 ### Option 1: Operator-driven install (status quo)
 
-**Description:** Keep `OrbitPlatform` driving SPIRE, Istio, gateway and the Orbit charts.
+**Description:** Keep `OrbitPlatform` driving SPIRE, Istio, gateway and the kora charts.
 
 **Pros:**
 - One custom resource on a blank cluster.
 
 **Cons:**
 - Fails the three leading enterprise blockers.
-- BYO Istio or SPIRE is a skip flag with no validation and no way to deliver Orbit's mesh configuration.
+- BYO Istio or SPIRE is a skip flag with no validation and no way to deliver kora's mesh configuration.
 - Every chart value is reachable only through `orbitValues` passthrough.
 - Operator holds wildcard verbs across seventeen API groups permanently.
 - Version pins in Go; an Istio bump is an operator release.
@@ -124,11 +124,11 @@ The operator's ClusterRole, complete, including the rows the companion ADR's web
 | orbit.io | orbittenants/status, mcpservers/status | get, patch | conditions (the other two CRDs have no status subresource) |
 | admissionregistration.k8s.io | mutatingwebhookconfigurations, validatingwebhookconfigurations | get, patch (scoped to the two named webhooks); list, watch (unscoped) | `caBundle` injection and failure-policy switch |
 | apps | daemonsets | get | preflight: CNI presence (istiod itself is read from the injector ConfigMap) |
-| spire.spiffe.io | clusterspiffeids | list | preflight: CSI driver and CRD presence proven indirectly (SVID fetch, List error), default ClusterSPIFFEID absent, Orbit registrations accepted |
+| spire.spiffe.io | clusterspiffeids | list | preflight: CSI driver and CRD presence proven indirectly (SVID fetch, List error), default ClusterSPIFFEID absent, kora registrations accepted |
 | coordination.k8s.io | leases | get, create, update | leader election |
 | core | events | create, patch | controller-runtime |
 
-Secrets and ConfigMaps are excluded from the informer cache entirely (`client.CacheOptions.DisableFor`), so the operator never holds an in-memory watch of every Secret in the cluster; every read goes straight to the API server. This bounds memory, not authorization: RBAC (Decision 1's table) is what actually limits which Secrets and ConfigMaps the operator can touch, and today that table is a cluster-wide grant, not one scoped to Orbit's namespaces (tracked as [#269](https://github.com/clear-route/orbit/issues/269)). The tenant reconciler does not watch Secrets at all; a rotated OIDC client Secret or Connection credential is picked up on the periodic reconcile.
+Secrets and ConfigMaps are excluded from the informer cache entirely (`client.CacheOptions.DisableFor`), so the operator never holds an in-memory watch of every Secret in the cluster; every read goes straight to the API server. This bounds memory, not authorization: RBAC (Decision 1's table) is what actually limits which Secrets and ConfigMaps the operator can touch, and today that table is a cluster-wide grant, not one scoped to kora's namespaces (tracked as [#269](https://github.com/clear-route/orbit/issues/269)). The tenant reconciler does not watch Secrets at all; a rotated OIDC client Secret or Connection credential is picked up on the periodic reconcile.
 
 ### Decision 2: Chart topology
 
@@ -145,29 +145,29 @@ No toggles on required parts. The services, the ClusterSPIFFEIDs and the operato
 | Value | Default | Purpose |
 |---|---|---|
 | `networkPolicy.enabled` | `true` | CNIs that do not enforce policy |
-| `gateway.create` / `gateway.name` | `true` / `orbit-gateway` | `true`: the chart deploys Orbit's own Istio ingress gateway pods in the system namespace (upstream `istio/gateway` as a subchart) plus the `Gateway` resource; `false`: bind VirtualServices to a customer-owned Istio Gateway named by `gateway.name` |
+| `gateway.create` / `gateway.name` | `true` / `orbit-gateway` | `true`: the chart deploys kora's own Istio ingress gateway pods in the system namespace (upstream `istio/gateway` as a subchart) plus the `Gateway` resource; `false`: bind VirtualServices to a customer-owned Istio Gateway named by `gateway.name` |
 | `gateway.ingress.enabled`, `frontend.ingress.enabled` | `false` | Kubernetes Ingress in front of the Istio gateway |
 | `agents.imageWarmer.enabled`, `agents.warmHeadroom.enabled` | `false` | existing sandbox warm-start opt-ins |
 
-Orbit deploys its own ingress gateway rather than depending on a shared one in the Istio namespace. Istio's guidance is a gateway deployed with the application, injected by the shared control plane. The `istio/gateway` subchart, pinned to the supported Istio range and enabled by `gateway.create`, renders in the system namespace with the SPIRE proxy wiring (Decision 4 of the companion ADR) carried by the `orbit` chart, so a consumer adds nothing to their mesh for Orbit's gateway to obtain its identity, and no Orbit registration reaches into the Istio namespace. A team fronting Orbit with a shared gateway sets `gateway.create: false` and applies the documented wiring to that gateway.
+kora deploys its own ingress gateway rather than depending on a shared one in the Istio namespace. Istio's guidance is a gateway deployed with the application, injected by the shared control plane. The `istio/gateway` subchart, pinned to the supported Istio range and enabled by `gateway.create`, renders in the system namespace with the SPIRE proxy wiring (Decision 4 of the companion ADR) carried by the `orbit` chart, so a consumer adds nothing to their mesh for kora's gateway to obtain its identity, and no kora registration reaches into the Istio namespace. A team fronting kora with a shared gateway sets `gateway.create: false` and applies the documented wiring to that gateway.
 
 The three-chart split (operator, platform, services) was dropped: its justification is a cluster-admin versus app-team RBAC boundary, and the services chart already carries gateway `EnvoyFilter`s and cluster-exported `DestinationRule`s, so no consumer installs it with namespace RBAC.
 
 ### Decision 3: Prerequisites contract
 
-Istio and SPIRE are prerequisites. Per release Orbit publishes:
+Istio and SPIRE are prerequisites. Per release kora publishes:
 
 | Prerequisite | Requirement |
 |---|---|
 | Kubernetes | minors exercised by CI |
-| Istio | current and previous minor; sidecar mode for Orbit's namespaces; `pilot.cni.enabled: true` on istiod with the Istio CNI DaemonSet running; `meshConfig.trustDomain` equal to Orbit's `global.trustDomain`; sidecar injection on Orbit's namespaces through `istio-injection: enabled` or an `istio.io/rev` label matching a live revision (`istio.revision` value) |
-| SPIRE | `spiffe/spire` chart within the stated range; trust domain equal to Orbit's; SPIFFE CSI driver `csi.spiffe.io` registered; spire-controller-manager present with the `ClusterSPIFFEID` CRD served; the chart's default ClusterSPIFFEID absent or `fallback: true`; agent SDS enabled with `defaultSVIDName: default`, `defaultBundleName: ROOTCA`, `defaultAllBundlesName: ALL`; `spire.className` value equal to the controller manager's class name |
+| Istio | current and previous minor; sidecar mode for kora's namespaces; `pilot.cni.enabled: true` on istiod with the Istio CNI DaemonSet running; `meshConfig.trustDomain` equal to kora's `global.trustDomain`; sidecar injection on kora's namespaces through `istio-injection: enabled` or an `istio.io/rev` label matching a live revision (`istio.revision` value) |
+| SPIRE | `spiffe/spire` chart within the stated range; trust domain equal to kora's; SPIFFE CSI driver `csi.spiffe.io` registered; spire-controller-manager present with the `ClusterSPIFFEID` CRD served; the chart's default ClusterSPIFFEID absent or `fallback: true`; agent SDS enabled with `defaultSVIDName: default`, `defaultBundleName: ROOTCA`, `defaultAllBundlesName: ALL`; `spire.className` value equal to the controller manager's class name |
 | PostgreSQL, Redis | reachable from the system namespace; credentials in the platform Secret |
 | OIDC provider, model provider | as today; the reference install ships Dex for evaluation |
 
-Orbit's ClusterSPIFFEIDs are scoped to what Orbit owns: the system namespace (which now contains Orbit's gateway pods) and namespaces labelled `orbit.io/role: tenant`. The `istio-sidecar` registration that today matches every non-Orbit namespace carrying `spiffe.io/spire-managed-identity` and the `istio-gateway` registration matching every `app: gateway` pod in `istio-system` are removed; a customer-owned gateway (`gateway.create: false`) is registered by its owner, and a customer's own default registration remains theirs.
+kora's ClusterSPIFFEIDs are scoped to what kora owns: the system namespace (which now contains kora's gateway pods) and namespaces labelled `orbit.io/role: tenant`. The `istio-sidecar` registration that today matches every non-Orbit namespace carrying `spiffe.io/spire-managed-identity` and the `istio-gateway` registration matching every `app: gateway` pod in `istio-system` are removed; a customer-owned gateway (`gateway.create: false`) is registered by its owner, and a customer's own default registration remains theirs.
 
-No Orbit-specific Istio control-plane configuration is required. The injection templates the operator rendered into istiod are replaced by Orbit's own webhook and by chart-rendered pod specs (companion ADR). Istio CNI is required because the restricted pod security profile rejects the `istio-init` container's `NET_ADMIN`/`NET_RAW`; with `pilot.cni.enabled` istiod renders the unprivileged `istio-validation` container instead.
+No kora-specific Istio control-plane configuration is required. The injection templates the operator rendered into istiod are replaced by kora's own webhook and by chart-rendered pod specs (companion ADR). Istio CNI is required because the restricted pod security profile rejects the `istio-init` container's `NET_ADMIN`/`NET_RAW`; with `pilot.cni.enabled` istiod renders the unprivileged `istio-validation` container instead.
 
 The preflight that verifies this contract is specified in the companion ADR.
 
@@ -220,14 +220,14 @@ The charts render identically under `helm template` with no cluster access and p
 - The system namespace is created and labelled outside the chart. Helmfile: `createNamespace` creates it and a `presync` hook labels it with `istio-injection: enabled` (or the `istio.io/rev` label) and `pod-security.kubernetes.io/enforce: restricted`. Argo CD: `managedNamespaceMetadata`. The deployment guide gives both.
 - A published ownership table: every object the chart or operator creates or changes, its owner, and the fields the operator writes on objects it does not own (tenant namespace labels, webhook `caBundle` and `failurePolicy`, PSA labels). Argo CD `ignoreDifferences` follows from it.
 - A NetworkPolicy `allow-apiserver-webhook` admitting the API server to the operator's webhook port; the API server is host-networked so the source is `networkPolicy.apiServerCIDRs` (default `0.0.0.0/0` on the webhook port only). Without it the default-deny in the system namespace blocks admission and, with a fail-closed webhook, every tenant pod.
-- A published flow table in the deployment guide: every flow Orbit's shipped policies permit (istiod xDS and webhook ports, API server to the operator webhook, system namespace to and from tenant namespaces by port, sandboxes to the egress gateway, DNS, and egress to PostgreSQL, Redis, the identity provider and model providers), so a platform team authoring its own default-deny policies can permit them. `networkPolicy.enabled: false` is documented with the isolation it removes.
-- `ServiceEntry` templates for the external destinations Orbit's services call (model providers, the identity provider, PostgreSQL and Redis when outside the cluster), rendered when `istio.outboundTrafficPolicy` is `REGISTRY_ONLY`, so Orbit works on meshes that restrict egress to registered hosts.
+- A published flow table in the deployment guide: every flow kora's shipped policies permit (istiod xDS and webhook ports, API server to the operator webhook, system namespace to and from tenant namespaces by port, sandboxes to the egress gateway, DNS, and egress to PostgreSQL, Redis, the identity provider and model providers), so a platform team authoring its own default-deny policies can permit them. `networkPolicy.enabled: false` is documented with the isolation it removes.
+- `ServiceEntry` templates for the external destinations kora's services call (model providers, the identity provider, PostgreSQL and Redis when outside the cluster), rendered when `istio.outboundTrafficPolicy` is `REGISTRY_ONLY`, so kora works on meshes that restrict egress to registered hosts.
 
 ### Decision 6: Reference install and local development
 
-The reference install is an example to copy, not a second configuration system. Its parts separate by owner: the `orbit` chart's own values are the only Orbit configuration surface, the Helmfile only sequences releases, and everything specific to the local k3d cluster is a separate overlay.
+The reference install is an example to copy, not a second configuration system. Its parts separate by owner: the `orbit` chart's own values are the only kora configuration surface, the Helmfile only sequences releases, and everything specific to the local k3d cluster is a separate overlay.
 
-**Chart values.** `deploy/reference/values/orbit.yaml` is the file: chart values with the required fields set for a cloud cluster, the same set `helm show values` prints. There is no Orbit-specific environment schema and no template between it and the chart. Cross-cutting settings a translation layer would fan out across components are `global` values (Decision 4).
+**Chart values.** `deploy/reference/values/orbit.yaml` is the file: chart values with the required fields set for a cloud cluster, the same set `helm show values` prints. There is no kora-specific environment schema and no template between it and the chart. Cross-cutting settings a translation layer would fan out across components are `global` values (Decision 4).
 
 **The Helmfile sequences releases and passes the facts they share.**
 
@@ -267,9 +267,9 @@ releases:
       - { name: global.systemNamespace, value: '{{`{{ .Values.systemNamespace }}`}}' }
 ```
 
-The Helmfile orders the releases and injects the trust domain, cluster name and system namespace each chart needs. SPIRE and istiod take a plain values file stating only what Orbit requires of them, with the shared facts set from the environment; the `orbit` release takes `values/orbit.yaml`. No values file in the reference is templated. Version numbers, chart sources and the two shared facts come from the environment. A consumer already running SPIRE and Istio installs the `orbit` chart directly with their own values and needs no Helmfile at all.
+The Helmfile orders the releases and injects the trust domain, cluster name and system namespace each chart needs. SPIRE and istiod take a plain values file stating only what kora requires of them, with the shared facts set from the environment; the `orbit` release takes `values/orbit.yaml`. No values file in the reference is templated. Version numbers, chart sources and the two shared facts come from the environment. A consumer already running SPIRE and Istio installs the `orbit` chart directly with their own values and needs no Helmfile at all.
 
-There is no separate gateway release. Orbit's ingress gateway pods, their `Gateway` resource and their identity registration are all in the `orbit` release. The reference install depends on nothing outside Orbit's ownership except the prerequisites. `deploy/reference/values/gateway-byo.yaml` documents the wiring a customer-owned gateway needs when `gateway.create` is `false`.
+There is no separate gateway release. kora's ingress gateway pods, their `Gateway` resource and their identity registration are all in the `orbit` release. The reference install depends on nothing outside kora's ownership except the prerequisites. `deploy/reference/values/gateway-byo.yaml` documents the wiring a customer-owned gateway needs when `gateway.create` is `false`.
 
 **Environments carry cluster facts, not chart configuration.** `deploy/reference/environments/{local,example}.yaml` hold the Helmfile's release inputs: chart versions, trust domain, cluster name, system namespace, kube context, and for local the chart paths and registry. `example.yaml` targets a cloud cluster; `local.yaml` targets k3d.
 
@@ -408,7 +408,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 ### Phase 1: Chart reshaping
 
 1. Create `charts/orbit-crds` from the CRD templates in `charts/orbit-operator/templates/crd-*.yaml` minus `crd-orbitplatform.yaml`; remove `deleteNamespaceOnRemoval` from the `OrbitTenant` schema; annotate `keep`; add `Chart.yaml`, `values.schema.json`, `NOTES.txt` stating the install order.
-2. Rewrite the operator and platform templates into `charts/orbit/templates/operator/` and `templates/platform/` with `orbit.*` helpers and `.Release.Namespace`; delete `namespaces.yaml`; scope the ClusterSPIFFEIDs to Orbit's namespaces; add `allow-apiserver-webhook`; add the `istio/gateway` subchart dependency under `gateway.create` with Orbit's SPIRE proxy wiring, service type and scheduling passed through values. Delete `charts/orbit-operator` and `charts/orbit-platform`.
+2. Rewrite the operator and platform templates into `charts/orbit/templates/operator/` and `templates/platform/` with `orbit.*` helpers and `.Release.Namespace`; delete `namespaces.yaml`; scope the ClusterSPIFFEIDs to kora's namespaces; add `allow-apiserver-webhook`; add the `istio/gateway` subchart dependency under `gateway.create` with kora's SPIRE proxy wiring, service type and scheduling passed through values. Delete `charts/orbit-operator` and `charts/orbit-platform`.
 3. Introduce `orbit.image`, `orbit.scheduling` and `orbit.imagePullSecrets` helpers; apply to every Deployment, DaemonSet, StatefulSet template and to the operator. Add the cross-cutting `global` settings (`logFormat`, `postgres.sslMode`, `postgres.captureQueryText`, `observability.otlpInsecure`, `imageTag`) and default every component's service-config and image to them, removing the per-component repetition of these fields from `values.yaml`.
 4. Close the configuration gaps: `agents.config.*` rendered as env overrides for session-manager image, sandbox image, git author and trust domain; `agents.extraEnv`; `agents.runtimePods.*`; `inferenceGateway.bedrock.accounts[]`; `inferenceGateway.serviceAccount.annotations`; identity mounts `orbit-tenant-oauth-clients`; identity's tenants mount `optional: true`; ext_proc `message_timeout: 1s`; policy-service bundle AuthorizationPolicy `ports`; `gateway.create`/`gateway.name`; `gateway.ingress` and `frontend.ingress`, which when enabled also set `x-forwarded-proto: https` on API routes because the fronting Ingress terminates TLS; warmer and headroom templates.
 5. Render `orbit-config` from `config.*`. Remove `platform.namespaces.tenants`. Collapse `existingSecret` values into `config.platformSecretName`.
@@ -425,7 +425,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 
 ### Phase 3: Reference install and local development
 
-1. `deploy/reference/helmfile.yaml.gotmpl` (release sequencing and the shared-fact `set:` blocks), `values/orbit.yaml` (the consumer's chart values), `values/spire.yaml` and `values/istiod.yaml` (what Orbit requires of each prerequisite, shared facts set from the environment), `values/gateway-byo.yaml`, `environments/{local,example}.yaml` (cluster facts for the Helmfile), `argocd/` app-of-apps.
+1. `deploy/reference/helmfile.yaml.gotmpl` (release sequencing and the shared-fact `set:` blocks), `values/orbit.yaml` (the consumer's chart values), `values/spire.yaml` and `values/istiod.yaml` (what kora requires of each prerequisite, shared facts set from the environment), `values/gateway-byo.yaml`, `environments/{local,example}.yaml` (cluster facts for the Helmfile), `argocd/` app-of-apps.
 2. `make up` sequence per Decision 6; remove `cluster-operator`, `cluster-operator-chart`; keep `cluster-deploy` for fixtures; `redeploy.sh` changes per Decision 6; `resolve-docker-ips.sh` writes `local.generated.yaml` as plain chart values; k3d's Kubernetes version moves inside the supported window.
 3. Local-only chart values (k3d registry, `imagePullPolicy: Always`, k3s CNI paths, recorded digests, generated host aliases and external-service CIDRs) live in `values/orbit.local.yaml` and `local.generated.yaml`, layered onto `values/orbit.yaml` by the local environment. Delete `deploy/local/orbit-platform.yaml` and the old `deploy/local/{orbit,platform,operator}-values.yaml`.
 4. Update `docs/guides/local-development.md` and `deploy/local/README.md`.
@@ -459,13 +459,13 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 ### Positive
 
 - An installable, signed, versioned release exists.
-- Orbit has one configuration surface: the `orbit` chart's own values. The reference carries no second schema and no template translating one schema into another, so a consumer writes chart values directly in their own repository.
+- kora has one configuration surface: the `orbit` chart's own values. The reference carries no second schema and no template translating one schema into another, so a consumer writes chart values directly in their own repository.
 - Cross-cutting settings are `global` values set once, not fields repeated per component in the chart and again in a fan-out layer above it.
-- BYO Istio and SPIRE become real, with a contract Orbit can verify rather than a skip flag.
+- BYO Istio and SPIRE become real, with a contract kora can verify rather than a skip flag.
 - One artefact set and one install path from local k3d to enterprise GitOps.
-- Operator RBAC drops from wildcard verbs on seventeen API groups to the table in Decision 1, and it no longer holds an in-memory cache of every Secret in the cluster. The RBAC grant on Secrets and ConfigMaps is still cluster-wide, not scoped to Orbit's namespaces ([#269](https://github.com/clear-route/orbit/issues/269)).
+- Operator RBAC drops from wildcard verbs on seventeen API groups to the table in Decision 1, and it no longer holds an in-memory cache of every Secret in the cluster. The RBAC grant on Secrets and ConfigMaps is still cluster-wide, not scoped to kora's namespaces ([#269](https://github.com/clear-route/orbit/issues/269)).
 - Helm SDK, chart baking and local-values-in-production-image all leave the operator.
-- Orbit's ingress gateway is an Orbit workload: consumers add nothing to their mesh for it, and Orbit's identity registrations stay in Orbit's namespaces.
+- kora's ingress gateway is a kora workload: consumers add nothing to their mesh for it, and kora's identity registrations stay in kora's namespaces.
 
 ### Negative
 
@@ -490,11 +490,11 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 
 - `make up` on a fresh k3d cluster produces a completed agent run in under thirty minutes wall clock, including image pulls.
 - `helm template` of both charts succeeds with no cluster access; `kubeconform` and `istioctl analyze` pass for every supported Kubernetes minor.
-- The k3d matrix installs the reference Helmfile on Istio N and N-1 with CNI and SPIRE, the preflight reports the contract satisfied, and Orbit's gateway pods hold an SVID in Orbit's trust domain.
+- The k3d matrix installs the reference Helmfile on Istio N and N-1 with CNI and SPIRE, the preflight reports the contract satisfied, and kora's gateway pods hold an SVID in kora's trust domain.
 - The matrix uninstalls `orbit`, confirms `OrbitTenant` objects, tenant namespaces and the CRDs remain, and reinstalls without manual steps.
 - The matrix runs on k3d with its NetworkPolicy controller enabled and asserts that a sandbox cannot reach the internet except through the egress gateway (`scripts/cluster/test-egress-lockdown.sh`) and that a documented flow succeeds.
 - `cosign verify` succeeds for both charts and every image in `images.txt`, including against a mirrored copy.
-- Operator ClusterRole contains no wildcard verbs, and the operator's informers list Secrets only in Orbit's namespaces.
+- Operator ClusterRole contains no wildcard verbs, and the operator's informers list Secrets only in kora's namespaces.
 
 ### Monitoring
 
@@ -506,9 +506,9 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 
 ## Related Decisions
 
-- [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md), superseded: the platform reconciler, `OrbitPlatform`, version pins in Go and chart baking are removed; tenant reconciliation, aggregators and the webhook are retained.
+- [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md), superseded: the platform reconciler, `OrbitPlatform`, version pins in Go and chart baking are removed; tenant reconciliation, aggregators and the webhook are retained.
 - [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md), amended: two charts instead of two-with-subcharts; Istio and SPIRE are prerequisites rather than subcharts; publishing is no longer deferred; the dog-food principle is kept through the reference Helmfile.
-- [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md), companion: how Orbit's sidecars and mesh annotations reach pods without istiod injection templates, the preflight, and restricted profile compliance.
+- [Enforcement Sidecar Injection, Preflight and Restricted Pod Security](2026-09-04-enforcement-sidecar-injection-and-preflight.md), companion: how kora's sidecars and mesh annotations reach pods without istiod injection templates, the preflight, and restricted profile compliance.
 - [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md): `frontendHost` and the `api.` convention are unchanged; `gateway.create`/`gateway.name` and the Ingress options bind to it.
 - [Kubernetes Manifest Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md): the mechanism through which chart-level scheduling values reach runtime-created pods.
 

@@ -21,8 +21,8 @@ import {
   Stack,
   Text,
   Textarea,
+  ConfirmDialog,
 } from '@orbit/terra';
-import { ConfirmDialog } from '@orbit/components';
 import type { AgentFramework } from '@orbit/shared/api';
 import { FrameworkCards } from '../../_components/motif/framework-cards';
 import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-cards';
@@ -287,12 +287,12 @@ export function AgentConfigurationTab() {
             <SectionHeading
               icon="shield"
               title="Guardrails"
-              description="Set the ceilings Orbit enforces at runtime: spend, capacity and loop limits."
+              description="Set the ceilings kora enforces at runtime: spend, capacity and loop limits."
             />
             <Stack direction="horizontal" align="baseline" gap="snug">
               <Eyebrow>Limits</Eyebrow>
               <Text as="span" size="micro" color="subtle">
-                Every limit is optional. Switch on the ones you want Orbit to enforce.
+                Every limit is optional. Switch on the ones you want kora to enforce.
               </Text>
             </Stack>
             <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />

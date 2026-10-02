@@ -1,4 +1,4 @@
-# Running Orbit behind an Istio ingress gateway you already operate
+# Running kora behind an Istio ingress gateway you already operate
 # (gateway.create: false). Four pieces, in order.
 #
 # 1. orbit chart values (environments/<name>.yaml or your values repository).

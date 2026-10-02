@@ -1,15 +1,22 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import type { ModelObject } from '@orbit/shared/api';
+import { Stack } from '@orbit/terra';
+import { Example, Option, OptionTable } from '../packages/terra/src/docs/story-ui';
 import { ModelPicker } from './model-picker';
 
+/**
+ * ModelPicker
+ *
+ * Choose one model from the list an admin has approved. Models are grouped by family and show
+ * their price, and a filter box appears when the list is long.
+ */
 const meta: Meta<typeof ModelPicker> = {
-  title: 'App/Shared/ModelPicker',
+  title: 'App/Molecules/ModelPicker',
   component: ModelPicker,
-  parameters: { layout: 'padded' },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
-
 export default meta;
 type Story = StoryObj<typeof ModelPicker>;
 
@@ -50,26 +57,51 @@ const MODELS: ModelObject[] = [
   }),
 ];
 
+/** Twelve models across three providers, enough to pass the threshold that shows the filter. */
+const MANY_MODELS: ModelObject[] = Array.from({ length: 12 }, (_, i) =>
+  model({
+    id: `provider-${i % 3}/model-${i}`,
+    family: `provider-${i % 3}`,
+    display_name: `Model ${i}`,
+  }),
+);
+
 function Demo({ models }: { models: ModelObject[] }) {
   const [value, setValue] = useState(models[0]?.id ?? '');
-  return <ModelPicker models={models} value={value} onChange={setValue} />;
+  return (
+    <Stack maxWidth="card">
+      <ModelPicker models={models} value={value} onChange={setValue} />
+    </Stack>
+  );
 }
 
-export const FamilyGroups: Story = {
-  render: () => <Demo models={MODELS} />,
+export const Overview: Story = {
+  render: () => (
+    <Stack maxWidth="prose">
+      <Example title="Pick a model for an agent">
+        <Demo models={MODELS} />
+      </Example>
+    </Stack>
+  ),
 };
 
-export const WithSearch: Story = {
-  name: 'With search (above threshold)',
+export const Options: Story = {
   render: () => (
-    <Demo
-      models={Array.from({ length: 12 }, (_, i) =>
-        model({
-          id: `provider-${i % 3}/model-${i}`,
-          family: `provider-${i % 3}`,
-          display_name: `Model ${i}`,
-        }),
-      )}
-    />
+    <Stack maxWidth="wide">
+      <OptionTable title="models">
+        <Option
+          name="few models"
+          use="Grouped by family with the price per million tokens. No filter box."
+        >
+          <Demo models={MODELS} />
+        </Option>
+        <Option
+          name="many models"
+          use="Past eight models a filter box appears. It matches name, id and provider."
+        >
+          <Demo models={MANY_MODELS} />
+        </Option>
+      </OptionTable>
+    </Stack>
   ),
 };

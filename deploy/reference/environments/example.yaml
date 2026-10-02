@@ -1,6 +1,6 @@
 # A real cluster: Helmfile release inputs. Copy values/orbit.yaml into your own
 # repository and edit it; this file only tells the Helmfile which charts and
-# versions to install and the facts SPIRE, Istio and Orbit share.
+# versions to install and the facts SPIRE, Istio and kora share.
 versions:
   spireCrds: "0.6.1"
   spire: "0.30.2"

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# dev-cluster-up.sh: bring up the Orbit local k3d development cluster
+# dev-cluster-up.sh: bring up the kora local k3d development cluster
 #
 # This script creates the k3d cluster and patches CoreDNS.
-# Orbit services are installed separately via `make cluster-deploy` (Helm).
+# kora services are installed separately via `make cluster-deploy` (Helm).
 #
 # Prerequisites (install once via make install-tools-cluster):
 #   - k3d    >= 5.6
@@ -48,9 +48,9 @@ if ! docker inspect orbit-postgres &>/dev/null; then
 fi
 
 # ── inotify headroom ──────────────────────────────────────────────────────
-# Every meshed pod, the kubelet, and each Orbit service that hot-reloads a
+# Every meshed pod, the kubelet, and each kora service that hot-reloads a
 # ConfigMap opens inotify instances. Docker's Linux VM ships with
-# fs.inotify.max_user_instances=128, which a full Orbit cluster exhausts.
+# fs.inotify.max_user_instances=128, which a full kora cluster exhausts.
 # orbit-identity then cannot watch the tenant registry ("too many open files"),
 # never picks up the tenant, and `make auth` fails with oidc_not_configured.
 #
@@ -190,7 +190,7 @@ ok "CoreDNS patched: dex → ${DEX_IP}, orbit.local.clearroute.io → ${DOCKER_B
 # ── Summary ───────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
-echo -e "${GREEN}  k3d cluster ready: install Orbit next          ${RESET}"
+echo -e "${GREEN}  k3d cluster ready: install kora next          ${RESET}"
 echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
 echo ""
 echo "  Cluster:       k3d-${CLUSTER_NAME}"
@@ -198,7 +198,7 @@ echo "  Context:       k3d-${CLUSTER_NAME}"
 echo ""
 echo "  Next steps:"
 echo ""
-echo "    make cluster-platform   # SPIRE, Istio and Orbit from deploy/reference/helmfile.yaml.gotmpl"
+echo "    make cluster-platform   # SPIRE, Istio and kora from deploy/reference/helmfile.yaml.gotmpl"
 echo "    make cluster-deploy     # build service images + apply workload fixtures"
 echo ""
 echo "  See deploy/local/README.md for the full annotated sequence."

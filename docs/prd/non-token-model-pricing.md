@@ -15,7 +15,7 @@ The inference gateway's pricing pipeline today is built entirely around per-toke
 
 Importantly, many of these models are not purely non-token-priced: LiteLLM carries 169 models with concurrent token and non-token dimensions, where each dimension applies to a different modality in the same request (e.g. a realtime model that bills text input at `$X / 1M tokens` and audio input at `$Y / audio token` simultaneously). These are not competing schemes — they are additive billing for different input types.
 
-Orbit currently exposes endpoints for chat completions, messages, embeddings, and responses. There is no live endpoint for image generation or audio — models with those capabilities are catalogued and discoverable but not yet routable. Per-request cost attribution for multi-dimensional models is therefore deferred until the relevant endpoints exist.
+kora currently exposes endpoints for chat completions, messages, embeddings, and responses. There is no live endpoint for image generation or audio — models with those capabilities are catalogued and discoverable but not yet routable. Per-request cost attribution for multi-dimensional models is therefore deferred until the relevant endpoints exist.
 
 Additionally, Anthropic-compatible models carry two cache pricing dimensions (`cache_read_input_token_cost`, `cache_creation_input_token_cost`) that are already captured in the DB and used for request-cost attribution — but are never surfaced in any UI. Platform admins have no way to see cache pricing in the provider catalog or model detail view.
 
@@ -49,7 +49,7 @@ LiteLLM publishes eight additional cost fields for non-token-priced models:
 
 Go's `json.Unmarshal` silently ignores fields not present in the target struct. Every non-token-priced model is therefore synced with all four `synced_*_cost_per_1m` columns at `0`.
 
-Many non-token-priced models in LiteLLM are not exclusively non-token: 169 models across Orbit's supported providers carry concurrent token and non-token cost dimensions. These represent multimodal billing — a single request may include text and audio, each billed by a different unit — rather than competing or conflicting pricing schemes. For example, `gemini-2.5-flash` carries both `input_cost_per_token` and `input_cost_per_audio_token` because a request can contain both text and audio input. There is no single "primary" cost unit for these models; all active dimensions apply.
+Many non-token-priced models in LiteLLM are not exclusively non-token: 169 models across kora's supported providers carry concurrent token and non-token cost dimensions. These represent multimodal billing — a single request may include text and audio, each billed by a different unit — rather than competing or conflicting pricing schemes. For example, `gemini-2.5-flash` carries both `input_cost_per_token` and `input_cost_per_audio_token` because a request can contain both text and audio input. There is no single "primary" cost unit for these models; all active dimensions apply.
 
 ### User Pain Points
 
@@ -79,7 +79,7 @@ Many non-token-priced models in LiteLLM are not exclusively non-token: 169 model
 ### Non-Goals
 
 - Mixed-modality request handling — accepting audio or image content in request messages, routing it correctly through each provider connector, and verifying round-trip fidelity. This is not yet implemented or tested.
-- Per-request attribution of non-token cost dimensions. This includes per-audio-token costs (audio input travels through `POST /chat/completions` but Orbit does not yet extract audio token counts from provider usage responses), per-image costs (no image generation endpoint exists), and any other non-token dimension. Storing and displaying all dimensions is in scope; attributing them from live requests is not.
+- Per-request attribution of non-token cost dimensions. This includes per-audio-token costs (audio input travels through `POST /chat/completions` but kora does not yet extract audio token counts from provider usage responses), per-image costs (no image generation endpoint exists), and any other non-token dimension. Storing and displaying all dimensions is in scope; attributing them from live requests is not.
 - Budget enforcement changes dependent on attribution accuracy.
 - Admin override columns for the new cost dimensions; the existing token-dimension override flow is unchanged.
 
@@ -243,4 +243,4 @@ The API response change is additive only. The existing `effective_input_cost_per
 |---|---|---|---|
 | Multi-dimensional models display many cost rows, cluttering table cells | Poor UX | Medium | Show all dimensions in detail view; table cells show token pricing prominently with an indicator for additional dimensions |
 | Migration on `model_pricing` (adding 8 columns) breaks the sync worker during rollout | Pricing cache empty until restart | Low | Columns are additive with `DEFAULT 0`; existing rows are not modified |
-| `vmEffectivePricing` skips a route with real cost because only non-token dimensions are non-zero | Effective price shows "Unknown" for a routable model | Low | Acceptable for current scope — those models are not routable through Orbit today. Revisit when image/audio endpoints ship. |
+| `vmEffectivePricing` skips a route with real cost because only non-token dimensions are non-zero | Effective price shows "Unknown" for a routable model | Low | Acceptable for current scope — those models are not routable through kora today. Revisit when image/audio endpoints ship. |

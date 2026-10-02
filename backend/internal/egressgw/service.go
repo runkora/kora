@@ -121,7 +121,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, errOpenConnector.Error())
-		// A connection Orbit cannot read is an operator error, not a caller
+		// A connection kora cannot read is an operator error, not a caller
 		// one. It still denies, but reporting it as forbidden sends whoever
 		// reads the audit log hunting a grant that was never the problem.
 		return Decision{}, err
@@ -170,7 +170,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	cred, err := connector.Mint(ctx, identity)
 	if err != nil {
 		// The upstream refusing to issue a credential for this scope (e.g. the
-		// GitHub App installation lacks the permission Orbit authorized) is a
+		// GitHub App installation lacks the permission kora authorized) is a
 		// forbidden, not an internal error. The App is the outer ceiling.
 		span.RecordError(err)
 		span.SetStatus(codes.Error, errMintCredential.Error())

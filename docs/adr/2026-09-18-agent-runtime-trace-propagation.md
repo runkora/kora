@@ -23,7 +23,7 @@ Claude Code's [enhanced telemetry beta](https://code.claude.com/docs/en/monitori
 - In stream-json mode the environment is read once per process, so every turn becomes a child of the same parent span.
 - With an unsampled `TRACEPARENT` (flags `00`), Claude Code exports no interaction spans. It follows the parent's sampling decision.
 - Background model calls that are not part of a turn, such as session title generation, are exported as their own root traces whatever the parent's sampling decision.
-- Claude Code sends `traceparent` on model and HTTP MCP requests only to the Anthropic API by default. Orbit points `ANTHROPIC_BASE_URL` at the inference gateway, so the header is sent only with `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1`.
+- Claude Code sends `traceparent` on model and HTTP MCP requests only to the Anthropic API by default. kora points `ANTHROPIC_BASE_URL` at the inference gateway, so the header is sent only with `CLAUDE_CODE_PROPAGATE_TRACEPARENT=1`.
 
 ### Goals
 
@@ -80,7 +80,7 @@ Content capture keeps Claude Code's defaults: prompt text, tool inputs and tool 
 
 - One trace per run covers the run start, each turn, each model call through the inference gateway, and each governed tool call through the tool gateway.
 - Sampling follows the platform rate. An unsampled run exports none of its turn spans.
-- The MCP config the session-manager writes lists only tool gateway endpoints over HTTP, so Claude Code's `traceparent` goes only to Orbit services.
+- The MCP config the session-manager writes lists only tool gateway endpoints over HTTP, so Claude Code's `traceparent` goes only to kora services.
 
 ### Negative
 

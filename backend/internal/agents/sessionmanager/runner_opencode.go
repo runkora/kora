@@ -60,7 +60,7 @@ type OpenCodeRunnerConfig struct {
 	Model string
 
 	// InferenceGatewayURL is written directly into the OpenCode config so OpenCode
-	// routes all LLM calls through the Orbit inference gateway. Must be non-empty.
+	// routes all LLM calls through the kora inference gateway. Must be non-empty.
 	InferenceGatewayURL string
 
 	// Logger is used to emit structured log events.
@@ -286,7 +286,7 @@ func (r *OpenCodeRunner) SendToolResult(_ context.Context, _, _ string) error {
 	return ErrNotSupported
 }
 
-// Events returns the channel of Orbit standard events.
+// Events returns the channel of kora standard events.
 func (r *OpenCodeRunner) Events() <-chan Event {
 	return r.events
 }
@@ -427,7 +427,7 @@ func (r *OpenCodeRunner) openCodeConfig(workDir string) ([]byte, error) {
 		"small_model":       model,
 		"provider": map[string]any{
 			openCodeProvider: map[string]any{
-				"name": "Orbit",
+				"name": "kora",
 				// Chat completions serves every gateway model; /messages serves only Anthropic's.
 				"npm": "@ai-sdk/openai-compatible",
 				"options": map[string]string{
@@ -762,7 +762,7 @@ func (r *OpenCodeRunner) handleSessionUpdate(_ context.Context, params json.RawM
 		r.handleToolCall(u.ToolCallID, u.Title, u.Status, u.RawInput, u.RawOutput, u.Content)
 
 	case "usage_update":
-		// No Orbit event — usage is captured from the session/prompt response.
+		// No kora event — usage is captured from the session/prompt response.
 
 	default:
 		// Ignore: user_message_chunk, plan, config_option_update, etc.
@@ -856,7 +856,7 @@ func openCodeResult(rawOutput, content json.RawMessage) (string, bool) {
 	return unquoteRawOutput(rawOutput), false
 }
 
-// emit sends an Orbit event to the events channel. Nothing is emitted during
+// emit sends a kora event to the events channel. Nothing is emitted during
 // session/load replay: the replayed history was recorded when it happened, and
 // re-emitting it would duplicate every call in the run's events.
 func (r *OpenCodeRunner) emit(t EventType, payload any) {

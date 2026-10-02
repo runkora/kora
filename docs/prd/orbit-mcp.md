@@ -1,18 +1,18 @@
-# Orbit MCP — Product Requirements Document
+# kora MCP — Product Requirements Document
 
 **Status:** Approved  
 **Created:** 2026-06-30  
 **Last Updated:** 2026-06-30  
 **Owner:** Justin Wilkin  
-**Stakeholders:** Orbit Core Team, Platform Administrators, Agent Developers
+**Stakeholders:** kora Core Team, Platform Administrators, Agent Developers
 
 ---
 
 ## Executive Summary
 
-The Orbit MCP is the first **platform-global MCP server** Orbit ships: a deployed, in-cluster MCP server that exposes Orbit's own management surface — agents, runs, policy, budgets, models, triggers, environments, identity — as tools. It lets an agent **operate the Orbit control plane** through MCP, turning ~50 dashboard operations across a dozen-plus management domains into a single governed toolset.
+The kora MCP is the first **platform-global MCP server** kora ships: a deployed, in-cluster MCP server that exposes kora's own management surface — agents, runs, policy, budgets, models, triggers, environments, identity — as tools. It lets an agent **operate the kora control plane** through MCP, turning ~50 dashboard operations across a dozen-plus management domains into a single governed toolset.
 
-Its defining property is that it is **uniquely Orbit's to build safely.** The server itself makes no access decisions; it is governed by **two existing layers**. The gateway + OAuth + `mcp:orbit:<tool>:use` grants decide, per caller, which tools are even *visible and reachable* (a coarse pre-filter). The MCP then calls each Orbit API **carrying the caller's own identity** (passthrough), so the operation only *succeeds* if the caller's real platform scopes (`platform:grants:write`, `agents:types:write`, …) also allow it — the same enforcement the dashboard relies on today. Because both layers are external, the server can expose its *full* surface without self-censoring: the same MCP serves a read-only "platform analyst", an agent-write "fleet-manager", and an admin — each bounded by its grants at both layers. This closes Orbit's own loop: Orbit governs what agents can do, and now an agent can govern Orbit, governed by the very same machinery.
+Its defining property is that it is **uniquely kora's to build safely.** The server itself makes no access decisions; it is governed by **two existing layers**. The gateway + OAuth + `mcp:orbit:<tool>:use` grants decide, per caller, which tools are even *visible and reachable* (a coarse pre-filter). The MCP then calls each kora API **carrying the caller's own identity** (passthrough), so the operation only *succeeds* if the caller's real platform scopes (`platform:grants:write`, `agents:types:write`, …) also allow it — the same enforcement the dashboard relies on today. Because both layers are external, the server can expose its *full* surface without self-censoring: the same MCP serves a read-only "platform analyst", an agent-write "fleet-manager", and an admin — each bounded by its grants at both layers. This closes kora's own loop: kora governs what agents can do, and now an agent can govern kora, governed by the very same machinery.
 
 The MCP is **not a dual-persona feature.** It is always called by an agent (an MCP client); whether a human is driving that agent interactively or it runs autonomously does not change the build, because policy scopes — not the caller's "type" — govern every tool.
 
@@ -24,19 +24,19 @@ MVP exposes the **full read + write surface** across the non-infrastructure doma
 
 ### Current State
 
-Orbit's management surface is large — a dozen-plus domains and 50+ operations — and entirely **dashboard-and-API-bound**. Every operation exists as an HTTP API and a dashboard control, but there is no way for an agent to *operate the platform*. The platform that exists to run agents in production cannot itself be run by one.
+kora's management surface is large — a dozen-plus domains and 50+ operations — and entirely **dashboard-and-API-bound**. Every operation exists as an HTTP API and a dashboard control, but there is no way for an agent to *operate the platform*. The platform that exists to run agents in production cannot itself be run by one.
 
 ### Pain Points
 
 - **Cross-domain operations are tedious.** Standing up one agent touches model selection, environment/egress, connectors, a grant, and a budget — across four or five separate dashboard sections. A human clicks through all of them; nothing can do it in one step.
 - **No conversational operation.** An operator who wants "show me agents over budget and cap them," or "who can access inference?", has to assemble the answer by hand from several pages.
-- **Agents can't manage agents.** There is no governed way to let an agent provision, configure, or audit other agents — even though Orbit's whole identity/policy model is built to make exactly that kind of delegation safe.
+- **Agents can't manage agents.** There is no governed way to let an agent provision, configure, or audit other agents — even though kora's whole identity/policy model is built to make exactly that kind of delegation safe.
 - **The gateway has no first-party server to govern.** The accepted MCP/tool gateway needs a real global MCP server to front, exercise, and prove end-to-end.
 
 ### Business Impact
 
-- **The control plane should be agent-operable.** Orbit's thesis is that agents do real work in production under governance. The most on-brand demonstration — and a genuinely useful capability — is an agent that operates Orbit itself, within exactly the authority it was granted.
-- **Differentiated by governance.** Anyone can wrap APIs in an MCP. Only Orbit can expose its *full* management surface to agents *safely*, because it owns the per-principal access layer. The Orbit MCP is where that advantage becomes a product.
+- **The control plane should be agent-operable.** kora's thesis is that agents do real work in production under governance. The most on-brand demonstration — and a genuinely useful capability — is an agent that operates kora itself, within exactly the authority it was granted.
+- **Differentiated by governance.** Anyone can wrap APIs in an MCP. Only kora can expose its *full* management surface to agents *safely*, because it owns the per-principal access layer. The kora MCP is where that advantage becomes a product.
 
 ---
 
@@ -44,7 +44,7 @@ Orbit's management surface is large — a dozen-plus domains and 50+ operations 
 
 ### Primary Goals
 
-1. **Make the Orbit control plane agent-operable.** Expose Orbit's management operations as MCP tools an agent can call.
+1. **Make the kora control plane agent-operable.** Expose kora's management operations as MCP tools an agent can call.
 2. **Full surface, governed externally.** Expose read + write across the non-infrastructure domains; rely on the gateway + OAuth + `mcp:orbit:<tool>:use` grants to decide who can call what. The MCP never makes its own access decisions.
 3. **Nail the high-value workflows.** Stand up/configure agents, audit access, and cost/budget ops should each be achievable conversationally in one session.
 4. **Be the canonical first global MCP server.** Deployed in-cluster, registered as a global MCPServer, fronted by the gateway — the dogfood that exercises registration → introspection → scope-registration → PEP → proxy.
@@ -53,7 +53,7 @@ Orbit's management surface is large — a dozen-plus domains and 50+ operations 
 
 - An operator (human-driven or autonomous agent), granted the matching `mcp:orbit` tool scopes *and* the underlying platform scopes (`agents:types:write`, `platform:grants:write`, …) bundled as a role, can stand up a fully-configured agent (model + connectivity + grant + budget) in one conversation.
 - An agent granted only read scopes can answer "who can access inference and what are they spending?" and can perform **no** mutation — gated at both layers (gateway pre-filter + downstream enforcement), with no authorisation logic in the MCP.
-- Registering the Orbit MCP as a global server surfaces its tools as `mcp:orbit:<domain>:<op>:use` scopes that admins grant (and roll up by domain) like any other.
+- Registering the kora MCP as a global server surfaces its tools as `mcp:orbit:<domain>:<op>:use` scopes that admins grant (and roll up by domain) like any other.
 
 ---
 
@@ -102,14 +102,14 @@ Stories are framed around the *granted capability*, not the caller — every cal
 
 ### One governed toolset, deployed in-cluster
 
-A new in-cluster service (an MCP server) that exposes Orbit's management operations as MCP tools and is **registered as a global MCPServer** behind the gateway. It speaks **Streamable HTTP** (the current MCP remote transport — streams over SSE when needed) — it is not a stdio shim and is never run locally per-session. Consumers reach it only through the gateway, which authenticates, filters `tools/list`, and checks `tools/call` against the caller's `mcp:orbit:<tool>:use` grants before proxying.
+A new in-cluster service (an MCP server) that exposes kora's management operations as MCP tools and is **registered as a global MCPServer** behind the gateway. It speaks **Streamable HTTP** (the current MCP remote transport — streams over SSE when needed) — it is not a stdio shim and is never run locally per-session. Consumers reach it only through the gateway, which authenticates, filters `tools/list`, and checks `tools/call` against the caller's `mcp:orbit:<tool>:use` grants before proxying.
 
 ### Governance is external, and it is two layers — the MCP makes no access decisions
 
 Authorisation is **not** the MCP's job, and — importantly — an `mcp:orbit:<tool>:use` grant is **not** the whole story. Two existing layers govern every call:
 
 1. **Gateway (coarse pre-filter):** every tool maps to an `mcp:orbit:<domain>:<op>:use` scope registered by the gateway's introspection. The gateway filters `tools/list` and checks `tools/call` against the caller's `mcp:orbit:<…>:use` grants (a broader covering scope like `mcp:orbit:agents:use` rolls up the agent tools) — deciding which tools are visible and reachable at all.
-2. **Downstream API (authoritative gate):** the MCP calls each Orbit API by **forwarding the caller's own platform token** (passthrough — the model the dashboard BFF already uses). The relevant service then enforces the *real* operation scope (`platform:grants:write`, `agents:types:write`, …) against the caller's grants. The MCP holds **no standing authority**: it can never do anything the caller couldn't do by calling the API directly.
+2. **Downstream API (authoritative gate):** the MCP calls each kora API by **forwarding the caller's own platform token** (passthrough — the model the dashboard BFF already uses). The relevant service then enforces the *real* operation scope (`platform:grants:write`, `agents:types:write`, …) against the caller's grants. The MCP holds **no standing authority**: it can never do anything the caller couldn't do by calling the API directly.
 
 The practical consequence — stated plainly because it shapes how operators grant access: **using a tool requires *both* grants.** `mcp:orbit:agents:create:use` (reach the tool) *and* `agents:types:write` (perform the operation). Operators bundle the two via **roles** (e.g. an "agent-fleet-manager" role carrying the `mcp:orbit:agents:use` rollup *and* the underlying `agents:types:write` platform scope); the PRD does not pretend an orbit-MCP grant alone confers capability.
 
@@ -136,7 +136,7 @@ Tools are **one-per-operation** (not coarse workflow macros). Tool names map to 
 
 ### Relationship to the gateway pillar
 
-The Orbit MCP is the first concrete consumer of the accepted gateway work: registering it as a global `MCPServer` CR drives introspection of its `tools/list`, registration of its `mcp:orbit:<domain>:<op>:use` scopes, and per-tool enforcement — making it the end-to-end test vehicle as well as a product capability.
+The kora MCP is the first concrete consumer of the accepted gateway work: registering it as a global `MCPServer` CR drives introspection of its `tools/list`, registration of its `mcp:orbit:<domain>:<op>:use` scopes, and per-tool enforcement — making it the end-to-end test vehicle as well as a product capability.
 
 ---
 
@@ -168,7 +168,7 @@ The Orbit MCP is the first concrete consumer of the accepted gateway work: regis
 **P0 (MVP)**
 - FR-1 Expose read + write tools across agents, runs (non-event), policy (grants/roles/vocab/evaluate), budgets, PATs, models/pricing, triggers, environments, analytics/logs, identity (read), and read-only connections catalog + MCP server registry.
 - FR-2 One tool per operation; domain-hierarchical names mapping to `mcp:orbit:<domain>:<op>:use` (multi-segment, charset-safe `[a-z0-9_-]` per segment).
-- FR-3 Each tool calls the relevant Orbit API by **forwarding the caller's platform token** (passthrough); the downstream service is the authoritative scope/budget gate.
+- FR-3 Each tool calls the relevant kora API by **forwarding the caller's platform token** (passthrough); the downstream service is the authoritative scope/budget gate.
 - FR-4 The server applies no authorisation of its own — it holds no standing authority and can do nothing the caller couldn't do directly.
 - FR-5 Deployable in-cluster, registrable as a global MCPServer, frontable by the gateway (Streamable HTTP).
 - FR-6 Destructive operations (delete agent/grant/role/environment, terminate run) are clearly marked in tool descriptions; there is no dry-run/confirm in MVP (rely on grants).
@@ -196,7 +196,7 @@ The Orbit MCP is the first concrete consumer of the accepted gateway work: regis
 | Existing platform APIs (agents, policy, identity, inference, …) | Implemented | The operations the tools wrap |
 | Identity / platform tokens | Implemented | Carry the caller's identity to downstream APIs |
 
-> The gateway pillar is accepted but unbuilt. The Orbit MCP can be **built and exercised standalone** (direct MCP client + a platform token) before the gateway lands, then registered behind it.
+> The gateway pillar is accepted but unbuilt. The kora MCP can be **built and exercised standalone** (direct MCP client + a platform token) before the gateway lands, then registered behind it.
 
 ---
 
@@ -204,7 +204,7 @@ The Orbit MCP is the first concrete consumer of the accepted gateway work: regis
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| **Privilege escalation via grant/role/PAT/budget write** | **High** | The platform has **no anti-escalation rule** today: a caller with `platform:grants:write` can grant *any* scope to *any* principal — including escalating itself (verified: `CreateGrant` validates only that scopes exist in the vocabulary). The Orbit MCP makes this **agent-callable**, which can break the "an agent can never exceed its delegator" invariant. **This is a pre-existing platform-level gap, not introduced here; its fix (an anti-escalation rule) is a separate future ADR.** Interim mitigation: under passthrough a caller already needs `platform:grants:write` to reach these tools, so exposure is bounded to principals an admin has already trusted with that scope — admins must grant the access-control *write* scopes deliberately. |
+| **Privilege escalation via grant/role/PAT/budget write** | **High** | The platform has **no anti-escalation rule** today: a caller with `platform:grants:write` can grant *any* scope to *any* principal — including escalating itself (verified: `CreateGrant` validates only that scopes exist in the vocabulary). The kora MCP makes this **agent-callable**, which can break the "an agent can never exceed its delegator" invariant. **This is a pre-existing platform-level gap, not introduced here; its fix (an anti-escalation rule) is a separate future ADR.** Interim mitigation: under passthrough a caller already needs `platform:grants:write` to reach these tools, so exposure is bounded to principals an admin has already trusted with that scope — admins must grant the access-control *write* scopes deliberately. |
 | Broad write surface exposed ungoverned | High | The server is only reachable through the gateway in production; access is dual-gated (gateway pre-filter + downstream platform scope). Standalone/dev use still requires a real platform token whose scopes the downstream enforces. |
 | Dual-grant drift (gateway scope vs platform scope out of sync) | Medium | Bundle the `mcp:orbit:<domain>:<op>:use` tool scope and the underlying `platform:…:write` scope into a **role**; document that operators grant both. |
 | Tool sprawl (~50 tools) is hard to navigate | Medium | One-per-operation + domain-hierarchical naming; the gateway filters to the caller's granted subset; domain rollup scopes (`mcp:orbit:<domain>:use`) make grants manageable. |

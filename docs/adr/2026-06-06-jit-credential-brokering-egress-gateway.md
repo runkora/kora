@@ -5,21 +5,21 @@
 **Status:** Proposed
 **Date:** 2026-06-06
 **Deciders:** Platform Engineering
-**Technical Story:** How an Orbit agent running in a sandbox makes governed, audited, credential-isolated calls to external services (GitHub, AWS, Kubernetes, OAuth2/OIDC apps, API-key SaaS) without any credential entering the agent. Implements the [credential-broker-and-outbound-connections PRD](../prd/credential-broker-and-outbound-connections.md).
+**Technical Story:** How a kora agent running in a sandbox makes governed, audited, credential-isolated calls to external services (GitHub, AWS, Kubernetes, OAuth2/OIDC apps, API-key SaaS) without any credential entering the agent. Implements the [credential-broker-and-outbound-connections PRD](../prd/credential-broker-and-outbound-connections.md).
 
 > **Amended 2026-06-07** — egress authorization is **two complementary layers**: the sandbox OPA enforces connectivity **posture** (`egress:<host>:connect`), and per-connection authorization (`connection:<name>:<action>`) is enforced at the **gateway**, not the sandbox OPA. The sandbox OPA cannot evaluate the connection scope (it sees only the CONNECT host, never the connection name or the inner-request action). See [Amendment — 2026-06-07](#amendment--2026-06-07-two-layer-egress-authorization), which supersedes the "sandbox OPA authorizes `connection:<name>:<action>`" statements below.
 
-> **Amended 2026-06-12** — connection registration is **GitOps**. A `Connection` is a tenant-namespaced CRD carrying credential-source identity only (`adapter`, `secretRef`, `config`); the secret is referenced and materialised by the deployer's secret pipeline, never handled by Orbit. The **operator aggregates** the CRs (and their referenced Secrets) into `orbit-system` config the gateway **mounts** — mirroring the tenant-CA aggregator — and the Postgres registry + `/api/v1/connections` admin CRUD API are **removed**. See [Amendment 3 — 2026-06-12](#amendment-3--2026-06-12-connections-are-gitops-crs-not-a-crud-registry), which supersedes the "connection-registration control plane / admin CRUD" statements below.
+> **Amended 2026-06-12** — connection registration is **GitOps**. A `Connection` is a tenant-namespaced CRD carrying credential-source identity only (`adapter`, `secretRef`, `config`); the secret is referenced and materialised by the deployer's secret pipeline, never handled by kora. The **operator aggregates** the CRs (and their referenced Secrets) into `orbit-system` config the gateway **mounts** — mirroring the tenant-CA aggregator — and the Postgres registry + `/api/v1/connections` admin CRUD API are **removed**. See [Amendment 3 — 2026-06-12](#amendment-3--2026-06-12-connections-are-gitops-crs-not-a-crud-registry), which supersedes the "connection-registration control plane / admin CRUD" statements below.
 
 ---
 
 ## Context
 
-Orbit agents execute shell commands and tools inside a per-run **sandbox pod** (`sandbox-{run-id}`, provisioned by orbit-agents — see [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)). To be useful, those tools — `git`, `gh`, `aws`, `kubectl`, language SDKs, `curl` — must reach external services. Today they cannot do so in any governed way, and there is no mechanism to inject third-party credentials without exposing them to the agent.
+kora agents execute shell commands and tools inside a per-run **sandbox pod** (`sandbox-{run-id}`, provisioned by orbit-agents — see [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)). To be useful, those tools — `git`, `gh`, `aws`, `kubectl`, language SDKs, `curl` — must reach external services. Today they cannot do so in any governed way, and there is no mechanism to inject third-party credentials without exposing them to the agent.
 
 This ADR supersedes [credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md). That ADR proposed an **explicit reverse proxy**: agents would rewrite their outbound calls to `/proxy/{service-name}/{path}` and the gateway would forward them with credentials injected. That model does not survive contact with real agents:
 
-- It requires every tool to address an Orbit-specific URL. `git push`, `aws s3 cp`, `gh`, and off-the-shelf SDKs with hard-coded hostnames will not do this. It breaks the platform's core promise that an unmodified Claude Code / Codex instance "drops in without modifying its auth handling."
+- It requires every tool to address a kora-specific URL. `git push`, `aws s3 cp`, `gh`, and off-the-shelf SDKs with hard-coded hostnames will not do this. It breaks the platform's core promise that an unmodified Claude Code / Codex instance "drops in without modifying its auth handling."
 - It makes the gateway a faithful reverse proxy for every external API shape (streaming, pagination, git's smart-HTTP pack protocol, websockets) — an unbounded, permanently leaky surface. Its own "credential issuance escape hatch" was the tell: the moment you hit `git`, the exception becomes the rule.
 
 The platform has since built the primitives that make a better design possible: transparent outbound interception and identity injection via the [Envoy ext_proc identity-proxy sidecar](2026-03-21-envoy-ext-proc-sidecar-token-injection.md); policy enforcement on the agent's own egress via an OPA `ext_authz` sidecar (the identity-proxy + OPA pair injected by the operator's pod webhook); the [gateway-level OPA enforcement](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) precedent of *centralizing* enforcement rather than per-pod sprawl; and SPIFFE/SPIRE attestation ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)).
@@ -137,7 +137,7 @@ Sandbox pod (rejoined to mesh)
   → External service (GitHub / AWS / cluster / SaaS)
 ```
 
-The platform token identifies the caller on the sandbox→gateway hop and is **stripped at the gateway**; the real credential is injected only on the gateway→upstream leg. The agent never sees the upstream credential; the upstream never sees the Orbit token.
+The platform token identifies the caller on the sandbox→gateway hop and is **stripped at the gateway**; the real credential is injected only on the gateway→upstream leg. The agent never sees the upstream credential; the upstream never sees the kora token.
 
 ---
 
@@ -147,7 +147,7 @@ The gateway deals with each tool through one of **three injection patterns**, se
 
 ### Pattern A — header-swap with a minted token
 
-For services that accept a Bearer/Basic credential the gateway can mint on demand. The gateway terminates the upstream TLS, removes the Orbit platform token, injects the minted credential, and re-originates TLS.
+For services that accept a Bearer/Basic credential the gateway can mint on demand. The gateway terminates the upstream TLS, removes the kora platform token, injects the minted credential, and re-originates TLS.
 
 #### GitHub — `git` over HTTPS, `gh`, REST/GraphQL (GitHub App / bot authority)
 
@@ -164,7 +164,7 @@ The agent never produced a credential; the token lives only in the gateway, ≤1
 
 1. The sandbox kubeconfig names the cluster API server (cluster block + CA) with **no/placeholder credential**.
 2. Egress routed to the gateway; OPA authorizes `connection:k8s:<cluster>:<verb-class>`.
-3. Gateway resolves the cluster connection's credential (a ServiceAccount token / client cert Orbit holds), terminates the API-server TLS, injects `Authorization: Bearer <sa-token>`, re-originates to the API server.
+3. Gateway resolves the cluster connection's credential (a ServiceAccount token / client cert kora holds), terminates the API-server TLS, injects `Authorization: Bearer <sa-token>`, re-originates to the API server.
 4. Audit. Kubernetes' own RBAC enforces path-level authority on the injected identity.
 
 #### Generic OAuth2 service (client-credentials grant)
@@ -196,7 +196,7 @@ Some protocols **sign** the request with the credential rather than carrying it 
 2. On demand, the SDK fetches credentials from that endpoint. The endpoint authorizes `connection:aws:<conn>:use`, calls **STS `AssumeRole`** on the connection's role ARN (with the connection's permissions boundary) → **short-lived STS credentials (≤1 h)**, cached.
 3. The SDK signs locally and calls AWS. Egress is still forced through the gateway for allow-listing and audit (host-level allow/deny + record); the gateway does not re-sign.
 
-This is the one connection type where a credential — short-lived, role-scoped, JIT STS credentials — briefly lives in the sandbox (Option 2, bounded). The **long-lived** secret (Orbit's AWS principal) never leaves the platform. Future GCP support uses the same pattern via the metadata endpoint.
+This is the one connection type where a credential — short-lived, role-scoped, JIT STS credentials — briefly lives in the sandbox (Option 2, bounded). The **long-lived** secret (kora's AWS principal) never leaves the platform. Future GCP support uses the same pattern via the metadata endpoint.
 
 ### Summary
 
@@ -298,7 +298,7 @@ A new resource type `connection` enters the scope vocabulary: `connection:<name>
 ### Neutral
 
 - **The sandbox gains a second enforcement point** (its own OPA) in addition to the gateway — defense in depth, consistent with the platform's existing double-enforcement for agent pods.
-- **Agents are aware they call through Orbit** only insofar as egress is governed; the URLs they use are the real ones.
+- **Agents are aware they call through kora** only insofar as egress is governed; the URLs they use are the real ones.
 
 ---
 
@@ -454,9 +454,9 @@ The original design registered a connection by **admin CRUD against a per-gatewa
 
 Three things, taken together, make the CRUD registry the wrong shape:
 
-1. **Every other per-tenant concern in Orbit is already a reconciled CR** (`OrbitPlatform`, `OrbitTenant`, ClusterSPIFFEIDs, the per-tenant CA, NetworkPolicies). A connection is the same shape of object — tenant config that produces cluster resources — and should be declared the same way.
-2. **The deployment model is enterprise, self-hosted, bring-your-own-credentials.** There is no Orbit-operated app or central credential store; each deployer brings their own GitHub App (already installed) and their own secrets. There is therefore no interactive credential-acquisition flow to host — nothing to make imperative — so connections are pure declarative config.
-3. **GitOps dissolves the secret problem.** Secrets do not belong in Git or in the application layer. A CR that carries only a `secretRef` lets the deployer's existing secret pipeline (External Secrets Operator / sealed-secrets / SOPS) materialise the Secret; Orbit's control plane never receives the raw value. This also satisfies Decision 4's own constraint that the control plane "never handles a live credential" — now structurally, not by convention.
+1. **Every other per-tenant concern in kora is already a reconciled CR** (`OrbitPlatform`, `OrbitTenant`, ClusterSPIFFEIDs, the per-tenant CA, NetworkPolicies). A connection is the same shape of object — tenant config that produces cluster resources — and should be declared the same way.
+2. **The deployment model is enterprise, self-hosted, bring-your-own-credentials.** There is no kora-operated app or central credential store; each deployer brings their own GitHub App (already installed) and their own secrets. There is therefore no interactive credential-acquisition flow to host — nothing to make imperative — so connections are pure declarative config.
+3. **GitOps dissolves the secret problem.** Secrets do not belong in Git or in the application layer. A CR that carries only a `secretRef` lets the deployer's existing secret pipeline (External Secrets Operator / sealed-secrets / SOPS) materialise the Secret; kora's control plane never receives the raw value. This also satisfies Decision 4's own constraint that the control plane "never handles a live credential" — now structurally, not by convention.
 
 ### Decision: a `Connection` is a tenant-namespaced CRD; the secret is referenced, never handled
 
@@ -474,7 +474,7 @@ spec:
     installation_id: 139299720 # number
 ```
 
-The App private key lives only in the referenced Secret, materialised by the deployer's secret pipeline. The key is never in the CR, never in Git, never in Orbit's application layer.
+The App private key lives only in the referenced Secret, materialised by the deployer's secret pipeline. The key is never in the CR, never in Git, never in kora's application layer.
 
 ### The CR carries credential-source *identity* only
 
@@ -592,6 +592,6 @@ In allowlist mode, the capabilities brief tells the agent that a connection rese
 
 ## Notes
 
-The credential broker completes Orbit's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
+The credential broker completes kora's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
 
 **Last Updated:** 2026-09-29

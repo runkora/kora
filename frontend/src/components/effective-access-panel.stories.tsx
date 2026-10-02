@@ -1,14 +1,20 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { Stack } from '@orbit/terra';
 import type { EffectiveAccess } from '@orbit/shared/api';
+import { Example, Option, OptionTable } from '../packages/terra/src/docs/story-ui';
 import { EffectiveAccessPanel } from './effective-access-panel';
 
+/**
+ * EffectiveAccessPanel
+ *
+ * Shows every host an agent can reach, merged from its own allowlist, its environment and its connections. Each host is tagged with where it came from.
+ */
 const meta: Meta<typeof EffectiveAccessPanel> = {
-  title: 'App/Shared/EffectiveAccessPanel',
+  title: 'App/Organisms/EffectiveAccessPanel',
   component: EffectiveAccessPanel,
-  parameters: { layout: 'padded' },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
-
 export default meta;
 type Story = StoryObj<typeof EffectiveAccessPanel>;
 
@@ -37,22 +43,52 @@ const access: EffectiveAccess = {
   ],
 };
 
-export const Resolved: Story = {
-  args: { access, loading: false, error: null },
+export const Overview: Story = {
+  render: () => (
+    <Stack maxWidth="prose">
+      <Example title="Resolved access">
+        <EffectiveAccessPanel access={access} loading={false} error={null} />
+      </Example>
+    </Stack>
+  ),
 };
 
-export const OpenEgress: Story = {
-  args: {
-    access: { ...access, open: true, hosts: [], own_hosts: [] },
-    loading: false,
-    error: null,
-  },
-};
-
-export const Loading: Story = {
-  args: { access: null, loading: true, error: null },
-};
-
-export const Failed: Story = {
-  args: { access: null, loading: false, error: 'Preview failed: policy service unreachable.' },
+export const Options: Story = {
+  render: () => (
+    <Stack maxWidth="wide">
+      <OptionTable title="Options">
+        <Option
+          name="access"
+          use="A resolved list of hosts. Hover a source to highlight its hosts."
+        >
+          <EffectiveAccessPanel access={access} loading={false} error={null} />
+        </Option>
+        <Option name="access.open" use="Egress is unrestricted, so no host list applies.">
+          <EffectiveAccessPanel
+            access={{ ...access, open: true, hosts: [], own_hosts: [] }}
+            loading={false}
+            error={null}
+          />
+        </Option>
+        <Option name="loading" use="The preview is still resolving.">
+          <EffectiveAccessPanel access={null} loading error={null} />
+        </Option>
+        <Option name="error" use="The preview failed. The message replaces the host list.">
+          <EffectiveAccessPanel
+            access={null}
+            loading={false}
+            error="Preview failed: policy service unreachable."
+          />
+        </Option>
+        <Option name="description" use="Replaces the subtitle for non-agent uses.">
+          <EffectiveAccessPanel
+            access={access}
+            loading={false}
+            error={null}
+            description="What this environment lets its agents reach."
+          />
+        </Option>
+      </OptionTable>
+    </Stack>
+  ),
 };

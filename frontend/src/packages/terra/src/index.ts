@@ -28,6 +28,10 @@ export { Callout } from './components/callout';
 export type { CalloutProps } from './components/callout';
 
 export { Icon } from './components/icon';
+export { KoraLogo } from './components/kora-logo';
+export type { KoraLogoProps } from './components/kora-logo';
+export { KoraMark } from './components/kora-mark';
+export type { KoraMarkProps } from './components/kora-mark';
 export type {
   IconProps,
   IconName,
@@ -96,6 +100,8 @@ export { Skeleton } from './components/skeleton';
 export { OrbitalLoader } from './components/orbital-loader';
 export type { OrbitalLoaderProps } from './components/orbital-loader';
 
+export { Donut, donutSegmentColor } from './components/donut';
+export type { DonutProps, DonutSegment } from './components/donut';
 export { Sparkline, sparklineBarVariants } from './components/sparkline';
 export type { SparklineProps } from './components/sparkline';
 
@@ -168,8 +174,12 @@ export { DangerZone, dangerZoneVariants } from './components/danger-zone';
 export type { DangerZoneProps } from './components/danger-zone';
 
 export { StatCard } from './components/stat-card';
-export type { StatCardProps } from './components/stat-card';
+export type { StatCardProps, StatCardDelta, StatCardBreakdownItem } from './components/stat-card';
 
+export { CopyButton } from './components/copy-button';
+export type { CopyButtonProps } from './components/copy-button';
+export { CopyField } from './components/copy-field';
+export type { CopyFieldProps } from './components/copy-field';
 export { SegmentedControl } from './components/segmented-control';
 export type { SegmentedControlProps, SegmentedControlOption } from './components/segmented-control';
 
@@ -346,6 +356,12 @@ export type {
 export { BottomSheet } from './components/bottom-sheet';
 export type { BottomSheetProps } from './components/bottom-sheet';
 
+export { EmptyState } from './components/empty-state';
+export type { EmptyStateProps } from './components/empty-state';
+
+export { ConfirmDialog } from './components/confirm-dialog';
+export type { ConfirmDialogProps } from './components/confirm-dialog';
+
 export {
   TableRoot,
   Table,
@@ -391,3 +407,5 @@ export type {
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 
 export { useDialog } from './hooks/use-dialog';
+export { useCopy } from './hooks/use-copy';
+export type { CopyStatus } from './hooks/use-copy';

@@ -73,9 +73,16 @@ const RadioCard = React.forwardRef<HTMLDivElement, RadioCardProps>(
       aria-disabled={disabled || undefined}
     >
       <CardContent padded compact grow>
-        <Stack gap="snug" data-slot="radio-card" disabled={Boolean(disabled)}>
-          <Stack direction="horizontal" align="center">
-            {icon ? (
+        {/* With an icon, the radio shares the icon's row. Without one, it sits on the title's row so there is no empty strip above the title. */}
+        <Stack
+          direction={icon ? 'vertical' : 'horizontal'}
+          {...(icon ? {} : { align: 'start' as const })}
+          gap="snug"
+          data-slot="radio-card"
+          disabled={Boolean(disabled)}
+        >
+          {icon ? (
+            <Stack direction="horizontal" align="start">
               <Icon
                 name={icon}
                 size="sm"
@@ -84,11 +91,11 @@ const RadioCard = React.forwardRef<HTMLDivElement, RadioCardProps>(
                 containerVariant={selected ? 'accent' : 'surface-subtle'}
                 label=""
               />
-            ) : null}
-            <Stack grow />
-            <RadioGroupItem value={value} aria-label={title} disabled={disabled} />
-          </Stack>
-          <Stack gap="tight">
+              <Stack grow />
+              <RadioGroupItem value={value} aria-label={title} disabled={disabled} />
+            </Stack>
+          ) : null}
+          <Stack gap="tight" grow={!icon}>
             <Text as="span" size="supporting" weight="heavy">
               {title}
             </Text>
@@ -98,6 +105,7 @@ const RadioCard = React.forwardRef<HTMLDivElement, RadioCardProps>(
               </Text>
             ) : null}
           </Stack>
+          {icon ? null : <RadioGroupItem value={value} aria-label={title} disabled={disabled} />}
         </Stack>
       </CardContent>
     </Card>

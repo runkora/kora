@@ -13,7 +13,7 @@ kind: OrbitTenant
 metadata:
   name: example
 spec:
-  displayName: "Orbit Example"
+  displayName: "kora Example"
   active: true
 
   oidc:

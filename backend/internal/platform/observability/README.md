@@ -1,6 +1,6 @@
 # Observability Package
 
-OpenTelemetry tracing initialization and configuration for Orbit.
+OpenTelemetry tracing initialization and configuration for kora.
 
 ## Overview
 

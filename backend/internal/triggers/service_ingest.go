@@ -220,7 +220,7 @@ func (s *Service) recordDuplicate(ctx context.Context, src WebhookSource, adapte
 
 // arrival is one webhook delivery as fan-out sees it.
 type arrival struct {
-	deliveryID         string // the Orbit delivery row
+	deliveryID         string // the kora delivery row
 	providerDeliveryID string
 	eventType          string
 	body               []byte

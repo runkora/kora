@@ -3,7 +3,7 @@
  * labelled Badge with status dot. Used by dashboard home, model-gateway, policy,
  * and any future feature overview showing agent or resource health.
  * @promote-to-tier-1 if: domain knowledge (OrbitStatus type, label capitalisation)
- * is removed and a second non-dashboard Orbit surface needs it.
+ * is removed and a second non-dashboard kora surface needs it.
  */
 import { Badge } from '@orbit/terra';
 

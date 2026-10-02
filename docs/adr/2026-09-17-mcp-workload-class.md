@@ -23,7 +23,7 @@ The chart's `orbit-system` policies admit tool-gateway ingress *from* tenant nam
 
 ### Problem Statement
 
-Orbit recognises two kinds of tenant pod, the agent and the sandbox, and treats every other pod in a tenant namespace as an agent. An MCP server is neither. It holds its own upstream credential, serves only the tool-gateway, and needs no platform identity: OPA adds nothing, and identity-proxy overwrites the credential.
+kora recognises two kinds of tenant pod, the agent and the sandbox, and treats every other pod in a tenant namespace as an agent. An MCP server is neither. It holds its own upstream credential, serves only the tool-gateway, and needs no platform identity: OPA adds nothing, and identity-proxy overwrites the credential.
 
 So a tenant MCP server cannot run, because the only documented way to keep its credential is an opt-out the platform denies. It also cannot be reached: nothing admits the tool-gateway into a tenant namespace, and nothing names the gateway as the only caller.
 
@@ -31,7 +31,7 @@ An injection exemption addresses the first of those and leaves the second.
 
 ### Goals
 
-- A tenant MCP server runs from an ordinary Deployment, a Service and an `MCPServer` CR, with no Orbit-specific pod annotations.
+- A tenant MCP server runs from an ordinary Deployment, a Service and an `MCPServer` CR, with no kora-specific pod annotations.
 - The tool-gateway reaches it without an operator writing policy.
 - Only the tool-gateway may call it, verified by workload identity.
 - The exemption cannot be granted by anything `orbit-agents` can create.
@@ -39,7 +39,7 @@ An injection exemption addresses the first of those and leaves the second.
 
 ### Non-Goals
 
-- Orbit provisioning the MCP workload. Operators keep their own Deployment, or an upstream chart.
+- kora provisioning the MCP workload. Operators keep their own Deployment, or an upstream chart.
 - Governing MCP tools. That is the tool-gateway's job and already exists.
 - Global MCP servers in the system namespace, and MCP servers reached at an external URL. Neither is a tenant pod, so neither is affected.
 - Federating platform identity into an MCP server.
@@ -69,7 +69,7 @@ An injection exemption addresses the first of those and leaves the second.
 - Reverses [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md). A compromised `orbit-agents` sets one label and runs unenforced code in a tenant namespace.
 - Says nothing about reachability, so #300 remains.
 
-### Option 2: Orbit provisions the MCP workload from the CR
+### Option 2: kora provisions the MCP workload from the CR
 
 **Description:** `MCPServer` gains image, args, env, secrets, probes and resources. The operator renders the Deployment and Service.
 
@@ -79,7 +79,7 @@ An injection exemption addresses the first of those and leaves the second.
 
 **Cons:**
 - Rebuilds a Deployment API inside the CRD, and every upstream MCP chart has to be re-expressed in it.
-- Any field Orbit has not modelled is unreachable, and MCP images vary widely.
+- Any field kora has not modelled is unreachable, and MCP images vary widely.
 
 ### Option 3: The CR names the workload, and the operator derives the rest (chosen)
 
@@ -114,7 +114,7 @@ An injection exemption addresses the first of those and leaves the second.
 
 ### Rationale
 
-Orbit has no model of an MCP workload, so it treats one as an agent pod. Naming the pods in the CR supplies that model, and one field then determines which pods skip identity-proxy and OPA, which port to admit, which principal may call it, and what to remove when the server is deregistered.
+kora has no model of an MCP workload, so it treats one as an agent pod. Naming the pods in the CR supplies that model, and one field then determines which pods skip identity-proxy and OPA, which port to admit, which principal may call it, and what to remove when the server is deregistered.
 
 The authority stays where [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md) put it. That ADR rejected a pod label because any actor able to create a tenant pod could set it. A label grants nothing here: the webhook matches the pod against `MCPServer` CRs at admission, and `orbit-agents` has no RBAC for those.
 
@@ -131,7 +131,7 @@ An MCP pod keeps the Istio sidecar and drops identity-proxy and OPA:
 | `orbit.io/identity-proxy` label | set | not set |
 | Generated policies | sandbox egress | MCP ingress, L4 and L7 |
 
-Orbit's sidecars take their certificates from SPIRE (`PILOT_CERT_PROVIDER: spire`), so an MCP pod needs a registration of its own or its sidecar has no certificate and the tool-gateway cannot complete mTLS. The webhook labels the pod `spiffe.io/service`, which the existing `orbit-tenant-service` ClusterSPIFFEID already matches, so no new registration is introduced.
+kora's sidecars take their certificates from SPIRE (`PILOT_CERT_PROVIDER: spire`), so an MCP pod needs a registration of its own or its sidecar has no certificate and the tool-gateway cannot complete mTLS. The webhook labels the pod `spiffe.io/service`, which the existing `orbit-tenant-service` ClusterSPIFFEID already matches, so no new registration is introduced.
 
 The sidecar supplies the workload identity the generated `AuthorizationPolicy` matches on. A `NetworkPolicy` admits a namespace and a port and cannot identify the caller, so it serves as the L4 layer beneath that check. With identity-proxy skipped, the sidecar does not alter the server's outbound requests.
 
@@ -156,7 +156,7 @@ spec:
 
 `workload` is optional. Omitted, the server is external or global, there are no pods in the CR's namespace to classify, and behaviour is unchanged.
 
-The workload itself carries no Orbit configuration:
+The workload itself carries no kora configuration:
 
 ```yaml
 apiVersion: apps/v1

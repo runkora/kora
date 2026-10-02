@@ -11,7 +11,7 @@
 
 ### Background
 
-The Orbit identity and policy model ([unified-identity-model](2026-03-05-unified-identity-model.md), [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md), [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md)) supports agents as first-class principals. SPIFFE attestation is handled cluster-wide by the SPIRE controller manager via `ClusterSPIFFEID` resources ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)). The `orbit-tenant-agent` ClusterSPIFFEID already exists and automatically issues SVIDs to any pod in a tenant namespace carrying the label `spiffe.io/agent={value}`. The identity-service's `XFCCPrincipalExtractor` already derives the full principal (type, tenant, identity) directly from the SPIFFE path — no runtime mapping table is required.
+The kora identity and policy model ([unified-identity-model](2026-03-05-unified-identity-model.md), [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants-and-tenant-isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md), [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md)) supports agents as first-class principals. SPIFFE attestation is handled cluster-wide by the SPIRE controller manager via `ClusterSPIFFEID` resources ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)). The `orbit-tenant-agent` ClusterSPIFFEID already exists and automatically issues SVIDs to any pod in a tenant namespace carrying the label `spiffe.io/agent={value}`. The identity-service's `XFCCPrincipalExtractor` already derives the full principal (type, tenant, identity) directly from the SPIFFE path — no runtime mapping table is required.
 
 What is missing is the provisioning lifecycle for managed agents: ensuring the StatefulSet pod template carries the correct label (so the ClusterSPIFFEID issues the right SVID), and that grants are created in the policy-service at agent type creation time.
 
@@ -70,7 +70,7 @@ Both must be provisioned automatically and cleaned up on deletion. Neither requi
 - orbit-agents owns the full provisioning lifecycle
 
 **Cons:**
-- Not how the Orbit platform works: the platform uses ClusterSPIFFEID resources managed by the SPIRE controller manager, not direct SPIRE registration API calls
+- Not how the kora platform works: the platform uses ClusterSPIFFEID resources managed by the SPIRE controller manager, not direct SPIRE registration API calls
 - Requires orbit-agents to hold SPIRE admin registration rights and manage per-node parentID entries — significant complexity
 - The existing ClusterSPIFFEID mechanism already handles this correctly with zero additional infrastructure
 

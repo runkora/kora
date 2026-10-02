@@ -15,13 +15,15 @@ import {
   Stack,
   Text,
   PageSectionHeader,
+  ConfirmDialog,
+  EmptyState,
 } from '@orbit/terra';
 import Link from 'next/link';
 import { revokeToken } from '../_actions/tokens';
 import { CreateTokenModal } from './create-token-modal';
 import { TokenCreatedModal } from './token-created-modal';
 import { EditScopesModal } from './edit-scopes-modal';
-import { ConfirmDialog, EmptyState, ScopeChip } from '@orbit/components';
+import { ScopeChip } from '@orbit/components';
 import type { CreatePATResponse, PAT } from '@orbit/shared/api';
 import { fmtDate, fmtExpiry, fmtNumCompact, isExpired } from '@orbit/utils';
 import type { TokenUsageStat } from '../_services/usage-server';

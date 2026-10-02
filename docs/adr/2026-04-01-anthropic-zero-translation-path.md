@@ -2,8 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-04-01
-**Deciders:** Orbit platform team
-**Technical Story:** The `POST /v1/messages` (Anthropic Messages API) handler originally converted the incoming Anthropic wire format through Orbit's internal `ChatCompletionRequest`/`ChatCompletionResponse` domain types before forwarding to the provider. This lossy conversion silently dropped tool use, multi-turn system prompts, and other Anthropic-specific fields, meaning Claude Code and other Anthropic-native clients would behave incorrectly when routed through Orbit.
+**Deciders:** kora platform team
+**Technical Story:** The `POST /v1/messages` (Anthropic Messages API) handler originally converted the incoming Anthropic wire format through kora's internal `ChatCompletionRequest`/`ChatCompletionResponse` domain types before forwarding to the provider. This lossy conversion silently dropped tool use, multi-turn system prompts, and other Anthropic-specific fields, meaning Claude Code and other Anthropic-native clients would behave incorrectly when routed through kora.
 
 ---
 
@@ -74,7 +74,7 @@ AnthropicMessages(ctx context.Context, params anthropic.MessageNewParams) (*anth
 AnthropicMessagesStream(ctx context.Context, params anthropic.MessageNewParams) (<-chan AnthropicStreamEvent, error)
 ```
 
-The handler decodes directly into `anthropic.MessageNewParams` (using its own `UnmarshalJSON`), calls the service layer's `AnthropicMessages`/`AnthropicMessagesStream` methods, and serializes the response directly from `*anthropic.Message` or from raw `AnthropicStreamEvent` channel values. No intermediate Orbit domain types are involved in the request/response path.
+The handler decodes directly into `anthropic.MessageNewParams` (using its own `UnmarshalJSON`), calls the service layer's `AnthropicMessages`/`AnthropicMessagesStream` methods, and serializes the response directly from `*anthropic.Message` or from raw `AnthropicStreamEvent` channel values. No intermediate kora domain types are involved in the request/response path.
 
 Usage metrics are recorded from `msg.Usage.InputTokens`/`msg.Usage.OutputTokens` on the response — the token counts the service layer needs are available on the SDK type without requiring a full conversion.
 
@@ -107,7 +107,7 @@ Capture the raw `POST /v1/messages` body bytes and forward them directly to the 
 
 ### Rationale
 
-The lossy translation bugs were not implementation defects that could be patched — they were a consequence of using a schema-mismatched intermediate type. Option A would require maintaining permanent coupling between the Orbit domain model and the Anthropic API schema. Option C bypasses all the infrastructure Orbit provides. Option B uses the SDK-generated types as the transport boundary, which is the correct layering: the provider SDK owns the wire format, Orbit owns the routing and policy.
+The lossy translation bugs were not implementation defects that could be patched — they were a consequence of using a schema-mismatched intermediate type. Option A would require maintaining permanent coupling between the kora domain model and the Anthropic API schema. Option C bypasses all the infrastructure kora provides. Option B uses the SDK-generated types as the transport boundary, which is the correct layering: the provider SDK owns the wire format, kora owns the routing and policy.
 
 ---
 
@@ -116,13 +116,13 @@ The lossy translation bugs were not implementation defects that could be patched
 ### Positive
 
 - `POST /v1/messages` is now byte-compatible with the Anthropic API: tools, vision, multi-turn system prompts, streaming, and all other features work correctly for Claude Code and other Anthropic-native clients.
-- New Anthropic API features (extended thinking, document blocks, etc.) are handled transparently by SDK upgrades with no Orbit code changes.
+- New Anthropic API features (extended thinking, document blocks, etc.) are handled transparently by SDK upgrades with no kora code changes.
 - The `stop_reason` double-mapping, tool-use drop, and `system` type bugs are eliminated structurally, not by patching.
 
 ### Negative
 
 - `anthropic.MessageNewParams` and `*anthropic.Message` appear at the service and handler layers. This is a deliberate exception to the "SDK types confined to the convert package" guideline, justified by the correctness requirement.
-- Cross-dialect failover on the Anthropic path is not supported: if Bedrock rejects a `POST /v1/messages` request, Orbit cannot transparently retry via the OpenAI path on Azure/Vertex without lossy conversion.
+- Cross-dialect failover on the Anthropic path is not supported: if Bedrock rejects a `POST /v1/messages` request, kora cannot transparently retry via the OpenAI path on Azure/Vertex without lossy conversion.
 
 ### Neutral
 

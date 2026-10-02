@@ -6,7 +6,7 @@
 // adapter type, the upstream base host, a reference to a Kubernetes Secret
 // (a name, never a value), and adapter-specific config. The referenced
 // Secret's material is materialized by the deployer's secret pipeline; the
-// raw value never enters Orbit's application layer.
+// raw value never enters kora's application layer.
 //
 // The operator's ConnectionAggregator reads these CRs (and their referenced
 // Secrets) and renders the orbit-system config the egress gateway mounts —

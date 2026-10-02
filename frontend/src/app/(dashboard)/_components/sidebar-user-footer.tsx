@@ -213,7 +213,7 @@ function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
   return (
     <>
       <Text as="span" style={{ display: 'block', fontSize: compact ? 14 : 16, fontWeight: 500 }}>
-        Log out of Orbit?
+        Log out of kora?
       </Text>
       <Text
         as="span"

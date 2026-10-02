@@ -2,7 +2,7 @@
 
 ## Overview
 
-Orbit uses OpenTelemetry for distributed tracing, implementing the W3C TraceContext standard for trace propagation across service boundaries.
+kora uses OpenTelemetry for distributed tracing, implementing the W3C TraceContext standard for trace propagation across service boundaries.
 
 ## Architecture
 
@@ -88,7 +88,7 @@ r = r.WithContext(tracedCtx)
 
 ### Trace Propagation
 
-Orbit uses the W3C TraceContext standard for propagating trace context:
+kora uses the W3C TraceContext standard for propagating trace context:
 
 **Headers:**
 ```
@@ -102,9 +102,9 @@ traceparent: 00-2482aff647d2da4b929d57bc10bcfa74-85ad5c6de00215ea-01
 ```
 
 This enables distributed tracing across:
-- Orbit → Agent frameworks
-- Orbit → External APIs
-- Orbit → Database queries (future)
+- kora → Agent frameworks
+- kora → External APIs
+- kora → Database queries (future)
 - Agent → Tool invocations (future)
 
 ### Span Attributes

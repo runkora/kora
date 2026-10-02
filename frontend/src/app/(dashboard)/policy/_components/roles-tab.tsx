@@ -25,6 +25,8 @@ import {
   Toggle,
   ToggleRow,
   PageSectionHeader,
+  EmptyState,
+  ConfirmDialog,
 } from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
@@ -34,9 +36,7 @@ import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChipList, scopeColumnFilter } from '@orbit/components';
-import { ScopeTreePicker } from '@orbit/components';
-import { EmptyState } from '@orbit/components';
-import { ConfirmDialog } from '@orbit/components';
+import { ScopePicker } from '@orbit/components';
 import { ViewToggle } from './view-toggle';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
@@ -122,7 +122,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       {/* Info box */}
       <Callout>
         <Text size="caption" color="muted">
-          Roles map OIDC role claims to platform scopes. When a human authenticates, Orbit resolves
+          Roles map OIDC role claims to platform scopes. When a human authenticates, kora resolves
           the union of scopes from all matching roles.
         </Text>
       </Callout>
@@ -542,7 +542,7 @@ function UpsertRoleModal({
                 ({selectedScopes.length} selected)
               </Text>
             </Stack>
-            <ScopeTreePicker
+            <ScopePicker
               scopes={availableScopes}
               selected={selectedScopes}
               onChange={setSelectedScopes}

@@ -35,7 +35,7 @@ const (
 	IdentitySourcePlatform = token.IdentitySourcePlatform
 )
 
-// Principal is the unified identity abstraction for all actors in Orbit.
+// Principal is the unified identity abstraction for all actors in kora.
 // Aliased from internal/platform/token — see that package for field documentation.
 type Principal = token.Principal
 
@@ -45,7 +45,7 @@ type Principal = token.Principal
 // Aliased from internal/platform/token.
 type PlatformClaims = token.PlatformClaims
 
-// OrbitClaims are the Orbit-specific claims embedded in the platform token's
+// OrbitClaims are the kora-specific claims embedded in the platform token's
 // "orbit" namespace. Aliased from internal/platform/token.
 type OrbitClaims = token.OrbitClaims
 
@@ -102,7 +102,7 @@ type DeviceAuthResponse struct {
 // Supports three grant types:
 //   - "urn:ietf:params:oauth:grant-type:device_code" — device flow poll
 //   - "refresh_token"                                — refresh an existing human session
-//   - "oidc_id_token"                                — browser presents a verified id_token; backend validates and issues an Orbit session
+//   - "oidc_id_token"                                — browser presents a verified id_token; backend validates and issues a kora session
 type SessionRequest struct {
 	GrantType    string `json:"grant_type"`
 	TenantID     string `json:"tenant_id"`
@@ -111,7 +111,7 @@ type SessionRequest struct {
 	// IDToken is used for the oidc_id_token grant type.
 	// The browser OIDC client (oidc-client-ts) performs PKCE in the browser and
 	// presents the resulting id_token here. The backend verifies it via JWKS and
-	// issues an Orbit platform session token.
+	// issues a kora platform session token.
 	IDToken string `json:"id_token,omitempty"`
 }
 

@@ -117,10 +117,10 @@ type createAgentArgs struct {
 // guardrailsArg is an agent type's loop-guard thresholds. Each warn is at least
 // 1 and each pause is greater than its warn; there is no off switch.
 type guardrailsArg struct {
-	RepeatedCallWarn  *int `json:"repeated_call_warn,omitempty" jsonschema:"identical consecutive tool calls before Orbit warns the agent (default 4)"`
-	RepeatedCallPause *int `json:"repeated_call_pause,omitempty" jsonschema:"identical consecutive tool calls before Orbit pauses the run; greater than repeated_call_warn (default 8)"`
-	WaitRearmWarn     *int `json:"wait_rearm_warn,omitempty" jsonschema:"waits re-armed with no progress before Orbit warns the agent (default 6)"`
-	WaitRearmPause    *int `json:"wait_rearm_pause,omitempty" jsonschema:"waits re-armed with no progress before Orbit pauses the run; greater than wait_rearm_warn (default 12)"`
+	RepeatedCallWarn  *int `json:"repeated_call_warn,omitempty" jsonschema:"identical consecutive tool calls before kora warns the agent (default 4)"`
+	RepeatedCallPause *int `json:"repeated_call_pause,omitempty" jsonschema:"identical consecutive tool calls before kora pauses the run; greater than repeated_call_warn (default 8)"`
+	WaitRearmWarn     *int `json:"wait_rearm_warn,omitempty" jsonschema:"waits re-armed with no progress before kora warns the agent (default 6)"`
+	WaitRearmPause    *int `json:"wait_rearm_pause,omitempty" jsonschema:"waits re-armed with no progress before kora pauses the run; greater than wait_rearm_warn (default 12)"`
 }
 
 // connectorArg is one credential connection the agent may use and the actions

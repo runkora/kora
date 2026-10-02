@@ -11,7 +11,7 @@
 
 ### Background
 
-BYOC agents are containers built and deployed by tenant teams in their own tenant namespaces. They receive SPIFFE SVIDs automatically ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)), exchange them for platform JWTs via the identity-proxy sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)), and make LLM calls through the inference-gateway which attributes usage to their principal ([inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md)). All of this already works. The missing piece is surfacing these agents in the Orbit agent portal.
+BYOC agents are containers built and deployed by tenant teams in their own tenant namespaces. They receive SPIFFE SVIDs automatically ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)), exchange them for platform JWTs via the identity-proxy sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)), and make LLM calls through the inference-gateway which attributes usage to their principal ([inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md)). All of this already works. The missing piece is surfacing these agents in the kora agent portal.
 
 ### Problem Statement
 
@@ -26,7 +26,7 @@ BYOC agents are invisible to the platform control plane beyond their usage recor
 
 ### Non-Goals
 
-- Chat interaction with BYOC agents from the Orbit UI (BYOC is tenant-managed)
+- Chat interaction with BYOC agents from the kora UI (BYOC is tenant-managed)
 - Lifecycle management of BYOC agents (start, stop, restart) from the platform
 - Detailed run observability for BYOC (no event log — BYOC agents don't use the session-manager)
 
@@ -35,7 +35,7 @@ BYOC agents are invisible to the platform control plane beyond their usage recor
 ## Decision Drivers
 
 * BYOC agents must not need to register themselves — zero changes to tenant deployment manifests
-* The SPIFFE identity is already present on qualifying pods — it is the right signal for "this is an Orbit agent"
+* The SPIFFE identity is already present on qualifying pods — it is the right signal for "this is a kora agent"
 * Usage is already attributed in inference-gateway logs — no additional instrumentation needed
 * The portal must show both managed and BYOC agents in a single unified view
 

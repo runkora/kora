@@ -1,163 +1,95 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { Progress } from './progress';
-import { Text } from '../typography/typography';
 
+/**
+ * Progress
+ *
+ * A horizontal bar that shows how full something is, such as CPU use or a deploy.
+ * It needs a label so screen readers know what it measures.
+ */
 const meta: Meta<typeof Progress> = {
-  title: 'Terra/Molecules/Progress',
+  title: 'Terra/Atoms/Progress',
   component: Progress,
-  parameters: {
-    layout: 'centered',
-    backgrounds: { default: 'orbit' },
-  },
   tags: ['autodocs'],
-  argTypes: {
-    variant: {
-      control: 'select',
-      options: ['default', 'healthy', 'degraded', 'error', 'pending'],
-    },
-    size: {
-      control: 'select',
-      options: ['hairline', 'sm', 'md', 'lg'],
-    },
-    value: { control: { type: 'range', min: 0, max: 100 } },
-    showValue: { control: 'boolean' },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof Progress>;
 
-export const Default: Story = {
-  args: {
-    label: 'CPU utilisation',
-    value: 55,
-    className: 'w-72',
-  },
-};
-
-export const WithValue: Story = {
-  args: {
-    label: 'Memory usage',
-    value: 72,
-    showValue: true,
-    className: 'w-72',
-  },
-};
-
-export const Healthy: Story = {
-  args: {
-    label: 'Disk I/O',
-    value: 38,
-    variant: 'healthy',
-    showValue: true,
-    className: 'w-72',
-  },
-};
-
-export const Degraded: Story = {
-  args: {
-    label: 'Network throughput',
-    value: 78,
-    variant: 'degraded',
-    showValue: true,
-    className: 'w-72',
-  },
-};
-
-export const Error: Story = {
-  args: {
-    label: 'CPU utilisation',
-    value: 96,
-    variant: 'error',
-    showValue: true,
-    className: 'w-72',
-  },
-};
-
-export const Pending: Story = {
-  args: {
-    label: 'Deployment progress',
-    value: 45,
-    variant: 'pending',
-    showValue: true,
-    className: 'w-72',
-  },
-};
-
-export const AllSizes: Story = {
+export const Overview: Story = {
   render: () => (
-    <div className="flex flex-col gap-4 w-72">
-      <Progress label="Hairline" value={60} size="hairline" showValue />
-      <Progress label="Small" value={60} size="sm" showValue />
-      <Progress label="Medium" value={60} size="md" showValue />
-      <Progress label="Large" value={60} size="lg" showValue />
+    <div className="max-w-sm space-y-8">
+      <Example title="Resource usage">
+        <div className="space-y-4">
+          <Progress label="CPU" value={42} variant="healthy" showValue />
+          <Progress label="Memory" value={71} variant="degraded" showValue />
+          <Progress label="Disk" value={94} variant="error" showValue />
+        </div>
+      </Example>
+      <Example title="Deploy in progress">
+        <Progress label="Deploy progress" value={45} variant="pending" showValue />
+      </Example>
     </div>
   ),
 };
 
-export const AllVariants: Story = {
+export const Options: Story = {
   render: () => (
-    <div className="flex flex-col gap-3 w-72">
-      <Progress label="Default" value={55} variant="default" showValue />
-      <Progress label="Healthy" value={38} variant="healthy" showValue />
-      <Progress label="Degraded" value={74} variant="degraded" showValue />
-      <Progress label="Error" value={93} variant="error" showValue />
-      <Progress label="Pending" value={45} variant="pending" showValue />
+    <div className="max-w-5xl space-y-10">
+      <OptionTable
+        title="Variant"
+        note="The fill colour tells the reader how to feel about the value."
+      >
+        <Option name='variant="default"' use="Plain usage in the brand colour. The default.">
+          <Progress label="Storage used" value={55} showValue />
+        </Option>
+        <Option name='variant="healthy"' use="A safe level.">
+          <Progress label="Disk activity" value={38} variant="healthy" showValue />
+        </Option>
+        <Option name='variant="degraded"' use="Getting close to a limit.">
+          <Progress label="Network use" value={78} variant="degraded" showValue />
+        </Option>
+        <Option name='variant="error"' use="Over a limit or failing.">
+          <Progress label="CPU" value={96} variant="error" showValue />
+        </Option>
+        <Option name='variant="pending"' use="Work that is still running.">
+          <Progress label="Deploy progress" value={45} variant="pending" showValue />
+        </Option>
+      </OptionTable>
+      <OptionTable title="Size, value and extras">
+        <Option
+          name='size="hairline"'
+          use="2 px. A thin bar in page chrome, such as a wizard header."
+        >
+          <Progress label="Setup progress, hairline" value={60} size="hairline" />
+        </Option>
+        <Option name='size="sm"' use="6 px. Inside a table cell or a card footer.">
+          <Progress label="Setup progress, small" value={60} size="sm" />
+        </Option>
+        <Option name='size="md"' use="8 px. The default.">
+          <Progress label="Setup progress, medium" value={60} size="md" />
+        </Option>
+        <Option name='size="lg"' use="12 px. A full-width panel.">
+          <Progress label="Setup progress, large" value={60} size="lg" />
+        </Option>
+        <Option name="showValue" use="Print the percentage to the right of the bar.">
+          <Progress label="Memory" value={72} showValue />
+        </Option>
+        <Option name="value={0}" use="An empty bar.">
+          <Progress label="No data yet" value={0} showValue />
+        </Option>
+        <Option name="value={100}" use="A full bar.">
+          <Progress label="Complete" value={100} variant="healthy" showValue />
+        </Option>
+        <Option
+          name="max"
+          use="Set the top of the scale when the value is not a percentage. 30 of 120 shows 25%."
+        >
+          <Progress label="Runs used" value={30} max={120} showValue />
+        </Option>
+      </OptionTable>
     </div>
   ),
-};
-
-export const ResourcePanel: Story = {
-  render: () => (
-    <div className="w-72 rounded-lg bg-surface p-4 flex flex-col gap-4">
-      <Text size="micro" color="muted" weight="emphasis" transform="uppercase">
-        Resource usage
-      </Text>
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Text size="micro" color="foreground">
-            CPU
-          </Text>
-          <Progress label="CPU" value={42} variant="healthy" size="md" showValue />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Text size="micro" color="foreground">
-            Memory
-          </Text>
-          <Progress label="Memory" value={71} variant="degraded" size="md" showValue />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Text size="micro" color="foreground">
-            Disk
-          </Text>
-          <Progress label="Disk" value={94} variant="error" size="md" showValue />
-        </div>
-        <div className="flex flex-col gap-1.5">
-          <Text size="micro" color="foreground">
-            Network
-          </Text>
-          <Progress label="Network" value={28} variant="healthy" size="md" showValue />
-        </div>
-      </div>
-    </div>
-  ),
-};
-
-export const Empty: Story = {
-  args: {
-    label: 'No data yet',
-    value: 0,
-    showValue: true,
-    className: 'w-72',
-  },
-};
-
-export const Full: Story = {
-  args: {
-    label: 'Complete',
-    value: 100,
-    variant: 'healthy',
-    showValue: true,
-    className: 'w-72',
-  },
 };

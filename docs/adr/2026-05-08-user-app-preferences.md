@@ -11,13 +11,13 @@
 
 ### Background
 
-All UI state in Orbit is currently ephemeral. A user who hides a column in the Inference Logs table, switches to a compact table layout, or adjusts the analytics time window must redo that configuration on every new session and every device. There is no mechanism for the application to remember how a user has left it.
+All UI state in kora is currently ephemeral. A user who hides a column in the Inference Logs table, switches to a compact table layout, or adjusts the analytics time window must redo that configuration on every new session and every device. There is no mechanism for the application to remember how a user has left it.
 
 The identity service already owns the `user_profiles` table (ADR-0042), which provides a persistent, tenant-scoped record per human principal. The infrastructure for writing to and reading from a `(user_id, tenant_id)` store is established; what is missing is a preferences layer built on top of it.
 
 ### Problem Statement
 
-Users cannot persist UI customisations across sessions or devices. This affects power users most acutely — analysts who work across machines, users who share a browser profile, and anyone who configures Orbit carefully only to find it reset on next login.
+Users cannot persist UI customisations across sessions or devices. This affects power users most acutely — analysts who work across machines, users who share a browser profile, and anyone who configures kora carefully only to find it reset on next login.
 
 ### Goals
 

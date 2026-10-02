@@ -1,0 +1,133 @@
+/*
+ * Docs pages. Storybook draws these with its own theme, so the page, text,
+ * tables and code are restyled here with the design system tokens. That keeps
+ * them in step with the brand and theme toolbar.
+ */
+
+html body .sbdocs-wrapper {
+  background: var(--terra-raw-black);
+}
+
+html body .sbdocs {
+  color: var(--terra-raw-white);
+  font-family: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+}
+html
+  body
+  .sbdocs
+  :is(
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6,
+    p,
+    li,
+    dt,
+    dd,
+    td,
+    th,
+    label,
+    summary,
+    button,
+    input,
+    select,
+    textarea
+  ):not(.docs-story *) {
+  color: var(--terra-raw-white);
+  font-family: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+}
+html body .sbdocs a:not(.docs-story *) {
+  color: var(--terra-raw-accent-400);
+}
+
+/* Secondary text: table headers and the toolbar under each story. */
+html body .sbdocs :is(th, .sbdocs-preview-actions, .docblock-code-toggle) {
+  color: var(--terra-raw-300);
+}
+
+/* The frame around each story and its code. */
+html body .sbdocs-preview,
+html body .docblock-source {
+  background: var(--terra-raw-950);
+  border-color: var(--terra-raw-border-subtle);
+}
+html body .sbdocs :is(td, tr):not(.docs-story *) {
+  background: transparent;
+  border-color: var(--terra-raw-border-subtle);
+}
+html body .sbdocs :is(input, select, textarea):not(.docs-story *) {
+  background: var(--terra-raw-900);
+  border-color: var(--terra-raw-border-subtle);
+}
+html body .sbdocs button:not(.docs-story *) {
+  background: transparent;
+}
+
+/* Code */
+html body .sbdocs :is(code, pre):not(.docs-story *),
+html body .sbdocs .docblock-source {
+  font-family: var(--font-geist-mono, 'Geist Mono', ui-monospace, monospace);
+  color: var(--terra-raw-white);
+}
+html body .sbdocs :not(pre) > code:not(.docs-story *) {
+  background: var(--terra-raw-900);
+  border-color: var(--terra-raw-border-subtle);
+}
+html body .sbdocs pre:not(.docs-story *),
+html body .sbdocs pre code:not(.docs-story *) {
+  background: transparent;
+}
+
+html body .sbdocs .token {
+  color: var(--terra-raw-300);
+}
+
+html body .sbdocs :is(.token.tag, .token.keyword, .token.attr-name) {
+  color: var(--terra-raw-accent-400);
+}
+
+html body .sbdocs :is(.token.attr-value, .token.string, .token.number, .token.boolean) {
+  color: var(--terra-raw-accent-300);
+}
+
+html body .sbdocs :is(.token.class-name, .token.function, .token.plain-text) {
+  color: var(--terra-raw-white);
+}
+
+html body .sbdocs .token.comment {
+  color: var(--terra-raw-400);
+}
+
+/* These parts set their own background through runtime classes, so they need !important. */
+html body .sbdocs-preview > div:first-child {
+  background: var(--terra-raw-950) !important;
+  border-color: var(--terra-raw-border-subtle) !important;
+}
+
+html body .docblock-source > div:not([dir]) {
+  background: var(--terra-raw-900) !important;
+  color: var(--terra-raw-300) !important;
+}
+
+html body .docblock-argstable :is(td, tr) {
+  background: transparent !important;
+}
+
+/* The code panel under each story has a fixed black background. */
+html body .sbdocs-preview > div:not(.docs-story):not(:first-child) > div {
+  background: var(--terra-raw-900) !important;
+}
+
+/* Type and default chips in the props table. */
+html body .docblock-argstable :is(span, div, code) {
+  color: var(--terra-raw-300);
+}
+html body .docblock-argstable td:first-child :is(span, div) {
+  color: var(--terra-raw-white);
+}
+
+html body .sbdocs :is(.token.punctuation, .token.operator) {
+  color: var(--terra-raw-300);
+}

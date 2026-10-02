@@ -40,7 +40,7 @@ spec:
         openAPIV3Schema:
           description: >
             InferenceProvider registers one model provider with the inference
-            gateway, which watches it. Apply it in the Orbit system namespace.
+            gateway, which watches it. Apply it in the kora system namespace.
             The provider registers as <type>:<metadata.name>. Credentials are
             Secrets in the same namespace, labelled
             orbit.io/inference-provider=true, and named here, never inlined.

@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit now has two wizard flows — the agent builder and the trigger wizard — both built from the same structural pattern but implemented independently at Tier 3. The agent builder ADR noted explicitly that the shell was intended to be reused the moment a second builder-shaped flow adopted it; the trigger wizard is that second flow. This PRD ratifies the promotion: a set of Terra Tier 1 components covering the wizard chrome, the step rail, and the review summary card, so that the next wizard composes the pattern from the design system rather than reconstructing it by hand.
+kora now has two wizard flows — the agent builder and the trigger wizard — both built from the same structural pattern but implemented independently at Tier 3. The agent builder ADR noted explicitly that the shell was intended to be reused the moment a second builder-shaped flow adopted it; the trigger wizard is that second flow. This PRD ratifies the promotion: a set of Terra Tier 1 components covering the wizard chrome, the step rail, and the review summary card, so that the next wizard composes the pattern from the design system rather than reconstructing it by hand.
 
 ---
 
@@ -34,7 +34,7 @@ None of this lives in Terra. The step rail is written twice as `StepRail` (agent
 
 ### Business Impact
 
-Orbit's builder-modal pattern is now established as the right shape for multi-step configuration tasks. Without a shared implementation, every new wizard adds duplication debt and risks introducing visual inconsistency in Orbit's most consequential flows.
+kora's builder-modal pattern is now established as the right shape for multi-step configuration tasks. Without a shared implementation, every new wizard adds duplication debt and risks introducing visual inconsistency in kora's most consequential flows.
 
 ---
 

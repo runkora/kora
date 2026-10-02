@@ -1,9 +1,9 @@
-// Command identity-proxy is the Orbit identity-proxy sidecar binary.
+// Command identity-proxy is the kora identity-proxy sidecar binary.
 //
 // It runs as an Envoy External Processing (ext_proc) gRPC server on the Unix
 // socket defined in config (default: /run/orbit/identity-proxy.sock). Envoy
 // calls it for every outbound request from the agent pod; the proxy injects a
-// platform Bearer token into the Authorization header so downstream Orbit
+// platform Bearer token into the Authorization header so downstream kora
 // services can verify the caller without knowing about SPIRE.
 //
 // Secrets and deployment-specific values are supplied via environment variables:
@@ -162,7 +162,7 @@ func run(ctx context.Context, cfg *identityProxyConfig.Config, logger logging.Lo
 
 // initLogger picks console (human-readable) or JSON logging depending on the
 // log format configured in the observability package, mirroring the pattern
-// used by all other Orbit service binaries.
+// used by all other kora service binaries.
 func initLogger() logging.Logger {
 	if observability.DefaultConfig.LogFormat == "console" {
 		return logging.NewDevelopmentLogger()

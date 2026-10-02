@@ -11,8 +11,9 @@ import { useEffect } from 'react';
 
 import { useRouter } from 'next/navigation';
 
-import { Card, CardContent, CardFooter, CardHeader, Heading, Text } from '@orbit/terra';
 import { AppLink } from '@orbit/components/links';
+
+import { AuthCardShell } from './auth-card-shell';
 
 const REDIRECT_DELAY_MS = 3_000;
 
@@ -28,25 +29,14 @@ export function AlreadySignedIn() {
   }, [router]);
 
   return (
-    <Card>
-      <CardHeader>
-        <Heading variant="title" color="muted">
-          Orbit
-        </Heading>
-      </CardHeader>
-
-      <CardContent>
-        <Text>
-          You&apos;re already signed in. You&apos;ll be redirected to the dashboard in a few
-          seconds.
-        </Text>
-      </CardContent>
-
-      <CardFooter compact justify="center">
+    <AuthCardShell
+      title="You're signed in"
+      description="You will be redirected to the dashboard in a few seconds."
+      footer={
         <AppLink to="/" size="sm">
           Go to dashboard now
         </AppLink>
-      </CardFooter>
-    </Card>
+      }
+    />
   );
 }

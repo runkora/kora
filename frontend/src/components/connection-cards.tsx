@@ -314,7 +314,6 @@ export function ConnectionCards({
                           paddingInline="relaxed"
                         >
                           <Checkbox
-                            size="sm"
                             checked={actionOn}
                             onChange={(checked) =>
                               setConnectorActions(
@@ -326,13 +325,14 @@ export function ConnectionCards({
                             }
                             aria-label={`Grant ${conn.name} ${action}`}
                           />
-                          <Text as="span" size="caption" mono weight="heavy">
-                            {action}
-                          </Text>
-                          <Stack grow />
-                          <Text as="span" size="micro" mono color="subtle">
-                            {actionScopePreview(conn.name, action, resources)}
-                          </Text>
+                          <Stack gap="tight" grow minWidth="none">
+                            <Text as="span" size="caption" mono weight="heavy">
+                              {action}
+                            </Text>
+                            <Text as="span" size="micro" mono color="subtle" truncate>
+                              {actionScopePreview(conn.name, action, resources)}
+                            </Text>
+                          </Stack>
                         </Stack>
                       </Stack>
                     );
@@ -349,23 +349,23 @@ export function ConnectionCards({
                           paddingInline="relaxed"
                         >
                           <Checkbox
-                            size="sm"
                             checked
                             disabled
                             aria-label={`${conn.name} ${fragment} is added automatically`}
                           />
-                          <Stack gap="tight">
-                            <Text as="span" size="caption" mono weight="heavy">
-                              {fragment}
-                            </Text>
-                            <Text as="span" size="micro" color="subtle">
-                              Added automatically
+                          <Stack gap="tight" grow minWidth="none">
+                            <Stack direction="horizontal" align="center" gap="cozy">
+                              <Text as="span" size="caption" mono weight="heavy">
+                                {fragment}
+                              </Text>
+                              <Text as="span" size="micro" color="subtle">
+                                Added automatically
+                              </Text>
+                            </Stack>
+                            <Text as="span" size="micro" mono color="subtle" truncate>
+                              connection:{conn.name}:{fragment}
                             </Text>
                           </Stack>
-                          <Stack grow />
-                          <Text as="span" size="micro" mono color="subtle">
-                            connection:{conn.name}:{fragment}
-                          </Text>
                         </Stack>
                       </Stack>
                     ))}

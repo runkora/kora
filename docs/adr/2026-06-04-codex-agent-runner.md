@@ -15,7 +15,7 @@ The `AgentFramework` enum in `agents/models.go` includes `codex`, but no runner 
 
 ## Decision
 
-**Codex runs as a persistent `codex app-server --listen stdio://` subprocess**, one process per session. The runner communicates with it over bidirectional JSONL on stdin/stdout, streams `item/agentMessage/delta` notifications for token-level text, and routes all outbound LLM calls through the Orbit inference gateway via a per-run `config.toml` written to a dedicated `CODEX_HOME` directory.
+**Codex runs as a persistent `codex app-server --listen stdio://` subprocess**, one process per session. The runner communicates with it over bidirectional JSONL on stdin/stdout, streams `item/agentMessage/delta` notifications for token-level text, and routes all outbound LLM calls through the kora inference gateway via a per-run `config.toml` written to a dedicated `CODEX_HOME` directory.
 
 ---
 
@@ -95,11 +95,11 @@ The returned `thread.id` is stored and used as `threadId` in all subsequent `tur
 
 The same auto-approve pattern applies to `item/fileChange/requestApproval`.
 
-#### Notification → Orbit Event Mapping
+#### Notification → kora Event Mapping
 
 All inbound server notifications (no `id` field):
 
-| Notification method | Orbit action |
+| Notification method | kora action |
 |---|---|
 | `turn/started` | No event (informational) |
 | `item/started` | Emit `tool_use` for tool items |
@@ -116,7 +116,7 @@ There is no `turn/failed` notification — all failures arrive as `"error"` noti
 
 ## LLM Routing
 
-Codex routes all LLM calls to `POST /v1/responses` (OpenAI Responses API). The Orbit inference gateway supports this endpoint via `DialectResponses` (see [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md)).
+Codex routes all LLM calls to `POST /v1/responses` (OpenAI Responses API). The kora inference gateway supports this endpoint via `DialectResponses` (see [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md)).
 
 ### Provider configuration via config.toml
 
@@ -284,7 +284,7 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 - `framework: "codex"` agent types now run Codex, not Claude Code — the silent fallthrough is eliminated.
 - Token-level text streaming via `item/agentMessage/delta` matches Claude Code's streaming UX.
-- No changes to `run_events` schema, SSE relay, or frontend — Orbit standard event format is framework-agnostic.
+- No changes to `run_events` schema, SSE relay, or frontend — kora standard event format is framework-agnostic.
 - No base image change required — Codex musl binary runs on existing `node:22-alpine`.
 - No inference gateway changes required — Codex's Responses API calls route via the custom provider `base_url` written in the per-run `config.toml`.
 
@@ -306,7 +306,7 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 **Status:** Accepted
 
-Touches *What can it access?* Codex approvals were never an Orbit enforcement point: model, remote MCP and egress calls are still checked by Orbit's gateways, and the runtime MCP server's calls are bound to the run by its run token. Identity (*Who is this agent?*) and credential brokering (*How does it connect?*) are unchanged.
+Touches *What can it access?* Codex approvals were never a kora enforcement point: model, remote MCP and egress calls are still checked by kora's gateways, and the runtime MCP server's calls are bound to the run by its run token. Identity (*Who is this agent?*) and credential brokering (*How does it connect?*) are unchanged.
 
 **Context.** The runner answered only `item/commandExecution/requestApproval` and `item/fileChange/requestApproval`. Codex 0.142.1 also sends `mcpServer/elicitation/request` before an MCP tool call; the runner logged it and never replied, so the turn waited forever and a Codex run could not use MCP tools, including the runtime server's `provision_sandbox`.
 
@@ -325,7 +325,7 @@ Touches *What can it access?* Codex approvals were never an Orbit enforcement po
 - [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) — Responses API support in the inference gateway; enables Codex LLM routing
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; Codex was explicitly deferred here
 - [opencode-agent-runner](2026-06-04-opencode-agent-runner.md) — OpenCode runner; shares the framework dispatch wiring changes documented above
-- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format consumed by this runner
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — kora standard event format consumed by this runner
 
 ---
 

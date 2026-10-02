@@ -1,10 +1,10 @@
 # OAuth clients
 
-Orbit exposes an OAuth authorization server. A hosted application can send its users to Orbit to sign in and receive a token to act on their behalf against Orbit's APIs. An `OAuthClient` pre-registers that application: its client ID and the exact redirect URIs Orbit will return users to.
+kora exposes an OAuth authorization server. A hosted application can send its users to kora to sign in and receive a token to act on their behalf against kora's APIs. An `OAuthClient` pre-registers that application: its client ID and the exact redirect URIs kora will return users to.
 
 Every client is public and uses PKCE. A platform owner registers an `OAuthClient` through a CR rather than the app self-registering at runtime. Unlike dynamically-registered clients, it may declare non-loopback HTTPS redirect URIs.
 
-The following guide assumes Orbit is already installed. See [Deploying Orbit](deployment.md) for the install.
+The following guide assumes kora is already installed. See [Deploying kora](deployment.md) for the install.
 
 ## Configuring an OAuth client
 
@@ -34,4 +34,4 @@ An `OAuthClient` is declarative, applied the way you manage the rest of your clu
 kubectl get oauthclients -A
 ```
 
-See [identity](../architecture/identity.md) for Orbit's identity and token model.
+See [identity](../architecture/identity.md) for kora's identity and token model.

@@ -91,7 +91,7 @@ describe('ToggleRow (switch form)', () => {
       <ToggleRow checked={false} onChange={vi.fn()} label="Streaming" />,
     );
     const text = () => container.querySelector('[data-slot="toggle-row-text"]');
-    expect(text()).toHaveClass('opacity-60');
+    expect(text()).toHaveClass('opacity-85');
 
     rerender(<ToggleRow checked onChange={vi.fn()} label="Streaming" />);
     expect(text()).toHaveClass('opacity-100');

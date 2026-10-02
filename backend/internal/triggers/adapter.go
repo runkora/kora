@@ -28,7 +28,7 @@ type SourceAdapter interface {
 	DeliveryID(headers http.Header, body []byte) string
 	// EventType returns the canonical event type for the delivery.
 	EventType(headers http.Header, body []byte) string
-	// Schema returns the provider's schema in the Orbit format: event types
+	// Schema returns the provider's schema in the kora format: event types
 	// mapped to the JSON Schema of their payloads. See BuildCatalog.
 	Schema() []byte
 }

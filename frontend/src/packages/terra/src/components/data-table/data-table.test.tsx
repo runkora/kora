@@ -287,7 +287,7 @@ describe('DataTable horizontal scrolling', () => {
 
   it('scrolls the header and body together, not the page', () => {
     renderTable(columns());
-    const scroller = screen.getByRole('table').querySelector('.overflow-x-auto') as HTMLElement;
+    const scroller = screen.getByRole('table').closest('.overflow-x-auto') as HTMLElement;
     expect(scroller).not.toBeNull();
     expect(scroller).toContainElement(screen.getAllByRole('row')[0]);
     expect(scroller).toContainElement(screen.getByRole('cell', { name: 'apollo' }));
@@ -361,7 +361,7 @@ describe('DataTable pinned-end column and scroll affordance', () => {
 
   it('draws a persistent scrollbar on the scroll region instead of the hidden overlay one', () => {
     renderTable(columns());
-    const scroller = screen.getByRole('table').querySelector('.overflow-x-auto') as HTMLElement;
+    const scroller = screen.getByRole('table').closest('.overflow-x-auto') as HTMLElement;
     expect(scroller.className).toContain('[&::-webkit-scrollbar]:h-2.5');
     expect(scroller.className).toContain('[&::-webkit-scrollbar-thumb]:bg-border');
   });
@@ -395,7 +395,7 @@ describe('DataTable pinned-column elevation', () => {
     ]);
   }
 
-  const scroller = () => screen.getByRole('table').querySelector('.overflow-x-auto') as HTMLElement;
+  const scroller = () => screen.getByRole('table').closest('.overflow-x-auto') as HTMLElement;
 
   it('elevates only the right pin while there is more to scroll to the right', () => {
     renderScrollable();

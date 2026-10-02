@@ -17,8 +17,9 @@ import {
   Skeleton,
   Stack,
   Text,
+  ConfirmDialog,
+  EmptyState,
 } from '@orbit/terra';
-import { ConfirmDialog, EmptyState } from '@orbit/components';
 import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
 import type {
   TriggerCreateResult,

@@ -2,6 +2,7 @@ import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { cn } from '../../utils';
 import { sectionLabelVariants } from '../section-label';
+import { Donut, donutSegmentColor } from '../donut';
 
 /** @tier 1 — Zero Orbit domain knowledge. One headline figure in a row of them. */
 
@@ -17,6 +18,7 @@ const toneVariants = cva('', {
     tone: {
       default: '',
       error: 'text-status-error',
+      degraded: 'text-status-degraded',
       healthy: 'text-status-healthy',
     },
   },
@@ -33,18 +35,55 @@ export type StatCardTone = NonNullable<VariantProps<typeof toneVariants>['tone']
  */
 const VALUE_CLASSES = 'font-mono font-bold text-[25px] tracking-[-0.02em] text-foreground';
 
+/** The total inside the ring, smaller than the plain value so it fits the ring's centre. */
+const RING_VALUE_CLASSES = 'font-mono font-bold text-xl tracking-[-0.02em] text-foreground';
+
+/**
+ * A change indicator under the value. It is healthy when `positive` is true and degraded
+ * when it is not. Set `positiveIsBad` for figures where up is worse, such as an error rate.
+ */
+export interface StatCardDelta {
+  text: string;
+  positive: boolean;
+  positiveIsBad?: boolean;
+}
+
+export interface StatCardBreakdownItem {
+  label: string;
+  value: number;
+}
+
+/** Healthy when the change is good news, degraded when it is not. */
+function deltaTone(delta: StatCardDelta): StatCardTone {
+  return delta.positive !== Boolean(delta.positiveIsBad) ? 'healthy' : 'degraded';
+}
+
 export interface StatCardProps
   extends
     Omit<React.HTMLAttributes<HTMLDivElement>, 'children'>,
     VariantProps<typeof toneVariants> {
-  /** Short all-caps label, e.g. "ACTIVE TRIGGERS". Rendered in tracked small caps. */
+  /** Short label in any casing, e.g. "Active triggers". Rendered uppercase in tracked small caps. */
   label: string;
   /** The headline figure. Monospaced so a column of cards aligns digit-for-digit. */
-  value: string;
+  value: string | number;
   /** Supporting line under the value: a comparison, a breakdown, or a caveat. */
   detail?: string;
   /** Tone for the detail line alone, when it carries the signal rather than the value. */
   detailTone?: StatCardTone;
+  /** Change indicator under the value, coloured by `positive`. Renders below `detail` if both are set. */
+  delta?: StatCardDelta;
+  /**
+   * The parts that make up the figure, largest first. Draws a ring with `value` in the
+   * centre and a legend beside it, so `value` should be short.
+   */
+  breakdown?: StatCardBreakdownItem[];
+  /**
+   * How many breakdown parts the legend lists before "+N more". The ring always draws all of them.
+   * @default 3
+   */
+  breakdownLimit?: number;
+  /** Bottom-right slot for a link such as "View all". The caller supplies the link so Terra stays router-free. */
+  footer?: React.ReactNode;
   /** Icon rendered top-right, e.g. `<Icon name="activity" size="xs" />`. */
   icon?: React.ReactNode;
 }
@@ -56,9 +95,10 @@ export interface StatCardProps
  * line. Built for a row of four or five reporting one system's health, where
  * the figures must be comparable at a glance.
  *
- * Distinct from the app-level `MetricCard`, which carries a delta indicator, an
- * optional breakdown table and a "view all" link. This one is deliberately
- * flatter: in a five-across row those affordances stop being scannable.
+ * Optional `delta`, `breakdown` and `footer` cover overview cards that need a
+ * change indicator, a split of the figure or a link to the full view. A
+ * `breakdown` turns the card into a ring with a legend; leave it off in a
+ * five-across row, where the flat form scans best.
  *
  * ```tsx
  * <StatCard label="SUCCESS RATE" value="98.9%" detail="2,387 ok · 27 failed"
@@ -66,11 +106,30 @@ export interface StatCardProps
  * ```
  */
 const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
-  ({ label, value, detail, detailTone = 'default', icon, tone, className, ...props }, ref) => (
+  (
+    {
+      label,
+      value,
+      detail,
+      detailTone = 'default',
+      delta,
+      breakdown,
+      breakdownLimit = 3,
+      footer,
+      icon,
+      tone,
+      className,
+      ...props
+    },
+    ref,
+  ) => (
     <div
       ref={ref}
       data-slot="stat-card"
-      className={cn('rounded-lg border border-border-subtle bg-surface px-4 py-[15px]', className)}
+      className={cn(
+        'flex h-full flex-col rounded-lg border border-border-subtle bg-surface px-4 py-[15px]',
+        className,
+      )}
       {...props}
     >
       <div className="flex items-center justify-between">
@@ -82,10 +141,47 @@ const StatCard = React.forwardRef<HTMLDivElement, StatCardProps>(
           </span>
         )}
       </div>
-      <div className={cn('mt-[11px]', VALUE_CLASSES, toneVariants({ tone }))}>{value}</div>
+      {breakdown != null && breakdown.length > 0 ? (
+        <div className="mt-4 flex items-center gap-4">
+          <Donut segments={breakdown}>
+            <span className={cn(RING_VALUE_CLASSES, toneVariants({ tone }))}>{value}</span>
+          </Donut>
+          <ul className="min-w-0 flex-1 space-y-1.5 text-[12px]">
+            {breakdown.slice(0, breakdownLimit).map((item, i) => (
+              <li key={item.label} className="flex items-center gap-2">
+                <span
+                  className="size-2 shrink-0 rounded-full"
+                  style={{ background: donutSegmentColor(i) }}
+                />
+                <span className="truncate text-muted">{item.label}</span>
+                <span className="ml-auto font-medium tabular-nums text-foreground">
+                  {item.value}
+                </span>
+              </li>
+            ))}
+            {breakdown.length > breakdownLimit && (
+              <li className="pl-4 text-[11px] text-subtle">
+                +{breakdown.length - breakdownLimit} more
+              </li>
+            )}
+          </ul>
+        </div>
+      ) : (
+        <div className={cn('mt-[11px]', VALUE_CLASSES, toneVariants({ tone }))}>{value}</div>
+      )}
       {detail != null && (
         <div className={cn('mt-1 text-[11px] text-subtle', toneVariants({ tone: detailTone }))}>
           {detail}
+        </div>
+      )}
+      {delta != null && (
+        <div className={cn('mt-1 text-[11px]', toneVariants({ tone: deltaTone(delta) }))}>
+          {delta.text}
+        </div>
+      )}
+      {footer != null && (
+        <div className="mt-auto flex justify-end pt-3 text-[11px] text-subtle [&_a]:transition-colors [&_a:hover]:text-foreground">
+          {footer}
         </div>
       )}
     </div>

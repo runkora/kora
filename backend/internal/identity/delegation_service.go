@@ -34,7 +34,7 @@ type delegationActClaim struct {
 }
 
 // delegationTokenClaims is the signed shape of a delegation token. It carries
-// NO scope claim, ever: Orbit tokens identify; authority lives in grants and
+// NO scope claim, ever: kora tokens identify; authority lives in grants and
 // is evaluated live (ADR Decision 3). The consumer half is
 // policy.ParseDelegationToken in internal/platform/policy/delegation.go.
 type delegationTokenClaims struct {
