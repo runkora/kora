@@ -10,7 +10,7 @@ import (
 
 // protectedPaths are fields a patch must leave exactly as orbit-agents built
 // them: resource identity and wiring, pod and container security context,
-// and the sandbox's per-run workspace mount. "*" matches every list element.
+// what the pod exposes to an agent, and the sandbox's per-run workspace mount. "*" matches every list element.
 var protectedPaths = [][]string{
 	{"apiVersion"},
 	{"kind"},
@@ -23,6 +23,10 @@ var protectedPaths = [][]string{
 	{"spec", "volumeClaimTemplates", "*", "metadata", "name"},
 	{"spec", "serviceAccountName"},
 	{"spec", "template", "spec", "serviceAccountName"},
+	{"spec", "automountServiceAccountToken"},
+	{"spec", "template", "spec", "automountServiceAccountToken"},
+	{"spec", "enableServiceLinks"},
+	{"spec", "template", "spec", "enableServiceLinks"},
 	{"spec", "securityContext", "runAsNonRoot"},
 	{"spec", "securityContext", "runAsUser"},
 	{"spec", "securityContext", "seccompProfile"},

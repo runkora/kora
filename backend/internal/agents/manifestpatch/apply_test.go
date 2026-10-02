@@ -32,8 +32,10 @@ func statefulSet() appsv1.StatefulSet {
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "coder", "spiffe.io/agent": "coder"}},
 				Spec: corev1.PodSpec{
-					ServiceAccountName: "coder",
-					SecurityContext:    &corev1.PodSecurityContext{RunAsNonRoot: &nonRoot},
+					ServiceAccountName:           "coder",
+					AutomountServiceAccountToken: new(false),
+					EnableServiceLinks:           new(false),
+					SecurityContext:              &corev1.PodSecurityContext{RunAsNonRoot: &nonRoot},
 					Containers: []corev1.Container{
 						{Name: "session-manager", Image: "sm:1", SecurityContext: &corev1.SecurityContext{AllowPrivilegeEscalation: new(false)}},
 						{Name: "helper", Image: "h:1"},
@@ -48,7 +50,9 @@ func sandboxPod() corev1.Pod {
 	return corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Name: "sandbox-r1", Namespace: "tenant-example", Labels: map[string]string{"orbit.io/role": "sandbox", "orbit.io/run-id": "r1"}},
 		Spec: corev1.PodSpec{
-			Volumes: []corev1.Volume{{Name: "workspaces", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-coder-0"}}}},
+			AutomountServiceAccountToken: new(false),
+			EnableServiceLinks:           new(false),
+			Volumes:                      []corev1.Volume{{Name: "workspaces", VolumeSource: corev1.VolumeSource{PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-coder-0"}}}},
 			Containers: []corev1.Container{{
 				Name:         "sandbox",
 				Image:        "sb:1",
@@ -190,6 +194,10 @@ func TestApply_RejectsProtectedFieldChanges(t *testing.T) {
 		{"remove all labels", "StatefulSet", "- {op: remove, path: /metadata/labels}", "metadata.labels.orbit.io/tenant"},
 		{"change pod identity label", "StatefulSet", "- {op: replace, path: /spec/template/metadata/labels/spiffe.io~1agent, value: other}", "spec.template.metadata.labels.spiffe.io/agent"},
 		{"change service account", "StatefulSet", "- {op: replace, path: /spec/template/spec/serviceAccountName, value: default}", "spec.template.spec.serviceAccountName"},
+		{"mount the service account token", "StatefulSet", "- {op: replace, path: /spec/template/spec/automountServiceAccountToken, value: true}", "spec.template.spec.automountServiceAccountToken"},
+		{"enable service links", "StatefulSet", "- {op: remove, path: /spec/template/spec/enableServiceLinks}", "spec.template.spec.enableServiceLinks"},
+		{"mount the sandbox service account token", "Pod", "- {op: replace, path: /spec/automountServiceAccountToken, value: true}", "spec.automountServiceAccountToken"},
+		{"enable sandbox service links", "Pod", "- {op: replace, path: /spec/enableServiceLinks, value: true}", "spec.enableServiceLinks"},
 		{"drop pod security context", "StatefulSet", "- {op: remove, path: /spec/template/spec/securityContext}", "spec.template.spec.securityContext.runAsNonRoot"},
 		{"weaken container security context", "StatefulSet", "- {op: replace, path: /spec/template/spec/containers/0/securityContext/allowPrivilegeEscalation, value: true}", "spec.template.spec.containers.*.securityContext"},
 		{"change selector", "StatefulSet", "- {op: replace, path: /spec/selector/matchLabels/app, value: x}", "spec.selector"},
