@@ -33,6 +33,31 @@ describe('ScopePicker', () => {
     expect(screen.getByRole('button', { name: 'Collapse agents scopes' })).toBeInTheDocument();
   });
 
+  it('opens a group when its selection arrives after the first render', () => {
+    const { rerender } = render(<ScopePicker scopes={SCOPES} selected={[]} onChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Expand agents scopes' })).toBeInTheDocument();
+    rerender(<ScopePicker scopes={SCOPES} selected={['agents:read']} onChange={vi.fn()} />);
+    expect(screen.getByRole('button', { name: 'Collapse agents scopes' })).toBeInTheDocument();
+  });
+
+  it('keeps a group the user collapsed closed', () => {
+    const { rerender } = render(
+      <ScopePicker scopes={SCOPES} selected={['agents:read']} onChange={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse agents scopes' }));
+    rerender(
+      <ScopePicker scopes={SCOPES} selected={['agents:read', 'agents:write']} onChange={vi.fn()} />,
+    );
+    expect(screen.getByRole('button', { name: 'Expand agents scopes' })).toBeInTheDocument();
+  });
+
+  it('passes the selection to onChange in the order it was given', () => {
+    const onChange = vi.fn();
+    render(<ScopePicker scopes={SCOPES} selected={['inference:chat']} onChange={onChange} />);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Select all agents scopes' }));
+    expect(onChange).toHaveBeenCalledWith(['inference:chat', 'agents:read', 'agents:write']);
+  });
+
   it('shows the granted label when the whole group is selected', () => {
     render(
       <ScopePicker scopes={SCOPES} selected={['agents:read', 'agents:write']} onChange={vi.fn()} />,

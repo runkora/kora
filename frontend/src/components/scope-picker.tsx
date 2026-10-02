@@ -59,7 +59,7 @@ export function ScopePicker({ scopes, selected, onChange, searchable = false }: 
       if (on) next.add(s);
       else next.delete(s);
     }
-    onChange([...next].sort());
+    onChange([...next]);
   };
 
   return (
@@ -108,14 +108,15 @@ function ScopeGroupCard({
   forceOpen: boolean;
   onToggle: (scopes: string[], on: boolean) => void;
 }) {
-  // Groups that already hold a selection start open so existing grants are visible.
-  const [manualOpen, setManualOpen] = useState(() => scopes.some((s) => selectedSet.has(s)));
-  const open = forceOpen || manualOpen;
-
   const selectedInGroup = scopes.filter((s) => selectedSet.has(s)).length;
+  const any = selectedInGroup > 0;
+
+  // Until the user opens or closes the group, it follows the selection: a group that holds a
+  // scope is open, so existing grants are visible even when the saved scopes load after mount.
+  const [manualOpen, setManualOpen] = useState<boolean | null>(null);
+  const open = forceOpen || (manualOpen ?? any);
   const all = scopes.length > 0 && selectedInGroup === scopes.length;
   const some = selectedInGroup > 0 && !all;
-  const any = selectedInGroup > 0;
 
   return (
     <Card selected={any} selectedVariant="outline">
