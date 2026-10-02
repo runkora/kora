@@ -923,6 +923,8 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 				},
 			},
 		},
+		scratchVolume(scratchVarTmpVolume, "256Mi"),
+		scratchVolume(scratchHomeVolume, "64Mi"),
 	}
 	if egressGatewayURL(cfg) == "" {
 		return vols
@@ -948,6 +950,32 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 		},
 	})
 	return vols
+}
+
+// Scratch volumes give a read-only root the few writable paths tools expect outside the workspace.
+const (
+	scratchTmpVolume    = "scratch-tmp"
+	scratchVarTmpVolume = "scratch-var-tmp"
+	scratchHomeVolume   = "scratch-home"
+)
+
+// imageHomeDir is the orbit user's home in both images, used by tools that read it from passwd.
+const imageHomeDir = "/home/orbit"
+
+// Ephemeral storage for the app containers. With a read-only root only the scratch volumes and
+// container logs use node disk, so 1Gi fits a normal run and stops one pod filling a node.
+const (
+	appEphemeralRequest = "128Mi"
+	appEphemeralLimit   = "1Gi"
+)
+
+// scratchVolume is a node-disk emptyDir capped at size.
+func scratchVolume(name, size string) corev1.Volume {
+	limit := resource.MustParse(size)
+	return corev1.Volume{
+		Name:         name,
+		VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{SizeLimit: &limit}},
+	}
 }
 
 // workspacesRoot is where the agent pod mounts its workspace PVC; each run's
@@ -977,6 +1005,9 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		// The run's TMPDIR at the agent pod's path, and at /tmp for tools that ignore TMPDIR.
 		{Name: "workspaces", MountPath: runfs.TmpDir(workspaceDir), SubPath: tmpSubPath},
 		{Name: "workspaces", MountPath: "/tmp", SubPath: tmpSubPath},
+		// Writable paths outside the workspace under a read-only root, for tools that ignore HOME and TMPDIR.
+		{Name: scratchVarTmpVolume, MountPath: "/var/tmp"},
+		{Name: scratchHomeVolume, MountPath: imageHomeDir},
 	}
 	if egressGatewayURL(cfg) != "" {
 		mounts = append(mounts,
@@ -1015,15 +1046,10 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		// interception (docs/adr/2026-06-06-jit-credential-brokering-egress-
 		// gateway.md, Amendment 2). Combined with the pod's RunAsNonRoot, the
 		// agent has no path back to the network layer Envoy controls.
-		SecurityContext: &corev1.SecurityContext{
-			AllowPrivilegeEscalation: new(false),
-			Capabilities: &corev1.Capabilities{
-				Drop: []corev1.Capability{"ALL"},
-			},
-		},
-		Env:          sandboxContainerEnv(cfg, kubeClusters, workspaceDir, execToken),
-		VolumeMounts: mounts,
-		WorkingDir:   workspaceDir,
+		SecurityContext: restrictedContainerSecurityContext(),
+		Env:             sandboxContainerEnv(cfg, kubeClusters, workspaceDir, execToken),
+		VolumeMounts:    mounts,
+		WorkingDir:      workspaceDir,
 		ReadinessProbe: &corev1.Probe{
 			ProbeHandler: corev1.ProbeHandler{
 				TCPSocket: &corev1.TCPSocketAction{
@@ -1035,12 +1061,14 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		},
 		Resources: corev1.ResourceRequirements{
 			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("100m"),
-				corev1.ResourceMemory: resource.MustParse("256Mi"),
+				corev1.ResourceCPU:              resource.MustParse("100m"),
+				corev1.ResourceMemory:           resource.MustParse("256Mi"),
+				corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
 			},
 			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:    resource.MustParse("2"),
-				corev1.ResourceMemory: resource.MustParse("4Gi"),
+				corev1.ResourceCPU:              resource.MustParse("2"),
+				corev1.ResourceMemory:           resource.MustParse("4Gi"),
+				corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralLimit),
 			},
 		},
 	}
@@ -1455,6 +1483,7 @@ func restrictedPodSecurityContext() *corev1.PodSecurityContext {
 func restrictedContainerSecurityContext() *corev1.SecurityContext {
 	return &corev1.SecurityContext{
 		AllowPrivilegeEscalation: new(false),
+		ReadOnlyRootFilesystem:   new(true),
 		Capabilities: &corev1.Capabilities{
 			Drop: []corev1.Capability{"ALL"},
 		},
@@ -1509,7 +1538,6 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 							Name:            sessionManagerContainerName,
 							Image:           p.cfg.SessionManagerImage,
 							ImagePullPolicy: corev1.PullAlways,
-							// No readOnlyRootFilesystem: the agent subprocess writes to $HOME.
 							SecurityContext: restrictedContainerSecurityContext(),
 							Ports: []corev1.ContainerPort{
 								{Name: "http", ContainerPort: sessionManagerPort, Protocol: corev1.ProtocolTCP},
@@ -1542,18 +1570,27 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 							},
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("250m"),
-									corev1.ResourceMemory: resource.MustParse("512Mi"),
+									corev1.ResourceCPU:              resource.MustParse("250m"),
+									corev1.ResourceMemory:           resource.MustParse("512Mi"),
+									corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
 								},
 								Limits: corev1.ResourceList{
-									corev1.ResourceCPU:    resource.MustParse("2"),
-									corev1.ResourceMemory: resource.MustParse("4Gi"),
+									corev1.ResourceCPU:              resource.MustParse("2"),
+									corev1.ResourceMemory:           resource.MustParse("4Gi"),
+									corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralLimit),
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
 								{Name: "workspaces", MountPath: workspacesRoot},
+								{Name: scratchTmpVolume, MountPath: "/tmp"},
+								{Name: scratchHomeVolume, MountPath: imageHomeDir},
 							},
 						},
+					},
+					// Runs keep HOME and TMPDIR on the workspace. These cover tools that ignore both, under a read-only root.
+					Volumes: []corev1.Volume{
+						scratchVolume(scratchTmpVolume, "256Mi"),
+						scratchVolume(scratchHomeVolume, "64Mi"),
 					},
 				},
 			},

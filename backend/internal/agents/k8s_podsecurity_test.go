@@ -87,6 +87,9 @@ func assertRestrictedPodSpec(t *testing.T, spec corev1.PodSpec) {
 		if csc.SeccompProfile != nil {
 			t.Errorf("container %s: must inherit the pod seccomp profile, not override it", c.Name)
 		}
+		if csc.ReadOnlyRootFilesystem == nil || !*csc.ReadOnlyRootFilesystem {
+			t.Errorf("container %s: readOnlyRootFilesystem must be true", c.Name)
+		}
 	}
 	want := []corev1.LocalObjectReference{{Name: "ghcr-pull"}, {Name: "mirror-pull"}}
 	if len(spec.ImagePullSecrets) != len(want) {
@@ -110,10 +113,6 @@ func TestSandboxPod_RestrictedPodSecurity(t *testing.T) {
 func TestSessionManagerStatefulSet_RestrictedPodSecurity(t *testing.T) {
 	ss := renderedStatefulSet()
 	assertRestrictedPodSpec(t, ss.Spec.Template.Spec)
-	c := ss.Spec.Template.Spec.Containers[0]
-	if c.SecurityContext.ReadOnlyRootFilesystem != nil {
-		t.Error("session-manager must not set readOnlyRootFilesystem; the agent writes to its home directory")
-	}
 }
 
 // Neither runtime pod calls the Kubernetes API or reads service links.
@@ -129,6 +128,49 @@ func TestRuntimePods_NoServiceAccountTokenOrServiceLinks(t *testing.T) {
 			}
 			if spec.EnableServiceLinks == nil || *spec.EnableServiceLinks {
 				t.Errorf("enableServiceLinks = %v, want false", spec.EnableServiceLinks)
+			}
+		})
+	}
+}
+
+// A read-only root needs writable scratch paths, and every node-disk write must be capped
+// so one pod cannot fill a node.
+func TestRuntimePods_BoundedScratchStorage(t *testing.T) {
+	for name, tc := range map[string]struct {
+		spec  corev1.PodSpec
+		paths []string
+	}{
+		"sandbox":     {renderedSandboxPod().Spec, []string{"/var/tmp", "/home/orbit"}},
+		"statefulset": {renderedStatefulSet().Spec.Template.Spec, []string{"/tmp", "/home/orbit"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := tc.spec.Containers[0]
+			for _, rl := range []corev1.ResourceList{c.Resources.Requests, c.Resources.Limits} {
+				if _, ok := rl[corev1.ResourceEphemeralStorage]; !ok {
+					t.Errorf("container %s: ephemeral-storage missing from %v", c.Name, rl)
+				}
+			}
+			emptyDirs := map[string]*corev1.EmptyDirVolumeSource{}
+			for _, v := range tc.spec.Volumes {
+				if v.EmptyDir != nil {
+					emptyDirs[v.Name] = v.EmptyDir
+				}
+			}
+			mounted := map[string]bool{}
+			for _, m := range c.VolumeMounts {
+				dir, ok := emptyDirs[m.Name]
+				if !ok {
+					continue
+				}
+				mounted[m.MountPath] = true
+				if dir.SizeLimit == nil || dir.SizeLimit.IsZero() {
+					t.Errorf("scratch volume %s at %s has no sizeLimit", m.Name, m.MountPath)
+				}
+			}
+			for _, p := range tc.paths {
+				if !mounted[p] {
+					t.Errorf("no scratch volume mounted at %s", p)
+				}
 			}
 		})
 	}
