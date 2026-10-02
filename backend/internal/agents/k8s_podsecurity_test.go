@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -296,5 +297,29 @@ func TestRuntimePods_NoIstioTemplatesAnnotation(t *testing.T) {
 	}
 	if ss.Spec.Template.Annotations["proxy.istio.io/config"] == "" || ss.Spec.Template.Annotations["traffic.sidecar.istio.io/excludeOutboundPorts"] == "" {
 		t.Error("proxy.istio.io/config and excludeOutboundPorts must stay")
+	}
+}
+
+// The rendered templates carry IN_MESH so a reconcile rolls pods created before
+// the operator webhook enforced it.
+func TestRuntimePods_PeerMetadataInMeshOnly(t *testing.T) {
+	for name, ann := range map[string]map[string]string{
+		"sandbox pod":     renderedSandboxPod().Annotations,
+		"session-manager": renderedStatefulSet().Spec.Template.Annotations,
+	} {
+		var cfg struct {
+			Hold         bool `json:"holdApplicationUntilProxyStarts"`
+			ProxyHeaders struct {
+				MetadataExchangeHeaders struct {
+					Mode string `json:"mode"`
+				} `json:"metadataExchangeHeaders"`
+			} `json:"proxyHeaders"`
+		}
+		if err := json.Unmarshal([]byte(ann["proxy.istio.io/config"]), &cfg); err != nil {
+			t.Fatalf("%s proxy config: %v", name, err)
+		}
+		if !cfg.Hold || cfg.ProxyHeaders.MetadataExchangeHeaders.Mode != "IN_MESH" {
+			t.Errorf("%s proxy config = %+v", name, cfg)
+		}
 	}
 }

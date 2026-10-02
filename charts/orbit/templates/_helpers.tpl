@@ -282,6 +282,10 @@ Takes (dict "root" $ "name" "<values key>").
 */}}
 {{- define "orbit.podAnnotations" -}}
 {{- with (index .root.Values .name).podAnnotations }}
+{{- /* The chart owns the sidecar's proxy config: SPIRE certificates and IN_MESH peer metadata. */}}
+{{- if hasKey . "proxy.istio.io/config" }}
+{{- fail (printf "%s.podAnnotations cannot set proxy.istio.io/config: the chart owns the sidecar proxy config" $.name) }}
+{{- end }}
 {{- toYaml . }}
 {{- end }}
 {{- end }}

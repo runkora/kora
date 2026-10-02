@@ -438,6 +438,8 @@ Amends Decisions 1 and 4. Touches *Who is this agent?* Workload identity details
 
 - Every `proxy.istio.io/config` Orbit writes sets `proxyHeaders.metadataExchangeHeaders.mode: IN_MESH`.
 - `orbit.spireProxyAnnotations` carries it for system pods.
+- A component's `podAnnotations` value cannot set `proxy.istio.io/config`; the chart fails the render.
+- The agent StatefulSet and sandbox pod templates `orbit-agents` renders carry it too, so a reconcile rolls existing agent pods.
 - The webhook's merge sets it on every tenant pod, overriding any mode the pod requests and keeping other `proxyHeaders` fields.
 
 **Consequences.** A non-Orbit workload in the same mesh is unaffected. An external destination that a cluster registers without `MESH_EXTERNAL` still receives the headers.

@@ -618,7 +618,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		// kubelet starts (it follows the largest image, sandbox-exec, whose
 		// pull alone can take ~50s on a cold node). Same wiring the
 		// session-manager StatefulSet pod uses.
-		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
+		"proxy.istio.io/config": sidecarProxyConfig,
 	}
 
 	pod := &corev1.Pod{
@@ -1457,6 +1457,11 @@ func restrictedContainerSecurityContext() *corev1.SecurityContext {
 	}
 }
 
+// sidecarProxyConfig holds the agent's containers until istio-proxy is ready
+// and keeps Istio peer metadata headers off traffic that leaves the mesh. The
+// operator webhook enforces the same mode; carrying it here rolls existing pods.
+const sidecarProxyConfig = `{"holdApplicationUntilProxyStarts":true,"proxyHeaders":{"metadataExchangeHeaders":{"mode":"IN_MESH"}}}`
+
 // buildSessionManagerStatefulSet renders an agent type's StatefulSet before
 // manifest patches are applied.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
@@ -1464,7 +1469,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 	podAnnotations := map[string]string{
 		// The operator's pod webhook adds the SPIRE and identity-proxy
 		// wiring; Istio itself injects only the sidecar.
-		"proxy.istio.io/config": `{"holdApplicationUntilProxyStarts": true}`,
+		"proxy.istio.io/config": sidecarProxyConfig,
 		// Only the sandbox exec port skips Envoy; the agent-egress NetworkPolicy
 		// limits it to the tenant's sandboxes.
 		"traffic.sidecar.istio.io/excludeOutboundPorts": "50051",
