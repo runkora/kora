@@ -116,6 +116,20 @@ func TestSessionManagerStatefulSet_RestrictedPodSecurity(t *testing.T) {
 	}
 }
 
+// Neither runtime pod calls the Kubernetes API, so neither may carry a token an agent could read.
+func TestRuntimePods_NoServiceAccountToken(t *testing.T) {
+	for name, spec := range map[string]corev1.PodSpec{
+		"sandbox":     renderedSandboxPod().Spec,
+		"statefulset": renderedStatefulSet().Spec.Template.Spec,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if spec.AutomountServiceAccountToken == nil || *spec.AutomountServiceAccountToken {
+				t.Errorf("automountServiceAccountToken = %v, want false", spec.AutomountServiceAccountToken)
+			}
+		})
+	}
+}
+
 func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	ss := renderedStatefulSet()
 	env := map[string]string{}
