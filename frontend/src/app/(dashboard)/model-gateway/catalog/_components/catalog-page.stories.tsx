@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { userEvent, within } from 'storybook/test';
 import { dashboardPage, sessionRoutes, ALL_NAV_SCOPES } from '@orbit/storybook/dashboard-frame';
 import CatalogLayout from '../layout';
 import type { ProviderStatusWire } from '../../_services/catalog-server';
@@ -23,8 +24,20 @@ const PROVIDERS: ProviderStatusWire[] = [
     last_discovered_at: '2026-10-01T02:00:00Z',
   },
   {
+    name: 'ollama',
+    type: 'compatible',
+    display_name: 'Ollama (host)',
+    resource: 'ollama',
+    location: 'http://host.k3d.internal:11434/v1',
+    credential_mode: 'none',
+    status: 'ready',
+    model_count: 7,
+    last_discovered_at: '2026-10-01T02:05:00Z',
+  },
+  {
     name: 'compatible:openrouter',
     type: 'compatible',
+    display_name: 'OpenRouter',
     resource: 'openrouter',
     location: 'https://openrouter.ai/api/v1',
     credential_mode: 'secret',
@@ -71,6 +84,14 @@ export const Default: Story = {
       pricingFetchFailed: false,
       isStale: false,
     },
+  },
+};
+
+/** The Providers tab: registered providers with their status, endpoint, credentials and model count. */
+export const ProvidersTab: Story = {
+  ...Default,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('tab', { name: /Providers/ }));
   },
 };
 
