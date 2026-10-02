@@ -233,9 +233,10 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		Scheme: operator.NewScheme(),
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
-			// The operator's Role reads InferenceProviders in the system namespace only.
+			// The operator's Role covers InferenceProviders and ServiceEntries in the system namespace only.
 			ByObject: map[client.Object]cache.ByObject{
-				&ip.InferenceProvider{}: {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
+				&ip.InferenceProvider{}:    {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
+				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.

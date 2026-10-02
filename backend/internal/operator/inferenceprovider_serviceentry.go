@@ -138,16 +138,28 @@ func urlEndpoints(raw ...string) ([]providerEndpoint, error) {
 		if u.Hostname() == "" {
 			return nil, fmt.Errorf("provider URL %q has no host", r)
 		}
-		// The mesh already knows in-cluster Services, and an IP has no name to register.
-		if strings.Contains(u.Hostname(), ".svc") || net.ParseIP(u.Hostname()) != nil {
+		if inMeshHost(u.Hostname()) {
 			continue
 		}
-		out = append(out, providerEndpoint{host: u.Hostname(), port: port, plain: u.Scheme == schemeHTTP})
+		e := providerEndpoint{host: u.Hostname(), port: port, plain: u.Scheme == schemeHTTP}
+		// Every host in a ServiceEntry shares its ports, so one port number has one protocol.
+		if slices.ContainsFunc(out, func(o providerEndpoint) bool { return o.port == e.port && o.plain != e.plain }) {
+			return nil, fmt.Errorf("provider URLs use port %d for both http and https", e.port)
+		}
+		out = append(out, e)
 	}
 	return out, nil
 }
 
 const schemeHTTP = "http"
+
+// inMeshHost reports a host the mesh already knows or cannot register by name:
+// a Service's short or cluster DNS name, or an IP. Service.namespace names
+// are indistinguishable from external ones and are registered.
+func inMeshHost(host string) bool {
+	return !strings.Contains(host, ".") || strings.HasSuffix(host, ".svc") ||
+		strings.HasSuffix(host, ".svc.cluster.local") || net.ParseIP(host) != nil
+}
 
 // urlPort is the URL's port, or its scheme's default.
 func urlPort(u *url.URL) (int, error) {
@@ -227,6 +239,7 @@ type providerClient interface {
 	Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
 	Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error
 	Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
+	Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error
 }
 
 // InferenceProviderReconciler keeps one ServiceEntry per InferenceProvider in
@@ -251,10 +264,14 @@ func (r *InferenceProviderReconciler) Reconcile(ctx context.Context, req ctrl.Re
 		// A spec error does not heal on retry; the next spec change reconciles again.
 		return ctrl.Result{}, reconcile.TerminalError(err)
 	}
+	se := providerServiceEntry(p, endpoints)
 	if len(endpoints) == 0 {
+		// The provider moved in-mesh: its old external hosts must not stay registered.
+		if err := r.Client.Delete(ctx, se); err != nil && !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("delete ServiceEntry %q: %w", se.GetName(), err)
+		}
 		return ctrl.Result{}, nil
 	}
-	se := providerServiceEntry(p, endpoints)
 	if err := controllerutil.SetControllerReference(p, se, r.Scheme); err != nil {
 		return ctrl.Result{}, fmt.Errorf("own ServiceEntry for %q: %w", p.Name, err)
 	}
@@ -271,9 +288,18 @@ func (r *InferenceProviderReconciler) Reconcile(ctx context.Context, req ctrl.Re
 	return ctrl.Result{}, nil
 }
 
-// SetupWithManager reconciles on create and on spec changes.
+// NewServiceEntry is an empty ServiceEntry of Istio's kind, for watches.
+func NewServiceEntry() *unstructured.Unstructured {
+	se := &unstructured.Unstructured{}
+	se.SetGroupVersionKind(serviceEntryGVK)
+	return se
+}
+
+// SetupWithManager reconciles on create, on spec changes, and when an owned
+// ServiceEntry is edited or deleted.
 func (r *InferenceProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&ip.InferenceProvider{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(NewServiceEntry()).
 		Complete(r)
 }

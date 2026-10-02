@@ -256,7 +256,7 @@ Touches *How does it connect?* and *What can it access?* The gateway reaches its
 
 - Ports come from the URL, or 443 for the fixed hosts. An `https` port has protocol `TLS`. An `http` port has protocol `HTTP`.
 - Decision 3 changes. The operator reads InferenceProviders. It never writes them or their status. The gateway has no access to ServiceEntries.
-- The operator holds a Role in the system namespace: `get/list/watch` on `inferenceproviders`; `get/create/patch` on `serviceentries`.
+- The operator holds a Role in the system namespace: `get/list/watch` on `inferenceproviders`; `get/list/watch/create/patch/delete` on `serviceentries`.
 - The API types move to `internal/platform/inferenceproviders/v1alpha1`. Two binaries read them.
 
 **Consequences.**

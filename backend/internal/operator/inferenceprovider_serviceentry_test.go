@@ -5,6 +5,7 @@ import (
 	"slices"
 	"testing"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
@@ -121,12 +122,31 @@ func TestProviderEndpointsRejectsBadSpecs(t *testing.T) {
 		"unknown type":      {Type: "other"},
 		"unsupported URL":   {Type: ip.TypeCompatible, Compatible: &ip.Compatible{BaseURL: "ftp://x"}},
 		"bedrock no region": {Type: ip.TypeBedrock, Bedrock: &ip.Bedrock{}},
+		"one port, two protocols": {Type: ip.TypeAzure, Azure: &ip.Azure{
+			Endpoint: "http://a.example.com:8080", AnthropicEndpoint: "https://b.example.com:8080",
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := providerEndpoints(provider("p", spec)); err == nil {
 				t.Error("want an error")
 			}
 		})
+	}
+}
+
+func TestInMeshHost(t *testing.T) {
+	for host, want := range map[string]bool{
+		"vllm":                          true,
+		"vllm.models.svc":               true,
+		"vllm.models.svc.cluster.local": true,
+		"10.0.0.5":                      true,
+		"api.svc.example.com":           false,
+		"openrouter.ai":                 false,
+		"host.k3d.internal":             false,
+	} {
+		if got := inMeshHost(host); got != want {
+			t.Errorf("inMeshHost(%q) = %v, want %v", host, got, want)
+		}
 	}
 }
 
@@ -212,6 +232,22 @@ func TestInferenceProviderReconcile(t *testing.T) {
 	ports, _, _ := unstructured.NestedSlice(se.Object, "spec", "ports")
 	if len(ports) != 1 || ports[0].(map[string]any)["name"] != "http-11434" {
 		t.Errorf("ports after update = %v", ports)
+	}
+
+	// A provider that moves in-mesh loses its external registration.
+	if err := c.Get(ctx, req.NamespacedName, p); err != nil {
+		t.Fatal(err)
+	}
+	p.Spec.Compatible.BaseURL = "http://vllm.models.svc.cluster.local:8000/v1"
+	if err := c.Update(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.Reconcile(ctx, req); err != nil {
+		t.Fatalf("move in-mesh: %v", err)
+	}
+	gone := NewServiceEntry()
+	if err := c.Get(ctx, client.ObjectKey{Namespace: systemNamespace, Name: "inference-provider-openrouter"}, gone); !apierrors.IsNotFound(err) {
+		t.Errorf("ServiceEntry after moving in-mesh: err = %v, want NotFound", err)
 	}
 
 	// Deletion is the garbage collector's, through the owner reference above;
