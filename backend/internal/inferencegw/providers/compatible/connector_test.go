@@ -15,7 +15,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 
 	"github.com/clear-route/orbit/internal/inferencegw"
-	ip "github.com/clear-route/orbit/internal/inferencegw/providers/v1alpha1"
+	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 

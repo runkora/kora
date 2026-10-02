@@ -28,7 +28,6 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 - Tenant-scoped providers.
 - Virtual models, routes or prices as resources.
 - Azure Entra workload identity.
-- ServiceEntries per provider for `REGISTRY_ONLY` meshes.
 
 ---
 
@@ -87,7 +86,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 
 ### 1. The `InferenceProvider` resource
 
-`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/orbit-crds`. The Go types live in `internal/inferencegw/providers/v1alpha1`.
+`orbit.io/v1alpha1`, kind `InferenceProvider`, short name `oip`, namespaced, status subresource. It ships in `charts/orbit-crds`. The Go types live in `internal/platform/inferenceproviders/v1alpha1`.
 
 | Type | Fields | Credential |
 |---|---|---|
@@ -141,7 +140,7 @@ spec:
 - When `spec.models` is set and discovery fails, the declared models are still offered and the error shows in the provider's health.
 - RBAC is a Role in the system namespace: `get/list/watch` on `inferenceproviders`, `patch` on `inferenceproviders/status`, and `get/list/watch` on `secrets`. RBAC cannot narrow Secrets by label; the label bounds what the gateway caches and reads.
 - The gateway pod carries `orbit.io/kube-api-client: "true"` to reach the API server.
-- The operator does not reconcile InferenceProviders.
+- The operator reads InferenceProviders to register their hosts with the mesh ([Amendment 1](#amendment-1-2026-10-02-the-operator-registers-provider-hosts-with-the-mesh)). It never writes them or their status.
 
 ### 4. Status
 
@@ -192,7 +191,6 @@ One typed kind gives admission-time validation per provider with one list. A dec
 - Upgrading needs the resources applied in the same deploy. There is no env fallback.
 - A key on an `http://` base URL crosses the network in cleartext unless the network encrypts it. Choosing http is the admin's call.
 - Renaming a resource renames its provider. Routes, overrides and prices keyed on the old name stop matching.
-- `REGISTRY_ONLY` installs add a ServiceEntry for every provider host.
 - Only base rates are read from a published price. Tiered prices, such as a higher rate past a prompt length, are not applied.
 
 ### Neutral
@@ -205,7 +203,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 ## Implementation
 
 - `charts/orbit-crds/templates/crd-inferenceprovider.yaml`.
-- `backend/internal/inferencegw/providers/v1alpha1/`: API types.
+- `backend/internal/platform/inferenceproviders/v1alpha1/`: API types.
 - `backend/internal/inferencegw/providers/registry/`: build per type, the watcher and status writes.
 - `backend/internal/inferencegw/providers/compatible/`: the compatible connector.
 - `backend/internal/inferencegw/`: swappable connectors, provider status, `GET /v1/catalog/providers`, `InferFamily`, provider-name validation, pricing by type.
@@ -213,6 +211,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 - `backend/internal/orbitmcp/tools_models.go`: `models.providers.status`.
 - `frontend/src/app/(dashboard)/model-gateway/catalog/`: the Providers tab.
 - `charts/orbit/`: the gateway Role, API server label, namespace env and the admission policy.
+- `backend/internal/operator/inferenceprovider_serviceentry.go` and `charts/orbit/templates/operator/role.yaml`: Amendment 1.
 - `scripts/cluster/refresh-bedrock-creds.sh`, `scripts/cluster/create-secrets.sh`, `Makefile`, `.env.example`.
 - `docs/guides/model-providers.md`.
 
@@ -229,6 +228,44 @@ On the local cluster:
 - Grants allow and deny as before.
 - Invalid resources are rejected at admission or report the reason in their status.
 - The gateway's service account can read nothing outside the system namespace.
+
+---
+
+## Amendment 1 (2026-10-02): The operator registers provider hosts with the mesh
+
+**Status:** Accepted
+
+Touches *How does it connect?* and *What can it access?* The gateway reaches its providers on a `REGISTRY_ONLY` mesh with no ServiceEntry from the admin. Only the system namespace sees the registered hosts. *Who is this agent?* is unchanged.
+
+**Context.** The chart no longer renders Bedrock ServiceEntries. A mesh with `outboundTrafficPolicy: REGISTRY_ONLY` drops the gateway's calls to any provider host that no ServiceEntry registers.
+
+**Decision.**
+
+- The operator watches InferenceProviders in the system namespace. It reconciles one Istio ServiceEntry per resource, named `inference-provider-<name>`, in the system namespace.
+- The ServiceEntry has an owner reference to its InferenceProvider. Deleting the resource deletes it.
+- It is created whatever the mesh's outbound policy. Under `ALLOW_ANY` it changes nothing.
+- `location: MESH_EXTERNAL`, `resolution: DNS`, `exportTo: ["."]`.
+- Hosts follow the resource's spec:
+
+  | Type | Hosts |
+  |---|---|
+  | `bedrock` | `bedrock-runtime.<region>.amazonaws.com`, `bedrock.<region>.amazonaws.com`, `bedrock-mantle.<region>.api.aws`. `sts.<region>.amazonaws.com` when `assumeRoleARN` is set or `credentials` is absent. |
+  | `vertexai` | `aiplatform.googleapis.com`, `<location>-aiplatform.googleapis.com`, the Anthropic endpoint for `anthropicLocation`. `oauth2.googleapis.com` when `credentialsSecretRef` is set. |
+  | `azure` | The hosts of `endpoint` and `anthropicEndpoint`. |
+  | `compatible` | The host of `baseURL`. |
+
+- Ports come from the URL, or 443 for the fixed hosts. An `https` port has protocol `TLS`. An `http` port has protocol `HTTP`.
+- Decision 3 changes. The operator reads InferenceProviders. It never writes them or their status. The gateway has no access to ServiceEntries.
+- The operator holds a Role in the system namespace: `get/list/watch` on `inferenceproviders`; `get/list/watch/create/patch/delete` on `serviceentries`.
+- The API types move to `internal/platform/inferenceproviders/v1alpha1`. Two binaries read them.
+
+**Consequences.**
+
+- A `REGISTRY_ONLY` install needs no ServiceEntry per provider.
+- Tenant namespaces do not see provider hosts. Every workload in the system namespace does.
+- A host the connectors start calling needs a matching change to the operator's host list.
+- The credential endpoints of GKE Workload Identity and EKS Pod Identity are link-local and outside the ServiceEntry.
+- A `compatible` base URL on an in-cluster Service or an IP gets no ServiceEntry.
 
 ---
 
@@ -251,4 +288,4 @@ On the local cluster:
 
 ---
 
-**Last Updated:** 2026-10-01
+**Last Updated:** 2026-10-02 (Amendment 1: the operator registers provider hosts with the mesh)
