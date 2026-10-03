@@ -187,7 +187,7 @@ func TestHandleProvisionSandbox_EnvironmentRefusal(t *testing.T) {
 	seedEnvironments(t, repo, k8s)
 
 	w := httptest.NewRecorder()
-	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox?environment=rust", ""))
+	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", `{"environment":"rust"}`))
 	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "this agent has go, node") {
 		t.Errorf("status %d body %s, want 409 naming the attached environments", w.Code, w.Body.String())
 	}

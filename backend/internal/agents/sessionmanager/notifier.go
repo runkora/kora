@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -189,41 +188,28 @@ func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, b
 }
 
 func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string) (Sandbox, error) {
-	q := url.Values{}
-	if ahead {
-		q.Set("ahead", "true")
-	}
-	if environment != "" {
-		q.Set("environment", environment)
-	}
 	target := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
-	if len(q) > 0 {
-		target += "?" + q.Encode()
+	if ahead {
+		target += "?ahead=true"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, nil)
-	if err != nil {
-		return Sandbox{}, fmt.Errorf("build request: %w", err)
-	}
-	return n.sandboxCall(ctx, "sessionmanager.Notifier.ProvisionSandbox", req)
+	return n.sandboxCall(ctx, "sessionmanager.Notifier.ProvisionSandbox", target, environment)
 }
 
 func (n *HTTPNotifier) ReplaceEnvironment(ctx context.Context, runID, environment string) (Sandbox, error) {
-	body, err := json.Marshal(map[string]string{"environment": environment})
-	if err != nil {
-		return Sandbox{}, fmt.Errorf("marshal environment: %w", err)
-	}
 	target := fmt.Sprintf("%s/internal/runs/%s/replace-environment", n.baseURL, runID)
+	return n.sandboxCall(ctx, "sessionmanager.Notifier.ReplaceEnvironment", target, environment)
+}
+
+// sandboxCall posts the environment to a route that answers with a sandbox. A
+// 409 is a refused environment choice, returned as ErrEnvironmentRejected with
+// orbit-agents' message.
+func (n *HTTPNotifier) sandboxCall(ctx context.Context, name, target, environment string) (Sandbox, error) {
+	body, _ := json.Marshal(map[string]string{"environment": environment})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return n.sandboxCall(ctx, "sessionmanager.Notifier.ReplaceEnvironment", req)
-}
-
-// sandboxCall sends a request that answers with a sandbox. A 409 is a refused
-// environment choice, returned as ErrEnvironmentRejected with orbit-agents' message.
-func (n *HTTPNotifier) sandboxCall(ctx context.Context, name string, req *http.Request) (Sandbox, error) {
 	_, span, resp, err := n.sandboxClient.Do(ctx, name, req)
 	defer span.End()
 	if err != nil {

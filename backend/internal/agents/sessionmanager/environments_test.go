@@ -30,12 +30,12 @@ func TestHTTPNotifier_EnvironmentRejected(t *testing.T) {
 	defer srv.Close()
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 
-	_, err := n.ProvisionSandbox(context.Background(), "run-1", false, "rust")
+	_, err := n.ProvisionSandbox(context.Background(), "run-1", true, "rust")
 	if !errors.Is(err, ErrEnvironmentRejected) || !strings.Contains(err.Error(), "not attached") {
 		t.Fatalf("err = %v, want ErrEnvironmentRejected with the message", err)
 	}
-	if gotQuery != "environment=rust" {
-		t.Errorf("query = %q, want environment=rust", gotQuery)
+	if gotQuery != "ahead=true" || gotBody != `{"environment":"rust"}` {
+		t.Errorf("query %q body %s, want ahead=true and the environment in the body", gotQuery, gotBody)
 	}
 
 	_, err = n.ReplaceEnvironment(context.Background(), "run-1", "node")

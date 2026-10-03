@@ -890,7 +890,13 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// session-manager keeps the behavior it had.
 	ahead := r.URL.Query().Get("ahead") == "true"
 
-	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead, r.URL.Query().Get("environment"))
+	// The body names the environment. Session-managers from before environments send none.
+	var req sandboxEnvironmentRequest
+	if err := api.DecodeBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
+		return
+	}
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead, strings.TrimSpace(req.Environment))
 	if err != nil {
 		if c.writeEnvironmentChoiceError(ctx, w, err) {
 			return
@@ -951,8 +957,8 @@ func (c *Controller) handleListRunEnvironments(w http.ResponseWriter, r *http.Re
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"environments": envs})
 }
 
-// replaceEnvironmentRequest names the environment to switch the run's sandbox to.
-type replaceEnvironmentRequest struct {
+// sandboxEnvironmentRequest names the environment of a sandbox provision or replacement.
+type sandboxEnvironmentRequest struct {
 	Environment string `json:"environment"`
 }
 
@@ -963,7 +969,7 @@ func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Req
 	if !c.authorizeCallback(ctx, w, id) {
 		return
 	}
-	var req replaceEnvironmentRequest
+	var req sandboxEnvironmentRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
