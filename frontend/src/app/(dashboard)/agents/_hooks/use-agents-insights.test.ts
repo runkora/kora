@@ -6,11 +6,11 @@ import { server } from '@orbit/test-utils';
 import { useAgentsInsights } from './use-agents-insights';
 
 const AGENTS = [
-  { slug: 'coder', name: 'Coder', identityMode: 'autonomous' },
-  { slug: 'notes', name: 'Notes', identityMode: 'delegated' },
+  { slug: 'coder', name: 'Coder' },
+  { slug: 'notes', name: 'Notes' },
 ];
 
-const window = (limit_usd: number, spend_usd: number) => ({
+const budgetWindow = (limit_usd: number, spend_usd: number) => ({
   cadence: 'monthly' as const,
   limit_usd,
   spend_usd,
@@ -25,10 +25,9 @@ function insights(period: AgentInsightsPeriod, cost: number): AgentInsightsRespo
     previous_total_usd: 0,
     models: [],
     trend: [{ start: '2026-09-27T00:00:00Z', cost_usd: cost }],
-    all_delegated_usage: false,
     budgets: [
-      { agent_slug: 'coder', windows: [window(10, 2)] },
-      { agent_slug: 'notes', windows: [window(10, 9)] },
+      { agent_slug: 'coder', windows: [budgetWindow(10, 2)] },
+      { agent_slug: 'notes', windows: [budgetWindow(10, 9)] },
     ],
   };
 }
@@ -45,19 +44,17 @@ function serve(...replies: (() => Response)[]) {
   return requests;
 }
 
-type Period = '7d' | '24h';
-
 describe('useAgentsInsights', () => {
   it('is ready at once for the period it was given, fetches another once when selected, and keeps both', async () => {
     const requests = serve();
     const { result, rerender } = renderHook(
-      ({ period }: { period: Period }) =>
-        useAgentsInsights(period, AGENTS, true, insights('7d', 7)),
-      { initialProps: { period: '7d' } },
+      ({ period }: { period: AgentInsightsPeriod }) =>
+        useAgentsInsights(period, AGENTS, insights('7d', 7)),
+      { initialProps: { period: '7d' as AgentInsightsPeriod } },
     );
     expect(result.current.status).toBe('ready');
-    // A delegated agent has no budget row, whatever the gateway sent.
-    expect(result.current.insights?.budgets?.map((b) => b.name)).toEqual(['Coder']);
+    // Budgets come from the loaded response, the closest to a limit first, delegated agents included.
+    expect(result.current.insights?.budgets?.map((b) => b.name)).toEqual(['Notes', 'Coder']);
     expect(requests).toEqual([]);
 
     rerender({ period: '24h' });
@@ -72,8 +69,8 @@ describe('useAgentsInsights', () => {
   it('leaves a failed period out and asks again when it is selected again', async () => {
     serve(() => new Response(null, { status: 503 }));
     const { result, rerender } = renderHook(
-      ({ period }: { period: Period }) => useAgentsInsights(period, AGENTS, true),
-      { initialProps: { period: '24h' } },
+      ({ period }: { period: AgentInsightsPeriod }) => useAgentsInsights(period, AGENTS),
+      { initialProps: { period: '24h' as AgentInsightsPeriod } },
     );
     await waitFor(() => expect(result.current.status).toBe('failed'));
     expect(result.current.insights).toBeUndefined();

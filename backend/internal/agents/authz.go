@@ -186,6 +186,22 @@ func (a *Authz) checkRun(ctx context.Context, at AgentType, action string) error
 	return nil
 }
 
+// canReadDelegatedRuns reports whether the principal holds
+// agents:delegated:read, which lets it see delegated runs it did not start.
+func (a *Authz) canReadDelegatedRuns(ctx context.Context) (bool, error) {
+	r, err := a.eval.Check(ctx, policy.CheckInput{
+		Claims:       claimsFromContext(ctx),
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "agents",
+		PathSegments: []string{"delegated"},
+		Action:       "read",
+	})
+	if err != nil {
+		return false, fmt.Errorf("authz check delegated runs: %w", err)
+	}
+	return r.Allow, nil
+}
+
 // filterRuns returns the subset of runs the principal may "read". Requires a
 // resolver to look up the run's agent type slug — runs do not carry slug
 // directly, only agent_type_id. The resolver is expected to cache lookups.

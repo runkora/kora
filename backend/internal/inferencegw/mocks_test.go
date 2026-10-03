@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
 // errTestInternal is a sentinel used in tests to simulate unexpected repository errors.
@@ -39,6 +40,27 @@ type mockInferenceUsageRepository struct {
 	runUsageErr       error
 	lastFilter        InferenceUsageFilter // captured on each List call
 	lastAnalytics     AnalyticsFilter      // captured on each GetAnalytics call
+
+	agentRows     []AgentModelUsage
+	agentPrevious float64
+	agentBuckets  []float64
+	agentSpend    []AgentBudgetSpend
+	agentTenant   string   // tenant of the last rollup read
+	agentSpendFor []string // slugs of the last budget spend read
+}
+
+func (m *mockInferenceUsageRepository) AgentUsage(_ context.Context, tenantID string, _ usagewindow.Window, _ string) ([]AgentModelUsage, error) {
+	m.agentTenant = tenantID
+	return m.agentRows, nil
+}
+
+func (m *mockInferenceUsageRepository) AgentSpendBuckets(context.Context, string, usagewindow.Window) (float64, []float64, error) {
+	return m.agentPrevious, m.agentBuckets, nil
+}
+
+func (m *mockInferenceUsageRepository) AgentBudgetSpend(_ context.Context, _ string, slugs []string, _, _ time.Time) ([]AgentBudgetSpend, error) {
+	m.agentSpendFor = slugs
+	return m.agentSpend, nil
 }
 
 func newMockUsageRepo() *mockInferenceUsageRepository {

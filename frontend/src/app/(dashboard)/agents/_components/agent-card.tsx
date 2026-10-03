@@ -42,8 +42,6 @@ export interface AgentCardProps {
   period: string;
   /** Shown in place of the usage line while the figures are loading or unavailable. */
   usageNote?: string | undefined;
-  /** True for a delegated agent whose usage here is the caller's own. */
-  yourUsage?: boolean | undefined;
   onRun: (agent: AgentTypeRow) => void;
 }
 
@@ -54,7 +52,6 @@ export function AgentCard({
   liveRuns,
   period,
   usageNote,
-  yourUsage,
   onRun,
 }: AgentCardProps) {
   const router = useRouter();
@@ -117,12 +114,7 @@ export function AgentCard({
                 {agent.framework}
               </Text>
               <Text size="caption" color="muted" mono tabular>
-                {usageNote ??
-                  (usage
-                    ? `${fmtUsd(cost)} · ${period}${yourUsage ? ' · your usage' : ''}`
-                    : yourUsage
-                      ? 'No usage of yours yet'
-                      : 'No usage yet')}
+                {usageNote ?? (usage ? `${fmtUsd(cost)} · ${period}` : 'No usage yet')}
               </Text>
             </Stack>
             <Progress

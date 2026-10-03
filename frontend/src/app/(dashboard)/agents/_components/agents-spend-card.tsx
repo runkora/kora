@@ -29,9 +29,9 @@ import {
   donutSegmentColor,
 } from '@orbit/terra';
 import { AppLink } from '@orbit/components/links';
-import { fmtUsd } from '@orbit/utils';
-import { BUDGET_ROWS, budgetTone, closestToLimit, groupTail, usedShare } from '../_lib/spend';
-import type { BudgetRow, SpendRow, TenantBudget } from '../_lib/spend';
+import { fmtDate, fmtUsd } from '@orbit/utils';
+import { BUDGET_ROWS, budgetTone, groupTail, usedShare } from '../_lib/spend';
+import type { BudgetRow, SpendRow } from '../_lib/spend';
 
 const CHART_CONFIG = { cost: { label: 'Spend', color: 'var(--color-accent)' } };
 
@@ -167,12 +167,10 @@ function Breakdown({
 /**
  * Each agent's spend in each of its budget windows against the limit on it. An
  * agent is limited by the week, the month, or both, so it shows a bar for each
- * window. The rows closest to a limit come first, and the rest are counted, not
- * listed. Spend is counted by agent, while the limit check counts by principal,
- * so the two can differ slightly.
+ * window. Rows arrive closest to a limit first; the rest past BUDGET_ROWS are counted.
  */
 function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
-  const rows = closestToLimit(allRows).slice(0, BUDGET_ROWS);
+  const rows = allRows.slice(0, BUDGET_ROWS);
   const hidden = allRows.length - rows.length;
   return (
     <Stack gap="cozy" align="stretch">
@@ -190,7 +188,11 @@ function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
                   </Text>
                 </Stack>
                 <Stack align="end" style={{ minWidth: '4.5rem' }}>
-                  <Text mono size="caption" color={used >= 80 ? 'status-degraded' : 'foreground'}>
+                  <Text
+                    mono
+                    size="caption"
+                    color={budgetTone(used) === 'healthy' ? 'foreground' : 'status-degraded'}
+                  >
                     {fmtUsd(w.spent)}
                   </Text>
                 </Stack>
@@ -202,7 +204,7 @@ function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
               </Stack>
               <Progress
                 value={Math.min(used, 100)}
-                label={`${row.name} ${w.cadence} budget used, resets ${new Date(w.resetsAt).toLocaleDateString()}`}
+                label={`${row.name} ${w.cadence} budget used, resets ${fmtDate(w.resetsAt)}`}
                 variant={budgetTone(used)}
                 size="hairline"
               />
@@ -233,8 +235,8 @@ export interface AgentsSpendCardProps {
   models?: SpendRow[] | undefined;
   trend?: { labels: string[]; values: number[] } | undefined;
   previousTotal?: number | undefined;
+  /** One row per agent with a limit, the closest to a limit first. */
   budgets?: BudgetRow[] | undefined;
-  tenantBudget?: TenantBudget | undefined;
   /** Spend in the window by agents that have since been deleted. It is part of `total`. */
   deletedCost?: number | undefined;
   /** Replaces "No spend in this window yet." when the window's figures are not loaded. */
@@ -255,7 +257,6 @@ export function AgentsSpendCard({
   trend,
   previousTotal,
   budgets,
-  tenantBudget,
   emptyText,
   deletedCost,
 }: AgentsSpendCardProps) {
@@ -268,10 +269,6 @@ export function AgentsSpendCard({
   const [chosen, setChosen] = useState('agent');
   const view = views.some((v) => v.value === chosen) ? chosen : 'agent';
 
-  // A zero limit has nothing to measure against, so the budget block is left out.
-  const budget = tenantBudget && tenantBudget.limit > 0 ? tenantBudget : undefined;
-  const used = budget ? Math.round((budget.spent / budget.limit) * 100) : 0;
-  const tenantWindow = budget?.cadence === 'weekly' ? 'Weekly' : 'Monthly';
   const change =
     previousTotal !== undefined && previousTotal > 0
       ? Math.round(((total - previousTotal) / previousTotal) * 100)
@@ -312,31 +309,6 @@ export function AgentsSpendCard({
             <Breakdown rows={models} total={total} />
           ) : (
             <Breakdown rows={agents} total={total} deleted={deletedCost ?? 0} />
-          )}
-          {budget && (
-            <>
-              <Separator />
-              <Stack gap="snug" align="stretch">
-                <Stack direction="horizontal" justify="between" align="baseline">
-                  <Text size="caption" color="muted">
-                    {tenantWindow} budget
-                  </Text>
-                  <Text size="caption" color="subtle">
-                    {fmtUsd(budget.spent)} of {fmtUsd(budget.limit)}
-                  </Text>
-                </Stack>
-                <Progress
-                  value={Math.min(used, 100)}
-                  label={`${tenantWindow} budget used`}
-                  variant={budgetTone(used)}
-                  size="sm"
-                />
-                <Text size="caption" color="muted">
-                  {fmtUsd(Math.max(budget.limit - budget.spent, 0))} left · {budget.daysLeft}{' '}
-                  {budget.daysLeft === 1 ? 'day' : 'days'} to go
-                </Text>
-              </Stack>
-            </>
           )}
           {change !== null && view !== 'budgets' && (
             <>

@@ -461,8 +461,7 @@ export interface AgentBudgetStatus {
  * Mirrors Go: inferencegw.AgentInsights plus what the BFF adds.
  * GET /api/agents/insights?period=24h|7d|30d|90d
  *
- * Agent traffic only. A delegated agent's usage is the caller's own unless
- * `all_delegated_usage` is set, which it is for a platform admin.
+ * Agent traffic across the tenant, as aggregates per agent.
  */
 export interface AgentInsightsResponse {
   period: AgentInsightsPeriod;
@@ -470,16 +469,13 @@ export interface AgentInsightsResponse {
   total_cost_usd: number;
   /** Total for the window of the same length that ends where this one starts. */
   previous_total_usd: number;
-  models: { model_id: string; cost_usd: number }[];
+  models: { model_id: string; estimated_cost_usd: number }[];
   /** Spend per bucket, oldest first, each with where it starts. */
   trend: { start: string; cost_usd: number }[];
-  all_delegated_usage: boolean;
   /** Absent when the policy bundle could not be read. */
   budgets?: AgentBudgetStatus[];
   /** Absent when orbit-agents could not count runs. */
   outcomes?: { completed: number; failed: number };
-  /** Present only for callers who hold platform:budgets:read. */
-  tenant_cap?: { limit_usd: number; reset_cadence: string; spend_usd: number; resets_at: string };
 }
 
 /** Request body for POST /api/agents/types. */

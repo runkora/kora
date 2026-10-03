@@ -35,18 +35,3 @@ func (c *Controller) handleListBudgetPrincipals(w http.ResponseWriter, r *http.R
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
 }
-
-// handleTenantCap handles GET /v1/budgets/tenant-cap. It returns the tenant
-// rollup cap alone, for callers that need the cap and not the per-principal
-// report GET /v1/budgets/principals builds.
-func (c *Controller) handleTenantCap(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	p, err := principalFromClaims(ctx)
-	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger, inferenceErrorResponse(ErrTokenParseFailed), err)
-		return
-	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, TenantCapResponse{TenantCap: c.svc.TenantCap(ctx, p.TenantID)})
-}

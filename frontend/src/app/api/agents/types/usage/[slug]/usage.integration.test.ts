@@ -33,9 +33,9 @@ const USAGE = {
   estimated_cost_usd: 0.25,
 };
 
-function makeArgs(slug: string, query = '') {
+function makeArgs(slug: string) {
   return [
-    new NextRequest(`http://localhost/api/agents/types/usage/${slug}${query}`),
+    new NextRequest(`http://localhost/api/agents/types/usage/${slug}`),
     { params: Promise.resolve({ slug }) },
   ] as const;
 }
@@ -59,30 +59,18 @@ describe('GET /api/agents/types/usage/[slug]', () => {
   });
 
   it('proxies the gateway usage for the slug with the session token', async () => {
-    let seen: {
-      slug: string | readonly string[] | undefined;
-      auth: string | null;
-      period: string | null;
-    } | null = null;
+    let seen: { slug: string | readonly string[] | undefined; auth: string | null } | null = null;
     server.use(
       http.get('http://test-gw/usage/agent-type/:slug', ({ params, request }) => {
-        seen = {
-          slug: params.slug,
-          auth: request.headers.get('authorization'),
-          period: new URL(request.url).searchParams.get('period'),
-        };
+        seen = { slug: params.slug, auth: request.headers.get('authorization') };
         return HttpResponse.json(USAGE);
       }),
     );
 
-    const res = await GET(...makeArgs('token-probe', '?period=30d'));
+    const res = await GET(...makeArgs('token-probe'));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(USAGE);
-    expect(seen).toEqual({
-      slug: 'token-probe',
-      auth: 'Bearer test-access-token',
-      period: '30d',
-    });
+    expect(seen).toEqual({ slug: 'token-probe', auth: 'Bearer test-access-token' });
   });
 
   it('passes a gateway 400 through', async () => {
@@ -92,11 +80,6 @@ describe('GET /api/agents/types/usage/[slug]', () => {
       ),
     );
     const res = await GET(...makeArgs('bad_'));
-    expect(res.status).toBe(400);
-  });
-
-  it('rejects an unknown period without calling the gateway', async () => {
-    const res = await GET(...makeArgs('token-probe', '?period=1y'));
     expect(res.status).toBe(400);
   });
 });

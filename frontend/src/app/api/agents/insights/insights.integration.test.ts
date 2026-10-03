@@ -20,12 +20,6 @@ import { GET } from './route';
 import { getSession } from '@orbit/server/session';
 
 const INSIGHTS = { period: '30d', usage: [], total_cost_usd: 0, trend: [] };
-const CAP = {
-  limit_usd: 1000,
-  reset_cadence: 'monthly',
-  spend_usd: 300,
-  resets_at: '2026-11-01T00:00:00Z',
-};
 
 const request = (query = '') => new NextRequest(`http://localhost/api/agents/insights${query}`);
 
@@ -39,7 +33,7 @@ describe('GET /api/agents/insights', () => {
     expect((await GET(request('?period=constructor'))).status).toBe(400);
   });
 
-  it('asks the gateway and orbit-agents for the same period with the session token, and adds the cap', async () => {
+  it('asks the gateway and orbit-agents for the same period with the session token', async () => {
     const seen: Record<string, string | null> = {};
     server.use(
       http.get('http://test-gw/usage/agent-insights', ({ request: r }) => {
@@ -50,25 +44,19 @@ describe('GET /api/agents/insights', () => {
         seen.agents = `${new URL(r.url).searchParams.get('period')} ${r.headers.get('authorization')}`;
         return HttpResponse.json({ completed: 4, failed: 1 });
       }),
-      http.get('http://test-gw/budgets/tenant-cap', () => HttpResponse.json({ tenant_cap: CAP })),
     );
     const res = await GET(request('?period=30d'));
 
-    expect(await res.json()).toEqual({
-      ...INSIGHTS,
-      outcomes: { completed: 4, failed: 1 },
-      tenant_cap: CAP,
-    });
+    expect(await res.json()).toEqual({ ...INSIGHTS, outcomes: { completed: 4, failed: 1 } });
     expect(seen).toEqual({
       gw: '30d Bearer test-access-token',
       agents: '30d Bearer test-access-token',
     });
   });
 
-  it('leaves the cap out when the gateway refuses it, and outcomes out when they cannot be counted', async () => {
+  it('leaves outcomes out when they cannot be counted', async () => {
     server.use(
       http.get('http://test-gw/usage/agent-insights', () => HttpResponse.json(INSIGHTS)),
-      http.get('http://test-gw/budgets/tenant-cap', () => HttpResponse.json({}, { status: 403 })),
       http.get('http://test-agents/api/v1/run-outcomes', () =>
         HttpResponse.json({}, { status: 500 }),
       ),
@@ -76,5 +64,13 @@ describe('GET /api/agents/insights', () => {
     const res = await GET(request('?period=30d'));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(INSIGHTS);
+  });
+
+  it('passes the gateway status through when the rollups are refused', async () => {
+    server.use(
+      http.get('http://test-gw/usage/agent-insights', () => HttpResponse.json({}, { status: 403 })),
+      http.get('http://test-agents/api/v1/run-outcomes', () => HttpResponse.json({})),
+    );
+    expect((await GET(request())).status).toBe(403);
   });
 });

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/policy"
 )
 
 // flushRecorder wraps httptest.ResponseRecorder and implements http.Flusher,
@@ -26,12 +27,17 @@ func (fr *flushRecorder) Flush() {}
 
 func newTestController(t *testing.T) (*Controller, *mockRepository, *mockK8s, *mockSMClient) {
 	t.Helper()
-	facade, repo, k8s, sm := newTestService(t)
+	return newTestControllerWithEval(t, &allowAllEvaluator{})
+}
+
+func newTestControllerWithEval(t *testing.T, eval policy.Evaluator) (*Controller, *mockRepository, *mockK8s, *mockSMClient) {
+	t.Helper()
+	facade, repo, k8s, sm := newTestServiceWithEval(t, eval)
 	// Verifier is nil and routes is empty: handler tests invoke handlers
 	// directly without going through Middleware(), so JWT verification and
 	// scope enforcement are never reached. Tests that exercise tenant scoping
 	// inject claims into the request context manually.
-	c := NewController(facade.at, facade.run, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	c := NewController(facade.at, facade.run, nil, nil, nil, eval, nil, "", logging.NewLoggerWithOutput(io.Discard))
 	return c, repo, k8s, sm
 }
 

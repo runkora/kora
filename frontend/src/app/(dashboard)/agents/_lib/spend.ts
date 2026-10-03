@@ -11,10 +11,16 @@ export const PERIOD_TEXT: Record<Period, { text: string; previous: string }> = {
   '90d': { text: 'last 90 days', previous: 'previous 90 days' },
 };
 
-export const PERIOD_OPTIONS = (Object.keys(PERIOD_TEXT) as Period[]).map((value) => ({
-  value,
-  label: value,
-}));
+/** The window the page opens on. The server render fetches it, so first paint has data. */
+export const DEFAULT_PERIOD: Period = '7d';
+
+const PERIODS = Object.keys(PERIOD_TEXT) as Period[];
+
+export const PERIOD_OPTIONS = PERIODS.map((value) => ({ value, label: value }));
+
+export function isPeriod(value: string): value is Period {
+  return (PERIODS as string[]).includes(value);
+}
 
 export interface SpendRow {
   name: string;
@@ -42,22 +48,12 @@ export interface BudgetRow {
   perRunLimit?: number;
 }
 
-/** The tenant-wide cap. Its window is the calendar month unless `cadence` says weekly. */
-export interface TenantBudget {
-  limit: number;
-  spent: number;
-  daysLeft: number;
-  cadence?: 'weekly';
-}
-
 /** Everything the page reports for one window. */
 export interface PeriodData {
   /** Usage per agent slug. It includes agents that have since been deleted. */
   usage: Record<string, AgentTypeUsage>;
   /** Total spend of the window, which is the sum of `usage` and so includes deleted agents. */
   total: number;
-  /** True when a delegated agent's usage is the caller's own, so the page says "your usage". */
-  delegatedOwnOnly: boolean;
   /** Runs that finished in the window. Absent when the run counts are not available. */
   outcomes?: { completed: number; failed: number };
   /** Spend split by model, when the source provides it. */
@@ -69,18 +65,13 @@ export interface PeriodData {
 }
 
 /**
- * The optional parts of the page. Each part switches a view on, and a part that
- * could not be loaded or is not permitted is simply absent, so no card ever
- * reports a number the platform has not produced.
+ * What the page has loaded. A part that could not be loaded or is not permitted
+ * is absent, so no card ever reports a number the platform has not produced.
  */
 export interface AgentsInsights {
-  /**
-   * Presence adds the period control and scopes the period figures to it. A
-   * period that is not in the map has not been loaded.
-   */
-  byPeriod?: Partial<Record<Period, PeriodData>>;
+  /** A period that is not in the map has not been loaded. */
+  byPeriod: Partial<Record<Period, PeriodData>>;
   budgets?: BudgetRow[];
-  tenantBudget?: TenantBudget;
 }
 
 /** Healthy under 80% of a limit, degraded from 80%, error at or over it. */
@@ -91,23 +82,26 @@ export function budgetTone(used: number): 'healthy' | 'degraded' | 'error' {
 /** The most legend rows a breakdown shows before the rest fold into "Other". */
 export const LEGEND_ROWS = 6;
 
+/** The most budget rows the card shows. */
+export const BUDGET_ROWS = 8;
+
+/** The most live runs the Running now table lists. Its header counts them all. */
+export const RUNNING_ROWS = 10;
+
 /**
  * Keeps the largest rows and folds the rest into one "Other" row. Rows are
- * expected largest first. Nothing is folded unless more than `max` rows exist,
- * so the total is unchanged.
+ * expected largest first. Nothing is folded unless more than LEGEND_ROWS rows
+ * exist, so the total is unchanged.
  */
-export function groupTail(rows: SpendRow[], max = LEGEND_ROWS): SpendRow[] {
-  if (rows.length <= max) return rows;
-  const head = rows.slice(0, max - 1);
-  const tail = rows.slice(max - 1);
+export function groupTail(rows: SpendRow[]): SpendRow[] {
+  if (rows.length <= LEGEND_ROWS) return rows;
+  const head = rows.slice(0, LEGEND_ROWS - 1);
+  const tail = rows.slice(LEGEND_ROWS - 1);
   return [
     ...head,
     { name: `Other (${tail.length})`, cost: tail.reduce((n, row) => n + row.cost, 0) },
   ];
 }
-
-/** The most budget rows the card shows. */
-export const BUDGET_ROWS = 8;
 
 /** The share of a limit that is spent. A zero limit is fully spent, however little is spent against it. */
 export function usedShare(spent: number, limit: number): number {
@@ -115,7 +109,7 @@ export function usedShare(spent: number, limit: number): number {
 }
 
 /** The share of its tightest window an agent has spent. */
-export function rowUsedShare(row: BudgetRow): number {
+function rowUsedShare(row: BudgetRow): number {
   return Math.max(...row.windows.map((w) => usedShare(w.spent, w.limit)), 0);
 }
 

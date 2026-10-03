@@ -16,7 +16,7 @@ import { mockInsightsResponse } from './agents-insights-mock-data';
 import type { Period } from '../_lib/spend';
 
 describe('Agents page insights', () => {
-  it('renders the 7-day window it was given without fetching it, then fetches each other period once', async () => {
+  it('renders the window it was given without fetching it, then fetches another period when selected', async () => {
     const requested: string[] = [];
     server.use(
       http.get('/api/agents/types/drafts', () => HttpResponse.json({ data: [] })),
@@ -40,9 +40,7 @@ describe('Agents page insights', () => {
     expect(requested).toEqual([]);
 
     await userEvent.click(screen.getByRole('button', { name: '30d' }));
-    await waitFor(() => expect(requested).toEqual(['30d']));
-    await userEvent.click(screen.getByRole('button', { name: '7d' }));
-    await userEvent.click(screen.getByRole('button', { name: '30d' }));
+    await waitFor(() => expect(screen.getByText('Last 30 days')).toBeInTheDocument());
     expect(requested).toEqual(['30d']);
   });
 });

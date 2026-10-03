@@ -3,7 +3,6 @@ package inferencegw
 import (
 	"context"
 	"fmt"
-	"slices"
 	"sort"
 	"time"
 
@@ -15,43 +14,8 @@ import (
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
-// The Agents page rollups cover agent traffic only. One SQL predicate decides
-// what a caller sees (see where in agent_insights_postgres.go). The route scope
-// agents:types:read is a prefix rule, so a caller who passes it may read every
-// agent and no per-agent check is needed.
-
-// rolePlatformAdmin is the reserved admin role, read from the roles claim as the agents service does.
-const rolePlatformAdmin = "platform-admin"
-
-// usageCaller is the verified identity a rollup is computed for.
-type usageCaller struct {
-	TenantID string
-	Subject  string
-	Admin    bool
-}
-
-// callerFromClaims reads the caller from verified claims. Admin comes from the
-// roles claim alone, so a PAT is never admin and the user_profiles fallback is not used.
-func callerFromClaims(claims *token.PlatformClaims) usageCaller {
-	return usageCaller{
-		TenantID: claims.Orbit.TenantID,
-		Subject:  claims.Subject,
-		Admin:    slices.Contains(extractRolesFromClaims(claims), rolePlatformAdmin),
-	}
-}
-
-// usageQuery is one rollup read: whose view, which window, and optionally one agent.
-type usageQuery struct {
-	Caller usageCaller
-	Window usagewindow.Window
-	Slug   string
-}
-
-// ModelSpend is the spend on one model.
-type ModelSpend struct {
-	ModelID string  `json:"model_id"`
-	CostUSD float64 `json:"cost_usd"`
-}
+// The Agents page rollups cover agent traffic for the whole tenant and carry no
+// per-person data. The route scope agents:usage:read decides who may read them.
 
 // TrendPoint is the spend in one chart bucket, identified by where it starts.
 type TrendPoint struct {
@@ -78,23 +42,19 @@ type AgentBudgetRow struct {
 	Windows        []BudgetWindow `json:"windows"`
 }
 
-// AgentInsights is what the Agents page reports for one window, over the usage
-// the caller may see.
+// AgentInsights is what the Agents page reports for one window.
 type AgentInsights struct {
-	Period           string           `json:"period"`
-	Usage            []AgentTypeUsage `json:"usage"`
-	TotalCostUSD     float64          `json:"total_cost_usd"`
-	PreviousTotalUSD float64          `json:"previous_total_usd"`
-	Models           []ModelSpend     `json:"models"`
-	Trend            []TrendPoint     `json:"trend"`
-	// AllDelegatedUsage is true when the caller sees every row of a delegated
-	// agent, as a platform admin does. Otherwise it is the caller's own.
-	AllDelegatedUsage bool             `json:"all_delegated_usage"`
-	Budgets           []AgentBudgetRow `json:"budgets,omitempty"`
+	Period           string                 `json:"period"`
+	Usage            []AgentTypeUsage       `json:"usage"`
+	TotalCostUSD     float64                `json:"total_cost_usd"`
+	PreviousTotalUSD float64                `json:"previous_total_usd"`
+	Models           []AnalyticsCostByModel `json:"models"`
+	Trend            []TrendPoint           `json:"trend"`
+	Budgets          []AgentBudgetRow       `json:"budgets,omitempty"`
 }
 
-// agentUsageRow is one agent's usage on one model.
-type agentUsageRow struct {
+// AgentModelUsage is one agent's usage on one model.
+type AgentModelUsage struct {
 	AgentTypeUsage
 	ModelID string
 }
@@ -106,47 +66,23 @@ type AgentBudgetSpend struct {
 	Month     float64
 }
 
-// agentUsageStore is the storage the agent rollups read.
-type agentUsageStore interface {
-	// AgentUsage returns usage per agent and model, or for one agent when q.Slug is set.
-	AgentUsage(ctx context.Context, q usageQuery) ([]agentUsageRow, error)
-	// AgentSpendBuckets returns the previous window's total and the spend in each bucket of the window.
-	AgentSpendBuckets(ctx context.Context, q usageQuery) (previous float64, buckets []float64, err error)
-	// AgentBudgetSpend returns each listed agent's spend since the week and month starts.
-	AgentBudgetSpend(ctx context.Context, caller usageCaller, slugs []string, weekStart, monthStart time.Time) ([]AgentBudgetSpend, error)
-}
-
-// AgentInsightsService builds the Agents page rollups from the usage log.
-type AgentInsightsService struct {
-	store  agentUsageStore
-	policy policy.Evaluator
-	logger logging.Logger
-	now    func() time.Time
-}
-
-// NewAgentInsightsService creates the service.
-func NewAgentInsightsService(store agentUsageStore, pol policy.Evaluator, logger logging.Logger) *AgentInsightsService {
-	return &AgentInsightsService{store: store, policy: pol, logger: logger, now: time.Now}
-}
-
 // Insights returns the window's usage, model split, spend trend, previous total
 // and budgets. The reads are independent, so they run together.
-func (s *AgentInsightsService) Insights(ctx context.Context, caller usageCaller, period usagewindow.Period) (AgentInsights, error) {
-	w := usagewindow.For(period, s.now())
-	q := usageQuery{Caller: caller, Window: w}
+func (s *Service) Insights(ctx context.Context, tenantID string, period usagewindow.Period, now time.Time) (AgentInsights, error) {
+	w := usagewindow.For(period, now)
 
 	var (
-		rows     []agentUsageRow
+		rows     []AgentModelUsage
 		previous float64
 		buckets  []float64
 		budgets  []AgentBudgetRow
 	)
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() (err error) { rows, err = s.store.AgentUsage(gctx, q); return err })
-	g.Go(func() (err error) { previous, buckets, err = s.store.AgentSpendBuckets(gctx, q); return err })
+	g.Go(func() (err error) { rows, err = s.usage.AgentUsage(gctx, tenantID, w, ""); return err })
+	g.Go(func() (err error) { previous, buckets, err = s.usage.AgentSpendBuckets(gctx, tenantID, w); return err })
 	g.Go(func() error {
 		// Budgets are an extra: a failure leaves them out and does not fail the page.
-		budgets = s.agentBudgets(gctx, caller)
+		budgets = s.agentBudgets(gctx, tenantID, now)
 		return nil
 	})
 	if err := g.Wait(); err != nil {
@@ -155,13 +91,12 @@ func (s *AgentInsightsService) Insights(ctx context.Context, caller usageCaller,
 
 	usage, models := foldUsage(rows)
 	out := AgentInsights{
-		Period:            string(period),
-		Usage:             usage,
-		Models:            models,
-		PreviousTotalUSD:  previous,
-		Trend:             make([]TrendPoint, len(buckets)),
-		AllDelegatedUsage: caller.Admin,
-		Budgets:           budgets,
+		Period:           string(period),
+		Usage:            usage,
+		Models:           models,
+		PreviousTotalUSD: previous,
+		Trend:            make([]TrendPoint, len(buckets)),
+		Budgets:          budgets,
 	}
 	for _, u := range usage {
 		out.TotalCostUSD += u.EstimatedCostUSD
@@ -174,7 +109,7 @@ func (s *AgentInsightsService) Insights(ctx context.Context, caller usageCaller,
 
 // foldUsage sums the per agent and model rows into usage per agent and spend per
 // model, largest first. A model with no spend is left out.
-func foldUsage(rows []agentUsageRow) ([]AgentTypeUsage, []ModelSpend) {
+func foldUsage(rows []AgentModelUsage) ([]AgentTypeUsage, []AnalyticsCostByModel) {
 	usage := []AgentTypeUsage{}
 	byModel := map[string]float64{}
 	for _, r := range rows {
@@ -191,22 +126,23 @@ func foldUsage(rows []agentUsageRow) ([]AgentTypeUsage, []ModelSpend) {
 		}
 		byModel[r.ModelID] += r.EstimatedCostUSD
 	}
-	models := []ModelSpend{}
+	models := []AnalyticsCostByModel{}
 	for id, cost := range byModel {
 		if cost > 0 {
-			models = append(models, ModelSpend{ModelID: id, CostUSD: cost})
+			models = append(models, AnalyticsCostByModel{ModelID: id, EstimatedCostUSD: cost})
 		}
 	}
 	sort.Slice(models, func(i, j int) bool {
-		return models[i].CostUSD > models[j].CostUSD || (models[i].CostUSD == models[j].CostUSD && models[i].ModelID < models[j].ModelID)
+		a, b := models[i], models[j]
+		return a.EstimatedCostUSD > b.EstimatedCostUSD || (a.EstimatedCostUSD == b.EstimatedCostUSD && a.ModelID < b.ModelID)
 	})
 	return usage, models
 }
 
-// AgentUsage returns one agent's tokens and spend for the window, under the same
-// predicate as Insights. An agent the caller sees no rows of reads as zero.
-func (s *AgentInsightsService) AgentUsage(ctx context.Context, caller usageCaller, period usagewindow.Period, slug string) (AgentTypeUsage, error) {
-	rows, err := s.store.AgentUsage(ctx, usageQuery{Caller: caller, Window: usagewindow.For(period, s.now()), Slug: slug})
+// AgentUsage returns one agent's tokens and spend for the window. An agent with
+// no rows reads as zero.
+func (s *Service) AgentUsage(ctx context.Context, tenantID string, period usagewindow.Period, slug string, now time.Time) (AgentTypeUsage, error) {
+	rows, err := s.usage.AgentUsage(ctx, tenantID, usagewindow.For(period, now), slug)
 	if err != nil {
 		return AgentTypeUsage{}, fmt.Errorf("agent usage: %w", err)
 	}
@@ -218,15 +154,15 @@ func (s *AgentInsightsService) AgentUsage(ctx context.Context, caller usageCalle
 }
 
 // agentBudgets builds a row per agent that has a window limit, from the policy
-// bundle enforcement evaluates, with the agent's spend in each window. The page
-// drops delegated agents: their limit is shared by everyone who runs them.
-func (s *AgentInsightsService) agentBudgets(ctx context.Context, caller usageCaller) []AgentBudgetRow {
-	principals, _, err := s.policy.ListBudgets(ctx, caller.TenantID)
+// bundle enforcement evaluates, with the agent's spend in each window. A
+// delegated agent's limit is shared by everyone who runs it, and its row is
+// included.
+func (s *Service) agentBudgets(ctx context.Context, tenantID string, now time.Time) []AgentBudgetRow {
+	principals, _, err := s.policy.ListBudgets(ctx, tenantID)
 	if err != nil {
 		s.logger.Warn(ctx, "agent budgets unavailable", logging.Field{Key: "error", Value: err.Error()})
 		return nil
 	}
-	now := s.now().UTC()
 	rows := budgetRowsFromBundle(principals, now)
 	if len(rows) == 0 {
 		return nil
@@ -236,7 +172,7 @@ func (s *AgentInsightsService) agentBudgets(ctx context.Context, caller usageCal
 	for i, r := range rows {
 		slugs[i] = r.AgentSlug
 	}
-	spend, err := s.store.AgentBudgetSpend(ctx, caller, slugs, periodStart(cadenceWeekly, now), periodStart(cadenceMonthly, now))
+	spend, err := s.usage.AgentBudgetSpend(ctx, tenantID, slugs, periodStart(cadenceWeekly, now), periodStart(cadenceMonthly, now))
 	if err != nil {
 		s.logger.Warn(ctx, "agent budget spend unavailable", logging.Field{Key: "error", Value: err.Error()})
 		return nil
@@ -265,6 +201,7 @@ func (s *AgentInsightsService) agentBudgets(ctx context.Context, caller usageCal
 func budgetRowsFromBundle(principals map[string]policy.PrincipalBudget, now time.Time) []AgentBudgetRow {
 	rows := make([]AgentBudgetRow, 0)
 	for pid, pb := range principals {
+		// The bundle keys budgets by principal ID alone, so the type is the agent one this page lists.
 		slug := agentSlugFromPrincipal(string(token.PrincipalTypeAgent), pid)
 		if slug == "" {
 			continue
@@ -280,16 +217,4 @@ func budgetRowsFromBundle(principals map[string]policy.PrincipalBudget, now time
 		}
 	}
 	return rows
-}
-
-// cadenceMonthly is the budget reset cadence that periodStart treats as the default.
-const cadenceMonthly = "monthly"
-
-// periodEnd is when the budget window that contains t resets.
-func periodEnd(cadence string, t time.Time) time.Time {
-	start := periodStart(cadence, t)
-	if cadence == cadenceWeekly {
-		return start.AddDate(0, 0, 7)
-	}
-	return start.AddDate(0, 1, 0)
 }

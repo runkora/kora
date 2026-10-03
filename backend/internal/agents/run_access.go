@@ -3,7 +3,7 @@ package agents
 import (
 	"context"
 	"errors"
-	"strings"
+	"fmt"
 
 	"github.com/clear-route/orbit/internal/platform/token"
 )
@@ -12,23 +12,18 @@ import (
 // (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 6).
 //
 // A run of a DELEGATED agent belongs to the person who started it: it executes
-// with the starter's authority under the starter's name. The service layer
-// therefore enforces, on top of the scope-based authz in authz.go:
+// with the starter's authority under the starter's name. On top of the
+// scope-based authz in authz.go, the service layer enforces:
 //
-//   - Visibility: run get / list / events are limited to the starter, unless
-//     the caller holds a reserved admin role (governance read).
-//   - Steer: sending messages and interrupting are limited to the starter —
-//     admins included, because steering acts with the starter's authority.
-//   - Terminate: starter and admins (governance control).
+//   - Visibility: run get / list / events / outcomes and terminate are limited
+//     to the starter, unless the caller holds agents:delegated:read.
+//   - Steer: sending messages and interrupting are limited to the starter, for
+//     every caller, because steering acts with the starter's authority.
 //
-// Autonomous agents are untouched by every rule here.
+// Autonomous agents are untouched by every rule here. No role is evaluated.
 
-// rolePlatformAdmin mirrors bundle.PlatformAdminRole: the reserved role,
-// compiled into every bundle and not redefinable per tenant.
-const rolePlatformAdmin = "platform-admin"
-
-// ErrDelegatedRunSteer is returned when someone other than the starter — a
-// platform admin included — tries to steer (message or interrupt) a delegated
+// ErrDelegatedRunSteer is returned when someone other than the starter, a
+// holder of agents:delegated:read included, tries to steer (message or interrupt) a delegated
 // run. Messages execute with the starter's authority under the starter's name,
 // so nobody else may direct the work.
 var ErrDelegatedRunSteer = errors.New("delegated identity model: only the person who started this run can steer it (messages execute with the starter's authority)")
@@ -37,8 +32,8 @@ var ErrDelegatedRunSteer = errors.New("delegated identity model: only the person
 // The filter is applied in the query itself, never by trimming pages in
 // memory, so counts and ordering stay correct under any future pagination.
 type RunVisibility struct {
-	// SeeAll returns every run unfiltered. Set for platform admins (governance
-	// read over the whole tenant).
+	// SeeAll returns every run unfiltered. Set when the caller holds
+	// agents:delegated:read.
 	SeeAll bool
 	// Subject is the caller's verified token subject. When SeeAll is false,
 	// runs of delegated agents are returned only where created_by = Subject.
@@ -47,13 +42,14 @@ type RunVisibility struct {
 	Subject string
 }
 
-// runVisibilityFromContext derives the caller's run visibility from verified
-// claims: admins see all, everyone else sees delegated runs they started.
-func runVisibilityFromContext(ctx context.Context) RunVisibility {
-	if isPlatformAdmin(ctx) {
-		return RunVisibility{SeeAll: true}
+// runVisibility decides, once per request, whether the caller sees every
+// delegated run. It is the agents:delegated:read check, not a role test.
+func (s *RunService) runVisibility(ctx context.Context) (RunVisibility, error) {
+	allowed, err := s.authz.canReadDelegatedRuns(ctx)
+	if err != nil {
+		return RunVisibility{}, err
 	}
-	return RunVisibility{Subject: callerSubject(ctx)}
+	return RunVisibility{SeeAll: allowed, Subject: callerSubject(ctx)}, nil
 }
 
 // callerSubject returns the verified platform-token subject, or "" when the
@@ -68,24 +64,6 @@ func callerSubject(ctx context.Context) string {
 	return claims.Subject
 }
 
-// isPlatformAdmin reports whether the verified claims carry a reserved admin
-// role. Roles travel as the comma-separated "roles" claim the identity service
-// stamps from the IdP — the same extraction the policy engine (extractRoles)
-// and policy-service API use. PAT tokens carry no roles claim and therefore
-// never count as admin here (fail closed to the non-admin rules).
-func isPlatformAdmin(ctx context.Context) bool {
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || claims.Orbit.Claims == nil {
-		return false
-	}
-	for role := range strings.SplitSeq(claims.Orbit.Claims["roles"], ",") {
-		if strings.TrimSpace(role) == rolePlatformAdmin {
-			return true
-		}
-	}
-	return false
-}
-
 // isRunStarter reports whether the caller's verified subject is the run's
 // recorded starter. An empty subject or empty created_by never matches.
 func isRunStarter(ctx context.Context, run *Run) bool {
@@ -94,17 +72,27 @@ func isRunStarter(ctx context.Context, run *Run) bool {
 }
 
 // checkDelegatedRunVisibility enforces run-ownership privacy on a single run:
-// for a delegated agent, only the starter and platform admins may read it.
-// Returns ErrNotFound on deny so existence is not leaked (the same mapping
+// for a delegated agent, only the starter may read it unless seeAll. Returns
+// ErrNotFound on deny so existence is not leaked (the same mapping
 // loadRunForAction applies to scope denials). No-op for autonomous agents.
-func checkDelegatedRunVisibility(ctx context.Context, at *AgentType, run *Run) error {
-	if at.IdentityMode.OrDefault() != IdentityModeDelegated {
-		return nil
-	}
-	if isRunStarter(ctx, run) || isPlatformAdmin(ctx) {
+func checkDelegatedRunVisibility(ctx context.Context, at *AgentType, run *Run, seeAll bool) error {
+	if at.IdentityMode.OrDefault() != IdentityModeDelegated || seeAll || isRunStarter(ctx, run) {
 		return nil
 	}
 	return ErrNotFound
+}
+
+// appendVisibility adds the delegated-run rule to a run query whose alias for
+// runs is r and for agent_types is at, appending the caller's subject to args.
+// Shared by ListRuns and CountRunOutcomes so the rule lives in one place. An
+// empty subject matches no delegated run (fail closed).
+func appendVisibility(query string, args []any, vis RunVisibility) (string, []any) {
+	if vis.SeeAll {
+		return query, args
+	}
+	args = append(args, vis.Subject)
+	n := len(args)
+	return query + fmt.Sprintf(" AND (at.identity_mode <> 'delegated' OR ($%[1]d <> '' AND r.created_by = $%[1]d))", n), args
 }
 
 // checkDelegatedRunSteer enforces the steer constraint: only the starter may

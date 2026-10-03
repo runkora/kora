@@ -241,13 +241,7 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID
 		args = append(args, agentTypeID)
 		query += fmt.Sprintf(" AND r.agent_type_id=$%d", len(args))
 	}
-	// Delegated-run visibility (delegated-agent-identity ADR, Decision 6): the
-	// filter lives in the query so result counts stay correct under any future
-	// pagination. An empty vis.Subject matches no delegated run (fail closed).
-	if !vis.SeeAll {
-		args = append(args, vis.Subject)
-		query += fmt.Sprintf(" AND (at.identity_mode <> 'delegated' OR ($%d <> '' AND r.created_by = $%d))", len(args), len(args))
-	}
+	query, args = appendVisibility(query, args, vis)
 	// id breaks created_at ties: without it the rows a LIMIT drops at a tie
 	// boundary vary between executions of the same query.
 	query += ` ORDER BY r.created_at DESC, r.id DESC`
@@ -642,16 +636,16 @@ func isUniqueViolation(err error) bool {
 // [from, to). It applies the delegated-run rule of ListRuns, and uses
 // idx_runs_tenant_completed.
 func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error) {
-	var out RunOutcomes
-	err := r.pool.QueryRow(ctx, `
+	query, args := appendVisibility(`
 		SELECT COUNT(*) FILTER (WHERE r.state = 'completed'),
 		       COUNT(*) FILTER (WHERE r.state = 'failed')
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
 		WHERE r.tenant_id = $1
 		  AND r.completed_at >= $2 AND r.completed_at < $3
-		  AND r.state IN ('completed', 'failed')
-		  AND ($4 OR at.identity_mode <> 'delegated' OR ($5 <> '' AND r.created_by = $5))`,
-		tenantID, from, to, vis.SeeAll, vis.Subject).Scan(&out.Completed, &out.Failed)
+		  AND r.state IN ('completed', 'failed')`,
+		[]any{tenantID, from, to}, vis)
+	var out RunOutcomes
+	err := r.pool.QueryRow(ctx, query, args...).Scan(&out.Completed, &out.Failed)
 	if err != nil {
 		return RunOutcomes{}, fmt.Errorf("count run outcomes: %w", err)
 	}

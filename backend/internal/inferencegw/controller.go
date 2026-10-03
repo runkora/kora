@@ -21,7 +21,6 @@ import (
 //   - handlers_responses.go   — OpenAI Responses API (POST /responses)
 type Controller struct {
 	svc       *Service
-	insights  *AgentInsightsService
 	verifier  *token.Verifier
 	eval      policy.Evaluator
 	routes    []routescopes.RouteScope
@@ -42,9 +41,9 @@ type Controller struct {
 // blocklist is the shared revoked-JTI set (storage.NewJTIBlocklist) used to
 // reject revoked delegation tokens before natural expiry
 // (docs/adr/2026-07-23-delegated-agent-identity.md). May be nil in tests.
-func NewController(ctx context.Context, svc *Service, insights *AgentInsightsService, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, blocklist mw.JTIBlocklist, logger logging.Logger) *Controller {
+func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, blocklist mw.JTIBlocklist, logger logging.Logger) *Controller {
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	return &Controller{svc: svc, insights: insights, verifier: verifier, eval: eval, routes: routes, basePath: basePath, blocklist: blocklist, logger: logger}
+	return &Controller{svc: svc, verifier: verifier, eval: eval, routes: routes, basePath: basePath, blocklist: blocklist, logger: logger}
 }
 
 // GroupedBy returns the route prefix. The inference gateway mounts directly
@@ -92,7 +91,6 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /analytics/principals  Per-principal usage summary (requires platform:analytics:read)
 //	GET    /analytics/principals/{id}  Full usage breakdown for one principal, admin drill-down (requires platform:analytics:read)
 //	GET    /budgets/principals    Per-principal budget status (requires platform:budgets:read)
-//	GET    /budgets/tenant-cap    The tenant rollup cap alone (requires platform:budgets:read)
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /chat/completions", c.handleChatCompletions)
 	mux.Handle("POST /messages", c.handleMessages)
@@ -110,7 +108,6 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /analytics/principals", c.handleAnalyticsPrincipals)
 	mux.Handle("GET /analytics/principals/{id}", c.handleAnalyticsPrincipalByID)
 	mux.Handle("GET /budgets/principals", c.handleListBudgetPrincipals)
-	mux.Handle("GET /budgets/tenant-cap", c.handleTenantCap)
 }
 
 // connectorClientErrorResponse maps ConnectorError codes that represent a client

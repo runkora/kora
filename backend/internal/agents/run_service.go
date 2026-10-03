@@ -304,17 +304,22 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 		span.SetStatus(codes.Error, "get agent type")
 		return nil, nil, fmt.Errorf("get agent type: %w", err)
 	}
-	if err := s.authz.checkRun(ctx, *at, action); err != nil {
+	if err = s.authz.checkRun(ctx, *at, action); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			return nil, nil, ErrNotFound
 		}
 		return nil, nil, err
 	}
-	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
-	// Decision 6): a delegated agent's run is private to its starter; only a
-	// tenant admin may additionally read (and terminate) it. Denies map to
-	// ErrNotFound so existence is not leaked. Autonomous runs are unaffected.
-	if err := checkDelegatedRunVisibility(ctx, at, run); err != nil {
+	// A delegated agent's run is private to its starter unless the caller holds
+	// agents:delegated:read (see run_access.go). The check runs only when the
+	// run is delegated and the caller did not start it.
+	seeAll := false
+	if at.IdentityMode.OrDefault() == IdentityModeDelegated && !isRunStarter(ctx, run) {
+		if seeAll, err = s.authz.canReadDelegatedRuns(ctx); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err = checkDelegatedRunVisibility(ctx, at, run, seeAll); err != nil {
 		return nil, nil, err
 	}
 	return run, at, nil
@@ -356,11 +361,15 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int
 		),
 	)
 	defer span.End()
-	// Delegated identity model (Decision 6): non-admin callers see a delegated
-	// agent's runs only where created_by matches their verified subject. The
-	// filter is applied inside the repository query — never by trimming the
-	// result in memory — so counts stay correct. Autonomous runs are unfiltered.
-	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, runVisibilityFromContext(ctx), limit)
+	// The delegated-run filter is applied inside the repository query, never by
+	// trimming the result in memory, so counts stay correct.
+	vis, err := s.runVisibility(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "run visibility")
+		return nil, err
+	}
+	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, vis, limit)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")
@@ -383,6 +392,29 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int
 		return at.Slug, true
 	}
 	return s.authz.filterRuns(ctx, runs, resolveSlug)
+}
+
+// RunOutcomes counts the caller's visible runs that completed or failed in
+// [from, to), under the delegated-run rule of ListRuns. The route scope
+// agents:runs:read is a prefix rule, so no per-agent check is needed.
+func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOutcomes, error) {
+	tenantID := tenantFromContext(ctx)
+	ctx, span := agentsTracer.Start(ctx, "agents.RunOutcomes",
+		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
+	)
+	defer span.End()
+	vis, err := s.runVisibility(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "run visibility")
+		return RunOutcomes{}, err
+	}
+	out, err := s.repo.CountRunOutcomes(ctx, tenantID, vis, from, to)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "count run outcomes")
+	}
+	return out, err
 }
 
 // TerminateRun signals the session-manager to stop the subprocess and cleans up.
@@ -663,8 +695,8 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 		return err
 	}
 	// Interrupt steers the run (it redirects the agent mid-turn), so it follows
-	// the same starter-only rule as SendMessage. Terminate does not: admins keep
-	// governance termination via loadRunForAction's visibility rule alone.
+	// the same starter-only rule as SendMessage. Terminate does not: it follows
+	// the visibility rule in loadRunForAction.
 	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
 		return err
 	}

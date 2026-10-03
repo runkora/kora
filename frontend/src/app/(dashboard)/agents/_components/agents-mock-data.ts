@@ -27,6 +27,9 @@ const DAY = 24 * HOUR;
 /** ISO timestamp for a moment `ms` before now. */
 export const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
 
+/** ISO timestamp for a moment `ms` from now. */
+export const ahead = (ms: number): string => new Date(Date.now() + ms).toISOString();
+
 const TENANT = 'ten_8f3a21';
 
 // ── Agent types ──────────────────────────────────────────────────────────────

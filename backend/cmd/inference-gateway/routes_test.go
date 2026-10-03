@@ -11,13 +11,14 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/clear-route/orbit/internal/platform/policy"
 
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
 
 // TestInferenceRoutesUsageScopes pins the personal-vs-privileged split across the
-// /v1/usage tree. The agent-type reads report spend per agent, so they require
-// agents:types:read; the rest are derived from the caller's own claims and need
+// /v1/usage tree. The agent reads report spend per agent, so they require
+// agents:usage:read; the rest are derived from the caller's own claims and need
 // authentication only.
 //
 // It resolves through mw.ResolveRequiredScope, the function the enforcement
@@ -37,9 +38,8 @@ func TestInferenceRoutesUsageScopes(t *testing.T) {
 		{name: "usage stats is personal", path: "/v1/usage/stats", scope: ""},
 		{name: "personal budget", path: "/v1/usage/budget", scope: ""},
 		{name: "run usage meter", path: "/v1/usage/run/run-123", scope: ""},
-		{name: "agent type usage needs the agent scope", path: "/v1/usage/agent-type/token-probe", scope: "agents:types:read"},
-		{name: "agent insights need the agent scope", path: "/v1/usage/agent-insights", scope: "agents:types:read"},
-		{name: "tenant cap needs budget read", path: "/v1/budgets/tenant-cap", scope: "platform:budgets:read"},
+		{name: "agent type usage needs the usage scope", path: "/v1/usage/agent-type/token-probe", scope: "agents:usage:read"},
+		{name: "agent insights need the usage scope", path: "/v1/usage/agent-insights", scope: "agents:usage:read"},
 		{name: "personal analytics", path: "/v1/analytics/me", scope: ""},
 		{name: "tenant analytics", path: "/v1/analytics", scope: "platform:analytics:read"},
 	}
@@ -57,7 +57,8 @@ func TestInferenceRoutesUsageScopes(t *testing.T) {
 	}
 }
 
-// routeRecorder is a logger that keeps the routes the mux registers.
+// routeRecorder keeps the routes the mux registers. The mux has no route
+// listing, so it reads them from the "Registering sub-route" log line.
 type routeRecorder struct {
 	logging.Logger
 	mu     sync.Mutex
@@ -82,11 +83,23 @@ func (r *routeRecorder) Info(_ context.Context, msg string, fields ...logging.Fi
 // "/v1/usage" entry, and an empty scope passes any authenticated caller, so a
 // new route that forgot its entry would expose tenant-wide agent spend. Only the
 // routes derived from the caller's own claims may resolve to no scope.
+// A token holding only a per-agent usage scope does not cover the route scope:
+// covering runs from the broad scope down, never the other way.
+func TestPerAgentUsageScopeDoesNotOpenTheUsageRoutes(t *testing.T) {
+	required, _ := mw.ResolveRequiredScope(inferenceRoutes(), "GET", "/v1/usage/agent-insights")
+	if policy.ScopeCovers("agents:usage:coder:read", required) {
+		t.Errorf("agents:usage:coder:read must not cover %s", required)
+	}
+	if !policy.ScopeCovers(required, "agents:usage:coder:read") {
+		t.Errorf("%s must cover the per-agent scope", required)
+	}
+}
+
 func TestUsageRoutesAreScopedUnlessPersonal(t *testing.T) {
 	rec := &routeRecorder{Logger: logging.NewLoggerWithOutput(io.Discard)}
 	mux := api.NewMux(context.Background(), rec)
 	mux.SetBasePath("/v1")
-	inferencegw.NewController(context.Background(), nil, nil, nil, inferenceRoutes(), "/v1", nil, rec).Boot(mux)
+	inferencegw.NewController(context.Background(), nil, nil, inferenceRoutes(), "/v1", nil, rec).Boot(mux)
 
 	personal := map[string]bool{
 		"/v1/usage":             true,

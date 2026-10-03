@@ -438,8 +438,6 @@ type TenantCapStatus struct {
 	ResetCadence string  `json:"reset_cadence"`
 	SpendUSD     float64 `json:"spend_usd"`
 	Reached      bool    `json:"reached"`
-	// ResetsAt is when the cap's current window ends.
-	ResetsAt time.Time `json:"resets_at"`
 }
 
 // BudgetPrincipalStatus is one principal's row in the budgets principals listing.
@@ -478,11 +476,6 @@ type BudgetPrincipalStatus struct {
 	HasLimit              bool                   `json:"has_limit"`
 	SpendLimitReached     bool                   `json:"spend_limit_reached"`
 	LastActiveAt          string                 `json:"last_active_at,omitempty"` // RFC3339
-}
-
-// TenantCapResponse is the payload returned by GET /v1/budgets/tenant-cap.
-type TenantCapResponse struct {
-	TenantCap *TenantCapStatus `json:"tenant_cap,omitempty"`
 }
 
 // BudgetPrincipalsResponse is the payload returned by GET /v1/budgets/principals.

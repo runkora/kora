@@ -1053,30 +1053,6 @@ func (s *Service) GetRunUsage(ctx context.Context, tenantID, runID string) (RunU
 	return RunUsage{RunID: runID, SpendUSD: spend, TotalTokens: tokens}, nil
 }
 
-// TenantCap returns the tenant rollup cap with its period spend, or nil when
-// the tenant has no cap or its spend cannot be read.
-func (s *Service) TenantCap(ctx context.Context, tenantID string) *TenantCapStatus {
-	tb, err := s.policy.GetTenantBudget(ctx, tenantID)
-	if err != nil || tb == nil {
-		return nil
-	}
-	now := time.Now().UTC()
-	capSpend, err := s.usage.GetTenantSpendSince(ctx, tenantID, periodStart(tb.ResetCadence, now))
-	if err != nil {
-		s.logger.Warn(ctx, "budget.tenant_cap_spend_unavailable",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return nil
-	}
-	return &TenantCapStatus{
-		LimitUSD:     tb.LimitUSD,
-		ResetCadence: tb.ResetCadence,
-		SpendUSD:     capSpend,
-		Reached:      capSpend >= tb.LimitUSD,
-		ResetsAt:     periodEnd(tb.ResetCadence, now),
-	}
-}
-
 // ListBudgetPrincipals returns per-principal budget status for the tenant:
 // every principal with a budget assignment (grant budgets from the compiled
 // bundle, role budgets attributed via their active spend counters) plus every
@@ -1101,7 +1077,21 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 	}
 
 	// Tenant rollup cap with its period spend (DB-authoritative).
-	resp.TenantCap = s.TenantCap(ctx, tenantID)
+	if tb, tbErr := s.policy.GetTenantBudget(ctx, tenantID); tbErr == nil && tb != nil {
+		capSpend, spErr := s.usage.GetTenantSpendSince(ctx, tenantID, periodStart(tb.ResetCadence, now))
+		if spErr != nil {
+			s.logger.Warn(ctx, "budget.tenant_cap_spend_unavailable",
+				logging.Field{Key: "error", Value: spErr.Error()},
+			)
+		} else {
+			resp.TenantCap = &TenantCapStatus{
+				LimitUSD:     tb.LimitUSD,
+				ResetCadence: tb.ResetCadence,
+				SpendUSD:     capSpend,
+				Reached:      capSpend >= tb.LimitUSD,
+			}
+		}
+	}
 
 	// Per-principal period spend — the DB is authoritative.
 	spenders, err := s.usage.GetMonthlySpendByPrincipal(ctx, tenantID, now)

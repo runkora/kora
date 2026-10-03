@@ -18,6 +18,7 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
 // Controller implements the orbit-agents HTTP API.
@@ -421,6 +422,25 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"runs": runs})
+}
+
+// handleRunOutcomes handles GET /api/v1/run-outcomes?period=24h|7d|30d|90d.
+func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	period, err := usagewindow.Parse(r.URL.Query().Get("period"))
+	if err != nil {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	window := usagewindow.For(period, time.Now())
+	out, err := c.runs.RunOutcomes(ctx, window.Start, window.End)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to count run outcomes", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, out)
 }
 
 func (c *Controller) handleGetRun(w http.ResponseWriter, r *http.Request) {

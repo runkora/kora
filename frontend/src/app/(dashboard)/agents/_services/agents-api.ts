@@ -5,6 +5,8 @@
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
+  AgentInsightsPeriod,
+  AgentInsightsResponse,
   AgentType,
   AgentTypeDraft,
   ConnectionCatalogEntry,
@@ -37,6 +39,23 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
   }
   const body = (await res.json()) as { data: AgentType[] };
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
+}
+
+// ── fetchAgentInsights ────────────────────────────────────────────────────────
+// The page rollups for one window: usage, model split, trend, budgets and run
+// outcomes. Never throws; on error `data` is null.
+
+export async function fetchAgentInsights(
+  period: AgentInsightsPeriod,
+): Promise<{ data: AgentInsightsResponse | null; error: string | null }> {
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.agentInsights.window(period), { cache: 'no-store' });
+  } catch {
+    return { data: null, error: 'Network error: could not reach the server.' };
+  }
+  if (!res.ok) return { data: null, error: `Request failed (${res.status})` };
+  return { data: (await res.json()) as AgentInsightsResponse, error: null };
 }
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────

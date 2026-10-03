@@ -22,6 +22,7 @@ import {
 } from '@orbit/terra';
 import type { StatusDotProps } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
+import { RUNNING_ROWS } from '../_lib/spend';
 import { formatDuration, formatRelativeTime } from '../_types';
 import type { RunRow } from '../_types';
 
@@ -39,9 +40,6 @@ export const LIVE_STATES: Record<
 export function isLiveRun(run: RunRow): boolean {
   return run.state in LIVE_STATES;
 }
-
-/** The most runs the table lists. The header counts them all. */
-const MAX_ROWS = 10;
 
 export interface RunningNowCardProps {
   /** Only runs that are live; see `isLiveRun`. */
@@ -101,7 +99,7 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {runs.slice(0, MAX_ROWS).map((run) => {
+                {runs.slice(0, RUNNING_ROWS).map((run) => {
                   const state = LIVE_STATES[run.state];
                   return (
                     <TableRow key={run.id}>
@@ -156,11 +154,11 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
             </Table>
           </TableRoot>
         )}
-        {runs.length > MAX_ROWS && (
+        {runs.length > RUNNING_ROWS && (
           <CardFooter compact>
             <Text size="caption" color="subtle">
-              +{runs.length - MAX_ROWS} more {runs.length - MAX_ROWS === 1 ? 'run' : 'runs'} not
-              shown
+              +{runs.length - RUNNING_ROWS} more {runs.length - RUNNING_ROWS === 1 ? 'run' : 'runs'}{' '}
+              not shown
             </Text>
           </CardFooter>
         )}

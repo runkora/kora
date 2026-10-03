@@ -31,8 +31,8 @@ import { AgentCard } from './agent-card';
 import { AgentStatTiles } from './agent-stat-tiles';
 import { AgentsSpendCard } from './agents-spend-card';
 import { RunningNowCard, isLiveRun } from './running-now-card';
-import { PERIOD_OPTIONS, PERIOD_TEXT } from '../_lib/spend';
-import type { AgentsInsights, Period } from '../_lib/spend';
+import { DEFAULT_PERIOD, PERIOD_OPTIONS, PERIOD_TEXT } from '../_lib/spend';
+import type { Period } from '../_lib/spend';
 import { formatRelativeTime } from '../_types';
 import type { AgentTypeRow } from '../_types';
 
@@ -68,16 +68,11 @@ const frameworkVariantMap: Record<string, 'default' | 'outline' | 'secondary'> =
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface AgentsPageProps {
-  /**
-   * The optional parts of the page; see `AgentsInsights`. Left out, the page
-   * loads them itself from the BFF, so only stories and tests pass it.
-   */
-  insights?: AgentsInsights;
-  /** The 7-day insights the server render fetched, so first paint has real data. */
+  /** The default window's insights, fetched by the server render so first paint has data. */
   initialInsights?: AgentInsightsResponse | null;
 }
 
-export function AgentsPage({ insights, initialInsights }: AgentsPageProps) {
+export function AgentsPage({ initialInsights }: AgentsPageProps) {
   const { agentTypes, recentRuns, status, error, refresh } = useAgentsContext();
   const router = useRouter();
   const { drafts, refresh: refreshDrafts } = useDrafts();
@@ -87,17 +82,11 @@ export function AgentsPage({ insights, initialInsights }: AgentsPageProps) {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [identityFilter, setIdentityFilter] = useState<'all' | 'autonomous' | 'delegated'>('all');
   const [draftsOpen, setDraftsOpen] = useState(false);
-  const [period, setPeriod] = useState<Period>('7d');
+  const [period, setPeriod] = useState<Period>(DEFAULT_PERIOD);
 
-  // ── The window the period figures cover ────────────────────────────────────
-  // The control picks the window. The 7-day window comes with the server
-  // render, and any other period is fetched when first selected. Without data
-  // for the window the figures say so rather than show zeros.
-
-  const live = useAgentsInsights(period, agentTypes, insights === undefined, initialInsights);
-  const data = insights ?? live.insights;
-  const windowStatus = insights ? 'ready' : live.status;
-  const windowData = data?.byPeriod?.[period];
+  // The control picks the window. Without data for it the figures say so rather than show zeros.
+  const { insights, status: windowStatus } = useAgentsInsights(period, agentTypes, initialInsights);
+  const windowData = insights?.byPeriod[period];
   const usage = useMemo(() => windowData?.usage ?? {}, [windowData]);
   const periodText = PERIOD_TEXT[period].text;
   const unavailableText = windowStatus === 'loading' ? 'Loading' : 'Unavailable';
@@ -136,22 +125,19 @@ export function AgentsPage({ insights, initialInsights }: AgentsPageProps) {
 
   // The window's spend is the total over every agent, deleted ones included. The
   // legend lists the current agents, and what is left of the total is the
-  // deleted agents', so the rows add up to it. A delegated agent's usage is the
-  // caller's own unless the caller sees every row.
-  const ownDelegated = windowData?.delegatedOwnOnly ?? false;
+  // deleted agents', so the rows add up to it.
   const spendByAgent = useMemo(
     () =>
       agentTypes
-        .map((a) => ({
-          name: ownDelegated && a.identityMode === 'delegated' ? `${a.name} (your usage)` : a.name,
-          cost: usage[a.slug]?.estimated_cost_usd ?? 0,
-        }))
+        .map((a) => ({ name: a.name, cost: usage[a.slug]?.estimated_cost_usd ?? 0 }))
         .filter((row) => row.cost > 0)
         .sort((x, y) => y.cost - x.cost),
-    [agentTypes, usage, ownDelegated],
+    [agentTypes, usage],
   );
   const totalCost = windowData?.total ?? 0;
-  const deletedCost = Math.max(totalCost - spendByAgent.reduce((n, row) => n + row.cost, 0), 0);
+  const remainder = totalCost - spendByAgent.reduce((n, row) => n + row.cost, 0);
+  // Under half a cent is rounding in the sums, not a deleted agent.
+  const deletedCost = remainder > 0.005 ? remainder : 0;
 
   const agentCounts = {
     total: agentTypes.length,
@@ -306,14 +292,12 @@ export function AgentsPage({ insights, initialInsights }: AgentsPageProps) {
           </Text>
         </Stack>
         <Stack direction="horizontal" gap="snug" align="center">
-          {(insights ? insights.byPeriod : true) && (
-            <SegmentedControl
-              aria-label="Period"
-              value={period}
-              onChange={(value) => setPeriod(value as Period)}
-              options={PERIOD_OPTIONS}
-            />
-          )}
+          <SegmentedControl
+            aria-label="Period"
+            value={period}
+            onChange={(value) => setPeriod(value as Period)}
+            options={PERIOD_OPTIONS}
+          />
           <DraftsButton
             count={drafts.length}
             open={draftsOpen}
@@ -364,15 +348,14 @@ export function AgentsPage({ insights, initialInsights }: AgentsPageProps) {
         />
         <AgentsSpendCard
           agents={spendByAgent}
-          deletedCost={deletedCost > 1e-9 ? deletedCost : 0}
+          deletedCost={deletedCost}
           total={totalCost}
           periodText={periodText}
           previousText={PERIOD_TEXT[period].previous}
           models={windowData?.models}
           trend={windowData?.trend}
           previousTotal={windowData?.previousTotal}
-          budgets={data?.budgets}
-          tenantBudget={data?.tenantBudget}
+          budgets={insights?.budgets}
           emptyText={windowStatus === 'ready' ? undefined : spendEmptyText}
         />
       </Grid>
@@ -409,7 +392,6 @@ export function AgentsPage({ insights, initialInsights }: AgentsPageProps) {
               liveRuns={activeRunsByType.get(agent.id) ?? 0}
               period={period}
               usageNote={windowStatus === 'ready' ? undefined : unavailableText}
-              yourUsage={ownDelegated && agent.identityMode === 'delegated'}
               onRun={setStartRunTarget}
             />
           ))}

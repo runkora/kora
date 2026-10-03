@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -14,6 +13,7 @@ import (
 	"github.com/clear-route/orbit/internal/agents"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
 
 // stubSlugLister is the whole repository surface scope registration uses.
@@ -117,9 +117,15 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 			t.Errorf("route %s %s requires undeclared scope %q", r.Method, r.PathPrefix, r.RequiredScope)
 		}
 	}
-	for _, want := range []string{"agents:runs:triage:read", "agents:runs:triage:write"} {
+	for _, want := range []string{"agents:runs:triage:read", "agents:runs:triage:write", "agents:usage:triage:read"} {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("per-agent-type scope %q missing from the registration", want)
+		}
+	}
+	// The gateway's usage routes and the delegated-run visibility check use these.
+	for _, want := range []string{"agents:usage:read", "agents:delegated:read"} {
+		if _, ok := declared[want]; !ok {
+			t.Errorf("scope %q missing from the registration", want)
 		}
 	}
 }
@@ -142,8 +148,7 @@ func TestAgentRoutesFilterDropsOnlyUnscopedRoutes(t *testing.T) {
 	}
 }
 
-// TestAgentRoutesRunOutcomesScope pins the scope on the run outcomes route, and
-// that it does not fall to the authenticated-only /api/v1/runs POST entry.
+// TestAgentRoutesRunOutcomesScope pins the scope on the run outcomes route.
 func TestAgentRoutesRunOutcomesScope(t *testing.T) {
 	got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", "/api/v1/run-outcomes")
 	if !ok || got != "agents:runs:read" {

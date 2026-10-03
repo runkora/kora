@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
 // InferenceUsageRepository defines the storage contract for inference usage records.
@@ -96,6 +97,18 @@ type InferenceUsageRepository interface {
 	// This is the per-request resolution that backs role-budget attribution and
 	// enforcement for credentials that carry no roles claim.
 	GetPrincipalRoles(ctx context.Context, tenantID, principalID string) ([]string, error)
+
+	// AgentUsage returns the tenant's agent usage per agent and model over the
+	// window, or for one agent when slug is set. Powers the Agents page.
+	AgentUsage(ctx context.Context, tenantID string, w usagewindow.Window, slug string) ([]AgentModelUsage, error)
+
+	// AgentSpendBuckets returns the previous window's total agent spend and the
+	// spend in each bucket of the window.
+	AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window) (previous float64, buckets []float64, err error)
+
+	// AgentBudgetSpend returns each listed agent's spend since the start of the
+	// current week and month.
+	AgentBudgetSpend(ctx context.Context, tenantID string, slugs []string, weekStart, monthStart time.Time) ([]AgentBudgetSpend, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────

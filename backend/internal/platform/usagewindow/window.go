@@ -3,7 +3,7 @@
 package usagewindow
 
 import (
-	"fmt"
+	"errors"
 	"time"
 )
 
@@ -17,43 +17,46 @@ const (
 	Period90d Period = "90d"
 )
 
+// ErrInvalidPeriod is returned by Parse for a value that is not a period.
+var ErrInvalidPeriod = errors.New("period must be one of 24h, 7d, 30d, 90d")
+
 const day = 24 * time.Hour
 
-// windows are each period's length and chart bucket width. The width divides the
-// length, so every bucket is whole: 8, 7, 10 and 15 points.
-var windows = map[Period]struct{ length, bucket time.Duration }{
-	Period24h: {day, 3 * time.Hour},
-	Period7d:  {7 * day, day},
-	Period30d: {30 * day, 3 * day},
-	Period90d: {90 * day, 6 * day},
+// sizes returns a period's length and chart bucket width. The width divides the
+// length, so every bucket is whole: 8, 7, 10 and 15 points. An unknown period
+// gets the 7d sizes, so a Window never has a zero bucket.
+func sizes(p Period) (length, bucket time.Duration) {
+	switch p {
+	case Period24h:
+		return day, 3 * time.Hour
+	case Period30d:
+		return 30 * day, 3 * day
+	case Period90d:
+		return 90 * day, 6 * day
+	default:
+		return 7 * day, day
+	}
 }
 
 // Parse validates a period query value. An empty value is 7d.
 func Parse(raw string) (Period, error) {
-	if raw == "" {
+	switch p := Period(raw); p {
+	case "":
 		return Period7d, nil
+	case Period24h, Period7d, Period30d, Period90d:
+		return p, nil
 	}
-	if _, ok := windows[Period(raw)]; !ok {
-		return "", fmt.Errorf("period must be one of 24h, 7d, 30d, 90d: %q", raw)
-	}
-	return Period(raw), nil
+	return "", ErrInvalidPeriod
 }
 
 // Window is a period's trailing window [Start, End). Buckets count from Start.
 type Window struct {
-	Period     Period
 	Start, End time.Time
 	Bucket     time.Duration
 }
 
 // For returns a period's window ending at end.
 func For(p Period, end time.Time) Window {
-	w := windows[p]
-	return Window{Period: p, Start: end.Add(-w.length), End: end, Bucket: w.bucket}
+	length, bucket := sizes(p)
+	return Window{Start: end.Add(-length), End: end, Bucket: bucket}
 }
-
-// Buckets is the number of chart points in the window.
-func (w Window) Buckets() int { return int(w.End.Sub(w.Start) / w.Bucket) }
-
-// PreviousStart is where the window of the same length before this one begins.
-func (w Window) PreviousStart() time.Time { return w.Start.Add(-w.End.Sub(w.Start)) }

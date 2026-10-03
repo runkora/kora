@@ -176,9 +176,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
 	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
-	insights := inferencegw.NewAgentInsightsService(usageRepo, pol, logger)
 	controllers := []api.Controller{
-		inferencegw.NewController(ctx, svc, insights, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
+		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
 		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}
 	return controllers, register, nil
@@ -258,17 +257,12 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
-		// The agent usage reads need agents:types:read, not platform:analytics:read,
-		// so the people building agents can see what their agents spend. The scope
-		// check is a prefix rule: a token with only a per-agent scope is refused, and
-		// a caller who passes may read every agent. What a caller sees of a delegated
-		// agent is decided by one predicate in the query.
-		//
-		// A /v1/usage route with no entry of its own falls to the open /v1/usage
-		// entry below, so every new one needs its own. routes_test.go fails on one
-		// that resolves to no scope.
-		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:types:read"},
-		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:types:read"},
+		// Agent usage is tenant-wide aggregates, readable with agents:usage:read. A
+		// token with only agents:usage:{slug}:read is refused here: the prefix rule
+		// does not run the other way. A /v1/usage route with no entry of its own
+		// falls to the open /v1/usage entry below; routes_test.go fails on one.
+		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:usage:read"},
+		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:usage:read"},
 		// GET /v1/usage is the caller's own inference usage log; tenant and
 		// principal come from the verified claims.
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},

@@ -11,7 +11,7 @@ func TestPostgres_GuardrailsRoundTrip(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()
 
-	at := seedRunAgentType(t, r, tenant)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 	got, err := r.GetAgentType(ctx, at.ID)
 	if err != nil {
 		t.Fatalf("GetAgentType: %v", err)

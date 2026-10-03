@@ -309,9 +309,8 @@ export const ApiRoute = {
   /**
    * `/api/agents/insights?period=24h|7d|30d|90d`
    *
-   * GET: the Agents page rollups for the agents the caller may see. Usage, model
-   * split, spend over time, budgets and run outcomes for one window, and the
-   * tenant cap when the caller may read it.
+   * GET: the Agents page rollups. Usage, model split, spend over time, budgets
+   * and run outcomes for one window.
    */
   agentInsights: {
     window: (
@@ -342,15 +341,12 @@ export const ApiRoute = {
     /**
      * `/api/agents/types/usage/[slug]`
      *
-     * GET — returns the agent's token breakdown and spend over the last 7 days by
-     *       slug, from the inference gateway, if the caller may see the agent. Powers the token breakdown and spend
+     * GET — returns the agent's 7-day token breakdown and spend by slug, sourced
+     *       from the inference gateway. Powers the token breakdown and spend
      *       cards on the agent overview page.
      */
-    usage: (
-      slug: string,
-      period: AgentInsightsPeriod = '7d',
-    ): `${typeof API_BASE}/agents/types/usage/${string}` =>
-      `${API_BASE}/agents/types/usage/${encodeURIComponent(slug)}?period=${period}`,
+    usage: (slug: string): `${typeof API_BASE}/agents/types/usage/${string}` =>
+      `${API_BASE}/agents/types/usage/${encodeURIComponent(slug)}`,
     /**
      * `/api/agents/types/drafts`
      *

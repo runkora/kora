@@ -12,19 +12,6 @@ import (
 // ORBIT_TEST_DB_URL points at a database with the orbit-agents migrations
 // applied (see testRunRepo).
 
-func seedOutcomeAgent(t *testing.T, r *PostgresRepository, tenant string, mode IdentityMode) AgentType {
-	t.Helper()
-	at := AgentType{
-		ID: uuid.NewString(), TenantID: tenant, Name: "A", Slug: "a-" + uuid.NewString()[:8],
-		State: AgentTypeStateActive, MaxConcurrentRunsPerPod: 5, IdentityMode: mode,
-		GrantScopes: []string{}, Connectors: []Connector{}, MCPTools: []string{},
-	}
-	if err := r.CreateAgentType(context.Background(), at); err != nil {
-		t.Fatalf("CreateAgentType: %v", err)
-	}
-	return at
-}
-
 // seedFinishedRun writes a run that started `started` ago and finished `finished` ago.
 func seedFinishedRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID, createdBy string, state RunState, started, finished time.Duration) {
 	t.Helper()
@@ -42,8 +29,8 @@ func seedFinishedRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID, c
 func TestPostgres_CountRunOutcomes(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()
-	auto := seedOutcomeAgent(t, r, tenant, IdentityModeAutonomous)
-	del := seedOutcomeAgent(t, r, tenant, IdentityModeDelegated)
+	auto := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	del := seedRunAgentType(t, r, tenant, IdentityModeDelegated)
 	// The other tenant's run references this tenant's agent type, so it goes first.
 	t.Cleanup(func() { _, _ = r.pool.Exec(ctx, `DELETE FROM runs WHERE tenant_id=$1`, tenant+"-other") })
 
@@ -65,7 +52,7 @@ func TestPostgres_CountRunOutcomes(t *testing.T) {
 		want RunOutcomes
 	}{
 		{"a person sees the autonomous runs and their own delegated run", RunVisibility{Subject: "alice"}, RunOutcomes{Completed: 3, Failed: 1}},
-		{"an admin sees every run", RunVisibility{SeeAll: true}, RunOutcomes{Completed: 4, Failed: 2}},
+		{"a holder of agents:delegated:read sees every run", RunVisibility{SeeAll: true}, RunOutcomes{Completed: 4, Failed: 2}},
 		{"an empty subject sees no delegated run", RunVisibility{}, RunOutcomes{Completed: 2, Failed: 1}},
 	}
 	for _, tc := range cases {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@orbit/test-utils';
+import { BUDGET_ROWS } from '../_lib/spend';
 import { AgentsSpendCard } from './agents-spend-card';
 
 const BASE = {
@@ -54,24 +55,18 @@ describe('AgentsSpendCard', () => {
     }));
     const total = agents.reduce((n, a) => n + a.cost, 0);
 
-    it('folds the legend into the top agents and Other', () => {
-      renderWithProviders(<AgentsSpendCard {...BASE} agents={agents} total={total} />);
-      expect(screen.getByText('Other (145)')).toBeInTheDocument();
-      expect(screen.queryByText('Agent 7')).not.toBeInTheDocument();
-    });
-
-    it('shows eight budget rows, the closest to their limit first, and counts the rest', async () => {
+    it('shows the first budget rows it is given and counts the rest', async () => {
       const budgets = agents.map((a, i) => ({
         name: a.name,
-        windows: [win('monthly', 1000 - i, i)],
+        windows: [win('monthly', 1000, i)],
       }));
       renderWithProviders(
         <AgentsSpendCard {...BASE} agents={agents} total={total} budgets={budgets} />,
       );
       await openBudgets();
-      expect(screen.getByText('Agent 150')).toBeInTheDocument();
-      expect(screen.queryByText('Agent 1')).not.toBeInTheDocument();
-      expect(screen.getByText('+142 more agents not shown')).toBeInTheDocument();
+      expect(screen.getByText('Agent 1')).toBeInTheDocument();
+      expect(screen.queryByText(`Agent ${BUDGET_ROWS + 1}`)).not.toBeInTheDocument();
+      expect(screen.getByText(`+${150 - BUDGET_ROWS} more agents not shown`)).toBeInTheDocument();
     });
   });
 });

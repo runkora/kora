@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closestToLimit, groupTail } from './spend';
+import { closestToLimit, groupTail, isPeriod } from './spend';
 import type { BudgetRow } from './spend';
 
 const row = (name: string, ...windows: [number, number][]): BudgetRow => ({
@@ -31,5 +31,13 @@ describe('closestToLimit', () => {
       row('zero', [0, 0]),
     ]);
     expect(ordered.map((r) => r.name)).toEqual(['zero', 'over', 'two windows', 'low']);
+  });
+});
+
+describe('isPeriod', () => {
+  it('accepts the four windows and nothing else, including inherited object keys', () => {
+    expect(['24h', '7d', '30d', '90d'].every(isPeriod)).toBe(true);
+    expect(isPeriod('1y')).toBe(false);
+    expect(isPeriod('constructor')).toBe(false);
   });
 });

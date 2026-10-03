@@ -616,11 +616,17 @@ func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
 
 func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
 	t.Helper()
+	return newTestServiceWithEval(t, &allowAllEvaluator{})
+}
+
+// newTestServiceWithEval builds the test services over the given evaluator.
+func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
+	t.Helper()
 	repo := newMockRepository()
 	k8s := &mockK8s{}
 	sm := &mockSMClient{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	authz := NewAuthz(&allowAllEvaluator{})
+	authz := NewAuthz(eval)
 	atSvc := NewAgentTypeService(
 		repo, repo, k8s, authz,
 		AgentTypeServiceConfig{
