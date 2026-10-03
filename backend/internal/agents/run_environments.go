@@ -212,34 +212,34 @@ func (s *RunService) ReplaceEnvironment(ctx context.Context, runID, name string)
 		trace.WithAttributes(attribute.String("run_id", runID), attribute.String("environment", name)))
 	defer span.End()
 
-	fail := func(status, err error) (Sandbox, error) {
+	fail := func(status, err error) error {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, status.Error())
-		return Sandbox{}, err
+		return err
 	}
 	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
-		return fail(errLoadRun, err)
+		return Sandbox{}, fail(errLoadRun, err)
 	}
 	envs, err := s.agentEnvironments(ctx, *at)
 	if err != nil {
-		return fail(errResolveEnvironment, err)
+		return Sandbox{}, fail(errResolveEnvironment, err)
 	}
 	env, err := pickEnvironment(envs, strings.TrimSpace(name), nil)
 	if err != nil {
-		return fail(errResolveEnvironment, err)
+		return Sandbox{}, fail(errResolveEnvironment, err)
 	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	current, live, err := s.currentEnvironment(ctx, *run, namespace)
 	if err != nil {
-		return fail(errResolveEnvironment, err)
+		return Sandbox{}, fail(errResolveEnvironment, err)
 	}
 	if live && env.ID == current {
-		return fail(errResolveEnvironment, fmt.Errorf("%w: %q", ErrSameEnvironment, env.Name))
+		return Sandbox{}, fail(errResolveEnvironment, fmt.Errorf("%w: %q", ErrSameEnvironment, env.Name))
 	}
 	spec, err := s.sandboxSpec(ctx, namespace, env)
 	if err != nil {
-		return fail(errResolveSandboxImage, err)
+		return Sandbox{}, fail(errResolveSandboxImage, err)
 	}
 	spec.KubeClusters, _ = s.sandboxKubeClusters(ctx, *at)
 
