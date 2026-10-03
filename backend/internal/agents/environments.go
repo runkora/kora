@@ -88,23 +88,13 @@ func DefaultEnvironment(size EnvironmentSize) Environment {
 	}
 }
 
-// ImageName is the SandboxImage the environment runs.
-func (e Environment) ImageName() string {
-	if e.SandboxImage == "" {
-		return si.BaseName
-	}
-	return e.SandboxImage
-}
-
 // Validate checks the environment is well-formed and its size within maxSize.
 func (e Environment) Validate(maxSize EnvironmentSize) error {
 	if strings.TrimSpace(e.Name) == "" {
 		return fmt.Errorf("environment name must not be empty")
 	}
-	if e.SandboxImage != "" {
-		if errs := validation.IsDNS1123Label(e.SandboxImage); len(errs) > 0 {
-			return fmt.Errorf("sandbox_image %q: %s", e.SandboxImage, strings.Join(errs, "; "))
-		}
+	if errs := validation.IsDNS1123Label(e.SandboxImage); len(errs) > 0 {
+		return fmt.Errorf("sandbox_image %q: %s", e.SandboxImage, strings.Join(errs, "; "))
 	}
 	if err := e.Size.within(maxSize); err != nil {
 		return err
@@ -134,14 +124,6 @@ func (s EnvironmentSize) within(maxSize EnvironmentSize) error {
 		}
 	}
 	return nil
-}
-
-// imageOrBase is the named SandboxImage, or kora-base when none is named.
-func imageOrBase(name string) string {
-	if name = strings.TrimSpace(name); name != "" {
-		return name
-	}
-	return si.BaseName
 }
 
 // withDefaults fills each empty dimension from def.
@@ -274,11 +256,6 @@ func (s *EnvironmentService) Sizes() EnvironmentSizes {
 	return s.cfg.Sizes
 }
 
-// DefaultEnvironment is the built-in environment of agents with none attached.
-func (s *EnvironmentService) DefaultEnvironment() Environment {
-	return DefaultEnvironment(s.cfg.Sizes.Default)
-}
-
 // UpdateEnvironment replaces an environment's fields and recompiles the grants
 // of the agents it is attached to.
 func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req EnvironmentRequest) (*Environment, error) {
@@ -341,12 +318,17 @@ func (s *EnvironmentService) fromRequest(tenantID, id string, req EnvironmentReq
 	if connectors == nil {
 		connectors = []Connector{}
 	}
+	// A request that names no image gets the base image.
+	image := strings.TrimSpace(req.SandboxImage)
+	if image == "" {
+		image = si.BaseName
+	}
 	return Environment{
 		ID:           id,
 		TenantID:     tenantID,
 		Name:         strings.TrimSpace(req.Name),
 		Description:  req.Description,
-		SandboxImage: imageOrBase(req.SandboxImage),
+		SandboxImage: image,
 		Size:         req.Size.withDefaults(s.cfg.Sizes.Default),
 		EgressHosts:  trimNonEmpty(req.EgressHosts),
 		Connectors:   connectors,
@@ -358,22 +340,24 @@ func (s *EnvironmentService) validate(ctx context.Context, env Environment) erro
 	if err := env.Validate(s.cfg.Sizes.Max); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEnvironment, err)
 	}
-	if s.images == nil {
-		return nil
-	}
-	// kora-base must be registered and valid like any other image.
-	name := env.ImageName()
-	img, err := s.images.SandboxImage(ctx, s.cfg.TenantNamespaceFn(env.TenantID), name)
+	_, err := usableSandboxImage(ctx, s.images, s.cfg.TenantNamespaceFn(env.TenantID), env.SandboxImage, ErrInvalidEnvironment)
+	return err
+}
+
+// usableSandboxImage returns the named SandboxImage when it is registered and
+// valid. A missing or invalid image is reported with the caller's sentinel.
+func usableSandboxImage(ctx context.Context, images sandboxImageLookup, namespace, name string, sentinel error) (*si.SandboxImage, error) {
+	img, err := images.SandboxImage(ctx, namespace, name)
 	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("%w: sandbox image %q is not registered", ErrInvalidEnvironment, name)
+		return nil, fmt.Errorf("%w: sandbox image %q is not registered", sentinel, name)
 	}
 	if err != nil {
-		return fmt.Errorf("look up sandbox image %q: %w", name, err)
+		return nil, fmt.Errorf("look up sandbox image %q: %w", name, err)
 	}
 	if !img.Valid() {
-		return fmt.Errorf("%w: sandbox image %q is not valid: %s", ErrInvalidEnvironment, name, sandboxImageProblem(img))
+		return nil, fmt.Errorf("%w: sandbox image %q is not valid: %s", sentinel, name, sandboxImageProblem(img))
 	}
-	return nil
+	return img, nil
 }
 
 // sandboxImageProblem is the operator's reason a SandboxImage is not valid.

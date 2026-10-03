@@ -15,7 +15,7 @@ import (
 )
 
 func TestEnvironmentValidate_Size(t *testing.T) {
-	base := Environment{Name: "go"}
+	base := Environment{Name: "go", SandboxImage: si.BaseName}
 	for _, tc := range []struct {
 		name    string
 		size    EnvironmentSize

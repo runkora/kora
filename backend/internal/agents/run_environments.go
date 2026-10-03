@@ -117,16 +117,9 @@ func (s *RunService) currentEnvironment(ctx context.Context, run Run, namespace 
 // sandboxSpec resolves the environment's image to its pinned digest. A missing
 // or invalid SandboxImage cannot start a sandbox.
 func (s *RunService) sandboxSpec(ctx context.Context, namespace string, env Environment) (SandboxSpec, error) {
-	name := env.ImageName()
-	img, err := s.images.SandboxImage(ctx, namespace, name)
-	if errors.Is(err, ErrNotFound) {
-		return SandboxSpec{}, fmt.Errorf("%w: sandbox image %q is not registered", ErrSandboxImageUnavailable, name)
-	}
+	img, err := usableSandboxImage(ctx, s.images, namespace, env.SandboxImage, ErrSandboxImageUnavailable)
 	if err != nil {
 		return SandboxSpec{}, err
-	}
-	if !img.Valid() {
-		return SandboxSpec{}, fmt.Errorf("%w: sandbox image %q is not valid: %s", ErrSandboxImageUnavailable, name, sandboxImageProblem(img))
 	}
 	spec := SandboxSpec{
 		EnvironmentID: env.ID,
@@ -196,7 +189,7 @@ func (s *RunService) ListRunEnvironments(ctx context.Context, runID string) ([]R
 		out = append(out, RunEnvironment{
 			Name:        e.Name,
 			Description: e.Description,
-			Image:       e.ImageName(),
+			Image:       e.SandboxImage,
 			Size:        e.Size,
 			Default:     i == 0,
 			Current:     live && e.ID == current,

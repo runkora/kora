@@ -159,7 +159,5 @@ func scanEnvironment(s scanner) (*Environment, error) {
 	if e.EgressHosts == nil {
 		e.EgressHosts = []string{}
 	}
-	// A row written before the image was stored explicitly runs the base image.
-	e.SandboxImage = imageOrBase(e.SandboxImage)
 	return &e, nil
 }
