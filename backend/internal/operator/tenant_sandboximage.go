@@ -23,8 +23,11 @@ type SandboxBase struct {
 func (r *TenantReconciler) ensureBaseSandboxImage(ctx context.Context, tenant *OrbitTenant) error {
 	desired := baseSandboxImage(tenantNamespace(tenant), tenant.Name, r.SandboxBase)
 	err := r.Create(ctx, desired)
-	if err == nil || !apierrors.IsAlreadyExists(err) {
-		return err
+	if err == nil {
+		return nil
+	}
+	if !apierrors.IsAlreadyExists(err) {
+		return fmt.Errorf("create SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
 	}
 	if err := r.Patch(ctx, desired, client.Merge, client.FieldOwner("orbit-operator")); err != nil {
 		return fmt.Errorf("patch SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
