@@ -111,7 +111,7 @@ Each tenant registers sandbox images as `SandboxImage` resources built on `kora-
 
 *   It keeps the general command-line tools, Go and Python. It drops Node.
 *   It runs as uid 100.
-*   It sets the label `io.kora.sandbox.base=<version>`.
+*   It sets the label `io.orbit.sandbox.base=<version>`.
 
 The default environment uses the base image.
 
@@ -124,7 +124,7 @@ The default environment uses the base image.
 
 ### 3. Validation
 
-The operator reads the image config from the registry. An image is valid when it runs as uid 100 and carries the `io.kora.sandbox.base` label. An invalid image cannot be selected. Its status states the failure.
+The operator reads the image config from the registry. An image is valid when it runs as uid 100 and carries the `io.orbit.sandbox.base` label. An invalid image cannot be selected. Its status states the failure.
 
 ### 4. Warming
 
