@@ -73,7 +73,7 @@ type K8sProvisionerConfig struct {
 	// SandboxImage is the base image reference. Rendered previews use it; a
 	// live sandbox runs the digest the operator pinned on its SandboxImage.
 	SandboxImage string
-	// DefaultSandboxSize sizes the built-in default environment and rendered previews.
+	// DefaultSandboxSize sizes rendered previews.
 	DefaultSandboxSize EnvironmentSize
 	SandboxGRPCPort    int32
 	// GitAuthorName/GitAuthorEmail set the git identity for commits the agent
@@ -547,24 +547,22 @@ func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace str
 	)
 	defer span.End()
 
-	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, fmt.Sprintf("sandbox-%s", runID), metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return Sandbox{}, false, nil
-	}
+	pod, err := p.sandboxPod(ctx, runID, namespace)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get sandbox pod")
-		return Sandbox{}, false, fmt.Errorf("get sandbox pod: %w", err)
+		return Sandbox{}, false, err
+	}
+	if pod == nil {
+		return Sandbox{}, false, nil
 	}
 	// A pod that exists but cannot be used is not the same answer as no pod.
 	// found=false reaches orbit-shell as "this run never had a sandbox", which
 	// sends the command to a local shell, so only a genuinely absent pod earns
 	// it. Everything else is an error, and the caller stops.
 	switch {
-	case pod.DeletionTimestamp != nil:
-		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is terminating", errSandboxUnusable, pod.Name)
-	case pod.Status.Phase == corev1.PodFailed, pod.Status.Phase == corev1.PodSucceeded:
-		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is %s", errSandboxUnusable, pod.Name, pod.Status.Phase)
+	case !podLive(pod):
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is terminating or finished", errSandboxUnusable, pod.Name)
 	case pod.Status.PodIP == "":
 		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s has no address yet", errSandboxUnusable, pod.Name)
 	}
@@ -738,10 +736,7 @@ func (p *K8sProvisioner) replaceIfDeadSandboxPod(ctx context.Context, pod *corev
 		return false, fmt.Errorf("get existing sandbox pod: %w", err)
 	}
 
-	alive := existing.DeletionTimestamp == nil &&
-		existing.Status.Phase != corev1.PodFailed &&
-		existing.Status.Phase != corev1.PodSucceeded
-	if alive {
+	if podLive(existing) {
 		return false, nil
 	}
 
@@ -2098,17 +2093,28 @@ func ignoreNotFound(err error) error {
 // SandboxEnvironment reports the environment of the run's sandbox pod while it
 // is starting or running. live is false when there is no pod, or it is dead or terminating.
 func (p *K8sProvisioner) SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error) {
-	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, fmt.Sprintf("sandbox-%s", runID), metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, fmt.Errorf("get sandbox pod: %w", err)
-	}
-	if pod.DeletionTimestamp != nil || pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
-		return "", false, nil
+	pod, err := p.sandboxPod(ctx, runID, namespace)
+	if err != nil || pod == nil || !podLive(pod) {
+		return "", false, err
 	}
 	return pod.Annotations[annotationEnvironmentID], true, nil
+}
+
+// sandboxPod returns the run's sandbox pod, or nil when there is none.
+func (p *K8sProvisioner) sandboxPod(ctx context.Context, runID, namespace string) (*corev1.Pod, error) {
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, fmt.Sprintf("sandbox-%s", runID), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get sandbox pod: %w", err)
+	}
+	return pod, nil
+}
+
+// podLive reports a pod that is neither terminating nor finished.
+func podLive(pod *corev1.Pod) bool {
+	return pod.DeletionTimestamp == nil && pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded
 }
 
 // SandboxImage reads a SandboxImage in a tenant namespace. ErrNotFound when there is none.
