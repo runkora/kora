@@ -484,7 +484,7 @@ func TestHandleProvisionSandbox_LostSandboxIs503(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-1/provision-sandbox", nil)
+	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-1/provision-sandbox", strings.NewReader("{}"))
 	r.SetPathValue("runID", "run-1")
 	r.Header.Set(runTokenHeader, tok)
 	c.handleProvisionSandbox(w, r)

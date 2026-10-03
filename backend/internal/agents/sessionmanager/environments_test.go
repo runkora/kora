@@ -55,6 +55,8 @@ type envNotifier struct {
 	replaced    string
 	runErrors   int
 	environment string
+	// replaceCtxErr is the replacement context's error when the call began.
+	replaceCtxErr error
 }
 
 func (n *envNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, env string) (Sandbox, error) {
@@ -65,10 +67,11 @@ func (n *envNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, env 
 	return Sandbox{}, fmt.Errorf("%w: not attached", ErrEnvironmentRejected)
 }
 
-func (n *envNotifier) ReplaceEnvironment(_ context.Context, _ string, env string) (Sandbox, error) {
+func (n *envNotifier) ReplaceEnvironment(ctx context.Context, _ string, env string) (Sandbox, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.replaced = env
+	n.replaceCtxErr = ctx.Err()
 	return Sandbox{Endpoint: "127.0.0.1:1", ExecToken: "tok-new"}, nil
 }
 
@@ -135,7 +138,7 @@ func TestHandleProvisionSandbox_PassesEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for body, want := range map[string]string{`{"environment":"go"}`: "go", "": ""} {
+	for body, want := range map[string]string{`{"environment":"go"}`: "go", "{}": ""} {
 		req := httptest.NewRequest(http.MethodPost, "/internal/session/run-1/provision-sandbox", strings.NewReader(body))
 		req.SetPathValue("runID", "run-1")
 		req.Header.Set(runTokenHeader, tok)
@@ -168,5 +171,18 @@ func TestHTTPNotifier_SandboxCallErrorBody(t *testing.T) {
 		if errors.Is(err, ErrEnvironmentRejected) || err == nil || !strings.Contains(err.Error(), tc.body) || !strings.Contains(err.Error(), fmt.Sprint(tc.status)) {
 			t.Errorf("status %d: err = %v, want the status and body", tc.status, err)
 		}
+	}
+}
+
+// A replacement outlives the agent's request, like a provision.
+func TestReplaceEnvironment_OutlivesTheRequest(t *testing.T) {
+	n := &envNotifier{}
+	reg, _ := newTestRegistry(t, n)
+	hostSession(reg, "run-1")
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, _ = reg.ReplaceEnvironment(ctx, "run-1", "node")
+	if n.replaceCtxErr != nil {
+		t.Errorf("replacement ran on the cancelled request context: %v", n.replaceCtxErr)
 	}
 }

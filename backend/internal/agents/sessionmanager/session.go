@@ -421,12 +421,15 @@ func (reg *Registry) ReplaceEnvironment(ctx context.Context, runID, environment 
 		return "", ErrSandboxLost
 	}
 
+	// The replacement outlives the caller like a provision does: the agent's
+	// tool call can time out while the new pod starts.
+	runCtx := s.runCtx
+	if runCtx == nil {
+		runCtx = context.Background()
+	}
 	started := time.Now()
 	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
-	sandbox, err := reg.notifier.ReplaceEnvironment(ctx, runID, environment)
-	if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
-		err = ErrSandboxIncomplete
-	}
+	sandbox, err := reg.notifier.ReplaceEnvironment(runCtx, runID, environment)
 	if err != nil {
 		reg.sandboxFailed(ctx, runID, started, err)
 		return "", err

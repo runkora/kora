@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"net/netip"
@@ -629,14 +628,12 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var req sandboxRequest
-	// An empty body asks for the current or default environment.
-	if err := api.DecodeBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
-		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment)
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, strings.TrimSpace(req.Environment))
 	if err != nil {
-		c.writeSandboxError(ctx, w, runID, err)
+		c.writeSandboxError(ctx, w, runID, err, "failed to provision sandbox")
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
@@ -653,13 +650,14 @@ func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Req
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
+	req.Environment = strings.TrimSpace(req.Environment)
 	if req.Environment == "" {
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeMissingField, "environment is required", nil), nil)
 		return
 	}
 	endpoint, err := c.registry.ReplaceEnvironment(ctx, runID, req.Environment)
 	if err != nil {
-		c.writeSandboxError(ctx, w, runID, err)
+		c.writeSandboxError(ctx, w, runID, err, "failed to replace the sandbox")
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
@@ -674,15 +672,15 @@ func (c *Controller) handleListEnvironments(w http.ResponseWriter, r *http.Reque
 	}
 	envs, err := c.registry.ListEnvironments(ctx, runID)
 	if err != nil {
-		c.writeSandboxError(ctx, w, runID, err)
+		c.writeSandboxError(ctx, w, runID, err, "failed to list environments")
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, envs)
 }
 
-// writeSandboxError maps a sandbox failure to a response. Messages for the
+// writeSandboxError maps a sandbox failure to a response. failed is the message of an unexpected failure. Messages for the
 // model are relayed by orbit-runtime-mcp and orbit-shell as the tool error.
-func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWriter, runID string, err error) {
+func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWriter, runID string, err error, failed string) {
 	switch {
 	case errors.Is(err, ErrSessionNotFound):
 		// A run this pod does not host is a caller aimed at the wrong session,
@@ -696,7 +694,7 @@ func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWrite
 		apiErr := api.ConflictError(api.ErrCodeConflict, strings.TrimPrefix(err.Error(), ErrEnvironmentRejected.Error()+": "), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 	default:
-		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
+		apiErr := api.InternalError(api.ErrCodeInternalError, failed, nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 	}
 }
