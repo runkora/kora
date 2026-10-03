@@ -10,12 +10,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
-// WithAgentInsights installs the service behind the agent usage routes.
-func (c *Controller) WithAgentInsights(s *AgentInsightsService) *Controller {
-	c.agentInsights = s
-	return c
-}
-
 // agentUsageRequest reads the verified caller and the period. It writes the
 // error response and reports false when the request cannot be served. A token
 // with no tenant, such as a service token, has no usage to read.
@@ -41,7 +35,7 @@ func (c *Controller) handleAgentInsights(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	out, err := c.agentInsights.Insights(ctx, caller, period)
+	out, err := c.insights.Insights(ctx, caller, period)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent insights", nil), err)
 		return
@@ -63,7 +57,7 @@ func (c *Controller) handleAgentUsage(w http.ResponseWriter, r *http.Request) {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "a valid agent slug is required", nil), nil)
 		return
 	}
-	out, err := c.agentInsights.AgentUsage(ctx, caller, period, slug)
+	out, err := c.insights.AgentUsage(ctx, caller, period, slug)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent usage", nil), err)
 		return

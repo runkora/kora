@@ -176,10 +176,9 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
 	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
-	agentInsights := inferencegw.NewAgentInsightsService(usageRepo, pol, logger)
+	insights := inferencegw.NewAgentInsightsService(usageRepo, pol, logger)
 	controllers := []api.Controller{
-		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger).
-			WithAgentInsights(agentInsights),
+		inferencegw.NewController(ctx, svc, insights, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
 		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}
 	return controllers, register, nil

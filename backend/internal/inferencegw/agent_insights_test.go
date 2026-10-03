@@ -188,8 +188,10 @@ func TestAgentBudgets(t *testing.T) {
 }
 
 func TestAgentUsageHandlers(t *testing.T) {
-	c := (&Controller{logger: logging.NewLoggerWithOutput(io.Discard)}).
-		WithAgentInsights(newInsights(&fakeUsageStore{buckets: make([]float64, 7)}, nil))
+	c := &Controller{
+		insights: newInsights(&fakeUsageStore{buckets: make([]float64, 7)}, nil),
+		logger:   logging.NewLoggerWithOutput(io.Discard),
+	}
 	serve := func(h func(http.ResponseWriter, *http.Request), path string, claims *token.PlatformClaims, slug string) int {
 		req := httptest.NewRequest(http.MethodGet, path, nil)
 		req.SetPathValue("slug", slug)

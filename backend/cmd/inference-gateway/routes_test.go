@@ -86,7 +86,7 @@ func TestUsageRoutesAreScopedUnlessPersonal(t *testing.T) {
 	rec := &routeRecorder{Logger: logging.NewLoggerWithOutput(io.Discard)}
 	mux := api.NewMux(context.Background(), rec)
 	mux.SetBasePath("/v1")
-	inferencegw.NewController(context.Background(), nil, nil, inferenceRoutes(), "/v1", nil, rec).Boot(mux)
+	inferencegw.NewController(context.Background(), nil, nil, nil, inferenceRoutes(), "/v1", nil, rec).Boot(mux)
 
 	personal := map[string]bool{
 		"/v1/usage":             true,

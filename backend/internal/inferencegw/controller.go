@@ -21,15 +21,13 @@ import (
 //   - handlers_responses.go   — OpenAI Responses API (POST /responses)
 type Controller struct {
 	svc       *Service
+	insights  *AgentInsightsService
 	verifier  *token.Verifier
 	eval      policy.Evaluator
 	routes    []routescopes.RouteScope
 	basePath  string
 	blocklist mw.JTIBlocklist
 	logger    logging.Logger
-
-	// agentInsights serves the Agents page rollups; nil until WithAgentInsights.
-	agentInsights *AgentInsightsService
 }
 
 // NewController constructs a ready-to-boot inference gateway Controller.
@@ -44,9 +42,9 @@ type Controller struct {
 // blocklist is the shared revoked-JTI set (storage.NewJTIBlocklist) used to
 // reject revoked delegation tokens before natural expiry
 // (docs/adr/2026-07-23-delegated-agent-identity.md). May be nil in tests.
-func NewController(ctx context.Context, svc *Service, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, blocklist mw.JTIBlocklist, logger logging.Logger) *Controller {
+func NewController(ctx context.Context, svc *Service, insights *AgentInsightsService, eval policy.Evaluator, routes []routescopes.RouteScope, basePath string, blocklist mw.JTIBlocklist, logger logging.Logger) *Controller {
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
-	return &Controller{svc: svc, verifier: verifier, eval: eval, routes: routes, basePath: basePath, blocklist: blocklist, logger: logger}
+	return &Controller{svc: svc, insights: insights, verifier: verifier, eval: eval, routes: routes, basePath: basePath, blocklist: blocklist, logger: logger}
 }
 
 // GroupedBy returns the route prefix. The inference gateway mounts directly
