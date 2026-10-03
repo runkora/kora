@@ -345,10 +345,14 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 			return fmt.Errorf("parse ORBIT_SANDBOX_WARMER_PLACEMENT: %w", err)
 		}
 	}
+	mirrors, err := operator.ParseRegistryMirrors(install.SandboxImages.RegistryMirrors)
+	if err != nil {
+		return fmt.Errorf("parse ORBIT_SANDBOX_REGISTRY_MIRRORS: %w", err)
+	}
 	sandboxImageReconciler := &operator.SandboxImageReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Registry:    operator.NewRemoteRegistry(install.SandboxImages.InsecureRegistries, install.SandboxImages.RegistryMirrors),
+		Registry:    operator.NewRemoteRegistry(install.SandboxImages.InsecureRegistries, mirrors),
 		Logger:      logger,
 		PullSecrets: install.ImagePullSecrets,
 		Placement:   placement,

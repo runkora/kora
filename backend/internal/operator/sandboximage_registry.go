@@ -3,6 +3,7 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"runtime"
 	"slices"
@@ -24,8 +25,8 @@ type imageConfig struct {
 	Labels map[string]string
 }
 
-// RegistryReader reads an image's config from its registry without pulling layers.
-type RegistryReader interface {
+// registryReader reads an image's config from its registry without pulling layers.
+type registryReader interface {
 	Read(ctx context.Context, ref string, auth []dockerConfig) (imageConfig, error)
 }
 
@@ -37,14 +38,35 @@ type remoteRegistry struct {
 	Mirrors  map[string]string
 }
 
+// errRegistryMirror reports a registry mirror entry that is not from=to.
+var errRegistryMirror = errors.New("registry mirror must be from=to")
+
+// ParseRegistryMirrors parses comma-separated from=to registry host pairs.
+func ParseRegistryMirrors(v string) (map[string]string, error) {
+	out := map[string]string{}
+	for entry := range strings.SplitSeq(v, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		from, to, ok := strings.Cut(entry, "=")
+		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
+		if !ok || from == "" || to == "" {
+			return nil, fmt.Errorf("%w: %q", errRegistryMirror, entry)
+		}
+		out[from] = to
+	}
+	return out, nil
+}
+
 // NewRemoteRegistry reads image configs from their registries.
-func NewRemoteRegistry(insecure []string, mirrors map[string]string) RegistryReader {
+func NewRemoteRegistry(insecure []string, mirrors map[string]string) registryReader {
 	return remoteRegistry{Insecure: insecure, Mirrors: mirrors}
 }
 
 // Read resolves ref to a digest and reads the config of the image for the
-// operator's own architecture. An index digest is returned as is, so sandboxes
-// pull the right platform on every node.
+// operator's own architecture. An index digest is returned as is. Each node
+// then pulls its own platform from it.
 func (r remoteRegistry) Read(ctx context.Context, ref string, auth []dockerConfig) (imageConfig, error) {
 	for from, to := range r.Mirrors {
 		if rest, ok := strings.CutPrefix(ref, from+"/"); ok {

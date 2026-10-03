@@ -79,8 +79,8 @@ type SandboxImages struct {
 	// InsecureRegistries are read over plain HTTP, such as the local k3d registry.
 	InsecureRegistries []string
 	// RegistryMirrors maps a registry host in an image reference to the host the
-	// operator reads it from, as from=to pairs.
-	RegistryMirrors map[string]string
+	// operator reads it from, as comma-separated from=to pairs.
+	RegistryMirrors string
 	// WarmerPlacement is the sandbox placement as JSON: nodeSelector,
 	// tolerations, affinity, topologySpreadConstraints and priorityClassName.
 	WarmerPlacement string
@@ -165,7 +165,7 @@ func loadInstall() Install {
 			BaseImage:          envOr("ORBIT_SANDBOX_BASE_IMAGE", "ghcr.io/clear-route/kora-sandbox-base:latest"),
 			BaseWarm:           os.Getenv("ORBIT_SANDBOX_BASE_WARM") == "true",
 			InsecureRegistries: splitList(os.Getenv("ORBIT_SANDBOX_INSECURE_REGISTRIES")),
-			RegistryMirrors:    pairs(os.Getenv("ORBIT_SANDBOX_REGISTRY_MIRRORS")),
+			RegistryMirrors:    os.Getenv("ORBIT_SANDBOX_REGISTRY_MIRRORS"),
 			WarmerPlacement:    os.Getenv("ORBIT_SANDBOX_WARMER_PLACEMENT"),
 		},
 		Preflight: Preflight{
@@ -197,17 +197,6 @@ func splitList(v string) []string {
 	for part := range strings.SplitSeq(v, ",") {
 		if p := strings.TrimSpace(part); p != "" {
 			out = append(out, p)
-		}
-	}
-	return out
-}
-
-// pairs parses a comma-separated list of from=to pairs.
-func pairs(v string) map[string]string {
-	out := map[string]string{}
-	for _, p := range splitList(v) {
-		if from, to, ok := strings.Cut(p, "="); ok {
-			out[from] = to
 		}
 	}
 	return out
