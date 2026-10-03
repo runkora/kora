@@ -1,4 +1,4 @@
-// RSC — fetches agent types, recent runs and the default window's insights in parallel
+// RSC: fetches agent types, recent runs and the default window's insights in parallel
 // server-side so the page renders with real data immediately. The insights are
 // optional: when they cannot be had, the page renders without them.
 

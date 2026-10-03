@@ -310,9 +310,7 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 		}
 		return nil, nil, err
 	}
-	// A delegated agent's run is private to its starter unless the caller holds
-	// agents:delegated:read (see run_access.go). The check runs only when the
-	// run is delegated and the caller did not start it.
+	// The delegated:read check runs only for a delegated run the caller did not start.
 	seeAll := false
 	if at.IdentityMode.OrDefault() == IdentityModeDelegated && !isRunStarter(ctx, run) {
 		if seeAll, err = s.authz.canReadDelegatedRuns(ctx); err != nil {
@@ -361,8 +359,6 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int
 		),
 	)
 	defer span.End()
-	// The delegated-run filter is applied inside the repository query, never by
-	// trimming the result in memory, so counts stay correct.
 	vis, err := s.runVisibility(ctx)
 	if err != nil {
 		span.RecordError(err)
@@ -394,9 +390,7 @@ func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int
 	return s.authz.filterRuns(ctx, runs, resolveSlug)
 }
 
-// RunOutcomes counts the caller's visible runs that completed or failed in
-// [from, to), under the delegated-run rule of ListRuns. The route scope
-// agents:runs:read is a prefix rule, so no per-agent check is needed.
+// RunOutcomes counts the caller's visible completed and failed runs in [from, to).
 func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOutcomes, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.RunOutcomes",

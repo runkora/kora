@@ -83,7 +83,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
 //	GET    /usage/budget          Caller's current budget status (spend, limit, has_limit)
 //	GET    /usage/run/{runID}      Per-run spend + token total (run chat usage meter)
-//	GET    /usage/agent-type/{slug}  One agent's token breakdown + spend, if the caller may see it (?period=24h|7d|30d|90d, default 7d)
+//	GET    /usage/agent-type/{slug}  One agent's token breakdown + spend (?period=24h|7d|30d|90d, default 7d)
 //	GET    /usage/agent-insights  Agent usage, model split, trend, previous total and budgets (?period=24h|7d|30d|90d)
 //	GET    /usage                 Inference usage log (authenticated principal, paginated)
 //	GET    /analytics/me          Personal aggregated analytics (any authenticated caller)

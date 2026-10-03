@@ -15,8 +15,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
-// withRunCallerCtx builds verified HUMAN claims with a subject, the shape
-// isRunStarter reads.
+// withRunCallerCtx builds verified HUMAN claims with a subject.
 func withRunCallerCtx(ctx context.Context, tenantID, sub string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: sub},
@@ -24,8 +23,7 @@ func withRunCallerCtx(ctx context.Context, tenantID, sub string) context.Context
 	})
 }
 
-// delegatedReadEvaluator allows everything except agents:delegated:read, which
-// only the listed subjects hold.
+// delegatedReadEvaluator allows everything except agents:delegated:read, held only by holders.
 type delegatedReadEvaluator struct {
 	allowAllEvaluator
 	holders map[string]bool
@@ -38,7 +36,6 @@ func (e delegatedReadEvaluator) Check(_ context.Context, in policy.CheckInput) (
 	return policy.Result{Allow: true}, nil
 }
 
-// auditor holds agents:delegated:read in these tests; alice starts the runs.
 var auditorEval = delegatedReadEvaluator{holders: map[string]bool{"auditor": true}}
 
 // seedDelegatedRun seeds a delegated agent type and one of its runs.
@@ -62,12 +59,10 @@ func seedAutonomousRun(t *testing.T, repo *mockRepository, runID, createdBy stri
 // ── Steer matrix (Decision 6): send / interrupt are starter-only ──────────────
 
 func TestDelegatedRun_SteerMatrix(t *testing.T) {
-	// The starter acts freely. A holder of agents:delegated:read can see the
-	// run and terminate it, but not steer it. Everyone else gets not-found.
+	// A holder of agents:delegated:read can terminate but not steer; everyone else gets not-found.
 	actions := []struct {
-		name string
-		call func(s *RunService, ctx context.Context, runID string) error
-		// wantHolder is the error for a non-starter holder of agents:delegated:read.
+		name       string
+		call       func(s *RunService, ctx context.Context, runID string) error
 		wantHolder error
 	}{
 		{"send message", func(s *RunService, ctx context.Context, id string) error { return s.SendMessage(ctx, id, "hello") }, ErrDelegatedRunSteer},
@@ -224,8 +219,7 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 }
 
 func TestRunVisibility_FailClosedWithoutSubject(t *testing.T) {
-	// A caller with claims but no subject (and no delegated:read) must see no
-	// delegated runs — even ones whose created_by is also empty.
+	// A caller with no subject sees no delegated runs — even ones whose created_by is also empty.
 	f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
 	seedDelegatedRun(t, repo, "run-empty", "", RunStateActive)
 	ctx := withRunCallerCtx(context.Background(), "t1", "")
@@ -306,7 +300,7 @@ func TestAutonomousRun_EventAccessUnchanged(t *testing.T) {
 	}
 }
 
-// ── Handler mapping: a delegated:read holder's steer refusal is a legible 403, not a 404 ─────────
+// ── Handler mapping: a holder's steer refusal is a 403 ──
 
 func TestHandleSendMessage_DelegatedReadHolderRefusal(t *testing.T) {
 	c, repo, _, _ := newTestControllerWithEval(t, auditorEval)
@@ -328,7 +322,7 @@ func TestHandleSendMessage_DelegatedReadHolderRefusal(t *testing.T) {
 	}
 }
 
-// ── Run outcomes count under the same rule as the list ───────────────────────
+// ── Run outcomes use the list rule ──
 
 func TestRunOutcomes_UsesTheRunVisibilityRule(t *testing.T) {
 	for _, tc := range []struct {

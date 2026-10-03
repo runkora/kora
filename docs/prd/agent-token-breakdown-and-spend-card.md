@@ -2,11 +2,9 @@
 
 **Status:** Approved  
 **Created:** 2026-06-23  
-**Last Updated:** 2026-10-03  
+**Last Updated:** 2026-06-23  
 **Owner:** Engineering  
 **Stakeholders:** Platform Users, Ops Teams
-
-**Update 2026-10-03:** The figures follow agent visibility: an agent the caller cannot see reads as no usage, and a delegated agent's usage counts only for the person who ran it. The window can be 24h, 7d, 30d or 90d, and the default is 7d.
 
 ---
 
@@ -60,7 +58,7 @@ Additionally, operators and team leads have no way to see total spend for an age
 
 - Historical charts / trends on the agent detail page (covered by model-gateway analytics).
 - Per-run token breakdown in the runs table (still shows aggregate per run).
-- Changing the 7-day window or adding a period selector (future work).
+- Changing the 7-day window or adding a period selector on the agent overview.
 
 ---
 
@@ -131,14 +129,14 @@ The Tokens card expands to show sub-rows:
 
 ### Out of Scope
 
-- Period selector (hard-coded 7 days to match the existing Tokens card label)
+- Period selector on the agent overview (hard-coded 7 days to match the existing Tokens card label)
 - Historical trend charts
 - Per-run token breakdown columns in the runs table
 - Changes to the runs table schema
 
 ### Future Considerations
 
-- Configurable period selector
+- Configurable period selector on the agent overview
 - Cache hit rate display
 - Cost breakdown by model (if agent calls multiple models)
 

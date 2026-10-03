@@ -7,8 +7,7 @@ import { loadInsights } from '../../../(dashboard)/agents/_services/agents-insig
 /**
  * GET /api/agents/insights?period=24h|7d|30d|90d
  *
- * Usage, model split, spend over time, budgets and run outcomes for one window.
- * The upstream services read the session token, which stays on the server.
+ * Usage, models, trend, budgets and run outcomes for one window.
  */
 export const GET = withAuth(async (req: NextRequest, session) => {
   const period = req.nextUrl.searchParams.get('period') ?? DEFAULT_PERIOD;

@@ -14,17 +14,13 @@ import (
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
-// The Agents page rollups cover agent traffic for the whole tenant and carry no
-// per-person data. The route scope agents:usage:read decides who may read them.
-
 // TrendPoint is the spend in one chart bucket, identified by where it starts.
 type TrendPoint struct {
 	Start   time.Time `json:"start"`
 	CostUSD float64   `json:"cost_usd"`
 }
 
-// BudgetWindow is one budget window of an agent: its limit, the spend inside
-// the window now, and when it resets.
+// BudgetWindow is one budget window of an agent with its spend and reset time.
 type BudgetWindow struct {
 	Cadence  string    `json:"cadence"`
 	LimitUSD float64   `json:"limit_usd"`
@@ -32,10 +28,8 @@ type BudgetWindow struct {
 	ResetsAt time.Time `json:"resets_at"`
 }
 
-// AgentBudgetRow is an agent's budget: a window per cadence it has a limit on,
-// and the per-run limit, which has no window. Spend is by agent slug, which
-// includes the agent's per-run sandbox principals, so it can differ slightly
-// from the per-principal spend the limit check counts.
+// AgentBudgetRow is an agent's budget windows and per-run limit. Spend is by agent
+// slug, so it can differ slightly from what the limit check counts.
 type AgentBudgetRow struct {
 	AgentSlug      string         `json:"agent_slug"`
 	PerRunLimitUSD float64        `json:"per_run_limit_usd,omitempty"`
@@ -66,8 +60,7 @@ type AgentBudgetSpend struct {
 	Month     float64
 }
 
-// Insights returns the window's usage, model split, spend trend, previous total
-// and budgets. The reads are independent, so they run together.
+// Insights returns the window's usage, models, trend, previous total and budgets.
 func (s *Service) Insights(ctx context.Context, tenantID string, period usagewindow.Period, now time.Time) (AgentInsights, error) {
 	w := usagewindow.For(period, now)
 
@@ -153,10 +146,8 @@ func (s *Service) AgentUsage(ctx context.Context, tenantID string, period usagew
 	return usage[0], nil
 }
 
-// agentBudgets builds a row per agent that has a window limit, from the policy
-// bundle enforcement evaluates, with the agent's spend in each window. A
-// delegated agent's limit is shared by everyone who runs it, and its row is
-// included.
+// agentBudgets builds a row per agent with a window limit from the policy bundle,
+// delegated agents included.
 func (s *Service) agentBudgets(ctx context.Context, tenantID string, now time.Time) []AgentBudgetRow {
 	principals, _, err := s.policy.ListBudgets(ctx, tenantID)
 	if err != nil {
@@ -195,13 +186,11 @@ func (s *Service) agentBudgets(ctx context.Context, tenantID string, now time.Ti
 	return rows
 }
 
-// budgetRowsFromBundle turns the bundle's per-principal budgets into rows for
-// agent principals, keeping the windows that have a limit. A zero limit is no
-// limit, as in the bundle.
+// budgetRowsFromBundle builds rows for agent principals with a window limit.
+// A zero limit is no limit.
 func budgetRowsFromBundle(principals map[string]policy.PrincipalBudget, now time.Time) []AgentBudgetRow {
 	rows := make([]AgentBudgetRow, 0)
 	for pid, pb := range principals {
-		// The bundle keys budgets by principal ID alone, so the type is the agent one this page lists.
 		slug := agentSlugFromPrincipal(string(token.PrincipalTypeAgent), pid)
 		if slug == "" {
 			continue

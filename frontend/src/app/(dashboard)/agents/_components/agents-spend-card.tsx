@@ -165,9 +165,8 @@ function Breakdown({
 }
 
 /**
- * Each agent's spend in each of its budget windows against the limit on it. An
- * agent is limited by the week, the month, or both, so it shows a bar for each
- * window. Rows arrive closest to a limit first; the rest past BUDGET_ROWS are counted.
+ * A bar per budget window of each agent. Rows arrive closest to a limit first, and
+ * those past BUDGET_ROWS are counted.
  */
 function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
   const rows = allRows.slice(0, BUDGET_ROWS);

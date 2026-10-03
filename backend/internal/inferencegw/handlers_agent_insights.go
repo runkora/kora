@@ -10,9 +10,8 @@ import (
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
-// agentUsageRequest reads the tenant and the period. It writes the error
-// response and reports false when the request cannot be served. A token with no
-// tenant, such as a service token, has no usage to read.
+// agentUsageRequest reads the tenant and period, writing the error and reporting
+// false on failure. A token with no tenant has no usage to read.
 func (c *Controller) agentUsageRequest(w http.ResponseWriter, r *http.Request) (string, usagewindow.Period, bool) {
 	ctx := r.Context()
 	p, err := principalFromClaims(ctx)

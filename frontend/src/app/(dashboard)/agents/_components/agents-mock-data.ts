@@ -27,7 +27,6 @@ const DAY = 24 * HOUR;
 /** ISO timestamp for a moment `ms` before now. */
 export const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();
 
-/** ISO timestamp for a moment `ms` from now. */
 export const ahead = (ms: number): string => new Date(Date.now() + ms).toISOString();
 
 const TENANT = 'ten_8f3a21';
@@ -609,12 +608,10 @@ export const ENVIRONMENTS: Environment[] = [
   },
 ];
 
-// ── A workspace with 150 agents ──────────────────────────────────────────────
-
 /** How many agents the scale stories carry. A normal install has more than a hundred. */
 export const SCALE_AGENT_COUNT = 150;
 
-/** 150 generated agents, for checking every card and table at the size a normal install reaches. */
+/** 150 generated agents, the size a normal install reaches. */
 export const SCALE_AGENT_TYPES: AgentType[] = Array.from({ length: SCALE_AGENT_COUNT }, (_, i) => {
   const name = `Agent ${String(i + 1).padStart(3, '0')}`;
   return agentType({

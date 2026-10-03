@@ -632,8 +632,7 @@ func isUniqueViolation(err error) bool {
 	return false
 }
 
-// CountRunOutcomes counts the completed and failed runs that finished in
-// [from, to). It applies the delegated-run rule of ListRuns, and uses
+// CountRunOutcomes counts completed and failed runs finished in [from, to), using
 // idx_runs_tenant_completed.
 func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error) {
 	query, args := appendVisibility(`

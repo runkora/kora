@@ -55,9 +55,8 @@ func (r *PostgresInferenceUsageRepository) AgentUsage(ctx context.Context, tenan
 	return out, rows.Err()
 }
 
-// AgentSpendBuckets returns the previous window's total and the spend in each
-// bucket of the window, as FILTER sums over one scan. A plain GROUP BY on the
-// bucket was slower at every window size measured.
+// AgentSpendBuckets returns the previous window's total and each bucket's spend
+// as FILTER sums over one scan, which measured faster than GROUP BY.
 func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window) (float64, []float64, error) {
 	n := int(w.End.Sub(w.Start) / w.Bucket)
 	previousStart := w.Start.Add(-w.End.Sub(w.Start))

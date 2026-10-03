@@ -17,7 +17,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
-// fakeBundle is an evaluator that only lists budgets.
 type fakeBundle struct {
 	policy.Evaluator
 	principals map[string]policy.PrincipalBudget
@@ -107,7 +106,7 @@ func TestAgentBudgets(t *testing.T) {
 	if monthly.Cadence != "monthly" || monthly.LimitUSD != 100 || monthly.SpendUSD != 40 || !monthly.ResetsAt.Equal(time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("monthly = %+v", monthly)
 	}
-	// 3 Oct 2026 is a Saturday, so the week resets on Monday 5 Oct.
+	// 3 Oct 2026 is a Saturday, so the week resets Monday 5 Oct.
 	if weekly.Cadence != "weekly" || weekly.LimitUSD != 30 || weekly.SpendUSD != 7 || !weekly.ResetsAt.Equal(time.Date(2026, 10, 5, 0, 0, 0, 0, time.UTC)) {
 		t.Errorf("weekly = %+v", weekly)
 	}

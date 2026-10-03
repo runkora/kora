@@ -1,90 +1,73 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. Budget usage card for the agent overview tab. */
+/** @tier 3 · agents/[slug]-scoped. Budget usage card for the agent overview tab. */
 
 import { Alert, Card, CardContent, CardHeader, Progress, Stack, Text } from '@orbit/terra';
 import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
+import { budgetTone, usedShare } from '../../_lib/spend';
+import type { BudgetRow } from '../../_lib/spend';
 
 interface AgentBudgetCardProps {
-  /** The agent's row from the budgets listing; null when unavailable. */
-  budget: BudgetPrincipalStatus | null;
-  /** Tenant cap status — agents are blocked when it is reached. */
-  tenantCap: TenantCapStatus | null;
+  /** The agent's row from the agent insights; null when it has no limit or insights are unavailable. */
+  budget: BudgetRow | null;
 }
 
-export function AgentBudgetCard({ budget, tenantCap }: AgentBudgetCardProps) {
-  const windowCategories = budget?.categories.filter((c) => c.limit_usd > 0) ?? [];
-  const perRunLimits = budget?.categories.filter((c) => (c.per_run_limit_usd ?? 0) > 0) ?? [];
-  const hasAnything =
-    windowCategories.length > 0 || perRunLimits.length > 0 || (tenantCap?.reached ?? false);
+export function AgentBudgetCard({ budget }: AgentBudgetCardProps) {
+  const windows = budget?.windows ?? [];
+  const perRunLimit = budget?.perRunLimit ?? 0;
+  const reached = windows.some((w) => usedShare(w.spent, w.limit) >= 1);
 
   return (
     <Card>
       <CardHeader compact title="Budget" divider />
       <CardContent padded>
-        {hasAnything ? (
+        {windows.length > 0 || perRunLimit > 0 ? (
           <Stack gap="snug">
-            {tenantCap?.reached && (
-              <Alert variant="error">
-                Tenant cap reached. This agent&apos;s inference requests are blocked until the
-                period resets or the cap is raised.
-              </Alert>
-            )}
-            {budget?.spend_limit_reached && (
+            {reached && (
               <Alert variant="error">
                 Budget ceiling reached. This agent&apos;s inference requests are blocked until the
                 period resets or its limit is raised.
               </Alert>
             )}
 
-            {windowCategories.map((cat) => {
-              // cat.spend_usd is the principal's canonical window spend — the
-              // same number enforcement evaluates (weekly and monthly alike).
-              const spend = cat.spend_usd;
-              const pct = cat.limit_usd > 0 ? (spend / cat.limit_usd) * 100 : 0;
-              const variant = spend >= cat.limit_usd ? 'error' : pct >= 80 ? 'degraded' : 'healthy';
+            {windows.map((w) => {
+              const used = usedShare(w.spent, w.limit) * 100;
               return (
-                <Stack key={`${cat.source}:${cat.id}`} gap="tight">
+                <Stack key={w.cadence} gap="tight">
                   <Stack direction="horizontal" align="center" justify="between">
                     <Text size="supporting" color="muted">
-                      {cat.reset_cadence === 'weekly' ? 'Weekly' : 'Monthly'} budget
+                      {w.cadence === 'weekly' ? 'Weekly' : 'Monthly'} budget
                     </Text>
                     <Text size="supporting" mono>
-                      {fmtUsd(spend)} / {fmtUsd(cat.limit_usd)}
-                      {fmtWindowSuffix(cat.reset_cadence)}
+                      {fmtUsd(w.spent)} / {fmtUsd(w.limit)}
+                      {fmtWindowSuffix(w.cadence)}
                     </Text>
                   </Stack>
                   <Progress
-                    value={spend}
-                    max={cat.limit_usd}
-                    label={`${cat.reset_cadence} budget utilisation`}
-                    variant={variant}
+                    value={w.spent}
+                    max={w.limit}
+                    label={`${w.cadence} budget utilisation`}
+                    variant={budgetTone(used)}
                     showValue
                   />
                 </Stack>
               );
             })}
 
-            {perRunLimits.map((cat) => (
-              <Stack
-                key={`run:${cat.source}:${cat.id}`}
-                direction="horizontal"
-                align="center"
-                justify="between"
-              >
+            {perRunLimit > 0 && (
+              <Stack direction="horizontal" align="center" justify="between">
                 <Text size="supporting" color="muted">
                   Per-run limit
                 </Text>
                 <Text size="supporting" mono>
-                  {fmtUsd(cat.per_run_limit_usd)} / run
+                  {fmtUsd(perRunLimit)} / run
                 </Text>
               </Stack>
-            ))}
+            )}
           </Stack>
         ) : (
           <Text size="supporting" color="muted">
-            No budget configured. Set one in Settings. Spend still counts toward the tenant cap.
+            No budget configured. Set one in Settings.
           </Text>
         )}
       </CardContent>

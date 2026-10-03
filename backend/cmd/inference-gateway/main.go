@@ -257,10 +257,8 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
-		// Agent usage is tenant-wide aggregates, readable with agents:usage:read. A
-		// token with only agents:usage:{slug}:read is refused here: the prefix rule
-		// does not run the other way. A /v1/usage route with no entry of its own
-		// falls to the open /v1/usage entry below; routes_test.go fails on one.
+		// Agent usage needs agents:usage:read; a per-agent scope does not cover it. A new
+		// /v1/usage route needs its own entry or it falls to the open one below.
 		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:usage:read"},
 		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:usage:read"},
 		// GET /v1/usage is the caller's own inference usage log; tenant and

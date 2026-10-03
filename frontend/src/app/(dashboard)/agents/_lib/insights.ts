@@ -3,13 +3,7 @@ import type { AgentBudgetStatus, AgentInsightsResponse } from '@orbit/shared/api
 import { closestToLimit } from './spend';
 import type { BudgetRow, Period, PeriodData } from './spend';
 
-// Turns the BFF response into the shapes the page draws.
-
-/**
- * The axis label for a chart point that starts at `startIso`. Buckets count from
- * the window start, so they begin at the time of day the request was made: a
- * local clock time for 24h, a local weekday for 7d, a date for the longer windows.
- */
+/** The axis label for a bucket start: local clock time for 24h, weekday for 7d, date beyond. */
 export function trendLabel(period: Period, startIso: string): string {
   const start = new Date(startIso);
   if (period === '24h') {

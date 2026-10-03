@@ -8,11 +8,9 @@ import (
 	"github.com/google/uuid"
 )
 
-// Postgres integration tests for the run outcome count. They run only when
-// ORBIT_TEST_DB_URL points at a database with the orbit-agents migrations
-// applied (see testRunRepo).
+// Run outcome count tests; gated on ORBIT_TEST_DB_URL (see testRunRepo).
 
-// seedFinishedRun writes a run that started `started` ago and finished `finished` ago.
+// seedFinishedRun writes a run started `started` ago and finished `finished` ago.
 func seedFinishedRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID, createdBy string, state RunState, started, finished time.Duration) {
 	t.Helper()
 	ctx := context.Background()

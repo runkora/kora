@@ -22,9 +22,8 @@ var ErrInvalidPeriod = errors.New("period must be one of 24h, 7d, 30d, 90d")
 
 const day = 24 * time.Hour
 
-// sizes returns a period's length and chart bucket width. The width divides the
-// length, so every bucket is whole: 8, 7, 10 and 15 points. An unknown period
-// gets the 7d sizes, so a Window never has a zero bucket.
+// sizes returns a period's length and chart bucket width, which divides the
+// length. An unknown period gets the 7d sizes, so a bucket is never zero.
 func sizes(p Period) (length, bucket time.Duration) {
 	switch p {
 	case Period24h:

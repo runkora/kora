@@ -57,8 +57,7 @@ func TestInferenceRoutesUsageScopes(t *testing.T) {
 	}
 }
 
-// routeRecorder keeps the routes the mux registers. The mux has no route
-// listing, so it reads them from the "Registering sub-route" log line.
+// routeRecorder reads the registered routes from the mux's log line, as it has no listing.
 type routeRecorder struct {
 	logging.Logger
 	mu     sync.Mutex
@@ -78,13 +77,7 @@ func (r *routeRecorder) Info(_ context.Context, msg string, fields ...logging.Fi
 	}
 }
 
-// TestUsageRoutesAreScopedUnlessPersonal walks the routes the gateway
-// registers. A /v1/usage route with no entry of its own resolves to the open
-// "/v1/usage" entry, and an empty scope passes any authenticated caller, so a
-// new route that forgot its entry would expose tenant-wide agent spend. Only the
-// routes derived from the caller's own claims may resolve to no scope.
-// A token holding only a per-agent usage scope does not cover the route scope:
-// covering runs from the broad scope down, never the other way.
+// Scope covering runs from the broad scope down, so a per-agent scope opens nothing.
 func TestPerAgentUsageScopeDoesNotOpenTheUsageRoutes(t *testing.T) {
 	required, _ := mw.ResolveRequiredScope(inferenceRoutes(), "GET", "/v1/usage/agent-insights")
 	if policy.ScopeCovers("agents:usage:coder:read", required) {
@@ -95,6 +88,8 @@ func TestPerAgentUsageScopeDoesNotOpenTheUsageRoutes(t *testing.T) {
 	}
 }
 
+// TestUsageRoutesAreScopedUnlessPersonal fails on a /v1/usage route that falls to the
+// open entry, which would expose tenant-wide spend to any authenticated caller.
 func TestUsageRoutesAreScopedUnlessPersonal(t *testing.T) {
 	rec := &routeRecorder{Logger: logging.NewLoggerWithOutput(io.Discard)}
 	mux := api.NewMux(context.Background(), rec)

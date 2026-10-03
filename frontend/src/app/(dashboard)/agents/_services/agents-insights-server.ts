@@ -5,14 +5,15 @@ import { agentsClient } from '@orbit/server/agents-client';
 import type { AgentInsightsResponse } from '@orbit/shared/api';
 import type { Period } from '../_lib/spend';
 
-// The Agents page rollups. The inference gateway counts usage and budgets, and
-// orbit-agents counts runs, each under the caller's own token. The BFF only
-// composes what each returns.
+// The BFF composes gateway usage and budgets with orbit-agents run outcomes, each under the caller's token.
 
 export type InsightsResult =
   { ok: true; data: AgentInsightsResponse } | { ok: false; status: number };
 
-async function fetchGatewayInsights(accessToken: string, period: Period): Promise<InsightsResult> {
+export async function fetchGatewayInsights(
+  accessToken: string,
+  period: Period,
+): Promise<InsightsResult> {
   try {
     const res = await fetch(`${config.inferenceGatewayUrl}/usage/agent-insights?period=${period}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -28,11 +29,7 @@ async function fetchGatewayInsights(accessToken: string, period: Period): Promis
   }
 }
 
-/**
- * Usage, model split, spend over time and budgets from the gateway, and run
- * outcomes from orbit-agents, all at once. Outcomes are optional: when they
- * cannot be counted the response has none and the page leaves them out.
- */
+/** Gateway rollups plus run outcomes, fetched together. Outcomes are optional. */
 export async function loadInsights(accessToken: string, period: Period): Promise<InsightsResult> {
   const [usage, outcomes] = await Promise.all([
     fetchGatewayInsights(accessToken, period),

@@ -8,32 +8,19 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
-// Delegated-run steer and visibility constraints
-// (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 6).
-//
-// A run of a DELEGATED agent belongs to the person who started it: it executes
-// with the starter's authority under the starter's name. On top of the
-// scope-based authz in authz.go, the service layer enforces:
-//
-//   - Visibility: run get / list / events / outcomes and terminate are limited
-//     to the starter, unless the caller holds agents:delegated:read.
-//   - Steer: sending messages and interrupting are limited to the starter, for
-//     every caller, because steering acts with the starter's authority.
-//
-// Autonomous agents are untouched by every rule here. No role is evaluated.
+// A delegated run belongs to its starter (docs/adr/2026-07-23-delegated-agent-identity.md,
+// Decision 6). Visibility and terminate are starter-only unless the caller holds
+// agents:delegated:read, and steering is starter-only for everyone. No role is read.
 
-// ErrDelegatedRunSteer is returned when someone other than the starter, a
-// holder of agents:delegated:read included, tries to steer (message or interrupt) a delegated
-// run. Messages execute with the starter's authority under the starter's name,
-// so nobody else may direct the work.
+// ErrDelegatedRunSteer is returned when anyone but the starter tries to steer a
+// delegated run, because messages execute with the starter's authority.
 var ErrDelegatedRunSteer = errors.New("delegated identity model: only the person who started this run can steer it (messages execute with the starter's authority)")
 
 // RunVisibility scopes repository run reads for the delegated identity model.
 // The filter is applied in the query itself, never by trimming pages in
 // memory, so counts and ordering stay correct under any future pagination.
 type RunVisibility struct {
-	// SeeAll returns every run unfiltered. Set when the caller holds
-	// agents:delegated:read.
+	// SeeAll returns every run unfiltered. Set for holders of agents:delegated:read.
 	SeeAll bool
 	// Subject is the caller's verified token subject. When SeeAll is false,
 	// runs of delegated agents are returned only where created_by = Subject.
@@ -42,8 +29,7 @@ type RunVisibility struct {
 	Subject string
 }
 
-// runVisibility decides, once per request, whether the caller sees every
-// delegated run. It is the agents:delegated:read check, not a role test.
+// runVisibility checks agents:delegated:read once per request.
 func (s *RunService) runVisibility(ctx context.Context) (RunVisibility, error) {
 	allowed, err := s.authz.canReadDelegatedRuns(ctx)
 	if err != nil {
@@ -71,10 +57,8 @@ func isRunStarter(ctx context.Context, run *Run) bool {
 	return sub != "" && run.CreatedBy == sub
 }
 
-// checkDelegatedRunVisibility enforces run-ownership privacy on a single run:
-// for a delegated agent, only the starter may read it unless seeAll. Returns
-// ErrNotFound on deny so existence is not leaked (the same mapping
-// loadRunForAction applies to scope denials). No-op for autonomous agents.
+// checkDelegatedRunVisibility limits a delegated run to its starter unless seeAll.
+// It returns ErrNotFound on deny so existence is not leaked.
 func checkDelegatedRunVisibility(ctx context.Context, at *AgentType, run *Run, seeAll bool) error {
 	if at.IdentityMode.OrDefault() != IdentityModeDelegated || seeAll || isRunStarter(ctx, run) {
 		return nil
@@ -82,10 +66,8 @@ func checkDelegatedRunVisibility(ctx context.Context, at *AgentType, run *Run, s
 	return ErrNotFound
 }
 
-// appendVisibility adds the delegated-run rule to a run query whose alias for
-// runs is r and for agent_types is at, appending the caller's subject to args.
-// Shared by ListRuns and CountRunOutcomes so the rule lives in one place. An
-// empty subject matches no delegated run (fail closed).
+// appendVisibility adds the delegated-run rule to a run query (runs as r,
+// agent_types as at). An empty subject matches no delegated run.
 func appendVisibility(query string, args []any, vis RunVisibility) (string, []any) {
 	if vis.SeeAll {
 		return query, args
@@ -95,10 +77,7 @@ func appendVisibility(query string, args []any, vis RunVisibility) (string, []an
 	return query + fmt.Sprintf(" AND (at.identity_mode <> 'delegated' OR ($%[1]d <> '' AND r.created_by = $%[1]d))", n), args
 }
 
-// checkDelegatedRunSteer enforces the steer constraint: only the starter may
-// send messages to or interrupt a delegated run. Admins are refused too —
-// with the explicit reason rather than a 404, since visibility already admits
-// them. No-op for autonomous agents.
+// checkDelegatedRunSteer limits messaging and interrupting a delegated run to its starter.
 func checkDelegatedRunSteer(ctx context.Context, at *AgentType, run *Run) error {
 	if at.IdentityMode.OrDefault() != IdentityModeDelegated {
 		return nil

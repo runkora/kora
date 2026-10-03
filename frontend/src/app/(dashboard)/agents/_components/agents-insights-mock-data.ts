@@ -3,9 +3,7 @@ import type { RunRow } from '../_types';
 import type { Period } from '../_lib/spend';
 import { RUN_ROWS, SCALE_AGENT_ROWS, SCALE_USAGE, USAGE, ahead } from './agents-mock-data';
 
-// Mock insights for the Agents page stories. The figures are the 7-day mock usage
-// scaled to each window and shaped as the BFF response, which a story serves
-// through the mock API, so the page reads it the way it reads the live one.
+// Mock BFF insights for the Agents stories: the 7-day mock usage scaled to each window.
 
 /** Scale applied to the 7-day figures, and the bucket width and count each window charts. */
 const SHAPES: Record<Period, { factor: number; bucketHours: number; buckets: number }> = {
@@ -54,7 +52,6 @@ export const BUDGETS: AgentBudgetStatus[] = [
   { agent_slug: 'incident-scribe', windows: [budgetWindow('monthly', 40, 0)] },
 ];
 
-/** The BFF response for one window of a workspace's usage. */
 export function mockInsightsResponse(
   period: Period,
   usage: AgentTypeUsage[] = USAGE,

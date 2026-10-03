@@ -1,9 +1,6 @@
 'use client';
 
-// ── useAgentsInsights ─────────────────────────────────────────────────────────
-//
-// Holds the Agents page rollups. The 7-day window arrives with the server
-// render. Any other period is fetched when first selected and kept once loaded.
+// Holds the Agents page rollups: the server-rendered window, then each other period once selected.
 
 import { useEffect, useMemo, useState } from 'react';
 import type { AgentInsightsResponse } from '@orbit/shared/api';
@@ -38,8 +35,7 @@ export function useAgentsInsights(
     initial ? { [initial.period]: loadedOf(initial) } : {},
   );
 
-  // Only an unasked period is fetched. A failed one is asked again when selected
-  // again, because the effect runs on each change of period.
+  // A failed period is asked again when selected again.
   const current = periods[period];
   const asked = current !== undefined && current !== 'failed';
   useEffect(() => {

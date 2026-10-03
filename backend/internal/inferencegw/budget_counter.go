@@ -20,8 +20,7 @@ const (
 
 	// cadenceWeekly is the canonical string for a weekly reset window, used
 	// throughout the budget counter to avoid repeating the literal.
-	cadenceWeekly = "weekly"
-	// cadenceMonthly is the monthly reset window, the default of periodStart.
+	cadenceWeekly  = "weekly"
 	cadenceMonthly = "monthly"
 )
 
@@ -135,7 +134,7 @@ func periodStart(window string, t time.Time) time.Time {
 	return time.Date(u.Year(), u.Month(), 1, 0, 0, 0, 0, time.UTC)
 }
 
-// periodEnd is when the budget window that contains t resets.
+// periodEnd is when the window containing t resets.
 func periodEnd(window string, t time.Time) time.Time {
 	start := periodStart(window, t)
 	if window == cadenceWeekly {

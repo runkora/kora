@@ -123,9 +123,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
     };
   }, [usage, windowData]);
 
-  // The window's spend is the total over every agent, deleted ones included. The
-  // legend lists the current agents, and what is left of the total is the
-  // deleted agents', so the rows add up to it.
+  // The total includes deleted agents, so what the legend rows leave over is theirs.
   const spendByAgent = useMemo(
     () =>
       agentTypes

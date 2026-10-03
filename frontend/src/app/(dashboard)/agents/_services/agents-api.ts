@@ -41,9 +41,8 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
 }
 
-// ── fetchAgentInsights ────────────────────────────────────────────────────────
-// The page rollups for one window: usage, model split, trend, budgets and run
-// outcomes. Never throws; on error `data` is null.
+// ── fetchAgentInsights ──
+// The page rollups for one window. Never throws; on error `data` is null.
 
 export async function fetchAgentInsights(
   period: AgentInsightsPeriod,

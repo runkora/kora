@@ -249,8 +249,8 @@ Enforced via the service-layer authorization pattern of [orbit-agents-authorizat
 
 - **Start:** `StartRun` on a delegated agent requires a HUMAN or PAT principal; agents, services, and trigger-initiated starts are refused with a reason naming the identity model. Trigger *binding* is additionally refused at trigger create time (the earlier, friendlier failure), in `internal/triggers` validation, which reads the target agent's mode through the agents platform client. (Update needs no check: both the trigger's agent binding and the agent's identity mode are immutable.)
 - **Steer:** only the starter may send messages to a delegated run. Message-send on someone else's delegated run is refused for everyone, admins included — messages execute with the starter's authority under the starter's name.
-- **Visibility:** run list/get/events for a delegated agent filter to `created_by = caller` unless the caller holds the tenant-admin role; this covers messages, events, and outputs, applied in the repository/service layer, not the frontend.
-- **Governance:** tenant admins retain read and terminate on every run in the tenant.
+- **Visibility:** Run list, get, events and outcome counts for a delegated agent filter to `created_by = caller` unless the caller holds `agents:delegated:read`. The filter covers messages, events, and outputs and is applied in the repository and service layers. The scope is checked once per request through the policy evaluator, and no role is read.
+- **Governance:** A caller holding `agents:delegated:read` can read and terminate every run in the tenant. The platform-admin role holds the scope through the derived admin scopes.
 
 ---
 

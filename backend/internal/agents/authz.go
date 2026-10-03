@@ -186,8 +186,7 @@ func (a *Authz) checkRun(ctx context.Context, at AgentType, action string) error
 	return nil
 }
 
-// canReadDelegatedRuns reports whether the principal holds
-// agents:delegated:read, which lets it see delegated runs it did not start.
+// canReadDelegatedRuns reports whether the principal holds agents:delegated:read.
 func (a *Authz) canReadDelegatedRuns(ctx context.Context) (bool, error) {
 	r, err := a.eval.Check(ctx, policy.CheckInput{
 		Claims:       claimsFromContext(ctx),

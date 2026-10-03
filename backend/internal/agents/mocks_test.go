@@ -222,7 +222,6 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 	return r.IdentityMode.OrDefault()
 }
 
-// CountRunOutcomes records the visibility it was asked under.
 func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVisibility, _, _ time.Time) (RunOutcomes, error) {
 	m.outcomesVis = vis
 	return RunOutcomes{}, nil
@@ -619,7 +618,6 @@ func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s
 	return newTestServiceWithEval(t, &allowAllEvaluator{})
 }
 
-// newTestServiceWithEval builds the test services over the given evaluator.
 func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
 	t.Helper()
 	repo := newMockRepository()

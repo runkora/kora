@@ -122,7 +122,6 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 			t.Errorf("per-agent-type scope %q missing from the registration", want)
 		}
 	}
-	// The gateway's usage routes and the delegated-run visibility check use these.
 	for _, want := range []string{"agents:usage:read", "agents:delegated:read"} {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("scope %q missing from the registration", want)
@@ -148,7 +147,6 @@ func TestAgentRoutesFilterDropsOnlyUnscopedRoutes(t *testing.T) {
 	}
 }
 
-// TestAgentRoutesRunOutcomesScope pins the scope on the run outcomes route.
 func TestAgentRoutesRunOutcomesScope(t *testing.T) {
 	got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", "/api/v1/run-outcomes")
 	if !ok || got != "agents:runs:read" {

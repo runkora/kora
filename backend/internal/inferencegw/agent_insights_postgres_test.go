@@ -14,8 +14,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
-// Postgres integration tests for the agent rollups. They run only when
-// ORBIT_TEST_DB_URL points at a migrated database (see testUsageRepo).
+// Agent rollup tests; gated on ORBIT_TEST_DB_URL (see testUsageRepo).
 
 type agentRow struct {
 	slug, model string
@@ -24,7 +23,7 @@ type agentRow struct {
 	at          time.Time
 }
 
-// insertAgentRows writes agent traffic with agent_slug set, the way the gateway does.
+// insertAgentRows writes agent traffic with agent_slug set.
 func insertAgentRows(t *testing.T, pool *pgxpool.Pool, tenant string, rows ...agentRow) {
 	t.Helper()
 	for _, r := range rows {
@@ -55,9 +54,8 @@ func sum(vs []float64) (n float64) {
 	return n
 }
 
-// The predicate is the tenant's agent rows in the window, whoever the person
-// behind them: delegator rows count for everyone, other tenants and non-agent
-// rows never do, and models and trend agree with the usage list.
+// The predicate is the tenant's agent rows in the window: delegated rows count for
+// everyone, other tenants and non-agent rows never do, and models and trend match usage.
 func TestPostgres_AgentRollups_Predicate(t *testing.T) {
 	repo, pool, tenant := testUsageRepo(t)
 	ctx := context.Background()
@@ -162,16 +160,13 @@ func TestPostgres_AgentBudgetSpend(t *testing.T) {
 	if !near(by["coder"].Week, wantWeek) || !near(by["coder"].Month, wantMonth) {
 		t.Errorf("coder = %+v, want week %v month %v", by["coder"], wantWeek, wantMonth)
 	}
-	// A delegated agent's spend is the sum over everyone who ran it.
 	if !near(by["notes"].Month, 24) {
 		t.Errorf("notes = %+v, want month 24", by["notes"])
 	}
 }
 
-// The rollups must run in pgx.QueryExecModeExec so Postgres plans them with the
-// real window; a prepared statement's generic plan reads most of the table
-// through an index. The guard checks that no prepared statement is left on the
-// connection, which does not depend on the planner.
+// The rollups must use pgx.QueryExecModeExec; checking for leftover prepared
+// statements does not depend on the planner.
 func TestPostgres_AgentRollups_DoNotPrepareStatements(t *testing.T) {
 	dsn := os.Getenv("ORBIT_TEST_DB_URL")
 	if dsn == "" {

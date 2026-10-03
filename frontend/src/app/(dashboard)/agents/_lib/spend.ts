@@ -36,11 +36,7 @@ export interface BudgetWindowRow {
   resetsAt: string;
 }
 
-/**
- * An agent's budget: a row per agent that has a window limit, with a window for
- * each cadence it is limited on. Spend is by agent, so it can differ slightly
- * from the amount the limit check counts.
- */
+/** An agent's budget windows. Spend is by agent, so it can differ slightly from what the limit check counts. */
 export interface BudgetRow {
   name: string;
   windows: BudgetWindowRow[];
@@ -88,11 +84,7 @@ export const BUDGET_ROWS = 8;
 /** The most live runs the Running now table lists. Its header counts them all. */
 export const RUNNING_ROWS = 10;
 
-/**
- * Keeps the largest rows and folds the rest into one "Other" row. Rows are
- * expected largest first. Nothing is folded unless more than LEGEND_ROWS rows
- * exist, so the total is unchanged.
- */
+/** Folds rows past LEGEND_ROWS, largest first, into one "Other" row. The total is unchanged. */
 export function groupTail(rows: SpendRow[]): SpendRow[] {
   if (rows.length <= LEGEND_ROWS) return rows;
   const head = rows.slice(0, LEGEND_ROWS - 1);
@@ -108,7 +100,6 @@ export function usedShare(spent: number, limit: number): number {
   return limit > 0 ? spent / limit : Infinity;
 }
 
-/** The share of its tightest window an agent has spent. */
 function rowUsedShare(row: BudgetRow): number {
   return Math.max(...row.windows.map((w) => usedShare(w.spent, w.limit)), 0);
 }
