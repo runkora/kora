@@ -226,23 +226,25 @@ Option B.
 
 ## Amendment 2 (2026-10-03): Agent usage reads follow agent visibility
 
-Touches **What can it access?**: a delegated agent's usage is private to the person who ran it, as its runs are ([delegated-agent-identity](2026-07-23-delegated-agent-identity.md), Decision 6). Route scope is unchanged: the read keeps `agents:types:read`.
+Touches **What can it access?**: a delegated agent's usage is private to the person who ran it, as its runs are ([delegated-agent-identity](2026-07-23-delegated-agent-identity.md), Decision 6). The usage reads keep the route scope `agents:types:read`, a prefix rule that refuses a token with only a per-agent scope.
 
 ### Context
 
-Amendment 1 sums an agent's usage across the tenant. The delegated identity model makes a delegated agent's runs visible only to the person who started them, so a tenant-wide sum shows one person's delegated spend to everyone with `agents:types:read`.
+The deployed list and per-agent reads, and the tenant-wide sums of Amendment 1, apply no delegator rule, so any holder of `agents:types:read` sees a delegated agent's spend.
 
 ### Decision
 
-- `GET /v1/usage/agent-type/{slug}` returns the agent's figures for a window of 24h, 7d, 30d or 90d (`?period=`, default 7d) only if the caller may see the agent, and zeros otherwise.
-- The gateway asks orbit-agents which agents the caller may see, with the caller's own token. A delegated agent's usage counts only for rows whose delegator is the caller, or for a platform admin.
+- `GET /v1/usage/agent-insights` and `GET /v1/usage/agent-type/{slug}` read the usage log through one SQL predicate: tenant from the verified claims, agent traffic only (`agent_slug IS NOT NULL`), and for a non-admin `delegator_id IS NULL OR delegator_id = subject`.
+- A platform admin, read from the `roles` claim only, has no delegator clause.
+- The gateway makes no call to orbit-agents and keeps no cache.
+- The window is 24h, 7d, 30d or 90d, ending at the server's now. The default is 7d.
+- Spend of deleted agents counts.
+- Budget rows come from the policy bundle's agent principals, one row per agent with a window limit. Their spend follows the same predicate.
 - `GET /v1/usage/agent-types` is removed.
-- The same rule serves `GET /v1/usage/agent-insights` and `GET /v1/usage/agent-budgets`, through one implementation.
-- The visibility answer is cached for five seconds per token.
 
 ### Consequences
 
-- The usage figures of a delegated agent are private to the person who ran it.
-- The 7-day window is no longer hard-coded.
-- The read costs one visibility lookup, cached for five seconds per token.
-- An agent a caller cannot see reads as an agent with no usage.
+- A delegated agent's usage is private to the person who ran it. The page labels it "your usage" unless the caller is an admin.
+- A delegated agent has no budget bar, because its limit is shared by every delegator.
+- Budget spend is by agent, so it can differ slightly from what the limit check counts.
+- Both services ship together.
