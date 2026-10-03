@@ -632,12 +632,12 @@ agents:
       limits:
         cpu: "1"
         memory: 4Gi
-    # -- Applied to whichever workload the mode runs. kora's own selector labels
-    # win on a collision.
+    # -- Applied to the `capacity` placeholder. kora's own selector labels win on
+    # a collision.
     podLabels: {}
-    # -- Applied to whichever workload the mode runs. `capacity` already carries
-    # the Karpenter and Cluster Autoscaler annotations that keep a held node
-    # from being scaled away; set them here to override.
+    # -- Applied to the `capacity` placeholder. It already carries the Karpenter
+    # and Cluster Autoscaler annotations that keep a held node from being scaled
+    # away. Set them here to override.
     podAnnotations: {}
     nodeSelector: {}
     tolerations: []
