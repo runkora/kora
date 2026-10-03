@@ -508,6 +508,7 @@ type mockK8s struct {
 	podLive bool
 	// sandboxImages overrides the SandboxImages; unset serves a valid kora-base.
 	sandboxImages         map[string]*si.SandboxImage
+	imageLookups          int
 	provisionSandboxErr   error
 	deleteSandboxErr      error
 	rolloutStatefulSetErr error
