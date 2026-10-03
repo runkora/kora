@@ -7,7 +7,7 @@ import { EffectiveAccessPanel } from './effective-access-panel';
 /**
  * EffectiveAccessPanel
  *
- * Shows every host an agent can reach, merged from its own allowlist, its environment and its connections. Each host is tagged with where it came from.
+ * Shows every host an agent can reach, merged from its own allowlist, its environments and its connections. Each host is tagged with where it came from.
  */
 const meta: Meta<typeof EffectiveAccessPanel> = {
   title: 'App/Organisms/EffectiveAccessPanel',
@@ -21,9 +21,11 @@ type Story = StoryObj<typeof EffectiveAccessPanel>;
 const access: EffectiveAccess = {
   open: false,
   own_hosts: ['api.example.com', '*.staging.internal'],
-  environment_id: 'env-1',
-  environment_name: 'Staging',
-  environment_hosts: ['telemetry.orbit.sh'],
+  environments: [
+    { id: 'env-1', name: 'Staging', hosts: ['telemetry.orbit.sh'] },
+    { id: 'env-2', name: 'Go services', hosts: ['proxy.golang.org'] },
+  ],
+  environment_hosts: ['proxy.golang.org', 'telemetry.orbit.sh'],
   connector_egress: [
     {
       connection: 'github',
@@ -39,6 +41,7 @@ const access: EffectiveAccess = {
     'api.github.com',
     'codeload.github.com',
     'github.com',
+    'proxy.golang.org',
     'telemetry.orbit.sh',
   ],
 };

@@ -102,9 +102,11 @@ const TRIGGERS: Trigger[] = [
 const DELIVERIES: TriggerDelivery[] = [];
 
 function effectiveAccess(agent: AgentType): EffectiveAccess {
-  const env = ENVIRONMENTS.find((e) => e.id === agent.environment_id);
+  const envs = ENVIRONMENTS.filter((e) =>
+    (agent.environments ?? []).some((a) => a.environment_id === e.id),
+  );
   const own = agent.connectivity.hosts ?? [];
-  const envHosts = env?.egress_hosts ?? [];
+  const envHosts = [...new Set(envs.flatMap((e) => e.egress_hosts))].sort();
   const connectorEgress = (agent.connectors ?? []).map((c) => ({
     connection: c.connection,
     adapter: c.connection,
@@ -113,7 +115,7 @@ function effectiveAccess(agent: AgentType): EffectiveAccess {
   return {
     open: agent.connectivity.mode === 'open',
     own_hosts: own,
-    ...(env ? { environment_id: env.id, environment_name: env.name } : {}),
+    environments: envs.map((e) => ({ id: e.id, name: e.name, hosts: e.egress_hosts })),
     environment_hosts: envHosts,
     connector_egress: connectorEgress,
     connectors: agent.connectors ?? [],

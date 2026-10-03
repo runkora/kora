@@ -1,5 +1,5 @@
-// RSC — fetches the tenant's environments and the connection catalog (for the
-// connectors picker) server-side so the page renders with real data immediately.
+// RSC: fetches the tenant's environments, the connection catalog and the
+// registered sandbox images server-side so the page renders with real data.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchEnvironments } from './_services/environments-server';
@@ -11,12 +11,14 @@ export default async function EnvironmentsPage() {
 
   const initialRows = result?.ok ? result.rows : [];
   const connections = result?.ok ? result.connections : [];
+  const images = result?.ok ? result.images : null;
   const initialError = result && !result.ok ? result.message : null;
 
   return (
     <EnvironmentsShell
       initialRows={initialRows}
       connections={connections}
+      images={images}
       initialError={initialError}
     />
   );

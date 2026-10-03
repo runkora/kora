@@ -7,6 +7,7 @@ import {
   MANY_ENVIRONMENTS,
   MOCK_CATALOG,
   MOCK_ENVIRONMENTS,
+  MOCK_IMAGES,
   previewHandler,
 } from './environments-mock-data';
 
@@ -33,28 +34,29 @@ export default meta;
 type Story = StoryObj<typeof EnvironmentsPage>;
 
 export const Default: Story = {
-  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, error: null },
+  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, images: MOCK_IMAGES, error: null },
 };
 
 export const Empty: Story = {
-  args: { rows: [], connections: MOCK_CATALOG, error: null },
+  args: { rows: [], connections: MOCK_CATALOG, images: MOCK_IMAGES, error: null },
 };
 
 export const LoadError: Story = {
   args: {
     rows: [],
     connections: [],
+    images: null,
     error: 'Failed to load environments: agents service unreachable (503).',
   },
 };
 
 export const Many: Story = {
-  args: { rows: MANY_ENVIRONMENTS, connections: MOCK_CATALOG, error: null },
+  args: { rows: MANY_ENVIRONMENTS, connections: MOCK_CATALOG, images: MOCK_IMAGES, error: null },
 };
 
 /** Search narrowed to environments that mention Slack. */
 export const Filtered: Story = {
-  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, error: null },
+  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, images: MOCK_IMAGES, error: null },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.type(await canvas.findByPlaceholderText('Search environments…'), 'slack');
@@ -63,7 +65,7 @@ export const Filtered: Story = {
 
 /** The create modal, empty. */
 export const CreateFormOpen: Story = {
-  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, error: null },
+  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, images: MOCK_IMAGES, error: null },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole('button', { name: /New environment/ }));
@@ -73,7 +75,7 @@ export const CreateFormOpen: Story = {
 
 /** The edit modal scrolled to the effective access panel, resolved from the environment's hosts and connectors. */
 export const EditFormOpen: Story = {
-  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, error: null },
+  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, images: MOCK_IMAGES, error: null },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByLabelText('Edit code-review'));
@@ -91,7 +93,7 @@ export const EditFormOpen: Story = {
 
 /** The delete confirmation. */
 export const DeleteConfirmOpen: Story = {
-  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, error: null },
+  args: { rows: MOCK_ENVIRONMENTS, connections: MOCK_CATALOG, images: MOCK_IMAGES, error: null },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByLabelText('Delete incident-response'));

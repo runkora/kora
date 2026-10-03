@@ -19,7 +19,7 @@ const builder = {
     connectors: [],
     connectivityMode: 'none',
     connectivityHosts: '',
-    environmentId: '',
+    environments: [],
   },
   setField: () => {},
   catalogues: {

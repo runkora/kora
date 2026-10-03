@@ -92,9 +92,9 @@ export async function updateEnvironment(
 
 // ── previewEnvironmentAccess ──────────────────────────────────────────────────
 
-// Resolves the effective-access view for a *draft* environment. An environment
-// is exactly a posture + connectors bundle, so the agent-types preview endpoint
-// answers truthfully with no environment folded in (`environment_id: null`).
+// Resolves the effective-access view for a draft environment. Its hosts and
+// connectors grant what an agent's own would, so the agent-types preview
+// endpoint answers with no environment folded in.
 export async function previewEnvironmentAccess(body: {
   egressHosts: string[];
   connectors: Connector[];
@@ -102,7 +102,6 @@ export async function previewEnvironmentAccess(body: {
   const request: EffectiveAccessPreviewRequest = {
     connectivity: { mode: 'whitelist', hosts: body.egressHosts },
     connectors: body.connectors,
-    environment_id: null,
   };
   let res: Response;
   try {
@@ -128,6 +127,10 @@ export async function previewEnvironmentAccess(body: {
 
 // ── deleteEnvironment ─────────────────────────────────────────────────────────
 
+/** Shown when the API refuses to delete an environment that agents still use. */
+export const ENVIRONMENT_IN_USE_MESSAGE =
+  'This environment is attached to an agent. Detach it from every agent, then delete it.';
+
 export async function deleteEnvironment(id: string): Promise<{ error: string | null }> {
   let res: Response;
   try {
@@ -135,6 +138,7 @@ export async function deleteEnvironment(id: string): Promise<{ error: string | n
   } catch {
     return { error: 'Network error: could not reach the server.' };
   }
+  if (res.status === 409) return { error: ENVIRONMENT_IN_USE_MESSAGE };
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
     return { error: (body as { message?: string }).message ?? `Request failed (${res.status})` };

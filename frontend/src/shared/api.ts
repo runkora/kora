@@ -291,17 +291,18 @@ export interface McpServer {
 }
 
 /**
- * An Environment is a tenant-scoped, UI-managed bundle of egress hosts and
- * credential connectors an agent type can reference. Attaching an environment to
- * an agent type folds its hosts and connectors into the agent's effective
- * egress + connection grants.
- * Mirrors Go: agents.Environment
+ * An Environment is a prepackaged sandbox: a registered sandbox image, a size,
+ * and the egress hosts and connectors of every agent it is attached to.
+ * Mirrors Go: agents.Environment. See docs/adr/2026-10-03-sandbox-environments.md.
  */
 export interface Environment {
   id: string;
   tenant_id: string;
   name: string;
   description: string;
+  /** SandboxImage name in the tenant namespace. Empty means the kora base image. */
+  sandbox_image: string;
+  size: EnvironmentSize;
   /** Egress host patterns this environment grants (exact, "*", or "*.suffix"). */
   egress_hosts: string[];
   /** Credential connectors this environment grants. */
@@ -310,20 +311,51 @@ export interface Environment {
   updated_at: string;
 }
 
+/** A sandbox's CPU, memory and local disk as Kubernetes quantities, e.g. "2", "4Gi". */
+export interface EnvironmentSize {
+  cpu: string;
+  memory: string;
+  disk: string;
+}
+
 /** Top-level response from GET /api/v1/environments. */
 export interface EnvironmentsListResponse {
   environments: Environment[];
 }
 
 /**
- * Request body for POST/PUT /api/v1/environments. PUT is a FULL replace — every
- * field is sent.
+ * Request body for POST/PUT /api/v1/environments. PUT is a full replace. An
+ * empty size dimension takes the platform default; a size above the platform
+ * maximum is rejected with a 400.
  */
 export interface EnvironmentRequest {
   name: string;
   description: string;
+  sandbox_image: string;
+  size: EnvironmentSize;
   egress_hosts: string[];
   connectors: Connector[];
+}
+
+/**
+ * A sandbox image a platform team registered in the tenant. Only a valid image
+ * can back an environment. Mirrors Go: agents.SandboxImageView.
+ */
+export interface SandboxImage {
+  name: string;
+  description: string;
+  image: string;
+  digest?: string;
+  valid: boolean;
+  /** Why an invalid image cannot be selected. */
+  problem?: string;
+  warm: boolean;
+}
+
+/** An environment attached to an agent type. Exactly one attached environment is the default. */
+export interface AgentEnvironment {
+  environment_id: string;
+  is_default: boolean;
 }
 
 /**
@@ -355,8 +387,8 @@ export interface AgentType {
   model_id?: string;
   /** Budget on the agent's policy grant. Present on detail reads when configured. */
   budget?: AgentBudget;
-  /** Optional environment this agent type references (its hosts + connectors are folded in). */
-  environment_id?: string | null;
+  /** Attached environments. None means the agent runs on the kora base image. */
+  environments?: AgentEnvironment[];
 }
 
 /**
@@ -498,8 +530,8 @@ export interface CreateAgentTypeRequest {
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
   budget?: AgentBudget;
-  /** Environment to attach (UUID). Omit/empty for none. */
-  environment_id?: string;
+  /** Environments to attach; one is the default. Omit for none (the kora base image). */
+  environments?: AgentEnvironment[];
 }
 
 /** Request body for POST /api/agents/types/:typeId/runs. */
@@ -534,10 +566,17 @@ export interface ConnectorEgress {
   hosts: string[];
 }
 
+/** The hosts one attached environment contributes. Mirrors Go: agents.EnvironmentAccess. */
+export interface EnvironmentAccess {
+  id: string;
+  name: string;
+  hosts: string[];
+}
+
 /**
  * The resolved, read-only view of what an agent type can actually reach, as
  * returned by GET /api/v1/agent-types/:id/effective-access. Folds together the
- * agent's own egress posture, its referenced environment, and the auto-egress
+ * agent's own egress posture, its attached environments, and the auto-egress
  * implied by its connectors. Mirrors Go: agents.EffectiveAccess.
  */
 export interface EffectiveAccess {
@@ -545,9 +584,9 @@ export interface EffectiveAccess {
   open: boolean;
   /** Hosts from the agent's own whitelist posture. */
   own_hosts: string[];
-  environment_id?: string;
-  environment_name?: string;
-  /** Hosts contributed by the referenced environment. */
+  /** What each attached environment contributes. */
+  environments: EnvironmentAccess[];
+  /** Union of every attached environment's hosts. */
   environment_hosts: string[];
   /** Per-connector auto-egress, grouped by connection. */
   connector_egress: ConnectorEgress[];
@@ -566,8 +605,8 @@ export interface EffectiveAccess {
 export interface EffectiveAccessPreviewRequest {
   connectivity: Connectivity;
   connectors: Connector[];
-  /** Environment to fold in (UUID). Omit/null/"" for none. */
-  environment_id?: string | null;
+  /** Environments to fold in. Omit or empty for none. */
+  environments?: AgentEnvironment[];
 }
 
 /** Request body for PATCH /api/agents/types/:id. */
@@ -587,8 +626,8 @@ export interface UpdateAgentTypeRequest {
   connectors?: Connector[];
   /** Governed MCP tool grants; replaces the set. Omit = unchanged; [] clears. */
   mcp_tools?: string[];
-  /** Environment to attach (UUID); empty string ("") detaches it. Omit = unchanged. */
-  environment_id?: string;
+  /** Replaces the attached environments. Omit = unchanged; [] detaches all. */
+  environments?: AgentEnvironment[];
 }
 
 // ── Triggers ───────────────────────────────────────────────────────────────

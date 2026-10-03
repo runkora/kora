@@ -1,8 +1,8 @@
 'use client';
 
-/** @tier 2 — Orbit-domain-aware: resolved effective access (hosts, connectors, environments). Used by: agents builder, agents configuration, environments (planned). The "Effective access" resolved output: the
+/** @tier 2 — Orbit-domain-aware: resolved effective access (hosts, connectors, environments). Used by: agents builder, agents configuration, environments. The "Effective access" resolved output: the
  * union of hosts an agent can reach, colour-coded by provenance (own egress
- * posture, environment, connectors). Distinct from the editable layer cards — it
+ * posture, attached environments, connectors). Distinct from the editable layer cards — it
  * is a resolved *output*, given a subtle elevated/accent treatment. Hovering a
  * source section highlights that source's chips within the union. */
 
@@ -279,22 +279,34 @@ export function EffectiveAccessPanel({
 
                 <SourceSection
                   source="environment"
-                  detail={access.environment_name ?? 'None attached'}
+                  detail={
+                    access.environments.length === 0
+                      ? 'None attached'
+                      : `${access.environments.length} attached`
+                  }
                   active={hovered === 'environment'}
                   onHoverChange={(h) => setHovered(h ? 'environment' : null)}
                 >
-                  {access.environment_id ? (
-                    access.open ? (
-                      <Text size="supporting" color="muted">
-                        Folded in (open egress reaches any host).
-                      </Text>
-                    ) : (
-                      <PlainHostChips hosts={access.environment_hosts} />
-                    )
-                  ) : (
+                  {access.environments.length === 0 ? (
                     <Text size="supporting" color="muted">
-                      No environment attached.
+                      No environments attached.
                     </Text>
+                  ) : access.open ? (
+                    <Text size="supporting" color="muted">
+                      {access.environments.map((env) => env.name).join(', ')}. Open egress reaches
+                      any host.
+                    </Text>
+                  ) : (
+                    <Stack gap="snug">
+                      {access.environments.map((env) => (
+                        <Stack key={env.id} gap="tight">
+                          <Text size="supporting" weight="emphasis">
+                            {env.name}
+                          </Text>
+                          <PlainHostChips hosts={env.hosts} />
+                        </Stack>
+                      ))}
+                    </Stack>
                   )}
                 </SourceSection>
 

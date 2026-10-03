@@ -4,6 +4,7 @@
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
 import type {
+  AgentEnvironment,
   AgentType,
   AgentBudget,
   AgentTypeGuardrails,
@@ -15,7 +16,14 @@ import type {
   Connector,
 } from '@orbit/shared/api';
 
-export type { AgentIdentityMode, AgentTypeState, RunState, Connectivity, Connector };
+export type {
+  AgentEnvironment,
+  AgentIdentityMode,
+  AgentTypeState,
+  RunState,
+  Connectivity,
+  Connector,
+};
 
 export interface AgentTypeRow {
   id: string;
@@ -46,8 +54,8 @@ export interface AgentTypeRow {
   modelId: string;
   /** Budget on the agent's policy grant (present on detail reads when configured). */
   budget: AgentBudget | null;
-  /** Attached environment id, or "" when none is attached. */
-  environmentId: string;
+  /** Attached environments; one is the default. Empty means the kora base image. */
+  environments: AgentEnvironment[];
 }
 
 export interface RunRow {
@@ -107,7 +115,7 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     updatedAt: a.updated_at,
     modelId: a.model_id ?? '',
     budget: a.budget ?? null,
-    environmentId: a.environment_id ?? '',
+    environments: a.environments ?? [],
   };
 }
 
@@ -243,4 +251,34 @@ export function loopGuardrailsPayload(v: LoopGuardrailValues): AgentTypeGuardrai
     out.wait_rearm_pause = Number(v.waitRearmPause);
   }
   return out;
+}
+
+// ── Attached environments ─────────────────────────────────────────────────────
+// Exactly one attached environment is the default, which the API enforces.
+// These keep the draft list in that shape as the user edits it.
+
+/** Attaches or detaches an environment. The first attached becomes the default. */
+export function toggleEnvironment(list: AgentEnvironment[], id: string): AgentEnvironment[] {
+  if (!list.some((e) => e.environment_id === id)) {
+    return [...list, { environment_id: id, is_default: list.length === 0 }];
+  }
+  const rest = list.filter((e) => e.environment_id !== id);
+  if (rest.length > 0 && !rest.some((e) => e.is_default)) {
+    return rest.map((e, i) => ({ ...e, is_default: i === 0 }));
+  }
+  return rest;
+}
+
+/** Marks one attached environment as the default. */
+export function setDefaultEnvironment(list: AgentEnvironment[], id: string): AgentEnvironment[] {
+  return list.map((e) => ({ ...e, is_default: e.environment_id === id }));
+}
+
+/** An order-independent form of the list for dirty checks. */
+export function environmentsKey(list: AgentEnvironment[]): string {
+  return JSON.stringify(
+    list
+      .map((e) => [e.environment_id, e.is_default])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  );
 }

@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, connections, egress, environment. */
+/** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, connections, egress, environments. */
 
 import { useEffect, useMemo, useState } from 'react';
 import { Alert, SectionHeading, Separator, Stack, Text } from '@orbit/terra';
@@ -9,7 +9,7 @@ import { previewEffectiveAccess } from '../../[slug]/_services/agent-detail-api'
 import { ConnectionCards, EffectiveAccessPanel } from '@orbit/components';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { EgressModeCards } from '../motif/egress-mode-cards';
-import { EnvironmentCard } from '../motif/environment-card';
+import { EnvironmentsCard } from '../motif/environments-card';
 import { countGrantedServers, McpToolTree } from '../motif/mcp-tool-tree';
 
 /** Section heading shared by every block on this step. */
@@ -50,14 +50,14 @@ export function StepTools() {
             .filter(Boolean),
         },
         connectors: fields.connectors,
-        environment_id: fields.environmentId || null,
+        environments: fields.environments,
       }).then((result) => {
         setAccess(result.access);
         setAccessError(result.error);
       });
     }, 400);
     return () => clearTimeout(timer);
-  }, [fields.connectivityMode, fields.connectivityHosts, fields.connectors, fields.environmentId]);
+  }, [fields.connectivityMode, fields.connectivityHosts, fields.connectors, fields.environments]);
 
   return (
     <Stack gap="relaxed">
@@ -127,16 +127,17 @@ export function StepTools() {
 
       <Separator />
 
-      {/* ── Environment ────────────────────────────────────────────────────── */}
+      {/* ── Environments ───────────────────────────────────────────────────── */}
       <Stack gap="cozy">
         <SectionLabel
-          title="Environment"
-          desc="An environment merges its egress hosts and connections into the agent's effective access. Choose it alongside the access it modifies."
+          title="Environments"
+          desc="The sandboxes this agent can run in. Their egress hosts and connections join the agent's effective access."
         />
-        <EnvironmentCard
+        <EnvironmentsCard
           environments={catalogues.environments}
-          value={fields.environmentId}
-          onChange={(id) => setField('environmentId', id)}
+          value={fields.environments}
+          onChange={(next) => setField('environments', next)}
+          error={catalogues.status.environments === 'error' ? catalogues.errors.environments : null}
         />
       </Stack>
 

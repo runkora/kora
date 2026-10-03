@@ -1,28 +1,34 @@
 import 'server-only';
 
-import { listEnvironments } from '@orbit/server/environments-client';
+import { listEnvironments, listSandboxImages } from '@orbit/server/environments-client';
 import { listConnections } from '@orbit/server/connections-client';
 import { toEnvironmentRow } from '../_types';
 import type { EnvironmentRow } from '../_types';
-import type { ConnectionCatalogEntry } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, SandboxImage } from '@orbit/shared/api';
 
 export type EnvironmentsResult =
-  | { ok: true; rows: EnvironmentRow[]; connections: ConnectionCatalogEntry[] }
+  | {
+      ok: true;
+      rows: EnvironmentRow[];
+      connections: ConnectionCatalogEntry[];
+      /** Registered sandbox images, or null when the list did not load. */
+      images: SandboxImage[] | null;
+    }
   | { ok: false; message: string };
 
 /**
- * Loads the tenant's environments and the connection catalog (for the
- * connectors picker in the create/edit form) directly from orbit-agents.
- *
- * The connection catalog degrades to an empty list when the gateway is
- * unreachable (mirroring the picker route, which tolerates the same gateway
- * being down). Only a failure to load environments surfaces `ok: false`.
+ * Loads the tenant's environments, the connection catalog and the registered
+ * sandbox images from orbit-agents. Only a failure to load environments fails
+ * the page; the form works without the other two.
  */
 export async function fetchEnvironments(accessToken: string): Promise<EnvironmentsResult> {
   try {
-    const environments = await listEnvironments(accessToken);
-    const connections = await loadCatalog(accessToken);
-    return { ok: true, rows: environments.map(toEnvironmentRow), connections };
+    const [environments, connections, images] = await Promise.all([
+      listEnvironments(accessToken),
+      loadCatalog(accessToken),
+      listSandboxImages(accessToken).catch(() => null),
+    ]);
+    return { ok: true, rows: environments.map(toEnvironmentRow), connections, images };
   } catch {
     return { ok: false, message: 'Failed to load environments' };
   }
