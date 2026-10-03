@@ -43,8 +43,8 @@ type EnvironmentSize struct {
 
 // EnvironmentSizes are the install's default and maximum environment sizes.
 type EnvironmentSizes struct {
-	Default EnvironmentSize
-	Max     EnvironmentSize
+	Default EnvironmentSize `json:"default"`
+	Max     EnvironmentSize `json:"max"`
 }
 
 // Validate checks every maximum is a positive quantity and the default fits within it.
@@ -267,6 +267,11 @@ func (s *EnvironmentService) GetEnvironment(ctx context.Context, id string) (*En
 // ListEnvironments returns all environments for the caller's tenant.
 func (s *EnvironmentService) ListEnvironments(ctx context.Context) ([]Environment, error) {
 	return s.repo.ListEnvironments(ctx, tenantFromContext(ctx))
+}
+
+// Sizes are the install's default and maximum environment sizes.
+func (s *EnvironmentService) Sizes() EnvironmentSizes {
+	return s.cfg.Sizes
 }
 
 // DefaultEnvironment is the built-in environment of agents with none attached.

@@ -260,3 +260,15 @@ func TestHandleUpdateAgentType_InvalidEnvironmentsIs400(t *testing.T) {
 		t.Errorf("status %d body %s, want 400 naming the default rule", w.Code, w.Body.String())
 	}
 }
+
+// The sizes endpoint returns the install's default and maximum sizes.
+func TestHandleEnvironmentSizes(t *testing.T) {
+	svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, &mockK8s{})
+	c := NewController(nil, nil, svc, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	w := httptest.NewRecorder()
+	c.handleEnvironmentSizes(w, withTenantRequest(httptest.NewRequest(http.MethodGet, "/api/v1/environment-sizes", http.NoBody), "t-1"))
+	want := `{"default":{"cpu":"2","memory":"4Gi","disk":"10Gi"},"max":{"cpu":"8","memory":"16Gi","disk":"50Gi"}}`
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != want {
+		t.Errorf("status %d body %s, want %s", w.Code, w.Body.String(), want)
+	}
+}

@@ -131,6 +131,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("PUT /api/v1/environments/{id}", c.handleUpdateEnvironment)
 	mux.Handle("DELETE /api/v1/environments/{id}", c.handleDeleteEnvironment)
 	mux.Handle("GET /api/v1/sandbox-images", c.handleListSandboxImages)
+	mux.Handle("GET /api/v1/environment-sizes", c.handleEnvironmentSizes)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)

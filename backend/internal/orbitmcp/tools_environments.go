@@ -61,6 +61,12 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client)
 			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/"+url.PathEscape(a.ID)))
 		})
 
+	addTool(srv, "agents.environments.sizes",
+		"Get the default and maximum environment sizes (CPU, memory and local disk). An environment cannot ask for more than the maximum.",
+		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
+			return jsonResult(jc.Get(ctx, callerToken(ctx), b.Agents+"/api/v1/environment-sizes", nil))
+		})
+
 	addTool(srv, "agents.sandbox_images.list",
 		"List the sandbox images registered in the caller's tenant, with whether each is valid and why not. "+
 			"An environment names one by name; kora-base is the kora base image.",

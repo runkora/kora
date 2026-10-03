@@ -102,3 +102,8 @@ func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseW
 			api.InternalError(api.ErrCodeInternalError, "environment operation failed", nil), err)
 	}
 }
+
+// handleEnvironmentSizes returns the install's default and maximum environment sizes.
+func (c *Controller) handleEnvironmentSizes(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, c.environments.Sizes())
+}

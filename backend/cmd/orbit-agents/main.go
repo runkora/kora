@@ -376,6 +376,7 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/environments/", Method: "PUT", RequiredScope: "agents:environments:write"},
 		{PathPrefix: "/api/v1/environments/", Method: "DELETE", RequiredScope: "agents:environments:write"},
 		{PathPrefix: "/api/v1/sandbox-images", Method: "GET", RequiredScope: "agents:environments:read"},
+		{PathPrefix: "/api/v1/environment-sizes", Method: "GET", RequiredScope: "agents:environments:read"},
 		// Starting a run is authenticated-only at the route layer, on the same
 		// reasoning as the agent-type writes above: the scope that governs it is
 		// per-agent (agents:runs:{slug}:write), and the slug comes from the agent
