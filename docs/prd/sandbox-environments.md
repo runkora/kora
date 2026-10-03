@@ -74,8 +74,8 @@ None at this time.
 
 **Acceptance Criteria:**
 *   [ ] The Environments page creates, edits and deletes environments.
-*   [ ] An environment without a selected image shows that it uses the kora base image.
-*   [ ] An environment sets its own CPU, memory and local disk within platform limits.
+*   [ ] A new environment selects the kora base image by default.
+*   [ ] An environment sets its own CPU, memory and local disk, and the form shows the platform limits before saving.
 
 ---
 

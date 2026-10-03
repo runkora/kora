@@ -149,12 +149,12 @@ For each valid image with `warm: true`, the operator will run a pre-pull DaemonS
 
 ### 5. Environments
 
-The `environments` table will gain image and size columns. An environment will have a name, a description, a `SandboxImage`, a size, egress hosts and connectors, and an empty image will resolve to `kora-base`.
+The `environments` table will gain image and size columns. An environment will have a name, a description, a `SandboxImage`, a size, egress hosts and connectors. An environment created without an image will store `kora-base`, and a legacy empty value will read as `kora-base`.
 
 *   `agent_environments` will link agents to environments with an `is_default` flag.
 *   `agent_types.environment_id` will stay unused for one minor release and then be removed under the [database migrations](2026-09-10-database-migrations.md) rule that each schema keeps working with the previous release's binaries.
 *   An agent with no environments will provision on `kora-base` at the default size.
-*   The size will set CPU, memory and local disk within maximums in the Helm values.
+*   The size will set CPU, memory and local disk within maximums in the Helm values, and `GET /api/v1/environment-sizes` will return the default and maximum sizes.
 *   The `agents:environments:read` and `agents:environments:write` scopes will govern environments.
 
 ### 6. Access
