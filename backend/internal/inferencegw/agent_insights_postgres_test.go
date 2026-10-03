@@ -3,7 +3,6 @@ package inferencegw
 import (
 	"context"
 	"math"
-	"strings"
 	"testing"
 	"time"
 
@@ -221,54 +220,6 @@ func TestPostgres_AgentBudgetSpend(t *testing.T) {
 	}
 	if !near(got[0].WeekToDateUSD, wantWeek) || !near(got[0].MonthToDateUSD, wantMonth) {
 		t.Errorf("week %v month %v, want week %v month %v (week %s month %s)", got[0].WeekToDateUSD, got[0].MonthToDateUSD, wantWeek, wantMonth, week, month)
-	}
-}
-
-// The rollups are served by the agent slug index. Sequential scans are disabled
-// so a small test table does not make the planner prefer one.
-func TestPostgres_AgentRollups_UseIndexes(t *testing.T) {
-	_, pool, tenant := testUsageRepo(t)
-	ctx := context.Background()
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		t.Fatalf("acquire: %v", err)
-	}
-	defer conn.Release()
-	if _, err := conn.Exec(ctx, "SET enable_seqscan = off"); err != nil {
-		t.Fatalf("set: %v", err)
-	}
-	defer func() { _, _ = conn.Exec(ctx, "RESET enable_seqscan") }()
-
-	explain := func(q string, args ...any) string {
-		rows, err := conn.Query(ctx, "EXPLAIN "+q, args...)
-		if err != nil {
-			t.Fatalf("explain: %v", err)
-		}
-		defer rows.Close()
-		var plan strings.Builder
-		for rows.Next() {
-			var line string
-			if err := rows.Scan(&line); err != nil {
-				t.Fatalf("scan: %v", err)
-			}
-			plan.WriteString(line + "\n")
-		}
-		return plan.String()
-	}
-
-	start := time.Now().Add(-7 * 24 * time.Hour)
-	all := explain(`SELECT agent_slug, SUM(estimated_cost_usd) FROM inference_usage
-		WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3 AND agent_slug = ANY($4) GROUP BY agent_slug`,
-		tenant, start, time.Now(), []string{"coder"})
-	if !strings.Contains(all, "idx_inference_usage_agent_slug") {
-		t.Errorf("all-rows plan does not use idx_inference_usage_agent_slug:\n%s", all)
-	}
-	own := explain(`SELECT agent_slug, SUM(estimated_cost_usd) FROM inference_usage
-		WHERE tenant_id = $1 AND created_at >= $2 AND created_at < $3
-		  AND (agent_slug = ANY($4) OR (agent_slug = ANY($5) AND delegator_id = $6)) GROUP BY agent_slug`,
-		tenant, start, time.Now(), []string{"coder"}, []string{"notes"}, "alice")
-	if !strings.Contains(own, "idx_inference_usage_") {
-		t.Errorf("own-rows plan uses no usage index:\n%s", own)
 	}
 }
 

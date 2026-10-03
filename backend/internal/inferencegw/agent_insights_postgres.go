@@ -3,6 +3,7 @@ package inferencegw
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
@@ -103,47 +104,44 @@ func (r *PostgresInferenceUsageRepository) AgentSpendByModel(ctx context.Context
 }
 
 // AgentSpendBuckets returns the spend in each chart bucket of the window and
-// the total for the window before it. A row's bucket is the number of bucket
-// widths between the window origin and the row; rows before the window start
-// fall in bucket -1, the previous window.
+// the total for the window before it. Each bucket is one FILTER sum over the
+// same rows, so the query has no GROUP BY and Postgres runs it as a parallel
+// aggregate. Bucket i covers [bounds[i], bounds[i+1]), where bounds[0] is the
+// window start and the last bound is the window end; the previous window is
+// everything before the start.
 func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context, scope AgentUsageScope, w usagewindow.Window) (SpendBuckets, error) {
-	clause, args := scope.visibilityClause(7)
-	q := `
-		SELECT
-		    CASE WHEN created_at < $2 THEN -1
-		         ELSE floor(extract(epoch FROM created_at - $6::timestamptz) / $4)::int END AS bucket,
-		    COALESCE(SUM(estimated_cost_usd), 0)
+	n := w.Buckets()
+	bounds := make([]time.Time, n+1)
+	bounds[0], bounds[n] = w.Start, w.End
+	for i := 1; i < n; i++ {
+		bounds[i] = w.Origin.Add(time.Duration(i) * w.Bucket)
+	}
+
+	// $1 tenant, $2 previous start, $3 end, $4..$(4+n) the bounds, then the visibility arguments.
+	cols := []string{"COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at < $4), 0)"}
+	args := []any{scope.TenantID, w.PreviousStart(), w.End}
+	for i, b := range bounds {
+		args = append(args, b)
+		if i < n {
+			cols = append(cols, fmt.Sprintf("COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at >= $%d AND created_at < $%d), 0)", 4+i, 5+i))
+		}
+	}
+	clause, visArgs := scope.visibilityClause(4 + len(bounds))
+	q := "SELECT " + strings.Join(cols, ", ") + `
 		FROM inference_usage
 		WHERE tenant_id = $1
-		  AND created_at >= $3 AND created_at < $5
-		  AND ` + clause + `
-		GROUP BY bucket`
+		  AND created_at >= $2 AND created_at < $3
+		  AND ` + clause
 
-	rows, err := r.pool.Query(ctx, q,
-		append([]any{scope.TenantID, w.Start, w.PreviousStart(), int64(w.Bucket / time.Second), w.End, w.Origin}, args...)...)
-	if err != nil {
+	totals := make([]float64, n+1)
+	dest := make([]any, n+1)
+	for i := range totals {
+		dest[i] = &totals[i]
+	}
+	if err := r.pool.QueryRow(ctx, q, append(args, visArgs...)...).Scan(dest...); err != nil {
 		return SpendBuckets{}, fmt.Errorf("agent spend buckets: %w", err)
 	}
-	defer rows.Close()
-
-	out := SpendBuckets{Buckets: make([]float64, w.Buckets())}
-	for rows.Next() {
-		var bucket int
-		var cost float64
-		if err := rows.Scan(&bucket, &cost); err != nil {
-			return SpendBuckets{}, fmt.Errorf("scan agent spend bucket: %w", err)
-		}
-		switch {
-		case bucket < 0:
-			out.PreviousUSD = cost
-		case bucket < len(out.Buckets):
-			out.Buckets[bucket] = cost
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return SpendBuckets{}, fmt.Errorf("iterate agent spend buckets: %w", err)
-	}
-	return out, nil
+	return SpendBuckets{PreviousUSD: totals[0], Buckets: totals[1:]}, nil
 }
 
 // AgentBudgetSpend returns each listed agent's spend since weekStart and since

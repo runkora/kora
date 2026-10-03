@@ -65,6 +65,8 @@ func TestPostgres_CountRunOutcomes_Visibility(t *testing.T) {
 	ctx := context.Background()
 	auto := seedInsightsAgentType(t, r, tenant, IdentityModeAutonomous)
 	del := seedInsightsAgentType(t, r, tenant, IdentityModeDelegated)
+	// The other tenant's run references this tenant's agent type, so it goes first.
+	t.Cleanup(func() { _, _ = r.pool.Exec(ctx, `DELETE FROM runs WHERE tenant_id=$1`, tenant+"-other") })
 
 	seedTerminalRun(t, r, tenant, auto.ID, "alice", RunStateCompleted, time.Hour)
 	seedTerminalRun(t, r, tenant, auto.ID, "bob", RunStateFailed, time.Hour)
