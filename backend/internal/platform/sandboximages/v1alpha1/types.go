@@ -76,11 +76,11 @@ func (s *SandboxImage) Valid() bool {
 
 // PinnedRef is the image reference pinned to the resolved digest.
 func (s *SandboxImage) PinnedRef() string {
-	return Pin(s.Spec.Image, s.Status.Digest)
+	return pin(s.Spec.Image, s.Status.Digest)
 }
 
-// Pin replaces any tag or digest on ref with digest.
-func Pin(ref, digest string) string {
+// pin replaces any tag or digest on ref with digest.
+func pin(ref, digest string) string {
 	repo := ref
 	if i := strings.IndexByte(repo, '@'); i >= 0 {
 		repo = repo[:i]

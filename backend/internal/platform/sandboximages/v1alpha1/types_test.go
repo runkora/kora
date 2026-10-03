@@ -16,8 +16,8 @@ func TestPin(t *testing.T) {
 		{"ghcr.io/acme/go:1.2@sha256:old", "ghcr.io/acme/go@" + d},
 		{"ghcr.io/acme/go@sha256:old", "ghcr.io/acme/go@" + d},
 	} {
-		if got := Pin(tc.ref, d); got != tc.want {
-			t.Errorf("Pin(%q) = %q, want %q", tc.ref, got, tc.want)
+		if got := pin(tc.ref, d); got != tc.want {
+			t.Errorf("pin(%q) = %q, want %q", tc.ref, got, tc.want)
 		}
 	}
 }
