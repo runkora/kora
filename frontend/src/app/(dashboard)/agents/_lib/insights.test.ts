@@ -88,7 +88,7 @@ describe('toBudgetRows', () => {
     ],
   };
 
-  it('reports the spend in each agent’s own budget window, largest first', () => {
+  it('reports the spend in each agent’s own budget window, the closest to its limit first', () => {
     expect(toBudgetRows(resp, agents)).toEqual([
       { name: 'Coder', spent: 40, limit: 100 },
       { name: 'Triage Bot', spent: 3, limit: 20, cadence: 'weekly' },

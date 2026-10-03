@@ -1,4 +1,5 @@
 import type { AgentBudgetsResponse, AgentInsightsResponse } from '@orbit/shared/api';
+import { closestToLimit } from './spend';
 import type { BudgetRow, Period, PeriodData, TenantBudget } from './spend';
 
 // Turns the BFF responses into the shapes the page draws.
@@ -35,14 +36,14 @@ export function toPeriodData(period: Period, resp: AgentInsightsResponse): Perio
   };
 }
 
-/** One row per visible agent that has spend or a limit, largest spend first. */
+/** One row per visible agent that has spend or a limit, the closest to its limit first. */
 export function toBudgetRows(
   resp: AgentBudgetsResponse,
   agents: { slug: string; name: string }[],
 ): BudgetRow[] {
   const names = new Map(agents.map((a) => [a.slug, a.name]));
-  return resp.agents
-    .map((a): BudgetRow => {
+  return closestToLimit(
+    resp.agents.map((a): BudgetRow => {
       const weekly = a.reset_cadence === 'weekly';
       return {
         name: names.get(a.agent_slug) ?? a.agent_slug,
@@ -50,8 +51,8 @@ export function toBudgetRows(
         ...(a.limit_usd != null ? { limit: a.limit_usd } : {}),
         ...(weekly ? { cadence: 'weekly' as const } : {}),
       };
-    })
-    .sort((x, y) => y.spent - x.spent);
+    }),
+  );
 }
 
 /** The days left in the cap's window: to the next Monday for a weekly cap, to the 1st otherwise. */

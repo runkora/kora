@@ -8,6 +8,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // WithAgentInsights installs the service behind the agent rollup routes. The
@@ -63,6 +64,33 @@ func (c *Controller) handleAgentInsights(w http.ResponseWriter, r *http.Request)
 	out, err := c.agentInsights.Insights(ctx, tenantID, subject, bearer, period)
 	if err != nil {
 		c.agentInsightsError(w, r, err, "get agent insights")
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, out)
+}
+
+// handleAgentUsage handles GET /v1/usage/agent-type/{slug}?period=. It is the
+// one-agent form of handleAgentInsights, for the agent overview page.
+func (c *Controller) handleAgentUsage(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	tenantID, subject, bearer, ok := c.callerForAgentInsights(w, r)
+	if !ok {
+		return
+	}
+	// Slugs are pod label values (spiffe.io/agent), so anything else cannot be an agent principal.
+	slug := r.PathValue("slug")
+	if slug == "" || len(validation.IsValidLabelValue(slug)) > 0 {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "a valid agent slug is required", nil), nil)
+		return
+	}
+	period, err := usagewindow.Parse(r.URL.Query().Get("period"))
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", err.Error(), nil), err)
+		return
+	}
+	out, err := c.agentInsights.AgentUsage(ctx, tenantID, subject, bearer, period, slug)
+	if err != nil {
+		c.agentInsightsError(w, r, err, "get agent usage")
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, out)

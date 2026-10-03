@@ -341,8 +341,8 @@ export const ApiRoute = {
     /**
      * `/api/agents/types/usage/[slug]`
      *
-     * GET — returns the agent's 7-day token breakdown and spend by slug, sourced
-     *       from the inference gateway. Powers the token breakdown and spend
+     * GET — returns the agent's token breakdown and spend over the last 7 days by
+     *       slug, from the inference gateway, if the caller may see the agent. Powers the token breakdown and spend
      *       cards on the agent overview page.
      */
     usage: (slug: string): `${typeof API_BASE}/agents/types/usage/${string}` =>

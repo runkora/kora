@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -183,6 +184,35 @@ func (s *AgentInsightsService) Insights(ctx context.Context, tenantID, subject, 
 		if i < len(buckets.Buckets) {
 			out.Trend[i].CostUSD = buckets.Buckets[i]
 		}
+	}
+	return out, nil
+}
+
+// AgentUsage returns one agent's tokens and spend for the window, on the same
+// visibility rule as Insights: the figures are the agent's if the caller may see
+// them, and zero otherwise, which reads the same as an agent with no usage.
+func (s *AgentInsightsService) AgentUsage(ctx context.Context, tenantID, subject, bearer string, period usagewindow.Period, slug string) (AgentTypeUsage, error) {
+	scope, err := s.scope(ctx, tenantID, subject, bearer)
+	if err != nil {
+		return AgentTypeUsage{}, err
+	}
+	only := func(slugs []string) []string {
+		if slices.Contains(slugs, slug) {
+			return []string{slug}
+		}
+		return nil
+	}
+	scope.AllRows, scope.OwnRows = only(scope.AllRows), only(scope.OwnRows)
+	out := AgentTypeUsage{AgentSlug: slug}
+	if scope.empty() {
+		return out, nil
+	}
+	rows, err := s.store.AgentUsage(ctx, scope, usagewindow.For(period, s.now()))
+	if err != nil {
+		return AgentTypeUsage{}, fmt.Errorf("agent usage: %w", err)
+	}
+	if len(rows) > 0 {
+		out = rows[0]
 	}
 	return out, nil
 }

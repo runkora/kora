@@ -271,3 +271,28 @@ func TestPostgres_AgentRollups_UseIndexes(t *testing.T) {
 		t.Errorf("own-rows plan uses no usage index:\n%s", own)
 	}
 }
+
+// A slug is matched exactly: a LIKE wildcard in it matches nothing, and a slug
+// that is a prefix of another does not pick up the longer one.
+func TestPostgres_AgentRollups_SlugsMatchExactly(t *testing.T) {
+	repo, pool, tenant := testUsageRepo(t)
+	insertAgentRows(t, pool, tenant,
+		agentRow{slug: "probe", model: "m", prompt: 10, cost: 0.1, age: time.Hour},
+		agentRow{slug: "token-probe", model: "m", prompt: 100, cost: 1, age: time.Hour},
+		agentRow{slug: "pr_be", model: "m", prompt: 7, cost: 0.07, age: time.Hour},
+	)
+	w := usagewindow.For(usagewindow.Period7d, time.Now())
+	for slug, want := range map[string]int64{"probe": 10, "token-probe": 100, "pr_be": 7, "pr%": 0, "missing": 0} {
+		got, err := repo.AgentUsage(context.Background(), AgentUsageScope{TenantID: tenant, AllRows: []string{slug}}, w)
+		if err != nil {
+			t.Fatalf("AgentUsage: %v", err)
+		}
+		var total int64
+		for _, u := range got {
+			total += u.TotalTokens
+		}
+		if total != want {
+			t.Errorf("%q: total tokens %d, want %d", slug, total, want)
+		}
+	}
+}

@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   CardContent,
+  CardFooter,
   CardHeader,
   Stack,
   StatusDot,
@@ -38,6 +39,9 @@ export const LIVE_STATES: Record<
 export function isLiveRun(run: RunRow): boolean {
   return run.state in LIVE_STATES;
 }
+
+/** The most runs the table lists. The header counts them all. */
+const MAX_ROWS = 10;
 
 export interface RunningNowCardProps {
   /** Only runs that are live; see `isLiveRun`. */
@@ -97,7 +101,7 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {runs.map((run) => {
+                {runs.slice(0, MAX_ROWS).map((run) => {
                   const state = LIVE_STATES[run.state];
                   return (
                     <TableRow key={run.id}>
@@ -151,6 +155,14 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
               </TableBody>
             </Table>
           </TableRoot>
+        )}
+        {runs.length > MAX_ROWS && (
+          <CardFooter compact>
+            <Text size="caption" color="subtle">
+              +{runs.length - MAX_ROWS} more {runs.length - MAX_ROWS === 1 ? 'run' : 'runs'} not
+              shown
+            </Text>
+          </CardFooter>
         )}
       </Card>
     </Stack>

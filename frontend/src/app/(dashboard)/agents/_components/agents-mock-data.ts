@@ -605,3 +605,53 @@ export const ENVIRONMENTS: Environment[] = [
     updated_at: ago(20 * DAY),
   },
 ];
+
+// ── A workspace with 150 agents ──────────────────────────────────────────────
+
+/** How many agents the scale stories carry. A normal install has more than a hundred. */
+export const SCALE_AGENT_COUNT = 150;
+
+/** 150 generated agents, for checking every card and table at the size a normal install reaches. */
+export const SCALE_AGENT_TYPES: AgentType[] = Array.from({ length: SCALE_AGENT_COUNT }, (_, i) => {
+  const name = `Agent ${String(i + 1).padStart(3, '0')}`;
+  return agentType({
+    id: `at_scale_${i}`,
+    name,
+    slug: slugify(name),
+    description: `Generated agent ${i + 1} for the scale stories.`,
+    framework: FRAMEWORKS[i % FRAMEWORKS.length] ?? 'claude-code',
+    model_id: MODELS[i % MODELS.length] ?? 'anthropic/claude-sonnet-4-6',
+    identity_mode: i % 5 === 0 ? 'delegated' : 'autonomous',
+    created_at: ago((3 + i) * DAY),
+    updated_at: ago((1 + (i % 9)) * DAY),
+  });
+});
+
+export const SCALE_AGENT_ROWS: AgentTypeRow[] = SCALE_AGENT_TYPES.map(toAgentTypeRow);
+
+/** Forty live and finished runs spread over the generated agents. */
+export const SCALE_RUN_ROWS: RunRow[] = SCALE_AGENT_TYPES.slice(0, 40).map((a, i) =>
+  toRunRow(
+    run({
+      agent: a,
+      state: i % 4 === 3 ? 'completed' : i % 4 === 2 ? 'starting' : 'active',
+      startedAgo: (i + 1) * 7 * MINUTE,
+      ...(i % 4 === 3 ? { lasted: 5 * MINUTE } : {}),
+      toolCalls: 4 + i,
+    }),
+    indexAgentTypes(SCALE_AGENT_ROWS),
+  ),
+);
+
+/** Usage for every generated agent, falling off steeply so a few agents dominate the spend. */
+export const SCALE_USAGE: AgentTypeUsage[] = SCALE_AGENT_TYPES.map((a, i) => {
+  const weight = 1 / (1 + i * 0.35);
+  return usage(
+    a.slug,
+    Math.round(2_000_000 * weight),
+    Math.round(400_000 * weight),
+    Math.round(6_000_000 * weight),
+    Math.round(500_000 * weight),
+    Math.round(120 * weight * 100) / 100,
+  );
+});

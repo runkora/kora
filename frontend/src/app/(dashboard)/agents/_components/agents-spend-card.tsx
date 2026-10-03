@@ -30,7 +30,7 @@ import {
 } from '@orbit/terra';
 import { AppLink } from '@orbit/components/links';
 import { fmtUsd } from '@orbit/utils';
-import { budgetTone } from '../_lib/spend';
+import { BUDGET_ROWS, budgetTone, closestToLimit, groupTail } from '../_lib/spend';
 import type { BudgetRow, SpendRow, TenantBudget } from '../_lib/spend';
 
 const CHART_CONFIG = { cost: { label: 'Spend', color: 'var(--color-accent)' } };
@@ -109,7 +109,8 @@ function TrendChart({ labels, values }: { labels: string[]; values: number[] }) 
 }
 
 /** A ring and a legend for one breakdown of the window's spend. */
-function Breakdown({ rows, total }: { rows: SpendRow[]; total: number }) {
+function Breakdown({ rows: allRows, total }: { rows: SpendRow[]; total: number }) {
+  const rows = groupTail(allRows);
   return (
     <Stack direction="horizontal" gap="relaxed" align="center">
       <Donut
@@ -153,9 +154,12 @@ function Breakdown({ rows, total }: { rows: SpendRow[]; total: number }) {
 
 /**
  * Each agent's spend in its budget window against its own limit: this month, or
- * this week for a weekly budget. Agents without a budget show spend only.
+ * this week for a weekly budget. Agents without a budget show spend only. The
+ * rows closest to their limit come first, and the rest are counted, not listed.
  */
-function AgentBudgets({ rows }: { rows: BudgetRow[] }) {
+function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
+  const rows = closestToLimit(allRows).slice(0, BUDGET_ROWS);
+  const hidden = allRows.length - rows.length;
   return (
     <Stack gap="cozy" align="stretch">
       {rows.map((row) => {
@@ -194,6 +198,11 @@ function AgentBudgets({ rows }: { rows: BudgetRow[] }) {
           </Stack>
         );
       })}
+      {hidden > 0 && (
+        <Text size="caption" color="subtle">
+          +{hidden} more {hidden === 1 ? 'agent' : 'agents'} not shown
+        </Text>
+      )}
     </Stack>
   );
 }

@@ -3,8 +3,9 @@ import type {
   AgentInsightsResponse,
   AgentTypeUsage,
 } from '@orbit/shared/api';
+import type { RunRow } from '../_types';
 import type { AgentsInsights, BudgetRow, Period, PeriodData, TenantBudget } from '../_lib/spend';
-import { RUN_ROWS, USAGE } from './agents-mock-data';
+import { RUN_ROWS, SCALE_AGENT_ROWS, SCALE_RUN_ROWS, SCALE_USAGE, USAGE } from './agents-mock-data';
 
 // Mock data for the parts of the Agents page the platform does not serve yet:
 // per-period usage, a model split, spend over time, and budgets in a story. The
@@ -92,9 +93,12 @@ function scaleUsage(usage: AgentTypeUsage[], factor: number): Record<string, Age
 }
 
 /** Build the per-period figures for a set of usage rows. */
-export function periodData(usage: AgentTypeUsage[]): Record<Period, PeriodData> {
-  const completed = RUN_ROWS.filter((r) => r.state === 'completed').length;
-  const failed = RUN_ROWS.filter((r) => r.state === 'failed').length;
+export function periodData(
+  usage: AgentTypeUsage[],
+  runs: RunRow[] = RUN_ROWS,
+): Record<Period, PeriodData> {
+  const completed = runs.filter((r) => r.state === 'completed').length;
+  const failed = runs.filter((r) => r.state === 'failed').length;
 
   const build = (period: Period): PeriodData => {
     const { factor, labels, weights } = SHAPES[period];
@@ -173,4 +177,16 @@ export const MOCK_BUDGETS_RESPONSE: AgentBudgetsResponse = {
     reset_cadence: 'monthly',
     spend_usd: TENANT_BUDGET.spent,
   },
+};
+
+/** The insights of the 150-agent workspace: spend across every agent and a budget on each. */
+export const SCALE_INSIGHTS: AgentsInsights = {
+  byPeriod: periodData(SCALE_USAGE, SCALE_RUN_ROWS),
+  budgets: SCALE_AGENT_ROWS.map((a, i): BudgetRow => {
+    const spent = SCALE_USAGE[i]?.estimated_cost_usd ?? 0;
+    return i % 3 === 0
+      ? { name: a.name, spent }
+      : { name: a.name, spent, limit: Math.max(spent * (1 + ((i * 37) % 100) / 60), 1) };
+  }),
+  tenantBudget: TENANT_BUDGET,
 };

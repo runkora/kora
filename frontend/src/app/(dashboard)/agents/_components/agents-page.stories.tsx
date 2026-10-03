@@ -12,10 +12,18 @@ import {
   MANY_AGENT_TYPES,
   MANY_RAW_RUNS,
   MANY_RUN_ROWS,
+  SCALE_AGENT_ROWS,
+  SCALE_AGENT_TYPES,
+  SCALE_RUN_ROWS,
   RAW_RUNS,
   RUN_ROWS,
 } from './agents-mock-data';
-import { INSIGHTS, MOCK_BUDGETS_RESPONSE, mockInsightsResponse } from './agents-insights-mock-data';
+import {
+  INSIGHTS,
+  MOCK_BUDGETS_RESPONSE,
+  SCALE_INSIGHTS,
+  mockInsightsResponse,
+} from './agents-insights-mock-data';
 import { PERIOD_OPTIONS } from '../_lib/spend';
 import type { Period } from '../_lib/spend';
 
@@ -186,5 +194,33 @@ export const ManyAgents: Story = {
 
 export const ManyAgentsListView: Story = {
   ...ManyAgents,
+  play: ListView.play,
+};
+
+const scaleRoutes = listRoutes({
+  'GET /api/agents/types': { data: SCALE_AGENT_TYPES },
+});
+
+/** 150 agents with spend, a budget on each and forty runs: the size a normal install reaches. */
+export const HundredFiftyAgents: Story = {
+  args: {
+    initialAgentTypes: SCALE_AGENT_ROWS,
+    initialRuns: SCALE_RUN_ROWS,
+    initialError: null,
+    insights: SCALE_INSIGHTS,
+  },
+  decorators: withRoutes(scaleRoutes),
+};
+
+/** The Budgets view at 150 agents: eight rows, the closest to their limit first, and a count of the rest. */
+export const HundredFiftyAgentsBudgets: Story = {
+  ...HundredFiftyAgents,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Budgets' }));
+  },
+};
+
+export const HundredFiftyAgentsListView: Story = {
+  ...HundredFiftyAgents,
   play: ListView.play,
 };

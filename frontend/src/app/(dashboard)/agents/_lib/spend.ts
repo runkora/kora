@@ -72,3 +72,33 @@ export interface AgentsInsights {
 export function budgetTone(used: number): 'healthy' | 'degraded' | 'error' {
   return used >= 100 ? 'error' : used >= 80 ? 'degraded' : 'healthy';
 }
+
+/** The most legend rows a breakdown shows before the rest fold into "Other". */
+export const LEGEND_ROWS = 6;
+
+/**
+ * Keeps the largest rows and folds the rest into one "Other" row. Rows are
+ * expected largest first. Nothing is folded unless more than `max` rows exist,
+ * so the total is unchanged.
+ */
+export function groupTail(rows: SpendRow[], max = LEGEND_ROWS): SpendRow[] {
+  if (rows.length <= max) return rows;
+  const head = rows.slice(0, max - 1);
+  const tail = rows.slice(max - 1);
+  return [
+    ...head,
+    { name: `Other (${tail.length})`, cost: tail.reduce((n, row) => n + row.cost, 0) },
+  ];
+}
+
+/** The most budget rows the card shows. */
+export const BUDGET_ROWS = 8;
+
+/**
+ * Budget rows ordered by how close each is to its limit, the closest first.
+ * Rows with a limit come before rows without one, which are ordered by spend.
+ */
+export function closestToLimit(rows: BudgetRow[]): BudgetRow[] {
+  const used = (r: BudgetRow) => (r.limit ? r.spent / r.limit : -1);
+  return [...rows].sort((a, b) => used(b) - used(a) || b.spent - a.spent);
+}

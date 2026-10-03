@@ -1053,34 +1053,6 @@ func (s *Service) GetRunUsage(ctx context.Context, tenantID, runID string) (RunU
 	return RunUsage{RunID: runID, SpendUSD: spend, TotalTokens: tokens}, nil
 }
 
-// GetAgentTypeUsage returns the token breakdown and spend recorded against the
-// agent with the given slug over the last 7 days. Returns a zero-value result
-// (not an error) when no usage repository is configured.
-func (s *Service) GetAgentTypeUsage(ctx context.Context, tenantID, slug string) (AgentTypeUsage, error) {
-	if s.usage == nil {
-		return AgentTypeUsage{AgentSlug: slug}, nil
-	}
-	u, err := s.usage.GetAgentTypeUsage(ctx, tenantID, slug)
-	if err != nil {
-		return AgentTypeUsage{}, fmt.Errorf("get agent type usage: %w", err)
-	}
-	return u, nil
-}
-
-// ListAgentTypeUsage returns the 7-day token breakdown and spend per agent slug
-// for the tenant. Returns an empty slice (not an error) when no usage
-// repository is configured.
-func (s *Service) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error) {
-	if s.usage == nil {
-		return []AgentTypeUsage{}, nil
-	}
-	usages, err := s.usage.ListAgentTypeUsage(ctx, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("list agent type usage: %w", err)
-	}
-	return usages, nil
-}
-
 // TenantCap returns the tenant rollup cap with its period spend, or nil when
 // the tenant has no cap or its spend cannot be read.
 func (s *Service) TenantCap(ctx context.Context, tenantID string) *TenantCapStatus {

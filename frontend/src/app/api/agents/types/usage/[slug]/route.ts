@@ -10,9 +10,10 @@ type Params = { slug: string };
  *
  * Proxies to the inference gateway's per-agent usage endpoint so the agent
  * overview page can show a 7-day token breakdown and spend card. Usage is keyed
- * by agent slug, the identity the gateway attributes it to. The session token
- * is held server-side and never reaches the browser. Tenant scoping is
- * enforced by the gateway from the verified token, not by this route.
+ * by agent slug, the identity the gateway attributes it to. The gateway counts
+ * the agent only if the caller may see it, and a delegated agent's usage only
+ * for the person who ran it. The session token is held server-side and never
+ * reaches the browser. Visibility is enforced by the gateway, not by this route.
  */
 export const GET = withAuth(
   async (_req: NextRequest, session, context?: { params: Promise<Params> }) => {

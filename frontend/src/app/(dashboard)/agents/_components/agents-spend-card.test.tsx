@@ -52,6 +52,31 @@ describe('AgentsSpendCard', () => {
   });
 });
 
+describe('AgentsSpendCard at 150 agents', () => {
+  const agents = Array.from({ length: 150 }, (_, i) => ({ name: `Agent ${i + 1}`, cost: 150 - i }));
+  const total = agents.reduce((n, a) => n + a.cost, 0);
+
+  it('lists the top agents and folds the rest into Other', () => {
+    renderWithProviders(<AgentsSpendCard {...BASE} agents={agents} total={total} />);
+    expect(screen.getByText('Agent 1')).toBeInTheDocument();
+    expect(screen.getByText('Other (145)')).toBeInTheDocument();
+    expect(screen.queryByText('Agent 7')).not.toBeInTheDocument();
+  });
+
+  it('shows eight budget rows, the closest to their limit first, and counts the rest', async () => {
+    const budgets = agents.map((a, i) => ({ name: a.name, spent: i, limit: 1000 - i }));
+    renderWithProviders(
+      <AgentsSpendCard {...BASE} agents={agents} total={total} budgets={budgets} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Budgets' }));
+
+    // The last agent has spent 149 of a 851 limit, the highest share.
+    expect(screen.getByText('Agent 150')).toBeInTheDocument();
+    expect(screen.queryByText('Agent 1')).not.toBeInTheDocument();
+    expect(screen.getByText('+142 more agents not shown')).toBeInTheDocument();
+  });
+});
+
 describe('AgentStatTiles', () => {
   const props = {
     agents: { total: 2, healthy: 2, provisioning: 0, delegated: 0 },

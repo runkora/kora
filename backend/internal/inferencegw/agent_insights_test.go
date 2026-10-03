@@ -405,3 +405,53 @@ func TestHandleAgentInsights(t *testing.T) {
 		}
 	})
 }
+
+func TestAgentUsage_SameVisibilityAsInsights(t *testing.T) {
+	store := &fakeAgentUsageStore{usage: []AgentTypeUsage{{AgentSlug: "notes", TotalTokens: 5, EstimatedCostUSD: 0.5}}}
+	svc := newInsightsService(store, agentsclient.Visibility{AllRows: []string{"coder"}, OwnRows: []string{"notes"}}, nil)
+
+	got, err := svc.AgentUsage(context.Background(), "t1", "alice", "tok", usagewindow.Period7d, "notes")
+	if err != nil || got.TotalTokens != 5 {
+		t.Fatalf("own-row agent = %+v, %v", got, err)
+	}
+	if len(store.scopes) != 1 || len(store.scopes[0].AllRows) != 0 || !slices.Equal(store.scopes[0].OwnRows, []string{"notes"}) || store.scopes[0].Subject != "alice" {
+		t.Errorf("the query must be narrowed to the one agent under the caller's own-row rule: %+v", store.scopes)
+	}
+
+	store.scopes = nil
+	got, err = svc.AgentUsage(context.Background(), "t1", "alice", "tok", usagewindow.Period7d, "secret")
+	if err != nil || got.AgentSlug != "secret" || got.TotalTokens != 0 || len(store.scopes) != 0 {
+		t.Errorf("an agent the caller cannot see = %+v, %v, queries %d; want zero and no query", got, err, len(store.scopes))
+	}
+
+	down := newInsightsService(store, agentsclient.Visibility{}, errors.New("agents down"))
+	if _, err := down.AgentUsage(context.Background(), "t1", "alice", "tok", usagewindow.Period7d, "coder"); !errors.Is(err, ErrAgentVisibilityUnavailable) {
+		t.Errorf("err = %v, want ErrAgentVisibilityUnavailable", err)
+	}
+}
+
+func TestHandleAgentUsage_SlugValidation(t *testing.T) {
+	svc := newInsightsService(&fakeAgentUsageStore{}, agentsclient.Visibility{AllRows: []string{"token-probe"}}, nil)
+	c := (&Controller{logger: logging.NewLoggerWithOutput(io.Discard)}).WithAgentInsights(svc)
+	for slug, want := range map[string]int{
+		"token-probe": http.StatusOK,
+		"":            http.StatusBadRequest,
+		"probe%":      http.StatusBadRequest,
+		"a/b":         http.StatusBadRequest,
+	} {
+		req := agentInsightsRequest("/usage/agent-type/x", humanClaimsForHandler("t1", "u1"))
+		req.SetPathValue("slug", slug)
+		w := httptest.NewRecorder()
+		c.handleAgentUsage(w, req)
+		if w.Code != want {
+			t.Errorf("slug %q: status %d, want %d", slug, w.Code, want)
+		}
+	}
+	req := agentInsightsRequest("/usage/agent-type/token-probe?period=1y", humanClaimsForHandler("t1", "u1"))
+	req.SetPathValue("slug", "token-probe")
+	w := httptest.NewRecorder()
+	c.handleAgentUsage(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("bad period: status %d, want 400", w.Code)
+	}
+}
