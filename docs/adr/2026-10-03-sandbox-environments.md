@@ -149,9 +149,10 @@ For each valid image with `warm: true`, the operator will run a pre-pull DaemonS
 
 ### 5. Environments
 
-A new `environments` table will replace the current one. An environment will have a name, a description, a `SandboxImage`, a size, egress hosts and connectors, and an empty image will resolve to `kora-base`.
+The `environments` table will gain image and size columns. An environment will have a name, a description, a `SandboxImage`, a size, egress hosts and connectors, and an empty image will resolve to `kora-base`.
 
-*   `agent_environments` will link agents to environments with an `is_default` flag, and `agent_types.environment_id` will be removed.
+*   `agent_environments` will link agents to environments with an `is_default` flag.
+*   `agent_types.environment_id` will stay unused for one minor release and then be removed under the [database migrations](2026-09-10-database-migrations.md) rule that each schema keeps working with the previous release's binaries.
 *   An agent with no environments will provision on `kora-base` at the default size.
 *   The size will set CPU, memory and local disk within maximums in the Helm values.
 *   The `agents:environments:read` and `agents:environments:write` scopes will govern environments.
@@ -186,7 +187,7 @@ None at this time.
 *   Replacing an environment discards its local caches.
 *   An agent with several environments holds the access of all of them for the whole run.
 *   Each warm image runs a pod with three sidecars and a SPIFFE identity on every sandbox node.
-*   Existing environments and their agent links are dropped.
+*   Existing environments stay as unattached base-image environments, and their agent links are dropped.
 *   Validation does not run the image, and an image that replaces `sandbox-exec` passes validation and fails at sandbox start.
 
 ### Neutral
@@ -214,6 +215,7 @@ None at this time.
 *   [Agent sandbox toolchain and connectivity environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) (superseded)
 *   [Sandbox provisioning and shell proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)
 *   [Per-session home isolation](2026-06-04-per-session-home-isolation.md)
+*   [Database migrations](2026-09-10-database-migrations.md)
 *   [CRD-driven inference providers](2026-10-01-crd-inference-providers.md)
 
 ## References
