@@ -180,7 +180,7 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidConnectivity) || errors.Is(err, ErrInvalidIdentityMode) || errors.Is(err, ErrInvalidGuardrails) {
+		if invalidAgentTypeField(err) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -294,7 +294,7 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidConnectivity) || errors.Is(err, ErrInvalidIdentityMode) || errors.Is(err, ErrIdentityModeImmutable) || errors.Is(err, ErrInvalidGuardrails) {
+		if invalidAgentTypeField(err) || errors.Is(err, ErrIdentityModeImmutable) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -984,4 +984,14 @@ func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Req
 		"exec_token":  sandbox.ExecToken,
 		"canary_host": sandbox.CanaryHost,
 	})
+}
+
+// invalidAgentTypeField reports an agent-type write the request itself got wrong, answered with a 400.
+func invalidAgentTypeField(err error) bool {
+	for _, target := range []error{ErrInvalidConnectivity, ErrInvalidConnector, ErrInvalidIdentityMode, ErrInvalidGuardrails, ErrInvalidEnvironment} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }

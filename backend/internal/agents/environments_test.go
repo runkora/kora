@@ -209,3 +209,19 @@ func TestEffectiveScopes_UnionOfEnvironments(t *testing.T) {
 		t.Errorf("access = %+v, want both environments and their hosts", access)
 	}
 }
+
+// An agent write with an invalid environment set is a 400.
+func TestHandleUpdateAgentType_InvalidEnvironmentsIs400(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	repo.envs["a"] = &Environment{ID: "a", TenantID: "t-1", Name: "a"}
+	repo.envs["b"] = &Environment{ID: "b", TenantID: "t-1", Name: "b"}
+	req := withTenantRequest(httptest.NewRequest(http.MethodPatch, "/api/v1/agent-types/at-1",
+		strings.NewReader(`{"environments":[{"environment_id":"a"},{"environment_id":"b"}]}`)), "t-1")
+	req.SetPathValue("id", "at-1")
+	w := httptest.NewRecorder()
+	c.handleUpdateAgentType(w, req)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "exactly one environment as the default") {
+		t.Errorf("status %d body %s, want 400 naming the default rule", w.Code, w.Body.String())
+	}
+}
