@@ -830,18 +830,16 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	if err != nil {
 		return Sandbox{}, err
 	}
-	env, err := pickEnvironment(envs, strings.TrimSpace(environment), run.EnvironmentID)
+	current, live, err := s.currentEnvironment(ctx, *run, namespace)
 	if err != nil {
 		return Sandbox{}, err
 	}
-	if env.ID != currentEnvironmentID(*run) {
-		_, alive, lookupErr := s.k8s.LookupSandbox(ctx, runID, namespace)
-		if lookupErr != nil {
-			return Sandbox{}, lookupErr
-		}
-		if alive {
-			return Sandbox{}, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name)
-		}
+	env, err := pickEnvironment(envs, strings.TrimSpace(environment), &current)
+	if err != nil {
+		return Sandbox{}, err
+	}
+	if live && env.ID != current {
+		return Sandbox{}, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name)
 	}
 	spec, err := s.sandboxSpec(ctx, namespace, env)
 	if err != nil {

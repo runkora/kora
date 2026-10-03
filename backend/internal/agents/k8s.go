@@ -415,9 +415,6 @@ const (
 	annotationEnvironmentID = "orbit.io/environment-id"
 )
 
-// errSandboxEnvironmentMismatch reports a live sandbox in another environment than the one requested.
-var errSandboxEnvironmentMismatch = errors.New("the run's sandbox runs in another environment")
-
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to
 // be Ready. Returns where to reach its exec server ("podIP:port") and the
 // per-run token that server requires on every call; a caller holding only the
@@ -518,8 +515,8 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		logging.Field{Key: "endpoint", Value: endpoint},
 	)
 	if ready.Annotations[annotationEnvironmentID] != spec.EnvironmentID {
-		span.SetStatus(codes.Error, errSandboxEnvironmentMismatch.Error())
-		return Sandbox{}, errSandboxEnvironmentMismatch
+		span.SetStatus(codes.Error, ErrEnvironmentSwitch.Error())
+		return Sandbox{}, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, spec.Environment)
 	}
 	return Sandbox{Endpoint: endpoint, ExecToken: liveToken, Created: created}, nil
 }
@@ -2055,6 +2052,22 @@ func ignoreNotFound(err error) error {
 		return nil
 	}
 	return err
+}
+
+// SandboxEnvironment reports the environment of the run's sandbox pod while it
+// is starting or running. live is false when there is no pod, or it is dead or terminating.
+func (p *K8sProvisioner) SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error) {
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, fmt.Sprintf("sandbox-%s", runID), metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("get sandbox pod: %w", err)
+	}
+	if pod.DeletionTimestamp != nil || pod.Status.Phase == corev1.PodFailed || pod.Status.Phase == corev1.PodSucceeded {
+		return "", false, nil
+	}
+	return pod.Annotations[annotationEnvironmentID], true, nil
 }
 
 // SandboxImage reads a SandboxImage in a tenant namespace. ErrNotFound when there is none.

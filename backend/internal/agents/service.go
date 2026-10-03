@@ -23,6 +23,7 @@ type k8sProvisioner interface {
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
+	SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error)
 	DeleteSandbox(ctx context.Context, runID, namespace string) error
 }
 

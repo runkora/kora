@@ -42,6 +42,9 @@ const warmerComponent = "sandbox-image-warmer"
 // labelSandboxImage names the SandboxImage a warmer pod pulls.
 const labelSandboxImage = "orbit.io/sandbox-image"
 
+// registryRetry bounds the wait before re-reading an image whose first read failed.
+const registryRetry = 30 * time.Second
+
 // errPullSecret marks a pull secret the operator could not read.
 var errPullSecret = errors.New("pull secret unreadable")
 
@@ -85,6 +88,17 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		return ctrl.Result{}, fmt.Errorf("get SandboxImage %q: %w", req.NamespacedName, err)
 	}
+	// Images register per tenant. Elsewhere a warmer would run without the
+	// tenant sidecars and the operator would read that namespace's Secrets.
+	ns := &corev1.Namespace{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: img.Namespace}, ns); err != nil {
+		return ctrl.Result{}, fmt.Errorf("get namespace %q: %w", img.Namespace, err)
+	}
+	if ns.Labels[nsLabelRole] != "tenant" {
+		r.Logger.Warn(ctx, "ignoring a SandboxImage outside a tenant namespace",
+			logging.Field{Key: "sandbox_image", Value: req.String()})
+		return ctrl.Result{}, nil
+	}
 	before := img.DeepCopy()
 
 	cfg, reason, message, err := r.inspect(ctx, img)
@@ -99,6 +113,11 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		}
 		message = err.Error()
 	}
+	// A first read that failed retries soon: no sandbox can use the image until it succeeds.
+	resync := r.Resync
+	if err != nil {
+		resync = min(r.Resync, registryRetry)
+	}
 
 	img.Status.ObservedGeneration = img.Generation
 	if reason != reasonValidated {
@@ -108,7 +127,7 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err := r.deleteWarmer(ctx, img); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{RequeueAfter: r.Resync}, r.patchStatus(ctx, before, img)
+		return ctrl.Result{RequeueAfter: resync}, r.patchStatus(ctx, before, img)
 	}
 
 	img.Status.Digest = cfg.Digest

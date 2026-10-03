@@ -93,12 +93,18 @@ func pickEnvironment(envs []Environment, name string, current *string) (Environm
 	return envs[0], nil
 }
 
-// currentEnvironmentID is the ID of the environment the run's sandbox runs in, "" for the built-in default.
-func currentEnvironmentID(run Run) string {
-	if run.EnvironmentID == nil {
-		return ""
+// currentEnvironment is the environment ID of the run's sandbox, "" for the
+// built-in default. A live pod's own annotation wins over the run record,
+// which a provision that timed out mid-start can leave behind.
+func (s *RunService) currentEnvironment(ctx context.Context, run Run, namespace string) (id string, live bool, err error) {
+	podEnv, live, err := s.k8s.SandboxEnvironment(ctx, run.ID, namespace)
+	if err != nil || live {
+		return podEnv, live, err
 	}
-	return *run.EnvironmentID
+	if run.EnvironmentID == nil {
+		return "", false, nil
+	}
+	return *run.EnvironmentID, false, nil
 }
 
 // sandboxSpec resolves the environment's image to its pinned digest. A missing
@@ -174,7 +180,7 @@ func (s *RunService) ListRunEnvironments(ctx context.Context, runID string) ([]R
 	if err != nil {
 		return nil, err
 	}
-	_, hasSandbox, err := s.k8s.LookupSandbox(ctx, runID, s.cfg.TenantNamespaceFn(run.TenantID))
+	current, live, err := s.currentEnvironment(ctx, *run, s.cfg.TenantNamespaceFn(run.TenantID))
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +192,7 @@ func (s *RunService) ListRunEnvironments(ctx context.Context, runID string) ([]R
 			Image:       e.ImageName(),
 			Size:        e.Size,
 			Default:     i == 0,
-			Current:     hasSandbox && e.ID == currentEnvironmentID(*run),
+			Current:     live && e.ID == current,
 		})
 	}
 	return out, nil
@@ -212,11 +218,11 @@ func (s *RunService) ReplaceEnvironment(ctx context.Context, runID, name string)
 		return Sandbox{}, err
 	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	_, hasSandbox, err := s.k8s.LookupSandbox(ctx, runID, namespace)
+	current, live, err := s.currentEnvironment(ctx, *run, namespace)
 	if err != nil {
 		return Sandbox{}, err
 	}
-	if hasSandbox && env.ID == currentEnvironmentID(*run) {
+	if live && env.ID == current {
 		return Sandbox{}, fmt.Errorf("%w: %q", ErrSameEnvironment, env.Name)
 	}
 	spec, err := s.sandboxSpec(ctx, namespace, env)

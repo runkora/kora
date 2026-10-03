@@ -81,7 +81,7 @@ func TestProvisionSandbox_Refusals(t *testing.T) {
 		want  error
 	}{
 		{"not attached", func(*mockRepository, *mockK8s) {}, "rust", ErrEnvironmentNotAttached},
-		{"switch while alive", func(_ *mockRepository, k8s *mockK8s) { k8s.lookupFound = true }, "node", ErrEnvironmentSwitch},
+		{"switch while alive", func(_ *mockRepository, k8s *mockK8s) { k8s.podEnv, k8s.podLive = "env-go", true }, "node", ErrEnvironmentSwitch},
 		{"image not valid", func(_ *mockRepository, k8s *mockK8s) {
 			k8s.sandboxImages["acme-node"].Status.Digest = ""
 		}, "node", ErrSandboxImageUnavailable},
@@ -122,7 +122,7 @@ func TestReplaceEnvironment(t *testing.T) {
 	seedEnvironments(t, repo, k8s)
 	goID := "env-go"
 	repo.runs["run-1"].EnvironmentID = &goID
-	k8s.lookupFound = true
+	k8s.podEnv, k8s.podLive = "env-go", true
 
 	if _, err := svc.run.ReplaceEnvironment(context.Background(), "run-1", "go"); !errors.Is(err, ErrSameEnvironment) {
 		t.Fatalf("replace into the current environment = %v, want ErrSameEnvironment", err)
@@ -143,7 +143,7 @@ func TestReplaceEnvironment(t *testing.T) {
 	}
 
 	// The sandbox died; the next unnamed provision restarts it in node, not the default.
-	k8s.lookupFound = false
+	k8s.podEnv, k8s.podLive = "", false
 	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, ""); err != nil {
 		t.Fatal(err)
 	}
@@ -155,9 +155,7 @@ func TestReplaceEnvironment(t *testing.T) {
 func TestListRunEnvironments(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	seedEnvironments(t, repo, k8s)
-	nodeID := "env-node"
-	repo.runs["run-1"].EnvironmentID = &nodeID
-	k8s.lookupFound = true
+	k8s.podEnv, k8s.podLive = "env-node", true
 
 	got, err := svc.run.ListRunEnvironments(context.Background(), "run-1")
 	if err != nil {
@@ -204,5 +202,27 @@ func TestHandleProvisionSandbox_EnvironmentRefusal(t *testing.T) {
 	c.handleListRunEnvironments(w, callbackReq(http.MethodGet, "/internal/runs/run-1/environments", ""))
 	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"name":"go"`) {
 		t.Errorf("list status %d body %s", w.Code, w.Body.String())
+	}
+}
+
+// A provision that timed out while its pod started leaves the run record behind.
+// The pod's own environment decides, so the next call reuses it.
+func TestProvisionSandbox_PodEnvironmentWinsOverRecord(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	seedEnvironments(t, repo, k8s)
+	k8s.podEnv, k8s.podLive = "env-node", true // starting pod; run record still empty
+
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, ""); err != nil {
+		t.Fatalf("unnamed provision of a starting pod: %v", err)
+	}
+	if k8s.provisionSpec.EnvironmentID != "env-node" {
+		t.Errorf("provisioned %q, want the pod's env-node", k8s.provisionSpec.EnvironmentID)
+	}
+	if _, err := svc.run.ReplaceEnvironment(context.Background(), "run-1", "node"); !errors.Is(err, ErrSameEnvironment) {
+		t.Errorf("replace into the pod's environment = %v, want ErrSameEnvironment", err)
+	}
+	envs, err := svc.run.ListRunEnvironments(context.Background(), "run-1")
+	if err != nil || !envs[1].Current {
+		t.Errorf("list = %+v, %v; want node current", envs, err)
 	}
 }

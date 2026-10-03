@@ -52,6 +52,8 @@ func sandboxImage(name, image string, warm bool) *si.SandboxImage {
 }
 
 func newImageReconciler(reg RegistryReader, objs ...client.Object) (*SandboxImageReconciler, client.Client) {
+	tenantNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNS, Labels: map[string]string{nsLabelRole: "tenant"}}}
+	objs = append(objs, tenantNS)
 	c := fake.NewClientBuilder().
 		WithScheme(NewScheme()).
 		WithObjects(objs...).
@@ -194,9 +196,12 @@ func TestSandboxImage_Invalid(t *testing.T) {
 func TestSandboxImage_RegistryError(t *testing.T) {
 	reg := &fakeRegistry{err: errors.New("registry unavailable")}
 	r, c := newImageReconciler(reg, sandboxImage("new", "ghcr.io/acme/new:1", false))
-	img, _ := reconcileImage(t, r, c, "new")
+	img, res := reconcileImage(t, r, c, "new")
 	if v := condition(img, si.ConditionValid); v.Status != metav1.ConditionFalse || v.Reason != reasonRegistryError {
 		t.Errorf("Valid = %+v, want RegistryError", v)
+	}
+	if res.RequeueAfter != registryRetry {
+		t.Errorf("RequeueAfter = %v, want the short registry retry", res.RequeueAfter)
 	}
 
 	reg.err = nil
@@ -263,5 +268,25 @@ func TestEnsureBaseSandboxImage(t *testing.T) {
 	}
 	if got.Spec.Image != "ghcr.io/clear-route/kora-sandbox-base:1" || !got.Spec.Warm {
 		t.Errorf("kora-base spec = %+v, want the install's base image, warm", got.Spec)
+	}
+}
+
+// A SandboxImage outside a tenant namespace gets no status and no warmer.
+func TestSandboxImage_OutsideTenantNamespace(t *testing.T) {
+	img := sandboxImage("go", "ghcr.io/acme/go:1", true)
+	img.Namespace = "default"
+	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": goodConfig}}
+	r, c := newImageReconciler(reg, img, &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}})
+	if _, err := r.Reconcile(context.Background(), ctrl.Request{NamespacedName: types.NamespacedName{Namespace: "default", Name: "go"}}); err != nil {
+		t.Fatal(err)
+	}
+	got := &si.SandboxImage{}
+	_ = c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "go"}, got)
+	if got.Status.Digest != "" || len(got.Status.Conditions) != 0 {
+		t.Errorf("status = %+v, want untouched", got.Status)
+	}
+	ds := &appsv1.DaemonSet{}
+	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sandbox-image-go"}, ds); !apierrors.IsNotFound(err) {
+		t.Errorf("warmer outside a tenant namespace: %v", err)
 	}
 }

@@ -503,6 +503,9 @@ type mockK8s struct {
 	provisionKubeClusters   []kubeconfig.Cluster
 	provisionSpec           SandboxSpec
 	provisionReused         bool
+	// podEnv and podLive describe the run's sandbox pod for SandboxEnvironment.
+	podEnv  string
+	podLive bool
 	// sandboxImages overrides the SandboxImages; unset serves a valid kora-base.
 	sandboxImages         map[string]*si.SandboxImage
 	provisionSandboxErr   error
@@ -589,6 +592,10 @@ func (m *mockK8s) LookupSandbox(_ context.Context, _, _ string) (Sandbox, bool, 
 		return Sandbox{}, false, m.lookupErr
 	}
 	return m.lookupSandbox, m.lookupFound, nil
+}
+
+func (m *mockK8s) SandboxEnvironment(_ context.Context, _, _ string) (string, bool, error) {
+	return m.podEnv, m.podLive, nil
 }
 
 func (m *mockK8s) DeleteSandbox(_ context.Context, runID, _ string) error {
