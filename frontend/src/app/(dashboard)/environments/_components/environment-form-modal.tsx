@@ -36,7 +36,7 @@ import {
   updateEnvironment,
 } from '../_services/environments-api';
 import { EgressHostsEditor } from './egress-hosts-editor';
-import { imageName, imageProblem, sizeProblems } from '@orbit/lib/environments';
+import { BASE_IMAGE_NAME, imageProblem, sizeProblems } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentFormModalProps {
@@ -73,7 +73,7 @@ export function EnvironmentFormModal({
 
   const [name, setName] = useState(environment?.name ?? '');
   const [description, setDescription] = useState(environment?.description ?? '');
-  const [sandboxImage, setSandboxImage] = useState(imageName(environment?.sandboxImage ?? ''));
+  const [sandboxImage, setSandboxImage] = useState(environment?.sandboxImage ?? BASE_IMAGE_NAME);
   // A new environment starts at the platform default size.
   const [size, setSize] = useState<EnvironmentSize>(
     environment?.size ?? sizes?.default ?? EMPTY_SIZE,
@@ -105,7 +105,6 @@ export function EnvironmentFormModal({
       setSubmitError('Name is required.');
       return;
     }
-    if (Object.keys(sizeProblems(size, sizes)).length > 0) return;
     setSubmitting(true);
     setSubmitError(null);
     const payload = {
@@ -130,7 +129,6 @@ export function EnvironmentFormModal({
     description,
     sandboxImage,
     size,
-    sizes,
     egressHosts,
     connectors,
     isEdit,

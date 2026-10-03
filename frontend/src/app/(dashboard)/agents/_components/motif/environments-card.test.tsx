@@ -3,7 +3,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import type { Environment } from '@orbit/shared/api';
 import { EnvironmentsCard } from './environments-card';
 
-const env = (id: string, name: string, sandboxImage = ''): Environment => ({
+const env = (id: string, name: string, sandboxImage = 'kora-base'): Environment => ({
   id,
   tenant_id: 't',
   name,
@@ -72,5 +72,18 @@ describe('EnvironmentsCard', () => {
     );
     fireEvent.click(screen.getByLabelText('Deleted environment'));
     expect(onChange).toHaveBeenCalledWith([{ environment_id: 'go', is_default: true }]);
+  });
+
+  it('waits for the catalogue before listing anything', () => {
+    render(
+      <EnvironmentsCard
+        environments={[]}
+        value={[{ environment_id: 'go', is_default: true }]}
+        onChange={vi.fn()}
+        loading
+      />,
+    );
+    expect(screen.getByText('Loading environments.')).toBeInTheDocument();
+    expect(screen.queryByText('Deleted environment')).toBeNull();
   });
 });

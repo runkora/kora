@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { deleteEnvironment, ENVIRONMENT_IN_USE_MESSAGE } from './environments-api';
+import { deleteEnvironment } from './environments-api';
 
 function stubFetch(status: number, body: unknown = {}) {
   vi.stubGlobal(
@@ -18,7 +18,10 @@ describe('deleteEnvironment', () => {
       code: 'conflict',
       message: 'environment is attached to an agent; detach it first',
     });
-    expect(await deleteEnvironment('env-1')).toEqual({ error: ENVIRONMENT_IN_USE_MESSAGE });
+    expect(await deleteEnvironment('env-1')).toEqual({
+      error:
+        'This environment is attached to an agent. Detach it from every agent, then delete it.',
+    });
   });
 
   it('passes other API errors through', async () => {

@@ -147,11 +147,6 @@ describe('EnvironmentFormModal', () => {
     expect(create).toBeEnabled();
   });
 
-  it('opens a legacy environment with no image on kora-base', () => {
-    const { dialog } = renderModal({ ...ROW, sandboxImage: '' });
-    expect(value(dialog, 'Sandbox image')).toBe('kora-base');
-  });
-
   it('blocks saving an environment whose image is not valid', () => {
     const { dialog } = renderModal(ROW);
     expect(dialog.getByText('runs as root')).toBeInTheDocument();

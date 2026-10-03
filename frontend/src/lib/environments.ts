@@ -8,20 +8,14 @@ import type { EnvironmentSize, EnvironmentSizes, SandboxImage } from '@orbit/sha
 /** The SandboxImage the operator registers for the kora base image in every tenant. */
 export const BASE_IMAGE_NAME = 'kora-base';
 
-/** The image an environment runs. An environment stored before images existed has none and runs kora-base. */
-export function imageName(sandboxImage: string): string {
-  return sandboxImage || BASE_IMAGE_NAME;
-}
-
 /**
  * Why an environment's image cannot start a sandbox, or null when it can. A
  * null image list means the list did not load, and nothing is reported.
  */
 export function imageProblem(sandboxImage: string, images: SandboxImage[] | null): string | null {
   if (images === null) return null;
-  const name = imageName(sandboxImage);
-  const image = images.find((i) => i.name === name);
-  if (!image) return name === BASE_IMAGE_NAME ? null : 'Not registered in this tenant.';
+  const image = images.find((i) => i.name === sandboxImage);
+  if (!image) return 'Not registered in this tenant.';
   if (!image.valid) return image.problem || 'Not valid.';
   return null;
 }

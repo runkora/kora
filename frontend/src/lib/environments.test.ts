@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SandboxImage } from '@orbit/shared/api';
-import { imageName, imageProblem, parseQuantity, sizeLabel, sizeProblems } from './environments';
+import { imageProblem, parseQuantity, sizeLabel, sizeProblems } from './environments';
 
 const image = (name: string, valid: boolean, problem?: string): SandboxImage => ({
   name,
@@ -11,20 +11,11 @@ const image = (name: string, valid: boolean, problem?: string): SandboxImage => 
   warm: false,
 });
 
-describe('imageName', () => {
-  it('reads a legacy empty image as kora-base', () => {
-    expect(imageName('')).toBe('kora-base');
-    expect(imageName('kora-base')).toBe('kora-base');
-    expect(imageName('acme-go')).toBe('acme-go');
-  });
-});
-
 describe('imageProblem', () => {
   const images = [image('acme-go', true), image('acme-ops', false, 'runs as root')];
 
-  it('reports nothing for a valid image or the base image', () => {
+  it('reports nothing for a valid image', () => {
     expect(imageProblem('acme-go', images)).toBeNull();
-    expect(imageProblem('', images)).toBeNull();
   });
 
   it('reports the operator reason for an invalid image', () => {
@@ -35,8 +26,11 @@ describe('imageProblem', () => {
     expect(imageProblem('gone', images)).toBe('Not registered in this tenant.');
   });
 
-  it('reports an invalid base image', () => {
-    expect(imageProblem('', [image('kora-base', false, 'no base label')])).toBe('no base label');
+  it('treats kora-base like any other image', () => {
+    expect(imageProblem('kora-base', images)).toBe('Not registered in this tenant.');
+    expect(imageProblem('kora-base', [image('kora-base', false, 'no base label')])).toBe(
+      'no base label',
+    );
   });
 
   it('reports nothing when the image list did not load', () => {

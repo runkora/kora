@@ -267,15 +267,13 @@ export function AgentConfigurationTab() {
                 title="Environments"
                 desc="The sandboxes this agent can run in. Their egress hosts and connections join the agent's effective access."
               />
-              {/* Until the catalogue loads, every attached environment would look deleted. */}
-              {!cfg.environmentsLoading && (
-                <EnvironmentsCard
-                  environments={cfg.environmentCatalogue}
-                  value={cfg.environments}
-                  onChange={cfg.setEnvironments}
-                  error={cfg.environmentsError}
-                />
-              )}
+              <EnvironmentsCard
+                environments={cfg.environmentCatalogue.data}
+                value={cfg.environments}
+                onChange={cfg.setEnvironments}
+                loading={cfg.environmentCatalogue.status === 'loading'}
+                error={cfg.environmentCatalogue.error}
+              />
             </Stack>
             <EffectiveAccessPanel
               access={cfg.effectiveAccess}

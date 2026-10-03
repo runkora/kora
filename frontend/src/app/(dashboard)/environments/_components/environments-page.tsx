@@ -22,7 +22,7 @@ import { ClampedList } from '@orbit/components';
 import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentFormModal } from './environment-form-modal';
-import { imageName, imageProblem, sizeLabel } from '@orbit/lib/environments';
+import { imageProblem, sizeLabel } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentsPageProps {
@@ -42,7 +42,7 @@ function environmentMatchesSearch(row: EnvironmentRow, q: string): boolean {
   return (
     row.name.toLowerCase().includes(lower) ||
     row.description.toLowerCase().includes(lower) ||
-    imageName(row.sandboxImage).toLowerCase().includes(lower) ||
+    row.sandboxImage.toLowerCase().includes(lower) ||
     row.egressHosts.some((h) => h.toLowerCase().includes(lower)) ||
     row.connectors.some((c) => c.connection.toLowerCase().includes(lower))
   );
@@ -109,13 +109,13 @@ export function EnvironmentsPage({
         minWidth: '10rem',
         locked: true,
         sortable: true,
-        sortAccessor: (row) => imageName(row.sandboxImage),
+        sortAccessor: (row) => row.sandboxImage,
         cell: (row) => {
           const problem = imageProblem(row.sandboxImage, images);
           return (
             <Stack gap="none">
               <Text size="supporting" mono>
-                {imageName(row.sandboxImage)}
+                {row.sandboxImage}
               </Text>
               {problem && (
                 <Text size="caption" color="status-error">

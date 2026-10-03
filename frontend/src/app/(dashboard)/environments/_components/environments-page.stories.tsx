@@ -29,12 +29,6 @@ const meta: Meta<typeof EnvironmentsPage> = {
       EnvironmentsLayout,
     ),
   ],
-};
-
-export default meta;
-type Story = StoryObj<typeof EnvironmentsPage>;
-
-export const Default: Story = {
   args: {
     rows: MOCK_ENVIRONMENTS,
     connections: MOCK_CATALOG,
@@ -44,14 +38,13 @@ export const Default: Story = {
   },
 };
 
+export default meta;
+type Story = StoryObj<typeof EnvironmentsPage>;
+
+export const Default: Story = {};
+
 export const Empty: Story = {
-  args: {
-    rows: [],
-    connections: MOCK_CATALOG,
-    images: MOCK_IMAGES,
-    sizes: MOCK_SIZES,
-    error: null,
-  },
+  args: { rows: [] },
 };
 
 export const LoadError: Story = {
@@ -65,24 +58,11 @@ export const LoadError: Story = {
 };
 
 export const Many: Story = {
-  args: {
-    rows: MANY_ENVIRONMENTS,
-    connections: MOCK_CATALOG,
-    images: MOCK_IMAGES,
-    sizes: MOCK_SIZES,
-    error: null,
-  },
+  args: { rows: MANY_ENVIRONMENTS },
 };
 
 /** Search narrowed to environments that mention Slack. */
 export const Filtered: Story = {
-  args: {
-    rows: MOCK_ENVIRONMENTS,
-    connections: MOCK_CATALOG,
-    images: MOCK_IMAGES,
-    sizes: MOCK_SIZES,
-    error: null,
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.type(await canvas.findByPlaceholderText('Search environments…'), 'slack');
@@ -91,13 +71,6 @@ export const Filtered: Story = {
 
 /** The create modal, empty. */
 export const CreateFormOpen: Story = {
-  args: {
-    rows: MOCK_ENVIRONMENTS,
-    connections: MOCK_CATALOG,
-    images: MOCK_IMAGES,
-    sizes: MOCK_SIZES,
-    error: null,
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole('button', { name: /New environment/ }));
@@ -107,13 +80,6 @@ export const CreateFormOpen: Story = {
 
 /** The edit modal scrolled to the effective access panel, resolved from the environment's hosts and connectors. */
 export const EditFormOpen: Story = {
-  args: {
-    rows: MOCK_ENVIRONMENTS,
-    connections: MOCK_CATALOG,
-    images: MOCK_IMAGES,
-    sizes: MOCK_SIZES,
-    error: null,
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByLabelText('Edit code-review'));
@@ -131,13 +97,6 @@ export const EditFormOpen: Story = {
 
 /** The delete confirmation. */
 export const DeleteConfirmOpen: Story = {
-  args: {
-    rows: MOCK_ENVIRONMENTS,
-    connections: MOCK_CATALOG,
-    images: MOCK_IMAGES,
-    sizes: MOCK_SIZES,
-    error: null,
-  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByLabelText('Delete incident-response'));

@@ -300,7 +300,7 @@ export interface Environment {
   tenant_id: string;
   name: string;
   description: string;
-  /** SandboxImage name in the tenant namespace. Environments stored before images existed have "" and run kora-base. */
+  /** SandboxImage name in the tenant namespace. */
   sandbox_image: string;
   size: EnvironmentSize;
   /** Egress host patterns this environment grants (exact, "*", or "*.suffix"). */

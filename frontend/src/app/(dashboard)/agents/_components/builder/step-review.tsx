@@ -14,7 +14,8 @@ export function StepReview() {
   const model = catalogues.models.find((m) => m.id === fields.modelId);
   const environmentsSummary = useMemo(() => {
     if (fields.environments.length === 0) return 'None. Runs on the kora base image.';
-    const name = (id: string) => catalogues.environments.find((e) => e.id === id)?.name ?? id;
+    const name = (id: string) =>
+      catalogues.environments.find((e) => e.id === id)?.name ?? 'Deleted environment';
     const def = fields.environments.find((e) => e.is_default);
     const names = fields.environments.map((e) => name(e.environment_id)).join(', ');
     return fields.environments.length > 1 && def

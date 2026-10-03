@@ -46,11 +46,11 @@ describe('StepTools', () => {
     expect(screen.queryByText('Platform tools')).toBeNull();
   });
 
-  it('holds the environments card back while the catalogue loads', () => {
+  it('shows a loading state, not deleted environments, while the catalogue loads', () => {
     builder.catalogues.status.environments = 'loading';
     render(<StepTools />);
+    expect(screen.getByText('Loading environments.')).toBeInTheDocument();
     expect(screen.queryByText('Deleted environment')).toBeNull();
-    expect(screen.queryByText(/attached|None attached/)).toBeNull();
   });
 
   it('shows the attached environments once the catalogue loads', () => {
@@ -61,7 +61,7 @@ describe('StepTools', () => {
         tenant_id: 't',
         name: 'Go services',
         description: '',
-        sandbox_image: '',
+        sandbox_image: 'kora-base',
         size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
         egress_hosts: [],
         connectors: [],

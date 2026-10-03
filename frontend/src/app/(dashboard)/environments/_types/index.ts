@@ -3,15 +3,15 @@
 // EnvironmentRow is the shape consumed by the UI. The raw API shape
 // (Environment) only appears at the service-layer boundary.
 
-import type { Environment, Connector, EnvironmentSize, SandboxImage } from '@orbit/shared/api';
+import type { Environment, Connector, EnvironmentSize } from '@orbit/shared/api';
 
-export type { Connector, EnvironmentSize, SandboxImage };
+export type { Connector };
 
 export interface EnvironmentRow {
   id: string;
   name: string;
   description: string;
-  /** SandboxImage name. Environments stored before images existed have "" and run kora-base. */
+  /** SandboxImage name. */
   sandboxImage: string;
   size: EnvironmentSize;
   egressHosts: string[];
@@ -27,8 +27,8 @@ export function toEnvironmentRow(e: Environment): EnvironmentRow {
     id: e.id,
     name: e.name,
     description: e.description,
-    sandboxImage: e.sandbox_image ?? '',
-    size: e.size ?? { cpu: '', memory: '', disk: '' },
+    sandboxImage: e.sandbox_image,
+    size: e.size,
     egressHosts: e.egress_hosts ?? [],
     connectors: e.connectors ?? [],
     createdAt: e.created_at,

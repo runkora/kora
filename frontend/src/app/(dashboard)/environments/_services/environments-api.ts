@@ -128,7 +128,7 @@ export async function previewEnvironmentAccess(body: {
 // ── deleteEnvironment ─────────────────────────────────────────────────────────
 
 /** Shown when the API refuses to delete an environment that agents still use. */
-export const ENVIRONMENT_IN_USE_MESSAGE =
+const ENVIRONMENT_IN_USE_MESSAGE =
   'This environment is attached to an agent. Detach it from every agent, then delete it.';
 
 export async function deleteEnvironment(id: string): Promise<{ error: string | null }> {

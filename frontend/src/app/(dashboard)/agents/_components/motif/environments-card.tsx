@@ -5,7 +5,7 @@
 
 import { Alert, Badge, Button, Card, CardContent, Checkbox, Icon, Stack, Text } from '@orbit/terra';
 import type { Environment } from '@orbit/shared/api';
-import { imageName, sizeLabel } from '@orbit/lib/environments';
+import { sizeLabel } from '@orbit/lib/environments';
 import { setDefaultEnvironment, toggleEnvironment } from '../../_types';
 import type { AgentEnvironment } from '../../_types';
 
@@ -13,6 +13,7 @@ export function EnvironmentsCard({
   environments,
   value,
   onChange,
+  loading = false,
   error,
 }: {
   /** Every environment in the tenant. */
@@ -20,6 +21,8 @@ export function EnvironmentsCard({
   /** The agent's attached environments. */
   value: AgentEnvironment[];
   onChange: (next: AgentEnvironment[]) => void;
+  /** True until the tenant's environments load. Until then every attached environment would look deleted. */
+  loading?: boolean;
   /** Set when the tenant's environments failed to load. */
   error?: string | null;
 }) {
@@ -56,7 +59,11 @@ export function EnvironmentsCard({
             </Stack>
           </Stack>
 
-          {error ? (
+          {loading ? (
+            <Text size="supporting" color="muted">
+              Loading environments.
+            </Text>
+          ) : error ? (
             <Alert variant="error">Environments failed to load: {error}</Alert>
           ) : environments.length === 0 && missing.length === 0 ? (
             <Text size="supporting" color="muted">
@@ -77,9 +84,7 @@ export function EnvironmentsCard({
                         {env.name}
                       </Checkbox>
                       <Text size="micro" color="subtle">
-                        {[imageName(env.sandbox_image), sizeLabel(env.size)]
-                          .filter(Boolean)
-                          .join(' · ')}
+                        {[env.sandbox_image, sizeLabel(env.size)].filter(Boolean).join(' · ')}
                       </Text>
                     </Stack>
                     {isDefault && value.length > 1 && (

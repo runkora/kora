@@ -30,10 +30,11 @@ const row = (id: string, name: string, sandboxImage: string): EnvironmentRow => 
 
 const ROWS = [
   row('a', 'Go services', 'acme-go'),
-  row('b', 'Plain', ''),
+  row('b', 'Plain', 'kora-base'),
   row('c', 'Ops', 'acme-ops'),
 ];
 const IMAGES = [
+  { name: 'kora-base', description: '', image: 'r/base', valid: true, warm: true },
   { name: 'acme-go', description: '', image: 'r/go', valid: true, warm: false },
   {
     name: 'acme-ops',

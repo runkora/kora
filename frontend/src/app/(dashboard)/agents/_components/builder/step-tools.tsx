@@ -133,17 +133,13 @@ export function StepTools() {
           title="Environments"
           desc="The sandboxes this agent can run in. Their egress hosts and connections join the agent's effective access."
         />
-        {/* Until the catalogue loads, every attached environment would look deleted. */}
-        {catalogues.status.environments !== 'loading' && (
-          <EnvironmentsCard
-            environments={catalogues.environments}
-            value={fields.environments}
-            onChange={(next) => setField('environments', next)}
-            error={
-              catalogues.status.environments === 'error' ? catalogues.errors.environments : null
-            }
-          />
-        )}
+        <EnvironmentsCard
+          environments={catalogues.environments}
+          value={fields.environments}
+          onChange={(next) => setField('environments', next)}
+          loading={catalogues.status.environments === 'loading'}
+          error={catalogues.status.environments === 'error' ? catalogues.errors.environments : null}
+        />
       </Stack>
 
       <EffectiveAccessPanel access={access} loading={!access && !accessError} error={accessError} />

@@ -15,7 +15,7 @@ const GO: Environment = {
   tenant_id: 't',
   name: 'Go services',
   description: '',
-  sandbox_image: '',
+  sandbox_image: 'kora-base',
   size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
   egress_hosts: [],
   connectors: [],
@@ -46,9 +46,7 @@ const BASE = {
   connectivityMode: 'none',
   connectivityHosts: '',
   environments: [{ environment_id: 'env-go', is_default: true }],
-  environmentCatalogue: [],
-  environmentsError: null,
-  environmentsLoading: true,
+  environmentCatalogue: { data: [], status: 'loading', error: null },
   maxConcurrentRuns: '10',
   loopGuardrails: loopGuardrailValues(undefined),
   budgetLimitUSD: '',
@@ -71,14 +69,18 @@ describe('AgentConfigurationTab environments', () => {
     fireEvent.click(screen.getByText('Network access', { selector: 'button *' }));
   }
 
-  it('holds the environments card back while the catalogue loads', () => {
+  it('shows a loading state, not deleted environments, while the catalogue loads', () => {
     openNetwork();
+    expect(screen.getByText('Loading environments.')).toBeInTheDocument();
     expect(screen.queryByText('Deleted environment')).toBeNull();
     expect(screen.queryByLabelText('Go services')).toBeNull();
   });
 
   it('shows the attached environments once the catalogue loads', () => {
-    cfg = makeCfg({ ...BASE, environmentsLoading: false, environmentCatalogue: [GO] });
+    cfg = makeCfg({
+      ...BASE,
+      environmentCatalogue: { data: [GO], status: 'success', error: null },
+    });
     openNetwork();
     expect(screen.getByLabelText('Go services')).toBeChecked();
     expect(screen.queryByText('Deleted environment')).toBeNull();

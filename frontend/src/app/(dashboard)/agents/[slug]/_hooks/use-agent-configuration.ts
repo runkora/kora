@@ -27,6 +27,7 @@ import {
   fetchMcpCatalogue,
   fetchModels,
 } from '../../_services/agents-api';
+import type { LoadStatus } from '../../_hooks/use-agent-builder';
 import { previewEffectiveAccess, updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import {
@@ -135,9 +136,11 @@ export function useAgentConfiguration() {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogTool[]>([]);
   const [mcpError, setMcpError] = useState<string | null>(null);
-  const [environmentCatalogue, setEnvironmentCatalogue] = useState<Environment[]>([]);
-  const [environmentsError, setEnvironmentsError] = useState<string | null>(null);
-  const [environmentsLoading, setEnvironmentsLoading] = useState(true);
+  const [environmentCatalogue, setEnvironmentCatalogue] = useState<{
+    data: Environment[];
+    status: LoadStatus;
+    error: string | null;
+  }>({ data: [], status: 'loading', error: null });
 
   useEffect(() => {
     void fetchModels().then(({ data, error }) => {
@@ -150,11 +153,9 @@ export function useAgentConfiguration() {
       setMcpCatalog(data.catalog);
       setMcpError(error);
     });
-    void fetchEnvironments().then(({ data, error }) => {
-      setEnvironmentCatalogue(data);
-      setEnvironmentsError(error);
-      setEnvironmentsLoading(false);
-    });
+    void fetchEnvironments().then(({ data, error }) =>
+      setEnvironmentCatalogue({ data, status: error ? 'error' : 'success', error }),
+    );
   }, []);
 
   // ── Effective access (live, draft-driven preview) ───────────────────────────
@@ -379,8 +380,6 @@ export function useAgentConfiguration() {
     mcpCatalog,
     mcpError,
     environmentCatalogue,
-    environmentsError,
-    environmentsLoading,
     // effective access
     effectiveAccess,
     accessError,
