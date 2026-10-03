@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped. Main UI for the /agents list page. */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Badge,
@@ -23,7 +23,7 @@ import { StatusBadge } from '@orbit/components';
 import type { AgentTypeUsage } from '@orbit/shared/api';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
-import { fetchAgentTypesUsage } from '../_services/agents-api';
+import { useAgentsInsights } from '../_hooks/use-agents-insights';
 import { StartRunModal } from './start-run-modal';
 import { openBuilder } from '../_lib/builder-url';
 import { DraftsButton, DraftsList, useDrafts } from './drafts-section';
@@ -68,7 +68,10 @@ const frameworkVariantMap: Record<string, 'default' | 'outline' | 'secondary'> =
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface AgentsPageProps {
-  /** Data the page cannot fetch yet; see `AgentsInsights`. Each part switches a view on. */
+  /**
+   * The optional parts of the page; see `AgentsInsights`. Left out, the page
+   * loads them itself from the BFF, so only stories and tests pass it.
+   */
   insights?: AgentsInsights;
 }
 
@@ -84,30 +87,20 @@ export function AgentsPage({ insights }: AgentsPageProps) {
   const [draftsOpen, setDraftsOpen] = useState(false);
   const [period, setPeriod] = useState<Period>('7d');
 
-  // ── 7-day usage per agent type (inference gateway) ─────────────────────────
-  // Fetched client-side so the list can show spend without blocking the first render.
-
-  const [fetchedUsage, setFetchedUsage] = useState<Record<string, AgentTypeUsage>>({});
-
-  useEffect(() => {
-    let cancelled = false;
-    void fetchAgentTypesUsage().then(({ byAgentType }) => {
-      if (!cancelled) setFetchedUsage(byAgentType);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
   // ── The window the period figures cover ────────────────────────────────────
-  // With per-period data the control picks the window; without it the page is
-  // the fetched 7 days and the run outcomes are whatever the recent runs hold.
+  // The control picks the window. Each period is fetched when first selected,
+  // after first render, so the page never waits on it. Without data for the
+  // window the figures say so rather than show zeros.
 
-  const byPeriod = insights?.byPeriod;
-  const windowData = byPeriod?.[period];
-  const usage = windowData?.usage ?? fetchedUsage;
-  const usageWindow = byPeriod ? period : '7d';
-  const periodText = PERIOD_TEXT[usageWindow].text;
+  const live = useAgentsInsights(period, agentTypes, insights === undefined);
+  const data = insights ?? live.insights;
+  const windowStatus = insights ? 'ready' : live.status;
+  const windowData = data?.byPeriod?.[period];
+  const usage = useMemo(() => windowData?.usage ?? {}, [windowData]);
+  const periodText = PERIOD_TEXT[period].text;
+  const unavailableText = windowStatus === 'loading' ? 'Loading' : 'Unavailable';
+  const spendEmptyText =
+    windowStatus === 'loading' ? 'Loading spend…' : 'Spend is unavailable right now.';
 
   // ── Figures ────────────────────────────────────────────────────────────────
 
@@ -123,14 +116,13 @@ export function AgentsPage({ insights }: AgentsPageProps) {
     };
   }, [liveRuns]);
 
-  const outcomes = windowData
-    ? { completed: windowData.completed, failed: windowData.failed }
-    : {
-        completed: recentRuns.filter((r) => r.state === 'completed').length,
-        failed: recentRuns.filter((r) => r.state === 'failed').length,
-      };
+  const outcomes = windowData?.outcomes ?? {
+    completed: recentRuns.filter((r) => r.state === 'completed').length,
+    failed: recentRuns.filter((r) => r.state === 'failed').length,
+  };
 
   const tokens = useMemo(() => {
+    if (!windowData) return null;
     const values = Object.values(usage);
     const sum = (pick: (u: AgentTypeUsage) => number) => values.reduce((n, u) => n + pick(u), 0);
     return {
@@ -138,7 +130,7 @@ export function AgentsPage({ insights }: AgentsPageProps) {
       input: sum((u) => u.prompt_tokens),
       output: sum((u) => u.completion_tokens),
     };
-  }, [usage]);
+  }, [usage, windowData]);
 
   const spendByAgent = useMemo(
     () =>
@@ -303,7 +295,7 @@ export function AgentsPage({ insights }: AgentsPageProps) {
           </Text>
         </Stack>
         <Stack direction="horizontal" gap="snug" align="center">
-          {byPeriod && (
+          {data?.byPeriod && (
             <SegmentedControl
               aria-label="Period"
               value={period}
@@ -355,19 +347,21 @@ export function AgentsPage({ insights }: AgentsPageProps) {
           runs={runCounts}
           outcomes={outcomes}
           tokens={tokens}
-          outcomesText={byPeriod ? periodText : 'recent runs'}
+          outcomesText={windowData?.outcomes ? periodText : 'recent runs'}
           periodText={periodText}
+          tokensNote={unavailableText}
         />
         <AgentsSpendCard
           agents={spendByAgent}
           total={totalCost}
           periodText={periodText}
-          previousText={PERIOD_TEXT[usageWindow].previous}
+          previousText={PERIOD_TEXT[period].previous}
           models={windowData?.models}
           trend={windowData?.trend}
           previousTotal={windowData?.previousTotal}
-          budgets={insights?.budgets}
-          tenantBudget={insights?.tenantBudget}
+          budgets={data?.budgets}
+          tenantBudget={data?.tenantBudget}
+          emptyText={windowStatus === 'ready' ? undefined : spendEmptyText}
         />
       </Grid>
 
@@ -401,7 +395,8 @@ export function AgentsPage({ insights }: AgentsPageProps) {
               usage={usage[agent.slug]}
               totalCost={totalCost}
               liveRuns={activeRunsByType.get(agent.id) ?? 0}
-              period={usageWindow}
+              period={period}
+              usageNote={windowStatus === 'ready' ? undefined : unavailableText}
               onRun={setStartRunTarget}
             />
           ))}

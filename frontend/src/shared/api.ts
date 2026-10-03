@@ -437,6 +437,46 @@ export interface AgentTypeUsage {
   estimated_cost_usd: number;
 }
 
+/**
+ * Mirrors Go: inferencegw.AgentInsights plus the run outcomes the BFF adds.
+ * GET /api/agents/insights?period=24h|7d|30d|90d
+ *
+ * Covers only the agents the caller may see.
+ */
+export interface AgentInsightsResponse {
+  period: string;
+  /** RFC 3339 start of the window; `trend[0]` starts here. */
+  start: string;
+  end: string;
+  /** Width of one `trend` point. */
+  bucket_seconds: number;
+  usage: AgentTypeUsage[];
+  total_cost_usd: number;
+  /** Total for the window of the same length that ends where this one starts. */
+  previous_total_usd: number;
+  models: { model_id: string; cost_usd: number }[];
+  trend: { start: string; cost_usd: number }[];
+  /** Absent when orbit-agents could not count runs. */
+  outcomes?: { completed: number; failed: number };
+}
+
+/**
+ * Per-agent budget status for the agents whose spend the caller may see in full.
+ * GET /api/agents/insights/budgets
+ */
+export interface AgentBudgetsResponse {
+  agents: {
+    agent_slug: string;
+    week_to_date_usd: number;
+    month_to_date_usd: number;
+    /** Absent when the agent has no budget. */
+    limit_usd?: number;
+    reset_cadence?: string;
+  }[];
+  /** Present only for callers allowed to read platform budgets. */
+  tenant_cap?: { limit_usd: number; reset_cadence: string; spend_usd: number };
+}
+
 /** Request body for POST /api/agents/types. */
 export interface CreateAgentTypeRequest {
   name: string;

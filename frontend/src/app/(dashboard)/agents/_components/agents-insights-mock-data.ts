@@ -1,10 +1,15 @@
-import type { AgentTypeUsage } from '@orbit/shared/api';
+import type {
+  AgentBudgetsResponse,
+  AgentInsightsResponse,
+  AgentTypeUsage,
+} from '@orbit/shared/api';
 import type { AgentsInsights, BudgetRow, Period, PeriodData, TenantBudget } from '../_lib/spend';
 import { RUN_ROWS, USAGE } from './agents-mock-data';
 
 // Mock data for the parts of the Agents page the platform does not serve yet:
-// per-period usage, a model split, spend over time, and budgets. The figures are
-// the 7-day mock usage scaled to each window.
+// per-period usage, a model split, spend over time, and budgets in a story. The
+// figures are the 7-day mock usage scaled to each window, and each window's
+// points match the buckets the gateway cuts: 3-hourly, daily, 3-daily, weekly.
 
 interface PeriodShape {
   /** Multiplier applied to the 7-day mock figures. */
@@ -40,6 +45,25 @@ const SHAPES: Record<Period, PeriodShape> = {
       'Sep 30',
     ],
     weights: [0.07, 0.09, 0.1, 0.12, 0.09, 0.11, 0.1, 0.11, 0.1, 0.11],
+  },
+  '90d': {
+    factor: 12.4,
+    labels: [
+      'Jul 6',
+      'Jul 13',
+      'Jul 20',
+      'Jul 27',
+      'Aug 3',
+      'Aug 10',
+      'Aug 17',
+      'Aug 24',
+      'Aug 31',
+      'Sep 7',
+      'Sep 14',
+      'Sep 21',
+      'Sep 28',
+    ],
+    weights: [0.05, 0.06, 0.07, 0.07, 0.08, 0.08, 0.08, 0.09, 0.09, 0.09, 0.09, 0.08, 0.07],
   },
 };
 
@@ -78,30 +102,75 @@ export function periodData(usage: AgentTypeUsage[]): Record<Period, PeriodData> 
     const total = Object.values(scaled).reduce((n, u) => n + u.estimated_cost_usd, 0);
     return {
       usage: scaled,
-      completed: Math.round(completed * factor),
-      failed: Math.round(failed * factor),
+      outcomes: { completed: Math.round(completed * factor), failed: Math.round(failed * factor) },
       models: MODEL_SHARES.map((m) => ({ name: m.name, cost: m.share * total })),
       trend: { labels, values: weights.map((w) => w * total) },
       previousTotal: total / 1.18,
     };
   };
 
-  return { '24h': build('24h'), '7d': build('7d'), '30d': build('30d') };
+  return { '24h': build('24h'), '7d': build('7d'), '30d': build('30d'), '90d': build('90d') };
 }
 
 export const BUDGETS: BudgetRow[] = [
-  { name: 'Code Reviewer', monthToDate: 88.4, limit: 150 },
-  { name: 'Coder', monthToDate: 258.2, limit: 300 },
-  { name: 'Security Reviewer', monthToDate: 49, limit: 100 },
-  { name: 'Release Notes', monthToDate: 4.9 },
-  { name: 'Triage Bot', monthToDate: 12, limit: 25 },
+  { name: 'Code Reviewer', spent: 88.4, limit: 150 },
+  { name: 'Coder', spent: 258.2, limit: 300 },
+  { name: 'Security Reviewer', spent: 49, limit: 100 },
+  { name: 'Release Notes', spent: 4.9 },
+  { name: 'Triage Bot', spent: 12, limit: 25, cadence: 'weekly' },
 ];
 
-export const TENANT_BUDGET: TenantBudget = { limit: 1000, monthToDate: 412.5, daysLeft: 19 };
+export const TENANT_BUDGET: TenantBudget = { limit: 1000, spent: 412.5, daysLeft: 19 };
 
 /** Every optional view switched on. */
 export const INSIGHTS: AgentsInsights = {
   byPeriod: periodData(USAGE),
   budgets: BUDGETS,
   tenantBudget: TENANT_BUDGET,
+};
+
+const BUCKET_SECONDS: Record<Period, number> = {
+  '24h': 3 * 3600,
+  '7d': 86400,
+  '30d': 3 * 86400,
+  '90d': 7 * 86400,
+};
+
+/** The BFF response behind `INSIGHTS`, for stories that load the page from mocked routes. */
+export function mockInsightsResponse(period: Period): AgentInsightsResponse {
+  const data = INSIGHTS.byPeriod?.[period];
+  if (!data?.trend) throw new Error(`no mock insights for ${period}`);
+  const bucket = BUCKET_SECONDS[period] * 1000;
+  const start = Date.UTC(2026, 9, 4) - bucket * data.trend.values.length;
+  const usage = Object.values(data.usage);
+  return {
+    period,
+    start: new Date(start).toISOString(),
+    end: new Date(start + bucket * data.trend.values.length).toISOString(),
+    bucket_seconds: BUCKET_SECONDS[period],
+    usage,
+    total_cost_usd: usage.reduce((n, u) => n + u.estimated_cost_usd, 0),
+    previous_total_usd: data.previousTotal ?? 0,
+    models: (data.models ?? []).map((m) => ({ model_id: m.name, cost_usd: m.cost })),
+    trend: data.trend.values.map((cost_usd, i) => ({
+      start: new Date(start + i * bucket).toISOString(),
+      cost_usd,
+    })),
+    ...(data.outcomes ? { outcomes: data.outcomes } : {}),
+  };
+}
+
+/** The BFF budgets response behind `BUDGETS` and `TENANT_BUDGET`. */
+export const MOCK_BUDGETS_RESPONSE: AgentBudgetsResponse = {
+  agents: BUDGETS.map((b) => ({
+    agent_slug: b.name.toLowerCase().replace(/\s+/g, '-'),
+    week_to_date_usd: b.cadence === 'weekly' ? b.spent : b.spent / 4,
+    month_to_date_usd: b.spent,
+    ...(b.limit ? { limit_usd: b.limit, reset_cadence: b.cadence ?? 'monthly' } : {}),
+  })),
+  tenant_cap: {
+    limit_usd: TENANT_BUDGET.limit,
+    reset_cadence: 'monthly',
+    spend_usd: TENANT_BUDGET.spent,
+  },
 };

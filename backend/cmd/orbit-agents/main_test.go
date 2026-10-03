@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -137,6 +138,22 @@ func TestAgentRoutesFilterDropsOnlyUnscopedRoutes(t *testing.T) {
 		kept := slices.Contains(scoped, r)
 		if want := r.RequiredScope != ""; kept != want {
 			t.Errorf("route %+v: kept=%v, want %v", r, kept, want)
+		}
+	}
+}
+
+// TestAgentRoutesInsightsScopes pins the scopes on the insights routes, and that
+// they do not inherit the run or agent-type prefixes by accident.
+func TestAgentRoutesInsightsScopes(t *testing.T) {
+	tests := []struct{ path, scope string }{
+		{"/api/v1/agent-visibility", "agents:types:read"},
+		{"/api/v1/run-outcomes", "agents:runs:read"},
+		{"/api/v1/agent-budgets", "agents:types:read"},
+	}
+	for _, tt := range tests {
+		got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", tt.path)
+		if !ok || got != tt.scope {
+			t.Errorf("%s: scope %q (matched %v), want %q", tt.path, got, ok, tt.scope)
 		}
 	}
 }

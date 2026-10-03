@@ -112,7 +112,10 @@ export interface AgentStatTilesProps {
   agents: { total: number; healthy: number; provisioning: number; delegated: number };
   runs: { running: number; starting: number; queued: number; longestMs: number };
   outcomes: { completed: number; failed: number };
-  tokens: { cached: number; input: number; output: number };
+  /** Null when the window's usage is not loaded, which the tile shows as a dash. */
+  tokens: { cached: number; input: number; output: number } | null;
+  /** What the tokens tile says in place of its figures while `tokens` is null. */
+  tokensNote: string;
   /** The window the token figures cover, for example "last 7 days". */
   periodText: string;
   /** The window the run outcomes cover. Differs from `periodText` when only recent runs are known. */
@@ -123,10 +126,12 @@ export function AgentStatTiles({
   agents,
   runs,
   outcomes,
-  tokens,
+  tokens: tokenFigures,
+  tokensNote,
   periodText,
   outcomesText,
 }: AgentStatTilesProps) {
+  const tokens = tokenFigures ?? { cached: 0, input: 0, output: 0 };
   const live = runs.running + runs.starting + runs.queued;
   const finished = outcomes.completed + outcomes.failed;
   const successRate = finished > 0 ? Math.round((outcomes.completed / finished) * 100) : 0;
@@ -173,14 +178,20 @@ export function AgentStatTiles({
       <StatTile
         label="Tokens"
         icon="zap"
-        value={totalTokens > 0 ? fmtTokens(totalTokens) : '0'}
+        value={tokenFigures === null ? '–' : totalTokens > 0 ? fmtTokens(totalTokens) : '0'}
         segments={[
           { label: 'cached', value: tokens.cached, text: fmtTokens(tokens.cached) },
           { label: 'input', value: tokens.input, text: fmtTokens(tokens.input) },
           { label: 'output', value: tokens.output, text: fmtTokens(tokens.output) },
         ]}
         period={periodText}
-        trailing={promptSide > 0 ? `${cachedShare}% cached` : 'No usage yet'}
+        trailing={
+          tokenFigures === null
+            ? tokensNote
+            : promptSide > 0
+              ? `${cachedShare}% cached`
+              : 'No usage yet'
+        }
       />
     </Grid>
   );

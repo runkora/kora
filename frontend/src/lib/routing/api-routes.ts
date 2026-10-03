@@ -304,6 +304,21 @@ export const ApiRoute = {
     },
   },
 
+  /**
+   * The Agents page rollups, limited to the agents the caller may see.
+   *
+   * `/api/agents/insights?period=24h|7d|30d|90d` is usage, model split, spend
+   * over time and run outcomes for one window. `/api/agents/insights/budgets`
+   * is each agent's budget-window spend against its limit, and the tenant cap
+   * when the caller may read it.
+   */
+  agentInsights: {
+    window: (period: string): `${typeof API_BASE}/agents/insights?period=${string}` =>
+      `${API_BASE}/agents/insights?period=${encodeURIComponent(period)}`,
+    budgets: (): `${typeof API_BASE}/agents/insights/budgets` =>
+      `${API_BASE}/agents/insights/budgets`,
+  },
+
   agentTypes: {
     list: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
     create: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,

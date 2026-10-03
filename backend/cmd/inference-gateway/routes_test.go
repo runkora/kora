@@ -30,6 +30,8 @@ func TestInferenceRoutesUsageScopes(t *testing.T) {
 		{name: "run usage meter", path: "/v1/usage/run/run-123", scope: ""},
 		{name: "agent type list is tenant-wide", path: "/v1/usage/agent-types", scope: "agents:types:read"},
 		{name: "agent type detail follows agent visibility", path: "/v1/usage/agent-type/token-probe", scope: "agents:types:read"},
+		{name: "agent insights follow agent visibility", path: "/v1/usage/agent-insights", scope: "agents:types:read"},
+		{name: "agent budgets follow agent visibility", path: "/v1/usage/agent-budgets", scope: "agents:types:read"},
 		{name: "personal analytics", path: "/v1/analytics/me", scope: ""},
 		{name: "tenant analytics", path: "/v1/analytics", scope: "platform:analytics:read"},
 	}

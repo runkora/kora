@@ -20,6 +20,8 @@ The gateway holds each provider's credentials and speaks its native wire format:
 
 Each call writes an `inference_usage` row to Postgres (tokens, estimated cost, latency, and full principal attribution) and increments the Redis spend counters that back budgets.
 
+The Agents page reads agent-only rollups over 24-hour, 7-day, 30-day and 90-day windows: usage per agent, spend by model, spend over time, and the previous window's total. The gateway asks orbit-agents which agents the caller may see and counts only those. A delegated agent's rows count only for the person who ran it, or for a platform admin. The answer is cached for five seconds per token.
+
 ## ADRs
 
 [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md), [provider-model-catalog-and-alias-routing](../adr/2026-04-01-provider-model-catalog-and-alias-routing.md), [virtual-model-catalog-and-platform-routing](../adr/2026-04-17-virtual-model-catalog-and-platform-routing.md), [budget-model-redesign](../adr/2026-06-10-budget-model-redesign.md), [inference-usage-logs](../adr/2026-04-17-inference-usage-logs.md), [crd-inference-providers](../adr/2026-10-01-crd-inference-providers.md).

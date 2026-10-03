@@ -27,6 +27,9 @@ type Controller struct {
 	basePath  string
 	blocklist mw.JTIBlocklist
 	logger    logging.Logger
+
+	// agentInsights serves the Agents page rollups; nil until WithAgentInsights.
+	agentInsights *AgentInsightsService
 }
 
 // NewController constructs a ready-to-boot inference gateway Controller.
@@ -84,6 +87,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	GET    /usage/budget          Caller's current budget status (spend, limit, has_limit)
 //	GET    /usage/run/{runID}      Per-run spend + token total (run chat usage meter)
 //	GET    /usage/agent-type/{slug}  Agent 7-day token breakdown + spend by slug (agent overview)
+//	GET    /usage/agent-insights  Usage, model split, trend and previous total for the caller's visible agents (?period=24h|7d|30d|90d)
+//	GET    /usage/agent-budgets   Week and month spend of the visible agents, for budget bars
 //	GET    /usage                 Inference usage log (authenticated principal, paginated)
 //	GET    /analytics/me          Personal aggregated analytics (any authenticated caller)
 //	GET    /analytics             Tenant-wide aggregated analytics (requires platform:analytics:read)
@@ -101,6 +106,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /usage/run/{runID}", c.handleGetRunUsage)
 	mux.Handle("GET /usage/agent-type/{slug}", c.handleGetAgentTypeUsage)
 	mux.Handle("GET /usage/agent-types", c.handleListAgentTypeUsage)
+	mux.Handle("GET /usage/agent-insights", c.handleAgentInsights)
+	mux.Handle("GET /usage/agent-budgets", c.handleAgentBudgets)
 	mux.Handle("GET /usage", c.handleListUsage)
 	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)
 	mux.Handle("GET /analytics", c.handleAnalytics)

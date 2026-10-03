@@ -637,3 +637,56 @@ func isUniqueViolation(err error) bool {
 	}
 	return false
 }
+
+// ── Insights ──────────────────────────────────────────────────────────────────
+
+// ListAgentTypeRefs returns each agent type's id, slug and identity model for a
+// tenant. It reads three columns where ListAgentTypes reads the whole row, which
+// matters because the Agents page asks on every load.
+func (r *PostgresRepository) ListAgentTypeRefs(ctx context.Context, tenantID string) ([]AgentTypeRef, error) {
+	rows, err := r.pool.Query(ctx, `SELECT id, slug, identity_mode FROM agent_types WHERE tenant_id = $1`, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("query agent type refs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AgentTypeRef
+	for rows.Next() {
+		var ref AgentTypeRef
+		var mode string
+		if err := rows.Scan(&ref.ID, &ref.Slug, &mode); err != nil {
+			return nil, fmt.Errorf("scan agent type ref: %w", err)
+		}
+		ref.Delegated = IdentityMode(mode).OrDefault() == IdentityModeDelegated
+		out = append(out, ref)
+	}
+	return out, rows.Err()
+}
+
+// CountRunOutcomes counts the completed and failed runs started at or after
+// scope.Since. The tenant and created_at predicates use idx_runs_tenant_id.
+func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, scope RunOutcomeScope) (RunOutcomes, error) {
+	allRows, ownRows := scope.AllRows, scope.OwnRows
+	if allRows == nil {
+		allRows = []string{}
+	}
+	if ownRows == nil {
+		ownRows = []string{}
+	}
+	const q = `
+		SELECT
+		    COUNT(*) FILTER (WHERE state = 'completed'),
+		    COUNT(*) FILTER (WHERE state = 'failed')
+		FROM runs
+		WHERE tenant_id = $1
+		  AND created_at >= $2
+		  AND state IN ('completed', 'failed')
+		  AND (agent_type_id = ANY($3)
+		       OR (agent_type_id = ANY($4) AND $5 <> '' AND created_by = $5))`
+
+	var out RunOutcomes
+	if err := r.pool.QueryRow(ctx, q, scope.TenantID, scope.Since, allRows, ownRows, scope.Subject).Scan(&out.Completed, &out.Failed); err != nil {
+		return RunOutcomes{}, fmt.Errorf("count run outcomes: %w", err)
+	}
+	return out, nil
+}

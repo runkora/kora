@@ -181,3 +181,50 @@ func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunReques
 		return StartRunResponse{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }
+
+// Visibility is the set of agents whose usage the caller may see, split by how
+// much of it. It carries slugs only: the usage rows themselves live in the
+// inference gateway.
+type Visibility struct {
+	// AllRows lists agents whose usage is visible in full.
+	AllRows []string `json:"all_rows"`
+	// OwnRows lists delegated agents whose usage is visible only where the
+	// caller is the delegator. A delegated agent's runs belong to the person who
+	// started them (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 6).
+	OwnRows []string `json:"own_rows"`
+}
+
+// VisibleAgents returns the agents the bearer's principal can see, as
+// orbit-agents decides it from that principal's grants and identity. The
+// caller's own token is forwarded so the answer is the caller's, never a
+// service's.
+func (c *Client) VisibleAgents(ctx context.Context, bearer string) (Visibility, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-visibility", nil)
+	if err != nil {
+		return Visibility{}, fmt.Errorf("build visible agents request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(ctx, "agents.Client.VisibleAgents", httpReq)
+	defer span.End()
+	if err != nil {
+		return Visibility{}, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out Visibility
+		if err := c.DecodeJSON(span, resp, &out); err != nil {
+			return Visibility{}, fmt.Errorf("decode visible agents response: %w", err)
+		}
+		return out, nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return Visibility{}, c.HandleErrorResponse(span, resp, ErrForbidden)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return Visibility{}, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return Visibility{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}

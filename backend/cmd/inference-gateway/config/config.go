@@ -21,7 +21,12 @@ type Config struct {
 	Pricing   PricingConfig   `yaml:"pricing"`
 	Policy    PolicyConfig    `yaml:"policy"`
 	Providers ProvidersConfig `yaml:"providers"`
-	Identity  struct {
+	Agents    struct {
+		// InternalURL is the in-cluster base URL for orbit-agents, asked which
+		// agents a caller may see before any agent usage is totalled.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"agents"`
+	Identity struct {
 		// InternalURL is the in-cluster base URL for identity. The gateway
 		// exchanges its SVID there for the platform token it registers routes with.
 		InternalURL string `yaml:"internalURL"`

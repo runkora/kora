@@ -13,6 +13,7 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/registry"
 	"github.com/clear-route/orbit/internal/platform/api"
+	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
 	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -176,8 +177,12 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
 	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
+	// Agent rollups ask orbit-agents which agents the caller may see, with the
+	// caller's own token.
+	agentInsights := inferencegw.NewAgentInsightsService(usageRepo, agentsclient.NewClient(igc.Current.Agents.InternalURL, logger))
 	controllers := []api.Controller{
-		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
+		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger).
+			WithAgentInsights(agentInsights),
 		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}
 	return controllers, register, nil
@@ -283,6 +288,14 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// cover "/v1/usage/agent-types"; both are listed.
 		{PathPrefix: "/v1/usage/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:types:read"},
+		// GET /v1/usage/agent-insights and /v1/usage/agent-budgets are the Agents
+		// page rollups. They use the same scope for the same reason, and they go
+		// further than the two reads above: the gateway asks orbit-agents which
+		// agents the caller may see and counts only those. A delegated agent's
+		// spend is private to the person who ran it, so it never reaches another
+		// caller's totals.
+		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:types:read"},
+		{PathPrefix: "/v1/usage/agent-budgets", Method: "GET", RequiredScope: "agents:types:read"},
 		// GET /v1/usage is the caller's own inference usage log; tenant and
 		// principal come from the verified claims.
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},

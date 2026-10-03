@@ -14,15 +14,15 @@ import {
   MANY_RUN_ROWS,
   RAW_RUNS,
   RUN_ROWS,
-  USAGE,
 } from './agents-mock-data';
-import { INSIGHTS } from './agents-insights-mock-data';
+import { INSIGHTS, MOCK_BUDGETS_RESPONSE, mockInsightsResponse } from './agents-insights-mock-data';
+import { PERIOD_OPTIONS } from '../_lib/spend';
+import type { Period } from '../_lib/spend';
 
 /** The routes the list page calls on mount and on refresh. */
 function listRoutes(overrides: MockRoutes = {}): MockRoutes {
   return {
     'GET /api/agents/types/drafts': { data: DRAFTS },
-    'GET /api/agents/types/usage': { data: USAGE },
     'GET /api/agents/types': { data: AGENT_TYPES },
     'GET /api/agents/runs': { data: RAW_RUNS },
     ...overrides,
@@ -30,8 +30,9 @@ function listRoutes(overrides: MockRoutes = {}): MockRoutes {
 }
 
 /**
- * The agents list as an operator sees it, with mock agents and runs. The stories pass `insights`
- * (period data, a model split, spend over time and budgets) that the live page does not receive yet.
+ * The agents list as an operator sees it, with mock agents and runs. Most stories pass `insights`
+ * (period data, a model split, spend over time and budgets) directly. `LiveInsights` leaves it out
+ * and answers the insights routes the way the BFF does, so the page loads each period on demand.
  */
 const meta: Meta<typeof AgentsShell> = {
   title: 'Pages/Agents',
@@ -58,7 +59,7 @@ export const Default: Story = {
   },
 };
 
-/** What the live page renders today: no period control, and the spend card shows only the agent split. */
+/** The insights routes fail: no period control, and the figures that need them say they are unavailable. */
 export const WithoutInsights: Story = {
   decorators: withRoutes(listRoutes()),
   args: { initialAgentTypes: AGENT_ROWS, initialRuns: RUN_ROWS, initialError: null },
@@ -70,6 +71,31 @@ export const ThirtyDays: Story = {
   play: async ({ canvasElement }) => {
     await userEvent.click(await within(canvasElement).findByRole('button', { name: '30d' }));
   },
+};
+
+/** The longest window, charted weekly. */
+export const NinetyDays: Story = {
+  ...Default,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole('button', { name: '90d' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Trend' }));
+  },
+};
+
+/** The page loading its own insights: the 7-day window first, then each period as it is picked. */
+export const LiveInsights: Story = {
+  decorators: withRoutes(
+    listRoutes({
+      'GET /api/agents/insights': ({ url }: { url: URL }) => {
+        const period = url.searchParams.get('period') ?? '7d';
+        const valid = PERIOD_OPTIONS.some((o) => o.value === period);
+        return mockInsightsResponse(valid ? (period as Period) : '7d');
+      },
+      'GET /api/agents/insights/budgets': MOCK_BUDGETS_RESPONSE,
+    }),
+  ),
+  args: { initialAgentTypes: AGENT_ROWS, initialRuns: RUN_ROWS, initialError: null },
 };
 
 /** The spend card's trend view. */
