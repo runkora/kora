@@ -28,6 +28,7 @@ const builder = {
   catalogues: {
     models: [],
     environments: [{ id: 'env-go', name: 'Go services' }],
+    status: { environments: 'success' },
   },
   goTo: () => {},
   createBlockers: [],
@@ -45,5 +46,13 @@ describe('StepReview', () => {
       screen.getByText('Go services, Deleted environment (default: Go services)'),
     ).toBeInTheDocument();
     expect(screen.queryByText(/env-gone/)).toBeNull();
+  });
+
+  it('does not report attached environments as deleted while the catalogue loads', () => {
+    builder.catalogues.status.environments = 'loading';
+    render(<StepReview />);
+    expect(screen.getByText('Loading environments.')).toBeInTheDocument();
+    expect(screen.queryByText(/Deleted environment/)).toBeNull();
+    builder.catalogues.status.environments = 'success';
   });
 });

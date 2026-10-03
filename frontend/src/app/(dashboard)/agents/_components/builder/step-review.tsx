@@ -14,6 +14,7 @@ export function StepReview() {
   const model = catalogues.models.find((m) => m.id === fields.modelId);
   const environmentsSummary = useMemo(() => {
     if (fields.environments.length === 0) return 'None. Runs on the kora base image.';
+    if (catalogues.status.environments === 'loading') return 'Loading environments.';
     const name = (id: string) =>
       catalogues.environments.find((e) => e.id === id)?.name ?? 'Deleted environment';
     const def = fields.environments.find((e) => e.is_default);
@@ -21,7 +22,7 @@ export function StepReview() {
     return fields.environments.length > 1 && def
       ? `${names} (default: ${name(def.environment_id)})`
       : names;
-  }, [fields.environments, catalogues.environments]);
+  }, [fields.environments, catalogues.environments, catalogues.status.environments]);
   const grantedServers = useMemo(() => {
     const prefixes = new Set(fields.mcpTools.map((s) => s.split(':')[1]));
     return prefixes.size;
