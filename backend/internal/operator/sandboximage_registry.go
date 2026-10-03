@@ -49,6 +49,7 @@ func (r remoteRegistry) Read(ctx context.Context, ref string, auth []dockerConfi
 	for from, to := range r.Mirrors {
 		if rest, ok := strings.CutPrefix(ref, from+"/"); ok {
 			ref = to + "/" + rest
+			break
 		}
 	}
 	var opts []name.Option
