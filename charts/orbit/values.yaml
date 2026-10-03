@@ -603,6 +603,9 @@ agents:
     insecureRegistries: []
     # -- Registry ports other than 443 the operator may dial to validate images.
     registryPorts: []
+    # -- Registry hosts the operator reads through another host, as the nodes'
+    # registry mirrors do. Keys are the host in image references.
+    registryMirrors: {}
   # Warm-start for sandboxes, so a run does not wait for a node to boot and the
   # sandbox image to pull. Placement follows agents.workloads.sandbox, so the
   # pool is configured once; the keys below override it. Image warmers use the

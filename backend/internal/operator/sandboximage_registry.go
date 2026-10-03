@@ -30,20 +30,27 @@ type RegistryReader interface {
 }
 
 // remoteRegistry reads registries over HTTPS. Insecure lists registries reached
-// over plain HTTP, such as the local k3d registry.
+// over plain HTTP. Mirrors maps a registry host in an image reference to the
+// host the operator reads it from, as the nodes' own registry mirrors do.
 type remoteRegistry struct {
 	Insecure []string
+	Mirrors  map[string]string
 }
 
 // NewRemoteRegistry reads image configs from their registries.
-func NewRemoteRegistry(insecure []string) RegistryReader {
-	return remoteRegistry{Insecure: insecure}
+func NewRemoteRegistry(insecure []string, mirrors map[string]string) RegistryReader {
+	return remoteRegistry{Insecure: insecure, Mirrors: mirrors}
 }
 
 // Read resolves ref to a digest and reads the config of the image for the
 // operator's own architecture. An index digest is returned as is, so sandboxes
 // pull the right platform on every node.
 func (r remoteRegistry) Read(ctx context.Context, ref string, auth []dockerConfig) (imageConfig, error) {
+	for from, to := range r.Mirrors {
+		if rest, ok := strings.CutPrefix(ref, from+"/"); ok {
+			ref = to + "/" + rest
+		}
+	}
 	var opts []name.Option
 	if parsed, err := name.ParseReference(ref); err == nil && slices.Contains(r.Insecure, parsed.Context().RegistryStr()) {
 		opts = append(opts, name.Insecure)

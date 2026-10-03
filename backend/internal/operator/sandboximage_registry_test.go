@@ -104,7 +104,8 @@ func TestRemoteRegistryRead(t *testing.T) {
 	}
 	want, _ := img.Digest()
 
-	got, err := remoteRegistry{Insecure: []string{host}}.Read(context.Background(), host+"/acme/go:1", nil)
+	// The reference names a registry the operator reaches through a mirror.
+	got, err := remoteRegistry{Insecure: []string{host}, Mirrors: map[string]string{"registry.local:5001": host}}.Read(context.Background(), "registry.local:5001/acme/go:1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

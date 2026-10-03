@@ -348,7 +348,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 	sandboxImageReconciler := &operator.SandboxImageReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Registry:    operator.NewRemoteRegistry(install.SandboxImages.InsecureRegistries),
+		Registry:    operator.NewRemoteRegistry(install.SandboxImages.InsecureRegistries, install.SandboxImages.RegistryMirrors),
 		Logger:      logger,
 		PullSecrets: install.ImagePullSecrets,
 		Placement:   placement,
