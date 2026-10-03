@@ -25,7 +25,7 @@ func seedOutcomeAgent(t *testing.T, r *PostgresRepository, tenant string, mode I
 	return at
 }
 
-// seedFinishedRun writes a run that finished `finished` ago and started `started` ago.
+// seedFinishedRun writes a run that started `started` ago and finished `finished` ago.
 func seedFinishedRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID, createdBy string, state RunState, started, finished time.Duration) {
 	t.Helper()
 	ctx := context.Background()

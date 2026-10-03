@@ -18,9 +18,7 @@ import {
   RAW_RUNS,
   RUN_ROWS,
 } from './agents-mock-data';
-import { INSIGHTS, SCALE_INSIGHTS, mockInsightsResponse } from './agents-insights-mock-data';
-import { PERIOD_OPTIONS } from '../_lib/spend';
-import type { Period } from '../_lib/spend';
+import { INSIGHTS, SCALE_INSIGHTS } from './agents-insights-mock-data';
 
 /** The routes the list page calls on mount and on refresh. */
 function listRoutes(overrides: MockRoutes = {}): MockRoutes {
@@ -33,9 +31,8 @@ function listRoutes(overrides: MockRoutes = {}): MockRoutes {
 }
 
 /**
- * The agents list as an operator sees it, with mock agents and runs. Most stories pass `insights`
- * (period data, a model split, spend over time and budgets) directly. `LiveInsights` leaves it out
- * and answers the insights routes the way the BFF does, so the page loads each period on demand.
+ * The agents list as an operator sees it, with mock agents and runs. The stories pass `insights`
+ * (period data, a model split, spend over time and budgets) directly.
  */
 const meta: Meta<typeof AgentsShell> = {
   title: 'Pages/Agents',
@@ -84,20 +81,6 @@ export const NinetyDays: Story = {
     await userEvent.click(await canvas.findByRole('button', { name: '90d' }));
     await userEvent.click(await canvas.findByRole('button', { name: 'Trend' }));
   },
-};
-
-/** The page loading each period it is not given, as the BFF would answer. */
-export const LiveInsights: Story = {
-  decorators: withRoutes(
-    listRoutes({
-      'GET /api/agents/insights': ({ url }: { url: URL }) => {
-        const period = url.searchParams.get('period') ?? '7d';
-        const valid = PERIOD_OPTIONS.some((o) => o.value === period);
-        return mockInsightsResponse(valid ? (period as Period) : '7d');
-      },
-    }),
-  ),
-  args: { initialAgentTypes: AGENT_ROWS, initialRuns: RUN_ROWS, initialError: null },
 };
 
 /** The spend card's trend view. */
@@ -204,17 +187,4 @@ export const HundredFiftyAgents: Story = {
     insights: SCALE_INSIGHTS,
   },
   decorators: withRoutes(scaleRoutes),
-};
-
-/** The Budgets view at 150 agents: eight rows, the closest to their limit first, and a count of the rest. */
-export const HundredFiftyAgentsBudgets: Story = {
-  ...HundredFiftyAgents,
-  play: async ({ canvasElement }) => {
-    await userEvent.click(await within(canvasElement).findByRole('button', { name: 'Budgets' }));
-  },
-};
-
-export const HundredFiftyAgentsListView: Story = {
-  ...HundredFiftyAgents,
-  play: ListView.play,
 };

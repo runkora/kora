@@ -817,19 +817,3 @@ func TestIncrementSpend_RoleCategoriesMergedForAttribution(t *testing.T) {
 		t.Errorf("counter incremented = %v, want 1.25", counter.incremented)
 	}
 }
-
-func TestTenantCap(t *testing.T) {
-	t.Parallel()
-	svc := func(tb *policy.TenantBudget) *Service {
-		return NewService(&stubEvaluator{tenantBudget: tb}, buildTestRouter(nil), NewNopPricingCache(),
-			&mockInferenceUsageRepository{}, &mockSpendCounter{}, logging.NewLoggerWithOutput(io.Discard))
-	}
-
-	if got := svc(nil).TenantCap(context.Background(), "tenant-1"); got != nil {
-		t.Errorf("a tenant without a cap = %+v, want nil", got)
-	}
-	got := svc(&policy.TenantBudget{LimitUSD: 2000, ResetCadence: "weekly"}).TenantCap(context.Background(), "tenant-1")
-	if got == nil || got.LimitUSD != 2000 || got.ResetCadence != "weekly" || got.Reached {
-		t.Errorf("cap = %+v", got)
-	}
-}

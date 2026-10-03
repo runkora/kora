@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { AgentInsightsResponse } from '@orbit/shared/api';
-import { fetchAgentInsights } from '../_services/agents-insights-api';
+import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { toBudgetRows, toPeriodData, toTenantBudget } from '../_lib/insights';
 import type { AgentsInsights, Period, PeriodData } from '../_lib/spend';
 
@@ -27,6 +27,16 @@ interface Loaded {
   data: PeriodData;
   budgets: AgentInsightsResponse['budgets'];
   cap: AgentInsightsResponse['tenant_cap'];
+}
+
+/** The rollups for one window, or null when they cannot be had. */
+async function fetchAgentInsights(period: Period): Promise<AgentInsightsResponse | null> {
+  try {
+    const res = await fetch(ApiRoute.agentInsights.window(period), { cache: 'no-store' });
+    return res.ok ? ((await res.json()) as AgentInsightsResponse) : null;
+  } catch {
+    return null;
+  }
 }
 
 const loadedOf = (r: AgentInsightsResponse): Loaded => ({

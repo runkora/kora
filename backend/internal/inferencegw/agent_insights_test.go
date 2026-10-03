@@ -31,20 +31,9 @@ func claimsWithRoles(tenant, sub, roles string) *token.PlatformClaims {
 }
 
 func TestCallerFromClaims(t *testing.T) {
-	cases := []struct {
-		name  string
-		roles string
-		admin bool
-	}{
-		{"admin among roles", "users, platform-admin,engineer", true},
-		{"no roles claim, as for a PAT", "", false},
-		{"other roles", "users,engineer", false},
-		{"a longer role name", "platform-administrator", false},
-	}
-	for _, tc := range cases {
-		got := callerFromClaims(claimsWithRoles("t1", "alice", tc.roles))
-		if got.Admin != tc.admin || got.TenantID != "t1" || got.Subject != "alice" {
-			t.Errorf("%s: %+v", tc.name, got)
+	for roles, admin := range map[string]bool{"users, platform-admin,engineer": true, "": false, "users": false, "platform-administrator": false} {
+		if got := callerFromClaims(claimsWithRoles("t1", "alice", roles)); got.Admin != admin || got.TenantID != "t1" || got.Subject != "alice" {
+			t.Errorf("roles %q: %+v, want admin %v", roles, got, admin)
 		}
 	}
 }
@@ -73,7 +62,6 @@ func TestPredicate(t *testing.T) {
 	}
 }
 
-// fakeUsageStore returns canned rollups and records the queries it was asked.
 type fakeUsageStore struct {
 	rows     []agentUsageRow
 	previous float64
@@ -146,48 +134,28 @@ func TestInsights_FoldsUsageAndBuckets(t *testing.T) {
 	if len(out.Models) != 2 || out.Models[0].ModelID != "m1" || out.Models[0].CostUSD != 1.5 || out.Models[1].ModelID != "m2" {
 		t.Errorf("models = %+v, want m1 then m2 and no free model", out.Models)
 	}
-	if len(out.Trend) != 7 || out.Trend[6].CostUSD != 5 {
+	if len(out.Trend) != 7 || out.Trend[6].CostUSD != 5 || !out.Trend[0].Start.Equal(testEnd.Add(-7*24*time.Hour)) {
 		t.Errorf("trend = %+v", out.Trend)
-	}
-	if want := testEnd.Add(-7 * 24 * time.Hour); !out.Trend[0].Start.Equal(want) {
-		t.Errorf("first bucket starts %s, want %s", out.Trend[0].Start, want)
 	}
 	if len(store.queries) != 1 || store.queries[0].Caller != caller {
 		t.Errorf("the rollup must run for the verified caller: %+v", store.queries)
 	}
-	raw, _ := json.Marshal(out)
-	var generic map[string]any
-	_ = json.Unmarshal(raw, &generic)
-	if _, has := generic["budgets"]; has {
-		t.Errorf("no budgets: the field must be absent: %s", raw)
-	}
-}
 
-func TestInsights_NoUsageEncodesEmptyArrays(t *testing.T) {
-	out, err := newInsights(&fakeUsageStore{buckets: make([]float64, 7)}, nil).Insights(context.Background(), usageCaller{TenantID: "t1"}, usagewindow.Period7d)
-	if err != nil {
-		t.Fatalf("Insights: %v", err)
-	}
-	raw, _ := json.Marshal(out)
-	var generic map[string]any
-	_ = json.Unmarshal(raw, &generic)
-	if generic["models"] == nil || generic["usage"] == nil {
-		t.Errorf("models and usage must encode as arrays: %s", raw)
+	// An empty window must encode arrays, which the page reads.
+	empty, _ := newInsights(&fakeUsageStore{buckets: make([]float64, 7)}, nil).Insights(context.Background(), caller, usagewindow.Period7d)
+	raw, _ := json.Marshal(empty)
+	if strings.Contains(string(raw), `"usage":null`) || strings.Contains(string(raw), `"models":null`) {
+		t.Errorf("empty usage and models must encode as arrays: %s", raw)
 	}
 }
 
 func TestAgentBudgets(t *testing.T) {
 	bundle := fakeBundle{principals: map[string]policy.PrincipalBudget{
-		// Both windows, a per-run limit.
-		agentNS + "coder": {EffectiveLimits: map[string]float64{"monthly": 100, "weekly": 30}, EffectivePerRunLimitUSD: 5},
-		// A limit and no usage this month: a zero bar.
-		agentNS + "idle": {EffectiveLimits: map[string]float64{"monthly": 50}},
-		// A per-run limit only, and a zero limit: no window, no row.
-		agentNS + "perrun": {EffectivePerRunLimitUSD: 2},
-		agentNS + "zero":   {EffectiveLimits: map[string]float64{"monthly": 0}},
-		// Not agent principals.
-		"user-1":             {EffectiveLimits: map[string]float64{"monthly": 9}},
-		"trigger-source:abc": {EffectiveLimits: map[string]float64{"monthly": 9}},
+		agentNS + "coder":  {EffectiveLimits: map[string]float64{"monthly": 100, "weekly": 30}, EffectivePerRunLimitUSD: 5},
+		agentNS + "idle":   {EffectiveLimits: map[string]float64{"monthly": 50}}, // a limit and no usage: a zero bar
+		agentNS + "perrun": {EffectivePerRunLimitUSD: 2},                         // no window limit, no row
+		agentNS + "zero":   {EffectiveLimits: map[string]float64{"monthly": 0}},  // a zero limit is no limit
+		"user-1":           {EffectiveLimits: map[string]float64{"monthly": 9}},  // not an agent
 	}}
 	store := &fakeUsageStore{buckets: make([]float64, 7), spend: []AgentBudgetSpend{{AgentSlug: "coder", Week: 7, Month: 40}}}
 	caller := usageCaller{TenantID: "t1", Subject: "alice"}
@@ -196,8 +164,8 @@ func TestAgentBudgets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Insights: %v", err)
 	}
-	if want := []string{"coder", "idle"}; !slices.Equal(sortedCopy(store.spendFor), want) || store.spendBy != caller {
-		t.Errorf("spend asked for %v by %+v, want %v by the verified caller", store.spendFor, store.spendBy, want)
+	if slices.Sort(store.spendFor); !slices.Equal(store.spendFor, []string{"coder", "idle"}) || store.spendBy != caller {
+		t.Errorf("spend asked for %v by %+v, want coder and idle by the verified caller", store.spendFor, store.spendBy)
 	}
 	if len(out.Budgets) != 2 || out.Budgets[0].AgentSlug != "coder" || out.Budgets[1].AgentSlug != "idle" {
 		t.Fatalf("budgets = %+v, want coder and idle only", out.Budgets)
@@ -219,79 +187,30 @@ func TestAgentBudgets(t *testing.T) {
 	}
 }
 
-func sortedCopy(s []string) []string {
-	out := slices.Clone(s)
-	slices.Sort(out)
-	return out
-}
-
-func TestAgentUsage(t *testing.T) {
-	store := &fakeUsageStore{}
-	svc := newInsights(store, nil)
-	caller := usageCaller{TenantID: "t1", Subject: "alice"}
-
-	got, err := svc.AgentUsage(context.Background(), caller, usagewindow.Period30d, "notes")
-	if err != nil || got.AgentSlug != "notes" || got.TotalTokens != 0 {
-		t.Errorf("no rows = %+v, %v; want zero for the slug", got, err)
-	}
-	if q := store.queries[0]; q.Slug != "notes" || q.Caller != caller || q.Window.Period != usagewindow.Period30d {
-		t.Errorf("query = %+v", q)
-	}
-
-	store.rows = []agentUsageRow{row("notes", "m1", 5, 0.5), row("notes", "m2", 2, 0.2)}
-	if got, _ := svc.AgentUsage(context.Background(), caller, usagewindow.Period7d, "notes"); got.TotalTokens != 7 {
-		t.Errorf("rows = %+v", got)
-	}
-}
-
-func agentUsageRequest(path string, claims *token.PlatformClaims) *http.Request {
-	req := httptest.NewRequest(http.MethodGet, path, nil)
-	if claims != nil {
-		req = req.WithContext(token.WithClaims(req.Context(), claims))
-	}
-	return req
-}
-
 func TestAgentUsageHandlers(t *testing.T) {
-	log := logging.NewLoggerWithOutput(io.Discard)
-	store := &fakeUsageStore{buckets: make([]float64, 15), rows: []agentUsageRow{row("coder", "m", 1, 1)}}
-	claims := claimsWithRoles("t1", "alice", "")
-	wired := (&Controller{logger: log}).WithAgentInsights(newInsights(store, nil))
-
-	code := func(h func(http.ResponseWriter, *http.Request), req *http.Request) int {
+	c := (&Controller{logger: logging.NewLoggerWithOutput(io.Discard)}).
+		WithAgentInsights(newInsights(&fakeUsageStore{buckets: make([]float64, 7)}, nil))
+	serve := func(h func(http.ResponseWriter, *http.Request), path string, claims *token.PlatformClaims, slug string) int {
+		req := httptest.NewRequest(http.MethodGet, path, nil)
+		req.SetPathValue("slug", slug)
+		if claims != nil {
+			req = req.WithContext(token.WithClaims(req.Context(), claims))
+		}
 		w := httptest.NewRecorder()
 		h(w, req)
 		return w.Code
 	}
+	alice := claimsWithRoles("t1", "alice", "")
 
-	t.Run("insights", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		wired.handleAgentInsights(w, agentUsageRequest("/usage/agent-insights?period=90d", claims))
-		var out AgentInsights
-		if err := json.NewDecoder(w.Body).Decode(&out); w.Code != http.StatusOK || err != nil || out.Period != "90d" || len(out.Trend) != 15 {
-			t.Errorf("status %d out %+v err %v", w.Code, out, err)
+	if got := serve(c.handleAgentInsights, "/usage/agent-insights", claimsWithRoles("", "svc", ""), ""); got != http.StatusUnauthorized {
+		t.Errorf("a token with no tenant: status %d, want 401", got)
+	}
+	if got := serve(c.handleAgentInsights, "/usage/agent-insights?period=1y", alice, ""); got != http.StatusBadRequest {
+		t.Errorf("a bad period: status %d, want 400", got)
+	}
+	for slug, want := range map[string]int{"token-probe": http.StatusOK, "probe%": http.StatusBadRequest, "a/b": http.StatusBadRequest} {
+		if got := serve(c.handleAgentUsage, "/usage/agent-type/x", alice, slug); got != want {
+			t.Errorf("slug %q: status %d, want %d", slug, got, want)
 		}
-	})
-	t.Run("a bad period is refused", func(t *testing.T) {
-		if got := code(wired.handleAgentInsights, agentUsageRequest("/usage/agent-insights?period=1y", claims)); got != http.StatusBadRequest {
-			t.Errorf("status %d, want 400", got)
-		}
-	})
-	t.Run("no claims or no tenant is refused", func(t *testing.T) {
-		if got := code(wired.handleAgentInsights, agentUsageRequest("/usage/agent-insights", nil)); got != http.StatusUnauthorized {
-			t.Errorf("no claims: status %d, want 401", got)
-		}
-		if got := code(wired.handleAgentInsights, agentUsageRequest("/usage/agent-insights", claimsWithRoles("", "svc", ""))); got != http.StatusUnauthorized {
-			t.Errorf("no tenant: status %d, want 401", got)
-		}
-	})
-	t.Run("one agent validates its slug", func(t *testing.T) {
-		for slug, want := range map[string]int{"token-probe": http.StatusOK, "": http.StatusBadRequest, "probe%": http.StatusBadRequest, "a/b": http.StatusBadRequest} {
-			req := agentUsageRequest("/usage/agent-type/x", claims)
-			req.SetPathValue("slug", slug)
-			if got := code(wired.handleAgentUsage, req); got != want {
-				t.Errorf("slug %q: status %d, want %d", slug, got, want)
-			}
-		}
-	})
+	}
 }

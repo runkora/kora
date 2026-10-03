@@ -1,98 +1,36 @@
 import type { AgentBudgetStatus, AgentInsightsResponse, AgentTypeUsage } from '@orbit/shared/api';
 import type { RunRow } from '../_types';
-import type { AgentsInsights, BudgetRow, Period, PeriodData, TenantBudget } from '../_lib/spend';
-import { RUN_ROWS, SCALE_AGENT_ROWS, SCALE_RUN_ROWS, SCALE_USAGE, USAGE } from './agents-mock-data';
+import { toBudgetRows, toPeriodData, toTenantBudget } from '../_lib/insights';
+import type { AgentsInsights, Period } from '../_lib/spend';
+import {
+  AGENT_ROWS,
+  RUN_ROWS,
+  SCALE_AGENT_ROWS,
+  SCALE_RUN_ROWS,
+  SCALE_USAGE,
+  USAGE,
+} from './agents-mock-data';
 
-// Mock data for the parts of the Agents page the platform does not serve yet:
-// per-period usage, a model split, spend over time, and budgets in a story. The
-// figures are the 7-day mock usage scaled to each window, and each window's
-// points match the buckets the gateway cuts: 3-hourly, daily, 3-daily, 6-daily.
+// Mock insights for the Agents page stories. The figures are the 7-day mock usage
+// scaled to each window, shaped as the BFF response and read through the page's
+// own mapping, so a story exercises the same code the live page does.
 
-interface PeriodShape {
-  /** Multiplier applied to the 7-day mock figures. */
-  factor: number;
-  labels: string[];
-  /** Share of the window's spend in each point, summing to 1. */
-  weights: number[];
-}
-
-const SHAPES: Record<Period, PeriodShape> = {
-  '24h': {
-    factor: 0.16,
-    labels: ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'],
-    weights: [0.04, 0.03, 0.05, 0.14, 0.22, 0.2, 0.2, 0.12],
-  },
-  '7d': {
-    factor: 1,
-    labels: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
-    weights: [0.09, 0.12, 0.15, 0.18, 0.14, 0.17, 0.15],
-  },
-  '30d': {
-    factor: 4.1,
-    labels: [
-      'Sep 3',
-      'Sep 6',
-      'Sep 9',
-      'Sep 12',
-      'Sep 15',
-      'Sep 18',
-      'Sep 21',
-      'Sep 24',
-      'Sep 27',
-      'Sep 30',
-    ],
-    weights: [0.07, 0.09, 0.1, 0.12, 0.09, 0.11, 0.1, 0.11, 0.1, 0.11],
-  },
-  '90d': {
-    factor: 12.4,
-    labels: [
-      'Jul 6',
-      'Jul 12',
-      'Jul 18',
-      'Jul 24',
-      'Jul 30',
-      'Aug 5',
-      'Aug 11',
-      'Aug 17',
-      'Aug 23',
-      'Aug 29',
-      'Sep 4',
-      'Sep 10',
-      'Sep 16',
-      'Sep 22',
-      'Sep 28',
-    ],
-    weights: [
-      0.04, 0.05, 0.05, 0.06, 0.06, 0.07, 0.07, 0.07, 0.08, 0.08, 0.08, 0.08, 0.07, 0.07, 0.07,
-    ],
-  },
+/** Scale applied to the 7-day figures, and the bucket width and count each window charts. */
+const SHAPES: Record<Period, { factor: number; bucketHours: number; buckets: number }> = {
+  '24h': { factor: 0.16, bucketHours: 3, buckets: 8 },
+  '7d': { factor: 1, bucketHours: 24, buckets: 7 },
+  '30d': { factor: 4.1, bucketHours: 72, buckets: 10 },
+  '90d': { factor: 12.4, bucketHours: 144, buckets: 15 },
 };
 
-const MODEL_SHARES = [
-  { name: 'claude-sonnet-4-5', share: 0.555 },
-  { name: 'claude-opus-4-1', share: 0.298 },
-  { name: 'claude-haiku-4-5', share: 0.103 },
-  { name: 'gpt-5', share: 0.044 },
+const MODEL_SHARES: [string, number][] = [
+  ['claude-sonnet-4-5', 0.555],
+  ['claude-opus-4-1', 0.298],
+  ['claude-haiku-4-5', 0.103],
+  ['gpt-5', 0.044],
 ];
 
-function scaleUsage(usage: AgentTypeUsage[], factor: number): Record<string, AgentTypeUsage> {
-  return Object.fromEntries(
-    usage.map((u) => [
-      u.agent_slug,
-      {
-        ...u,
-        prompt_tokens: Math.round(u.prompt_tokens * factor),
-        completion_tokens: Math.round(u.completion_tokens * factor),
-        cache_read_tokens: Math.round(u.cache_read_tokens * factor),
-        cache_creation_tokens: Math.round(u.cache_creation_tokens * factor),
-        total_tokens: Math.round(u.total_tokens * factor),
-        estimated_cost_usd: u.estimated_cost_usd * factor,
-      },
-    ]),
-  );
-}
-
-/** Spend of an agent that was deleted since, which is in every total and listed as "Deleted agents". */
+/** Spend of an agent that was deleted since: it is in every total and listed as "Deleted agents". */
 const RETIRED_USAGE: AgentTypeUsage = {
   agent_slug: 'retired-agent',
   prompt_tokens: 120_000,
@@ -103,129 +41,106 @@ const RETIRED_USAGE: AgentTypeUsage = {
   estimated_cost_usd: 6.5,
 };
 
-/** Build the per-period figures for a set of usage rows. */
-export function periodData(
-  usage: AgentTypeUsage[],
-  runs: RunRow[] = RUN_ROWS,
-): Record<Period, PeriodData> {
-  const completed = runs.filter((r) => r.state === 'completed').length;
-  const failed = runs.filter((r) => r.state === 'failed').length;
-
-  const build = (period: Period): PeriodData => {
-    const { factor, labels, weights } = SHAPES[period];
-    // The window also holds spend of an agent that has since been deleted.
-    const scaled = scaleUsage([...usage, RETIRED_USAGE], factor);
-    const total = Object.values(scaled).reduce((n, u) => n + u.estimated_cost_usd, 0);
-    return {
-      usage: scaled,
-      total,
-      delegatedOwnOnly: false,
-      outcomes: { completed: Math.round(completed * factor), failed: Math.round(failed * factor) },
-      models: MODEL_SHARES.map((m) => ({ name: m.name, cost: m.share * total })),
-      trend: { labels, values: weights.map((w) => w * total) },
-      previousTotal: total / 1.18,
-    };
-  };
-
-  return { '24h': build('24h'), '7d': build('7d'), '30d': build('30d'), '90d': build('90d') };
-}
-
-const monthly = (limit: number, spent: number) => ({
-  cadence: 'monthly' as const,
-  limit,
-  spent,
-  resetsAt: '2026-11-01T00:00:00Z',
-});
-const weekly = (limit: number, spent: number) => ({
-  cadence: 'weekly' as const,
-  limit,
-  spent,
-  resetsAt: '2026-10-05T00:00:00Z',
+const window = (cadence: 'weekly' | 'monthly', limit_usd: number, spend_usd: number) => ({
+  cadence,
+  limit_usd,
+  spend_usd,
+  resets_at: cadence === 'weekly' ? '2026-10-05T00:00:00Z' : '2026-11-01T00:00:00Z',
 });
 
-export const BUDGETS: BudgetRow[] = [
-  { name: 'Code Reviewer', windows: [monthly(150, 88.4)] },
-  { name: 'Coder', windows: [monthly(300, 258.2)], perRunLimit: 12 },
-  { name: 'Security Reviewer', windows: [monthly(100, 49)] },
-  { name: 'Triage Bot', windows: [weekly(25, 12), monthly(80, 30)] },
+export const BUDGETS: AgentBudgetStatus[] = [
+  { agent_slug: 'code-reviewer', windows: [window('monthly', 150, 88.4)] },
+  { agent_slug: 'coder', per_run_limit_usd: 12, windows: [window('monthly', 300, 258.2)] },
+  { agent_slug: 'security-reviewer', windows: [window('monthly', 100, 49)] },
+  { agent_slug: 'triage-bot', windows: [window('weekly', 25, 12), window('monthly', 80, 30)] },
   // A limit and no spend: the bar is empty, not missing.
-  { name: 'Incident Scribe', windows: [monthly(40, 0)] },
+  { agent_slug: 'incident-scribe', windows: [window('monthly', 40, 0)] },
 ];
 
-export const TENANT_BUDGET: TenantBudget = { limit: 1000, spent: 412.5, daysLeft: 19 };
-
-/** Every optional view switched on. */
-export const INSIGHTS: AgentsInsights = {
-  byPeriod: periodData(USAGE),
-  budgets: BUDGETS,
-  tenantBudget: TENANT_BUDGET,
+const TENANT_CAP = {
+  limit_usd: 1000,
+  reset_cadence: 'monthly',
+  spend_usd: 412.5,
+  resets_at: '2026-11-01T00:00:00Z',
 };
 
-const BUCKET_SECONDS: Record<Period, number> = {
-  '24h': 3 * 3600,
-  '7d': 86400,
-  '30d': 3 * 86400,
-  '90d': 6 * 86400,
-};
-
-const slugOf = (name: string): string => name.toLowerCase().replace(/\s+/g, '-');
-
-const toStatus = (b: BudgetRow): AgentBudgetStatus => ({
-  agent_slug: slugOf(b.name),
-  ...(b.perRunLimit ? { per_run_limit_usd: b.perRunLimit } : {}),
-  windows: b.windows.map((w) => ({
-    cadence: w.cadence,
-    limit_usd: w.limit,
-    spend_usd: w.spent,
-    resets_at: w.resetsAt,
-  })),
-});
-
-/** The BFF response behind `INSIGHTS`, for stories that load the page from mocked routes. */
+/** The BFF response for one window of a workspace's usage. */
 export function mockInsightsResponse(
   period: Period,
-  source: AgentsInsights = INSIGHTS,
+  usage: AgentTypeUsage[] = USAGE,
+  runs: RunRow[] = RUN_ROWS,
+  budgets: AgentBudgetStatus[] = BUDGETS,
 ): AgentInsightsResponse {
-  const data = source.byPeriod?.[period];
-  if (!data?.trend) throw new Error(`no mock insights for ${period}`);
-  const bucket = BUCKET_SECONDS[period] * 1000;
-  const start = Date.UTC(2026, 9, 4) - bucket * data.trend.values.length;
+  const { factor, bucketHours, buckets } = SHAPES[period];
+  const scaled = [...usage, RETIRED_USAGE].map((u) => ({
+    ...u,
+    prompt_tokens: Math.round(u.prompt_tokens * factor),
+    completion_tokens: Math.round(u.completion_tokens * factor),
+    cache_read_tokens: Math.round(u.cache_read_tokens * factor),
+    cache_creation_tokens: Math.round(u.cache_creation_tokens * factor),
+    total_tokens: Math.round(u.total_tokens * factor),
+    estimated_cost_usd: u.estimated_cost_usd * factor,
+  }));
+  const total = scaled.reduce((n, u) => n + u.estimated_cost_usd, 0);
+  // A gentle wave, normalised so the points add up to the window's spend.
+  const wave = Array.from({ length: buckets }, (_, i) => 1 + 0.4 * Math.sin(i * 0.9));
+  const waveSum = wave.reduce((n, w) => n + w, 0);
+  const start = Date.UTC(2026, 9, 4) - buckets * bucketHours * 3_600_000;
+  const done = (state: string) => runs.filter((r) => r.state === state).length;
   return {
     period,
-    usage: Object.values(data.usage),
-    total_cost_usd: data.total,
-    previous_total_usd: data.previousTotal ?? 0,
-    models: (data.models ?? []).map((m) => ({ model_id: m.name, cost_usd: m.cost })),
-    trend: data.trend.values.map((cost_usd, i) => ({
-      start: new Date(start + i * bucket).toISOString(),
-      cost_usd,
+    usage: scaled,
+    total_cost_usd: total,
+    previous_total_usd: total / 1.18,
+    models: MODEL_SHARES.map(([model_id, share]) => ({ model_id, cost_usd: share * total })),
+    trend: wave.map((w, i) => ({
+      start: new Date(start + i * bucketHours * 3_600_000).toISOString(),
+      cost_usd: (w / waveSum) * total,
     })),
-    all_delegated_usage: !data.delegatedOwnOnly,
-    budgets: (source.budgets ?? []).map(toStatus),
-    ...(data.outcomes ? { outcomes: data.outcomes } : {}),
-    ...(source.tenantBudget
-      ? {
-          tenant_cap: {
-            limit_usd: source.tenantBudget.limit,
-            reset_cadence: 'monthly',
-            spend_usd: source.tenantBudget.spent,
-            resets_at: '2026-11-01T00:00:00Z',
-          },
-        }
-      : {}),
+    all_delegated_usage: true,
+    budgets,
+    outcomes: {
+      completed: Math.round(done('completed') * factor),
+      failed: Math.round(done('failed') * factor),
+    },
+    tenant_cap: TENANT_CAP,
   };
 }
 
-/** The insights of the 150-agent workspace: spend across every agent and a budget on most. */
-export const SCALE_INSIGHTS: AgentsInsights = {
-  byPeriod: periodData(SCALE_USAGE, SCALE_RUN_ROWS),
-  budgets: SCALE_AGENT_ROWS.flatMap((a, i): BudgetRow[] => {
-    // Every third agent has no limit and so no row.
-    if (i % 3 === 0) return [];
-    const spent = SCALE_USAGE[i]?.estimated_cost_usd ?? 0;
-    return [
-      { name: a.name, windows: [monthly(Math.max(spent * (1 + ((i * 37) % 100) / 60), 1), spent)] },
-    ];
-  }),
-  tenantBudget: TENANT_BUDGET,
-};
+const PERIODS = Object.keys(SHAPES) as Period[];
+
+/** The page's optional parts, built from the responses of every window. */
+function insightsOf(
+  agents: typeof AGENT_ROWS,
+  respond: (period: Period) => AgentInsightsResponse,
+): AgentsInsights {
+  const first = respond('7d');
+  return {
+    byPeriod: Object.fromEntries(PERIODS.map((p) => [p, toPeriodData(p, respond(p))])),
+    budgets: toBudgetRows(first.budgets ?? [], agents),
+    tenantBudget: toTenantBudget(first.tenant_cap, new Date('2026-10-03T14:00:00Z')),
+  };
+}
+
+/** Every optional view switched on. */
+export const INSIGHTS = insightsOf(AGENT_ROWS, (p) => mockInsightsResponse(p));
+
+/** The 150-agent workspace: spend across every agent and a budget on two in three. */
+export const SCALE_INSIGHTS = insightsOf(SCALE_AGENT_ROWS, (p) =>
+  mockInsightsResponse(
+    p,
+    SCALE_USAGE,
+    SCALE_RUN_ROWS,
+    SCALE_AGENT_ROWS.flatMap((a, i): AgentBudgetStatus[] => {
+      const spend = SCALE_USAGE[i]?.estimated_cost_usd ?? 0;
+      return i % 3 === 0
+        ? []
+        : [
+            {
+              agent_slug: a.slug,
+              windows: [window('monthly', Math.max(spend * (1 + ((i * 37) % 100) / 60), 1), spend)],
+            },
+          ];
+    }),
+  ),
+);

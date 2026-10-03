@@ -50,11 +50,7 @@ type mockRepository struct {
 	listRunEventsErr       error
 	appendRunMessageErr    error
 
-	outcomes     RunOutcomes
-	outcomesErr  error
-	outcomesVis  RunVisibility
-	outcomesFrom time.Time
-	outcomesTo   time.Time
+	outcomesVis RunVisibility
 }
 
 func newMockRepository() *mockRepository {
@@ -226,10 +222,10 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 	return r.IdentityMode.OrDefault()
 }
 
-// CountRunOutcomes returns the outcomes the test set up and records the window it was asked for.
-func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVisibility, from, to time.Time) (RunOutcomes, error) {
-	m.outcomesVis, m.outcomesFrom, m.outcomesTo = vis, from, to
-	return m.outcomes, m.outcomesErr
+// CountRunOutcomes records the visibility it was asked under.
+func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVisibility, _, _ time.Time) (RunOutcomes, error) {
+	m.outcomesVis = vis
+	return RunOutcomes{}, nil
 }
 
 func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
