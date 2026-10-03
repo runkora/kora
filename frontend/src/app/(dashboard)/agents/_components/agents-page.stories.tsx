@@ -59,7 +59,7 @@ export const Default: Story = {
   },
 };
 
-/** The insights routes fail: no period control, and the figures that need them say they are unavailable. */
+/** The insights routes fail: the figures that need them say they are unavailable. */
 export const WithoutInsights: Story = {
   decorators: withRoutes(listRoutes()),
   args: { initialAgentTypes: AGENT_ROWS, initialRuns: RUN_ROWS, initialError: null },

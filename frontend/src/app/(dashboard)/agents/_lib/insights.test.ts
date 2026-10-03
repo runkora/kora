@@ -57,7 +57,8 @@ describe('toPeriodData', () => {
   });
 
   it('leaves outcomes out when the BFF could not count runs', () => {
-    const { outcomes: _omitted, ...withoutOutcomes } = RESPONSE;
+    const withoutOutcomes: AgentInsightsResponse = { ...RESPONSE };
+    delete withoutOutcomes.outcomes;
     expect('outcomes' in toPeriodData('7d', withoutOutcomes)).toBe(false);
   });
 });

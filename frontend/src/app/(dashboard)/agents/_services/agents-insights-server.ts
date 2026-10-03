@@ -21,7 +21,7 @@ const DEFAULT_PERIOD: Period = '7d';
 /** Reads a `period` query value. Absent means the default window; anything else unknown is null. */
 export function parsePeriod(raw: string | null): Period | null {
   if (raw === null || raw === '') return DEFAULT_PERIOD;
-  return raw in PERIOD_TEXT ? (raw as Period) : null;
+  return Object.hasOwn(PERIOD_TEXT, raw) ? (raw as Period) : null;
 }
 
 async function gatewayGet<T>(path: string, accessToken: string): Promise<Result<T>> {

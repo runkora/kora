@@ -61,11 +61,12 @@ describe('Agents page insights', () => {
     await waitFor(() => expect(requested).toEqual(['7d', '30d', '90d']));
   });
 
-  it('says spend is unavailable when the window cannot be loaded, and offers no period control', async () => {
+  it('says spend is unavailable when the window cannot be loaded, and keeps the period control', async () => {
     serve({ failPeriod: '7d' });
     renderPage();
 
     expect(await screen.findByText('Spend is unavailable right now.')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '30d' })).not.toBeInTheDocument();
+    // The control stays so another period can be tried.
+    expect(screen.getByRole('button', { name: '30d' })).toBeInTheDocument();
   });
 });

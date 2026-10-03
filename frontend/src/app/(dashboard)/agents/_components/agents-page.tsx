@@ -295,7 +295,7 @@ export function AgentsPage({ insights }: AgentsPageProps) {
           </Text>
         </Stack>
         <Stack direction="horizontal" gap="snug" align="center">
-          {data?.byPeriod && (
+          {(insights ? insights.byPeriod : true) && (
             <SegmentedControl
               aria-label="Period"
               value={period}
