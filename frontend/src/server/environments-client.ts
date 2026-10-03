@@ -1,7 +1,12 @@
 import 'server-only';
 import { config } from '@orbit/server/config';
 import { ApiError } from './client';
-import type { Environment, EnvironmentRequest, SandboxImage } from '@orbit/shared/api';
+import type {
+  Environment,
+  EnvironmentRequest,
+  EnvironmentSizes,
+  SandboxImage,
+} from '@orbit/shared/api';
 
 // ---------------------------------------------------------------------------
 // Core fetch helper
@@ -92,4 +97,9 @@ export async function listSandboxImages(accessToken: string): Promise<SandboxIma
     accessToken,
   );
   return body?.sandbox_images ?? [];
+}
+
+/** Reads the platform's default and maximum environment sizes. */
+export async function getEnvironmentSizes(accessToken: string): Promise<EnvironmentSizes | null> {
+  return (await request<EnvironmentSizes>('/api/v1/environment-sizes', accessToken)) ?? null;
 }

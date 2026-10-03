@@ -19,10 +19,10 @@ import {
 } from '@orbit/terra';
 import type { DataTableColumn } from '@orbit/terra';
 import { ClampedList } from '@orbit/components';
-import type { ConnectionCatalogEntry, SandboxImage } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentFormModal } from './environment-form-modal';
-import { imageLabel, imageProblem, sizeLabel } from '@orbit/lib/environments';
+import { imageName, imageProblem, sizeLabel } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentsPageProps {
@@ -30,6 +30,8 @@ interface EnvironmentsPageProps {
   connections: ConnectionCatalogEntry[];
   /** Registered sandbox images, or null when the list did not load. */
   images: SandboxImage[] | null;
+  /** The platform's default and maximum sizes, or null when they did not load. */
+  sizes: EnvironmentSizes | null;
   error: string | null;
 }
 
@@ -40,7 +42,7 @@ function environmentMatchesSearch(row: EnvironmentRow, q: string): boolean {
   return (
     row.name.toLowerCase().includes(lower) ||
     row.description.toLowerCase().includes(lower) ||
-    imageLabel(row.sandboxImage).toLowerCase().includes(lower) ||
+    imageName(row.sandboxImage).toLowerCase().includes(lower) ||
     row.egressHosts.some((h) => h.toLowerCase().includes(lower)) ||
     row.connectors.some((c) => c.connection.toLowerCase().includes(lower))
   );
@@ -48,7 +50,13 @@ function environmentMatchesSearch(row: EnvironmentRow, q: string): boolean {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function EnvironmentsPage({ rows, connections, images, error }: EnvironmentsPageProps) {
+export function EnvironmentsPage({
+  rows,
+  connections,
+  images,
+  sizes,
+  error,
+}: EnvironmentsPageProps) {
   const router = useRouter();
 
   // null = closed; { environment: null } = create; { environment: row } = edit.
@@ -101,13 +109,13 @@ export function EnvironmentsPage({ rows, connections, images, error }: Environme
         minWidth: '10rem',
         locked: true,
         sortable: true,
-        sortAccessor: (row) => imageLabel(row.sandboxImage),
+        sortAccessor: (row) => imageName(row.sandboxImage),
         cell: (row) => {
           const problem = imageProblem(row.sandboxImage, images);
           return (
             <Stack gap="none">
-              <Text size="supporting" mono={row.sandboxImage !== ''}>
-                {imageLabel(row.sandboxImage)}
+              <Text size="supporting" mono>
+                {imageName(row.sandboxImage)}
               </Text>
               {problem && (
                 <Text size="caption" color="status-error">
@@ -286,6 +294,7 @@ export function EnvironmentsPage({ rows, connections, images, error }: Environme
           environment={formState.environment}
           connections={connections}
           images={images}
+          sizes={sizes}
           onClose={() => setFormState(null)}
           onSaved={() => {
             setFormState(null);

@@ -616,7 +616,7 @@ export const ENVIRONMENTS: Environment[] = [
     tenant_id: TENANT,
     name: 'Node apps',
     description: 'Node and pnpm for the dashboard.',
-    sandbox_image: '',
+    sandbox_image: 'kora-base',
     size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
     egress_hosts: ['registry.npmjs.org'],
     connectors: [],

@@ -1,10 +1,14 @@
 import 'server-only';
 
-import { listEnvironments, listSandboxImages } from '@orbit/server/environments-client';
+import {
+  getEnvironmentSizes,
+  listEnvironments,
+  listSandboxImages,
+} from '@orbit/server/environments-client';
 import { listConnections } from '@orbit/server/connections-client';
 import { toEnvironmentRow } from '../_types';
 import type { EnvironmentRow } from '../_types';
-import type { ConnectionCatalogEntry, SandboxImage } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 
 export type EnvironmentsResult =
   | {
@@ -13,22 +17,25 @@ export type EnvironmentsResult =
       connections: ConnectionCatalogEntry[];
       /** Registered sandbox images, or null when the list did not load. */
       images: SandboxImage[] | null;
+      /** The platform's default and maximum sizes, or null when they did not load. */
+      sizes: EnvironmentSizes | null;
     }
   | { ok: false; message: string };
 
 /**
- * Loads the tenant's environments, the connection catalog and the registered
- * sandbox images from orbit-agents. Only a failure to load environments fails
- * the page; the form works without the other two.
+ * Loads the tenant's environments, the connection catalog, the registered
+ * sandbox images and the platform's size limits from orbit-agents. Only a
+ * failure to load environments fails the page; the form works without the rest.
  */
 export async function fetchEnvironments(accessToken: string): Promise<EnvironmentsResult> {
   try {
-    const [environments, connections, images] = await Promise.all([
+    const [environments, connections, images, sizes] = await Promise.all([
       listEnvironments(accessToken),
       loadCatalog(accessToken),
       listSandboxImages(accessToken).catch(() => null),
+      getEnvironmentSizes(accessToken).catch(() => null),
     ]);
-    return { ok: true, rows: environments.map(toEnvironmentRow), connections, images };
+    return { ok: true, rows: environments.map(toEnvironmentRow), connections, images, sizes };
   } catch {
     return { ok: false, message: 'Failed to load environments' };
   }

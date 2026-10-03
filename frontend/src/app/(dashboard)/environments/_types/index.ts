@@ -11,7 +11,7 @@ export interface EnvironmentRow {
   id: string;
   name: string;
   description: string;
-  /** SandboxImage name, or "" for the kora base image. */
+  /** SandboxImage name. Environments stored before images existed have "" and run kora-base. */
   sandboxImage: string;
   size: EnvironmentSize;
   egressHosts: string[];

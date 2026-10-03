@@ -26,6 +26,7 @@ import type {
   Connector,
   EffectiveAccess,
   EnvironmentSize,
+  EnvironmentSizes,
   SandboxImage,
 } from '@orbit/shared/api';
 import { ConnectionCards, EffectiveAccessPanel } from '@orbit/components';
@@ -35,7 +36,7 @@ import {
   updateEnvironment,
 } from '../_services/environments-api';
 import { EgressHostsEditor } from './egress-hosts-editor';
-import { BASE_IMAGE_LABEL, BASE_IMAGE_NAME, imageProblem } from '@orbit/lib/environments';
+import { imageName, imageProblem, sizeProblems } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentFormModalProps {
@@ -45,6 +46,8 @@ interface EnvironmentFormModalProps {
   connections: ConnectionCatalogEntry[];
   /** Registered sandbox images, or null when the list did not load. */
   images: SandboxImage[] | null;
+  /** The platform's default and maximum sizes, or null when they did not load. */
+  sizes: EnvironmentSizes | null;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -62,6 +65,7 @@ export function EnvironmentFormModal({
   environment,
   connections,
   images,
+  sizes,
   onClose,
   onSaved,
 }: EnvironmentFormModalProps) {
@@ -69,10 +73,11 @@ export function EnvironmentFormModal({
 
   const [name, setName] = useState(environment?.name ?? '');
   const [description, setDescription] = useState(environment?.description ?? '');
-  const [sandboxImage, setSandboxImage] = useState(
-    environment?.sandboxImage === BASE_IMAGE_NAME ? '' : (environment?.sandboxImage ?? ''),
+  const [sandboxImage, setSandboxImage] = useState(imageName(environment?.sandboxImage ?? ''));
+  // A new environment starts at the platform default size.
+  const [size, setSize] = useState<EnvironmentSize>(
+    environment?.size ?? sizes?.default ?? EMPTY_SIZE,
   );
-  const [size, setSize] = useState<EnvironmentSize>(environment?.size ?? EMPTY_SIZE);
   const [egressHosts, setEgressHosts] = useState<string[]>(environment?.egressHosts ?? []);
   const [connectors, setConnectors] = useState<Connector[]>(environment?.connectors ?? []);
   const [submitting, setSubmitting] = useState(false);
@@ -100,6 +105,7 @@ export function EnvironmentFormModal({
       setSubmitError('Name is required.');
       return;
     }
+    if (Object.keys(sizeProblems(size, sizes)).length > 0) return;
     setSubmitting(true);
     setSubmitError(null);
     const payload = {
@@ -124,6 +130,7 @@ export function EnvironmentFormModal({
     description,
     sandboxImage,
     size,
+    sizes,
     egressHosts,
     connectors,
     isEdit,
@@ -131,10 +138,11 @@ export function EnvironmentFormModal({
     onSaved,
   ]);
 
-  // The base image is the empty choice, so its own registration is not listed.
-  const choices = (images ?? []).filter((i) => i.name !== BASE_IMAGE_NAME);
+  const choices = images ?? [];
   const selected = choices.find((i) => i.name === sandboxImage);
   const problem = imageProblem(sandboxImage, images);
+  const problems = sizeProblems(size, sizes);
+  const blocked = problem !== null || Object.keys(problems).length > 0;
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
@@ -173,10 +181,8 @@ export function EnvironmentFormModal({
             label="Sandbox image"
             hint={
               images === null
-                ? 'Could not load the registered images. The kora base image is still available.'
-                : sandboxImage === ''
-                  ? 'General command-line tools, Go and Python.'
-                  : selected?.description || undefined
+                ? 'Could not load the registered images.'
+                : selected?.description || undefined
             }
             error={problem ?? undefined}
           >
@@ -185,13 +191,12 @@ export function EnvironmentFormModal({
               value={sandboxImage}
               onChange={(e) => setSandboxImage(e.target.value)}
             >
-              <option value="">{BASE_IMAGE_LABEL}</option>
               {choices.map((image) => (
                 <option key={image.name} value={image.name} disabled={!image.valid}>
                   {image.valid ? image.name : `${image.name} (not valid)`}
                 </option>
               ))}
-              {sandboxImage !== '' && !selected && (
+              {!selected && (
                 <option value={sandboxImage} disabled={images !== null}>
                   {images === null ? sandboxImage : `${sandboxImage} (not registered)`}
                 </option>
@@ -203,7 +208,13 @@ export function EnvironmentFormModal({
             <Eyebrow>Size</Eyebrow>
             <Grid cols={{ base: 1, sm: 3 }} gap="cozy">
               {SIZE_FIELDS.map((field) => (
-                <FormField key={field.key} id={`environment-${field.key}`} label={field.label}>
+                <FormField
+                  key={field.key}
+                  id={`environment-${field.key}`}
+                  label={field.label}
+                  hint={sizes ? `Maximum ${sizes.max[field.key]}` : undefined}
+                  error={problems[field.key]}
+                >
                   <Input
                     id={`environment-${field.key}`}
                     value={size[field.key]}
@@ -214,7 +225,9 @@ export function EnvironmentFormModal({
               ))}
             </Grid>
             <Text size="caption" color="muted">
-              Leave a field empty for the platform default. The platform sets a maximum for each.
+              {sizes
+                ? 'Leave a field empty for the platform default.'
+                : 'Could not load the size limits. They are checked when you save.'}
             </Text>
           </Stack>
 
@@ -245,7 +258,7 @@ export function EnvironmentFormModal({
         <Button
           size="sm"
           onClick={() => void handleSubmit()}
-          disabled={submitting || !name.trim() || (sandboxImage !== '' && problem !== null)}
+          disabled={submitting || !name.trim() || blocked}
         >
           {submitting
             ? isEdit

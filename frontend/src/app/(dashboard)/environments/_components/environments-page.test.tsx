@@ -47,16 +47,20 @@ const IMAGES = [
 
 describe('EnvironmentsPage', () => {
   it('shows each image, its validity and the size', () => {
-    render(<EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} error={null} />);
+    render(
+      <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
+    );
     expect(screen.getByText('acme-go')).toBeInTheDocument();
-    expect(screen.getByText('kora base image')).toBeInTheDocument();
+    expect(screen.getByText('kora-base')).toBeInTheDocument();
     expect(screen.getByText('runs as root')).toBeInTheDocument();
     expect(screen.getAllByText('2 CPU · 4Gi memory · 10Gi disk')).toHaveLength(3);
   });
 
   it('explains why an attached environment cannot be deleted', async () => {
     deleteEnvironment.mockResolvedValue({ error: IN_USE });
-    render(<EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} error={null} />);
+    render(
+      <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
+    );
     fireEvent.click(screen.getByLabelText('Delete Go services'));
     const dialog = within(screen.getByRole('dialog'));
     fireEvent.click(dialog.getByRole('button', { name: 'Delete environment' }));
@@ -67,7 +71,9 @@ describe('EnvironmentsPage', () => {
 
   it('refreshes after deleting an unattached environment', async () => {
     deleteEnvironment.mockResolvedValue({ error: null });
-    render(<EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} error={null} />);
+    render(
+      <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
+    );
     fireEvent.click(screen.getByLabelText('Delete Plain'));
     fireEvent.click(
       within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete environment' }),

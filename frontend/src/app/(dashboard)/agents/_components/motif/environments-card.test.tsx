@@ -23,9 +23,7 @@ describe('EnvironmentsCard', () => {
     render(<EnvironmentsCard environments={ENVIRONMENTS} value={[]} onChange={vi.fn()} />);
     expect(screen.getByText(/runs on the kora base image/)).toBeInTheDocument();
     expect(screen.getByText('acme-go · 2 CPU · 4Gi memory · 10Gi disk')).toBeInTheDocument();
-    expect(
-      screen.getByText('kora base image · 2 CPU · 4Gi memory · 10Gi disk'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('kora-base · 2 CPU · 4Gi memory · 10Gi disk')).toBeInTheDocument();
   });
 
   it('attaches an environment as the default when none is attached', () => {

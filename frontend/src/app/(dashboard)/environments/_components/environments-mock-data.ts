@@ -4,6 +4,7 @@ import type {
   Connector,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
+  EnvironmentSizes,
   SandboxImage,
 } from '@orbit/shared/api';
 import { COMMON_PACKAGE_REGISTRIES } from '../_types';
@@ -57,7 +58,7 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
   {
     id: '7c1f0a52-3b9e-4d1c-8a47-2f5e61b0c9d3',
     name: 'dev-registries',
-    sandboxImage: '',
+    sandboxImage: 'kora-base',
     size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
     description: 'Public package registries needed to install dependencies.',
     egressHosts: [...COMMON_PACKAGE_REGISTRIES],
@@ -104,7 +105,7 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
   {
     id: '3f68c0d4-91ab-47e2-8d35-0c5b9e72a1f8',
     name: 'locked-down',
-    sandboxImage: '',
+    sandboxImage: 'kora-base',
     size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
     description: '',
     egressHosts: [],
@@ -124,6 +125,11 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
     updatedAt: ago(9 * DAY),
   },
 ];
+
+export const MOCK_SIZES: EnvironmentSizes = {
+  default: { cpu: '2', memory: '4Gi', disk: '10Gi' },
+  max: { cpu: '8', memory: '16Gi', disk: '50Gi' },
+};
 
 export const MOCK_IMAGES: SandboxImage[] = [
   {
@@ -167,7 +173,7 @@ export const MANY_ENVIRONMENTS: EnvironmentRow[] = [
     return {
       id: `c${n}0a1b2-0000-4000-8000-00000000${n}00`,
       name: `team-sandbox-${n}`,
-      sandboxImage: i % 2 === 0 ? 'acme-go' : '',
+      sandboxImage: i % 2 === 0 ? 'acme-go' : 'kora-base',
       size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
       description: i % 2 === 0 ? `Scratch environment for team ${n}.` : '',
       egressHosts: i % 3 === 0 ? [] : COMMON_PACKAGE_REGISTRIES.slice(0, 1 + (i % 5)),

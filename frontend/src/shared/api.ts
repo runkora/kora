@@ -300,7 +300,7 @@ export interface Environment {
   tenant_id: string;
   name: string;
   description: string;
-  /** SandboxImage name in the tenant namespace. Empty means the kora base image. */
+  /** SandboxImage name in the tenant namespace. Environments stored before images existed have "" and run kora-base. */
   sandbox_image: string;
   size: EnvironmentSize;
   /** Egress host patterns this environment grants (exact, "*", or "*.suffix"). */
@@ -318,6 +318,15 @@ export interface EnvironmentSize {
   disk: string;
 }
 
+/**
+ * The platform's default and maximum environment sizes, from
+ * GET /api/v1/environment-sizes. Mirrors Go: agents.EnvironmentSizes.
+ */
+export interface EnvironmentSizes {
+  default: EnvironmentSize;
+  max: EnvironmentSize;
+}
+
 /** Top-level response from GET /api/v1/environments. */
 export interface EnvironmentsListResponse {
   environments: Environment[];
@@ -325,8 +334,8 @@ export interface EnvironmentsListResponse {
 
 /**
  * Request body for POST/PUT /api/v1/environments. PUT is a full replace. An
- * empty size dimension takes the platform default; a size above the platform
- * maximum is rejected with a 400.
+ * empty sandbox image is stored as kora-base. An empty size dimension takes the
+ * platform default; a size above the platform maximum is rejected with a 400.
  */
 export interface EnvironmentRequest {
   name: string;
