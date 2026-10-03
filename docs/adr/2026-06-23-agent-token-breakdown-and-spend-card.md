@@ -1,7 +1,7 @@
 # Agent Token Breakdown and Spend Card
 
 **Date:** 2026-06-23  
-**Status:** Accepted (Amended 2026-09-29)  
+**Status:** Accepted (Amended 2026-10-03)  
 **Deciders:** Engineering  
 **PRD:** [agent-token-breakdown-and-spend-card](../prd/agent-token-breakdown-and-spend-card.md)
 
@@ -207,8 +207,8 @@ Option B.
 - `inference_usage` gains a nullable `agent_slug` column and the index `idx_inference_usage_agent_slug (tenant_id, agent_slug, created_at DESC) WHERE agent_slug IS NOT NULL`. The migration is additive.
 - When the gateway writes a usage row for an `AGENT` principal whose ID has the form `spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}[/sandbox/{run-id}]`, it stores `{slug}`. Every other principal stores NULL.
 - The same migration backfills existing `AGENT` rows from the exact `/agent/{slug}` path segment. SERVICE, HUMAN and PAT rows stay NULL.
-- `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant and `agent_slug = {slug}` over the last 7 days. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
-- `GET /v1/usage/agent-types` groups the same rows by `agent_slug`.
+- Superseded by Amendment 2 in part (visibility, window): `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant and `agent_slug = {slug}` over the last 7 days. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
+- Superseded by Amendment 2 (removed): `GET /v1/usage/agent-types` groups the same rows by `agent_slug`.
 - Responses carry `agent_slug` in place of `agent_type_id`. The BFF route moves to `GET /api/agents/types/usage/{slug}`, and the frontend looks usage up by slug.
 - The run tables drop the "Tokens" column and the agents list drops the runs-based token fallback. Per-run tokens stay on the run page, which reads `GET /v1/usage/run/{runID}`.
 
@@ -217,7 +217,32 @@ Option B.
 - The aggregates show real numbers for every agent, whatever the trust domain or tenant namespace, and both queries are served by the new index.
 - Identity is parsed once, at write time, from the verified principal; reads never interpret `principal_id`.
 - Usage follows the slug. An agent type deleted and recreated with the same slug within the 7-day window reports the combined usage, as both held the same SPIFFE identity.
-- Delegated runs count toward the agent's aggregate, so anyone with `agents:types:read` sees the agent's combined 7-day spend across all delegators. Per-person figures stay on the personal usage views.
+- Superseded by Amendment 2: delegated runs count toward the agent's aggregate, so anyone with `agents:types:read` sees the agent's combined 7-day spend across all delegators. Per-person figures stay on the personal usage views.
 - Rows written by a gateway binary older than the migration carry no slug until they are backfilled; the migration backfills everything present when it runs.
 - The index is built without `CONCURRENTLY`, so on a large `inference_usage` the migration blocks writes for the length of the backfill and index build. That is acceptable at current production volume; a larger install needs a concurrent build in a no-transaction migration.
 - Per-run token counts are no longer shown in run lists. Showing them again needs a batch per-run usage read from the gateway.
+
+---
+
+## Amendment 2 (2026-10-03): Agent usage reads follow agent visibility
+
+Touches **What can it access?**: a delegated agent's usage is private to the person who ran it, as its runs are ([delegated-agent-identity](2026-07-23-delegated-agent-identity.md), Decision 6). Route scope is unchanged: the read keeps `agents:types:read`.
+
+### Context
+
+Amendment 1 sums an agent's usage across the tenant. The delegated identity model makes a delegated agent's runs visible only to the person who started them, so a tenant-wide sum shows one person's delegated spend to everyone with `agents:types:read`.
+
+### Decision
+
+- `GET /v1/usage/agent-type/{slug}` returns the agent's figures for a window of 24h, 7d, 30d or 90d (`?period=`, default 7d) only if the caller may see the agent, and zeros otherwise.
+- The gateway asks orbit-agents which agents the caller may see, with the caller's own token. A delegated agent's usage counts only for rows whose delegator is the caller, or for a platform admin.
+- `GET /v1/usage/agent-types` is removed.
+- The same rule serves `GET /v1/usage/agent-insights` and `GET /v1/usage/agent-budgets`, through one implementation.
+- The visibility answer is cached for five seconds per token.
+
+### Consequences
+
+- The usage figures of a delegated agent are private to the person who ran it.
+- The 7-day window is no longer hard-coded.
+- The read costs one visibility lookup, cached for five seconds per token.
+- An agent a caller cannot see reads as an agent with no usage.

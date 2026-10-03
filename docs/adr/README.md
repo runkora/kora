@@ -112,7 +112,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Run Task Summarization](2026-06-19-run-task-summarization.md) — `Accepted` · 2026-06-19
 - [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) — `Accepted (field map, empty event_type rule and declared event types superseded 2026-09-29)` · 2026-06-20
 - [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) — `Accepted` · 2026-06-20
-- [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) — `Accepted (Amended 2026-09-29)` · 2026-06-23
+- [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) — `Accepted (Amended 2026-10-03)` · 2026-06-23
 - [Agent Builder](2026-07-17-agent-builder.md) — `Accepted` · 2026-07-17
 - [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) — `Accepted` · 2026-07-17
 - [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) — `Accepted` · 2026-07-17
@@ -248,7 +248,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Accepted | — |
 | 2026-06-20 | [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) | Accepted (field map, empty event_type rule and declared event types superseded 2026-09-29) | — |
 | 2026-06-22 | [Model Cost Visibility: Pricing on the Models Page and Virtual Models Catalog](2026-06-22-model-cost-visibility.md) | Accepted | — |
-| 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted (Amended 2026-09-29) | — |
+| 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted (Amended 2026-10-03) | — |
 | 2026-07-04 | [North-South Ingress and External Service Exposure](2026-07-04-north-south-ingress-and-external-service-exposure.md) | Accepted | — |
 | 2026-07-06 | [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) | Proposed | — |
 | 2026-07-17 | [Agent Builder](2026-07-17-agent-builder.md) | Accepted | — |

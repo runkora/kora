@@ -2,9 +2,11 @@
 
 **Status:** Approved  
 **Created:** 2026-06-23  
-**Last Updated:** 2026-06-23  
+**Last Updated:** 2026-10-03  
 **Owner:** Engineering  
 **Stakeholders:** Platform Users, Ops Teams
+
+**Update 2026-10-03:** The figures follow agent visibility: an agent the caller cannot see reads as no usage, and a delegated agent's usage counts only for the person who ran it. The window can be 24h, 7d, 30d or 90d, and the default is 7d.
 
 ---
 
