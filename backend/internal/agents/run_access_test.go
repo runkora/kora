@@ -219,7 +219,7 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 }
 
 func TestRunVisibility_FailClosedWithoutSubject(t *testing.T) {
-	// A caller with no subject sees no delegated runs — even ones whose created_by is also empty.
+	// A caller with no subject sees no delegated runs, even ones whose created_by is also empty.
 	f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
 	seedDelegatedRun(t, repo, "run-empty", "", RunStateActive)
 	ctx := withRunCallerCtx(context.Background(), "t1", "")
