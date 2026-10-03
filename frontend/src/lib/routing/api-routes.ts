@@ -22,6 +22,8 @@
  *   fetch(ApiRoute.session.POST(), { method: 'POST', body: JSON.stringify({ id_token }) });
  */
 
+import type { AgentInsightsPeriod } from '@orbit/shared/api';
+
 // ── Base segments ─────────────────────────────────────────────────────────────
 
 const AUTH_BASE = '/api/auth' as const;
@@ -313,8 +315,10 @@ export const ApiRoute = {
    * when the caller may read it.
    */
   agentInsights: {
-    window: (period: string): `${typeof API_BASE}/agents/insights?period=${string}` =>
-      `${API_BASE}/agents/insights?period=${encodeURIComponent(period)}`,
+    window: (
+      period: AgentInsightsPeriod,
+    ): `${typeof API_BASE}/agents/insights?period=${AgentInsightsPeriod}` =>
+      `${API_BASE}/agents/insights?period=${period}`,
     budgets: (): `${typeof API_BASE}/agents/insights/budgets` =>
       `${API_BASE}/agents/insights/budgets`,
   },

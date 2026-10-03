@@ -437,6 +437,9 @@ export interface AgentTypeUsage {
   estimated_cost_usd: number;
 }
 
+/** The reporting windows the agent insights routes accept. Mirrors Go: usagewindow.Period. */
+export type AgentInsightsPeriod = '24h' | '7d' | '30d' | '90d';
+
 /**
  * Mirrors Go: inferencegw.AgentInsights plus the run outcomes the BFF adds.
  * GET /api/agents/insights?period=24h|7d|30d|90d
@@ -444,7 +447,7 @@ export interface AgentTypeUsage {
  * Covers only the agents the caller may see.
  */
 export interface AgentInsightsResponse {
-  period: string;
+  period: AgentInsightsPeriod;
   /** RFC 3339 start of the window; `trend[0]` starts here. */
   start: string;
   end: string;

@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type { AgentBudgetsResponse, AgentInsightsResponse } from '@orbit/shared/api';
+import type {
+  AgentBudgetsResponse,
+  AgentInsightsPeriod,
+  AgentInsightsResponse,
+} from '@orbit/shared/api';
 
 const api = vi.hoisted(() => ({
   fetchAgentInsights: vi.fn(),
@@ -12,7 +16,7 @@ import { useAgentsInsights } from './use-agents-insights';
 
 const AGENTS = [{ slug: 'coder', name: 'Coder' }];
 
-function insights(period: string, cost: number): AgentInsightsResponse {
+function insights(period: AgentInsightsPeriod, cost: number): AgentInsightsResponse {
   return {
     period,
     start: '2026-09-27T00:00:00Z',
@@ -52,7 +56,10 @@ const BUDGETS: AgentBudgetsResponse = {
 beforeEach(() => {
   vi.clearAllMocks();
   api.fetchAgentInsights.mockImplementation((period: string) =>
-    Promise.resolve({ data: insights(period, period === '7d' ? 7 : 24), error: null }),
+    Promise.resolve({
+      data: insights(period as AgentInsightsPeriod, period === '7d' ? 7 : 24),
+      error: null,
+    }),
   );
   api.fetchAgentBudgets.mockResolvedValue({ data: BUDGETS, error: null });
 });

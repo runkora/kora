@@ -1,7 +1,7 @@
-import type { AgentTypeUsage } from '@orbit/shared/api';
+import type { AgentInsightsPeriod, AgentTypeUsage } from '@orbit/shared/api';
 
 /** The windows the Agents page can report spend and run outcomes over. */
-export type Period = '24h' | '7d' | '30d' | '90d';
+export type Period = AgentInsightsPeriod;
 
 /** Phrases for footers and descriptions, so every card names its window the same way. */
 export const PERIOD_TEXT: Record<Period, { text: string; previous: string }> = {
