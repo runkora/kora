@@ -126,6 +126,8 @@ The default environment uses the base image.
 
 The operator reads the image config from the registry. An image is valid when it runs as uid 100 and carries the `io.orbit.sandbox.base` label. An invalid image cannot be selected. Its status states the failure.
 
+The sandbox container runs `/usr/local/bin/sandbox-exec` as its command. An image `CMD` has no effect.
+
 ### 4. Warming
 
 The operator runs one pre-pull DaemonSet per valid `SandboxImage` on the nodes that run sandboxes. This replaces the single image warmer. Sandboxes reference the image by digest with `IfNotPresent`.
@@ -178,6 +180,7 @@ Tenant-scoped resources, one per image, match the tenancy of environments and gi
 *   An agent with several environments holds the access of all of them for the whole run.
 *   One pre-pull DaemonSet per image uses disk on every sandbox node.
 *   Existing environments and their agent links are dropped.
+*   Validation does not run the image. An image that replaces `sandbox-exec` passes validation and fails at sandbox start.
 
 ### Neutral
 

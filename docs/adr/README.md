@@ -83,7 +83,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) — `Accepted` · 2026-07-22
 - [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted` · 2026-07-22
 - [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Accepted` · 2026-09-29
-- [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Proposed` · 2026-06-14
+- [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md)` · 2026-06-14
 - [Sandbox Environments](2026-10-03-sandbox-environments.md) — `Proposed` · 2026-10-03
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
 - [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
@@ -238,7 +238,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-10 | [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) | Proposed | — |
 | 2026-06-10 | [Budget Enforcement Corrections: Canonical Spend Counter, Request-Time Role Enforcement, All Principal Types, and the Budgets Management Surface](2026-06-10-budget-enforcement-corrections-and-budgets-page.md) | Proposed | — |
 | 2026-06-10 | [Hierarchical Budget Enforcement: Windows, Pools, Tenant Caps, and Per-Run Limits](2026-06-10-hierarchical-budget-enforcement.md) | Proposed | — |
-| 2026-06-14 | [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) | Proposed | — |
+| 2026-06-14 | [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) | Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md) | — |
 | 2026-06-12 | [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) | Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md) | — |
 | 2026-06-15 | [Role-Budget Attribution for Non-Interactive Credentials](2026-06-15-role-budget-attribution-for-non-interactive-credentials.md) | Accepted | — |
 | 2026-06-17 | [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) | Accepted (Decision item 3 superseded in part 2026-09-29) | — |
