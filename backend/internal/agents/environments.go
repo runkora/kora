@@ -344,18 +344,20 @@ func (s *EnvironmentService) validate(ctx context.Context, env Environment) erro
 	if err := env.Validate(s.cfg.Sizes.Max); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEnvironment, err)
 	}
-	if env.SandboxImage == "" || s.images == nil {
+	if s.images == nil {
 		return nil
 	}
-	img, err := s.images.SandboxImage(ctx, s.cfg.TenantNamespaceFn(env.TenantID), env.SandboxImage)
+	// An empty image is kora-base, which must be registered and valid too.
+	name := env.ImageName()
+	img, err := s.images.SandboxImage(ctx, s.cfg.TenantNamespaceFn(env.TenantID), name)
 	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("%w: sandbox image %q is not registered", ErrInvalidEnvironment, env.SandboxImage)
+		return fmt.Errorf("%w: sandbox image %q is not registered", ErrInvalidEnvironment, name)
 	}
 	if err != nil {
-		return fmt.Errorf("look up sandbox image %q: %w", env.SandboxImage, err)
+		return fmt.Errorf("look up sandbox image %q: %w", name, err)
 	}
 	if !img.Valid() {
-		return fmt.Errorf("%w: sandbox image %q is not valid: %s", ErrInvalidEnvironment, env.SandboxImage, sandboxImageProblem(img))
+		return fmt.Errorf("%w: sandbox image %q is not valid: %s", ErrInvalidEnvironment, name, sandboxImageProblem(img))
 	}
 	return nil
 }

@@ -93,8 +93,9 @@ func newEnvironmentService(store *fakeEnvStore, k8s *mockK8s) *EnvironmentServic
 
 func TestCreateEnvironment(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
-		"acme-go": validSandboxImage("acme-go", "ghcr.io/acme/go:1", "sha256:go"),
-		"broken":  {Status: si.Status{}},
+		"acme-go":   validSandboxImage("acme-go", "ghcr.io/acme/go:1", "sha256:go"),
+		"broken":    {Status: si.Status{}},
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
 	}}
 	ctx := withTenantCtx(context.Background(), "t-1")
 	for _, tc := range []struct {
@@ -122,6 +123,23 @@ func TestCreateEnvironment(t *testing.T) {
 			}
 			if env.Size.Disk != testSizes.Default.Disk || env.Size.Memory != testSizes.Default.Memory {
 				t.Errorf("size = %+v, want empty dimensions from the default", env.Size)
+			}
+		})
+	}
+}
+
+// An environment on the base image fails clearly while kora-base is missing or invalid.
+func TestCreateEnvironment_BaseImageUnavailable(t *testing.T) {
+	ctx := withTenantCtx(context.Background(), "t-1")
+	for name, images := range map[string]map[string]*si.SandboxImage{
+		"missing": {},
+		"invalid": {si.BaseName: {Status: si.Status{}}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, &mockK8s{sandboxImages: images})
+			_, err := svc.CreateEnvironment(ctx, EnvironmentRequest{Name: "base"})
+			if !errors.Is(err, ErrInvalidEnvironment) || !strings.Contains(err.Error(), `"kora-base"`) {
+				t.Fatalf("err = %v, want ErrInvalidEnvironment naming kora-base", err)
 			}
 		})
 	}
