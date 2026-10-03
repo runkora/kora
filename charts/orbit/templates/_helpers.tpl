@@ -154,13 +154,33 @@ priorityClassName: {{ . }}
 {{- end }}
 
 {{/*
+The sandbox base image. The operator registers it in every tenant namespace as
+the SandboxImage kora-base.
+*/}}
+{{- define "orbit.sandboxBaseImage" -}}
+{{- .Values.agents.config.sandboxImage | default (printf "%s/kora-sandbox-base:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) -}}
+{{- end }}
+
+{{/*
+Where sandbox image warmers run, as JSON for the operator: the warm-start
+scheduling and the sandbox priority class.
+*/}}
+{{- define "orbit.sandboxWarmerPlacement" -}}
+{{- $placement := include "orbit.sandboxWarmingScheduling" (dict "root" .) | fromYaml | default dict -}}
+{{- with (.Values.agents.workloads.sandbox.priorityClassName | default .Values.agents.priorityClassName | default .Values.global.priorityClassName) -}}
+{{- $_ := set $placement "priorityClassName" . -}}
+{{- end -}}
+{{- toJson $placement -}}
+{{- end }}
+
+{{/*
 The validated sandbox warming mode. A typo would otherwise render no warming at
 all and look like it worked.
 */}}
 {{- define "orbit.sandboxWarmingMode" -}}
 {{- $mode := .Values.agents.sandboxWarming.mode | default "none" -}}
-{{- if not (has $mode (list "none" "image" "capacity")) -}}
-{{- fail (printf "agents.sandboxWarming.mode is %q: expected none, image or capacity" $mode) -}}
+{{- if not (has $mode (list "none" "capacity")) -}}
+{{- fail (printf "agents.sandboxWarming.mode is %q: expected none or capacity" $mode) -}}
 {{- end -}}
 {{- $mode -}}
 {{- end }}

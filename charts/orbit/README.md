@@ -52,8 +52,11 @@ Kubernetes: `>=1.34.0-0`
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
+| agents.sandboxImages.insecureRegistries | list | `[]` | Registries the operator reads over plain HTTP when it validates an image. For a local development registry only. |
+| agents.sandboxImages.registryPorts | list | `[]` | Registry ports other than 443 the operator may dial to validate images. |
+| agents.sandboxImages.warmBase | bool | `false` | Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage sets its own with spec.warm. Each warm image runs one DaemonSet per tenant. |
 | agents.sandboxWarming.affinity | object | `{}` |  |
-| agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `image` runs a DaemonSet caching the sandbox image on the nodes it runs on, worth it only where those nodes outlive individual sandboxes. `capacity` runs a low-priority placeholder holding a node open with the image already cached, the choice for a pool that scales to zero. |
+| agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `capacity` runs a low-priority placeholder holding a node open with the base image already cached, the choice for a pool that scales to zero. |
 | agents.sandboxWarming.nodeSelector | object | `{}` |  |
 | agents.sandboxWarming.podAnnotations | object | `{}` | Applied to whichever workload the mode runs. `capacity` already carries the Karpenter and Cluster Autoscaler annotations that keep a held node from being scaled away; set them here to override. |
 | agents.sandboxWarming.podLabels | object | `{}` | Applied to whichever workload the mode runs. kora's own selector labels win on a collision. |

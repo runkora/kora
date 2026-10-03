@@ -35,6 +35,15 @@ opaGateway:
     repository: openpolicyagent/opa
     tag: 1.21.0-envoy-static
 
+agents:
+  sandboxImages:
+    warmBase: true
+    # The k3d registry serves plain HTTP on 5001.
+    insecureRegistries:
+      - orbit-registry:5001
+    registryPorts:
+      - 5001
+
 operator:
   replicas: 1
   leaderElection: false

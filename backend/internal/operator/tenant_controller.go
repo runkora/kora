@@ -55,6 +55,9 @@ type TenantReconciler struct {
 	// Collector is the in-cluster OTLP collector agent pods may export to.
 	Collector AgentCollector
 
+	// SandboxBase is registered in every tenant namespace as kora-base.
+	SandboxBase SandboxBase
+
 	// Preflight reports the latest prerequisites result. While it fails, tenants
 	// are reconciled but held at Degraded so no workload is admitted.
 	Preflight PreflightSource
@@ -169,6 +172,11 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			// namespace cannot pull without them.
 			name: "image pull secrets",
 			run:  func(ctx context.Context) error { return r.ensureImagePullSecrets(ctx, tenant) },
+		},
+		{
+			// The base image every environment without its own image runs.
+			name: "base sandbox image",
+			run:  func(ctx context.Context) error { return r.ensureBaseSandboxImage(ctx, tenant) },
 		},
 		{
 			name: "OPA config",

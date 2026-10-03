@@ -64,9 +64,23 @@ type Install struct {
 	// and the operator must not manage it.
 	WebhookCertManager bool
 
-	Injection   Injection
-	PodSecurity PodSecurity
-	Preflight   Preflight
+	Injection     Injection
+	PodSecurity   PodSecurity
+	Preflight     Preflight
+	SandboxImages SandboxImages
+}
+
+// SandboxImages configures sandbox image validation and warming.
+type SandboxImages struct {
+	// BaseImage is registered in every tenant namespace as kora-base.
+	BaseImage string
+	// BaseWarm keeps the base image pulled on the nodes that run sandboxes.
+	BaseWarm bool
+	// InsecureRegistries are read over plain HTTP, such as the local k3d registry.
+	InsecureRegistries []string
+	// WarmerPlacement is the sandbox placement as JSON: nodeSelector,
+	// tolerations, affinity, topologySpreadConstraints and priorityClassName.
+	WarmerPlacement string
 }
 
 // Injection describes the containers the webhook adds to every tenant pod.
@@ -143,6 +157,12 @@ func loadInstall() Install {
 			Enforce: envOr("ORBIT_TENANT_PSA_ENFORCE", "restricted"),
 			Warn:    envOr("ORBIT_TENANT_PSA_WARN", "restricted"),
 			Audit:   envOr("ORBIT_TENANT_PSA_AUDIT", "restricted"),
+		},
+		SandboxImages: SandboxImages{
+			BaseImage:          envOr("ORBIT_SANDBOX_BASE_IMAGE", "ghcr.io/clear-route/kora-sandbox-base:latest"),
+			BaseWarm:           os.Getenv("ORBIT_SANDBOX_BASE_WARM") == "true",
+			InsecureRegistries: splitList(os.Getenv("ORBIT_SANDBOX_INSECURE_REGISTRIES")),
+			WarmerPlacement:    os.Getenv("ORBIT_SANDBOX_WARMER_PLACEMENT"),
 		},
 		Preflight: Preflight{
 			SupportedIstioMinors: splitList(os.Getenv("ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS")),

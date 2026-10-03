@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -237,6 +238,8 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 			ByObject: map[client.Object]cache.ByObject{
 				&ip.InferenceProvider{}:    {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
+				// Only the sandbox image warmers, not every DaemonSet in the cluster.
+				operator.NewWarmerDaemonSet(): {Label: operator.WarmerSelector()},
 			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.
@@ -318,6 +321,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 			Audit:   install.PodSecurity.Audit,
 		},
 		ImagePullSecrets: install.ImagePullSecrets,
+		SandboxBase:      operator.SandboxBase{Image: install.SandboxImages.BaseImage, Warm: install.SandboxImages.BaseWarm},
 		Collector:        agentCollector(install.CollectorNamespace, install.CollectorCIDRs),
 		Preflight:        preflightSource{checks},
 	}
@@ -332,6 +336,25 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 
 	providerReconciler := &operator.InferenceProviderReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
 	if err := providerReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+
+	var placement operator.WarmerPlacement
+	if raw := install.SandboxImages.WarmerPlacement; raw != "" {
+		if err := json.Unmarshal([]byte(raw), &placement); err != nil {
+			return fmt.Errorf("parse ORBIT_SANDBOX_WARMER_PLACEMENT: %w", err)
+		}
+	}
+	sandboxImageReconciler := &operator.SandboxImageReconciler{
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Registry:    operator.NewRemoteRegistry(install.SandboxImages.InsecureRegistries),
+		Logger:      logger,
+		PullSecrets: install.ImagePullSecrets,
+		Placement:   placement,
+		Resync:      oc.Current.SyncPeriod(),
+	}
+	if err := sandboxImageReconciler.SetupWithManager(mgr); err != nil {
 		return err
 	}
 

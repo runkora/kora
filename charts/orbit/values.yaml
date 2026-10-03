@@ -477,8 +477,9 @@ agents:
     annotations: {}
   config:
     # Images orbit-agents runs in tenant namespaces. Empty resolves to
-    # <global.imageRegistry>/orbit-session-manager and orbit-sandbox-exec at
+    # <global.imageRegistry>/orbit-session-manager and kora-sandbox-base at
     # global.imageTag, falling back to the chart appVersion when it is empty.
+    # sandboxImage is the base image, registered in every tenant as kora-base.
     sessionManagerImage: ""
     sandboxImage: ""
     # Git author name inside the sandbox. Empty means kora-agent.
@@ -577,15 +578,26 @@ agents:
     accessModes:
       - ReadWriteOnce
     size: 10Gi
+  # Sandbox images (docs/adr/2026-10-03-sandbox-environments.md). Platform teams
+  # register their own as SandboxImage resources in tenant namespaces. The
+  # operator registers config.sandboxImage in each as kora-base.
+  sandboxImages:
+    # -- Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage
+    # sets its own with spec.warm. Each warm image runs one DaemonSet per tenant.
+    warmBase: false
+    # -- Registries the operator reads over plain HTTP when it validates an
+    # image. For a local development registry only.
+    insecureRegistries: []
+    # -- Registry ports other than 443 the operator may dial to validate images.
+    registryPorts: []
   # Warm-start for sandboxes, so a run does not wait for a node to boot and the
   # sandbox image to pull. Placement follows agents.workloads.sandbox, so the
-  # pool is configured once; the keys below override it.
+  # pool is configured once; the keys below override it. Image warmers use the
+  # same placement.
   sandboxWarming:
-    # -- Warm-start strategy. `none` accepts cold starts. `image` runs a DaemonSet
-    # caching the sandbox image on the nodes it runs on, worth it only where those
-    # nodes outlive individual sandboxes. `capacity` runs a low-priority
-    # placeholder holding a node open with the image already cached, the choice
-    # for a pool that scales to zero.
+    # -- Warm-start strategy. `none` accepts cold starts. `capacity` runs a
+    # low-priority placeholder holding a node open with the base image already
+    # cached, the choice for a pool that scales to zero.
     mode: none
     # -- `capacity` mode. Nodes held warm. Above one, placeholders repel each
     # other by hostname so they land on separate nodes; set `affinity` with your

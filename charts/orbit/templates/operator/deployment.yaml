@@ -89,6 +89,16 @@ spec:
               value: {{ .Values.operator.tenantPodSecurity.warn | quote }}
             - name: ORBIT_TENANT_PSA_AUDIT
               value: {{ .Values.operator.tenantPodSecurity.audit | quote }}
+            # Sandbox images: the base image registered as kora-base in every
+            # tenant namespace, and where image warmers run.
+            - name: ORBIT_SANDBOX_BASE_IMAGE
+              value: {{ include "orbit.sandboxBaseImage" . | quote }}
+            - name: ORBIT_SANDBOX_BASE_WARM
+              value: {{ .Values.agents.sandboxImages.warmBase | quote }}
+            - name: ORBIT_SANDBOX_INSECURE_REGISTRIES
+              value: {{ join "," .Values.agents.sandboxImages.insecureRegistries | quote }}
+            - name: ORBIT_SANDBOX_WARMER_PLACEMENT
+              value: {{ include "orbit.sandboxWarmerPlacement" . | quote }}
             - name: ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS
               value: {{ join "," .Values.operator.preflight.supportedIstioMinors | quote }}
             - name: ORBIT_PREFLIGHT_INTERVAL_SECONDS
