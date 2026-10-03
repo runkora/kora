@@ -57,6 +57,11 @@ rules:
   - apiGroups: ["orbit.io"]
     resources: ["sandboximages"]
     verbs: ["get", "list", "watch", "create", "patch"]
+  # Owner references with blockOwnerDeletion on the warmers need this where
+  # OwnerReferencesPermissionEnforcement is on.
+  - apiGroups: ["orbit.io"]
+    resources: ["sandboximages/finalizers"]
+    verbs: ["update"]
   # One pre-pull DaemonSet per warm SandboxImage, owned by it. Preflight reads
   # the CNI DaemonSet.
   - apiGroups: ["apps"]
