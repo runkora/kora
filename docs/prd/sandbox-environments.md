@@ -1,6 +1,6 @@
 # Sandbox Environments - Product Requirements Document
 
-**Status:** Draft  
+**Status:** Approved  
 **Created:** 2026-10-03  
 **Last Updated:** 2026-10-03  
 **Owner:** Platform team  
@@ -274,7 +274,7 @@ None at this time.
 
 ### Key Milestones
 
-*   [ ] PRD Approved
+*   [x] PRD Approved
 *   [x] ADR Created
 
 ---

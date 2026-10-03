@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-03-sandbox-environments.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-03  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Sandbox Environments PRD](../prd/sandbox-environments.md). Environments become prepackaged sandboxes built on a kora base image.

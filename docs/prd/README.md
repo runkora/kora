@@ -44,7 +44,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Multi-Account AWS Bedrock Support](multi-account-bedrock.md) | Approved | [multi-account-bedrock](../adr/2026-06-19-multi-account-bedrock.md) |
 | [CRD-Driven Inference Providers](crd-inference-providers.md) | Approved | [crd-inference-providers](../adr/2026-10-01-crd-inference-providers.md) |
 | [Non-Token Model Pricing](non-token-model-pricing.md) | Approved | [non-token-model-pricing](../adr/2026-07-24-non-token-model-pricing.md) |
-| [Sandbox Environments](sandbox-environments.md) | Draft | [sandbox-environments](../adr/2026-10-03-sandbox-environments.md) |
+| [Sandbox Environments](sandbox-environments.md) | Approved | [sandbox-environments](../adr/2026-10-03-sandbox-environments.md) |
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
 
