@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -37,10 +38,19 @@ func (f *fakeInsightsStore) CountRunOutcomes(_ context.Context, scope RunOutcome
 // readOnlyEvaluator allows read on the listed slugs per resource and nothing else.
 type readOnlyEvaluator struct {
 	allowAllEvaluator
-	allowed map[string][]string // resource -> slugs
+	allowed map[string][]string // resource -> slugs, or "*" for the whole resource
+	checks  *atomic.Int32
+	queries *atomic.Int32
+}
+
+// Check allows the whole resource only when the test grants it with "*".
+func (e readOnlyEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	e.checks.Add(1)
+	return policy.Result{Allow: len(in.PathSegments) == 1 && slices.Contains(e.allowed[in.PathSegments[0]], "*")}, nil
 }
 
 func (e readOnlyEvaluator) Query(_ context.Context, in policy.QueryInput) ([]string, error) {
+	e.queries.Add(1)
 	var out []string
 	for _, c := range in.Candidates {
 		if len(c.PathSegments) == 2 && slices.Contains(e.allowed[c.PathSegments[0]], c.PathSegments[1]) {
@@ -50,6 +60,10 @@ func (e readOnlyEvaluator) Query(_ context.Context, in policy.QueryInput) ([]str
 	return out, nil
 }
 
+func newReadOnly(allowed map[string][]string) readOnlyEvaluator {
+	return readOnlyEvaluator{allowed: allowed, checks: &atomic.Int32{}, queries: &atomic.Int32{}}
+}
+
 var insightsRefs = []AgentTypeRef{
 	{ID: "id-coder", Slug: "coder"},
 	{ID: "id-notes", Slug: "notes", Delegated: true},
@@ -57,7 +71,7 @@ var insightsRefs = []AgentTypeRef{
 }
 
 func newInsights(store *fakeInsightsStore, allowed map[string][]string) *InsightsService {
-	return NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: allowed}), fakeBudgets{})
+	return NewInsightsService(store, NewAuthz(newReadOnly(allowed)), fakeBudgets{})
 }
 
 func TestVisibleAgents_PartitionsDelegatedAgents(t *testing.T) {
@@ -197,7 +211,7 @@ func TestBudgetLimits(t *testing.T) {
 		"notes":  {LimitUSD: 10, ResetCadence: "weekly"},
 		"secret": {LimitUSD: 99, ResetCadence: "weekly"},
 	}}
-	svc := NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: map[string][]string{"types": {"coder", "notes"}}}), budgets)
+	svc := NewInsightsService(store, NewAuthz(newReadOnly(map[string][]string{"types": {"coder", "notes"}})), budgets)
 
 	got, err := svc.BudgetLimits(withRunCallerCtx(context.Background(), "t1", "alice", ""))
 	if err != nil {
@@ -218,8 +232,26 @@ func TestBudgetLimits(t *testing.T) {
 
 func TestBudgetLimits_LookupFailureFailsTheCall(t *testing.T) {
 	store := &fakeInsightsStore{refs: insightsRefs}
-	svc := NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: map[string][]string{"types": {"coder"}}}), fakeBudgets{err: errors.New("policy service down")})
+	svc := NewInsightsService(store, NewAuthz(newReadOnly(map[string][]string{"types": {"coder"}})), fakeBudgets{err: errors.New("policy service down")})
 	if _, err := svc.BudgetLimits(withRunCallerCtx(context.Background(), "t1", "alice", "")); err == nil {
 		t.Error("a failed lookup must fail the call: a row without its limit would read as unbudgeted")
+	}
+}
+
+// A principal who may read the whole resource is decided with one check and no
+// per-agent policy query.
+func TestVisibleAgents_WholeResourceGrantSkipsPerAgentQueries(t *testing.T) {
+	eval := newReadOnly(map[string][]string{"types": {"*"}})
+	svc := NewInsightsService(&fakeInsightsStore{refs: insightsRefs}, NewAuthz(eval), fakeBudgets{})
+
+	got, err := svc.VisibleAgents(withRunCallerCtx(context.Background(), "t1", "alice", ""))
+	if err != nil {
+		t.Fatalf("VisibleAgents: %v", err)
+	}
+	if !slices.Equal(got.AllRows, []string{"coder", "secret"}) || !slices.Equal(got.OwnRows, []string{"notes"}) {
+		t.Errorf("visibility = %+v", got)
+	}
+	if eval.checks.Load() != 1 || eval.queries.Load() != 0 {
+		t.Errorf("checks %d queries %d, want 1 and 0", eval.checks.Load(), eval.queries.Load())
 	}
 }

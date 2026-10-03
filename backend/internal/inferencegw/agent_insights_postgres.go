@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
@@ -17,6 +19,12 @@ import (
 // visibilityClause returns the SQL condition limiting rows to a scope, and its
 // arguments, numbering placeholders from first. The delegator test is what
 // keeps one person's delegated agent out of another person's totals.
+//
+// Every query here runs with pgx.QueryExecModeExec, so Postgres plans it with the
+// actual slugs and window. A prepared statement is planned once without them,
+// and its generic plan picks an index scan that reads most of the table through
+// the index (about 2 seconds for a 90d window at 150 agents against about 0.3
+// for the plan chosen with the real values).
 func (s AgentUsageScope) visibilityClause(first int) (string, []any) {
 	all := s.AllRows
 	if all == nil {
@@ -49,7 +57,7 @@ func (r *PostgresInferenceUsageRepository) AgentUsage(ctx context.Context, scope
 		GROUP BY agent_slug
 		ORDER BY agent_slug`
 
-	rows, err := r.pool.Query(ctx, q, append([]any{scope.TenantID, w.Start, w.End}, args...)...)
+	rows, err := r.pool.Query(ctx, q, append([]any{pgx.QueryExecModeExec, scope.TenantID, w.Start, w.End}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("agent usage: %w", err)
 	}
@@ -83,7 +91,7 @@ func (r *PostgresInferenceUsageRepository) AgentSpendByModel(ctx context.Context
 		HAVING COALESCE(SUM(estimated_cost_usd), 0) > 0
 		ORDER BY cost DESC, model_id`
 
-	rows, err := r.pool.Query(ctx, q, append([]any{scope.TenantID, w.Start, w.End}, args...)...)
+	rows, err := r.pool.Query(ctx, q, append([]any{pgx.QueryExecModeExec, scope.TenantID, w.Start, w.End}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("agent spend by model: %w", err)
 	}
@@ -138,7 +146,7 @@ func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context
 	for i := range totals {
 		dest[i] = &totals[i]
 	}
-	if err := r.pool.QueryRow(ctx, q, append(args, visArgs...)...).Scan(dest...); err != nil {
+	if err := r.pool.QueryRow(ctx, q, append(append([]any{pgx.QueryExecModeExec}, args...), visArgs...)...).Scan(dest...); err != nil {
 		return SpendBuckets{}, fmt.Errorf("agent spend buckets: %w", err)
 	}
 	return SpendBuckets{PreviousUSD: totals[0], Buckets: totals[1:]}, nil
@@ -158,7 +166,7 @@ func (r *PostgresInferenceUsageRepository) AgentBudgetSpend(ctx context.Context,
 		  AND created_at >= LEAST($3::timestamptz, $4::timestamptz)
 		GROUP BY agent_slug`
 
-	rows, err := r.pool.Query(ctx, q, tenantID, slugs, weekStart, monthStart)
+	rows, err := r.pool.Query(ctx, q, pgx.QueryExecModeExec, tenantID, slugs, weekStart, monthStart)
 	if err != nil {
 		return nil, fmt.Errorf("agent budget spend: %w", err)
 	}

@@ -188,11 +188,27 @@ func (s *InsightsService) BudgetLimits(ctx context.Context) ([]AgentBudgetLimit,
 	return out, nil
 }
 
-// filterRefs returns the refs the principal may read under resource, with one
-// policy query for the whole set.
+// filterRefs returns the refs the principal may read under resource. A
+// principal who may read the whole resource (agents:types:read covers every
+// agents:types:{slug}:read) is decided with one check. Otherwise one policy
+// query decides the set, which evaluates the policy once per agent: about 1.5 ms
+// each, a quarter of a second at 150 agents.
 func (a *Authz) filterRefs(ctx context.Context, refs []AgentTypeRef, resource string) ([]AgentTypeRef, error) {
 	if len(refs) == 0 {
 		return nil, nil
+	}
+	whole, err := a.eval.Check(ctx, policy.CheckInput{
+		Claims:       claimsFromContext(ctx),
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "agents",
+		PathSegments: []string{resource},
+		Action:       "read",
+	})
+	if err != nil {
+		return nil, fmt.Errorf("authz check %s: %w", resource, err)
+	}
+	if whole.Allow {
+		return refs, nil
 	}
 	candidates := make([]policy.Candidate, len(refs))
 	for i, ref := range refs {
