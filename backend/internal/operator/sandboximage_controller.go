@@ -7,10 +7,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -37,16 +39,16 @@ const (
 	reasonWarmPulled   = "Pulled"
 )
 
-// warmerComponent labels every pre-pull DaemonSet, so the operator caches only those.
+// warmerComponent labels every pre-pull DaemonSet. The operator caches only DaemonSets with it.
 const warmerComponent = "sandbox-image-warmer"
 
 // labelSandboxImage names the SandboxImage a warmer pod pulls.
 const labelSandboxImage = "orbit.io/sandbox-image"
 
-// registryReadTimeout bounds one registry read, so a slow registry cannot hold a worker.
+// registryReadTimeout bounds one registry read.
 const registryReadTimeout = 30 * time.Second
 
-// sandboxImageWorkers reconcile images in parallel, so one slow registry does not delay the others.
+// sandboxImageWorkers is how many images reconcile in parallel.
 const sandboxImageWorkers = 4
 
 // registryRetry bounds the wait before re-reading an image whose first read failed.
@@ -58,8 +60,7 @@ var errPullSecret = errors.New("pull secret unreadable")
 // sandboxImageClient is what the reconciler calls on the API server.
 type sandboxImageClient interface {
 	Get(ctx context.Context, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error
-	Create(ctx context.Context, obj client.Object, opts ...client.CreateOption) error
-	Patch(ctx context.Context, obj client.Object, patch client.Patch, opts ...client.PatchOption) error
+	Apply(ctx context.Context, obj runtime.ApplyConfiguration, opts ...client.ApplyOption) error
 	Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error
 	Status() client.SubResourceWriter
 }
@@ -77,54 +78,59 @@ type WarmerPlacement struct {
 type SandboxImageReconciler struct {
 	Client   sandboxImageClient
 	Scheme   *runtime.Scheme
-	Registry RegistryReader
+	Registry registryReader
 	Logger   logging.Logger
 	// PullSecrets are the install-wide pull secrets replicated into every tenant namespace.
 	PullSecrets []string
 	Placement   WarmerPlacement
-	// Resync re-reads each image so a moved tag reaches new sandboxes.
+	// Resync is how often each image is read again. New sandboxes pick up a moved tag after the read.
 	Resync time.Duration
+
+	// nextRead holds when each image is due its next registry read.
+	nextRead sync.Map
 }
 
 // Reconcile validates one SandboxImage and converges its status and DaemonSet.
+// The registry is read when the generation changed or the image is due a
+// re-read. Other events, such as a warmer's status, refresh only the Warm condition.
 func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	img := &si.SandboxImage{}
 	if err := r.Client.Get(ctx, req.NamespacedName, img); err != nil {
 		if apierrors.IsNotFound(err) {
+			r.nextRead.Delete(req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get SandboxImage %q: %w", req.NamespacedName, err)
 	}
-	// Images register per tenant. Elsewhere a warmer would run without the
-	// tenant sidecars and the operator would read that namespace's Secrets.
-	ns := &corev1.Namespace{}
-	if err := r.Client.Get(ctx, types.NamespacedName{Name: img.Namespace}, ns); err != nil {
-		return ctrl.Result{}, fmt.Errorf("get namespace %q: %w", img.Namespace, err)
-	}
-	if ns.Labels[nsLabelRole] != "tenant" {
-		r.Logger.Warn(ctx, "ignoring a SandboxImage outside a tenant namespace",
-			logging.Field{Key: "sandbox_image", Value: req.String()})
-		return ctrl.Result{}, nil
+	if tenant, err := r.inTenantNamespace(ctx, img); err != nil || !tenant {
+		return ctrl.Result{}, err
 	}
 	before := img.DeepCopy()
+
+	now := time.Now()
+	if due, ok := r.readDue(img, now); !ok {
+		return r.refreshWarm(ctx, before, img, due.Sub(now))
+	}
 
 	cfg, reason, message, err := r.inspect(ctx, img)
 	if err != nil {
 		// A registry outage must not take an accepted image out of service.
-		if img.Valid() {
+		if img.Valid() && img.Status.ObservedGeneration == img.Generation {
 			r.Logger.Warn(ctx, "re-reading a sandbox image failed; keeping its pinned digest",
 				logging.Field{Key: "sandbox_image", Value: req.String()},
 				logging.Field{Key: "error", Value: err.Error()},
 			)
+			r.nextRead.Store(req.NamespacedName, now.Add(r.Resync))
 			return ctrl.Result{RequeueAfter: r.Resync}, nil
 		}
 		message = err.Error()
 	}
-	// A first read that failed retries soon: no sandbox can use the image until it succeeds.
+	// No sandbox can use an image whose read failed. It is read again sooner.
 	resync := r.Resync
 	if err != nil {
 		resync = min(r.Resync, registryRetry)
 	}
+	r.nextRead.Store(req.NamespacedName, now.Add(resync))
 
 	img.Status.ObservedGeneration = img.Generation
 	if reason != reasonValidated {
@@ -143,7 +149,45 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.reconcileWarmer(ctx, img); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{RequeueAfter: r.Resync}, r.patchStatus(ctx, before, img)
+	return ctrl.Result{RequeueAfter: resync}, r.patchStatus(ctx, before, img)
+}
+
+// inTenantNamespace reports whether img sits in a tenant namespace. Images
+// register per tenant. Elsewhere a warmer would run without the tenant sidecars
+// and the operator would read that namespace's Secrets.
+func (r *SandboxImageReconciler) inTenantNamespace(ctx context.Context, img *si.SandboxImage) (bool, error) {
+	ns := &corev1.Namespace{}
+	if err := r.Client.Get(ctx, types.NamespacedName{Name: img.Namespace}, ns); err != nil {
+		return false, fmt.Errorf("get namespace %q: %w", img.Namespace, err)
+	}
+	if ns.Labels[nsLabelRole] != "tenant" {
+		r.Logger.Warn(ctx, "ignoring a SandboxImage outside a tenant namespace",
+			logging.Field{Key: "sandbox_image", Value: img.Namespace + "/" + img.Name})
+		return false, nil
+	}
+	return true, nil
+}
+
+// readDue reports whether img needs a registry read: its generation changed,
+// its read is due, or the operator has not read it since it started. due is
+// when the next read is scheduled.
+func (r *SandboxImageReconciler) readDue(img *si.SandboxImage, now time.Time) (due time.Time, read bool) {
+	next, scheduled := r.nextRead.Load(types.NamespacedName{Namespace: img.Namespace, Name: img.Name})
+	if !scheduled || img.Status.ObservedGeneration != img.Generation {
+		return now, true
+	}
+	due = next.(time.Time)
+	return due, !now.Before(due)
+}
+
+// refreshWarm updates only the Warm condition of an image read recently.
+func (r *SandboxImageReconciler) refreshWarm(ctx context.Context, before, img *si.SandboxImage, untilRead time.Duration) (ctrl.Result, error) {
+	if img.Valid() {
+		if err := r.reconcileWarmer(ctx, img); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+	return ctrl.Result{RequeueAfter: untilRead}, r.patchStatus(ctx, before, img)
 }
 
 // inspect reads the image config and judges it. The returned error is a
@@ -208,14 +252,8 @@ func (r *SandboxImageReconciler) reconcileWarmer(ctx context.Context, img *si.Sa
 	if err := controllerutil.SetControllerReference(img, ds, r.Scheme); err != nil {
 		return fmt.Errorf("own DaemonSet for %q: %w", img.Name, err)
 	}
-	err := r.Client.Create(ctx, ds)
-	switch {
-	case apierrors.IsAlreadyExists(err):
-		if patchErr := r.Client.Patch(ctx, ds, client.Merge, client.FieldOwner("orbit-operator")); patchErr != nil {
-			return fmt.Errorf("patch DaemonSet %q: %w", ds.Name, patchErr)
-		}
-	case err != nil:
-		return fmt.Errorf("create DaemonSet %q: %w", ds.Name, err)
+	if err := apply(ctx, r.Client, ds); err != nil {
+		return err
 	}
 	live := &appsv1.DaemonSet{}
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(ds), live); err != nil {
@@ -253,9 +291,10 @@ func (r *SandboxImageReconciler) warmerDaemonSet(img *si.SandboxImage) *appsv1.D
 		// The tenant-service SPIFFE identity gives the injected istio-proxy its certificate.
 		podLabelSpiffeService: warmerComponent,
 	}
-	pullSecrets := imagePullSecretRefs(r.PullSecrets)
-	if ref := img.Spec.PullSecretRef; ref != nil && !hasPullSecret(pullSecrets, ref.Name) {
-		pullSecrets = append(pullSecrets, corev1.LocalObjectReference{Name: ref.Name})
+	// The pod webhook adds the install's pull secrets. The image's own is added here.
+	var pullSecrets []corev1.LocalObjectReference
+	if ref := img.Spec.PullSecretRef; ref != nil {
+		pullSecrets = []corev1.LocalObjectReference{{Name: ref.Name}}
 	}
 	uid := int64(100)
 	return &appsv1.DaemonSet{
@@ -301,15 +340,6 @@ func (r *SandboxImageReconciler) warmerDaemonSet(img *si.SandboxImage) *appsv1.D
 	}
 }
 
-// imagePullSecretRefs turns Secret names into pod references.
-func imagePullSecretRefs(names []string) []corev1.LocalObjectReference {
-	refs := make([]corev1.LocalObjectReference, 0, len(names))
-	for _, n := range names {
-		refs = append(refs, corev1.LocalObjectReference{Name: n})
-	}
-	return refs
-}
-
 func setCondition(img *si.SandboxImage, typ string, status metav1.ConditionStatus, reason, message string) {
 	meta.SetStatusCondition(&img.Status.Conditions, metav1.Condition{
 		Type:               typ,
@@ -322,26 +352,13 @@ func setCondition(img *si.SandboxImage, typ string, status metav1.ConditionStatu
 
 // patchStatus writes the status only when it changed.
 func (r *SandboxImageReconciler) patchStatus(ctx context.Context, before, after *si.SandboxImage) error {
-	if statusEqual(before.Status, after.Status) {
+	if equality.Semantic.DeepEqual(before.Status, after.Status) {
 		return nil
 	}
 	if err := r.Client.Status().Patch(ctx, after, client.MergeFrom(before)); err != nil {
 		return fmt.Errorf("patch SandboxImage %q status: %w", after.Name, err)
 	}
 	return nil
-}
-
-func statusEqual(a, b si.Status) bool {
-	if a.Digest != b.Digest || a.ObservedGeneration != b.ObservedGeneration || len(a.Conditions) != len(b.Conditions) {
-		return false
-	}
-	for _, c := range a.Conditions {
-		o := meta.FindStatusCondition(b.Conditions, c.Type)
-		if o == nil || o.Status != c.Status || o.Reason != c.Reason || o.Message != c.Message || o.ObservedGeneration != c.ObservedGeneration {
-			return false
-		}
-	}
-	return true
 }
 
 // NewWarmerDaemonSet is an empty DaemonSet, for the operator's cache configuration.

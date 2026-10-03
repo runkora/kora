@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -55,7 +56,7 @@ func sandboxImage(name, image string, warm bool) *si.SandboxImage {
 	}
 }
 
-func newImageReconciler(reg RegistryReader, objs ...client.Object) (*SandboxImageReconciler, client.Client) {
+func newImageReconciler(reg registryReader, objs ...client.Object) (*SandboxImageReconciler, client.Client) {
 	tenantNS := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: testNS, Labels: map[string]string{nsLabelRole: "tenant"}}}
 	objs = append(objs, tenantNS)
 	c := fake.NewClientBuilder().
@@ -140,8 +141,8 @@ func TestSandboxImage_ValidAndWarm(t *testing.T) {
 	if len(ds.OwnerReferences) != 1 || ds.OwnerReferences[0].Name != "go" {
 		t.Errorf("owner references = %+v, want the SandboxImage", ds.OwnerReferences)
 	}
-	if !hasPullSecret(pod.ImagePullSecrets, "ghcr-pull") {
-		t.Errorf("pull secrets = %v, want the install secret", pod.ImagePullSecrets)
+	if len(pod.ImagePullSecrets) != 0 {
+		t.Errorf("pull secrets = %v, want none: the pod webhook adds the install's", pod.ImagePullSecrets)
 	}
 
 	// The DaemonSet reports every node ready.
@@ -264,6 +265,7 @@ func TestEnsureBaseSandboxImage(t *testing.T) {
 	}
 	got.Spec.Image = "ghcr.io/evil/image:1"
 	got.Spec.Warm = false
+	got.Spec.PullSecretRef = &si.SecretNameRef{Name: "tenant-added"}
 	if err := c.Update(context.Background(), got); err != nil {
 		t.Fatal(err)
 	}
@@ -275,6 +277,9 @@ func TestEnsureBaseSandboxImage(t *testing.T) {
 	}
 	if got.Spec.Image != "ghcr.io/clear-route/kora-sandbox-base:1" || !got.Spec.Warm {
 		t.Errorf("kora-base spec = %+v, want the install's base image, warm", got.Spec)
+	}
+	if got.Spec.PullSecretRef != nil {
+		t.Errorf("pullSecretRef = %+v, want the tenant's addition removed", got.Spec.PullSecretRef)
 	}
 }
 
@@ -295,5 +300,44 @@ func TestSandboxImage_OutsideTenantNamespace(t *testing.T) {
 	ds := &appsv1.DaemonSet{}
 	if err := c.Get(context.Background(), types.NamespacedName{Namespace: "default", Name: "sandbox-image-go"}, ds); !apierrors.IsNotFound(err) {
 		t.Errorf("warmer outside a tenant namespace: %v", err)
+	}
+}
+
+// A placement field the operator applied before and no longer sets is removed from the warmer.
+func TestSandboxImage_WarmerDropsRemovedPlacement(t *testing.T) {
+	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": goodConfig}}
+	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", true))
+	reconcileImage(t, r, c, "go")
+
+	r.Placement = WarmerPlacement{}
+	r.nextRead = sync.Map{}
+	reconcileImage(t, r, c, "go")
+	ds, ok := warmer(t, c, "go")
+	if !ok {
+		t.Fatal("warmer gone")
+	}
+	if len(ds.Spec.Template.Spec.NodeSelector) != 0 {
+		t.Errorf("nodeSelector = %v, want it removed", ds.Spec.Template.Spec.NodeSelector)
+	}
+}
+
+// Between scheduled reads, a reconcile refreshes Warm without reading the registry.
+func TestSandboxImage_ReadsRegistryOnlyWhenDue(t *testing.T) {
+	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": goodConfig}}
+	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", true))
+	reconcileImage(t, r, c, "go")
+	reg.configs = nil // a read now would fail the image
+
+	ds, _ := warmer(t, c, "go")
+	ds.Status = appsv1.DaemonSetStatus{DesiredNumberScheduled: 1, UpdatedNumberScheduled: 1, NumberReady: 1, ObservedGeneration: ds.Generation}
+	if err := c.Status().Update(context.Background(), ds); err != nil {
+		t.Fatal(err)
+	}
+	img, res := reconcileImage(t, r, c, "go")
+	if !img.Valid() || condition(img, si.ConditionWarm).Status != metav1.ConditionTrue {
+		t.Errorf("status = %+v, want valid and warm without a registry read", img.Status)
+	}
+	if res.RequeueAfter <= 0 || res.RequeueAfter > time.Minute {
+		t.Errorf("RequeueAfter = %v, want the time left until the next read", res.RequeueAfter)
 	}
 }
