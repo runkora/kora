@@ -130,6 +130,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /api/v1/environments/{id}", c.handleGetEnvironment)
 	mux.Handle("PUT /api/v1/environments/{id}", c.handleUpdateEnvironment)
 	mux.Handle("DELETE /api/v1/environments/{id}", c.handleDeleteEnvironment)
+	mux.Handle("GET /api/v1/sandbox-images", c.handleListSandboxImages)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)
@@ -145,6 +146,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/summary", c.handleSetRunSummary)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
+	mux.Handle("GET /internal/runs/{id}/environments", c.handleListRunEnvironments)
+	mux.Handle("POST /internal/runs/{id}/replace-environment", c.handleReplaceEnvironment)
 }
 
 // handleHealth returns liveness status.
@@ -886,8 +889,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// session-manager keeps the behavior it had.
 	ahead := r.URL.Query().Get("ahead") == "true"
 
-	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead)
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead, r.URL.Query().Get("environment"))
 	if err != nil {
+		if c.writeEnvironmentChoiceError(ctx, w, err) {
+			return
+		}
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -909,6 +915,70 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// exec_token goes only to the session-manager that owns the run: the route is
 	// restricted to the agent pod by AuthorizationPolicy, and authorizeCallback
 	// has already bound the caller to this run.
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
+		"endpoint":    sandbox.Endpoint,
+		"exec_token":  sandbox.ExecToken,
+		"canary_host": sandbox.CanaryHost,
+	})
+}
+
+// writeEnvironmentChoiceError answers a refused environment choice with a 409
+// whose message the agent reads. It reports whether err was one.
+func (c *Controller) writeEnvironmentChoiceError(ctx context.Context, w http.ResponseWriter, err error) bool {
+	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrSameEnvironment, ErrSandboxImageUnavailable} {
+		if errors.Is(err, target) {
+			api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
+			return true
+		}
+	}
+	return false
+}
+
+// handleListRunEnvironments lists the environments the run's agent may use.
+func (c *Controller) handleListRunEnvironments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
+	envs, err := c.runs.ListRunEnvironments(ctx, id)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list environments", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"environments": envs})
+}
+
+// replaceEnvironmentRequest names the environment to switch the run's sandbox to.
+type replaceEnvironmentRequest struct {
+	Environment string `json:"environment"`
+}
+
+// handleReplaceEnvironment replaces the run's sandbox with one in another environment.
+func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
+	var req replaceEnvironmentRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+	if req.Environment == "" {
+		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeMissingField, "environment is required", nil), nil)
+		return
+	}
+	sandbox, err := c.runs.ReplaceEnvironment(ctx, id, req.Environment)
+	if err != nil {
+		if c.writeEnvironmentChoiceError(ctx, w, err) {
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to replace the sandbox", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
 		"endpoint":    sandbox.Endpoint,
 		"exec_token":  sandbox.ExecToken,

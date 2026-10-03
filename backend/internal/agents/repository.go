@@ -15,9 +15,8 @@ type AgentTypeRepository interface {
 	// ListAllAgentTypeSlugs returns the distinct set of agent type slugs across all tenants.
 	// Used by scope registration to build the per-agent-type vocabulary.
 	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
-	// ListAgentTypesByEnvironment returns the agent types in a tenant that
-	// reference the given environment. Used to re-reconcile their grants when the
-	// environment changes (the reference model).
+	// ListAgentTypesByEnvironment returns the agent types in a tenant that an
+	// environment is attached to, so an edit to it recompiles their grants.
 	ListAgentTypesByEnvironment(ctx context.Context, tenantID, environmentID string) ([]AgentType, error)
 	UpdateAgentType(ctx context.Context, at AgentType) error
 	// SetAgentTypeState does a compare-and-swap: only updates if current state matches from.
@@ -52,6 +51,8 @@ type RunRepository interface {
 	// run at start (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3),
 	// so terminal-state transitions can revoke it.
 	SetRunDelegationJTI(ctx context.Context, runID, jti string) error
+	// SetRunEnvironment records the environment of the run's current sandbox; nil is the built-in default.
+	SetRunEnvironment(ctx context.Context, runID string, environmentID *string) error
 	DeleteRun(ctx context.Context, id string) error
 	// DeleteRunsByAgentType force-deletes all runs for the given agent type and
 	// returns them as (id, delegation JTI) pairs. Used during agent type deletion

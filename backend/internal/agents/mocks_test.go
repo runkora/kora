@@ -12,7 +12,9 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
+	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/token"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // Compile-time interface checks.
@@ -28,6 +30,7 @@ type mockRepository struct {
 	agentTypes map[string]*AgentType
 	slugIndex  map[string]*AgentType // tenantID+":"+slug → AgentType
 	runs       map[string]*Run
+	envs       map[string]*Environment
 	events     map[string][]RunEvent
 	messages   []RunMessage
 	nextSeqNo  int64
@@ -58,6 +61,7 @@ func newMockRepository() *mockRepository {
 		agentTypes: make(map[string]*AgentType),
 		slugIndex:  make(map[string]*AgentType),
 		runs:       make(map[string]*Run),
+		envs:       make(map[string]*Environment),
 		events:     make(map[string][]RunEvent),
 	}
 }
@@ -123,8 +127,13 @@ func (m *mockRepository) ListAgentTypesByEnvironment(_ context.Context, tenantID
 	defer m.mu.Unlock()
 	var out []AgentType
 	for _, at := range m.agentTypes {
-		if at.TenantID == tenantID && at.EnvironmentID != nil && *at.EnvironmentID == environmentID {
-			out = append(out, *at)
+		if at.TenantID != tenantID {
+			continue
+		}
+		for _, e := range at.Environments {
+			if e.EnvironmentID == environmentID {
+				out = append(out, *at)
+			}
 		}
 	}
 	return out, nil
@@ -304,6 +313,29 @@ func (m *mockRepository) MarkRunFailed(_ context.Context, id string) error {
 	return nil
 }
 
+// GetEnvironment returns a seeded environment within its tenant.
+func (m *mockRepository) GetEnvironment(_ context.Context, tenantID, id string) (*Environment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	e, ok := m.envs[id]
+	if !ok || e.TenantID != tenantID {
+		return nil, ErrNotFound
+	}
+	cp := *e
+	return &cp, nil
+}
+
+func (m *mockRepository) SetRunEnvironment(_ context.Context, runID string, environmentID *string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.runs[runID]
+	if !ok {
+		return ErrNotFound
+	}
+	r.EnvironmentID = environmentID
+	return nil
+}
+
 func (m *mockRepository) SetRunDelegationJTI(_ context.Context, runID, jti string) error {
 	if m.setRunDelegationJTIErr != nil {
 		return m.setRunDelegationJTIErr
@@ -469,9 +501,13 @@ type mockK8s struct {
 	lookupErr               error
 	provisionSandboxCalls   int
 	provisionKubeClusters   []kubeconfig.Cluster
-	provisionSandboxErr     error
-	deleteSandboxErr        error
-	rolloutStatefulSetErr   error
+	provisionSpec           SandboxSpec
+	provisionReused         bool
+	// sandboxImages overrides the SandboxImages; unset serves a valid kora-base.
+	sandboxImages         map[string]*si.SandboxImage
+	provisionSandboxErr   error
+	deleteSandboxErr      error
+	rolloutStatefulSetErr error
 }
 
 func (m *mockK8s) ProvisionAgentType(_ context.Context, at AgentType, _ string) error {
@@ -504,8 +540,9 @@ func (m *mockK8s) ReplicaCount(_ context.Context, _, _ string) (int, error) {
 	return m.replicaCount, nil
 }
 
-func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, kubeClusters []kubeconfig.Cluster) (Sandbox, error) {
-	m.provisionKubeClusters = kubeClusters
+func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, spec SandboxSpec) (Sandbox, error) {
+	m.provisionKubeClusters = spec.KubeClusters
+	m.provisionSpec = spec
 	m.provisionSandboxCalls++
 	if m.provisionSandboxErr != nil {
 		return Sandbox{}, m.provisionSandboxErr
@@ -514,7 +551,37 @@ func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, kubeCl
 	if ep == "" {
 		ep = "10.0.0.1:50051"
 	}
-	return Sandbox{Endpoint: ep, ExecToken: "test-exec-token"}, nil
+	return Sandbox{Endpoint: ep, ExecToken: "test-exec-token", Created: !m.provisionReused}, nil
+}
+
+// validSandboxImage is a SandboxImage the operator accepted.
+func validSandboxImage(name, image, digest string) *si.SandboxImage {
+	return &si.SandboxImage{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Generation: 1},
+		Spec:       si.Spec{Image: image},
+		Status: si.Status{Digest: digest, ObservedGeneration: 1, Conditions: []metav1.Condition{
+			{Type: si.ConditionValid, Status: metav1.ConditionTrue, Reason: "Validated"},
+		}},
+	}
+}
+
+func (m *mockK8s) SandboxImage(_ context.Context, _, name string) (*si.SandboxImage, error) {
+	if m.sandboxImages == nil && name == si.BaseName {
+		return validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"), nil
+	}
+	img, ok := m.sandboxImages[name]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return img, nil
+}
+
+func (m *mockK8s) SandboxImages(_ context.Context, _ string) ([]si.SandboxImage, error) {
+	out := make([]si.SandboxImage, 0, len(m.sandboxImages))
+	for _, img := range m.sandboxImages {
+		out = append(out, *img)
+	}
+	return out, nil
 }
 
 func (m *mockK8s) LookupSandbox(_ context.Context, _, _ string) (Sandbox, bool, error) {
@@ -642,7 +709,15 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		},
 		logger,
 	)
+	runSvc.SetEnvironments(repo, k8s, testSizes)
+	atSvc.SetEnvironmentLookup(repo)
 	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
+}
+
+// testSizes are the environment sizes the test services run with.
+var testSizes = EnvironmentSizes{
+	Default: EnvironmentSize{CPU: "2", Memory: "4Gi", Disk: "10Gi"},
+	Max:     EnvironmentSize{CPU: "8", Memory: "16Gi", Disk: "50Gi"},
 }
 
 // withTenantCtx attaches a minimal PlatformClaims to ctx so that
@@ -804,7 +879,7 @@ func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) erro
 }
 
 func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
-	return f.run.ProvisionSandbox(ctx, runID, ahead)
+	return f.run.ProvisionSandbox(ctx, runID, ahead, "")
 }
 
 func (f *testServiceFacade) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {

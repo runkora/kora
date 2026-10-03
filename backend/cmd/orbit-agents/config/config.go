@@ -61,8 +61,15 @@ type Config struct {
 	Agents struct {
 		// SessionManagerImage is the container image for session-manager StatefulSet pods.
 		SessionManagerImage string `yaml:"sessionManagerImage"`
-		// SandboxImage is the default container image for sandbox pods.
+		// SandboxImage is the base image reference, used by rendered previews.
+		// Live sandboxes run the digest pinned on the kora-base SandboxImage.
 		SandboxImage string `yaml:"sandboxImage"`
+		// Environments bounds environment sizes. Default also sizes the
+		// built-in default environment. Each dimension is a Kubernetes quantity.
+		Environments struct {
+			DefaultSize EnvironmentSize `yaml:"defaultSize"`
+			MaxSize     EnvironmentSize `yaml:"maxSize"`
+		} `yaml:"environments"`
 		// SandboxGitAuthorName/Email set the git identity (GIT_AUTHOR_* and
 		// GIT_COMMITTER_*) for commits the agent makes inside the sandbox. Set
 		// per-deployment so the platform identity is not baked into the operator.
@@ -110,6 +117,13 @@ type Config struct {
 			NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 		} `yaml:"sessionManager"`
 	} `yaml:"agents"`
+}
+
+// EnvironmentSize is a sandbox's CPU, memory and local disk.
+type EnvironmentSize struct {
+	CPU    string `yaml:"cpu"`
+	Memory string `yaml:"memory"`
+	Disk   string `yaml:"disk"`
 }
 
 // PolicyConfig configures the in-process OPA policy evaluator.
@@ -201,6 +215,12 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) {
 		{"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL", &cfg.Agents.SandboxGitAuthorEmail},
 		{"ORBIT_MANIFEST_PATCH_DIR", &cfg.Agents.ManifestPatchDir},
 		{"ORBIT_WORKLOADS_FILE", &cfg.Agents.WorkloadsFile},
+		{"ORBIT_ENVIRONMENT_DEFAULT_CPU", &cfg.Agents.Environments.DefaultSize.CPU},
+		{"ORBIT_ENVIRONMENT_DEFAULT_MEMORY", &cfg.Agents.Environments.DefaultSize.Memory},
+		{"ORBIT_ENVIRONMENT_DEFAULT_DISK", &cfg.Agents.Environments.DefaultSize.Disk},
+		{"ORBIT_ENVIRONMENT_MAX_CPU", &cfg.Agents.Environments.MaxSize.CPU},
+		{"ORBIT_ENVIRONMENT_MAX_MEMORY", &cfg.Agents.Environments.MaxSize.Memory},
+		{"ORBIT_ENVIRONMENT_MAX_DISK", &cfg.Agents.Environments.MaxSize.Disk},
 	}
 	for _, o := range overrides {
 		if v := getenv(o.env); v != "" {

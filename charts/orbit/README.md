@@ -31,6 +31,12 @@ Kubernetes: `>=1.34.0-0`
 | agents.config.sandboxGitAuthorName | string | `""` |  |
 | agents.config.sandboxImage | string | `""` |  |
 | agents.config.sessionManagerImage | string | `""` |  |
+| agents.environments.defaultSize.cpu | string | `"2"` |  |
+| agents.environments.defaultSize.disk | string | `"10Gi"` |  |
+| agents.environments.defaultSize.memory | string | `"4Gi"` |  |
+| agents.environments.maxSize.cpu | string | `"8"` |  |
+| agents.environments.maxSize.disk | string | `"50Gi"` |  |
+| agents.environments.maxSize.memory | string | `"16Gi"` |  |
 | agents.extraEnv | list | `[]` |  |
 | agents.extraVolumeMounts | list | `[]` |  |
 | agents.extraVolumes | list | `[]` |  |

@@ -119,6 +119,7 @@ var toolRequires = map[string][]string{
 	"agents.environments.create":  {"agents:environments:write"},
 	"agents.environments.replace": {"agents:environments:write"},
 	"agents.environments.delete":  {"agents:environments:write"},
+	"agents.sandbox_images.list":  {"agents:environments:read"},
 
 	"models.list":                   {"inference:list"},
 	"models.virtual.list":           {"platform:catalog:read"},

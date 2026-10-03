@@ -1102,6 +1102,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		},
 		logger,
 	)
+	runSvc.SetEnvironments(repo, k8s, testSizes)
 	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
 }
 

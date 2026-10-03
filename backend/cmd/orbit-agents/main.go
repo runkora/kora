@@ -235,9 +235,15 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		},
 	}, logger)
 
-	envSvc := agents.NewEnvironmentService(repo, repo, k8s, agents.EnvironmentServiceConfig{
+	sizes := environmentSizes(cfg)
+	if err := sizes.Validate(); err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
+	}
+	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,
+		Sizes:             sizes,
 	}, logger)
+	runSvc.SetEnvironments(repo, k8s, sizes)
 
 	draftSvc := agents.NewDraftService(repo, authz, agents.DraftServiceConfig{
 		ReaperInterval: cfg.Drafts.ReaperInterval(),
@@ -283,6 +289,17 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		catalogController,
 	)
 	return server, repo, atSvc, runSvc, draftSvc, nil
+}
+
+// environmentSizes converts the configured environment sizes.
+func environmentSizes(cfg *agentsConfig.Config) agents.EnvironmentSizes {
+	size := func(s agentsConfig.EnvironmentSize) agents.EnvironmentSize {
+		return agents.EnvironmentSize{CPU: s.CPU, Memory: s.Memory, Disk: s.Disk}
+	}
+	return agents.EnvironmentSizes{
+		Default: size(cfg.Agents.Environments.DefaultSize),
+		Max:     size(cfg.Agents.Environments.MaxSize),
+	}
 }
 
 // agentTypeSlugLister is the single repository method scope registration needs:
@@ -358,6 +375,7 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/environments/", Method: "GET", RequiredScope: "agents:environments:read"},
 		{PathPrefix: "/api/v1/environments/", Method: "PUT", RequiredScope: "agents:environments:write"},
 		{PathPrefix: "/api/v1/environments/", Method: "DELETE", RequiredScope: "agents:environments:write"},
+		{PathPrefix: "/api/v1/sandbox-images", Method: "GET", RequiredScope: "agents:environments:read"},
 		// Starting a run is authenticated-only at the route layer, on the same
 		// reasoning as the agent-type writes above: the scope that governs it is
 		// per-agent (agents:runs:{slug}:write), and the slug comes from the agent
@@ -398,8 +416,8 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 		{Scope: "agents:runs:write", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "write", Description: "Start, message, and terminate runs"},
 		{Scope: "agents:usage:read", ResourceType: "agents", PathSegments: []string{"usage"}, Action: "read", Description: "View every agent's usage, spend and budgets (prefix-covers the per-agent usage scopes)"},
 		{Scope: "agents:delegated:read", ResourceType: "agents", PathSegments: []string{"delegated"}, Action: "read", Description: "View the runs of delegated agents that other people started, with their messages, events and outputs"},
-		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list connectivity environments"},
-		{Scope: "agents:environments:write", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "write", Description: "Create, edit, and delete connectivity environments"},
+		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list sandbox environments and the registered sandbox images"},
+		{Scope: "agents:environments:write", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "write", Description: "Create, edit, and delete sandbox environments"},
 	}
 	for _, slug := range slugs {
 		decls = append(decls,

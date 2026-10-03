@@ -68,8 +68,8 @@ func applyLandlock(workDir string) {
 	// turn an image without /sbin into a failed run.
 	rules := []landlock.Rule{landlock.RWDirs(workDir)}
 	// /tmp is left out: the pod's /tmp is shared by every run on the pod, so the
-	// agent writes only to the shared volume. Its TMPDIR is runfs.TmpDir.
-	if rw := existing(true, runfs.TmpDir(workDir), "/dev"); len(rw) > 0 {
+	// agent writes only to the shared volume: TMPDIR is runfs.TmpDir and caches are under runfs.LocalDir.
+	if rw := existing(true, runfs.TmpDir(workDir), runfs.LocalDir(workDir), "/dev"); len(rw) > 0 {
 		rules = append(rules, landlock.RWDirs(rw...))
 	}
 	// The run's config dir holds platform-written files the agent reads but must not change.

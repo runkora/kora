@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -42,6 +43,8 @@ import (
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/ports"
+	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var k8sTracer = otel.Tracer("orbit.agents.k8s")
@@ -67,8 +70,12 @@ var authorizationPolicyGVR = schema.GroupVersionResource{
 // be derived from the agent type or run model.
 type K8sProvisionerConfig struct {
 	SessionManagerImage string
-	SandboxImage        string
-	SandboxGRPCPort     int32
+	// SandboxImage is the base image reference. Rendered previews use it; a
+	// live sandbox runs the digest the operator pinned on its SandboxImage.
+	SandboxImage string
+	// DefaultSandboxSize sizes the built-in default environment and rendered previews.
+	DefaultSandboxSize EnvironmentSize
+	SandboxGRPCPort    int32
 	// GitAuthorName/GitAuthorEmail set the git identity for commits the agent
 	// makes in the sandbox (GIT_AUTHOR_*/GIT_COMMITTER_*). Empty = leave unset.
 	GitAuthorName  string
@@ -386,7 +393,30 @@ type Sandbox struct {
 	// CanaryHost is a host the agent may reach, which the session-manager probes
 	// before handing the sandbox over. Empty skips the probe.
 	CanaryHost string `json:"canary_host,omitempty"`
+	// Created is true when this call started the pod, false when it reused a live one.
+	Created bool `json:"-"`
 }
+
+// SandboxSpec is what the run's environment decides about its sandbox pod.
+type SandboxSpec struct {
+	// EnvironmentID is empty for the built-in default environment.
+	EnvironmentID string
+	Environment   string
+	// Image is pinned by digest, so the node's cached copy is the right one.
+	Image        string
+	PullSecret   string
+	Size         EnvironmentSize
+	KubeClusters []kubeconfig.Cluster
+}
+
+// Sandbox pod annotations naming its environment.
+const (
+	annotationEnvironment   = "orbit.io/environment"
+	annotationEnvironmentID = "orbit.io/environment-id"
+)
+
+// errSandboxEnvironmentMismatch reports a live sandbox in another environment than the one requested.
+var errSandboxEnvironmentMismatch = errors.New("the run's sandbox runs in another environment")
 
 // ProvisionSandbox creates a sandbox pod for the given run and waits for it to
 // be Ready. Returns where to reach its exec server ("podIP:port") and the
@@ -401,7 +431,7 @@ type Sandbox struct {
 // mount is scoped with SubPath: run.ID (see sandboxContainer); this run's
 // sandbox pod only ever has its own {runID} directory mounted, never a
 // sibling run's. See https://github.com/clear-route/orbit/issues/134.
-func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (Sandbox, error) {
+func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error) {
 	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionSandbox",
 		trace.WithAttributes(
 			attribute.String("run_id", run.ID),
@@ -418,7 +448,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		return Sandbox{}, fmt.Errorf("mint sandbox exec token: %w", err)
 	}
 
-	pod := p.buildSandboxPod(run, agentTypeSlug, namespace, kubeClusters, token)
+	pod := p.buildSandboxPod(run, agentTypeSlug, namespace, spec, token)
 	podName := pod.Name
 	// Owner reference on the parent StatefulSet: sandbox pods share its
 	// workspace PVC via subPath, so their lifecycle is bound to it. Deleting
@@ -437,6 +467,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	}
 
 	_, err = p.client.CoreV1().Pods(namespace).Create(ctx, &podVal, metav1.CreateOptions{})
+	created := err == nil
 	switch {
 	case err == nil:
 		p.logger.Info(ctx, "Sandbox pod created, waiting for ready",
@@ -452,6 +483,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 			span.SetStatus(codes.Error, "replace dead sandbox pod")
 			return Sandbox{}, repErr
 		}
+		created = replaced
 		p.logger.Info(ctx, "Sandbox pod already exists",
 			logging.Field{Key: "run_id", Value: run.ID},
 			logging.Field{Key: "pod", Value: podName},
@@ -485,7 +517,11 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		logging.Field{Key: "pod", Value: podName},
 		logging.Field{Key: "endpoint", Value: endpoint},
 	)
-	return Sandbox{Endpoint: endpoint, ExecToken: liveToken}, nil
+	if ready.Annotations[annotationEnvironmentID] != spec.EnvironmentID {
+		span.SetStatus(codes.Error, errSandboxEnvironmentMismatch.Error())
+		return Sandbox{}, errSandboxEnvironmentMismatch
+	}
+	return Sandbox{Endpoint: endpoint, ExecToken: liveToken, Created: created}, nil
 }
 
 // errSandboxUnusable reports a sandbox pod that exists but cannot serve the
@@ -568,7 +604,7 @@ func sandboxExecTokenOf(pod *corev1.Pod) string {
 
 // buildSandboxPod renders the sandbox pod for a run before manifest patches
 // are applied.
-func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster, execToken string) *corev1.Pod {
+func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, spec SandboxSpec, execToken string) *corev1.Pod {
 	podName := fmt.Sprintf("sandbox-%s", run.ID)
 	// PVC name follows StatefulSet volumeClaimTemplate convention:
 	// {volumeName}-{statefulSetName}-{ordinal}
@@ -619,6 +655,13 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		// pull alone can take ~50s on a cold node). Same wiring the
 		// session-manager StatefulSet pod uses.
 		"proxy.istio.io/config": sidecarProxyConfig,
+		annotationEnvironment:   spec.Environment,
+		annotationEnvironmentID: spec.EnvironmentID,
+	}
+
+	pullSecrets := slices.Clone(p.cfg.ImagePullSecrets)
+	if spec.PullSecret != "" && !slices.Contains(pullSecrets, spec.PullSecret) {
+		pullSecrets = append(pullSecrets, spec.PullSecret)
 	}
 
 	pod := &corev1.Pod{
@@ -635,10 +678,10 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 			AutomountServiceAccountToken: new(false),
 			// Service links would list every Service in the tenant namespace in each command's environment.
 			EnableServiceLinks: new(false),
-			ImagePullSecrets:   imagePullSecretRefs(p.cfg.ImagePullSecrets),
+			ImagePullSecrets:   imagePullSecretRefs(pullSecrets),
 			SecurityContext:    restrictedPodSecurityContext(),
-			Volumes:            sandboxVolumes(workspacesPVC, p.cfg),
-			Containers:         []corev1.Container{sandboxContainer(p.cfg, kubeClusters, run.ID, execToken)},
+			Volumes:            sandboxVolumes(workspacesPVC, p.cfg, spec.Size),
+			Containers:         []corev1.Container{sandboxContainer(p.cfg, spec, run.ID, execToken)},
 		},
 	}
 
@@ -913,7 +956,7 @@ const tenantCAVolumeName = "orbit-tenant-ca"
 // The CA Secret (orbit-tenant-ca) is created by the operator's
 // ensureTenantCA step in the same tenant namespace as the sandbox pod, so
 // no cross-namespace projection is needed.
-func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Volume {
+func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig, size EnvironmentSize) []corev1.Volume {
 	vols := []corev1.Volume{
 		{
 			Name: "workspaces",
@@ -925,6 +968,9 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig) []corev1.Vol
 		},
 		scratchVolume(scratchVarTmpVolume, "256Mi"),
 		scratchVolume(scratchHomeVolume, "64Mi"),
+	}
+	if size.Disk != "" {
+		vols = append(vols, scratchVolume(localDiskVolume, size.Disk))
 	}
 	if egressGatewayURL(cfg) == "" {
 		return vols
@@ -957,6 +1003,8 @@ const (
 	scratchTmpVolume    = "scratch-tmp"
 	scratchVarTmpVolume = "scratch-var-tmp"
 	scratchHomeVolume   = "scratch-home"
+	// localDiskVolume holds the run's build caches and tool installs on the node's disk.
+	localDiskVolume = "local-disk"
 )
 
 // imageHomeDir is the orbit user's home in both images, used by tools that read it from passwd.
@@ -997,7 +1045,7 @@ func runWorkspaceDir(runID string) string {
 // sibling runs co-located on the same pod ordinal share the underlying PVC
 // but are not mounted into each other's sandbox pods at all. See
 // https://github.com/clear-route/orbit/issues/134.
-func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluster, runID, execToken string) corev1.Container {
+func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execToken string) corev1.Container {
 	workspaceDir := runWorkspaceDir(runID)
 	tmpSubPath, _ := filepath.Rel(workspacesRoot, runfs.TmpDir(workspaceDir))
 	mounts := []corev1.VolumeMount{
@@ -1008,6 +1056,10 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		// Writable paths outside the workspace under a read-only root, for tools that ignore HOME and TMPDIR.
 		{Name: scratchVarTmpVolume, MountPath: "/var/tmp"},
 		{Name: scratchHomeVolume, MountPath: imageHomeDir},
+	}
+	if spec.Size.Disk != "" {
+		// At the path the agent pod uses on the shared volume, so both resolve the same caches.
+		mounts = append(mounts, corev1.VolumeMount{Name: localDiskVolume, MountPath: runfs.LocalDir(workspaceDir)})
 	}
 	if egressGatewayURL(cfg) != "" {
 		mounts = append(mounts,
@@ -1031,13 +1083,11 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 	}
 	return corev1.Container{
 		Name:  sandboxContainerName,
-		Image: cfg.SandboxImage,
+		Image: spec.Image,
 		// Set explicitly: a sandbox image built on the base image may change CMD.
 		Command: []string{sandboxExecCommand},
-		// Always so a freshly built :latest image (new toolchain/versions) reaches
-		// new sandboxes; PullIfNotPresent would keep serving the node's cached
-		// image. The digest check short-circuits when the image is already cached.
-		ImagePullPolicy: corev1.PullAlways,
+		// The image is pinned by digest, so a cached copy is the right one.
+		ImagePullPolicy: corev1.PullIfNotPresent,
 		Ports: []corev1.ContainerPort{
 			{Name: "grpc", ContainerPort: cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
 		},
@@ -1049,7 +1099,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 		// gateway.md, Amendment 2). Combined with the pod's RunAsNonRoot, the
 		// agent has no path back to the network layer Envoy controls.
 		SecurityContext: restrictedContainerSecurityContext(),
-		Env:             sandboxContainerEnv(cfg, kubeClusters, workspaceDir, execToken),
+		Env:             sandboxContainerEnv(cfg, spec.KubeClusters, workspaceDir, execToken),
 		VolumeMounts:    mounts,
 		WorkingDir:      workspaceDir,
 		ReadinessProbe: &corev1.Probe{
@@ -1061,18 +1111,32 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 			InitialDelaySeconds: 2,
 			PeriodSeconds:       3,
 		},
-		Resources: corev1.ResourceRequirements{
-			Requests: corev1.ResourceList{
-				corev1.ResourceCPU:              resource.MustParse("100m"),
-				corev1.ResourceMemory:           resource.MustParse("256Mi"),
-				corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
-			},
-			Limits: corev1.ResourceList{
-				corev1.ResourceCPU:              resource.MustParse("2"),
-				corev1.ResourceMemory:           resource.MustParse("4Gi"),
-				corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralLimit),
-			},
+		Resources: sandboxResources(spec.Size),
+	}
+}
+
+// sandboxResources limits the sandbox to its environment's size. The local disk
+// counts toward the pod's ephemeral storage, so its limit carries the disk too.
+func sandboxResources(size EnvironmentSize) corev1.ResourceRequirements {
+	ephemeral := resource.MustParse(appEphemeralLimit)
+	limits := corev1.ResourceList{}
+	if q, err := resource.ParseQuantity(size.CPU); err == nil {
+		limits[corev1.ResourceCPU] = q
+	}
+	if q, err := resource.ParseQuantity(size.Memory); err == nil {
+		limits[corev1.ResourceMemory] = q
+	}
+	if q, err := resource.ParseQuantity(size.Disk); err == nil {
+		ephemeral.Add(q)
+	}
+	limits[corev1.ResourceEphemeralStorage] = ephemeral
+	return corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{
+			corev1.ResourceCPU:              resource.MustParse("100m"),
+			corev1.ResourceMemory:           resource.MustParse("256Mi"),
+			corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
 		},
+		Limits: limits,
 	}
 }
 
@@ -1991,4 +2055,37 @@ func ignoreNotFound(err error) error {
 		return nil
 	}
 	return err
+}
+
+// SandboxImage reads a SandboxImage in a tenant namespace. ErrNotFound when there is none.
+func (p *K8sProvisioner) SandboxImage(ctx context.Context, namespace, name string) (*si.SandboxImage, error) {
+	u, err := p.dynamicClient.Resource(si.Resource).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get SandboxImage %s/%s: %w", namespace, name, err)
+	}
+	img := &si.SandboxImage{}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, img); err != nil {
+		return nil, fmt.Errorf("decode SandboxImage %s/%s: %w", namespace, name, err)
+	}
+	return img, nil
+}
+
+// SandboxImages lists the SandboxImages in a tenant namespace.
+func (p *K8sProvisioner) SandboxImages(ctx context.Context, namespace string) ([]si.SandboxImage, error) {
+	list, err := p.dynamicClient.Resource(si.Resource).Namespace(namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil, fmt.Errorf("list SandboxImages in %s: %w", namespace, err)
+	}
+	out := make([]si.SandboxImage, 0, len(list.Items))
+	for _, u := range list.Items {
+		var img si.SandboxImage
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(u.Object, &img); err != nil {
+			return nil, fmt.Errorf("decode SandboxImage %s/%s: %w", namespace, u.GetName(), err)
+		}
+		out = append(out, img)
+	}
+	return out, nil
 }

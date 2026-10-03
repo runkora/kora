@@ -365,7 +365,7 @@ type Sandbox struct {
 // answer or the wait runs out. An agent with no named host skips the probe. This eliminates the first-minute window where
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
-func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (string, error) {
+func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string) (string, error) {
 	// Only runs this pod hosts: loopback tells the /internal routes that the
 	// caller is in this pod, not which run it belongs to.
 	reg.mu.RLock()
@@ -379,11 +379,8 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	s.provisionMu.Lock()
 	defer s.provisionMu.Unlock()
 
-	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
-	if !pathsOK {
-		return "", fmt.Errorf("run id %q is not a single path segment", runID)
-	}
-	if disk, ok := reg.sandboxFromDisk(runID); ok {
+	// A named environment always asks orbit-agents, which refuses a switch.
+	if disk, ok := reg.sandboxFromDisk(runID); ok && environment == "" {
 		cached, token := disk.Endpoint, disk.ExecToken
 		if endpointAlive(cached) {
 			reg.logger.Info(ctx, "Sandbox endpoint cache hit",
@@ -401,15 +398,72 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 
 	started := time.Now()
 	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
-	sandbox, err := reg.provision(ctx, s, ahead)
+	sandbox, err := reg.provision(ctx, s, ahead, environment)
 	if err != nil {
-		// The error names in-cluster addresses; the event is readable by anyone
-		// who can read the run, so it carries a fixed message and the log the rest.
-		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "sandbox provisioning failed")
+		reg.sandboxFailed(ctx, runID, started, err)
 		return "", err
 	}
+	return reg.handOver(ctx, runID, sandbox, started)
+}
+
+// ReplaceEnvironment replaces the run's sandbox with one in another of its
+// agent's environments, then hands the new sandbox over like a provision.
+func (reg *Registry) ReplaceEnvironment(ctx context.Context, runID, environment string) (string, error) {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return "", ErrSessionNotFound
+	}
+	s.provisionMu.Lock()
+	defer s.provisionMu.Unlock()
+	if s.sandboxLost.Load() {
+		return "", ErrSandboxLost
+	}
+
+	started := time.Now()
+	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
+	sandbox, err := reg.notifier.ReplaceEnvironment(ctx, runID, environment)
+	if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
+		err = ErrSandboxIncomplete
+	}
+	if err != nil {
+		reg.sandboxFailed(ctx, runID, started, err)
+		return "", err
+	}
+	return reg.handOver(ctx, runID, sandbox, started)
+}
+
+// ListEnvironments lists the environments the run's agent may use, as orbit-agents reports them.
+func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
+	reg.mu.RLock()
+	_, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+	return reg.notifier.ListEnvironments(ctx, runID)
+}
+
+// sandboxFailed records a failed provision. The error names in-cluster
+// addresses and the event is readable by anyone who can read the run, so the
+// event carries a fixed message. A refused environment choice is the agent's to read.
+func (reg *Registry) sandboxFailed(ctx context.Context, runID string, started time.Time, err error) {
+	msg := "sandbox provisioning failed"
+	if errors.Is(err, ErrEnvironmentRejected) {
+		msg = err.Error()
+	}
+	reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg)
+}
+
+// handOver gates a new sandbox on egress readiness, then writes its descriptor
+// for orbit-shell and records it on the session.
+func (reg *Registry) handOver(ctx context.Context, runID string, sandbox Sandbox, started time.Time) (string, error) {
+	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
+	if !pathsOK {
+		return "", fmt.Errorf("run id %q is not a single path segment", runID)
+	}
 	reg.sandboxStatus(ctx, runID, SandboxPhasePodReady, started, "")
-	endpoint := sandbox.Endpoint
 
 	// Gate on egress readiness before handing the endpoint to the agent.
 	// The sandbox pod is Running (gRPC exec accepting connections) but the
@@ -441,7 +495,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	// on a success phase for a provision that failed.
 	reg.sandboxStatus(ctx, runID, egressPhase, started, egressNote)
 	reg.rememberSandbox(runID, sandbox)
-	return endpoint, nil
+	return sandbox.Endpoint, nil
 }
 
 // writeSandboxDescriptor writes the exec token, then the endpoint: orbit-shell
@@ -479,9 +533,9 @@ func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, sta
 //
 // The retries outlive the caller: Claude Code kills a Bash call after its own
 // timeout, and the outcome must still be recorded.
-func (reg *Registry) provision(ctx context.Context, s *session, ahead bool) (Sandbox, error) {
+func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, environment string) (Sandbox, error) {
 	if ahead {
-		sandbox, err := reg.notifier.ProvisionSandbox(ctx, s.runID, true)
+		sandbox, err := reg.notifier.ProvisionSandbox(ctx, s.runID, true, environment)
 		if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
 			err = ErrSandboxIncomplete
 		}
@@ -495,12 +549,13 @@ func (reg *Registry) provision(ctx context.Context, s *session, ahead bool) (San
 	if runCtx == nil {
 		runCtx = context.Background()
 	}
-	sandbox, attempts, err := reg.provisionWithRetry(runCtx, s)
+	sandbox, attempts, err := reg.provisionWithRetry(runCtx, s, environment)
 	if err == nil {
 		return sandbox, nil
 	}
-	// A closed or replaced session is not evidence the sandbox is gone.
-	if runCtx.Err() != nil {
+	// A closed or replaced session is not evidence the sandbox is gone, and a
+	// refused environment choice leaves the sandbox as it was.
+	if runCtx.Err() != nil || errors.Is(err, ErrEnvironmentRejected) {
 		return Sandbox{}, err
 	}
 	if !reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts, epoch) {

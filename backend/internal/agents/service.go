@@ -7,8 +7,6 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 )
 
 // agentsTracer is the package-level OpenTelemetry tracer used by both services.
@@ -23,7 +21,7 @@ type k8sProvisioner interface {
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
-	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, kubeClusters []kubeconfig.Cluster) (Sandbox, error)
+	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
 	DeleteSandbox(ctx context.Context, runID, namespace string) error
 }
@@ -65,11 +63,11 @@ type CreateAgentTypeRequest struct {
 	Connectors   []Connector   `json:"connectors"`
 	// MCPTools are the governed MCP tools this agent may call (mcp:<server>:<tool>:use).
 	MCPTools []string `json:"mcp_tools"`
-	// EnvironmentID references a tenant Environment to merge into the grant.
-	// Blank/omitted = none.
-	EnvironmentID           *string `json:"environment_id"`
-	MaxConcurrentRunsPerPod int     `json:"max_concurrent_runs_per_pod"`
-	ModelID                 *string `json:"model_id"`
+	// Environments attaches environments; one is the default. Omitted means the
+	// built-in default environment.
+	Environments            []AgentEnvironment `json:"environments"`
+	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
+	ModelID                 *string            `json:"model_id"`
 	// Guardrails sets loop-guard thresholds; omitted fields take the defaults.
 	Guardrails *Guardrails `json:"guardrails"`
 	// Budget is applied to the agent's policy grant (nil = no budget).
@@ -96,9 +94,9 @@ type UpdateAgentTypeRequest struct {
 	// MCPTools replaces the governed MCP tool grants. nil = unchanged; an empty
 	// slice clears all MCP tool access.
 	MCPTools []string `json:"mcp_tools"`
-	// EnvironmentID changes the referenced environment. nil = unchanged; a
-	// pointer to "" detaches (no environment); a pointer to an id sets it.
-	EnvironmentID *string `json:"environment_id"`
+	// Environments replaces the attached environments. nil = unchanged; an
+	// empty list leaves the built-in default.
+	Environments *[]AgentEnvironment `json:"environments"`
 	// IdentityMode is accepted only to be validated: the identity model is
 	// immutable after creation, so any value other than the current one is
 	// rejected with ErrIdentityModeImmutable. nil/empty = untouched.
@@ -132,7 +130,7 @@ type StartRunRequest struct {
 // EffectiveAccessPreviewRequest is a draft connectivity config resolved without
 // persisting — backs the live "Effective access" preview as the user edits.
 type EffectiveAccessPreviewRequest struct {
-	Connectivity  Connectivity `json:"connectivity"`
-	Connectors    []Connector  `json:"connectors"`
-	EnvironmentID *string      `json:"environment_id"`
+	Connectivity Connectivity       `json:"connectivity"`
+	Connectors   []Connector        `json:"connectors"`
+	Environments []AgentEnvironment `json:"environments"`
 }

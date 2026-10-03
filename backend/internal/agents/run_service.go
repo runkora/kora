@@ -48,6 +48,9 @@ type RunService struct {
 	logger     logging.Logger
 	resolver   *ScopeResolver    // resolves the runtime-environment brief; nil = no brief
 	delegation *DelegationBroker // mints/revokes run delegations; nil = issuer not wired (delegated runs fail closed)
+	envs       environmentLookup // the agent's environments; nil = the built-in default only
+	images     sandboxImageLookup
+	sizes      EnvironmentSizes
 }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
@@ -788,31 +791,28 @@ var ErrKubeconfigNotReady = errors.New("kubeconfig not resolved for sandbox pre-
 // request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
 // the exec token that sandbox requires.
 //
+// environment names one of the agent's environments. Empty keeps the run's
+// current environment, or the agent's default before the first sandbox.
+//
 // ahead marks a pre-provision, which exists to spare the first command the
 // pod's cold start. It refuses while the connection registry is loading, since
 // the pod would keep an empty kubeconfig for the rest of the run. An on-demand
 // request provisions either way: no kubeconfig beats no sandbox.
-func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
+func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string) (Sandbox, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
 		trace.WithAttributes(
 			attribute.String("run_id", runID),
 			attribute.Bool("ahead", ahead),
+			attribute.String("environment", environment),
 		),
 	)
 	defer span.End()
 
-	run, err := s.repo.GetRun(ctx, runID)
+	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "get run")
 		return Sandbox{}, err
-	}
-
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return Sandbox{}, fmt.Errorf("get agent type: %w", err)
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
@@ -826,11 +826,37 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		return Sandbox{}, ErrKubeconfigNotReady
 	}
 
-	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, kubeClusters)
+	envs, err := s.agentEnvironments(ctx, *at)
+	if err != nil {
+		return Sandbox{}, err
+	}
+	env, err := pickEnvironment(envs, strings.TrimSpace(environment), run.EnvironmentID)
+	if err != nil {
+		return Sandbox{}, err
+	}
+	if env.ID != currentEnvironmentID(*run) {
+		_, alive, lookupErr := s.k8s.LookupSandbox(ctx, runID, namespace)
+		if lookupErr != nil {
+			return Sandbox{}, lookupErr
+		}
+		if alive {
+			return Sandbox{}, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name)
+		}
+	}
+	spec, err := s.sandboxSpec(ctx, namespace, env)
+	if err != nil {
+		return Sandbox{}, err
+	}
+	spec.KubeClusters = kubeClusters
+
+	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, spec)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "provision sandbox pod")
 		return Sandbox{}, fmt.Errorf("provision sandbox pod: %w", err)
+	}
+	if sandbox.Created {
+		s.recordSandboxEnvironment(ctx, runID, "start", spec)
 	}
 
 	sandbox.CanaryHost = s.egressCanaryHost(ctx, *at)
@@ -839,6 +865,7 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	s.logger.Info(ctx, "Sandbox provisioned",
 		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "tenant_id", Value: run.TenantID},
+		logging.Field{Key: "environment", Value: env.Name},
 		logging.Field{Key: "endpoint", Value: sandbox.Endpoint},
 	)
 	return sandbox, nil

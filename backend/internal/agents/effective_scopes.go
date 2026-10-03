@@ -30,8 +30,7 @@ type connectionResolver interface {
 //
 //   - the agent's own scopes — capability GrantScopes, its connectivity posture
 //     (egress:<host>:connect), and its connector scopes (connection:<name>:<action>);
-//   - the contribution of the referenced environment — its egress hosts and its
-//     connectors;
+//   - the union of every attached environment's egress hosts and connectors;
 //   - connector auto-egress — for every connector (own and environment), the
 //     egress hosts the connection's adapter declares, so granting a connector
 //     auto-allows reaching exactly that connection's hosts.
@@ -64,20 +63,16 @@ func (r *ScopeResolver) EffectiveScopes(ctx context.Context, at AgentType) ([]st
 	// + own connector scopes).
 	scopes := at.EffectiveGrantScopes()
 
-	// Merge the referenced environment, if any.
-	connectors := at.Connectors
-	if at.EnvironmentID != nil && strings.TrimSpace(*at.EnvironmentID) != "" && r.envs != nil {
-		env, err := r.envs.GetEnvironment(ctx, at.TenantID, *at.EnvironmentID)
-		switch {
-		case err == nil && env != nil:
-			scopes = append(scopes, env.EgressScopes()...)
-			scopes = append(scopes, AgentType{Connectors: env.Connectors}.ConnectorScopes()...)
-			connectors = append(append([]Connector{}, at.Connectors...), env.Connectors...)
-		case errors.Is(err, ErrNotFound):
-			// tolerated — the agent simply loses the environment's contribution
-		default:
-			return nil, fmt.Errorf("resolve environment %q: %w", *at.EnvironmentID, err)
-		}
+	// The union of every attached environment.
+	envs, err := r.attachedEnvironments(ctx, at)
+	if err != nil {
+		return nil, err
+	}
+	connectors := append([]Connector{}, at.Connectors...)
+	for _, env := range envs {
+		scopes = append(scopes, env.EgressScopes()...)
+		scopes = append(scopes, AgentType{Connectors: env.Connectors}.ConnectorScopes()...)
+		connectors = append(connectors, env.Connectors...)
 	}
 
 	// Connector auto-egress: each connector's adapter declares the hosts its
@@ -117,6 +112,26 @@ func (r *ScopeResolver) EffectiveScopes(ctx context.Context, at AgentType) ([]st
 	return dedupeScopes(scopes), nil
 }
 
+// attachedEnvironments loads the agent's environments. One deleted since it was
+// attached is skipped: the agent loses its contribution rather than its grant.
+func (r *ScopeResolver) attachedEnvironments(ctx context.Context, at AgentType) ([]Environment, error) {
+	if r.envs == nil {
+		return nil, nil
+	}
+	out := make([]Environment, 0, len(at.Environments))
+	for _, ae := range at.Environments {
+		env, err := r.envs.GetEnvironment(ctx, at.TenantID, ae.EnvironmentID)
+		switch {
+		case err == nil:
+			out = append(out, *env)
+		case errors.Is(err, ErrNotFound):
+		default:
+			return nil, fmt.Errorf("resolve environment %q: %w", ae.EnvironmentID, err)
+		}
+	}
+	return out, nil
+}
+
 // hasAction reports whether the connector grants at least one non-empty action
 // — baselines apply only to attachments that actually grant something.
 func hasAction(c Connector) bool {
@@ -151,16 +166,22 @@ type ConnectorEgress struct {
 	Hosts      []string `json:"hosts"`
 }
 
+// EnvironmentAccess is what one attached environment contributes.
+type EnvironmentAccess struct {
+	ID    string   `json:"id"`
+	Name  string   `json:"name"`
+	Hosts []string `json:"hosts"`
+}
+
 // EffectiveAccess is the resolved, human-facing view of everything an agent type
-// can reach: its own egress posture, the environment it references, the egress
-// each connector auto-brings, and the deduplicated union. It is the read model
-// behind the "Effective access" panel — the same inputs the grant resolver uses,
-// surfaced for legibility so "what can this agent reach" is answerable at a glance.
+// can reach: its own egress posture, its environments, the egress each
+// connector auto-brings, and the deduplicated union. It is the read model
+// behind the "Effective access" panel; the same inputs the grant resolver uses.
 type EffectiveAccess struct {
-	Open             bool              `json:"open"` // open egress — any host
-	OwnHosts         []string          `json:"own_hosts"`
-	EnvironmentID    string            `json:"environment_id,omitempty"`
-	EnvironmentName  string            `json:"environment_name,omitempty"`
+	Open         bool                `json:"open"` // open egress: any host
+	OwnHosts     []string            `json:"own_hosts"`
+	Environments []EnvironmentAccess `json:"environments"`
+	// EnvironmentHosts is the union of every environment's hosts.
 	EnvironmentHosts []string          `json:"environment_hosts"`
 	ConnectorEgress  []ConnectorEgress `json:"connector_egress"`
 	Connectors       []Connector       `json:"connectors"` // effective connectors (own + environment)
@@ -168,13 +189,13 @@ type EffectiveAccess struct {
 }
 
 // EffectiveAccess resolves the full, human-facing access view for at. It mirrors
-// EffectiveScopes' merge logic but returns a structured, per-layer breakdown
-// rather than scope strings. A missing environment or unregistered connection is
-// tolerated (its contribution is simply omitted).
+// EffectiveScopes' merge logic but returns a per-layer breakdown rather than
+// scope strings. A missing environment or unregistered connection contributes nothing.
 func (r *ScopeResolver) EffectiveAccess(ctx context.Context, at AgentType) (*EffectiveAccess, error) {
 	ea := &EffectiveAccess{
 		Open:             at.Connectivity.Mode == ConnectivityOpen,
 		OwnHosts:         []string{},
+		Environments:     []EnvironmentAccess{},
 		EnvironmentHosts: []string{},
 		ConnectorEgress:  []ConnectorEgress{},
 		Connectors:       []Connector{},
@@ -184,21 +205,19 @@ func (r *ScopeResolver) EffectiveAccess(ctx context.Context, at AgentType) (*Eff
 		ea.OwnHosts = trimNonEmpty(at.Connectivity.Hosts)
 	}
 
-	connectors := append([]Connector{}, at.Connectors...)
-	if at.EnvironmentID != nil && strings.TrimSpace(*at.EnvironmentID) != "" && r.envs != nil {
-		env, err := r.envs.GetEnvironment(ctx, at.TenantID, *at.EnvironmentID)
-		switch {
-		case err == nil && env != nil:
-			ea.EnvironmentID = env.ID
-			ea.EnvironmentName = env.Name
-			ea.EnvironmentHosts = trimNonEmpty(env.EgressHosts)
-			connectors = append(connectors, env.Connectors...)
-		case errors.Is(err, ErrNotFound):
-			// tolerated — the environment was deleted or the reference is stale
-		default:
-			return nil, fmt.Errorf("resolve environment %q: %w", *at.EnvironmentID, err)
-		}
+	envs, err := r.attachedEnvironments(ctx, at)
+	if err != nil {
+		return nil, err
 	}
+	connectors := append([]Connector{}, at.Connectors...)
+	var envHosts []string
+	for _, env := range envs {
+		hosts := trimNonEmpty(env.EgressHosts)
+		ea.Environments = append(ea.Environments, EnvironmentAccess{ID: env.ID, Name: env.Name, Hosts: hosts})
+		envHosts = append(envHosts, hosts...)
+		connectors = append(connectors, env.Connectors...)
+	}
+	ea.EnvironmentHosts = unionHosts(envHosts, nil, nil)
 	// Merge by connection name (own + environment) so a connection attached at
 	// both layers appears once, with the union of its actions.
 	ea.Connectors = mergeConnectors(connectors)

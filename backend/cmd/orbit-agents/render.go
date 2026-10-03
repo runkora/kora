@@ -54,6 +54,7 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		Workspace:           workloads.Workspace,
 		SessionManagerImage: cfg.Agents.SessionManagerImage,
 		SandboxImage:        cfg.Agents.SandboxImage,
+		DefaultSandboxSize:  environmentSizes(cfg).Default,
 		// Not configurable: the operator's ingress NetworkPolicy admits this port,
 		// and a pod on a different one would be unreachable.
 		SandboxGRPCPort:            ports.SandboxExecGRPC,

@@ -69,19 +69,37 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	if mErr != nil {
 		return fmt.Errorf("marshal connectors: %w", mErr)
 	}
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO agent_types
-			(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode, guardrails)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18,$19::jsonb)`,
-		at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
-		at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID, string(at.IdentityMode.OrDefault()),
-		guardrailsColumn(at.Guardrails),
-	)
-	if err != nil {
-		if isUniqueViolation(err) {
-			return ErrSlugTaken
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO agent_types
+				(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18::jsonb)`,
+			at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
+			at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, string(at.IdentityMode.OrDefault()),
+			guardrailsColumn(at.Guardrails),
+		)
+		if err != nil {
+			if isUniqueViolation(err) {
+				return ErrSlugTaken
+			}
+			return fmt.Errorf("insert agent_type: %w", err)
 		}
-		return fmt.Errorf("insert agent_type: %w", err)
+		return writeAgentEnvironments(ctx, tx, at.ID, at.Environments)
+	})
+}
+
+// writeAgentEnvironments replaces an agent's environment links.
+func writeAgentEnvironments(ctx context.Context, tx pgx.Tx, agentTypeID string, envs []AgentEnvironment) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM agent_environments WHERE agent_type_id=$1`, agentTypeID); err != nil {
+		return fmt.Errorf("clear agent environments: %w", err)
+	}
+	for _, e := range envs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO agent_environments (agent_type_id, environment_id, is_default) VALUES ($1,$2,$3)`,
+			agentTypeID, e.EnvironmentID, e.IsDefault,
+		); err != nil {
+			return fmt.Errorf("attach environment %q: %w", e.EnvironmentID, err)
+		}
 	}
 	return nil
 }
@@ -132,20 +150,22 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 	// identity_mode is deliberately absent from the SET list: it is immutable
 	// after creation (the service layer rejects changes; the storage layer never
 	// writes it on update).
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE agent_types
-		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, environment_id=$13, guardrails=$14::jsonb
-		WHERE id=$15`,
-		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID,
-		guardrailsColumn(at.Guardrails), at.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("update agent_type: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE agent_types
+			SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, guardrails=$13::jsonb
+			WHERE id=$14`,
+			at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools,
+			guardrailsColumn(at.Guardrails), at.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("update agent_type: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return writeAgentEnvironments(ctx, tx, at.ID, at.Environments)
+	})
 }
 
 func (r *PostgresRepository) SetAgentTypeState(ctx context.Context, id string, from, to AgentTypeState) error {
@@ -226,7 +246,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 // force-deletes its runs first, so the inner join never drops rows).
 const selectRun = `
 	SELECT r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
-	       r.trigger_id, r.trigger_name, r.delivery_id
+	       r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id
 	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
@@ -554,15 +574,18 @@ type scanner interface {
 // columns to scan destinations positionally and errors on a count mismatch, so
 // a query that drifts from the scanner fails on every row at runtime rather
 // than at compile time.
-const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode, guardrails`
+// The last column aggregates the agent's environment links, default first.
+const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails,
+	COALESCE((SELECT jsonb_agg(jsonb_build_object('environment_id', ae.environment_id, 'is_default', ae.is_default) ORDER BY ae.is_default DESC, ae.environment_id)
+		FROM agent_environments ae WHERE ae.agent_type_id = agent_types.id), '[]'::jsonb)`
 
 func scanAgentType(s scanner) (*AgentType, error) {
 	var at AgentType
 	var state, framework, identityMode string
-	var connectivityJSON, connectorsJSON, guardrailsJSON []byte
+	var connectivityJSON, connectorsJSON, guardrailsJSON, environmentsJSON []byte
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &at.EnvironmentID, &identityMode, &guardrailsJSON,
+		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &identityMode, &guardrailsJSON, &environmentsJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -588,6 +611,9 @@ func scanAgentType(s scanner) (*AgentType, error) {
 			return nil, fmt.Errorf("unmarshal connectors: %w", uErr)
 		}
 	}
+	if uErr := json.Unmarshal(environmentsJSON, &at.Environments); uErr != nil {
+		return nil, fmt.Errorf("unmarshal environments: %w", uErr)
+	}
 	return &at, nil
 }
 
@@ -599,7 +625,7 @@ func scanRun(s scanner) (*Run, error) {
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode,
-		&triggerID, &triggerName, &deliveryID,
+		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -620,6 +646,23 @@ func scanRun(s scanner) (*Run, error) {
 		}
 	}
 	return &r, nil
+}
+
+// SetRunEnvironment records the environment of the run's current sandbox. Nil is the built-in default.
+func (r *PostgresRepository) SetRunEnvironment(ctx context.Context, runID string, environmentID *string) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE runs SET environment_id=$1, updated_at=$2 WHERE id=$3`, environmentID, time.Now().UTC(), runID)
+	if err != nil {
+		return fmt.Errorf("set run environment: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func isForeignKeyViolation(err error) bool {
+	var pe interface{ SQLState() string }
+	return errors.As(err, &pe) && pe.SQLState() == "23503"
 }
 
 func isUniqueViolation(err error) bool {

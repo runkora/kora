@@ -186,6 +186,12 @@ type AgentBudget struct {
 	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
 }
 
+// AgentEnvironment attaches an environment to an agent.
+type AgentEnvironment struct {
+	EnvironmentID string `json:"environment_id"`
+	IsDefault     bool   `json:"is_default"`
+}
+
 // AgentType defines a category of managed agent within a tenant.
 // Each active AgentType has a corresponding StatefulSet in the tenant namespace.
 type AgentType struct {
@@ -207,11 +213,11 @@ type AgentType struct {
 	// backend composes into EffectiveGrantScopes (like Connectors); the coarse
 	// mcp:invoke gate is derived there, not stored.
 	MCPTools []string `json:"mcp_tools,omitempty"`
-	// EnvironmentID references a tenant Environment whose egress hosts and
-	// connectors are merged into this agent's effective grant. nil = no
-	// environment. See docs/adr/2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md.
-	EnvironmentID           *string `json:"environment_id,omitempty"`
-	MaxConcurrentRunsPerPod int     `json:"max_concurrent_runs_per_pod"`
+	// Environments are the sandboxes this agent may run in; one is the default.
+	// None means the built-in default environment. Their egress and connectors
+	// join the agent's grant. See docs/adr/2026-10-03-sandbox-environments.md.
+	Environments            []AgentEnvironment `json:"environments"`
+	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
 	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
 	Guardrails Guardrails     `json:"guardrails"`
 	State      AgentTypeState `json:"state"`
@@ -542,6 +548,9 @@ type Run struct {
 	// answer "why did this happen?" at all. See the ADR on extended trigger
 	// types, US-004.
 	StartedBy *StartedByTrigger `json:"started_by,omitempty"`
+	// EnvironmentID is the environment of the run's current sandbox. Nil for the
+	// built-in default and before the first sandbox.
+	EnvironmentID *string `json:"environment_id,omitempty"`
 }
 
 // StartedByTrigger is the run's backlink to the trigger and delivery that

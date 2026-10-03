@@ -85,6 +85,14 @@ spec:
               value: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) | quote }}
             - name: ORBIT_SANDBOX_IMAGE
               value: {{ include "orbit.sandboxBaseImage" . | quote }}
+            {{- range $kind, $size := dict "DEFAULT" .Values.agents.environments.defaultSize "MAX" .Values.agents.environments.maxSize }}
+            - name: ORBIT_ENVIRONMENT_{{ $kind }}_CPU
+              value: {{ $size.cpu | quote }}
+            - name: ORBIT_ENVIRONMENT_{{ $kind }}_MEMORY
+              value: {{ $size.memory | quote }}
+            - name: ORBIT_ENVIRONMENT_{{ $kind }}_DISK
+              value: {{ $size.disk | quote }}
+            {{- end }}
             {{- $guardrails := .Values.agents.guardrails }}
             {{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 320) }}
               {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 320" }}

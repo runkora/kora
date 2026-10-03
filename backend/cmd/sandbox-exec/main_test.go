@@ -69,7 +69,7 @@ func TestFilterEnv_AllowsSafeVariables(t *testing.T) {
 func TestSetRunHome_ScopesHomeUnderWorkspace(t *testing.T) {
 	workspace := t.TempDir()
 	t.Setenv("WORKSPACE", workspace)
-	for _, key := range []string{"TMPDIR", "NPM_CONFIG_PREFIX", "NPM_CONFIG_CACHE", "PYTHONUSERBASE", "PIP_BREAK_SYSTEM_PACKAGES", "PIP_CACHE_DIR", "GOPATH", "GOCACHE", "CARGO_HOME", "PATH"} {
+	for _, key := range []string{"TMPDIR", "NPM_CONFIG_PREFIX", "NPM_CONFIG_CACHE", "PYTHONUSERBASE", "PIP_BREAK_SYSTEM_PACKAGES", "PIP_CACHE_DIR", "GOPATH", "GOMODCACHE", "GOCACHE", "CARGO_HOME", "PATH"} {
 		t.Setenv(key, os.Getenv(key))
 	}
 	originalHome := os.Getenv("HOME")
@@ -90,8 +90,9 @@ func TestSetRunHome_ScopesHomeUnderWorkspace(t *testing.T) {
 	if got, want := os.Getenv("TMPDIR"), filepath.Join(filepath.Dir(workspace), ".tmp", filepath.Base(workspace)); got != want {
 		t.Errorf("TMPDIR = %q, want %q", got, want)
 	}
-	if got := os.Getenv("GOPATH"); got != filepath.Join(wantHome, "go") {
-		t.Errorf("GOPATH = %q, want it under the run home", got)
+	// Caches and installs go to the run's local dir, the sandbox's node-local volume.
+	if got, want := os.Getenv("GOCACHE"), filepath.Join(filepath.Dir(workspace), ".runlocal", filepath.Base(workspace), ".cache", "go-build"); got != want {
+		t.Errorf("GOCACHE = %q, want %q", got, want)
 	}
 }
 

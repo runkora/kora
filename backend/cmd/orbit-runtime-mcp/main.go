@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -140,6 +141,12 @@ func (s *mcpServer) handleInitialize(req jsonRPCRequest) jsonRPCResponse {
 	}
 }
 
+// environmentProperty is the optional or required environment argument.
+var environmentProperty = map[string]any{
+	"type":        "string",
+	"description": "Name of one of this agent's environments, from list_environments.",
+}
+
 func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
 	return jsonRPCResponse{
 		JSONRPC: "2.0",
@@ -147,12 +154,26 @@ func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
 		Result: map[string]any{
 			"tools": []map[string]any{
 				{
+					"name":        "list_environments",
+					"description": "Lists the environments a sandbox can run in for this session: each one's name, description, image and size, which is the default, and which one the current sandbox runs in. Call it to pick an environment before provision_sandbox or replace_environment.",
+					"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "required": []string{}},
+				},
+				{
 					"name":        "provision_sandbox",
-					"description": "Provisions a sandbox execution environment for this session. Call this before making any outbound network call (git clone, curl, npm install, pip install, etc.) or running build commands, compiling code, or starting servers. After this tool returns successfully, all Bash commands will execute inside the sandbox and outbound connections will work. Only call this when you actually need those capabilities — do not provision eagerly.\n\nIMPORTANT — working with git repositories after provisioning:\n- Never run `git init` if `git clone` fails. A locally initialized repo has no history in common with the remote and will produce an unmergeable orphan branch.\n- Retry `git clone` (with backoff) on transient failures such as connection reset by peer — these resolve once the sandbox egress path has fully settled.\n- Before branching, committing, or pushing, verify the clone is real: `git remote get-url origin` must succeed and the base branch must be fetchable. If it is not, retry the clone — do not proceed on a broken working copy.",
+					"description": "Provisions a sandbox execution environment for this session. Call this before making any outbound network call (git clone, curl, npm install, pip install, etc.) or running build commands, compiling code, or starting servers. After this tool returns successfully, all Bash commands will execute inside the sandbox and outbound connections will work. Only call this when you actually need those capabilities. Do not provision eagerly. Pass environment to choose one from list_environments; without it the sandbox uses the default environment. To switch a running sandbox to another environment, call replace_environment instead.\n\nIMPORTANT, working with git repositories after provisioning:\n- Never run `git init` if `git clone` fails. A locally initialized repo has no history in common with the remote and will produce an unmergeable orphan branch.\n- Retry `git clone` (with backoff) on transient failures such as connection reset by peer. These resolve once the sandbox egress path has fully settled.\n- Before branching, committing, or pushing, verify the clone is real: `git remote get-url origin` must succeed and the base branch must be fetchable. If it is not, retry the clone. Do not proceed on a broken working copy.",
 					"inputSchema": map[string]any{
 						"type":       "object",
-						"properties": map[string]any{},
+						"properties": map[string]any{"environment": environmentProperty},
 						"required":   []string{},
+					},
+				},
+				{
+					"name":        "replace_environment",
+					"description": "Replaces this session's sandbox with a new one in another environment from list_environments. Commands running in the old sandbox end. Files in the workspace stay. Build caches and tools installed in the old sandbox are lost.",
+					"inputSchema": map[string]any{
+						"type":       "object",
+						"properties": map[string]any{"environment": environmentProperty},
+						"required":   []string{"environment"},
 					},
 				},
 			},
@@ -162,64 +183,129 @@ func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
 
 func (s *mcpServer) handleToolsCall(req jsonRPCRequest) jsonRPCResponse {
 	var params struct {
-		Name string `json:"name"`
+		Name      string `json:"name"`
+		Arguments struct {
+			Environment string `json:"environment"`
+		} `json:"arguments"`
 	}
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		return errResponse(req.ID, -32602, "invalid params")
 	}
+	env := params.Arguments.Environment
 
+	var text string
+	var err error
 	switch params.Name {
+	case "list_environments":
+		text, err = s.listEnvironments()
 	case "provision_sandbox":
-		if err := s.provisionSandbox(); err != nil {
-			// A tool result with isError, not a JSON-RPC error: the model reads the
-			// text, which tells it what survived and what to do next.
-			return jsonRPCResponse{
-				JSONRPC: "2.0",
-				ID:      req.ID,
-				Result: map[string]any{
-					"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("provision_sandbox failed: %v", err)}},
-					"isError": true,
-				},
-			}
-		}
+		err = s.post("provision-sandbox", env)
+		text = "Sandbox provisioned. Bash commands will now execute in the sandbox environment."
+	case "replace_environment":
+		err = s.post("replace-environment", env)
+		text = fmt.Sprintf("Sandbox replaced. Bash commands now execute in the %s environment.", env)
+	default:
+		return errResponse(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
+	}
+	if err != nil {
+		// A tool result with isError, not a JSON-RPC error: the model reads the
+		// text, which tells it what survived and what to do next.
 		return jsonRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
 			Result: map[string]any{
-				"content": []map[string]any{
-					{"type": "text", "text": "Sandbox provisioned. Bash commands will now execute in the sandbox environment."},
-				},
+				"content": []map[string]any{{"type": "text", "text": fmt.Sprintf("%s failed: %v", params.Name, err)}},
+				"isError": true,
 			},
 		}
-	default:
-		return errResponse(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
+	}
+	return jsonRPCResponse{
+		JSONRPC: "2.0",
+		ID:      req.ID,
+		Result:  map[string]any{"content": []map[string]any{{"type": "text", "text": text}}},
 	}
 }
 
-func (s *mcpServer) provisionSandbox() error {
-	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", s.sessionManagerURL, s.runID)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, url, bytes.NewReader([]byte("{}")))
+// post sends a sandbox request for this run to the session-manager.
+func (s *mcpServer) post(action, environment string) error {
+	body, err := json.Marshal(map[string]string{"environment": environment})
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	_, err = s.call(http.MethodPost, action, bytes.NewReader(body))
+	return err
+}
+
+// environment is one entry of the session-manager's environment list.
+type environment struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Image       string `json:"image"`
+	Size        struct {
+		CPU    string `json:"cpu"`
+		Memory string `json:"memory"`
+		Disk   string `json:"disk"`
+	} `json:"size"`
+	Default bool `json:"default"`
+	Current bool `json:"current"`
+}
+
+// listEnvironments renders the run's environments as one line each.
+func (s *mcpServer) listEnvironments() (string, error) {
+	raw, err := s.call(http.MethodGet, "environments", nil)
+	if err != nil {
+		return "", err
+	}
+	var list struct {
+		Environments []environment `json:"environments"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		return "", fmt.Errorf("decode environments: %w", err)
+	}
+	var b strings.Builder
+	for _, e := range list.Environments {
+		var marks []string
+		if e.Default {
+			marks = append(marks, "default")
+		}
+		if e.Current {
+			marks = append(marks, "current sandbox")
+		}
+		fmt.Fprintf(&b, "- %s", e.Name)
+		if len(marks) > 0 {
+			fmt.Fprintf(&b, " (%s)", strings.Join(marks, ", "))
+		}
+		fmt.Fprintf(&b, ": %s Image %s. %s CPU, %s memory, %s local disk.\n", e.Description, e.Image, e.Size.CPU, e.Size.Memory, e.Size.Disk)
+	}
+	return b.String(), nil
+}
+
+// call sends one request for this run to the session-manager and returns the
+// response body. A non-2xx answer becomes an error carrying its message.
+func (s *mcpServer) call(method, action string, body io.Reader) ([]byte, error) {
+	url := fmt.Sprintf("%s/internal/session/%s/%s", s.sessionManagerURL, s.runID, action)
+	req, err := http.NewRequestWithContext(context.Background(), method, url, body)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Orbit-Run-Token", os.Getenv("ORBIT_RUN_TOKEN"))
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusAccepted {
-		body, _ := io.ReadAll(resp.Body)
 		var apiErr struct {
 			Message string `json:"message"`
 		}
-		if json.Unmarshal(body, &apiErr) == nil && apiErr.Message != "" {
-			return errors.New(apiErr.Message)
+		if json.Unmarshal(raw, &apiErr) == nil && apiErr.Message != "" {
+			return nil, errors.New(apiErr.Message)
 		}
-		return fmt.Errorf("session-manager returned %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("session-manager returned %d: %s", resp.StatusCode, string(raw))
 	}
-	return nil
+	return raw, nil
 }
 
 func errResponse(id any, code int, msg string) jsonRPCResponse {

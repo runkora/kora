@@ -578,6 +578,19 @@ agents:
     accessModes:
       - ReadWriteOnce
     size: 10Gi
+  # Sandbox sizes for environments, as Kubernetes quantities. defaultSize fills
+  # an environment created without one and sizes the built-in default
+  # environment. An environment larger than maxSize is rejected. disk is the
+  # sandbox's local volume for build caches and tool installs.
+  environments:
+    defaultSize:
+      cpu: "2"
+      memory: 4Gi
+      disk: 10Gi
+    maxSize:
+      cpu: "8"
+      memory: 16Gi
+      disk: 50Gi
   # Sandbox images (docs/adr/2026-10-03-sandbox-environments.md). Platform teams
   # register their own as SandboxImage resources in tenant namespaces. The
   # operator registers config.sandboxImage in each as kora-base.

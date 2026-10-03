@@ -215,6 +215,10 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return fmt.Errorf("create run tmpdir: %w", err)
 	}
+	// Caches and installs, at the path the sandbox mounts its local disk.
+	if err := os.MkdirAll(runfs.LocalDir(workDir), 0o700); err != nil {
+		return fmt.Errorf("create run local dir: %w", err)
+	}
 
 	cmd, cmdArgs := r.buildExecCommand(workDir, args)
 	r.cmd = exec.CommandContext(ctx, cmd, cmdArgs...)
