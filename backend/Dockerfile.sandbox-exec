@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 #
-# Sandbox-exec image: gRPC exec server for isolated agent run environments.
-# Claude Code's Bash tool routes through orbit-shell → this gRPC server.
+# kora sandbox base image (kora-sandbox-base): the sandbox-exec gRPC server, the
+# general command-line tools, Go and Python. Platform teams build their sandbox
+# images FROM it. See docs/adr/2026-10-03-sandbox-environments.md.
 
 # =============================================================================
 # VERSION CONFIGURATION
 # =============================================================================
-ARG NODE_VERSION=24.0.0
 ARG BUN_VERSION=1.3.9
 ARG GO_VERSION=1.26.0
 ARG RUST_VERSION=1.83.0
@@ -56,7 +56,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 
-ARG NODE_VERSION
+# The operator accepts a sandbox image only when it carries this label. It names
+# the base version the image was built on.
+ARG SANDBOX_BASE_VERSION=dev
+LABEL io.orbit.sandbox.base=$SANDBOX_BASE_VERSION
+
 ARG BUN_VERSION
 ARG GO_VERSION
 ARG RUST_VERSION
@@ -92,22 +96,6 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" > /etc/apt/sources.list.d/github-cli.list \
  && apt-get update && apt-get install -y gh \
  && rm -rf /var/lib/apt/lists/*
-
-# Node.js (always installed — many agent tasks use it)
-RUN set -eux; \
-    dpkgArch="$(dpkg --print-architecture)"; \
-    case "${dpkgArch##*-}" in \
-      amd64) ARCH='x64';; \
-      arm64) ARCH='arm64';; \
-    esac; \
-    curl --proto '=https' --tlsv1.2 -fsSLO --compressed "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-$ARCH.tar.xz" && \
-    tar -xJf node-v${NODE_VERSION}-linux-$ARCH.tar.xz -C /usr/local --strip-components=1 --no-same-owner && \
-    rm node-v${NODE_VERSION}-linux-$ARCH.tar.xz && \
-    ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
-    npm install -g corepack && \
-    corepack enable && \
-    node --version && \
-    npm --version
 
 # Python (always installed), with PyYAML for the YAML scripting agents reach for.
 RUN apt-get update && apt-get install -y \
@@ -317,7 +305,7 @@ RUN mkdir -p /workspaces && chown 100:100 /workspaces
 # Strip setuid and setgid bits. no_new_privs already neutralises them; this keeps it true if that setting is ever dropped.
 RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
 
-USER orbit
+USER 100:100
 
 EXPOSE 50051
 

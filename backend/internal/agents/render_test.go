@@ -17,7 +17,7 @@ import (
 func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxImage:        "kora-sandbox-base:render",
 		SandboxGRPCPort:     50051,
 		SystemNamespace:     "orbit-system",
 	}
@@ -67,7 +67,7 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 func TestRenderResources_AppliesPatches(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxImage:        "kora-sandbox-base:render",
 		SandboxGRPCPort:     50051,
 		SystemNamespace:     "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{
@@ -148,7 +148,7 @@ patch: |
 func TestRenderResources_SplitPoolRejectsReadWriteOnceWorkspace(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxImage:        "kora-sandbox-base:render",
 		SandboxGRPCPort:     50051,
 		SystemNamespace:     "orbit-system",
 		Patches: loadTestPatches(t, splitPoolPatches(`target: {kind: PersistentVolumeClaim}
@@ -174,7 +174,7 @@ patch: |
 func TestRenderResources_SplitPoolAcceptsReadWriteManyWorkspace(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxImage:        "kora-sandbox-base:render",
 		SandboxGRPCPort:     50051,
 		SystemNamespace:     "orbit-system",
 		Patches: loadTestPatches(t, splitPoolPatches(`target: {kind: PersistentVolumeClaim}
@@ -230,7 +230,7 @@ func TestRenderResources_SplitByNodeAffinityRejectsReadWriteOnceWorkspace(t *tes
 	}
 	cfg := K8sProvisionerConfig{
 		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxImage:        "kora-sandbox-base:render",
 		SandboxGRPCPort:     50051,
 		SystemNamespace:     "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{
@@ -266,7 +266,7 @@ patch: |
 func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxImage:        "kora-sandbox-base:render",
 		SandboxGRPCPort:     50051,
 		SystemNamespace:     "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{
@@ -313,7 +313,7 @@ patch: |
 func TestRenderResources_OneSidedPlacementKeepsReadWriteOnce(t *testing.T) {
 	cfg := K8sProvisionerConfig{
 		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "orbit-sandbox-exec:render",
+		SandboxImage:        "kora-sandbox-base:render",
 		SandboxGRPCPort:     50051,
 		SystemNamespace:     "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{

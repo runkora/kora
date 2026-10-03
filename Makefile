@@ -476,11 +476,11 @@ dev-cluster-down: ## Tear down the local k3d cluster
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
 	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers migrate operator \
-	session-manager sandbox-exec
+	session-manager sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
 # Services with a long-lived orbit-system workload that `cluster-update` rolls
-# after the build pass. Excludes identity-proxy (sidecar), sandbox-exec
+# after the build pass. Excludes identity-proxy (sidecar), sandbox-base
 # (on-demand), session-manager (tenant StatefulSet, may not exist yet) and
 # operator (helm-managed — upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
@@ -600,7 +600,7 @@ BAKE_PLATFORM_IMAGES := \
 	orbit-identity orbit-identity-proxy orbit-inference-gateway \
 	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
 	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers orbit-migrate \
-	orbit-operator orbit-session-manager orbit-sandbox-exec
+	orbit-operator orbit-session-manager kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
 redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
@@ -779,7 +779,7 @@ cluster-bedrock-creds: ## Register Bedrock InferenceProviders from your AWS SSO 
 # Usage:
 #   make redeploy SERVICE=identity                       # build + push + rollout
 #   make redeploy SERVICE=session-manager TENANT=example # tenant-scoped
-#   make redeploy SERVICE=sandbox-exec BUILD_ONLY=1      # build + push only
+#   make redeploy SERVICE=sandbox-base BUILD_ONLY=1      # build + push only
 #   make redeploy SERVICE=identity NO_BUILD=1            # rollout only
 #
 # Or use the per-service shortcut targets (redeploy-identity, redeploy-frontend, …).
@@ -863,9 +863,9 @@ redeploy-example: ## Redeploy the example tenant workload (default tenant=exampl
 redeploy-session-manager: ## Redeploy session-manager (statefulset, default tenant=example, override with TENANT=… SLUG=…)
 	@bash scripts/cluster/redeploy.sh session-manager $(REDEPLOY_FLAGS)
 
-.PHONY: redeploy-sandbox-exec
-redeploy-sandbox-exec: ## Build + push sandbox-exec (no rollout — picked up by next agent run)
-	@bash scripts/cluster/redeploy.sh sandbox-exec $(REDEPLOY_FLAGS)
+.PHONY: redeploy-sandbox-base
+redeploy-sandbox-base: ## Build + push the sandbox base image (no rollout; picked up by the next sandbox)
+	@bash scripts/cluster/redeploy.sh sandbox-base $(REDEPLOY_FLAGS)
 
 .PHONY: prune
 prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB

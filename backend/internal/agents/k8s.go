@@ -1032,6 +1032,8 @@ func sandboxContainer(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Cluste
 	return corev1.Container{
 		Name:  sandboxContainerName,
 		Image: cfg.SandboxImage,
+		// Set explicitly: a sandbox image built on the base image may change CMD.
+		Command: []string{sandboxExecCommand},
 		// Always so a freshly built :latest image (new toolchain/versions) reaches
 		// new sandboxes; PullIfNotPresent would keep serving the node's cached
 		// image. The digest check short-circuits when the image is already cached.
@@ -1448,6 +1450,9 @@ const sessionManagerContainerName = "session-manager"
 
 // sandboxContainerName is the sandbox-exec container in every sandbox pod.
 const sandboxContainerName = "sandbox-exec"
+
+// sandboxExecCommand is where the base image installs sandbox-exec.
+const sandboxExecCommand = "/usr/local/bin/sandbox-exec"
 
 // sandboxExecTokenEnv carries the per-run secret sandbox-exec requires on every
 // Execute (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).

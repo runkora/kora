@@ -39,7 +39,7 @@ drafts:
 agents:
   # Overridden per install by ORBIT_SESSION_MANAGER_IMAGE / ORBIT_SANDBOX_IMAGE.
   sessionManagerImage: ghcr.io/clear-route/orbit-session-manager:latest
-  sandboxImage: ghcr.io/clear-route/orbit-sandbox-exec:latest
+  sandboxImage: ghcr.io/clear-route/kora-sandbox-base:latest
   # Pull secrets for the images above, named per install by
   # ORBIT_AGENTS_IMAGE_PULL_SECRETS (comma-separated).
   imagePullSecrets: []

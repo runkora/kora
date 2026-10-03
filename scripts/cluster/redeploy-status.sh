@@ -34,7 +34,7 @@ SERVICES=(
   "session-manager     orbit-session-manager     orbit-tenant-example    statefulset/example"
   "identity-proxy      orbit-identity-proxy      orbit-system            sidecar"
   "migrate             orbit-migrate             orbit-system            release"
-  "sandbox-exec        orbit-sandbox-exec        -                       on-demand"
+  "sandbox-base        kora-sandbox-base         -                       on-demand"
 )
 
 # Local-registry digest for an image. Returns "" if the image isn't in the registry.

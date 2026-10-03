@@ -11,7 +11,7 @@ func splitPoolConfig() K8sProvisionerConfig {
 	size := resource.MustParse("20Gi")
 	return K8sProvisionerConfig{
 		SessionManagerImage: "orbit-session-manager:test",
-		SandboxImage:        "orbit-sandbox-exec:test",
+		SandboxImage:        "kora-sandbox-base:test",
 		SandboxGRPCPort:     50051,
 		SystemNamespace:     "orbit-system",
 		Workloads: WorkloadsConfig{

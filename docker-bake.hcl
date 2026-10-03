@@ -172,18 +172,21 @@ target "orbit-session-manager" {
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-session-manager:${IMAGE_TAG}"]
 }
 
-target "orbit-sandbox-exec" {
+target "kora-sandbox-base" {
   context    = "./backend"
   dockerfile = "Dockerfile.sandbox-exec"
   pull       = true
+  args = {
+    SANDBOX_BASE_VERSION = IMAGE_TAG
+  }
   labels = {
-    "org.opencontainers.image.title" = "orbit-sandbox-exec"
-    "org.opencontainers.image.description" = "kora sandbox-exec — gRPC exec server for isolated agent run environments"
+    "org.opencontainers.image.title" = "kora-sandbox-base"
+    "org.opencontainers.image.description" = "kora sandbox base image: sandbox-exec, general CLIs, Go and Python"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-sandbox-exec:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-base:${IMAGE_TAG}"]
 }
 
 target "orbit-frontend" {
@@ -229,7 +232,7 @@ group "default" {
     "orbit-mcp",
     "orbit-runtime-mcp",
     "orbit-session-manager",
-    "orbit-sandbox-exec",
+    "kora-sandbox-base",
     "orbit-frontend",
     "orbit-operator",
   ]

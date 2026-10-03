@@ -15,7 +15,7 @@ func TestBaseDefaults_NoLocalRegistryOrTrustDomain(t *testing.T) {
 	if cfg.Agents.SessionManagerImage != "ghcr.io/clear-route/orbit-session-manager:latest" {
 		t.Errorf("sessionManagerImage = %q, want the ghcr.io default", cfg.Agents.SessionManagerImage)
 	}
-	if cfg.Agents.SandboxImage != "ghcr.io/clear-route/orbit-sandbox-exec:latest" {
+	if cfg.Agents.SandboxImage != "ghcr.io/clear-route/kora-sandbox-base:latest" {
 		t.Errorf("sandboxImage = %q, want the ghcr.io default", cfg.Agents.SandboxImage)
 	}
 	if cfg.Platform.TrustDomain != "" {
@@ -37,7 +37,7 @@ func TestLocalOverlay_KeepsLocalRegistryAndTrustDomain(t *testing.T) {
 	if cfg.Agents.SessionManagerImage != "orbit-registry:5001/orbit-session-manager:latest" {
 		t.Errorf("sessionManagerImage = %q, want the local registry image", cfg.Agents.SessionManagerImage)
 	}
-	if cfg.Agents.SandboxImage != "orbit-registry:5001/orbit-sandbox-exec:latest" {
+	if cfg.Agents.SandboxImage != "orbit-registry:5001/kora-sandbox-base:latest" {
 		t.Errorf("sandboxImage = %q, want the local registry image", cfg.Agents.SandboxImage)
 	}
 	if cfg.Platform.TrustDomain != "orbit.test" {
@@ -50,7 +50,7 @@ func TestApplyEnvOverrides(t *testing.T) {
 		"ORBIT_SYSTEM_NAMESPACE":                             "orbit-prod",
 		"ORBIT_TRUST_DOMAIN":                                 "orbit.example.com",
 		"ORBIT_SESSION_MANAGER_IMAGE":                        "registry.example.com/orbit-session-manager:1.2.3",
-		"ORBIT_SANDBOX_IMAGE":                                "registry.example.com/orbit-sandbox-exec:1.2.3",
+		"ORBIT_SANDBOX_IMAGE":                                "registry.example.com/kora-sandbox-base:1.2.3",
 		"ORBIT_SANDBOX_GIT_AUTHOR_NAME":                      "kora-agent",
 		"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL":                     "agent@example.com",
 		"ORBIT_AGENTS_IMAGE_PULL_SECRETS":                    "ghcr-pull, private-pull,,",
