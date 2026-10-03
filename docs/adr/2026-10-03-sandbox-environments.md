@@ -200,13 +200,29 @@ None at this time.
 
 ## Implementation
 
-None at this time.
+*   `backend/Dockerfile.sandbox-exec`, `docker-bake.hcl` and `Makefile`: the `kora-sandbox-base` image.
+*   `charts/orbit-crds/templates/crd-sandboximage.yaml` and `backend/internal/platform/sandboximages/v1alpha1/`: the `SandboxImage` resource and its types.
+*   `backend/internal/operator/sandboximage_controller.go`, `sandboximage_registry.go` and `tenant_sandboximage.go`: validation, digest pinning, warmers and `kora-base`.
+*   `backend/cmd/orbit-agents/migrations/20261003023303_sandbox_environments.sql`: the expand-only migration.
+*   `backend/internal/agents/`: environments, attachments, the access union, environment selection, run events and the sandbox volume.
+*   `backend/cmd/orbit-runtime-mcp/main.go` and `backend/internal/agents/sessionmanager/`: the `list_environments`, `provision_sandbox` and `replace_environment` tools.
+*   `frontend/src/app/(dashboard)/environments/` and the agent builder and configuration tab: environment images and sizes, and several environments per agent.
+*   `charts/orbit/values.yaml`: `agents.sandboxImages` and `agents.environments` with `defaultSize` and `maxSize`.
+*   `docs/guides/deployment.md`: sandbox images and environments.
 
 ---
 
 ## Validation
 
-None at this time.
+On the local cluster:
+
+*   `kora-base` and an image built on the base image report `Valid` with a pinned digest, and images that run as root or lack the base label report the reason.
+*   Each warm image has one warmer DaemonSet, and deleting the `SandboxImage` removes it.
+*   The API rejects a size above the maximum and an invalid image, and it refuses to delete an attached environment.
+*   An agent with two environments receives the union of their egress hosts.
+*   A Claude Code run lists its environments, provisions the default, and replaces it with the other environment. The workspace file survives, the custom image's marker disappears, and `GOCACHE` stays on the local volume.
+*   Claude Code, Codex and OpenCode runs provision on the default environment.
+*   The Environments page creates environments with images and sizes, and the agent builder attaches two environments with a default.
 
 ---
 

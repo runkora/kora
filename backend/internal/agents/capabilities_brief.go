@@ -78,7 +78,7 @@ func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string) strin
 	b.WriteString("\n## Workspace\n")
 	b.WriteString("Work only in your workspace `" + workspaceDir + "` (also `$WORKSPACE`, your working directory), your home directory `~` (`" + runfs.HomeDir(workspaceDir) + "`), or `$TMPDIR` (`" + runfs.TmpDir(workspaceDir) + "`). Bash and your file tools see the same files there, with or without a sandbox, and they persist for the whole run, including across a sandbox restart.\n")
 	b.WriteString("`/tmp` is not available: file tools cannot read or write it. Clone repositories, write generated files and request bodies into the workspace or `$TMPDIR` instead.\n")
-	b.WriteString("Install packages at user level: `npm install -g`, `pip install`, `go install` and `cargo install` land on the sandbox's local disk with the build caches, and are on your PATH until the sandbox is replaced. System package managers such as `apt` need root and are not available.\n")
+	b.WriteString("Install packages at user level with your environment's package managers (e.g. `pip install`, `go install`). They land on the sandbox's local disk with the build caches, and are on your PATH until the sandbox is replaced. System package managers such as `apt` need root and are not available.\n")
 
 	b.WriteString("\n## Working with git repositories\n")
 	b.WriteString("When cloning a repository, **never run `git init` if the clone fails** — a locally initialized repo shares no history with the remote and will produce an unmergeable orphan branch. Instead:\n")
