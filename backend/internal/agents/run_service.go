@@ -808,11 +808,15 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	)
 	defer span.End()
 
+	fail := func(status, err error) (Sandbox, error) {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, status.Error())
+		return Sandbox{}, err
+	}
+
 	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get run")
-		return Sandbox{}, err
+		return fail(errLoadRun, err)
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
@@ -828,22 +832,22 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 
 	envs, err := s.agentEnvironments(ctx, *at)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errResolveEnvironment, err)
 	}
 	current, live, err := s.currentEnvironment(ctx, *run, namespace)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errResolveEnvironment, err)
 	}
 	env, err := pickEnvironment(envs, strings.TrimSpace(environment), &current)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errResolveEnvironment, err)
 	}
 	if live && env.ID != current {
-		return Sandbox{}, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name)
+		return fail(errResolveEnvironment, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name))
 	}
 	spec, err := s.sandboxSpec(ctx, namespace, env)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errResolveSandboxImage, err)
 	}
 	spec.KubeClusters = kubeClusters
 

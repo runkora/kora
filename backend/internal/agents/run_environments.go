@@ -27,6 +27,13 @@ var ErrSameEnvironment = errors.New("the run's sandbox already runs in this envi
 // ErrSandboxImageUnavailable means the environment's SandboxImage is missing or not valid.
 var ErrSandboxImageUnavailable = errors.New("sandbox image unavailable")
 
+// Span statuses of the sandbox provisioning steps.
+var (
+	errLoadRun             = errors.New("load run and agent type")
+	errResolveEnvironment  = errors.New("resolve environment")
+	errResolveSandboxImage = errors.New("resolve sandbox image")
+)
+
 // errReplaceEnvironment is the span status of a failed replacement.
 var errReplaceEnvironment = errors.New("replace environment")
 
@@ -205,29 +212,34 @@ func (s *RunService) ReplaceEnvironment(ctx context.Context, runID, name string)
 		trace.WithAttributes(attribute.String("run_id", runID), attribute.String("environment", name)))
 	defer span.End()
 
+	fail := func(status, err error) (Sandbox, error) {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, status.Error())
+		return Sandbox{}, err
+	}
 	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errLoadRun, err)
 	}
 	envs, err := s.agentEnvironments(ctx, *at)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errResolveEnvironment, err)
 	}
 	env, err := pickEnvironment(envs, strings.TrimSpace(name), nil)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errResolveEnvironment, err)
 	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	current, live, err := s.currentEnvironment(ctx, *run, namespace)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errResolveEnvironment, err)
 	}
 	if live && env.ID == current {
-		return Sandbox{}, fmt.Errorf("%w: %q", ErrSameEnvironment, env.Name)
+		return fail(errResolveEnvironment, fmt.Errorf("%w: %q", ErrSameEnvironment, env.Name))
 	}
 	spec, err := s.sandboxSpec(ctx, namespace, env)
 	if err != nil {
-		return Sandbox{}, err
+		return fail(errResolveSandboxImage, err)
 	}
 	spec.KubeClusters, _ = s.sandboxKubeClusters(ctx, *at)
 
