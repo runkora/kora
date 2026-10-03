@@ -137,6 +137,7 @@ export function useAgentConfiguration() {
   const [mcpError, setMcpError] = useState<string | null>(null);
   const [environmentCatalogue, setEnvironmentCatalogue] = useState<Environment[]>([]);
   const [environmentsError, setEnvironmentsError] = useState<string | null>(null);
+  const [environmentsLoading, setEnvironmentsLoading] = useState(true);
 
   useEffect(() => {
     void fetchModels().then(({ data, error }) => {
@@ -152,6 +153,7 @@ export function useAgentConfiguration() {
     void fetchEnvironments().then(({ data, error }) => {
       setEnvironmentCatalogue(data);
       setEnvironmentsError(error);
+      setEnvironmentsLoading(false);
     });
   }, []);
 
@@ -378,6 +380,7 @@ export function useAgentConfiguration() {
     mcpError,
     environmentCatalogue,
     environmentsError,
+    environmentsLoading,
     // effective access
     effectiveAccess,
     accessError,

@@ -19,7 +19,7 @@ const builder = {
     connectors: [],
     connectivityMode: 'none',
     connectivityHosts: '',
-    environments: [],
+    environments: [{ environment_id: 'env-go', is_default: true }],
   },
   setField: () => {},
   catalogues: {
@@ -44,5 +44,33 @@ describe('StepTools', () => {
     expect(screen.getByText('Connections')).toBeTruthy();
     expect(screen.getByText('Network egress')).toBeTruthy();
     expect(screen.queryByText('Platform tools')).toBeNull();
+  });
+
+  it('holds the environments card back while the catalogue loads', () => {
+    builder.catalogues.status.environments = 'loading';
+    render(<StepTools />);
+    expect(screen.queryByText('Deleted environment')).toBeNull();
+    expect(screen.queryByText(/attached|None attached/)).toBeNull();
+  });
+
+  it('shows the attached environments once the catalogue loads', () => {
+    builder.catalogues.status.environments = 'success';
+    builder.catalogues.environments = [
+      {
+        id: 'env-go',
+        tenant_id: 't',
+        name: 'Go services',
+        description: '',
+        sandbox_image: '',
+        size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
+        egress_hosts: [],
+        connectors: [],
+        created_at: '',
+        updated_at: '',
+      },
+    ];
+    render(<StepTools />);
+    expect(screen.getByLabelText('Go services')).toBeChecked();
+    expect(screen.queryByText('Deleted environment')).toBeNull();
   });
 });
