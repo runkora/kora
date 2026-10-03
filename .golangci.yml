@@ -393,10 +393,10 @@ linters:
 
       # orbit-runtime-mcp is a stdio JSON-RPC subprocess (Claude Code spawns it via
       # --mcp-config); it has no HTTP server, no request context, and no injected
-      # logger — stdout is reserved for the JSON-RPC protocol itself. It makes a
-      # single outbound call to session-manager to provision a sandbox. Standing up
-      # httpclient.Base's OTel/logging machinery for one call in a short-lived
-      # subprocess is not warranted.
+      # logger — stdout is reserved for the JSON-RPC protocol itself. It calls the
+      # session-manager for its three tools: list_environments, provision_sandbox
+      # and replace_environment. Standing up httpclient.Base's OTel/logging
+      # machinery for these calls in a short-lived subprocess is not warranted.
       - path: "cmd/orbit-runtime-mcp/main.go"
         linters:
           - gocritic

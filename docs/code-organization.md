@@ -27,13 +27,13 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
-| `orbit-runtime-mcp` | MCP server (stdio) spawned by Claude Code: exposes the `provision_sandbox` tool | stdio | none |
+| `orbit-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
 | `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
 | `orbit-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
-> The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `provision_sandbox`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
+> The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
 
 ### Feature packages (`backend/internal/`)
 
