@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-An environment is a prepackaged sandbox for agents: an image, a size, egress hosts and connectors. Platform teams build sandbox images on a base image that kora publishes and register them through GitOps. Agents attach one or more environments and pick one each time they provision a sandbox.
+Sandbox environments will let platform teams prepackage the sandboxes their agents run in, and agents will choose the right sandbox for each task.
 
 ---
 
@@ -18,19 +18,19 @@ An environment is a prepackaged sandbox for agents: an image, a size, egress hos
 
 ### Current State
 
-Every sandbox runs one image that is set at install time. Each run starts with empty package and build caches. Environments today group egress hosts and connectors for reuse across agents.
+Every sandbox runs the one image set at install time, and each run starts with empty package and build caches. An environment today groups egress hosts and connectors for reuse across agents.
 
 ### User Pain Points
 
-*   Builds repeat the same downloads on every run. In prod, one Go test ran for 17 minutes without a result. A backend build took 24 minutes, mostly downloading modules.
-*   The image lacked a code generator. One agent spent 15 minutes building it from source.
+*   Builds download the same packages on every run. In prod, one Go test ran for 17 minutes without a result, and a backend build spent most of its 24 minutes downloading modules.
+*   The image lacked a code generator, and one agent spent 15 minutes building it from source.
 *   A general agent gets the same sandbox for every repository.
 *   Platform teams cannot manage sandbox tooling through GitOps.
 
 ### Business Impact
 
 *   Runs spend time and inference on setup work.
-*   In one run, the verdict came from reading code. The agent ran out of time to reproduce the defect.
+*   In one run, the agent ran out of time to reproduce a defect and gave a verdict from reading the code.
 
 ---
 
@@ -38,7 +38,7 @@ Every sandbox runs one image that is set at install time. Each run starts with e
 
 ### Primary Goals
 
-1.  Platform teams package sandboxes with the tools their agents need, through GitOps.
+1.  Platform teams package sandboxes with the tools their agents need through GitOps.
 2.  Agents start a task with their toolchain installed.
 3.  No run can change what another run receives.
 
@@ -57,13 +57,14 @@ None at this time.
 ### Primary User Stories
 
 **As a** platform engineer,  
-**I want to** build sandbox images on the kora base image and register them through GitOps,  
+**I want to** build sandbox images on the kora base image and register them per tenant through GitOps,  
 **So that** agents get our toolchains without changes to kora.
 
 **Acceptance Criteria:**
-*   [ ] kora publishes a versioned base image.
-*   [ ] Each sandbox image is registered as its own resource in the platform team's infrastructure repository.
-*   [ ] Each registered image reports whether it is valid and ready to use.
+*   [ ] kora publishes a versioned base image with general command-line tools, Go and Python.
+*   [ ] A platform team registers each sandbox image as its own resource in its infrastructure repository.
+*   [ ] Each registered image reports whether it is valid for use as a sandbox.
+*   [ ] A platform team turns warming on or off for each image.
 
 ---
 
@@ -74,6 +75,7 @@ None at this time.
 **Acceptance Criteria:**
 *   [ ] The Environments page creates, edits and deletes environments.
 *   [ ] An environment without a selected image shows that it uses the kora base image.
+*   [ ] An environment sets its own CPU, memory and local disk within platform limits.
 
 ---
 
@@ -82,20 +84,20 @@ None at this time.
 **So that** a specialized agent gets one sandbox and a general agent can choose.
 
 **Acceptance Criteria:**
-*   [ ] New agents have the default environment attached.
 *   [ ] An agent with several environments marks one as its default.
+*   [ ] An agent with no environments runs on the kora base image.
 *   [ ] An agent can add egress hosts and connectors on top of its environments.
 
 ---
 
 **As an** agent,  
-**I want to** choose an environment when I provision a sandbox and switch when the task changes,  
+**I want to** list my environments, provision a sandbox in one of them, and replace it with another when the task changes,  
 **So that** I work with the right tools without installing them.
 
 **Acceptance Criteria:**
-*   [ ] Provisioning lists the agent's environments with their descriptions.
+*   [ ] A tool lists the agent's environments with their descriptions and the default.
 *   [ ] Provisioning without a choice uses the agent's default environment.
-*   [ ] Switching environments keeps the files in the run's workspace.
+*   [ ] A separate tool replaces the sandbox with one in another environment and keeps the files in the run's workspace.
 
 ### Secondary User Stories
 
@@ -107,25 +109,24 @@ None at this time.
 
 ### High-Level Approach
 
-An environment becomes the base an agent works from. kora publishes a base image. Platform teams build images on it in their own pipelines and register each one. An environment combines a registered image with a size, egress hosts, connectors and a description. Agents attach environments and compose further access on top.
+kora will publish a base image, and platform teams will build images on it in their own pipelines. Users with environment permissions will turn registered images into environments that agents attach.
 
 ### User Experience
 
 #### User Flow
 
-1.  A platform engineer builds `acme-go` on the kora base image and registers it through GitOps.
+1.  A platform engineer builds `acme-go` on the kora base image and registers it in a tenant through GitOps.
 2.  A user with environment permissions creates a "Go services" environment from `acme-go`.
-3.  An agent builder attaches "Go services" and "Node apps" to a general coding agent, with "Go services" as its default.
-4.  A run starts. The agent provisions a sandbox in "Go services" and builds.
-5.  The task turns to the frontend. The agent switches to "Node apps". Its files stay in the workspace.
+3.  An agent builder attaches "Go services" and "Node apps" to a general coding agent with "Go services" as its default.
+4.  A run starts, and the agent provisions a sandbox in "Go services" and builds.
+5.  The task turns to the frontend, and the agent replaces its sandbox with one in "Node apps". Its files stay in the workspace.
 
 ### Key Components
 
-*   **Base image:** Published by kora. It carries what every sandbox needs to work with kora, the command-line tools agents use generally, and Go and Python for scripting. It carries no Node.
-*   **Sandbox image:** An image built on the base image and registered by a platform team, one resource per image.
+*   **Base image:** The image kora publishes with the command-line tools agents use generally, Go and Python. It does not include Node.
+*   **Sandbox image:** An image that a platform team builds on the base image and registers in a tenant.
 *   **Environment:** A registered image, a size, egress hosts, connectors and a description.
-*   **Default environment:** Created for every tenant. It uses the base image and is attached to new agents.
-*   **Run-local build space:** Build outputs, installed dependencies and tools on the sandbox's own disk.
+*   **Run-local build space:** The sandbox's own disk for build outputs, installed dependencies and tools.
 
 ---
 
@@ -133,27 +134,21 @@ An environment becomes the base an agent works from. kora publishes a base image
 
 ### In Scope
 
-*   The base image.
-*   Sandbox image registration through GitOps.
-*   Environments redefined as prepackaged sandboxes, on the Environments page, API and MCP tools.
-*   A default environment per tenant.
-*   Several environments per agent, and environment selection and switching during a run.
-*   Run-local build space.
+*   The base image, sandbox image registration, environments, the agent environment tools and run-local build space.
 
 ### Out of Scope
 
-*   Building images inside kora.
 *   Per-run setup hooks.
-*   Public GitHub access without a connection credential. A separate change covers it.
+*   Public GitHub access without a connection credential. A separate change covers that access.
 *   Moving existing environments into the new model.
 
 ### Future Considerations
 
 *   A repository file such as `.kora/sandbox.yaml` that selects the environment for that repository.
 *   Building environment images inside kora.
-*   Sandbox performance integration tests in a production-like environment.
 *   Triggers and run starts that select the starting environment.
-*   A package cache shared across runs, if measurements show the need.
+*   A package cache shared across runs if measurements show the need.
+*   Sandbox performance integration tests in a production-like environment.
 
 ---
 
@@ -162,17 +157,12 @@ An environment becomes the base an agent works from. kora publishes a base image
 ### Functional Requirements
 
 **Must Have (P0):**
-*   [ ] A versioned base image with general command-line tools, Go and Python.
-*   [ ] One registration resource per sandbox image.
-*   [ ] Validation of each registered image against the base image, with the result on the resource.
-*   [ ] Registered images kept warm on the nodes that run sandboxes.
-*   [ ] Environments with a name, a description, an image, a size, egress hosts and connectors.
-*   [ ] A configurable size per environment: CPU, memory and local disk.
+*   [ ] Validation of each registered image against the base image.
+*   [ ] Warming on the sandbox nodes for each image that has warming turned on.
 *   [ ] Environment scopes for viewing, creating, editing and deleting environments.
-*   [ ] Several environments per agent, one marked as default.
 *   [ ] Agent access equal to the union of its environments plus its own egress hosts and connectors.
-*   [ ] Selection limited to the agent's attached environments.
-*   [ ] A record of the environment each sandbox used.
+*   [ ] Provisioning limited to the agent's attached environments.
+*   [ ] A record on the run of the environment and image each sandbox used.
 
 ### Non-Functional Requirements
 
@@ -181,17 +171,17 @@ None at this time.
 
 **Security:**
 *   Only registered images run as sandboxes.
-*   Platform teams register images in their infrastructure repositories. The kora API and UI do not register images.
-*   Build outputs, dependencies and tools a run installs stay on that run's sandbox.
+*   Platform teams register images in their infrastructure repositories, and the kora API and UI do not register images.
+*   Build outputs, dependencies and tools that a run installs stay on that run's sandbox.
 
 **Reliability:**
-*   An image that fails validation cannot be selected. Its status states the failure.
+*   An image that fails validation cannot be selected, and its status states the failure.
 
 **Scalability:**
 None at this time.
 
 **Observability:**
-*   Each sandbox start and switch records the environment and image.
+None at this time.
 
 ---
 
@@ -199,18 +189,18 @@ None at this time.
 
 ### Internal Dependencies
 
-*   Operator: validates registered images and keeps them warm.
-*   Issue #310: per-sandbox sizing.
+*   The operator validates and warms registered images.
+*   Issue #310 covers per-sandbox sizing.
 
 ### External Dependencies
 
-*   A container registry for platform teams' images.
+*   Platform teams publish their images to a container registry.
 
 ---
 
 ## Risks and Mitigations
 
-*   **Combined access:** A general agent can reach every environment's hosts and connectors. Teams can create an agent per environment.
+*   **Combined access:** A general agent can reach the hosts and connectors of every attached environment. Teams can create one agent per environment for narrower access.
 
 ---
 
@@ -218,45 +208,39 @@ None at this time.
 
 ### Alternative 1: One Environment per Agent
 
-**Description:** Each agent has exactly one environment.
+**Description:** Each agent would have exactly one environment.
 
-**Why not chosen:**
-*   General agents work across repositories with different stacks.
+**Why not chosen:** General agents work across repositories with different stacks.
 
 ### Alternative 2: Access Limited to the Selected Environment
 
-**Description:** A sandbox reaches only the hosts and connectors of the environment it runs in.
+**Description:** A sandbox would reach only the hosts and connectors of the environment it runs in.
 
-**Why not chosen:**
-*   The team that builds an agent decides its reach by choosing its environments.
+**Why not chosen:** The team that builds an agent decides its reach when it chooses the agent's environments.
 
 ### Alternative 3: Copy the Workspace into Each Sandbox
 
-**Description:** Each sandbox gets its own copy of the run's files on fast disk.
+**Description:** Each sandbox would get its own copy of the run's files on fast disk.
 
-**Why not chosen:**
-*   The agent edits files outside the sandbox. A copy separates those edits from the sandbox's builds.
+**Why not chosen:** The agent edits files outside the sandbox, and a copy would separate those edits from the sandbox's builds.
 
 ### Alternative 4: Build Images Inside kora
 
-**Description:** kora builds environment images from setup commands.
+**Description:** kora would build environment images from setup commands.
 
-**Why not chosen:**
-*   Platform teams manage images through GitOps.
+**Why not chosen:** Platform teams manage images through GitOps.
 
 ### Alternative 5: Repository-Declared Tool Versions
 
-**Description:** A version manager in the base image installs the versions a repository declares.
+**Description:** A version manager in the base image would install the versions a repository declares.
 
-**Why not chosen:**
-*   The base image packages the tools agents use generally. Platform teams add toolchains in their own images.
+**Why not chosen:** The base image packages the tools agents use generally, and platform teams add toolchains in their own images.
 
 ### Alternative 6: Per-Run Setup Hook
 
-**Description:** A repository script runs at the start of every run.
+**Description:** A repository script would run at the start of every run.
 
-**Why not chosen:**
-*   Environments carry the setup.
+**Why not chosen:** Environments carry the setup.
 
 ---
 
@@ -283,14 +267,11 @@ None at this time.
 
 ### Related Documents
 
+*   [Sandbox environments ADR](../adr/2026-10-03-sandbox-environments.md)
 *   [Agent sandbox toolchain and connectivity environments](../adr/2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md)
 *   [Sandbox provisioning and shell proxy](../adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md)
-*   [JIT credential brokering egress gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md)
 *   [CRD-driven inference providers](crd-inference-providers.md)
 
 ### Glossary
 
-*   **Base image:** The image kora publishes for sandbox images to build on.
-*   **Sandbox image:** An image a platform team builds on the base image and registers.
-*   **Environment:** A prepackaged sandbox: image, size, egress hosts, connectors and description.
-*   **Default environment:** The environment every tenant has and new agents get.
+None at this time.
