@@ -970,9 +970,7 @@ func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig, size Environ
 		},
 		scratchVolume(scratchVarTmpVolume, "256Mi"),
 		scratchVolume(scratchHomeVolume, "64Mi"),
-	}
-	if size.Disk != "" {
-		vols = append(vols, scratchVolume(localDiskVolume, size.Disk))
+		scratchVolume(localDiskVolume, size.Disk),
 	}
 	if egressGatewayURL(cfg) == "" {
 		return vols
@@ -1062,10 +1060,8 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 		// Writable paths outside the workspace under a read-only root, for tools that ignore HOME and TMPDIR.
 		{Name: scratchVarTmpVolume, MountPath: "/var/tmp"},
 		{Name: scratchHomeVolume, MountPath: imageHomeDir},
-	}
-	if spec.Size.Disk != "" {
-		// At the path the agent pod uses on the shared volume, so both resolve the same caches.
-		mounts = append(mounts, corev1.VolumeMount{Name: localDiskVolume, MountPath: runfs.LocalDir(workspaceDir)})
+		// The local disk sits at the path the agent pod uses on the shared volume. Both resolve the same caches.
+		{Name: localDiskVolume, MountPath: runfs.LocalDir(workspaceDir)},
 	}
 	if egressGatewayURL(cfg) != "" {
 		mounts = append(mounts,
@@ -1122,52 +1118,42 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 }
 
 // sandboxResources limits the sandbox to its environment's size. The local disk
-// counts toward the pod's ephemeral storage, so its limit carries the disk too.
+// counts toward the pod's ephemeral storage, and its limit carries the disk too.
 // The fixed requests reserve no more than a small environment's limits.
 func sandboxResources(size EnvironmentSize) (corev1.ResourceRequirements, error) {
-	parse := func(dim, v string) (resource.Quantity, bool, error) {
-		if v == "" {
-			return resource.Quantity{}, false, nil
-		}
-		q, err := resource.ParseQuantity(v)
-		if err != nil {
-			return q, false, fmt.Errorf("%w: size.%s %q: %w", errSandboxSize, dim, v, err)
-		}
-		return q, true, nil
-	}
-	requests := corev1.ResourceList{
-		corev1.ResourceCPU:              resource.MustParse("100m"),
-		corev1.ResourceMemory:           resource.MustParse("256Mi"),
-		corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
-	}
-	limits := corev1.ResourceList{}
+	var cpu, memory, disk resource.Quantity
 	for _, d := range []struct {
 		dim   string
 		value string
-		name  corev1.ResourceName
-	}{{"cpu", size.CPU, corev1.ResourceCPU}, {"memory", size.Memory, corev1.ResourceMemory}} {
-		q, ok, err := parse(d.dim, d.value)
+		dst   *resource.Quantity
+	}{{"cpu", size.CPU, &cpu}, {"memory", size.Memory, &memory}, {"disk", size.Disk, &disk}} {
+		q, err := resource.ParseQuantity(d.value)
 		if err != nil {
-			return corev1.ResourceRequirements{}, err
+			return corev1.ResourceRequirements{}, fmt.Errorf("%w: size.%s %q: %w", errSandboxSize, d.dim, d.value, err)
 		}
-		if !ok {
-			continue
-		}
-		limits[d.name] = q
-		if req := requests[d.name]; req.Cmp(q) > 0 {
-			requests[d.name] = q
-		}
+		*d.dst = q
 	}
 	ephemeral := resource.MustParse(appEphemeralLimit)
-	disk, ok, err := parse("disk", size.Disk)
-	if err != nil {
-		return corev1.ResourceRequirements{}, err
+	ephemeral.Add(disk)
+	requests := corev1.ResourceList{
+		corev1.ResourceCPU:              minQuantity(resource.MustParse("100m"), cpu),
+		corev1.ResourceMemory:           minQuantity(resource.MustParse("256Mi"), memory),
+		corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
 	}
-	if ok {
-		ephemeral.Add(disk)
+	limits := corev1.ResourceList{
+		corev1.ResourceCPU:              cpu,
+		corev1.ResourceMemory:           memory,
+		corev1.ResourceEphemeralStorage: ephemeral,
 	}
-	limits[corev1.ResourceEphemeralStorage] = ephemeral
 	return corev1.ResourceRequirements{Requests: requests, Limits: limits}, nil
+}
+
+// minQuantity is the smaller of a and b.
+func minQuantity(a, b resource.Quantity) resource.Quantity {
+	if a.Cmp(b) > 0 {
+		return b
+	}
+	return a
 }
 
 // errSandboxSize reports an environment size that is not a quantity.
