@@ -22,7 +22,7 @@ import { ClampedList } from '@orbit/components';
 import type { ConnectionCatalogEntry, SandboxImage } from '@orbit/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentFormModal } from './environment-form-modal';
-import { imageLabel, imageProblem, sizeLabel } from '../_types';
+import { imageLabel, imageProblem, sizeLabel } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentsPageProps {

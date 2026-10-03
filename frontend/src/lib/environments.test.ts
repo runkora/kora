@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SandboxImage } from '@orbit/shared/api';
-import { imageLabel, imageProblem, sizeLabel } from '.';
+import { imageLabel, imageProblem, sizeLabel } from './environments';
 
 const image = (name: string, valid: boolean, problem?: string): SandboxImage => ({
   name,

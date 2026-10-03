@@ -35,7 +35,7 @@ import {
   updateEnvironment,
 } from '../_services/environments-api';
 import { EgressHostsEditor } from './egress-hosts-editor';
-import { BASE_IMAGE_LABEL, BASE_IMAGE_NAME, imageProblem } from '../_types';
+import { BASE_IMAGE_LABEL, BASE_IMAGE_NAME, imageProblem } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentFormModalProps {

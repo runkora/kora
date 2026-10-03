@@ -5,7 +5,7 @@
 
 import { Alert, Badge, Button, Card, CardContent, Checkbox, Icon, Stack, Text } from '@orbit/terra';
 import type { Environment } from '@orbit/shared/api';
-import { imageLabel, sizeLabel } from '../../../environments/_types';
+import { imageLabel, sizeLabel } from '@orbit/lib/environments';
 import { setDefaultEnvironment, toggleEnvironment } from '../../_types';
 import type { AgentEnvironment } from '../../_types';
 
