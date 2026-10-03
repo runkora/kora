@@ -230,14 +230,15 @@ func (n *HTTPNotifier) sandboxCall(ctx context.Context, name string, req *http.R
 		return Sandbox{}, fmt.Errorf("call orbit-agents: %w", err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusConflict {
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		// The body is read once: a 409 carries the refusal for the agent, anything else is reported as is.
+		body := n.sandboxClient.ReadErrorBody(span, resp)
 		var apiErr api.APIError
-		if json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&apiErr) == nil && apiErr.Message != "" {
+		if resp.StatusCode == http.StatusConflict && json.Unmarshal([]byte(body), &apiErr) == nil && apiErr.Message != "" {
 			return Sandbox{}, fmt.Errorf("%w: %s", ErrEnvironmentRejected, apiErr.Message)
 		}
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Sandbox{}, n.sandboxClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
+		_ = n.sandboxClient.RecordError(span, errNotifierUnexpectedStatus)
+		return Sandbox{}, fmt.Errorf("%w: status %d: %s", errNotifierUnexpectedStatus, resp.StatusCode, body)
 	}
 	var result Sandbox
 	if err := n.sandboxClient.DecodeJSON(span, resp, &result); err != nil {

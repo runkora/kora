@@ -151,3 +151,22 @@ func TestHandleProvisionSandbox_PassesEnvironment(t *testing.T) {
 		}
 	}
 }
+
+// A non-JSON 409 and a 500 both keep the status and body in the error.
+func TestHTTPNotifier_SandboxCallErrorBody(t *testing.T) {
+	for _, tc := range []struct {
+		status int
+		body   string
+	}{{http.StatusConflict, "plain conflict"}, {http.StatusInternalServerError, "boom"}} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(tc.body))
+		}))
+		n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+		_, err := n.ProvisionSandbox(context.Background(), "run-1", false, "")
+		srv.Close()
+		if errors.Is(err, ErrEnvironmentRejected) || err == nil || !strings.Contains(err.Error(), tc.body) || !strings.Contains(err.Error(), fmt.Sprint(tc.status)) {
+			t.Errorf("status %d: err = %v, want the status and body", tc.status, err)
+		}
+	}
+}
