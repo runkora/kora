@@ -66,7 +66,7 @@ type Environment struct {
 	TenantID    string `json:"tenant_id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// SandboxImage names a SandboxImage in the tenant namespace. Empty is kora-base.
+	// SandboxImage names a SandboxImage in the tenant namespace; kora-base is the base image.
 	SandboxImage string          `json:"sandbox_image"`
 	Size         EnvironmentSize `json:"size"`
 	EgressHosts  []string        `json:"egress_hosts"`
@@ -79,11 +79,12 @@ type Environment struct {
 // base image at the default size, with no egress or connectors.
 func DefaultEnvironment(size EnvironmentSize) Environment {
 	return Environment{
-		Name:        DefaultEnvironmentName,
-		Description: "The kora base image: general command-line tools, Go and Python.",
-		Size:        size,
-		EgressHosts: []string{},
-		Connectors:  []Connector{},
+		Name:         DefaultEnvironmentName,
+		Description:  "The kora base image: general command-line tools, Go and Python.",
+		SandboxImage: si.BaseName,
+		Size:         size,
+		EgressHosts:  []string{},
+		Connectors:   []Connector{},
 	}
 }
 
@@ -133,6 +134,14 @@ func (s EnvironmentSize) within(maxSize EnvironmentSize) error {
 		}
 	}
 	return nil
+}
+
+// imageOrBase is the named SandboxImage, or kora-base when none is named.
+func imageOrBase(name string) string {
+	if name = strings.TrimSpace(name); name != "" {
+		return name
+	}
+	return si.BaseName
 }
 
 // withDefaults fills each empty dimension from def.
@@ -332,7 +341,7 @@ func (s *EnvironmentService) fromRequest(tenantID, id string, req EnvironmentReq
 		TenantID:     tenantID,
 		Name:         strings.TrimSpace(req.Name),
 		Description:  req.Description,
-		SandboxImage: strings.TrimSpace(req.SandboxImage),
+		SandboxImage: imageOrBase(req.SandboxImage),
 		Size:         req.Size.withDefaults(s.cfg.Sizes.Default),
 		EgressHosts:  trimNonEmpty(req.EgressHosts),
 		Connectors:   connectors,
@@ -347,7 +356,7 @@ func (s *EnvironmentService) validate(ctx context.Context, env Environment) erro
 	if s.images == nil {
 		return nil
 	}
-	// An empty image is kora-base, which must be registered and valid too.
+	// kora-base must be registered and valid like any other image.
 	name := env.ImageName()
 	img, err := s.images.SandboxImage(ctx, s.cfg.TenantNamespaceFn(env.TenantID), name)
 	if errors.Is(err, ErrNotFound) {

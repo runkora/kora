@@ -104,6 +104,7 @@ func TestCreateEnvironment(t *testing.T) {
 		wantErr string
 	}{
 		{"base image with default size", EnvironmentRequest{Name: "default-ish"}, ""},
+		{"blank image is the base image", EnvironmentRequest{Name: "blank", SandboxImage: "  "}, ""},
 		{"registered image", EnvironmentRequest{Name: "go", SandboxImage: "acme-go", Size: EnvironmentSize{CPU: "4"}}, ""},
 		{"unregistered image", EnvironmentRequest{Name: "rust", SandboxImage: "acme-rust"}, "is not registered"},
 		{"invalid image", EnvironmentRequest{Name: "x", SandboxImage: "broken"}, "is not valid"},
@@ -123,6 +124,9 @@ func TestCreateEnvironment(t *testing.T) {
 			}
 			if env.Size.Disk != testSizes.Default.Disk || env.Size.Memory != testSizes.Default.Memory {
 				t.Errorf("size = %+v, want empty dimensions from the default", env.Size)
+			}
+			if tc.req.SandboxImage == "" && env.SandboxImage != si.BaseName {
+				t.Errorf("sandbox_image = %q, want kora-base stored for an omitted image", env.SandboxImage)
 			}
 		})
 	}

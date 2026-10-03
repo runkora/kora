@@ -94,13 +94,26 @@ func TestPostgres_EnvironmentRoundTrip(t *testing.T) {
 	}
 
 	env.Size.Disk = "30Gi"
-	env.SandboxImage = ""
+	env.SandboxImage = "kora-base"
 	if err := r.UpdateEnvironment(ctx, env); err != nil {
 		t.Fatalf("UpdateEnvironment: %v", err)
 	}
 	got, _ = r.GetEnvironment(ctx, tenant, env.ID)
-	if got.Size.Disk != "30Gi" || got.SandboxImage != "" {
+	if got.Size.Disk != "30Gi" || got.SandboxImage != "kora-base" {
 		t.Errorf("after update: %+v", got)
+	}
+
+	// The column defaults to kora-base, and a legacy row with an empty image reads as kora-base.
+	var def string
+	if err := r.pool.QueryRow(ctx, `INSERT INTO environments (id, tenant_id, name) VALUES ($1,$2,'defaulted') RETURNING sandbox_image`, uuid.NewString(), tenant).Scan(&def); err != nil || def != "kora-base" {
+		t.Errorf("column default = %q (%v), want kora-base", def, err)
+	}
+	legacy := uuid.NewString()
+	if _, err := r.pool.Exec(ctx, `INSERT INTO environments (id, tenant_id, name, sandbox_image) VALUES ($1,$2,'legacy','')`, legacy, tenant); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := r.GetEnvironment(ctx, tenant, legacy); err != nil || got.SandboxImage != "kora-base" {
+		t.Errorf("legacy read = %+v (%v), want kora-base", got, err)
 	}
 	if _, err := r.GetEnvironment(ctx, "other-tenant", env.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("another tenant's read = %v, want ErrNotFound", err)
