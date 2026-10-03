@@ -445,7 +445,12 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		return Sandbox{}, fmt.Errorf("mint sandbox exec token: %w", err)
 	}
 
-	pod := p.buildSandboxPod(run, agentTypeSlug, namespace, spec, token)
+	pod, err := p.buildSandboxPod(run, agentTypeSlug, namespace, spec, token)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, errSandboxSize.Error())
+		return Sandbox{}, err
+	}
 	podName := pod.Name
 	// Owner reference on the parent StatefulSet: sandbox pods share its
 	// workspace PVC via subPath, so their lifecycle is bound to it. Deleting
@@ -601,7 +606,12 @@ func sandboxExecTokenOf(pod *corev1.Pod) string {
 
 // buildSandboxPod renders the sandbox pod for a run before manifest patches
 // are applied.
-func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, spec SandboxSpec, execToken string) *corev1.Pod {
+func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, spec SandboxSpec, execToken string) (*corev1.Pod, error) {
+	// Built first: it rejects a size that is not a quantity before the volumes parse the disk.
+	container, err := sandboxContainer(p.cfg, spec, run.ID, execToken)
+	if err != nil {
+		return nil, err
+	}
 	podName := fmt.Sprintf("sandbox-%s", run.ID)
 	// PVC name follows StatefulSet volumeClaimTemplate convention:
 	// {volumeName}-{statefulSetName}-{ordinal}
@@ -678,7 +688,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 			ImagePullSecrets:   imagePullSecretRefs(pullSecrets),
 			SecurityContext:    restrictedPodSecurityContext(),
 			Volumes:            sandboxVolumes(workspacesPVC, p.cfg, spec.Size),
-			Containers:         []corev1.Container{sandboxContainer(p.cfg, spec, run.ID, execToken)},
+			Containers:         []corev1.Container{container},
 		},
 	}
 
@@ -693,7 +703,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		requireCoLocation(&pod.Spec, fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal))
 	}
 
-	return pod
+	return pod, nil
 }
 
 // imagePullSecretRefs turns configured Secret names into pod references, or
@@ -1042,7 +1052,11 @@ func runWorkspaceDir(runID string) string {
 // sibling runs co-located on the same pod ordinal share the underlying PVC
 // but are not mounted into each other's sandbox pods at all. See
 // https://github.com/clear-route/orbit/issues/134.
-func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execToken string) corev1.Container {
+func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execToken string) (corev1.Container, error) {
+	resources, err := sandboxResources(spec.Size)
+	if err != nil {
+		return corev1.Container{}, err
+	}
 	workspaceDir := runWorkspaceDir(runID)
 	tmpSubPath, _ := filepath.Rel(workspacesRoot, runfs.TmpDir(workspaceDir))
 	mounts := []corev1.VolumeMount{
@@ -1108,34 +1122,61 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 			InitialDelaySeconds: 2,
 			PeriodSeconds:       3,
 		},
-		Resources: sandboxResources(spec.Size),
-	}
+		Resources: resources,
+	}, nil
 }
 
 // sandboxResources limits the sandbox to its environment's size. The local disk
 // counts toward the pod's ephemeral storage, so its limit carries the disk too.
-func sandboxResources(size EnvironmentSize) corev1.ResourceRequirements {
-	ephemeral := resource.MustParse(appEphemeralLimit)
+// The fixed requests reserve no more than a small environment's limits.
+func sandboxResources(size EnvironmentSize) (corev1.ResourceRequirements, error) {
+	parse := func(dim, v string) (resource.Quantity, bool, error) {
+		if v == "" {
+			return resource.Quantity{}, false, nil
+		}
+		q, err := resource.ParseQuantity(v)
+		if err != nil {
+			return q, false, fmt.Errorf("%w: size.%s %q: %w", errSandboxSize, dim, v, err)
+		}
+		return q, true, nil
+	}
+	requests := corev1.ResourceList{
+		corev1.ResourceCPU:              resource.MustParse("100m"),
+		corev1.ResourceMemory:           resource.MustParse("256Mi"),
+		corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
+	}
 	limits := corev1.ResourceList{}
-	if q, err := resource.ParseQuantity(size.CPU); err == nil {
-		limits[corev1.ResourceCPU] = q
+	for _, d := range []struct {
+		dim   string
+		value string
+		name  corev1.ResourceName
+	}{{"cpu", size.CPU, corev1.ResourceCPU}, {"memory", size.Memory, corev1.ResourceMemory}} {
+		q, ok, err := parse(d.dim, d.value)
+		if err != nil {
+			return corev1.ResourceRequirements{}, err
+		}
+		if !ok {
+			continue
+		}
+		limits[d.name] = q
+		if req := requests[d.name]; req.Cmp(q) > 0 {
+			requests[d.name] = q
+		}
 	}
-	if q, err := resource.ParseQuantity(size.Memory); err == nil {
-		limits[corev1.ResourceMemory] = q
+	ephemeral := resource.MustParse(appEphemeralLimit)
+	disk, ok, err := parse("disk", size.Disk)
+	if err != nil {
+		return corev1.ResourceRequirements{}, err
 	}
-	if q, err := resource.ParseQuantity(size.Disk); err == nil {
-		ephemeral.Add(q)
+	if ok {
+		ephemeral.Add(disk)
 	}
 	limits[corev1.ResourceEphemeralStorage] = ephemeral
-	return corev1.ResourceRequirements{
-		Requests: corev1.ResourceList{
-			corev1.ResourceCPU:              resource.MustParse("100m"),
-			corev1.ResourceMemory:           resource.MustParse("256Mi"),
-			corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
-		},
-		Limits: limits,
-	}
+	return corev1.ResourceRequirements{Requests: requests, Limits: limits}, nil
 }
+
+// errSandboxSize reports an environment size that is not a quantity.
+var errSandboxSize = errors.New("invalid sandbox size")
 
 // ── Policy grant management ───────────────────────────────────────────────────
 

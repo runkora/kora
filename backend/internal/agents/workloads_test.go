@@ -105,7 +105,7 @@ func TestBuildStatefulSet_KeepsIdentityLabelsAndMeshAnnotations(t *testing.T) {
 func TestBuildSandboxPod_AppliesSandboxCustomization(t *testing.T) {
 	p := &K8sProvisioner{cfg: splitPoolConfig()}
 
-	pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
+	pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
 
 	if pod.Spec.NodeSelector["workload-tier"] != "orbit-sandbox" {
 		t.Errorf("nodeSelector: got %v", pod.Spec.NodeSelector)
@@ -141,7 +141,7 @@ func TestBuilders_EmptyCustomizationChangesNothing(t *testing.T) {
 	at := AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
 
 	ss := p.buildSessionManagerStatefulSet(at, "tenant-example", agentTypeLabels(at))
-	pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
+	pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
 	sa := p.buildServiceAccount("coder", "tenant-example", map[string]string{"app": "coder"})
 
 	if ss.Spec.Template.Spec.NodeSelector != nil || pod.Spec.NodeSelector != nil {
@@ -184,7 +184,7 @@ func TestBuildSandboxPod_CoLocatesOnReadWriteOnceWorkspace(t *testing.T) {
 	cfg.Workspace.AccessModes = []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce}
 	p := &K8sProvisioner{cfg: cfg}
 
-	pod := p.buildSandboxPod(Run{ID: "run-1", PodOrdinal: 2}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
+	pod := buildTestSandboxPod(p, Run{ID: "run-1", PodOrdinal: 2}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
 
 	if pod.Spec.Affinity == nil || pod.Spec.Affinity.PodAffinity == nil {
 		t.Fatal("expected pod affinity binding the sandbox to its session-manager")
@@ -206,7 +206,7 @@ func TestBuildSandboxPod_CoLocatesOnReadWriteOnceWorkspace(t *testing.T) {
 func TestBuildSandboxPod_NoCoLocationOnReadWriteManyWorkspace(t *testing.T) {
 	p := &K8sProvisioner{cfg: splitPoolConfig()}
 
-	pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
+	pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
 
 	if pod.Spec.Affinity != nil && pod.Spec.Affinity.PodAffinity != nil {
 		t.Errorf("ReadWriteMany should not pin the sandbox: got %+v", pod.Spec.Affinity.PodAffinity)
@@ -231,7 +231,7 @@ func TestBuildSandboxPod_CoLocationKeepsConfiguredAffinity(t *testing.T) {
 	}
 	p := &K8sProvisioner{cfg: cfg}
 
-	pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
+	pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "tenant-example", testSandboxSpec(), "test-exec-token")
 
 	if pod.Spec.Affinity.NodeAffinity == nil {
 		t.Error("configured node affinity was dropped")

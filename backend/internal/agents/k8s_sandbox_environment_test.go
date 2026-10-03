@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"errors"
 	"slices"
 	"testing"
 
@@ -29,7 +30,7 @@ func TestSandboxPod_FromEnvironment(t *testing.T) {
 		PullSecret:    "acme-pull",
 		Size:          EnvironmentSize{CPU: "4", Memory: "8Gi", Disk: "20Gi"},
 	}
-	pod := podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1"}, "coder", "orbit-tenant-acme", spec, "token")
+	pod := buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1"}, "coder", "orbit-tenant-acme", spec, "token")
 	c := pod.Spec.Containers[0]
 
 	if c.Image != spec.Image || c.ImagePullPolicy != corev1.PullIfNotPresent {
@@ -68,5 +69,46 @@ func TestSandboxPod_FromEnvironment(t *testing.T) {
 		return m.Name == localDiskVolume && m.MountPath == runfs.LocalDir("/workspaces/run-1")
 	}) {
 		t.Errorf("mounts = %+v, want the local disk at the run's local dir", c.VolumeMounts)
+	}
+}
+
+// buildTestSandboxPod builds a sandbox pod from a spec the test knows is valid.
+func buildTestSandboxPod(p *K8sProvisioner, run Run, slug, namespace string, spec SandboxSpec, token string) *corev1.Pod {
+	pod, err := p.buildSandboxPod(run, slug, namespace, spec, token)
+	if err != nil {
+		panic(err)
+	}
+	return pod
+}
+
+// Requests stay fixed but never above a small environment's limits.
+func TestSandboxResources_RequestsWithinLimits(t *testing.T) {
+	rr, err := sandboxResources(EnvironmentSize{CPU: "50m", Memory: "128Mi", Disk: "1Gi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []corev1.ResourceName{corev1.ResourceCPU, corev1.ResourceMemory} {
+		req, lim := rr.Requests[name], rr.Limits[name]
+		if req.Cmp(lim) > 0 {
+			t.Errorf("%s request %s above limit %s", name, req.String(), lim.String())
+		}
+	}
+	rr, _ = sandboxResources(testSizes.Default)
+	if cpu := rr.Requests[corev1.ResourceCPU]; cpu.String() != "100m" {
+		t.Errorf("cpu request = %s, want the fixed 100m", cpu.String())
+	}
+}
+
+// A size that is not a quantity is an error, not a missing limit.
+func TestSandboxPod_InvalidSizeIsAnError(t *testing.T) {
+	for _, size := range []EnvironmentSize{
+		{CPU: "lots", Memory: "1Gi", Disk: "1Gi"},
+		{CPU: "1", Memory: "1Gi", Disk: "big"},
+	} {
+		spec := testSandboxSpec()
+		spec.Size = size
+		if _, err := podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", spec, "token"); !errors.Is(err, errSandboxSize) {
+			t.Errorf("size %+v: err = %v, want errSandboxSize", size, err)
+		}
 	}
 }

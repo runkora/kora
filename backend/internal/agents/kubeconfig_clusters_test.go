@@ -128,7 +128,10 @@ func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
 	runID := "run-abc-123"
 
-	c := sandboxContainer(cfg, testSandboxSpec(), runID, "test-exec-token")
+	c, err := sandboxContainer(cfg, testSandboxSpec(), runID, "test-exec-token")
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	subPaths := map[string]string{}
 	for _, m := range c.VolumeMounts {
