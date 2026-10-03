@@ -1060,7 +1060,8 @@ func (s *Service) TenantCap(ctx context.Context, tenantID string) *TenantCapStat
 	if err != nil || tb == nil {
 		return nil
 	}
-	capSpend, err := s.usage.GetTenantSpendSince(ctx, tenantID, periodStart(tb.ResetCadence, time.Now().UTC()))
+	now := time.Now().UTC()
+	capSpend, err := s.usage.GetTenantSpendSince(ctx, tenantID, periodStart(tb.ResetCadence, now))
 	if err != nil {
 		s.logger.Warn(ctx, "budget.tenant_cap_spend_unavailable",
 			logging.Field{Key: "error", Value: err.Error()},
@@ -1072,6 +1073,7 @@ func (s *Service) TenantCap(ctx context.Context, tenantID string) *TenantCapStat
 		ResetCadence: tb.ResetCadence,
 		SpendUSD:     capSpend,
 		Reached:      capSpend >= tb.LimitUSD,
+		ResetsAt:     periodEnd(tb.ResetCadence, now),
 	}
 }
 

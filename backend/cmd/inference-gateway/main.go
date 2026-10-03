@@ -176,10 +176,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
 	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
-	// The agent rollups read budgets from the evaluator's strict listing, so a
-	// bundle that cannot be read leaves the budgets out instead of showing none.
-	strictBudgets, _ := pol.(policy.StrictBudgetLister)
-	agentInsights := inferencegw.NewAgentInsightsService(usageRepo, strictBudgets, logger)
+	agentInsights := inferencegw.NewAgentInsightsService(usageRepo, pol, logger)
 	controllers := []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger).
 			WithAgentInsights(agentInsights),
@@ -262,30 +259,15 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
-		// The agent usage reads report spend per agent rather than the caller's
-		// own usage, so they need a scope: GET /v1/usage/agent-insights and
-		// /v1/usage/agent-type/{slug}.
+		// The agent usage reads need agents:types:read, not platform:analytics:read,
+		// so the people building agents can see what their agents spend. The scope
+		// check is a prefix rule: a token with only a per-agent scope is refused, and
+		// a caller who passes may read every agent. What a caller sees of a delegated
+		// agent is decided by one predicate in the query.
 		//
-		// That scope is agents:types:read, because an agent's spend is an
-		// attribute of the agent: authority to see what it cost follows authority
-		// to see it at all. Deliberately not platform:analytics:read. That scope
-		// covers tenant-wide analytics across every principal, and requiring it
-		// here would make cost an admin-only figure, so the people building agents
-		// could not see what their own agents spend.
-		//
-		// The scope check is a prefix rule, so a token with only a per-agent scope
-		// is refused here, and a caller who passes may read every agent type. What
-		// a caller sees of a delegated agent is decided by one predicate in the
-		// query: only the rows whose delegator is the caller, or every row for a
-		// platform admin.
-		//
-		// A route under /v1/usage with no entry here falls to the open
-		// /v1/usage entry below, so every new agent usage route needs its own.
-		// routes_test.go fails on one that resolves to no scope.
-		//
-		// The scope is declared by orbit-agents, not here. The vocabulary is
-		// global once registered, and /v1/budgets below already depends on
-		// platform:budgets:read from the policy service in the same way.
+		// A /v1/usage route with no entry of its own falls to the open /v1/usage
+		// entry below, so every new one needs its own. routes_test.go fails on one
+		// that resolves to no scope.
 		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:types:read"},
 		// GET /v1/usage is the caller's own inference usage log; tenant and

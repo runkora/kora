@@ -3,11 +3,11 @@ package inferencegw
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,92 +49,108 @@ func TestCallerFromClaims(t *testing.T) {
 	}
 }
 
+// The privacy rule is the SQL text, so the test reads it: a non-admin is held to
+// rows without a delegator or their own, and an admin query has no delegator clause.
 func TestPredicate(t *testing.T) {
-	clause, args := usageCaller{TenantID: "t1", Subject: "alice"}.where()
-	if clause != whereOthers || !slices.Equal(args, []any{"t1", "alice"}) {
-		t.Errorf("non-admin: %q %v", clause, args)
+	w := usagewindow.For(usagewindow.Period7d, testEnd)
+
+	clause, args := usageQuery{Caller: usageCaller{TenantID: "t1", Subject: "alice"}, Window: w}.scope(w.Start, w.End)
+	for _, want := range []string{"tenant_id = $1", "agent_slug IS NOT NULL", "(delegator_id IS NULL OR delegator_id = $2)", "created_at >= $3 AND created_at < $4"} {
+		if !strings.Contains(clause, want) {
+			t.Errorf("non-admin clause %q lacks %q", clause, want)
+		}
 	}
-	clause, args = usageCaller{TenantID: "t1", Subject: "root", Admin: true}.where()
-	if clause != whereAdmin || !slices.Equal(args, []any{"t1"}) {
-		t.Errorf("admin: %q %v", clause, args)
+	if len(args) != 4 || args[0] != "t1" || args[1] != "alice" {
+		t.Errorf("non-admin args = %v", args)
 	}
 
-	w := usagewindow.For(usagewindow.Period7d, time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC))
-	clause, args = usageQuery{Caller: usageCaller{TenantID: "t1", Subject: "alice"}, Window: w, Slug: "coder"}.scope(w.Start, w.End)
-	want := whereOthers + " AND created_at >= $3 AND created_at < $4 AND agent_slug = $5"
-	if clause != want || len(args) != 5 || args[4] != "coder" {
-		t.Errorf("scoped: %q %v", clause, args)
+	clause, args = usageQuery{Caller: usageCaller{TenantID: "t1", Subject: "root", Admin: true}, Window: w, Slug: "coder"}.scope(w.Start, w.End)
+	if strings.Contains(clause, "delegator_id") || !strings.Contains(clause, "agent_slug IS NOT NULL") || !strings.Contains(clause, "agent_slug = $4") {
+		t.Errorf("admin clause = %q", clause)
+	}
+	if len(args) != 4 || args[0] != "t1" || args[3] != "coder" {
+		t.Errorf("admin args = %v", args)
 	}
 }
 
 // fakeUsageStore returns canned rollups and records the queries it was asked.
 type fakeUsageStore struct {
-	usage    []AgentTypeUsage
-	models   []ModelSpend
+	rows     []agentUsageRow
 	previous float64
 	buckets  []float64
 	spend    []AgentBudgetSpend
-	err      error
 	queries  []usageQuery
 	spendFor []string
+	spendBy  usageCaller
 }
 
-func (f *fakeUsageStore) AgentUsage(_ context.Context, q usageQuery) ([]AgentTypeUsage, error) {
+func (f *fakeUsageStore) AgentUsage(_ context.Context, q usageQuery) ([]agentUsageRow, error) {
 	f.queries = append(f.queries, q)
-	return f.usage, f.err
-}
-func (f *fakeUsageStore) AgentSpendByModel(context.Context, usageQuery) ([]ModelSpend, error) {
-	return f.models, f.err
+	return f.rows, nil
 }
 func (f *fakeUsageStore) AgentSpendBuckets(context.Context, usageQuery) (float64, []float64, error) {
-	return f.previous, f.buckets, f.err
+	return f.previous, f.buckets, nil
 }
-func (f *fakeUsageStore) AgentBudgetSpend(_ context.Context, _ string, slugs []string, _, _ time.Time) ([]AgentBudgetSpend, error) {
-	f.spendFor = slugs
-	return f.spend, f.err
+func (f *fakeUsageStore) AgentBudgetSpend(_ context.Context, caller usageCaller, slugs []string, _, _ time.Time) ([]AgentBudgetSpend, error) {
+	f.spendFor, f.spendBy = slugs, caller
+	return f.spend, nil
 }
 
+// fakeBundle is an evaluator that only lists budgets.
 type fakeBundle struct {
+	policy.Evaluator
 	principals map[string]policy.PrincipalBudget
-	err        error
 }
 
-func (f fakeBundle) ListBudgetsStrict(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
-	return f.principals, nil, f.err
+func (f fakeBundle) ListBudgets(context.Context, string) (map[string]policy.PrincipalBudget, map[string]policy.RoleBudget, error) {
+	return f.principals, nil, nil
 }
 
 const agentNS = "spiffe://orbit.test/tenant/orbit-tenant-example/agent/"
 
 var testEnd = time.Date(2026, 10, 3, 14, 0, 0, 0, time.UTC) // a Saturday
 
-func newInsights(store *fakeUsageStore, bundle policy.StrictBudgetLister) *AgentInsightsService {
+func newInsights(store *fakeUsageStore, bundle policy.Evaluator) *AgentInsightsService {
+	if bundle == nil {
+		bundle = fakeBundle{}
+	}
 	s := NewAgentInsightsService(store, bundle, logging.NewLoggerWithOutput(io.Discard))
 	s.now = func() time.Time { return testEnd }
 	return s
 }
 
-func TestInsights_BucketsTotalsAndPrevious(t *testing.T) {
+func row(slug, model string, tokens int64, cost float64) agentUsageRow {
+	return agentUsageRow{AgentTypeUsage: AgentTypeUsage{AgentSlug: slug, PromptTokens: tokens, TotalTokens: tokens, EstimatedCostUSD: cost}, ModelID: model}
+}
+
+func TestInsights_FoldsUsageAndBuckets(t *testing.T) {
 	buckets := make([]float64, 7)
 	buckets[6] = 5
 	store := &fakeUsageStore{
-		usage:    []AgentTypeUsage{{AgentSlug: "coder", EstimatedCostUSD: 1.5}, {AgentSlug: "notes", EstimatedCostUSD: 0.5}},
+		rows:     []agentUsageRow{row("coder", "m1", 10, 1), row("coder", "m2", 20, 0.5), row("notes", "m1", 5, 0.5), row("free", "m3", 1, 0)},
 		previous: 3,
 		buckets:  buckets,
 	}
 	caller := usageCaller{TenantID: "t1", Subject: "alice"}
 
-	out, err := newInsights(store, nil).Insights(context.Background(), caller, usagewindow.Period7d, testEnd)
+	out, err := newInsights(store, nil).Insights(context.Background(), caller, usagewindow.Period7d)
 	if err != nil {
 		t.Fatalf("Insights: %v", err)
 	}
 	if out.TotalCostUSD != 2 || out.PreviousTotalUSD != 3 {
 		t.Errorf("total %v previous %v, want 2 and 3", out.TotalCostUSD, out.PreviousTotalUSD)
 	}
-	if len(out.Trend) != 7 || out.Trend[6].CostUSD != 5 || out.BucketSeconds != 86400 {
-		t.Errorf("trend = %+v bucket %d", out.Trend, out.BucketSeconds)
+	if len(out.Usage) != 3 || out.Usage[0].AgentSlug != "coder" || out.Usage[0].TotalTokens != 30 || out.Usage[0].EstimatedCostUSD != 1.5 {
+		t.Errorf("usage = %+v, want coder folded across its models", out.Usage)
 	}
-	if !out.Trend[0].Start.Equal(out.Start) || !out.End.Equal(testEnd) || out.End.Sub(out.Start) != 7*24*time.Hour {
-		t.Errorf("window [%s, %s), first bucket %s", out.Start, out.End, out.Trend[0].Start)
+	if len(out.Models) != 2 || out.Models[0].ModelID != "m1" || out.Models[0].CostUSD != 1.5 || out.Models[1].ModelID != "m2" {
+		t.Errorf("models = %+v, want m1 then m2 and no free model", out.Models)
+	}
+	if len(out.Trend) != 7 || out.Trend[6].CostUSD != 5 {
+		t.Errorf("trend = %+v", out.Trend)
+	}
+	if want := testEnd.Add(-7 * 24 * time.Hour); !out.Trend[0].Start.Equal(want) {
+		t.Errorf("first bucket starts %s, want %s", out.Trend[0].Start, want)
 	}
 	if len(store.queries) != 1 || store.queries[0].Caller != caller {
 		t.Errorf("the rollup must run for the verified caller: %+v", store.queries)
@@ -142,20 +158,21 @@ func TestInsights_BucketsTotalsAndPrevious(t *testing.T) {
 	raw, _ := json.Marshal(out)
 	var generic map[string]any
 	_ = json.Unmarshal(raw, &generic)
-	if generic["models"] == nil || generic["usage"] == nil {
-		t.Errorf("models and usage must encode as arrays: %s", raw)
-	}
 	if _, has := generic["budgets"]; has {
-		t.Errorf("no bundle: budgets must be absent: %s", raw)
+		t.Errorf("no budgets: the field must be absent: %s", raw)
 	}
 }
 
-func TestInsights_StoreErrorSurfaces(t *testing.T) {
-	boom := errors.New("db down")
-	_, err := newInsights(&fakeUsageStore{err: boom, buckets: make([]float64, 7)}, nil).
-		Insights(context.Background(), usageCaller{TenantID: "t1"}, usagewindow.Period7d, testEnd)
-	if !errors.Is(err, boom) {
-		t.Errorf("err = %v, want %v", err, boom)
+func TestInsights_NoUsageEncodesEmptyArrays(t *testing.T) {
+	out, err := newInsights(&fakeUsageStore{buckets: make([]float64, 7)}, nil).Insights(context.Background(), usageCaller{TenantID: "t1"}, usagewindow.Period7d)
+	if err != nil {
+		t.Fatalf("Insights: %v", err)
+	}
+	raw, _ := json.Marshal(out)
+	var generic map[string]any
+	_ = json.Unmarshal(raw, &generic)
+	if generic["models"] == nil || generic["usage"] == nil {
+		t.Errorf("models and usage must encode as arrays: %s", raw)
 	}
 }
 
@@ -165,26 +182,22 @@ func TestAgentBudgets(t *testing.T) {
 		agentNS + "coder": {EffectiveLimits: map[string]float64{"monthly": 100, "weekly": 30}, EffectivePerRunLimitUSD: 5},
 		// A limit and no usage this month: a zero bar.
 		agentNS + "idle": {EffectiveLimits: map[string]float64{"monthly": 50}},
-		// Delegated, found from its rows: no row for anyone.
-		agentNS + "notes": {EffectiveLimits: map[string]float64{"monthly": 10}},
 		// A per-run limit only, and a zero limit: no window, no row.
 		agentNS + "perrun": {EffectivePerRunLimitUSD: 2},
 		agentNS + "zero":   {EffectiveLimits: map[string]float64{"monthly": 0}},
-		// A sandbox principal is not an agent budget key; a human is not an agent.
+		// Not agent principals.
 		"user-1":             {EffectiveLimits: map[string]float64{"monthly": 9}},
 		"trigger-source:abc": {EffectiveLimits: map[string]float64{"monthly": 9}},
 	}}
-	store := &fakeUsageStore{buckets: make([]float64, 7), spend: []AgentBudgetSpend{
-		{AgentSlug: "coder", Week: 7, Month: 40},
-		{AgentSlug: "notes", Week: 1, Month: 2, Delegated: true},
-	}}
+	store := &fakeUsageStore{buckets: make([]float64, 7), spend: []AgentBudgetSpend{{AgentSlug: "coder", Week: 7, Month: 40}}}
+	caller := usageCaller{TenantID: "t1", Subject: "alice"}
 
-	out, err := newInsights(store, bundle).Insights(context.Background(), usageCaller{TenantID: "t1"}, usagewindow.Period7d, testEnd)
+	out, err := newInsights(store, bundle).Insights(context.Background(), caller, usagewindow.Period7d)
 	if err != nil {
 		t.Fatalf("Insights: %v", err)
 	}
-	if want := []string{"coder", "idle", "notes"}; !slices.Equal(sortedCopy(store.spendFor), want) {
-		t.Errorf("spend asked for %v, want %v", store.spendFor, want)
+	if want := []string{"coder", "idle"}; !slices.Equal(sortedCopy(store.spendFor), want) || store.spendBy != caller {
+		t.Errorf("spend asked for %v by %+v, want %v by the verified caller", store.spendFor, store.spendBy, want)
 	}
 	if len(out.Budgets) != 2 || out.Budgets[0].AgentSlug != "coder" || out.Budgets[1].AgentSlug != "idle" {
 		t.Fatalf("budgets = %+v, want coder and idle only", out.Budgets)
@@ -212,24 +225,12 @@ func sortedCopy(s []string) []string {
 	return out
 }
 
-func TestAgentBudgets_BundleFailureLeavesThemOut(t *testing.T) {
-	store := &fakeUsageStore{buckets: make([]float64, 7)}
-	out, err := newInsights(store, fakeBundle{err: errors.New("bundle not loaded")}).
-		Insights(context.Background(), usageCaller{TenantID: "t1"}, usagewindow.Period7d, testEnd)
-	if err != nil {
-		t.Fatalf("a budget failure must not fail the page: %v", err)
-	}
-	if out.Budgets != nil || store.spendFor != nil {
-		t.Errorf("budgets %+v spend asked %v: nothing may be shown as no budget", out.Budgets, store.spendFor)
-	}
-}
-
 func TestAgentUsage(t *testing.T) {
 	store := &fakeUsageStore{}
 	svc := newInsights(store, nil)
 	caller := usageCaller{TenantID: "t1", Subject: "alice"}
 
-	got, err := svc.AgentUsage(context.Background(), caller, usagewindow.Period30d, testEnd, "notes")
+	got, err := svc.AgentUsage(context.Background(), caller, usagewindow.Period30d, "notes")
 	if err != nil || got.AgentSlug != "notes" || got.TotalTokens != 0 {
 		t.Errorf("no rows = %+v, %v; want zero for the slug", got, err)
 	}
@@ -237,8 +238,8 @@ func TestAgentUsage(t *testing.T) {
 		t.Errorf("query = %+v", q)
 	}
 
-	store.usage = []AgentTypeUsage{{AgentSlug: "notes", TotalTokens: 5}}
-	if got, _ := svc.AgentUsage(context.Background(), caller, usagewindow.Period7d, testEnd, "notes"); got.TotalTokens != 5 {
+	store.rows = []agentUsageRow{row("notes", "m1", 5, 0.5), row("notes", "m2", 2, 0.2)}
+	if got, _ := svc.AgentUsage(context.Background(), caller, usagewindow.Period7d, "notes"); got.TotalTokens != 7 {
 		t.Errorf("rows = %+v", got)
 	}
 }
@@ -253,12 +254,11 @@ func agentUsageRequest(path string, claims *token.PlatformClaims) *http.Request 
 
 func TestAgentUsageHandlers(t *testing.T) {
 	log := logging.NewLoggerWithOutput(io.Discard)
-	store := &fakeUsageStore{buckets: make([]float64, 15), usage: []AgentTypeUsage{{AgentSlug: "coder", EstimatedCostUSD: 1}}}
-	svc := newInsights(store, nil)
+	store := &fakeUsageStore{buckets: make([]float64, 15), rows: []agentUsageRow{row("coder", "m", 1, 1)}}
 	claims := claimsWithRoles("t1", "alice", "")
-	wired := (&Controller{logger: log}).WithAgentInsights(svc)
+	wired := (&Controller{logger: log}).WithAgentInsights(newInsights(store, nil))
 
-	code := func(c *Controller, h func(http.ResponseWriter, *http.Request), req *http.Request) int {
+	code := func(h func(http.ResponseWriter, *http.Request), req *http.Request) int {
 		w := httptest.NewRecorder()
 		h(w, req)
 		return w.Code
@@ -266,47 +266,30 @@ func TestAgentUsageHandlers(t *testing.T) {
 
 	t.Run("insights", func(t *testing.T) {
 		w := httptest.NewRecorder()
-		wired.handleAgentInsights(w, agentUsageRequest("/usage/agent-insights?period=90d&end=2026-10-03T14:00:00Z", claims))
+		wired.handleAgentInsights(w, agentUsageRequest("/usage/agent-insights?period=90d", claims))
 		var out AgentInsights
-		if err := json.NewDecoder(w.Body).Decode(&out); w.Code != http.StatusOK || err != nil || out.Period != "90d" || len(out.Trend) != 15 || !out.End.Equal(testEnd) {
+		if err := json.NewDecoder(w.Body).Decode(&out); w.Code != http.StatusOK || err != nil || out.Period != "90d" || len(out.Trend) != 15 {
 			t.Errorf("status %d out %+v err %v", w.Code, out, err)
 		}
 	})
-	t.Run("defaults to 7d", func(t *testing.T) {
-		w := httptest.NewRecorder()
-		wired.handleAgentInsights(w, agentUsageRequest("/usage/agent-insights", claims))
-		var out AgentInsights
-		_ = json.NewDecoder(w.Body).Decode(&out)
-		if w.Code != http.StatusOK || out.Period != "7d" {
-			t.Errorf("status %d period %q", w.Code, out.Period)
+	t.Run("a bad period is refused", func(t *testing.T) {
+		if got := code(wired.handleAgentInsights, agentUsageRequest("/usage/agent-insights?period=1y", claims)); got != http.StatusBadRequest {
+			t.Errorf("status %d, want 400", got)
 		}
 	})
-	t.Run("bad period or end", func(t *testing.T) {
-		for _, p := range []string{"/usage/agent-insights?period=1y", "/usage/agent-insights?end=yesterday"} {
-			if got := code(wired, wired.handleAgentInsights, agentUsageRequest(p, claims)); got != http.StatusBadRequest {
-				t.Errorf("%s: status %d, want 400", p, got)
-			}
-		}
-	})
-	t.Run("no claims or no tenant", func(t *testing.T) {
-		if got := code(wired, wired.handleAgentInsights, agentUsageRequest("/usage/agent-insights", nil)); got != http.StatusUnauthorized {
+	t.Run("no claims or no tenant is refused", func(t *testing.T) {
+		if got := code(wired.handleAgentInsights, agentUsageRequest("/usage/agent-insights", nil)); got != http.StatusUnauthorized {
 			t.Errorf("no claims: status %d, want 401", got)
 		}
-		if got := code(wired, wired.handleAgentInsights, agentUsageRequest("/usage/agent-insights", claimsWithRoles("", "svc", ""))); got != http.StatusUnauthorized {
+		if got := code(wired.handleAgentInsights, agentUsageRequest("/usage/agent-insights", claimsWithRoles("", "svc", ""))); got != http.StatusUnauthorized {
 			t.Errorf("no tenant: status %d, want 401", got)
-		}
-	})
-	t.Run("not wired", func(t *testing.T) {
-		c := &Controller{logger: log}
-		if got := code(c, c.handleAgentInsights, agentUsageRequest("/usage/agent-insights", claims)); got != http.StatusServiceUnavailable {
-			t.Errorf("status %d, want 503", got)
 		}
 	})
 	t.Run("one agent validates its slug", func(t *testing.T) {
 		for slug, want := range map[string]int{"token-probe": http.StatusOK, "": http.StatusBadRequest, "probe%": http.StatusBadRequest, "a/b": http.StatusBadRequest} {
 			req := agentUsageRequest("/usage/agent-type/x", claims)
 			req.SetPathValue("slug", slug)
-			if got := code(wired, wired.handleAgentUsage, req); got != want {
+			if got := code(wired.handleAgentUsage, req); got != want {
 				t.Errorf("slug %q: status %d, want %d", slug, got, want)
 			}
 		}

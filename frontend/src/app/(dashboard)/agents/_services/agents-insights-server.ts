@@ -3,16 +3,13 @@ import 'server-only';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
 import { config } from '@orbit/server/config';
-import { policyGatewayFetch } from '@orbit/server/services/policy-gateway-server';
-import { hasScopeCovering } from '@orbit/lib/permissions';
 import type { AgentInsightsResponse } from '@orbit/shared/api';
 import { PERIOD_TEXT } from '../_lib/spend';
 import type { Period } from '../_lib/spend';
 
 // The Agents page rollups. The inference gateway counts usage and budgets for
 // the caller's own token, and orbit-agents counts runs on the run list rule, so
-// the BFF only composes what each returns. It sends one end time to both so the
-// two cut the same window.
+// the BFF only composes what each returns.
 
 type Result<T> = { ok: true; data: T } | { ok: false; status: number; message: string };
 
@@ -59,11 +56,8 @@ async function agentsGet<T>(path: string, accessToken: string): Promise<Result<T
   }
 }
 
-/** The tenant cap, fetched only for a session that holds the scope that guards it. */
+/** The tenant cap. A caller without platform:budgets:read gets a 403, which reads as no cap. */
 async function loadTenantCap(accessToken: string): Promise<AgentInsightsResponse['tenant_cap']> {
-  const scopes = await policyGatewayFetch<{ scopes: string[] }>('/scopes', accessToken);
-  if (!scopes.ok || !hasScopeCovering(scopes.data.scopes, 'platform:budgets:read'))
-    return undefined;
   const cap = await gatewayGet<{ tenant_cap?: AgentInsightsResponse['tenant_cap'] }>(
     '/budgets/tenant-cap',
     accessToken,
@@ -73,18 +67,19 @@ async function loadTenantCap(accessToken: string): Promise<AgentInsightsResponse
 
 /**
  * Usage, model split, spend over time and budgets from the gateway, run
- * outcomes from orbit-agents and, for a caller who may read it, the tenant cap,
- * all at once. Outcomes and the cap are optional: when either cannot be had the
- * rest still stands.
+ * outcomes from orbit-agents and the tenant cap, all at once. Outcomes and the
+ * cap are optional: when either cannot be had the rest still stands.
  */
 export async function loadInsights(
   accessToken: string,
   period: Period,
 ): Promise<Result<AgentInsightsResponse>> {
-  const query = `period=${period}&end=${encodeURIComponent(new Date().toISOString())}`;
   const [usage, outcomes, tenantCap] = await Promise.all([
-    gatewayGet<AgentInsightsResponse>(`/usage/agent-insights?${query}`, accessToken),
-    agentsGet<{ completed: number; failed: number }>(`/api/v1/run-outcomes?${query}`, accessToken),
+    gatewayGet<AgentInsightsResponse>(`/usage/agent-insights?period=${period}`, accessToken),
+    agentsGet<{ completed: number; failed: number }>(
+      `/api/v1/run-outcomes?period=${period}`,
+      accessToken,
+    ),
     loadTenantCap(accessToken),
   ]);
   if (!usage.ok) return usage;

@@ -6,11 +6,10 @@
 // render, so first paint has real data. Any other period is fetched when it is
 // first selected, and each period is kept once loaded. Budgets and the tenant
 // cap come with every response and do not depend on the window, so the latest
-// one wins. A part that fails is left out of the result, so the page renders
-// without it.
+// one wins. A period that fails is left out, so the page renders without it.
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentBudgetStatus, AgentInsightsResponse } from '@orbit/shared/api';
+import { useEffect, useMemo, useState } from 'react';
+import type { AgentInsightsResponse } from '@orbit/shared/api';
 import { fetchAgentInsights } from '../_services/agents-insights-api';
 import { toBudgetRows, toPeriodData, toTenantBudget } from '../_lib/insights';
 import type { AgentsInsights, Period, PeriodData } from '../_lib/spend';
@@ -24,13 +23,17 @@ export interface AgentsInsightsState {
   status: WindowStatus;
 }
 
-/** The parts of a response that do not depend on the window. */
-interface Shared {
-  budgets: AgentBudgetStatus[] | undefined;
+interface Loaded {
+  data: PeriodData;
+  budgets: AgentInsightsResponse['budgets'];
   cap: AgentInsightsResponse['tenant_cap'];
 }
 
-const sharedOf = (r: AgentInsightsResponse): Shared => ({ budgets: r.budgets, cap: r.tenant_cap });
+const loadedOf = (r: AgentInsightsResponse): Loaded => ({
+  data: toPeriodData(r.period, r),
+  budgets: r.budgets,
+  cap: r.tenant_cap,
+});
 
 export function useAgentsInsights(
   period: Period,
@@ -38,59 +41,48 @@ export function useAgentsInsights(
   enabled: boolean,
   initial?: AgentInsightsResponse | null,
 ): AgentsInsightsState {
-  const [periods, setPeriods] = useState<Partial<Record<Period, PeriodData>>>(() =>
-    initial ? { [initial.period]: toPeriodData(initial.period, initial) } : {},
+  // A period is a response, or 'failed' once it was asked for and could not be had.
+  const [periods, setPeriods] = useState<Partial<Record<Period, Loaded | 'failed'>>>(() =>
+    initial ? { [initial.period]: loadedOf(initial) } : {},
   );
-  const [failed, setFailed] = useState<Partial<Record<Period, boolean>>>({});
-  const [shared, setShared] = useState<Shared | undefined>(() =>
-    initial ? sharedOf(initial) : undefined,
+  const [latest, setLatest] = useState<Loaded | undefined>(() =>
+    initial ? loadedOf(initial) : undefined,
   );
 
-  // Held in refs so the effect starts a fetch only for a period that is neither
-  // loaded nor already on its way, whatever the render that triggers it.
-  const loaded = useRef(new Set<Period>(initial ? [initial.period] : []));
-  const inFlight = useRef(new Set<Period>());
-  // A fetch answers whichever period it was for, so a response is dropped only
-  // when the page has gone, never when the selection moved on.
-  const mounted = useRef(true);
+  // Only an unasked period is fetched. A failed one is retried when selected again,
+  // because the effect runs on each change of period.
+  const current = periods[period];
+  const asked = current !== undefined && current !== 'failed';
   useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!enabled || loaded.current.has(period) || inFlight.current.has(period)) return;
-    inFlight.current.add(period);
-    void fetchAgentInsights(period).then(({ data }) => {
-      inFlight.current.delete(period);
-      if (!mounted.current) return;
-      if (!data) {
-        setFailed((f) => ({ ...f, [period]: true }));
-        return;
-      }
-      loaded.current.add(period);
-      setFailed((f) => ({ ...f, [period]: false }));
-      setPeriods((p) => ({ ...p, [period]: toPeriodData(period, data) }));
-      setShared(sharedOf(data));
+    if (!enabled || asked) return;
+    let cancelled = false;
+    void fetchAgentInsights(period).then((response) => {
+      if (cancelled) return;
+      const loaded = response ? loadedOf(response) : 'failed';
+      setPeriods((p) => ({ ...p, [period]: loaded }));
+      if (loaded !== 'failed') setLatest(loaded);
     });
-  }, [period, enabled]);
+    return () => {
+      cancelled = true;
+    };
+  }, [period, enabled, asked]);
 
   return useMemo(() => {
-    const hasData = Object.keys(periods).length > 0;
-    const status: WindowStatus = periods[period] ? 'ready' : failed[period] ? 'failed' : 'loading';
-    if (!hasData) return { insights: undefined, status };
+    const byPeriod = Object.fromEntries(
+      Object.entries(periods).flatMap(([p, v]) => (v && v !== 'failed' ? [[p, v.data]] : [])),
+    ) as Partial<Record<Period, PeriodData>>;
+    const status: WindowStatus = current === 'failed' ? 'failed' : current ? 'ready' : 'loading';
+    if (Object.keys(byPeriod).length === 0) return { insights: undefined, status };
 
-    const rows = shared?.budgets ? toBudgetRows(shared.budgets, agents) : [];
-    const tenantBudget = shared ? toTenantBudget(shared.cap, new Date()) : undefined;
+    const rows = latest?.budgets ? toBudgetRows(latest.budgets, agents) : [];
+    const tenantBudget = latest ? toTenantBudget(latest.cap, new Date()) : undefined;
     return {
       insights: {
-        byPeriod: periods,
+        byPeriod,
         ...(rows.length > 0 ? { budgets: rows } : {}),
         ...(tenantBudget ? { tenantBudget } : {}),
       },
       status,
     };
-  }, [periods, failed, shared, period, agents]);
+  }, [periods, current, latest, agents]);
 }

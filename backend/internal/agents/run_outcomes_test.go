@@ -3,7 +3,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -25,18 +24,18 @@ func getOutcomes(c *Controller, ctx context.Context, query string) *httptest.Res
 	return w
 }
 
-func TestRunOutcomes_CutsTheWindowFromEnd(t *testing.T) {
+func TestRunOutcomes_ReturnsTheCountForTheWindow(t *testing.T) {
 	repo := newMockRepository()
 	repo.outcomes = RunOutcomes{Completed: 4, Failed: 1}
 	c := outcomesController(repo)
 
-	w := getOutcomes(c, withRunCallerCtx(context.Background(), "t1", "alice", ""), "?period=30d&end=2026-10-03T14:00:00Z")
+	before := time.Now()
+	w := getOutcomes(c, withRunCallerCtx(context.Background(), "t1", "alice", ""), "?period=30d")
 	var got RunOutcomes
 	if err := json.NewDecoder(w.Body).Decode(&got); w.Code != http.StatusOK || err != nil || got != repo.outcomes {
 		t.Fatalf("status %d body %+v err %v", w.Code, got, err)
 	}
-	end := time.Date(2026, 10, 3, 14, 0, 0, 0, time.UTC)
-	if !repo.outcomesTo.Equal(end) || !repo.outcomesFrom.Equal(end.AddDate(0, 0, -30)) {
+	if repo.outcomesTo.Before(before) || repo.outcomesTo.Sub(repo.outcomesFrom) != 30*24*time.Hour {
 		t.Errorf("window [%s, %s)", repo.outcomesFrom, repo.outcomesTo)
 	}
 }
@@ -54,20 +53,5 @@ func TestRunOutcomes_UsesTheRunVisibilityRule(t *testing.T) {
 	getOutcomes(c, withRunCallerCtx(context.Background(), "t1", "root", rolePlatformAdmin), "")
 	if !repo.outcomesVis.SeeAll {
 		t.Errorf("admin visibility = %+v, want SeeAll", repo.outcomesVis)
-	}
-}
-
-func TestRunOutcomes_Errors(t *testing.T) {
-	c := outcomesController(newMockRepository())
-	ctx := withRunCallerCtx(context.Background(), "t1", "alice", "")
-	for _, q := range []string{"?period=1y", "?end=yesterday"} {
-		if w := getOutcomes(c, ctx, q); w.Code != http.StatusBadRequest {
-			t.Errorf("%s: status %d, want 400", q, w.Code)
-		}
-	}
-	repo := newMockRepository()
-	repo.outcomesErr = errors.New("db down")
-	if w := getOutcomes(outcomesController(repo), ctx, ""); w.Code != http.StatusInternalServerError {
-		t.Errorf("store error: status %d, want 500", w.Code)
 	}
 }

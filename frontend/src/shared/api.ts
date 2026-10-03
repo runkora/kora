@@ -466,16 +466,12 @@ export interface AgentBudgetStatus {
  */
 export interface AgentInsightsResponse {
   period: AgentInsightsPeriod;
-  /** RFC 3339 start of the window; `trend[0]` starts here. */
-  start: string;
-  end: string;
-  /** Width of one `trend` point. */
-  bucket_seconds: number;
   usage: AgentTypeUsage[];
   total_cost_usd: number;
   /** Total for the window of the same length that ends where this one starts. */
   previous_total_usd: number;
   models: { model_id: string; cost_usd: number }[];
+  /** Spend per bucket, oldest first, each with where it starts. */
   trend: { start: string; cost_usd: number }[];
   all_delegated_usage: boolean;
   /** Absent when the policy bundle could not be read. */
@@ -483,7 +479,7 @@ export interface AgentInsightsResponse {
   /** Absent when orbit-agents could not count runs. */
   outcomes?: { completed: number; failed: number };
   /** Present only for callers who hold platform:budgets:read. */
-  tenant_cap?: { limit_usd: number; reset_cadence: string; spend_usd: number };
+  tenant_cap?: { limit_usd: number; reset_cadence: string; spend_usd: number; resets_at: string };
 }
 
 /** Request body for POST /api/agents/types. */

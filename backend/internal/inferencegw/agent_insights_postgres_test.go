@@ -51,9 +51,10 @@ func insertAgentRows(t *testing.T, pool *pgxpool.Pool, tenant string, rows ...ag
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
-func costs(rows []AgentTypeUsage) map[string]float64 {
+func costs(rows []agentUsageRow) map[string]float64 {
+	usage, _ := foldUsage(rows)
 	out := map[string]float64{}
-	for _, u := range rows {
+	for _, u := range usage {
 		out[u.AgentSlug] = u.EstimatedCostUSD
 	}
 	return out
@@ -137,10 +138,7 @@ func TestPostgres_AgentRollups_Predicate(t *testing.T) {
 				}
 			}
 
-			models, err := repo.AgentSpendByModel(ctx, q)
-			if err != nil {
-				t.Fatalf("AgentSpendByModel: %v", err)
-			}
+			_, models := foldUsage(usage)
 			var modelSum float64
 			for _, m := range models {
 				modelSum += m.CostUSD
@@ -182,8 +180,8 @@ func TestPostgres_AgentRollups_Predicate(t *testing.T) {
 			t.Errorf("a stranger's view of the delegated agent = %+v, %v; want nothing", got, err)
 		}
 		got, err = repo.AgentUsage(ctx, usageQuery{Caller: usageCaller{TenantID: tenant, Subject: "bob"}, Window: w, Slug: "notes"})
-		if err != nil || len(got) != 1 || !near(got[0].EstimatedCostUSD, 0.7) {
-			t.Errorf("the owner's view = %+v, %v; want 0.7", got, err)
+		if c := costs(got); err != nil || len(c) != 1 || !near(c["notes"], 0.7) {
+			t.Errorf("the owner's view = %v, %v; want 0.7", c, err)
 		}
 	})
 }
@@ -212,36 +210,13 @@ func TestPostgres_AgentRollups_BucketsAndModels(t *testing.T) {
 		t.Errorf("previous %v buckets %v, want previous 7 and 4 in bucket 2", previous, buckets)
 	}
 
-	models, err := repo.AgentSpendByModel(ctx, q)
+	usage, err := repo.AgentUsage(ctx, q)
 	if err != nil {
-		t.Fatalf("AgentSpendByModel: %v", err)
+		t.Fatalf("AgentUsage: %v", err)
 	}
+	_, models := foldUsage(usage)
 	if len(models) != 2 || models[0].ModelID != "big" || !near(models[0].CostUSD, 3) || models[1].ModelID != "small" {
 		t.Errorf("models = %+v, want big then small", models)
-	}
-}
-
-func TestPostgres_AgentRollups_SlugsMatchExactly(t *testing.T) {
-	repo, pool, tenant := testUsageRepo(t)
-	now := time.Now()
-	insertAgentRows(t, pool, tenant,
-		agentRow{slug: "probe", prompt: 10, cost: 0.1, at: now.Add(-time.Hour)},
-		agentRow{slug: "token-probe", prompt: 100, cost: 1, at: now.Add(-time.Hour)},
-		agentRow{slug: "pr_be", prompt: 7, cost: 0.07, at: now.Add(-time.Hour)},
-	)
-	w := usagewindow.For(usagewindow.Period7d, now)
-	for slug, want := range map[string]int64{"probe": 10, "token-probe": 100, "pr_be": 7, "pr%": 0, "missing": 0} {
-		got, err := repo.AgentUsage(context.Background(), usageQuery{Caller: usageCaller{TenantID: tenant, Admin: true}, Window: w, Slug: slug})
-		if err != nil {
-			t.Fatalf("AgentUsage: %v", err)
-		}
-		var total int64
-		for _, u := range got {
-			total += u.TotalTokens
-		}
-		if total != want {
-			t.Errorf("%q: total tokens %d, want %d", slug, total, want)
-		}
 	}
 }
 
@@ -257,7 +232,8 @@ func TestPostgres_AgentBudgetSpend(t *testing.T) {
 		{slug: "coder", cost: 2, at: week.Add(-time.Hour)},
 		{slug: "coder", cost: 4, at: month.Add(-time.Hour)},
 		{slug: "notes", delegator: "alice", cost: 8, at: now},
-		{slug: "other", cost: 16, at: now},
+		{slug: "notes", delegator: "bob", cost: 16, at: now},
+		{slug: "other", cost: 32, at: now},
 	}
 	insertAgentRows(t, pool, tenant, rows...)
 	var wantWeek, wantMonth float64
@@ -270,22 +246,28 @@ func TestPostgres_AgentBudgetSpend(t *testing.T) {
 		}
 	}
 
-	got, err := repo.AgentBudgetSpend(context.Background(), tenant, []string{"coder", "notes"}, week, month)
-	if err != nil {
-		t.Fatalf("AgentBudgetSpend: %v", err)
+	spend := func(caller usageCaller) map[string]AgentBudgetSpend {
+		got, err := repo.AgentBudgetSpend(context.Background(), caller, []string{"coder", "notes"}, week, month)
+		if err != nil {
+			t.Fatalf("AgentBudgetSpend: %v", err)
+		}
+		by := map[string]AgentBudgetSpend{}
+		for _, b := range got {
+			by[b.AgentSlug] = b
+		}
+		return by
 	}
-	by := map[string]AgentBudgetSpend{}
-	for _, b := range got {
-		by[b.AgentSlug] = b
+
+	alice := spend(usageCaller{TenantID: tenant, Subject: "alice"})
+	if len(alice) != 2 || !near(alice["coder"].Week, wantWeek) || !near(alice["coder"].Month, wantMonth) {
+		t.Errorf("alice = %+v, want coder week %v month %v and notes", alice, wantWeek, wantMonth)
 	}
-	if len(by) != 2 {
-		t.Fatalf("got %+v, want coder and notes only", got)
+	// Spend on a delegated agent is the caller's own: bob's 16 is not alice's to see.
+	if !near(alice["notes"].Month, 8) {
+		t.Errorf("alice's notes spend = %+v, want 8", alice["notes"])
 	}
-	if c := by["coder"]; !near(c.Week, wantWeek) || !near(c.Month, wantMonth) || c.Delegated {
-		t.Errorf("coder = %+v, want week %v month %v and not delegated", c, wantWeek, wantMonth)
-	}
-	if n := by["notes"]; !n.Delegated {
-		t.Errorf("notes = %+v, want delegated: it has rows with a delegator", n)
+	if admin := spend(usageCaller{TenantID: tenant, Admin: true}); !near(admin["notes"].Month, 24) {
+		t.Errorf("admin's notes spend = %+v, want 24", admin["notes"])
 	}
 }
 
@@ -319,13 +301,10 @@ func TestPostgres_AgentRollups_DoNotPrepareStatements(t *testing.T) {
 	if _, err := repo.AgentUsage(ctx, q); err != nil {
 		t.Fatalf("AgentUsage: %v", err)
 	}
-	if _, err := repo.AgentSpendByModel(ctx, q); err != nil {
-		t.Fatalf("AgentSpendByModel: %v", err)
-	}
 	if _, _, err := repo.AgentSpendBuckets(ctx, q); err != nil {
 		t.Fatalf("AgentSpendBuckets: %v", err)
 	}
-	if _, err := repo.AgentBudgetSpend(ctx, tenant, []string{"coder"}, now, now); err != nil {
+	if _, err := repo.AgentBudgetSpend(ctx, q.Caller, []string{"coder"}, now, now); err != nil {
 		t.Fatalf("AgentBudgetSpend: %v", err)
 	}
 

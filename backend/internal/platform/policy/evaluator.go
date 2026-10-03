@@ -261,11 +261,3 @@ type BudgetResult struct {
 func NewEvaluator(bundleEndpoint string, pollInterval time.Duration, logger logging.Logger) Evaluator {
 	return newEngine(bundleEndpoint, pollInterval, logger)
 }
-
-// StrictBudgetLister is implemented by an Evaluator that can list budgets and
-// report a bundle it cannot read. Enforcement uses Evaluator.ListBudgets, which
-// fails open. A display uses this, so it never shows "no budget" for a budget it
-// could not read.
-type StrictBudgetLister interface {
-	ListBudgetsStrict(ctx context.Context, tenantID string) (map[string]PrincipalBudget, map[string]RoleBudget, error)
-}

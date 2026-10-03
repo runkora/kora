@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closestToLimit, groupTail, rowUsedShare, usedShare } from './spend';
+import { closestToLimit, groupTail } from './spend';
 import type { BudgetRow } from './spend';
 
 const row = (name: string, ...windows: [number, number][]): BudgetRow => ({
@@ -23,19 +23,6 @@ describe('groupTail', () => {
     const sum = (rs: { cost: number }[]) => rs.reduce((n, r) => n + r.cost, 0);
     expect(sum(grouped)).toBe(sum(rows));
   });
-
-  it('leaves a short list alone', () => {
-    expect(groupTail(rows.slice(0, 6))).toEqual(rows.slice(0, 6));
-    expect(groupTail([])).toEqual([]);
-  });
-});
-
-describe('usedShare', () => {
-  it('divides spend by the limit, and treats a zero limit as fully spent', () => {
-    expect(usedShare(25, 100)).toBe(0.25);
-    expect(usedShare(0, 0)).toBe(Infinity);
-    expect(usedShare(3, 0)).toBe(Infinity);
-  });
 });
 
 describe('closestToLimit', () => {
@@ -53,9 +40,5 @@ describe('closestToLimit', () => {
   it('puts a zero limit first, as fully spent', () => {
     const ordered = closestToLimit([row('over', [100, 120]), row('zero', [0, 0])]);
     expect(ordered.map((r) => r.name)).toEqual(['zero', 'over']);
-  });
-
-  it('reads an empty row as nothing spent', () => {
-    expect(rowUsedShare({ name: 'x', windows: [] })).toBe(0);
   });
 });

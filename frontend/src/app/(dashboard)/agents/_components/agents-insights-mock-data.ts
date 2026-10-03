@@ -192,9 +192,6 @@ export function mockInsightsResponse(
   const start = Date.UTC(2026, 9, 4) - bucket * data.trend.values.length;
   return {
     period,
-    start: new Date(start).toISOString(),
-    end: new Date(start + bucket * data.trend.values.length).toISOString(),
-    bucket_seconds: BUCKET_SECONDS[period],
     usage: Object.values(data.usage),
     total_cost_usd: data.total,
     previous_total_usd: data.previousTotal ?? 0,
@@ -212,6 +209,7 @@ export function mockInsightsResponse(
             limit_usd: source.tenantBudget.limit,
             reset_cadence: 'monthly',
             spend_usd: source.tenantBudget.spent,
+            resets_at: '2026-11-01T00:00:00Z',
           },
         }
       : {}),

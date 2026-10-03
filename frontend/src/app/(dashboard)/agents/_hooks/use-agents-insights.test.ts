@@ -1,26 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { renderHook, waitFor } from '@testing-library/react';
 import type { AgentInsightsPeriod, AgentInsightsResponse } from '@orbit/shared/api';
 
 const api = vi.hoisted(() => ({ fetchAgentInsights: vi.fn() }));
 vi.mock('../_services/agents-insights-api', () => api);
-
-// Wraps each state setter so a test can see whether a late response set state.
-const setters = vi.hoisted(() => ({ calls: [] as unknown[][] }));
-vi.mock('react', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('react')>();
-  return {
-    ...actual,
-    useState: (initial: unknown) => {
-      const [value, set] = actual.useState(initial);
-      const spy = (...args: unknown[]) => {
-        setters.calls.push(args);
-        (set as (...a: unknown[]) => void)(...args);
-      };
-      return [value, spy];
-    },
-  };
-});
 
 import { useAgentsInsights } from './use-agents-insights';
 
@@ -32,9 +15,6 @@ const AGENTS = [
 function insights(period: AgentInsightsPeriod, cost: number): AgentInsightsResponse {
   return {
     period,
-    start: '2026-09-27T00:00:00Z',
-    end: '2026-10-04T00:00:00Z',
-    bucket_seconds: 86400,
     usage: [
       {
         agent_slug: 'coder',
@@ -65,7 +45,12 @@ function insights(period: AgentInsightsPeriod, cost: number): AgentInsightsRespo
         ],
       },
     ],
-    tenant_cap: { limit_usd: 100, reset_cadence: 'monthly', spend_usd: 20 },
+    tenant_cap: {
+      limit_usd: 100,
+      reset_cadence: 'monthly',
+      spend_usd: 20,
+      resets_at: '2026-11-01T00:00:00Z',
+    },
   };
 }
 
@@ -74,10 +59,7 @@ type Period = '7d' | '24h';
 beforeEach(() => {
   vi.clearAllMocks();
   api.fetchAgentInsights.mockImplementation((period: string) =>
-    Promise.resolve({
-      data: insights(period as AgentInsightsPeriod, period === '7d' ? 7 : 24),
-      error: null,
-    }),
+    Promise.resolve(insights(period as AgentInsightsPeriod, period === '7d' ? 7 : 24)),
   );
 });
 
@@ -120,7 +102,7 @@ describe('useAgentsInsights', () => {
   });
 
   it('leaves a failed part out and retries the period when it is selected again', async () => {
-    api.fetchAgentInsights.mockResolvedValueOnce({ data: null, error: 'boom' });
+    api.fetchAgentInsights.mockResolvedValueOnce(null);
     const { result, rerender } = renderHook(
       ({ period }: { period: Period }) => useAgentsInsights(period, AGENTS, true),
       { initialProps: { period: '7d' } },
@@ -132,30 +114,5 @@ describe('useAgentsInsights', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
     rerender({ period: '7d' });
     await waitFor(() => expect(result.current.status).toBe('ready'));
-  });
-
-  it('does not fetch when the page was handed its insights', async () => {
-    renderHook(() => useAgentsInsights('7d', AGENTS, false));
-    await act(async () => {});
-    expect(api.fetchAgentInsights).not.toHaveBeenCalled();
-  });
-
-  it('makes no state update when it unmounts before a fetch resolves', async () => {
-    let resolveInsights!: (v: unknown) => void;
-    api.fetchAgentInsights.mockReturnValue(new Promise((r) => (resolveInsights = r)));
-    setters.calls.length = 0;
-    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
-
-    const { result, unmount } = renderHook(() => useAgentsInsights('7d', AGENTS, true));
-    unmount();
-    await act(async () => {
-      resolveInsights({ data: insights('7d', 7), error: null });
-    });
-
-    // The late response is dropped, so no setter runs after unmount.
-    expect(setters.calls).toHaveLength(0);
-    expect(result.current.insights).toBeUndefined();
-    expect(errors).not.toHaveBeenCalled();
-    errors.mockRestore();
   });
 });

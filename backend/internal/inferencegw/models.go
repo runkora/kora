@@ -438,6 +438,8 @@ type TenantCapStatus struct {
 	ResetCadence string  `json:"reset_cadence"`
 	SpendUSD     float64 `json:"spend_usd"`
 	Reached      bool    `json:"reached"`
+	// ResetsAt is when the cap's current window ends.
+	ResetsAt time.Time `json:"resets_at"`
 }
 
 // BudgetPrincipalStatus is one principal's row in the budgets principals listing.

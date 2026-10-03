@@ -62,27 +62,20 @@ export function toBudgetRows(
   );
 }
 
-/** The days left in the cap's window: to the next Monday for a weekly cap, to the 1st otherwise. */
-function daysUntilReset(cadence: 'weekly' | undefined, now: Date): number {
-  const today = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-  if (cadence === 'weekly') {
-    const sinceMonday = (now.getUTCDay() + 6) % 7;
-    return 7 - sinceMonday;
-  }
-  const nextMonth = Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1);
-  return Math.round((nextMonth - today) / DAY_MS);
-}
-
 export function toTenantBudget(
   cap: AgentInsightsResponse['tenant_cap'],
   now: Date,
 ): TenantBudget | undefined {
   if (!cap || cap.limit_usd <= 0) return undefined;
   const cadence = cap.reset_cadence === 'weekly' ? ('weekly' as const) : undefined;
+  const daysLeft = Math.max(
+    Math.ceil((new Date(cap.resets_at).getTime() - now.getTime()) / DAY_MS),
+    0,
+  );
   return {
     limit: cap.limit_usd,
     spent: cap.spend_usd,
-    daysLeft: daysUntilReset(cadence, now),
+    daysLeft,
     ...(cadence ? { cadence } : {}),
   };
 }

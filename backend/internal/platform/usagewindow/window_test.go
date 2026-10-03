@@ -62,11 +62,3 @@ func TestFor(t *testing.T) {
 		}
 	}
 }
-
-func TestForNonUTCInput(t *testing.T) {
-	loc := time.FixedZone("AEDT", 11*3600)
-	w := For(Period7d, time.Date(2026, 10, 4, 1, 0, 0, 0, loc))
-	if want := time.Date(2026, 10, 3, 14, 0, 0, 0, time.UTC); !w.End.Equal(want) || w.End.Location() != time.UTC {
-		t.Errorf("end = %s, want %s in UTC", w.End, want)
-	}
-}

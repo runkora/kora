@@ -16,15 +16,13 @@ type RunOutcomes struct {
 }
 
 // RunOutcomes counts the caller's visible runs that completed or failed in
-// [from, to). The route scope agents:runs:read is a prefix rule, so a caller who
-// reaches it may read every agent's runs; what remains is the delegated-run rule
-// of ListRuns, applied in the query.
+// [from, to), under the delegated-run rule of ListRuns. The route scope
+// agents:runs:read is a prefix rule, so no per-agent check is needed.
 func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOutcomes, error) {
 	return s.repo.CountRunOutcomes(ctx, tenantFromContext(ctx), runVisibilityFromContext(ctx), from, to)
 }
 
-// handleRunOutcomes handles GET /api/v1/run-outcomes?period=24h|7d|30d|90d and an
-// optional end timestamp, so a caller can cut the same window as another service.
+// handleRunOutcomes handles GET /api/v1/run-outcomes?period=24h|7d|30d|90d.
 func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	period, err := usagewindow.Parse(r.URL.Query().Get("period"))
@@ -32,14 +30,7 @@ func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, err.Error(), nil), err)
 		return
 	}
-	end := time.Now()
-	if raw := r.URL.Query().Get("end"); raw != "" {
-		if end, err = time.Parse(time.RFC3339, raw); err != nil {
-			api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, "end must be a valid RFC3339 timestamp", nil), err)
-			return
-		}
-	}
-	window := usagewindow.For(period, end)
+	window := usagewindow.For(period, time.Now())
 	out, err := c.runs.RunOutcomes(ctx, window.Start, window.End)
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to count run outcomes", nil), err)

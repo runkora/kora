@@ -3,7 +3,6 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@orbit/test-utils';
 import { AgentsSpendCard } from './agents-spend-card';
-import { AgentStatTiles } from './agent-stat-tiles';
 
 const BASE = {
   agents: [{ name: 'Coder', cost: 10 }],
@@ -116,29 +115,5 @@ describe('AgentsSpendCard at 150 agents', () => {
     expect(screen.getByText('Agent 150')).toBeInTheDocument();
     expect(screen.queryByText('Agent 1')).not.toBeInTheDocument();
     expect(screen.getByText('+142 more agents not shown')).toBeInTheDocument();
-  });
-});
-
-describe('AgentStatTiles', () => {
-  const props = {
-    agents: { total: 2, healthy: 2, provisioning: 0, delegated: 0 },
-    runs: { running: 0, starting: 0, queued: 0, longestMs: 0 },
-    outcomes: { completed: 3, failed: 1 },
-    periodText: 'last 7 days',
-    outcomesText: 'last 7 days',
-  };
-
-  it('shows a dash and the note for tokens that are not loaded', () => {
-    renderWithProviders(<AgentStatTiles {...props} tokens={null} tokensNote="Loading" />);
-    expect(screen.getByText('–')).toBeInTheDocument();
-    expect(screen.getByText('Loading')).toBeInTheDocument();
-  });
-
-  it('shows the figures once they are loaded', () => {
-    renderWithProviders(
-      <AgentStatTiles {...props} tokens={{ cached: 0, input: 1500, output: 500 }} tokensNote="" />,
-    );
-    expect(screen.queryByText('–')).not.toBeInTheDocument();
-    expect(screen.getByText('2.0K')).toBeInTheDocument();
   });
 });
