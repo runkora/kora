@@ -128,6 +128,19 @@ func TestCreateEnvironment(t *testing.T) {
 	}
 }
 
+// A malformed image name is rejected before any registry lookup.
+func TestCreateEnvironment_MalformedImageName(t *testing.T) {
+	k8s := &mockK8s{}
+	svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, k8s)
+	_, err := svc.CreateEnvironment(withTenantCtx(context.Background(), "t-1"), EnvironmentRequest{Name: "x", SandboxImage: "Not_A/Name"})
+	if !errors.Is(err, ErrInvalidEnvironment) || !strings.Contains(err.Error(), "sandbox_image") {
+		t.Fatalf("err = %v, want ErrInvalidEnvironment about sandbox_image", err)
+	}
+	if k8s.imageLookups != 0 {
+		t.Errorf("looked up %d images for a malformed name", k8s.imageLookups)
+	}
+}
+
 // An environment on the base image fails clearly while kora-base is missing or invalid.
 func TestCreateEnvironment_BaseImageUnavailable(t *testing.T) {
 	ctx := withTenantCtx(context.Background(), "t-1")

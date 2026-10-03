@@ -569,6 +569,7 @@ func validSandboxImage(name, image, digest string) *si.SandboxImage {
 }
 
 func (m *mockK8s) SandboxImage(_ context.Context, _, name string) (*si.SandboxImage, error) {
+	m.imageLookups++
 	if m.sandboxImages == nil && name == si.BaseName {
 		return validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"), nil
 	}
