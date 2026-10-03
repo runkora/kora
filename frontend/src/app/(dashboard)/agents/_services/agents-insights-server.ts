@@ -89,12 +89,13 @@ interface GatewayTenantCap {
 
 /**
  * Each visible agent's spend in its budget windows beside its limit, and the
- * tenant cap for callers who may read platform budgets. The cap comes from its own gateway read, not the per-principal budget report. Spend and limits are
+ * tenant cap for callers who may read platform budgets. The cap comes from its
+ * own gateway read, not the per-principal budget report. Spend and limits are
  * both needed: a row with only one would misstate the other. The tenant cap is
  * optional, and a 403 is the expected answer for most callers.
  */
 export async function loadBudgets(accessToken: string): Promise<Result<AgentBudgetsResponse>> {
-  const [spend, limits, principals] = await Promise.all([
+  const [spend, limits, cap] = await Promise.all([
     gatewayGet<GatewayBudgets>('/usage/agent-budgets', accessToken),
     agentsGet<{
       data: { agent_slug: string; limit_usd: number; reset_cadence: string }[];
@@ -103,8 +104,8 @@ export async function loadBudgets(accessToken: string): Promise<Result<AgentBudg
   ]);
   if (!spend.ok) return spend;
   if (!limits.ok) return limits;
-  if (!principals.ok && principals.status !== 403) {
-    console.error(`[loadBudgets] tenant budget unavailable (${principals.status})`);
+  if (!cap.ok && cap.status !== 403) {
+    console.error(`[loadBudgets] tenant budget unavailable (${cap.status})`);
   }
 
   const limitBySlug = new Map(limits.data.data.map((l) => [l.agent_slug, l]));
@@ -121,6 +122,6 @@ export async function loadBudgets(accessToken: string): Promise<Result<AgentBudg
       ...(l ? { limit_usd: l.limit_usd, reset_cadence: l.reset_cadence } : {}),
     };
   });
-  const cap = principals.ok ? principals.data.tenant_cap : undefined;
-  return { ok: true, data: { agents, ...(cap ? { tenant_cap: cap } : {}) } };
+  const tenantCap = cap.ok ? cap.data.tenant_cap : undefined;
+  return { ok: true, data: { agents, ...(tenantCap ? { tenant_cap: tenantCap } : {}) } };
 }

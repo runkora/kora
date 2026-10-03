@@ -30,7 +30,7 @@ import {
 } from '@orbit/terra';
 import { AppLink } from '@orbit/components/links';
 import { fmtUsd } from '@orbit/utils';
-import { BUDGET_ROWS, budgetTone, closestToLimit, groupTail } from '../_lib/spend';
+import { BUDGET_ROWS, budgetTone, closestToLimit, groupTail, usedShare } from '../_lib/spend';
 import type { BudgetRow, SpendRow, TenantBudget } from '../_lib/spend';
 
 const CHART_CONFIG = { cost: { label: 'Spend', color: 'var(--color-accent)' } };
@@ -163,7 +163,7 @@ function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
   return (
     <Stack gap="cozy" align="stretch">
       {rows.map((row) => {
-        const used = row.limit ? Math.round((row.spent / row.limit) * 100) : null;
+        const used = row.limit != null ? Math.round(usedShare(row.spent, row.limit) * 100) : null;
         return (
           <Stack key={row.name} gap="tight" align="stretch">
             <Stack direction="horizontal" align="baseline" gap="snug">
@@ -183,7 +183,7 @@ function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
               </Stack>
               <Stack align="end" style={{ minWidth: '5.5rem' }}>
                 <Text mono size="caption" color="subtle">
-                  {row.limit
+                  {row.limit != null
                     ? `of ${fmtUsd(row.limit)}${row.cadence === 'weekly' ? ' a week' : ''}`
                     : 'no budget'}
                 </Text>

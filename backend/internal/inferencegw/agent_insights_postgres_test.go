@@ -3,10 +3,12 @@ package inferencegw
 import (
 	"context"
 	"math"
+	"os"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
@@ -245,5 +247,53 @@ func TestPostgres_AgentRollups_SlugsMatchExactly(t *testing.T) {
 		if total != want {
 			t.Errorf("%q: total tokens %d, want %d", slug, total, want)
 		}
+	}
+}
+
+// The rollups must run with pgx.QueryExecModeExec so Postgres plans them with
+// the real slugs and window. A prepared statement gets one generic plan that
+// reads most of the table through an index, which took about 2 seconds for a
+// 90d window at 150 agents where the plan chosen with the real values takes
+// about 0.3. The guard does not depend on the planner: it checks that the
+// queries leave no prepared statement on the connection.
+func TestPostgres_AgentRollups_DoNotPrepareStatements(t *testing.T) {
+	dsn := os.Getenv("ORBIT_TEST_DB_URL")
+	if dsn == "" {
+		t.Skip("set ORBIT_TEST_DB_URL to run inference usage Postgres integration tests")
+	}
+	ctx := context.Background()
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse dsn: %v", err)
+	}
+	cfg.MaxConns = 1 // one connection, so the statements checked are the ones the rollups ran on
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	repo := NewPostgresInferenceUsageRepository(pool)
+
+	scope := AgentUsageScope{TenantID: "test-" + uuid.NewString(), AllRows: []string{"coder"}, OwnRows: []string{"notes"}, Subject: "alice"}
+	w := usagewindow.For(usagewindow.Period7d, time.Now())
+	if _, err := repo.AgentUsage(ctx, scope, w); err != nil {
+		t.Fatalf("AgentUsage: %v", err)
+	}
+	if _, err := repo.AgentSpendByModel(ctx, scope, w); err != nil {
+		t.Fatalf("AgentSpendByModel: %v", err)
+	}
+	if _, err := repo.AgentSpendBuckets(ctx, scope, w); err != nil {
+		t.Fatalf("AgentSpendBuckets: %v", err)
+	}
+	if _, err := repo.AgentBudgetSpend(ctx, scope.TenantID, []string{"coder"}, w.Start, w.Start); err != nil {
+		t.Fatalf("AgentBudgetSpend: %v", err)
+	}
+
+	var prepared int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM pg_prepared_statements`, pgx.QueryExecModeExec).Scan(&prepared); err != nil {
+		t.Fatalf("count prepared statements: %v", err)
+	}
+	if prepared != 0 {
+		t.Errorf("%d prepared statements left on the connection: the rollups must use pgx.QueryExecModeExec", prepared)
 	}
 }

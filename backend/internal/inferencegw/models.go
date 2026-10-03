@@ -407,8 +407,9 @@ type RunUsage struct {
 }
 
 // AgentTypeUsage is the spend and token breakdown recorded against an agent's
-// SPIFFE principal over the last 7 days, keyed by the agent slug in that
-// principal. Returned by GET /v1/usage/agent-type/{slug} and /v1/usage/agent-types.
+// SPIFFE principal over a reporting window, keyed by the agent slug in that
+// principal. Returned by GET /v1/usage/agent-type/{slug}?period= and listed per
+// agent in GET /v1/usage/agent-insights.
 type AgentTypeUsage struct {
 	AgentSlug           string  `json:"agent_slug"`
 	PromptTokens        int64   `json:"prompt_tokens"`

@@ -1263,6 +1263,13 @@ func (p *K8sProvisioner) GetAgentBudget(ctx context.Context, at AgentType, names
 	return nil, nil
 }
 
+// agentSlugFromPrincipalID returns the slug of an agent principal, which is
+// spiffe://{domain}/tenant/{namespace}/agent/{slug}.
+func agentSlugFromPrincipalID(id string) (string, bool) {
+	_, slug, ok := strings.Cut(id, "/agent/")
+	return slug, ok && slug != ""
+}
+
 // AgentBudgetsBySlug returns the budget carried by each of the tenant's agent
 // grants, keyed by agent slug. One read of the policy service covers every
 // agent, where GetAgentBudget reads one.
@@ -1279,9 +1286,11 @@ func (p *K8sProvisioner) AgentBudgetsBySlug(ctx context.Context, tenantID string
 		if g.Budget == nil {
 			continue
 		}
-		// An agent principal is spiffe://{domain}/tenant/{namespace}/agent/{slug}.
-		_, slug, ok := strings.Cut(g.PrincipalID, "/agent/")
-		if !ok || slug == "" {
+		slug, ok := agentSlugFromPrincipalID(g.PrincipalID)
+		if !ok {
+			p.logger.Debug(ctx, "skipping an agent grant with an unrecognized principal id",
+				logging.Field{Key: "principal_id", Value: g.PrincipalID},
+			)
 			continue
 		}
 		out[slug] = AgentBudget{

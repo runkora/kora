@@ -12,6 +12,23 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../_services/agents-insights-api', () => api);
 
+// Wraps each state setter so a test can see whether a late response set state.
+const setters = vi.hoisted(() => ({ calls: [] as unknown[][] }));
+vi.mock('react', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react')>();
+  return {
+    ...actual,
+    useState: (initial: unknown) => {
+      const [value, set] = actual.useState(initial);
+      const spy = (...args: unknown[]) => {
+        setters.calls.push(args);
+        (set as (...a: unknown[]) => void)(...args);
+      };
+      return [value, spy];
+    },
+  };
+});
+
 import { useAgentsInsights } from './use-agents-insights';
 
 const AGENTS = [{ slug: 'coder', name: 'Coder' }];
@@ -118,5 +135,27 @@ describe('useAgentsInsights', () => {
     await act(async () => {});
     expect(api.fetchAgentInsights).not.toHaveBeenCalled();
     expect(api.fetchAgentBudgets).not.toHaveBeenCalled();
+  });
+
+  it('makes no state update when it unmounts before a fetch resolves', async () => {
+    let resolveInsights!: (v: unknown) => void;
+    let resolveBudgets!: (v: unknown) => void;
+    api.fetchAgentInsights.mockReturnValue(new Promise((r) => (resolveInsights = r)));
+    api.fetchAgentBudgets.mockReturnValue(new Promise((r) => (resolveBudgets = r)));
+    setters.calls.length = 0;
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { result, unmount } = renderHook(() => useAgentsInsights('7d', AGENTS, true));
+    unmount();
+    await act(async () => {
+      resolveInsights({ data: insights('7d', 7), error: null });
+      resolveBudgets({ data: BUDGETS, error: null });
+    });
+
+    // The late responses are dropped, so no setter runs after unmount.
+    expect(setters.calls).toHaveLength(0);
+    expect(result.current.insights).toBeUndefined();
+    expect(errors).not.toHaveBeenCalled();
+    errors.mockRestore();
   });
 });

@@ -52,6 +52,17 @@ describe('AgentsSpendCard', () => {
   });
 });
 
+describe('AgentsSpendCard budgets', () => {
+  it('shows a zero limit as a limit that is spent, not as no budget', async () => {
+    renderWithProviders(
+      <AgentsSpendCard {...BASE} budgets={[{ name: 'Capped', spent: 2, limit: 0 }]} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Budgets' }));
+    expect(screen.getByText('of $0.00')).toBeInTheDocument();
+    expect(screen.queryByText('no budget')).not.toBeInTheDocument();
+  });
+});
+
 describe('AgentsSpendCard at 150 agents', () => {
   const agents = Array.from({ length: 150 }, (_, i) => ({ name: `Agent ${i + 1}`, cost: 150 - i }));
   const total = agents.reduce((n, a) => n + a.cost, 0);

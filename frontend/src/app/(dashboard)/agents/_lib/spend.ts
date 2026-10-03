@@ -94,11 +94,16 @@ export function groupTail(rows: SpendRow[], max = LEGEND_ROWS): SpendRow[] {
 /** The most budget rows the card shows. */
 export const BUDGET_ROWS = 8;
 
+/** The share of a limit that is spent. A zero limit is fully spent, however little is spent against it. */
+export function usedShare(spent: number, limit: number): number {
+  return limit > 0 ? spent / limit : Infinity;
+}
+
 /**
  * Budget rows ordered by how close each is to its limit, the closest first.
- * Rows with a limit come before rows without one, which are ordered by spend.
+ * Rows with a limit, a zero limit included, come before rows without one, which are ordered by spend.
  */
 export function closestToLimit(rows: BudgetRow[]): BudgetRow[] {
-  const used = (r: BudgetRow) => (r.limit ? r.spent / r.limit : -1);
+  const used = (r: BudgetRow) => (r.limit != null ? usedShare(r.spent, r.limit) : -1);
   return [...rows].sort((a, b) => used(b) - used(a) || b.spent - a.spent);
 }

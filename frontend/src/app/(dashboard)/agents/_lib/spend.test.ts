@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { closestToLimit, groupTail } from './spend';
+import { closestToLimit, groupTail, usedShare } from './spend';
 
 describe('groupTail', () => {
   const rows = Array.from({ length: 150 }, (_, i) => ({ name: `a${i}`, cost: 150 - i }));
@@ -29,5 +29,22 @@ describe('closestToLimit', () => {
       { name: 'high', spent: 80, limit: 100 },
     ]);
     expect(ordered.map((r) => r.name)).toEqual(['over', 'high', 'low', 'free-big', 'free-small']);
+  });
+
+  it('reads a zero limit as fully spent and ahead of every other row', () => {
+    const ordered = closestToLimit([
+      { name: 'over', spent: 120, limit: 100 },
+      { name: 'zero', spent: 0, limit: 0 },
+      { name: 'free', spent: 500 },
+    ]);
+    expect(ordered.map((r) => r.name)).toEqual(['zero', 'over', 'free']);
+  });
+});
+
+describe('usedShare', () => {
+  it('divides spend by the limit, and treats a zero limit as fully spent', () => {
+    expect(usedShare(25, 100)).toBe(0.25);
+    expect(usedShare(0, 0)).toBe(Infinity);
+    expect(usedShare(3, 0)).toBe(Infinity);
   });
 });

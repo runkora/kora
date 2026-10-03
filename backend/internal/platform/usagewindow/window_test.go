@@ -64,6 +64,30 @@ func TestFor(t *testing.T) {
 	}
 }
 
+// When now sits exactly on a period's grid, the window starts on the grid too,
+// so the first bucket is whole and the count has no extra partial bucket.
+func TestForOnTheGrid(t *testing.T) {
+	cases := []struct {
+		period  Period
+		now     time.Time
+		buckets int
+	}{
+		{Period24h, time.Date(2026, 10, 3, 12, 0, 0, 0, time.UTC), 8},
+		{Period7d, time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC), 7},
+		{Period30d, time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC), 10},
+		{Period90d, time.Date(2026, 10, 3, 0, 0, 0, 0, time.UTC), 13},
+	}
+	for _, tc := range cases {
+		w := For(tc.period, tc.now)
+		if !w.Origin.Equal(w.Start) {
+			t.Errorf("%s: origin %s, want it equal to start %s", tc.period, w.Origin, w.Start)
+		}
+		if got := w.Buckets(); got != tc.buckets {
+			t.Errorf("%s: buckets = %d, want %d", tc.period, got, tc.buckets)
+		}
+	}
+}
+
 func TestForNonUTCInput(t *testing.T) {
 	loc := time.FixedZone("AEDT", 11*3600)
 	now := time.Date(2026, 10, 4, 1, 0, 0, 0, loc) // 14:00 UTC on 3 Oct
