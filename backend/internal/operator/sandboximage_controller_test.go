@@ -28,10 +28,14 @@ type fakeRegistry struct {
 	configs map[string]imageConfig
 	err     error
 	auth    []dockerConfig
+	// deadline records the read's context deadline.
+	deadline    time.Time
+	hasDeadline bool
 }
 
-func (f *fakeRegistry) Read(_ context.Context, ref string, auth []dockerConfig) (imageConfig, error) {
+func (f *fakeRegistry) Read(ctx context.Context, ref string, auth []dockerConfig) (imageConfig, error) {
 	f.auth = auth
+	f.deadline, f.hasDeadline = ctx.Deadline()
 	if f.err != nil {
 		return imageConfig{}, f.err
 	}
@@ -113,6 +117,9 @@ func TestSandboxImage_ValidAndWarm(t *testing.T) {
 	}
 	if res.RequeueAfter != time.Minute {
 		t.Errorf("RequeueAfter = %v, want the resync interval", res.RequeueAfter)
+	}
+	if !reg.hasDeadline || time.Until(reg.deadline) > registryReadTimeout {
+		t.Errorf("registry read deadline = %v (set %v), want within %v", reg.deadline, reg.hasDeadline, registryReadTimeout)
 	}
 	if w := condition(img, si.ConditionWarm); w.Status != metav1.ConditionFalse || w.Reason != reasonWarmPulling {
 		t.Errorf("Warm = %+v, want Pulling before the DaemonSet is ready", w)

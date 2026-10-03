@@ -21,6 +21,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 
@@ -41,6 +42,12 @@ const warmerComponent = "sandbox-image-warmer"
 
 // labelSandboxImage names the SandboxImage a warmer pod pulls.
 const labelSandboxImage = "orbit.io/sandbox-image"
+
+// registryReadTimeout bounds one registry read, so a slow registry cannot hold a worker.
+const registryReadTimeout = 30 * time.Second
+
+// sandboxImageWorkers reconcile images in parallel, so one slow registry does not delay the others.
+const sandboxImageWorkers = 4
 
 // registryRetry bounds the wait before re-reading an image whose first read failed.
 const registryRetry = 30 * time.Second
@@ -146,7 +153,9 @@ func (r *SandboxImageReconciler) inspect(ctx context.Context, img *si.SandboxIma
 	if err != nil {
 		return imageConfig{}, reasonPullSecretError, "", err
 	}
-	cfg, err := r.Registry.Read(ctx, img.Spec.Image, auth)
+	readCtx, cancel := context.WithTimeout(ctx, registryReadTimeout)
+	defer cancel()
+	cfg, err := r.Registry.Read(readCtx, img.Spec.Image, auth)
 	if err != nil {
 		return imageConfig{}, reasonRegistryError, "", err
 	}
@@ -348,5 +357,6 @@ func (r *SandboxImageReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&si.SandboxImage{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
 		Owns(&appsv1.DaemonSet{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: sandboxImageWorkers}).
 		Complete(r)
 }
