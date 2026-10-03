@@ -142,18 +142,11 @@ func TestAgentRoutesFilterDropsOnlyUnscopedRoutes(t *testing.T) {
 	}
 }
 
-// TestAgentRoutesInsightsScopes pins the scopes on the insights routes, and that
-// they do not inherit the run or agent-type prefixes by accident.
-func TestAgentRoutesInsightsScopes(t *testing.T) {
-	tests := []struct{ path, scope string }{
-		{"/api/v1/agent-visibility", "agents:types:read"},
-		{"/api/v1/run-outcomes", "agents:runs:read"},
-		{"/api/v1/agent-budgets", "agents:types:read"},
-	}
-	for _, tt := range tests {
-		got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", tt.path)
-		if !ok || got != tt.scope {
-			t.Errorf("%s: scope %q (matched %v), want %q", tt.path, got, ok, tt.scope)
-		}
+// TestAgentRoutesRunOutcomesScope pins the scope on the run outcomes route, and
+// that it does not fall to the authenticated-only /api/v1/runs POST entry.
+func TestAgentRoutesRunOutcomesScope(t *testing.T) {
+	got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", "/api/v1/run-outcomes")
+	if !ok || got != "agents:runs:read" {
+		t.Errorf("scope %q (matched %v), want agents:runs:read", got, ok)
 	}
 }

@@ -1,15 +1,20 @@
-// RSC — fetches agent types + recent runs in parallel server-side so the page
-// renders with real data immediately.
+// RSC — fetches agent types, recent runs and the 7-day insights in parallel
+// server-side so the page renders with real data immediately. The insights are
+// optional: when they cannot be had, the page renders without them.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAgentsFromBFF } from './_services/agents-server';
+import { loadInsights } from './_services/agents-insights-server';
 import { AgentsShell } from './_components/agents-shell';
 
 export default async function AgentsPage() {
   const session = await getSession();
-  const result = isSessionValid(session)
-    ? await fetchAgentsFromBFF(session.accessToken, session.tenantId)
-    : null;
+  const [result, insights] = isSessionValid(session)
+    ? await Promise.all([
+        fetchAgentsFromBFF(session.accessToken, session.tenantId),
+        loadInsights(session.accessToken, '7d'),
+      ])
+    : [null, null];
 
   const initialAgentTypes = result?.ok ? result.agentTypes : [];
   const initialRuns = result?.ok ? result.runs : [];
@@ -20,6 +25,7 @@ export default async function AgentsPage() {
       initialAgentTypes={initialAgentTypes}
       initialRuns={initialRuns}
       initialError={initialError}
+      initialInsights={insights?.ok ? insights.data : null}
     />
   );
 }

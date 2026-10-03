@@ -20,7 +20,7 @@ import {
 import type { DataTableColumn } from '@orbit/terra';
 import Link from 'next/link';
 import { StatusBadge } from '@orbit/components';
-import type { AgentTypeUsage } from '@orbit/shared/api';
+import type { AgentInsightsResponse, AgentTypeUsage } from '@orbit/shared/api';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
 import { useAgentsInsights } from '../_hooks/use-agents-insights';
@@ -73,9 +73,11 @@ interface AgentsPageProps {
    * loads them itself from the BFF, so only stories and tests pass it.
    */
   insights?: AgentsInsights;
+  /** The 7-day insights the server render fetched, so first paint has real data. */
+  initialInsights?: AgentInsightsResponse | null;
 }
 
-export function AgentsPage({ insights }: AgentsPageProps) {
+export function AgentsPage({ insights, initialInsights }: AgentsPageProps) {
   const { agentTypes, recentRuns, status, error, refresh } = useAgentsContext();
   const router = useRouter();
   const { drafts, refresh: refreshDrafts } = useDrafts();
@@ -88,11 +90,11 @@ export function AgentsPage({ insights }: AgentsPageProps) {
   const [period, setPeriod] = useState<Period>('7d');
 
   // ── The window the period figures cover ────────────────────────────────────
-  // The control picks the window. Each period is fetched when first selected,
-  // after first render, so the page never waits on it. Without data for the
-  // window the figures say so rather than show zeros.
+  // The control picks the window. The 7-day window comes with the server
+  // render, and any other period is fetched when first selected. Without data
+  // for the window the figures say so rather than show zeros.
 
-  const live = useAgentsInsights(period, agentTypes, insights === undefined);
+  const live = useAgentsInsights(period, agentTypes, insights === undefined, initialInsights);
   const data = insights ?? live.insights;
   const windowStatus = insights ? 'ready' : live.status;
   const windowData = data?.byPeriod?.[period];
@@ -132,15 +134,24 @@ export function AgentsPage({ insights }: AgentsPageProps) {
     };
   }, [usage, windowData]);
 
+  // The window's spend is the total over every agent, deleted ones included. The
+  // legend lists the current agents, and what is left of the total is the
+  // deleted agents', so the rows add up to it. A delegated agent's usage is the
+  // caller's own unless the caller sees every row.
+  const ownDelegated = windowData?.delegatedOwnOnly ?? false;
   const spendByAgent = useMemo(
     () =>
       agentTypes
-        .map((a) => ({ name: a.name, cost: usage[a.slug]?.estimated_cost_usd ?? 0 }))
+        .map((a) => ({
+          name: ownDelegated && a.identityMode === 'delegated' ? `${a.name} (your usage)` : a.name,
+          cost: usage[a.slug]?.estimated_cost_usd ?? 0,
+        }))
         .filter((row) => row.cost > 0)
         .sort((x, y) => y.cost - x.cost),
-    [agentTypes, usage],
+    [agentTypes, usage, ownDelegated],
   );
-  const totalCost = spendByAgent.reduce((n, row) => n + row.cost, 0);
+  const totalCost = windowData?.total ?? 0;
+  const deletedCost = Math.max(totalCost - spendByAgent.reduce((n, row) => n + row.cost, 0), 0);
 
   const agentCounts = {
     total: agentTypes.length,
@@ -353,6 +364,7 @@ export function AgentsPage({ insights }: AgentsPageProps) {
         />
         <AgentsSpendCard
           agents={spendByAgent}
+          deletedCost={deletedCost > 1e-9 ? deletedCost : 0}
           total={totalCost}
           periodText={periodText}
           previousText={PERIOD_TEXT[period].previous}
@@ -397,6 +409,7 @@ export function AgentsPage({ insights }: AgentsPageProps) {
               liveRuns={activeRunsByType.get(agent.id) ?? 0}
               period={period}
               usageNote={windowStatus === 'ready' ? undefined : unavailableText}
+              yourUsage={ownDelegated && agent.identityMode === 'delegated'}
               onRun={setStartRunTarget}
             />
           ))}

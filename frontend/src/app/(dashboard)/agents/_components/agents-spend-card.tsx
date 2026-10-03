@@ -109,8 +109,20 @@ function TrendChart({ labels, values }: { labels: string[]; values: number[] }) 
 }
 
 /** A ring and a legend for one breakdown of the window's spend. */
-function Breakdown({ rows: allRows, total }: { rows: SpendRow[]; total: number }) {
-  const rows = groupTail(allRows);
+function Breakdown({
+  rows: allRows,
+  total,
+  deleted = 0,
+}: {
+  rows: SpendRow[];
+  total: number;
+  /** Spend of agents that no longer exist: it is in the total, so it gets a row. */
+  deleted?: number;
+}) {
+  const rows = [
+    ...groupTail(allRows),
+    ...(deleted > 0 ? [{ name: 'Deleted agents', cost: deleted }] : []),
+  ];
   return (
     <Stack direction="horizontal" gap="relaxed" align="center">
       <Donut
@@ -153,56 +165,59 @@ function Breakdown({ rows: allRows, total }: { rows: SpendRow[]; total: number }
 }
 
 /**
- * Each agent's spend in its budget window against its own limit: this month, or
- * this week for a weekly budget. Agents without a budget show spend only. The
- * rows closest to their limit come first, and the rest are counted, not listed.
+ * Each agent's spend in each of its budget windows against the limit on it. An
+ * agent is limited by the week, the month, or both, so it shows a bar for each
+ * window. The rows closest to a limit come first, and the rest are counted, not
+ * listed. Spend is counted by agent, while the limit check counts by principal,
+ * so the two can differ slightly.
  */
 function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
   const rows = closestToLimit(allRows).slice(0, BUDGET_ROWS);
   const hidden = allRows.length - rows.length;
   return (
     <Stack gap="cozy" align="stretch">
-      {rows.map((row) => {
-        const used = row.limit != null ? Math.round(usedShare(row.spent, row.limit) * 100) : null;
-        return (
-          <Stack key={row.name} gap="tight" align="stretch">
-            <Stack direction="horizontal" align="baseline" gap="snug">
-              <Stack grow>
-                <Text size="caption" color="muted" truncate>
-                  {row.name}
-                </Text>
+      {rows.flatMap((row) =>
+        row.windows.map((w) => {
+          const used = Math.round(usedShare(w.spent, w.limit) * 100);
+          const weekly = w.cadence === 'weekly';
+          const label = row.windows.length > 1 ? `${row.name} (${w.cadence})` : row.name;
+          return (
+            <Stack key={`${row.name}-${w.cadence}`} gap="tight" align="stretch">
+              <Stack direction="horizontal" align="baseline" gap="snug">
+                <Stack grow>
+                  <Text size="caption" color="muted" truncate>
+                    {label}
+                  </Text>
+                </Stack>
+                <Stack align="end" style={{ minWidth: '4.5rem' }}>
+                  <Text mono size="caption" color={used >= 80 ? 'status-degraded' : 'foreground'}>
+                    {fmtUsd(w.spent)}
+                  </Text>
+                </Stack>
+                <Stack align="end" style={{ minWidth: '5.5rem' }}>
+                  <Text mono size="caption" color="subtle">
+                    {`of ${fmtUsd(w.limit)}${weekly ? ' a week' : ''}`}
+                  </Text>
+                </Stack>
               </Stack>
-              <Stack align="end" style={{ minWidth: '4.5rem' }}>
-                <Text
-                  mono
-                  size="caption"
-                  color={used !== null && used >= 80 ? 'status-degraded' : 'foreground'}
-                >
-                  {fmtUsd(row.spent)}
-                </Text>
-              </Stack>
-              <Stack align="end" style={{ minWidth: '5.5rem' }}>
-                <Text mono size="caption" color="subtle">
-                  {row.limit != null
-                    ? `of ${fmtUsd(row.limit)}${row.cadence === 'weekly' ? ' a week' : ''}`
-                    : 'no budget'}
-                </Text>
-              </Stack>
+              <Progress
+                value={Math.min(used, 100)}
+                label={`${row.name} ${w.cadence} budget used, resets ${new Date(w.resetsAt).toLocaleDateString()}`}
+                variant={budgetTone(used)}
+                size="hairline"
+              />
             </Stack>
-            <Progress
-              value={Math.min(used ?? 0, 100)}
-              label={`${row.name} budget used`}
-              variant={used === null ? 'default' : budgetTone(used)}
-              size="hairline"
-            />
-          </Stack>
-        );
-      })}
+          );
+        }),
+      )}
       {hidden > 0 && (
         <Text size="caption" color="subtle">
           +{hidden} more {hidden === 1 ? 'agent' : 'agents'} not shown
         </Text>
       )}
+      <Text size="caption" color="subtle">
+        Spend is counted by agent, so it can differ slightly from what the limit counts.
+      </Text>
     </Stack>
   );
 }
@@ -220,6 +235,8 @@ export interface AgentsSpendCardProps {
   previousTotal?: number | undefined;
   budgets?: BudgetRow[] | undefined;
   tenantBudget?: TenantBudget | undefined;
+  /** Spend in the window by agents that have since been deleted. It is part of `total`. */
+  deletedCost?: number | undefined;
   /** Replaces "No spend in this window yet." when the window's figures are not loaded. */
   emptyText?: string | undefined;
 }
@@ -240,6 +257,7 @@ export function AgentsSpendCard({
   budgets,
   tenantBudget,
   emptyText,
+  deletedCost,
 }: AgentsSpendCardProps) {
   const views = [
     { value: 'agent', label: 'Agent' },
@@ -265,9 +283,7 @@ export function AgentsSpendCard({
         title="Spend"
         description={
           view === 'budgets'
-            ? budgets?.some((b) => b.cadence === 'weekly')
-              ? 'This month, or this week for weekly budgets'
-              : 'This month'
+            ? 'Against each limit'
             : `${periodText.charAt(0).toUpperCase()}${periodText.slice(1)}`
         }
         divider
@@ -286,7 +302,7 @@ export function AgentsSpendCard({
         <Stack gap="comfortable" align="stretch" justify="center" style={{ minHeight: '100%' }}>
           {view === 'budgets' && budgets ? (
             <AgentBudgets rows={budgets} />
-          ) : agents.length === 0 ? (
+          ) : agents.length === 0 && !deletedCost ? (
             <Text size="supporting" color="muted">
               {emptyText ?? 'No spend in this window yet.'}
             </Text>
@@ -295,7 +311,7 @@ export function AgentsSpendCard({
           ) : view === 'model' && models ? (
             <Breakdown rows={models} total={total} />
           ) : (
-            <Breakdown rows={agents} total={total} />
+            <Breakdown rows={agents} total={total} deleted={deletedCost ?? 0} />
           )}
           {budget && (
             <>

@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
@@ -1261,45 +1260,6 @@ func (p *K8sProvisioner) GetAgentBudget(ctx context.Context, at AgentType, names
 		}
 	}
 	return nil, nil
-}
-
-// agentSlugFromPrincipalID returns the slug of an agent principal, which is
-// spiffe://{domain}/tenant/{namespace}/agent/{slug}.
-func agentSlugFromPrincipalID(id string) (string, bool) {
-	_, slug, ok := strings.Cut(id, "/agent/")
-	return slug, ok && slug != ""
-}
-
-// AgentBudgetsBySlug returns the budget carried by each of the tenant's agent
-// grants, keyed by agent slug. One read of the policy service covers every
-// agent, where GetAgentBudget reads one.
-func (p *K8sProvisioner) AgentBudgetsBySlug(ctx context.Context, tenantID string) (map[string]AgentBudget, error) {
-	if p.policyClient == nil {
-		return map[string]AgentBudget{}, nil
-	}
-	grants, err := p.policyClient.ListGrantsByType(ctx, tenantID, "AGENT")
-	if err != nil {
-		return nil, fmt.Errorf("list agent grants: %w", err)
-	}
-	out := make(map[string]AgentBudget)
-	for _, g := range grants {
-		if g.Budget == nil {
-			continue
-		}
-		slug, ok := agentSlugFromPrincipalID(g.PrincipalID)
-		if !ok {
-			p.logger.Debug(ctx, "skipping an agent grant with an unrecognized principal id",
-				logging.Field{Key: "principal_id", Value: g.PrincipalID},
-			)
-			continue
-		}
-		out[slug] = AgentBudget{
-			LimitUSD:       g.Budget.LimitUSD,
-			ResetCadence:   g.Budget.ResetCadence,
-			PerRunLimitUSD: g.Budget.PerRunLimitUSD,
-		}
-	}
-	return out, nil
 }
 
 // clientBudget converts the desired AgentBudget to the policy client shape.

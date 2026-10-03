@@ -638,55 +638,21 @@ func isUniqueViolation(err error) bool {
 	return false
 }
 
-// ── Insights ──────────────────────────────────────────────────────────────────
-
-// ListAgentTypeRefs returns each agent type's id, slug and identity model for a
-// tenant. It reads three columns where ListAgentTypes reads the whole row, which
-// matters because the Agents page asks on every load.
-func (r *PostgresRepository) ListAgentTypeRefs(ctx context.Context, tenantID string) ([]AgentTypeRef, error) {
-	rows, err := r.pool.Query(ctx, `SELECT id, slug, identity_mode FROM agent_types WHERE tenant_id = $1`, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("query agent type refs: %w", err)
-	}
-	defer rows.Close()
-
-	var out []AgentTypeRef
-	for rows.Next() {
-		var ref AgentTypeRef
-		var mode string
-		if err := rows.Scan(&ref.ID, &ref.Slug, &mode); err != nil {
-			return nil, fmt.Errorf("scan agent type ref: %w", err)
-		}
-		ref.Delegated = IdentityMode(mode).OrDefault() == IdentityModeDelegated
-		out = append(out, ref)
-	}
-	return out, rows.Err()
-}
-
-// CountRunOutcomes counts the completed and failed runs that finished at or
-// after scope.Since. The tenant and completed_at predicates use
+// CountRunOutcomes counts the completed and failed runs that finished in
+// [from, to). It applies the delegated-run rule of ListRuns, and uses
 // idx_runs_tenant_completed.
-func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, scope RunOutcomeScope) (RunOutcomes, error) {
-	allRows, ownRows := scope.AllRows, scope.OwnRows
-	if allRows == nil {
-		allRows = []string{}
-	}
-	if ownRows == nil {
-		ownRows = []string{}
-	}
-	const q = `
-		SELECT
-		    COUNT(*) FILTER (WHERE state = 'completed'),
-		    COUNT(*) FILTER (WHERE state = 'failed')
-		FROM runs
-		WHERE tenant_id = $1
-		  AND completed_at >= $2
-		  AND state IN ('completed', 'failed')
-		  AND (agent_type_id = ANY($3)
-		       OR (agent_type_id = ANY($4) AND $5 <> '' AND created_by = $5))`
-
+func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error) {
 	var out RunOutcomes
-	if err := r.pool.QueryRow(ctx, q, scope.TenantID, scope.Since, allRows, ownRows, scope.Subject).Scan(&out.Completed, &out.Failed); err != nil {
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE r.state = 'completed'),
+		       COUNT(*) FILTER (WHERE r.state = 'failed')
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		WHERE r.tenant_id = $1
+		  AND r.completed_at >= $2 AND r.completed_at < $3
+		  AND r.state IN ('completed', 'failed')
+		  AND ($4 OR at.identity_mode <> 'delegated' OR ($5 <> '' AND r.created_by = $5))`,
+		tenantID, from, to, vis.SeeAll, vis.Subject).Scan(&out.Completed, &out.Failed)
+	if err != nil {
 		return RunOutcomes{}, fmt.Errorf("count run outcomes: %w", err)
 	}
 	return out, nil

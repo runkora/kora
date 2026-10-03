@@ -1,15 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
-import type {
-  AgentBudgetsResponse,
-  AgentInsightsPeriod,
-  AgentInsightsResponse,
-} from '@orbit/shared/api';
+import type { AgentInsightsPeriod, AgentInsightsResponse } from '@orbit/shared/api';
 
-const api = vi.hoisted(() => ({
-  fetchAgentInsights: vi.fn(),
-  fetchAgentBudgets: vi.fn(),
-}));
+const api = vi.hoisted(() => ({ fetchAgentInsights: vi.fn() }));
 vi.mock('../_services/agents-insights-api', () => api);
 
 // Wraps each state setter so a test can see whether a late response set state.
@@ -31,7 +24,10 @@ vi.mock('react', async (importOriginal) => {
 
 import { useAgentsInsights } from './use-agents-insights';
 
-const AGENTS = [{ slug: 'coder', name: 'Coder' }];
+const AGENTS = [
+  { slug: 'coder', name: 'Coder', identityMode: 'autonomous' },
+  { slug: 'notes', name: 'Notes', identityMode: 'delegated' },
+];
 
 function insights(period: AgentInsightsPeriod, cost: number): AgentInsightsResponse {
   return {
@@ -54,21 +50,26 @@ function insights(period: AgentInsightsPeriod, cost: number): AgentInsightsRespo
     previous_total_usd: 0,
     models: [],
     trend: [{ start: '2026-09-27T00:00:00Z', cost_usd: cost }],
+    all_delegated_usage: false,
+    budgets: [
+      {
+        agent_slug: 'coder',
+        windows: [
+          { cadence: 'monthly', limit_usd: 10, spend_usd: 2, resets_at: '2026-11-01T00:00:00Z' },
+        ],
+      },
+      {
+        agent_slug: 'notes',
+        windows: [
+          { cadence: 'monthly', limit_usd: 10, spend_usd: 9, resets_at: '2026-11-01T00:00:00Z' },
+        ],
+      },
+    ],
+    tenant_cap: { limit_usd: 100, reset_cadence: 'monthly', spend_usd: 20 },
   };
 }
 
-const BUDGETS: AgentBudgetsResponse = {
-  agents: [
-    {
-      agent_slug: 'coder',
-      week_to_date_usd: 1,
-      month_to_date_usd: 2,
-      limit_usd: 10,
-      reset_cadence: 'monthly',
-    },
-  ],
-  tenant_cap: { limit_usd: 100, reset_cadence: 'monthly', spend_usd: 20 },
-};
+type Period = '7d' | '24h';
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -78,46 +79,50 @@ beforeEach(() => {
       error: null,
     }),
   );
-  api.fetchAgentBudgets.mockResolvedValue({ data: BUDGETS, error: null });
 });
 
 describe('useAgentsInsights', () => {
-  it('starts loading, then reports the period and the budgets', async () => {
+  it('starts loading, then reports the period, the budgets of limited non-delegated agents and the cap', async () => {
     const { result } = renderHook(() => useAgentsInsights('7d', AGENTS, true));
     expect(result.current.status).toBe('loading');
     expect(result.current.insights).toBeUndefined();
 
     await waitFor(() => expect(result.current.status).toBe('ready'));
     expect(result.current.insights?.byPeriod?.['7d']?.usage.coder?.estimated_cost_usd).toBe(7);
-    await waitFor(() => expect(result.current.insights?.budgets).toHaveLength(1));
+    expect(result.current.insights?.budgets?.map((b) => b.name)).toEqual(['Coder']);
     expect(result.current.insights?.tenantBudget?.limit).toBe(100);
   });
 
-  it('fetches a period once, when first selected, and keeps it', async () => {
+  it('is ready at once for the period the server render supplied, and does not fetch it', () => {
+    const { result } = renderHook(() => useAgentsInsights('7d', AGENTS, true, insights('7d', 7)));
+    expect(result.current.status).toBe('ready');
+    expect(result.current.insights?.byPeriod?.['7d']?.total).toBe(7);
+    expect(result.current.insights?.budgets).toHaveLength(1);
+    expect(api.fetchAgentInsights).not.toHaveBeenCalled();
+  });
+
+  it('fetches another period once, when first selected, and keeps both', async () => {
     const { result, rerender } = renderHook(
-      ({ period }: { period: '7d' | '24h' }) => useAgentsInsights(period, AGENTS, true),
+      ({ period }: { period: Period }) =>
+        useAgentsInsights(period, AGENTS, true, insights('7d', 7)),
       { initialProps: { period: '7d' } },
     );
-    await waitFor(() => expect(result.current.status).toBe('ready'));
-    expect(api.fetchAgentInsights).toHaveBeenCalledTimes(1);
 
     rerender({ period: '24h' });
     expect(result.current.status).toBe('loading');
     await waitFor(() => expect(result.current.status).toBe('ready'));
-    expect(api.fetchAgentInsights).toHaveBeenCalledTimes(2);
+    expect(api.fetchAgentInsights).toHaveBeenCalledTimes(1);
 
     rerender({ period: '7d' });
-    expect(result.current.status).toBe('ready');
-    expect(api.fetchAgentInsights).toHaveBeenCalledTimes(2);
+    rerender({ period: '24h' });
+    expect(api.fetchAgentInsights).toHaveBeenCalledTimes(1);
     expect(Object.keys(result.current.insights?.byPeriod ?? {}).sort()).toEqual(['24h', '7d']);
-    expect(api.fetchAgentBudgets).toHaveBeenCalledTimes(1);
   });
 
   it('leaves a failed part out and retries the period when it is selected again', async () => {
     api.fetchAgentInsights.mockResolvedValueOnce({ data: null, error: 'boom' });
-    api.fetchAgentBudgets.mockResolvedValue({ data: null, error: 'boom' });
     const { result, rerender } = renderHook(
-      ({ period }: { period: '7d' | '24h' }) => useAgentsInsights(period, AGENTS, true),
+      ({ period }: { period: Period }) => useAgentsInsights(period, AGENTS, true),
       { initialProps: { period: '7d' } },
     );
     await waitFor(() => expect(result.current.status).toBe('failed'));
@@ -127,21 +132,17 @@ describe('useAgentsInsights', () => {
     await waitFor(() => expect(result.current.status).toBe('ready'));
     rerender({ period: '7d' });
     await waitFor(() => expect(result.current.status).toBe('ready'));
-    expect(result.current.insights?.budgets).toBeUndefined();
   });
 
   it('does not fetch when the page was handed its insights', async () => {
     renderHook(() => useAgentsInsights('7d', AGENTS, false));
     await act(async () => {});
     expect(api.fetchAgentInsights).not.toHaveBeenCalled();
-    expect(api.fetchAgentBudgets).not.toHaveBeenCalled();
   });
 
   it('makes no state update when it unmounts before a fetch resolves', async () => {
     let resolveInsights!: (v: unknown) => void;
-    let resolveBudgets!: (v: unknown) => void;
     api.fetchAgentInsights.mockReturnValue(new Promise((r) => (resolveInsights = r)));
-    api.fetchAgentBudgets.mockReturnValue(new Promise((r) => (resolveBudgets = r)));
     setters.calls.length = 0;
     const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -149,10 +150,9 @@ describe('useAgentsInsights', () => {
     unmount();
     await act(async () => {
       resolveInsights({ data: insights('7d', 7), error: null });
-      resolveBudgets({ data: BUDGETS, error: null });
     });
 
-    // The late responses are dropped, so no setter runs after unmount.
+    // The late response is dropped, so no setter runs after unmount.
     expect(setters.calls).toHaveLength(0);
     expect(result.current.insights).toBeUndefined();
     expect(errors).not.toHaveBeenCalled();

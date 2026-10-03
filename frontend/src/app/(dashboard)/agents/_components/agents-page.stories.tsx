@@ -18,12 +18,7 @@ import {
   RAW_RUNS,
   RUN_ROWS,
 } from './agents-mock-data';
-import {
-  INSIGHTS,
-  MOCK_BUDGETS_RESPONSE,
-  SCALE_INSIGHTS,
-  mockInsightsResponse,
-} from './agents-insights-mock-data';
+import { INSIGHTS, SCALE_INSIGHTS, mockInsightsResponse } from './agents-insights-mock-data';
 import { PERIOD_OPTIONS } from '../_lib/spend';
 import type { Period } from '../_lib/spend';
 
@@ -91,7 +86,7 @@ export const NinetyDays: Story = {
   },
 };
 
-/** The page loading its own insights: the 7-day window first, then each period as it is picked. */
+/** The page loading each period it is not given, as the BFF would answer. */
 export const LiveInsights: Story = {
   decorators: withRoutes(
     listRoutes({
@@ -100,7 +95,6 @@ export const LiveInsights: Story = {
         const valid = PERIOD_OPTIONS.some((o) => o.value === period);
         return mockInsightsResponse(valid ? (period as Period) : '7d');
       },
-      'GET /api/agents/insights/budgets': MOCK_BUDGETS_RESPONSE,
     }),
   ),
   args: { initialAgentTypes: AGENT_ROWS, initialRuns: RUN_ROWS, initialError: null },

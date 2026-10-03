@@ -21,15 +21,25 @@ export interface SpendRow {
   cost: number;
 }
 
+/** One budget window of an agent: its limit, the spend inside it now, and when it resets. */
+export interface BudgetWindowRow {
+  cadence: 'weekly' | 'monthly';
+  limit: number;
+  spent: number;
+  /** RFC 3339 time the window resets. */
+  resetsAt: string;
+}
+
 /**
- * An agent's spend in its budget window against its own limit, when it has one.
- * The window is the calendar month unless `cadence` says the budget resets weekly.
+ * An agent's budget: a row per agent that has a window limit, with a window for
+ * each cadence it is limited on. Spend is by agent, so it can differ slightly
+ * from the amount the limit check counts.
  */
 export interface BudgetRow {
   name: string;
-  spent: number;
-  limit?: number;
-  cadence?: 'weekly';
+  windows: BudgetWindowRow[];
+  /** The per-run limit, which has no window. */
+  perRunLimit?: number;
 }
 
 /** The tenant-wide cap. Its window is the calendar month unless `cadence` says weekly. */
@@ -42,7 +52,12 @@ export interface TenantBudget {
 
 /** Everything the page reports for one window. */
 export interface PeriodData {
+  /** Usage per agent slug. It includes agents that have since been deleted. */
   usage: Record<string, AgentTypeUsage>;
+  /** Total spend of the window, which is the sum of `usage` and so includes deleted agents. */
+  total: number;
+  /** True when a delegated agent's usage is the caller's own, so the page says "your usage". */
+  delegatedOwnOnly: boolean;
   /** Runs that finished in the window. Absent when the run counts are not available. */
   outcomes?: { completed: number; failed: number };
   /** Spend split by model, when the source provides it. */
@@ -99,11 +114,14 @@ export function usedShare(spent: number, limit: number): number {
   return limit > 0 ? spent / limit : Infinity;
 }
 
-/**
- * Budget rows ordered by how close each is to its limit, the closest first.
- * Rows with a limit, a zero limit included, come before rows without one, which are ordered by spend.
- */
+/** The share of its tightest window an agent has spent. */
+export function rowUsedShare(row: BudgetRow): number {
+  return Math.max(...row.windows.map((w) => usedShare(w.spent, w.limit)), 0);
+}
+
+/** Budget rows ordered by how close each is to a limit, the closest first. */
 export function closestToLimit(rows: BudgetRow[]): BudgetRow[] {
-  const used = (r: BudgetRow) => (r.limit != null ? usedShare(r.spent, r.limit) : -1);
-  return [...rows].sort((a, b) => used(b) - used(a) || b.spent - a.spent);
+  return [...rows].sort(
+    (a, b) => rowUsedShare(b) - rowUsedShare(a) || a.name.localeCompare(b.name),
+  );
 }

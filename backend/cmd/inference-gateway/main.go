@@ -13,7 +13,6 @@ import (
 	"github.com/clear-route/orbit/internal/inferencegw"
 	"github.com/clear-route/orbit/internal/inferencegw/providers/registry"
 	"github.com/clear-route/orbit/internal/platform/api"
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
 	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -177,9 +176,10 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// Shared revoked-JTI blocklist: rejects revoked delegation tokens at the
 	// PEP before natural expiry (docs/adr/2026-07-23-delegated-agent-identity.md).
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
-	// Agent rollups ask orbit-agents which agents the caller may see, with the
-	// caller's own token.
-	agentInsights := inferencegw.NewAgentInsightsService(usageRepo, agentsclient.NewClient(igc.Current.Agents.InternalURL, logger))
+	// The agent rollups read budgets from the evaluator's strict listing, so a
+	// bundle that cannot be read leaves the budgets out instead of showing none.
+	strictBudgets, _ := pol.(policy.StrictBudgetLister)
+	agentInsights := inferencegw.NewAgentInsightsService(usageRepo, strictBudgets, logger)
 	controllers := []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger).
 			WithAgentInsights(agentInsights),
@@ -263,8 +263,8 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
 		// The agent usage reads report spend per agent rather than the caller's
-		// own usage, so they need a scope: GET /v1/usage/agent-insights,
-		// /v1/usage/agent-budgets and /v1/usage/agent-type/{slug}.
+		// own usage, so they need a scope: GET /v1/usage/agent-insights and
+		// /v1/usage/agent-type/{slug}.
 		//
 		// That scope is agents:types:read, because an agent's spend is an
 		// attribute of the agent: authority to see what it cost follows authority
@@ -273,20 +273,20 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// here would make cost an admin-only figure, so the people building agents
 		// could not see what their own agents spend.
 		//
-		// Scope is not the whole rule. The gateway asks orbit-agents which agents
-		// the caller may see and counts only those. A delegated agent's spend is
-		// private to the person who ran it, so it never reaches another caller's
-		// totals. One implementation (AgentInsightsService) serves all three
-		// routes, so there is one privacy rule.
+		// The scope check is a prefix rule, so a token with only a per-agent scope
+		// is refused here, and a caller who passes may read every agent type. What
+		// a caller sees of a delegated agent is decided by one predicate in the
+		// query: only the rows whose delegator is the caller, or every row for a
+		// platform admin.
+		//
+		// A route under /v1/usage with no entry here falls to the open
+		// /v1/usage entry below, so every new agent usage route needs its own.
+		// routes_test.go fails on one that resolves to no scope.
 		//
 		// The scope is declared by orbit-agents, not here. The vocabulary is
 		// global once registered, and /v1/budgets below already depends on
 		// platform:budgets:read from the policy service in the same way.
-		//
-		// Prefix matching is segment-bounded, so "/v1/usage/agent-type" covers
-		// "/v1/usage/agent-type/{slug}" and nothing else.
 		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:types:read"},
-		{PathPrefix: "/v1/usage/agent-budgets", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:types:read"},
 		// GET /v1/usage is the caller's own inference usage log; tenant and
 		// principal come from the verified claims.

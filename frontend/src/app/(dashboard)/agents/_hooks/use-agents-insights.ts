@@ -2,14 +2,16 @@
 
 // ── useAgentsInsights ─────────────────────────────────────────────────────────
 //
-// Loads the Agents page rollups from the BFF without blocking first render.
-// Only the selected period is fetched, when it is first selected, and each
-// period is kept once loaded. Budgets load once. A part that fails is left out
-// of the result, so the page renders without it.
+// Holds the Agents page rollups. The 7-day window arrives with the server
+// render, so first paint has real data. Any other period is fetched when it is
+// first selected, and each period is kept once loaded. Budgets and the tenant
+// cap come with every response and do not depend on the window, so the latest
+// one wins. A part that fails is left out of the result, so the page renders
+// without it.
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { AgentBudgetsResponse } from '@orbit/shared/api';
-import { fetchAgentBudgets, fetchAgentInsights } from '../_services/agents-insights-api';
+import type { AgentBudgetStatus, AgentInsightsResponse } from '@orbit/shared/api';
+import { fetchAgentInsights } from '../_services/agents-insights-api';
 import { toBudgetRows, toPeriodData, toTenantBudget } from '../_lib/insights';
 import type { AgentsInsights, Period, PeriodData } from '../_lib/spend';
 
@@ -22,18 +24,31 @@ export interface AgentsInsightsState {
   status: WindowStatus;
 }
 
+/** The parts of a response that do not depend on the window. */
+interface Shared {
+  budgets: AgentBudgetStatus[] | undefined;
+  cap: AgentInsightsResponse['tenant_cap'];
+}
+
+const sharedOf = (r: AgentInsightsResponse): Shared => ({ budgets: r.budgets, cap: r.tenant_cap });
+
 export function useAgentsInsights(
   period: Period,
-  agents: { slug: string; name: string }[],
+  agents: { slug: string; name: string; identityMode?: string }[],
   enabled: boolean,
+  initial?: AgentInsightsResponse | null,
 ): AgentsInsightsState {
-  const [periods, setPeriods] = useState<Partial<Record<Period, PeriodData>>>({});
+  const [periods, setPeriods] = useState<Partial<Record<Period, PeriodData>>>(() =>
+    initial ? { [initial.period]: toPeriodData(initial.period, initial) } : {},
+  );
   const [failed, setFailed] = useState<Partial<Record<Period, boolean>>>({});
-  const [budgets, setBudgets] = useState<AgentBudgetsResponse | null>(null);
+  const [shared, setShared] = useState<Shared | undefined>(() =>
+    initial ? sharedOf(initial) : undefined,
+  );
 
-  // Held in refs so the effects start a fetch only for a period that is neither
-  // loaded nor already on its way, whatever the render that triggers them.
-  const loaded = useRef(new Set<Period>());
+  // Held in refs so the effect starts a fetch only for a period that is neither
+  // loaded nor already on its way, whatever the render that triggers it.
+  const loaded = useRef(new Set<Period>(initial ? [initial.period] : []));
   const inFlight = useRef(new Set<Period>());
   // A fetch answers whichever period it was for, so a response is dropped only
   // when the page has gone, never when the selection moved on.
@@ -58,30 +73,24 @@ export function useAgentsInsights(
       loaded.current.add(period);
       setFailed((f) => ({ ...f, [period]: false }));
       setPeriods((p) => ({ ...p, [period]: toPeriodData(period, data) }));
+      setShared(sharedOf(data));
     });
   }, [period, enabled]);
-
-  useEffect(() => {
-    if (!enabled) return;
-    void fetchAgentBudgets().then(({ data }) => {
-      if (mounted.current) setBudgets(data);
-    });
-  }, [enabled]);
 
   return useMemo(() => {
     const hasData = Object.keys(periods).length > 0;
     const status: WindowStatus = periods[period] ? 'ready' : failed[period] ? 'failed' : 'loading';
-    if (!hasData && !budgets) return { insights: undefined, status };
+    if (!hasData) return { insights: undefined, status };
 
-    const rows = budgets ? toBudgetRows(budgets, agents) : [];
-    const tenantBudget = budgets ? toTenantBudget(budgets.tenant_cap, new Date()) : undefined;
+    const rows = shared?.budgets ? toBudgetRows(shared.budgets, agents) : [];
+    const tenantBudget = shared ? toTenantBudget(shared.cap, new Date()) : undefined;
     return {
       insights: {
-        ...(hasData ? { byPeriod: periods } : {}),
+        byPeriod: periods,
         ...(rows.length > 0 ? { budgets: rows } : {}),
         ...(tenantBudget ? { tenantBudget } : {}),
       },
       status,
     };
-  }, [periods, failed, budgets, period, agents]);
+  }, [periods, failed, shared, period, agents]);
 }

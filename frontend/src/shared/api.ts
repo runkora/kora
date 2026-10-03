@@ -440,11 +440,29 @@ export interface AgentTypeUsage {
 /** The reporting windows the agent insights routes accept. Mirrors Go: usagewindow.Period. */
 export type AgentInsightsPeriod = '24h' | '7d' | '30d' | '90d';
 
+/** One budget window of an agent. Mirrors Go: inferencegw.BudgetWindow. */
+export interface AgentBudgetWindow {
+  cadence: 'weekly' | 'monthly';
+  limit_usd: number;
+  /** Spend by agent in the window now. It can differ from the spend the limit check counts. */
+  spend_usd: number;
+  /** RFC 3339 time the window resets. */
+  resets_at: string;
+}
+
+/** An agent's budget: a row per agent that has a window limit. Mirrors Go: inferencegw.AgentBudgetRow. */
+export interface AgentBudgetStatus {
+  agent_slug: string;
+  per_run_limit_usd?: number;
+  windows: AgentBudgetWindow[];
+}
+
 /**
- * Mirrors Go: inferencegw.AgentInsights plus the run outcomes the BFF adds.
+ * Mirrors Go: inferencegw.AgentInsights plus what the BFF adds.
  * GET /api/agents/insights?period=24h|7d|30d|90d
  *
- * Covers only the agents the caller may see.
+ * Agent traffic only. A delegated agent's usage is the caller's own unless
+ * `all_delegated_usage` is set, which it is for a platform admin.
  */
 export interface AgentInsightsResponse {
   period: AgentInsightsPeriod;
@@ -459,24 +477,12 @@ export interface AgentInsightsResponse {
   previous_total_usd: number;
   models: { model_id: string; cost_usd: number }[];
   trend: { start: string; cost_usd: number }[];
+  all_delegated_usage: boolean;
+  /** Absent when the policy bundle could not be read. */
+  budgets?: AgentBudgetStatus[];
   /** Absent when orbit-agents could not count runs. */
   outcomes?: { completed: number; failed: number };
-}
-
-/**
- * Per-agent budget status for the agents whose spend the caller may see in full.
- * GET /api/agents/insights/budgets
- */
-export interface AgentBudgetsResponse {
-  agents: {
-    agent_slug: string;
-    week_to_date_usd: number;
-    month_to_date_usd: number;
-    /** Absent when the agent has no budget. */
-    limit_usd?: number;
-    reset_cadence?: string;
-  }[];
-  /** Present only for callers allowed to read platform budgets. */
+  /** Present only for callers who hold platform:budgets:read. */
   tenant_cap?: { limit_usd: number; reset_cadence: string; spend_usd: number };
 }
 

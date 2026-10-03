@@ -12,15 +12,21 @@ const BASE = {
   previousText: 'previous 7 days',
 };
 
+const win = (cadence: 'weekly' | 'monthly', limit: number, spent: number) => ({
+  cadence,
+  limit,
+  spent,
+  resetsAt: '2026-11-01T00:00:00Z',
+});
+
 describe('AgentsSpendCard', () => {
-  it('states a weekly budget as a weekly figure and a monthly one as the month', async () => {
+  it('shows a bar for each budget window, weekly ones as a week', async () => {
     renderWithProviders(
       <AgentsSpendCard
         {...BASE}
         budgets={[
-          { name: 'Coder', spent: 40, limit: 100 },
-          { name: 'Triage', spent: 3, limit: 20, cadence: 'weekly' },
-          { name: 'Notes', spent: 1 },
+          { name: 'Coder', windows: [win('monthly', 100, 40)] },
+          { name: 'Triage', windows: [win('weekly', 20, 3), win('monthly', 80, 30)] },
         ]}
       />,
     );
@@ -28,8 +34,31 @@ describe('AgentsSpendCard', () => {
 
     expect(screen.getByText('of $100.00')).toBeInTheDocument();
     expect(screen.getByText('of $20.00 a week')).toBeInTheDocument();
-    expect(screen.getByText('no budget')).toBeInTheDocument();
-    expect(screen.getByText('This month, or this week for weekly budgets')).toBeInTheDocument();
+    expect(screen.getByText('of $80.00')).toBeInTheDocument();
+    expect(screen.getByText('Triage (weekly)')).toBeInTheDocument();
+    expect(screen.getByText('Triage (monthly)')).toBeInTheDocument();
+    expect(screen.getByText(/Spend is counted by agent/)).toBeInTheDocument();
+  });
+
+  it('shows an agent with a limit and no spend as an empty bar', async () => {
+    renderWithProviders(
+      <AgentsSpendCard {...BASE} budgets={[{ name: 'Idle', windows: [win('monthly', 40, 0)] }]} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Budgets' }));
+    expect(screen.getByText('Idle')).toBeInTheDocument();
+    expect(screen.getByText('of $40.00')).toBeInTheDocument();
+  });
+
+  it('lists spend of deleted agents as a row, so the rows add up to the total', () => {
+    renderWithProviders(<AgentsSpendCard {...BASE} total={16.5} deletedCost={6.5} />);
+    expect(screen.getByText('Deleted agents')).toBeInTheDocument();
+    expect(screen.getByText('$6.50')).toBeInTheDocument();
+  });
+
+  it('shows deleted spend even when no current agent has spent', () => {
+    renderWithProviders(<AgentsSpendCard {...BASE} agents={[]} total={6.5} deletedCost={6.5} />);
+    expect(screen.getByText('Deleted agents')).toBeInTheDocument();
+    expect(screen.queryByText('No spend in this window yet.')).not.toBeInTheDocument();
   });
 
   it('names a weekly tenant cap as weekly', () => {
@@ -53,13 +82,12 @@ describe('AgentsSpendCard', () => {
 });
 
 describe('AgentsSpendCard budgets', () => {
-  it('shows a zero limit as a limit that is spent, not as no budget', async () => {
+  it('shows a zero limit as a limit that is spent', async () => {
     renderWithProviders(
-      <AgentsSpendCard {...BASE} budgets={[{ name: 'Capped', spent: 2, limit: 0 }]} />,
+      <AgentsSpendCard {...BASE} budgets={[{ name: 'Capped', windows: [win('monthly', 0, 2)] }]} />,
     );
     await userEvent.click(screen.getByRole('button', { name: 'Budgets' }));
     expect(screen.getByText('of $0.00')).toBeInTheDocument();
-    expect(screen.queryByText('no budget')).not.toBeInTheDocument();
   });
 });
 
@@ -75,7 +103,10 @@ describe('AgentsSpendCard at 150 agents', () => {
   });
 
   it('shows eight budget rows, the closest to their limit first, and counts the rest', async () => {
-    const budgets = agents.map((a, i) => ({ name: a.name, spent: i, limit: 1000 - i }));
+    const budgets = agents.map((a, i) => ({
+      name: a.name,
+      windows: [win('monthly', 1000 - i, i)],
+    }));
     renderWithProviders(
       <AgentsSpendCard {...BASE} agents={agents} total={total} budgets={budgets} />,
     );

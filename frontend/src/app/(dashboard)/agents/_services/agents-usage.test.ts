@@ -26,7 +26,7 @@ describe('agent usage fetcher', () => {
 
     expect(error).toBeNull();
     expect(got?.total_tokens).toBe(150);
-    expect(fetchMock).toHaveBeenCalledWith('/api/agents/types/usage/token-probe', {
+    expect(fetchMock).toHaveBeenCalledWith('/api/agents/types/usage/token-probe?period=7d', {
       cache: 'no-store',
     });
   });

@@ -20,10 +20,10 @@ import (
 type agentRow struct {
 	slug      string
 	model     string
-	delegator string // empty for an autonomous row
+	delegator string // empty for a row without a delegator
 	prompt    int
 	cost      float64
-	age       time.Duration
+	at        time.Time
 }
 
 // insertAgentRows writes agent traffic with agent_slug set, the way the gateway does.
@@ -34,11 +34,15 @@ func insertAgentRows(t *testing.T, pool *pgxpool.Pool, tenant string, rows ...ag
 		if r.delegator != "" {
 			delegator = r.delegator
 		}
+		model := r.model
+		if model == "" {
+			model = "m"
+		}
 		_, err := pool.Exec(context.Background(), `
 			INSERT INTO inference_usage (id, tenant_id, principal_id, principal_type, agent_slug, model_id, status,
 			    prompt_tokens, completion_tokens, total_tokens, estimated_cost_usd, created_at, delegator_id)
 			VALUES ($1, $2, $3, 'AGENT', $4, $5, 'success', $6, 0, $6, $7, $8, $9)`,
-			uuid.NewString(), tenant, testNS+r.slug, r.slug, r.model, r.prompt, r.cost, time.Now().Add(-r.age), delegator)
+			uuid.NewString(), tenant, testNS+r.slug, r.slug, model, r.prompt, r.cost, r.at, delegator)
 		if err != nil {
 			t.Fatalf("insert agent row: %v", err)
 		}
@@ -47,73 +51,93 @@ func insertAgentRows(t *testing.T, pool *pgxpool.Pool, tenant string, rows ...ag
 
 func near(a, b float64) bool { return math.Abs(a-b) < 1e-9 }
 
-// A delegated agent's spend reaches only the person who ran it. The totals of
-// every other caller are the sum over their own visible slugs.
-func TestPostgres_AgentRollups_DelegatedSpendIsPrivate(t *testing.T) {
+func costs(rows []AgentTypeUsage) map[string]float64 {
+	out := map[string]float64{}
+	for _, u := range rows {
+		out[u.AgentSlug] = u.EstimatedCostUSD
+	}
+	return out
+}
+
+func sum(vs ...float64) float64 {
+	var n float64
+	for _, v := range vs {
+		n += v
+	}
+	return n
+}
+
+// Every case of the visibility predicate, and the rest of the rollups agreeing
+// with it: totals, models and trend never include a row the usage list hides.
+func TestPostgres_AgentRollups_Predicate(t *testing.T) {
 	repo, pool, tenant := testUsageRepo(t)
 	ctx := context.Background()
-	otherTenant := "test-" + uuid.NewString()
+	other := "test-" + uuid.NewString()
 	t.Cleanup(func() {
-		_, _ = pool.Exec(context.Background(), `DELETE FROM inference_usage WHERE tenant_id = $1`, otherTenant)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM inference_usage WHERE tenant_id = $1`, other)
 	})
 
+	now := time.Now()
+	hourAgo, twoHoursAgo := now.Add(-time.Hour), now.Add(-2*time.Hour)
 	insertAgentRows(t, pool, tenant,
-		agentRow{slug: "coder", model: "m1", prompt: 10, cost: 1.00, age: time.Hour},
-		agentRow{slug: "coder", model: "m2", prompt: 20, cost: 2.00, age: 2 * time.Hour},
-		agentRow{slug: "notes", model: "m1", delegator: "alice", prompt: 5, cost: 0.50, age: time.Hour},
-		agentRow{slug: "notes", model: "m1", delegator: "bob", prompt: 7, cost: 0.70, age: time.Hour},
-		agentRow{slug: "secret", model: "m1", prompt: 99, cost: 9.00, age: time.Hour},
-		agentRow{slug: "coder", model: "m1", prompt: 1, cost: 4.00, age: 8 * 24 * time.Hour}, // outside 7d
+		// An autonomous agent: every row has no delegator.
+		agentRow{slug: "coder", model: "m1", prompt: 10, cost: 1.00, at: hourAgo},
+		agentRow{slug: "coder", model: "m2", prompt: 20, cost: 2.00, at: twoHoursAgo},
+		// A delegated agent: each row names the person who ran it.
+		agentRow{slug: "notes", model: "m1", delegator: "alice", prompt: 5, cost: 0.50, at: hourAgo},
+		agentRow{slug: "notes", model: "m1", delegator: "bob", prompt: 7, cost: 0.70, at: hourAgo},
+		// An agent deleted since: its rows keep the slug and still count.
+		agentRow{slug: "gone", prompt: 99, cost: 9.00, at: hourAgo},
+		// A slug deleted and recreated as autonomous: each row is judged by its own delegator.
+		agentRow{slug: "reborn", delegator: "bob", prompt: 3, cost: 0.30, at: twoHoursAgo},
+		agentRow{slug: "reborn", prompt: 4, cost: 0.40, at: hourAgo},
+		// Outside the window, and another tenant's.
+		agentRow{slug: "coder", prompt: 1, cost: 4.00, at: now.Add(-8 * 24 * time.Hour)},
 	)
-	insertAgentRows(t, pool, otherTenant, agentRow{slug: "coder", model: "m1", prompt: 1000, cost: 100, age: time.Hour})
-	// A human row and a service row never count: they have no agent_slug.
+	insertAgentRows(t, pool, other, agentRow{slug: "coder", prompt: 1000, cost: 100, at: hourAgo})
+	// Rows with no agent slug never count: a person's own calls, a service.
 	insertUsage(t, pool, usageRow{tenant, "human-1", "HUMAN", 500, 0, 500, 50, time.Hour})
 
-	w := usagewindow.For(usagewindow.Period7d, time.Now())
-
 	cases := []struct {
-		name      string
-		scope     AgentUsageScope
-		wantSlugs map[string]float64
+		name   string
+		caller usageCaller
+		want   map[string]float64
 	}{
-		{"alice sees coder and her own notes", AgentUsageScope{TenantID: tenant, AllRows: []string{"coder"}, OwnRows: []string{"notes"}, Subject: "alice"},
-			map[string]float64{"coder": 3.00, "notes": 0.50}},
-		{"bob sees coder and his own notes", AgentUsageScope{TenantID: tenant, AllRows: []string{"coder"}, OwnRows: []string{"notes"}, Subject: "bob"},
-			map[string]float64{"coder": 3.00, "notes": 0.70}},
-		{"carol sees coder only", AgentUsageScope{TenantID: tenant, AllRows: []string{"coder"}, OwnRows: []string{"notes"}, Subject: "carol"},
-			map[string]float64{"coder": 3.00}},
-		{"an admin sees notes in full", AgentUsageScope{TenantID: tenant, AllRows: []string{"coder", "notes"}, Subject: "root"},
-			map[string]float64{"coder": 3.00, "notes": 1.20}},
-		{"no slugs sees nothing", AgentUsageScope{TenantID: tenant, AllRows: nil, OwnRows: nil, Subject: "alice"},
-			map[string]float64{}},
-		{"an empty subject sees no delegated row", AgentUsageScope{TenantID: tenant, OwnRows: []string{"notes"}, Subject: ""},
-			map[string]float64{}},
+		{"admin sees every row", usageCaller{TenantID: tenant, Subject: "root", Admin: true},
+			map[string]float64{"coder": 3, "notes": 1.2, "gone": 9, "reborn": 0.7}},
+		{"the owner sees their own delegated rows", usageCaller{TenantID: tenant, Subject: "alice"},
+			map[string]float64{"coder": 3, "notes": 0.5, "gone": 9, "reborn": 0.4}},
+		{"another person sees theirs and not alice's", usageCaller{TenantID: tenant, Subject: "bob"},
+			map[string]float64{"coder": 3, "notes": 0.7, "gone": 9, "reborn": 0.7}},
+		{"a stranger sees no delegated row", usageCaller{TenantID: tenant, Subject: "carol"},
+			map[string]float64{"coder": 3, "gone": 9, "reborn": 0.4}},
+		{"an empty subject sees no delegated row", usageCaller{TenantID: tenant},
+			map[string]float64{"coder": 3, "gone": 9, "reborn": 0.4}},
+		// A PAT carries no roles claim, so an admin's PAT is not an admin here.
+		{"a PAT of an admin is a person, not an admin", callerFromClaims(claimsWithRoles(tenant, "alice", "")),
+			map[string]float64{"coder": 3, "notes": 0.5, "gone": 9, "reborn": 0.4}},
 	}
+	w := usagewindow.For(usagewindow.Period7d, now)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			usage, err := repo.AgentUsage(ctx, tc.scope, w)
+			q := usageQuery{Caller: tc.caller, Window: w}
+			usage, err := repo.AgentUsage(ctx, q)
 			if err != nil {
 				t.Fatalf("AgentUsage: %v", err)
 			}
-			var sum float64
-			got := map[string]float64{}
-			for _, u := range usage {
-				got[u.AgentSlug] = u.EstimatedCostUSD
-				sum += u.EstimatedCostUSD
+			got := costs(usage)
+			if len(got) != len(tc.want) {
+				t.Fatalf("agents = %v, want %v", got, tc.want)
 			}
-			if len(got) != len(tc.wantSlugs) {
-				t.Fatalf("slugs = %v, want %v", got, tc.wantSlugs)
-			}
-			var wantSum float64
-			for slug, want := range tc.wantSlugs {
-				wantSum += want
+			var total float64
+			for slug, want := range tc.want {
+				total += want
 				if !near(got[slug], want) {
 					t.Errorf("%s = %v, want %v", slug, got[slug], want)
 				}
 			}
 
-			// The other aggregates agree with the per-agent figures.
-			models, err := repo.AgentSpendByModel(ctx, tc.scope, w)
+			models, err := repo.AgentSpendByModel(ctx, q)
 			if err != nil {
 				t.Fatalf("AgentSpendByModel: %v", err)
 			}
@@ -121,61 +145,74 @@ func TestPostgres_AgentRollups_DelegatedSpendIsPrivate(t *testing.T) {
 			for _, m := range models {
 				modelSum += m.CostUSD
 			}
-			buckets, err := repo.AgentSpendBuckets(ctx, tc.scope, w)
+			_, buckets, err := repo.AgentSpendBuckets(ctx, q)
 			if err != nil {
 				t.Fatalf("AgentSpendBuckets: %v", err)
 			}
-			var bucketSum float64
-			for _, b := range buckets.Buckets {
-				bucketSum += b
+			var trendSum float64
+			for _, b := range buckets {
+				trendSum += b
 			}
-			for name, total := range map[string]float64{"agents": sum, "models": modelSum, "buckets": bucketSum} {
-				if !near(total, wantSum) {
-					t.Errorf("%s total = %v, want %v", name, total, wantSum)
+			for name, v := range map[string]float64{"models": modelSum, "trend": trendSum} {
+				if !near(v, total) {
+					t.Errorf("%s total = %v, want %v: it must not include a row the usage list hides", name, v, total)
 				}
 			}
 		})
 	}
+
+	t.Run("a non-admin's previous window excludes another person's delegated spend", func(t *testing.T) {
+		insertAgentRows(t, pool, tenant,
+			agentRow{slug: "notes", delegator: "bob", cost: 6, at: now.Add(-9 * 24 * time.Hour)},
+			agentRow{slug: "coder", cost: 2, at: now.Add(-9 * 24 * time.Hour)},
+		)
+		previous, _, err := repo.AgentSpendBuckets(ctx, usageQuery{Caller: usageCaller{TenantID: tenant, Subject: "alice"}, Window: w})
+		if err != nil {
+			t.Fatalf("AgentSpendBuckets: %v", err)
+		}
+		// The 8d old coder row (4.00) and the 9d old one (2) are in the previous 7 days; bob's 6 is not alice's to see.
+		if !near(previous, 6) {
+			t.Errorf("previous = %v, want 6", previous)
+		}
+	})
+
+	t.Run("one agent follows the same predicate", func(t *testing.T) {
+		got, err := repo.AgentUsage(ctx, usageQuery{Caller: usageCaller{TenantID: tenant, Subject: "carol"}, Window: w, Slug: "notes"})
+		if err != nil || len(got) != 0 {
+			t.Errorf("a stranger's view of the delegated agent = %+v, %v; want nothing", got, err)
+		}
+		got, err = repo.AgentUsage(ctx, usageQuery{Caller: usageCaller{TenantID: tenant, Subject: "bob"}, Window: w, Slug: "notes"})
+		if err != nil || len(got) != 1 || !near(got[0].EstimatedCostUSD, 0.7) {
+			t.Errorf("the owner's view = %+v, %v; want 0.7", got, err)
+		}
+	})
 }
 
-func TestPostgres_AgentRollups_BucketsPreviousAndModels(t *testing.T) {
+func TestPostgres_AgentRollups_BucketsAndModels(t *testing.T) {
 	repo, pool, tenant := testUsageRepo(t)
 	ctx := context.Background()
-	scope := AgentUsageScope{TenantID: tenant, AllRows: []string{"coder"}}
-	w := usagewindow.For(usagewindow.Period7d, time.Now())
+	now := time.Now()
+	w := usagewindow.For(usagewindow.Period7d, now)
+	q := usageQuery{Caller: usageCaller{TenantID: tenant, Admin: true}, Window: w}
 
-	// One row mid-way through the third bucket from the origin, one
-	// just before the window, one in the window before that and one beyond it.
-	insertAgentRowAt := func(at time.Time, model string, cost float64) {
-		t.Helper()
-		_, err := pool.Exec(ctx, `
-			INSERT INTO inference_usage (id, tenant_id, principal_id, principal_type, agent_slug, model_id, status, estimated_cost_usd, created_at)
-			VALUES ($1, $2, $3, 'AGENT', 'coder', $4, 'success', $5, $6)`,
-			uuid.NewString(), tenant, testNS+"coder", model, cost, at)
-		if err != nil {
-			t.Fatalf("insert: %v", err)
-		}
-	}
-	insertAgentRowAt(w.Origin.Add(2*24*time.Hour+time.Hour), "big", 3)
-	insertAgentRowAt(w.Origin.Add(2*24*time.Hour+2*time.Hour), "small", 1)
-	insertAgentRowAt(w.Start.Add(-time.Second), "big", 5)
-	insertAgentRowAt(w.Start.Add(-7*24*time.Hour), "big", 2)
-	insertAgentRowAt(w.Start.Add(-7*24*time.Hour-time.Second), "big", 100)
-
-	buckets, err := repo.AgentSpendBuckets(ctx, scope, w)
+	// Bucket 2 is the third bucket of the window.
+	insertAgentRows(t, pool, tenant,
+		agentRow{slug: "coder", model: "big", cost: 3, at: w.Start.Add(2*24*time.Hour + time.Hour)},
+		agentRow{slug: "coder", model: "small", cost: 1, at: w.Start.Add(2*24*time.Hour + 2*time.Hour)},
+		agentRow{slug: "coder", model: "big", cost: 5, at: w.Start.Add(-time.Second)},
+		agentRow{slug: "coder", model: "big", cost: 2, at: w.PreviousStart()},
+		agentRow{slug: "coder", model: "big", cost: 100, at: w.PreviousStart().Add(-time.Second)},
+	)
+	previous, buckets, err := repo.AgentSpendBuckets(ctx, q)
 	if err != nil {
 		t.Fatalf("AgentSpendBuckets: %v", err)
 	}
-	if len(buckets.Buckets) != w.Buckets() || !near(buckets.Buckets[2], 4) || !near(buckets.PreviousUSD, 7) {
-		t.Errorf("buckets = %v previous = %v, want bucket 2 = 4 and previous = 7", buckets.Buckets, buckets.PreviousUSD)
-	}
-	for i, b := range buckets.Buckets {
-		if i != 2 && b != 0 {
-			t.Errorf("bucket %d = %v, want 0", i, b)
-		}
+	// 5 just before the window and 2 at the start of the previous window, so 7 before it.
+	if len(buckets) != w.Buckets() || !near(buckets[2], 4) || !near(sum(buckets...), 4) || !near(previous, 7) {
+		t.Errorf("previous %v buckets %v, want previous 7 and 4 in bucket 2", previous, buckets)
 	}
 
-	models, err := repo.AgentSpendByModel(ctx, scope, w)
+	models, err := repo.AgentSpendByModel(ctx, q)
 	if err != nil {
 		t.Fatalf("AgentSpendByModel: %v", err)
 	}
@@ -184,59 +221,17 @@ func TestPostgres_AgentRollups_BucketsPreviousAndModels(t *testing.T) {
 	}
 }
 
-func TestPostgres_AgentBudgetSpend(t *testing.T) {
-	repo, pool, tenant := testUsageRepo(t)
-	ctx := context.Background()
-
-	now := time.Now().UTC()
-	week := periodStart(cadenceWeekly, now)
-	month := periodStart(cadenceMonthly, now)
-
-	// Rows at and just before each boundary, so both windows have rows on each
-	// side whichever day of the week and month this runs on.
-	rows := []agentRow{
-		{slug: "coder", model: "m", cost: 1, age: 0},
-		{slug: "coder", model: "m", cost: 2, age: now.Sub(week) + time.Hour},
-		{slug: "coder", model: "m", cost: 4, age: now.Sub(month) + time.Hour},
-		{slug: "hidden", model: "m", cost: 8, age: 0},
-	}
-	insertAgentRows(t, pool, tenant, rows...)
-
-	var wantWeek, wantMonth float64
-	for _, r := range rows[:3] {
-		at := now.Add(-r.age)
-		if !at.Before(week) {
-			wantWeek += r.cost
-		}
-		if !at.Before(month) {
-			wantMonth += r.cost
-		}
-	}
-
-	got, err := repo.AgentBudgetSpend(ctx, tenant, []string{"coder"}, week, month)
-	if err != nil {
-		t.Fatalf("AgentBudgetSpend: %v", err)
-	}
-	if len(got) != 1 || got[0].AgentSlug != "coder" {
-		t.Fatalf("got %+v, want coder only", got)
-	}
-	if !near(got[0].WeekToDateUSD, wantWeek) || !near(got[0].MonthToDateUSD, wantMonth) {
-		t.Errorf("week %v month %v, want week %v month %v (week %s month %s)", got[0].WeekToDateUSD, got[0].MonthToDateUSD, wantWeek, wantMonth, week, month)
-	}
-}
-
-// A slug is matched exactly: a LIKE wildcard in it matches nothing, and a slug
-// that is a prefix of another does not pick up the longer one.
 func TestPostgres_AgentRollups_SlugsMatchExactly(t *testing.T) {
 	repo, pool, tenant := testUsageRepo(t)
+	now := time.Now()
 	insertAgentRows(t, pool, tenant,
-		agentRow{slug: "probe", model: "m", prompt: 10, cost: 0.1, age: time.Hour},
-		agentRow{slug: "token-probe", model: "m", prompt: 100, cost: 1, age: time.Hour},
-		agentRow{slug: "pr_be", model: "m", prompt: 7, cost: 0.07, age: time.Hour},
+		agentRow{slug: "probe", prompt: 10, cost: 0.1, at: now.Add(-time.Hour)},
+		agentRow{slug: "token-probe", prompt: 100, cost: 1, at: now.Add(-time.Hour)},
+		agentRow{slug: "pr_be", prompt: 7, cost: 0.07, at: now.Add(-time.Hour)},
 	)
-	w := usagewindow.For(usagewindow.Period7d, time.Now())
+	w := usagewindow.For(usagewindow.Period7d, now)
 	for slug, want := range map[string]int64{"probe": 10, "token-probe": 100, "pr_be": 7, "pr%": 0, "missing": 0} {
-		got, err := repo.AgentUsage(context.Background(), AgentUsageScope{TenantID: tenant, AllRows: []string{slug}}, w)
+		got, err := repo.AgentUsage(context.Background(), usageQuery{Caller: usageCaller{TenantID: tenant, Admin: true}, Window: w, Slug: slug})
 		if err != nil {
 			t.Fatalf("AgentUsage: %v", err)
 		}
@@ -250,12 +245,56 @@ func TestPostgres_AgentRollups_SlugsMatchExactly(t *testing.T) {
 	}
 }
 
+func TestPostgres_AgentBudgetSpend(t *testing.T) {
+	repo, pool, tenant := testUsageRepo(t)
+	now := time.Now().UTC()
+	week, month := periodStart(cadenceWeekly, now), periodStart(cadenceMonthly, now)
+
+	// Rows at and just before each boundary, so both windows have rows on each
+	// side whichever day of the week and month this runs on.
+	rows := []agentRow{
+		{slug: "coder", cost: 1, at: now},
+		{slug: "coder", cost: 2, at: week.Add(-time.Hour)},
+		{slug: "coder", cost: 4, at: month.Add(-time.Hour)},
+		{slug: "notes", delegator: "alice", cost: 8, at: now},
+		{slug: "other", cost: 16, at: now},
+	}
+	insertAgentRows(t, pool, tenant, rows...)
+	var wantWeek, wantMonth float64
+	for _, r := range rows[:3] {
+		if !r.at.Before(week) {
+			wantWeek += r.cost
+		}
+		if !r.at.Before(month) {
+			wantMonth += r.cost
+		}
+	}
+
+	got, err := repo.AgentBudgetSpend(context.Background(), tenant, []string{"coder", "notes"}, week, month)
+	if err != nil {
+		t.Fatalf("AgentBudgetSpend: %v", err)
+	}
+	by := map[string]AgentBudgetSpend{}
+	for _, b := range got {
+		by[b.AgentSlug] = b
+	}
+	if len(by) != 2 {
+		t.Fatalf("got %+v, want coder and notes only", got)
+	}
+	if c := by["coder"]; !near(c.Week, wantWeek) || !near(c.Month, wantMonth) || c.Delegated {
+		t.Errorf("coder = %+v, want week %v month %v and not delegated", c, wantWeek, wantMonth)
+	}
+	if n := by["notes"]; !n.Delegated {
+		t.Errorf("notes = %+v, want delegated: it has rows with a delegator", n)
+	}
+}
+
 // The rollups must run with pgx.QueryExecModeExec so Postgres plans them with
-// the real slugs and window. A prepared statement gets one generic plan that
-// reads most of the table through an index, which took about 2 seconds for a
-// 90d window at 150 agents where the plan chosen with the real values takes
-// about 0.3. The guard does not depend on the planner: it checks that the
-// queries leave no prepared statement on the connection.
+// the real window. A prepared statement gets one generic plan that reads most
+// of the table through an index, which took about 2 seconds for a 90d window at
+// 150 agents where the plan chosen with the real values takes about 0.3. The
+// guard does not depend on the planner: it checks that the queries leave no
+// prepared statement on the connection.
 func TestPostgres_AgentRollups_DoNotPrepareStatements(t *testing.T) {
 	dsn := os.Getenv("ORBIT_TEST_DB_URL")
 	if dsn == "" {
@@ -274,18 +313,19 @@ func TestPostgres_AgentRollups_DoNotPrepareStatements(t *testing.T) {
 	t.Cleanup(pool.Close)
 	repo := NewPostgresInferenceUsageRepository(pool)
 
-	scope := AgentUsageScope{TenantID: "test-" + uuid.NewString(), AllRows: []string{"coder"}, OwnRows: []string{"notes"}, Subject: "alice"}
-	w := usagewindow.For(usagewindow.Period7d, time.Now())
-	if _, err := repo.AgentUsage(ctx, scope, w); err != nil {
+	tenant := "test-" + uuid.NewString()
+	now := time.Now()
+	q := usageQuery{Caller: usageCaller{TenantID: tenant, Subject: "alice"}, Window: usagewindow.For(usagewindow.Period7d, now)}
+	if _, err := repo.AgentUsage(ctx, q); err != nil {
 		t.Fatalf("AgentUsage: %v", err)
 	}
-	if _, err := repo.AgentSpendByModel(ctx, scope, w); err != nil {
+	if _, err := repo.AgentSpendByModel(ctx, q); err != nil {
 		t.Fatalf("AgentSpendByModel: %v", err)
 	}
-	if _, err := repo.AgentSpendBuckets(ctx, scope, w); err != nil {
+	if _, _, err := repo.AgentSpendBuckets(ctx, q); err != nil {
 		t.Fatalf("AgentSpendBuckets: %v", err)
 	}
-	if _, err := repo.AgentBudgetSpend(ctx, scope.TenantID, []string{"coder"}, w.Start, w.Start); err != nil {
+	if _, err := repo.AgentBudgetSpend(ctx, tenant, []string{"coder"}, now, now); err != nil {
 		t.Fatalf("AgentBudgetSpend: %v", err)
 	}
 

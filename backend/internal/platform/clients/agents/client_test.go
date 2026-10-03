@@ -158,39 +158,3 @@ func TestStartRun_StatusMapping(t *testing.T) {
 		}
 	}
 }
-
-func TestVisibleAgents_Success(t *testing.T) {
-	c, cap := newTestClient(t, http.StatusOK, `{"all_rows":["coder","triage"],"own_rows":["notes"]}`)
-
-	out, err := c.VisibleAgents(context.Background(), "tok-123")
-	if err != nil {
-		t.Fatalf("VisibleAgents: %v", err)
-	}
-	if strings.Join(out.AllRows, ",") != "coder,triage" || strings.Join(out.OwnRows, ",") != "notes" {
-		t.Errorf("visibility = %+v", out)
-	}
-	if cap.method != http.MethodGet || cap.path != "/api/v1/agent-visibility" {
-		t.Errorf("request = %s %s", cap.method, cap.path)
-	}
-	if cap.auth != "Bearer tok-123" {
-		t.Errorf("auth header = %q, want Bearer tok-123", cap.auth)
-	}
-}
-
-func TestVisibleAgents_Errors(t *testing.T) {
-	cases := []struct {
-		status int
-		want   error
-	}{
-		{http.StatusForbidden, ErrForbidden},
-		{http.StatusUnauthorized, ErrForbidden},
-		{http.StatusBadGateway, ErrUpstreamUnavailable},
-		{http.StatusBadRequest, ErrUnexpectedStatus},
-	}
-	for _, tc := range cases {
-		c, _ := newTestClient(t, tc.status, `{}`)
-		if _, err := c.VisibleAgents(context.Background(), "tok"); !errors.Is(err, tc.want) {
-			t.Errorf("status %d: err = %v, want %v", tc.status, err, tc.want)
-		}
-	}
-}

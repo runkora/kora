@@ -36,6 +36,9 @@ type RunRepository interface {
 	// runs of delegated agent types are returned only where created_by equals
 	// vis.Subject. Autonomous-agent runs are never filtered.
 	ListRuns(ctx context.Context, tenantID string, agentTypeID string, vis RunVisibility, limit int) ([]Run, error)
+	// CountRunOutcomes counts the completed and failed runs that finished in
+	// [from, to), under the same delegated-run visibility rule as ListRuns.
+	CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.

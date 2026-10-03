@@ -7,57 +7,61 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
-// The agent rollups read inference_usage through idx_inference_usage_agent_slug
-// (tenant_id, agent_slug, created_at). Each is one query: tokens, models and
-// buckets are separate aggregates over the same rows, run side by side by the
-// service, and the previous window rides inside the bucket query as bucket -1.
+// Every query here runs with pgx.QueryExecModeExec, so Postgres plans it with
+// the actual window. A prepared statement is planned once without it, and its
+// generic plan reads most of the table through an index (about 2 seconds for a
+// 90d window at 150 agents, against about 0.3 for the plan chosen with the real
+// values).
 
-// visibilityClause returns the SQL condition limiting rows to a scope, and its
-// arguments, numbering placeholders from first. The delegator test is what
-// keeps one person's delegated agent out of another person's totals.
-//
-// Every query here runs with pgx.QueryExecModeExec, so Postgres plans it with the
-// actual slugs and window. A prepared statement is planned once without them,
-// and its generic plan picks an index scan that reads most of the table through
-// the index (about 2 seconds for a 90d window at 150 agents against about 0.3
-// for the plan chosen with the real values).
-func (s AgentUsageScope) visibilityClause(first int) (string, []any) {
-	all := s.AllRows
-	if all == nil {
-		all = []string{}
+// The predicate is two SQL strings, not one with a bound admin flag. Tenant is
+// $1. A non-admin sees rows without a delegator and their own delegated rows. An
+// admin sees every row.
+const (
+	whereAdmin  = "tenant_id = $1 AND agent_slug IS NOT NULL"
+	whereOthers = "tenant_id = $1 AND agent_slug IS NOT NULL AND (delegator_id IS NULL OR delegator_id = $2)"
+)
+
+// where returns the predicate and its arguments after the tenant, which is $1.
+func (c usageCaller) where() (string, []any) {
+	if c.Admin {
+		return whereAdmin, []any{c.TenantID}
 	}
-	if len(s.OwnRows) == 0 {
-		return fmt.Sprintf("agent_slug = ANY($%d)", first), []any{all}
-	}
-	clause := fmt.Sprintf("(agent_slug = ANY($%d) OR (agent_slug = ANY($%d) AND delegator_id = $%d))", first, first+1, first+2)
-	return clause, []any{all, s.OwnRows, s.Subject}
+	return whereOthers, []any{c.TenantID, c.Subject}
 }
 
-// AgentUsage returns tokens and cost per visible agent over [w.Start, w.End).
-// Agents with no usage in the window are absent.
-func (r *PostgresInferenceUsageRepository) AgentUsage(ctx context.Context, scope AgentUsageScope, w usagewindow.Window) ([]AgentTypeUsage, error) {
-	clause, args := scope.visibilityClause(4)
-	q := `
-		SELECT
-		    agent_slug,
-		    COALESCE(SUM(prompt_tokens), 0),
-		    COALESCE(SUM(completion_tokens), 0),
-		    COALESCE(SUM(cache_read_input_tokens), 0),
-		    COALESCE(SUM(cache_creation_input_tokens), 0),
-		    COALESCE(SUM(total_tokens), 0),
-		    COALESCE(SUM(estimated_cost_usd), 0)
-		FROM inference_usage
-		WHERE tenant_id = $1
-		  AND created_at >= $2 AND created_at < $3
-		  AND ` + clause + `
-		GROUP BY agent_slug
-		ORDER BY agent_slug`
+// scope adds the window and the optional single agent to a predicate. The
+// placeholders are numbered after the caller's arguments.
+func (q usageQuery) scope(from, to time.Time) (string, []any) {
+	clause, args := q.Caller.where()
+	args = append(args, from, to)
+	clause += fmt.Sprintf(" AND created_at >= $%d AND created_at < $%d", len(args)-1, len(args))
+	if q.Slug != "" {
+		args = append(args, q.Slug)
+		clause += fmt.Sprintf(" AND agent_slug = $%d", len(args))
+	}
+	return clause, args
+}
 
-	rows, err := r.pool.Query(ctx, q, append([]any{pgx.QueryExecModeExec, scope.TenantID, w.Start, w.End}, args...)...)
+func withExecMode(args []any) []any { return append([]any{pgx.QueryExecModeExec}, args...) }
+
+// AgentUsage returns tokens and cost per agent over the window, or for one
+// agent. Agents with no usage in the window are absent.
+func (r *PostgresInferenceUsageRepository) AgentUsage(ctx context.Context, q usageQuery) ([]AgentTypeUsage, error) {
+	clause, args := q.scope(q.Window.Start, q.Window.End)
+	rows, err := r.pool.Query(ctx, `
+		SELECT agent_slug,
+		       COALESCE(SUM(prompt_tokens), 0),
+		       COALESCE(SUM(completion_tokens), 0),
+		       COALESCE(SUM(cache_read_input_tokens), 0),
+		       COALESCE(SUM(cache_creation_input_tokens), 0),
+		       COALESCE(SUM(total_tokens), 0),
+		       COALESCE(SUM(estimated_cost_usd), 0)
+		FROM inference_usage
+		WHERE `+clause+`
+		GROUP BY agent_slug
+		ORDER BY agent_slug`, withExecMode(args)...)
 	if err != nil {
 		return nil, fmt.Errorf("agent usage: %w", err)
 	}
@@ -72,26 +76,19 @@ func (r *PostgresInferenceUsageRepository) AgentUsage(ctx context.Context, scope
 		}
 		out = append(out, u)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate agent usage: %w", err)
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // AgentSpendByModel returns the window's spend per model, largest first.
-func (r *PostgresInferenceUsageRepository) AgentSpendByModel(ctx context.Context, scope AgentUsageScope, w usagewindow.Window) ([]ModelSpend, error) {
-	clause, args := scope.visibilityClause(4)
-	q := `
+func (r *PostgresInferenceUsageRepository) AgentSpendByModel(ctx context.Context, q usageQuery) ([]ModelSpend, error) {
+	clause, args := q.scope(q.Window.Start, q.Window.End)
+	rows, err := r.pool.Query(ctx, `
 		SELECT model_id, COALESCE(SUM(estimated_cost_usd), 0) AS cost
 		FROM inference_usage
-		WHERE tenant_id = $1
-		  AND created_at >= $2 AND created_at < $3
-		  AND ` + clause + `
+		WHERE `+clause+`
 		GROUP BY model_id
 		HAVING COALESCE(SUM(estimated_cost_usd), 0) > 0
-		ORDER BY cost DESC, model_id`
-
-	rows, err := r.pool.Query(ctx, q, append([]any{pgx.QueryExecModeExec, scope.TenantID, w.Start, w.End}, args...)...)
+		ORDER BY cost DESC, model_id`, withExecMode(args)...)
 	if err != nil {
 		return nil, fmt.Errorf("agent spend by model: %w", err)
 	}
@@ -105,68 +102,60 @@ func (r *PostgresInferenceUsageRepository) AgentSpendByModel(ctx context.Context
 		}
 		out = append(out, m)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate agent spend by model: %w", err)
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
-// AgentSpendBuckets returns the spend in each chart bucket of the window and
-// the total for the window before it. Each bucket is one FILTER sum over the
-// same rows, so the query has no GROUP BY and Postgres runs it as a parallel
-// aggregate. Bucket i covers [bounds[i], bounds[i+1]), where bounds[0] is the
-// window start and the last bound is the window end; the previous window is
-// everything before the start.
-func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context, scope AgentUsageScope, w usagewindow.Window) (SpendBuckets, error) {
+// AgentSpendBuckets returns the previous window's total and the spend in each
+// bucket of the window. Each is one FILTER sum over the same rows, so the query
+// has no GROUP BY and Postgres runs it as a parallel aggregate.
+//
+// A plain GROUP BY on the bucket was measured against this at 150 agents and 3M
+// rows over 90 days. With the bucket from floor(date_part('epoch', ...)) it took
+// 1.0 s against 0.29 s here, and with date_bin 0.55 s. Neither was within 1.5x of
+// the FILTER sums at every window, so the FILTER form stays.
+func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context, q usageQuery) (float64, []float64, error) {
+	w := q.Window
 	n := w.Buckets()
-	bounds := make([]time.Time, n+1)
-	bounds[0], bounds[n] = w.Start, w.End
-	for i := 1; i < n; i++ {
-		bounds[i] = w.Origin.Add(time.Duration(i) * w.Bucket)
+	clause, args := q.scope(w.PreviousStart(), w.End)
+
+	// The previous total is everything before the window start, then one sum per bucket.
+	args = append(args, w.Start)
+	cols := []string{fmt.Sprintf("COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at < $%d), 0)", len(args))}
+	for i := range n {
+		args = append(args, w.Start.Add(time.Duration(i)*w.Bucket), w.Start.Add(time.Duration(i+1)*w.Bucket))
+		cols = append(cols, fmt.Sprintf("COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at >= $%d AND created_at < $%d), 0)", len(args)-1, len(args)))
 	}
 
-	// $1 tenant, $2 previous start, $3 end, $4..$(4+n) the bounds, then the visibility arguments.
-	cols := []string{"COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at < $4), 0)"}
-	args := []any{scope.TenantID, w.PreviousStart(), w.End}
-	for i, b := range bounds {
-		args = append(args, b)
-		if i < n {
-			cols = append(cols, fmt.Sprintf("COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at >= $%d AND created_at < $%d), 0)", 4+i, 5+i))
-		}
-	}
-	clause, visArgs := scope.visibilityClause(4 + len(bounds))
-	q := "SELECT " + strings.Join(cols, ", ") + `
-		FROM inference_usage
-		WHERE tenant_id = $1
-		  AND created_at >= $2 AND created_at < $3
-		  AND ` + clause
-
-	totals := make([]float64, n+1)
+	vals := make([]float64, n+1)
 	dest := make([]any, n+1)
-	for i := range totals {
-		dest[i] = &totals[i]
+	for i := range vals {
+		dest[i] = &vals[i]
 	}
-	if err := r.pool.QueryRow(ctx, q, append(append([]any{pgx.QueryExecModeExec}, args...), visArgs...)...).Scan(dest...); err != nil {
-		return SpendBuckets{}, fmt.Errorf("agent spend buckets: %w", err)
+	row := r.pool.QueryRow(ctx, "SELECT "+strings.Join(cols, ", ")+" FROM inference_usage WHERE "+clause, withExecMode(args)...)
+	if err := row.Scan(dest...); err != nil {
+		return 0, nil, fmt.Errorf("agent spend buckets: %w", err)
 	}
-	return SpendBuckets{PreviousUSD: totals[0], Buckets: totals[1:]}, nil
+	return vals[0], vals[1:], nil
 }
 
 // AgentBudgetSpend returns each listed agent's spend since weekStart and since
-// monthStart. Agents with no spend since the earlier of the two are absent.
+// monthStart, and whether it has delegated rows in that span. It applies no
+// delegator predicate: a delegated agent is dropped by the caller, and every
+// other agent has no delegated rows, so the sums are the same for every caller.
 func (r *PostgresInferenceUsageRepository) AgentBudgetSpend(ctx context.Context, tenantID string, slugs []string, weekStart, monthStart time.Time) ([]AgentBudgetSpend, error) {
-	const q = `
-		SELECT
-		    agent_slug,
-		    COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at >= $3), 0),
-		    COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at >= $4), 0)
+	if len(slugs) == 0 {
+		return nil, nil
+	}
+	rows, err := r.pool.Query(ctx, strings.TrimSpace(`
+		SELECT agent_slug,
+		       COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at >= $3), 0),
+		       COALESCE(SUM(estimated_cost_usd) FILTER (WHERE created_at >= $4), 0),
+		       COALESCE(bool_or(delegator_id IS NOT NULL), false)
 		FROM inference_usage
 		WHERE tenant_id = $1
 		  AND agent_slug = ANY($2)
 		  AND created_at >= LEAST($3::timestamptz, $4::timestamptz)
-		GROUP BY agent_slug`
-
-	rows, err := r.pool.Query(ctx, q, pgx.QueryExecModeExec, tenantID, slugs, weekStart, monthStart)
+		GROUP BY agent_slug`), pgx.QueryExecModeExec, tenantID, slugs, weekStart, monthStart)
 	if err != nil {
 		return nil, fmt.Errorf("agent budget spend: %w", err)
 	}
@@ -175,13 +164,10 @@ func (r *PostgresInferenceUsageRepository) AgentBudgetSpend(ctx context.Context,
 	var out []AgentBudgetSpend
 	for rows.Next() {
 		var b AgentBudgetSpend
-		if err := rows.Scan(&b.AgentSlug, &b.WeekToDateUSD, &b.MonthToDateUSD); err != nil {
+		if err := rows.Scan(&b.AgentSlug, &b.Week, &b.Month, &b.Delegated); err != nil {
 			return nil, fmt.Errorf("scan agent budget spend: %w", err)
 		}
 		out = append(out, b)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate agent budget spend: %w", err)
-	}
-	return out, nil
+	return out, rows.Err()
 }

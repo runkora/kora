@@ -12,7 +12,8 @@ vi.mock('next/navigation', () => ({
 
 import { AgentsShell } from './agents-shell';
 import { AGENT_ROWS, RUN_ROWS } from './agents-mock-data';
-import { MOCK_BUDGETS_RESPONSE, mockInsightsResponse } from './agents-insights-mock-data';
+import { mockInsightsResponse } from './agents-insights-mock-data';
+import type { AgentInsightsResponse } from '@orbit/shared/api';
 import type { Period } from '../_lib/spend';
 
 const requested: string[] = [];
@@ -29,13 +30,17 @@ function serve(opts: { failPeriod?: string } = {}) {
       }
       return HttpResponse.json(mockInsightsResponse(period as Period));
     }),
-    http.get('/api/agents/insights/budgets', () => HttpResponse.json(MOCK_BUDGETS_RESPONSE)),
   );
 }
 
-function renderPage() {
+function renderPage(initialInsights: AgentInsightsResponse | null = null) {
   return renderWithProviders(
-    <AgentsShell initialAgentTypes={AGENT_ROWS} initialRuns={RUN_ROWS} initialError={null} />,
+    <AgentsShell
+      initialAgentTypes={AGENT_ROWS}
+      initialRuns={RUN_ROWS}
+      initialError={null}
+      initialInsights={initialInsights}
+    />,
   );
 }
 
@@ -44,26 +49,33 @@ beforeEach(() => {
 });
 
 describe('Agents page insights', () => {
-  it('loads the 7-day window after first render, then each period once when picked', async () => {
+  it('renders the 7-day window it was given without fetching it, then fetches each other period once', async () => {
     serve();
-    renderPage();
+    renderPage(mockInsightsResponse('7d'));
 
-    // The page is up before any insights arrive.
-    expect(screen.getByRole('heading', { name: 'Agents' })).toBeInTheDocument();
-    const control = await screen.findByRole('button', { name: '30d' });
-    expect(requested).toEqual(['7d']);
+    // First paint has the figures: the control and the spend are there at once.
+    const control = screen.getByRole('button', { name: '30d' });
+    expect(screen.getByText('Last 7 days')).toBeInTheDocument();
+    expect(requested).toEqual([]);
 
     await userEvent.click(control);
-    await waitFor(() => expect(requested).toEqual(['7d', '30d']));
+    await waitFor(() => expect(requested).toEqual(['30d']));
     await userEvent.click(screen.getByRole('button', { name: '7d' }));
     await userEvent.click(screen.getByRole('button', { name: '30d' }));
     await userEvent.click(screen.getByRole('button', { name: '90d' }));
-    await waitFor(() => expect(requested).toEqual(['7d', '30d', '90d']));
+    await waitFor(() => expect(requested).toEqual(['30d', '90d']));
+  });
+
+  it('fetches the 7-day window itself when the server render had none', async () => {
+    serve();
+    renderPage(null);
+    await screen.findByRole('button', { name: '30d' });
+    expect(requested).toEqual(['7d']);
   });
 
   it('says spend is unavailable when the window cannot be loaded, and keeps the period control', async () => {
     serve({ failPeriod: '7d' });
-    renderPage();
+    renderPage(null);
 
     expect(await screen.findByText('Spend is unavailable right now.')).toBeInTheDocument();
     // The control stays so another period can be tried.

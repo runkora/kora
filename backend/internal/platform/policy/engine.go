@@ -695,25 +695,45 @@ func (e *engine) GetRoleBudgets(ctx context.Context, tenantID string, roleNames 
 
 // ListBudgets returns every budget assignment in the tenant's compiled bundle.
 // Implements Evaluator. Fails open: returns empty maps when the bundle is
-// unavailable or evaluation fails.
+// unavailable or evaluation fails, which is what enforcement wants.
 func (e *engine) ListBudgets(ctx context.Context, tenantID string) (map[string]PrincipalBudget, map[string]RoleBudget, error) {
+	principals, roleBudgets, err := e.ListBudgetsStrict(ctx, tenantID)
+	if err != nil {
+		return map[string]PrincipalBudget{}, map[string]RoleBudget{}, nil
+	}
+	return principals, roleBudgets, nil
+}
+
+// ListBudgetsStrict returns the same assignments as ListBudgets and reports a
+// bundle that cannot be loaded or evaluated, so a display can tell "no budgets"
+// from "budgets unknown". A tenant with no bundle has no budgets and no error.
+func (e *engine) ListBudgetsStrict(ctx context.Context, tenantID string) (map[string]PrincipalBudget, map[string]RoleBudget, error) {
 	principals := make(map[string]PrincipalBudget)
 	roleBudgets := make(map[string]RoleBudget)
 
 	tb, err := e.bundleForTenant(ctx, tenantID)
-	if err != nil || tb == nil {
+	if err != nil {
+		return nil, nil, fmt.Errorf("load policy bundle: %w", err)
+	}
+	if tb == nil {
 		return principals, roleBudgets, nil
 	}
 
-	for pid, raw := range evalToMap(ctx, tb.allBudgetsQuery) {
-		entry, ok := raw.(map[string]any)
-		if !ok {
-			continue
+	budgets, err := evalToMapStrict(ctx, tb.allBudgetsQuery)
+	if err != nil {
+		return nil, nil, fmt.Errorf("evaluate principal budgets: %w", err)
+	}
+	for pid, raw := range budgets {
+		if entry, ok := raw.(map[string]any); ok {
+			principals[pid] = parsePrincipalBudget(entry)
 		}
-		principals[pid] = parsePrincipalBudget(entry)
 	}
 
-	for role, raw := range evalToMap(ctx, tb.roleBudgetsQuery) {
+	roles, err := evalToMapStrict(ctx, tb.roleBudgetsQuery)
+	if err != nil {
+		return nil, nil, fmt.Errorf("evaluate role budgets: %w", err)
+	}
+	for role, raw := range roles {
 		m, ok := raw.(map[string]any)
 		if !ok {
 			continue
@@ -726,19 +746,22 @@ func (e *engine) ListBudgets(ctx context.Context, tenantID string) (map[string]P
 			Pooled:       pooled,
 		}
 	}
-
 	return principals, roleBudgets, nil
 }
 
-// evalToMap evaluates a prepared query whose single binding "x" is an object,
-// returning nil (fail open) on any evaluation error or shape mismatch.
-func evalToMap(ctx context.Context, q rego.PreparedEvalQuery) map[string]any {
+// evalToMapStrict evaluates a prepared query whose single binding "x" is an
+// object. A query with no result is an empty object; an evaluation error is an
+// error.
+func evalToMapStrict(ctx context.Context, q rego.PreparedEvalQuery) (map[string]any, error) {
 	rs, err := q.Eval(ctx)
-	if err != nil || len(rs) == 0 || len(rs[0].Bindings) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if len(rs) == 0 || len(rs[0].Bindings) == 0 {
+		return nil, nil
 	}
 	m, _ := rs[0].Bindings["x"].(map[string]any)
-	return m
+	return m, nil
 }
 
 // parsePrincipalBudget converts one data.budgets entry into a PrincipalBudget.

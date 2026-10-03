@@ -3,13 +3,16 @@ import 'server-only';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
 import { config } from '@orbit/server/config';
-import type { AgentBudgetsResponse, AgentInsightsResponse } from '@orbit/shared/api';
+import { policyGatewayFetch } from '@orbit/server/services/policy-gateway-server';
+import { hasScopeCovering } from '@orbit/lib/permissions';
+import type { AgentInsightsResponse } from '@orbit/shared/api';
 import { PERIOD_TEXT } from '../_lib/spend';
 import type { Period } from '../_lib/spend';
 
-// The Agents page rollups. The gateway counts usage for the agents the caller
-// may see and orbit-agents counts runs and reads budget limits on the same
-// terms, so the BFF only composes what each returns; it never filters.
+// The Agents page rollups. The inference gateway counts usage and budgets for
+// the caller's own token, and orbit-agents counts runs on the run list rule, so
+// the BFF only composes what each returns. It sends one end time to both so the
+// two cut the same window.
 
 type Result<T> = { ok: true; data: T } | { ok: false; status: number; message: string };
 
@@ -56,72 +59,41 @@ async function agentsGet<T>(path: string, accessToken: string): Promise<Result<T
   }
 }
 
+/** The tenant cap, fetched only for a session that holds the scope that guards it. */
+async function loadTenantCap(accessToken: string): Promise<AgentInsightsResponse['tenant_cap']> {
+  const scopes = await policyGatewayFetch<{ scopes: string[] }>('/scopes', accessToken);
+  if (!scopes.ok || !hasScopeCovering(scopes.data.scopes, 'platform:budgets:read'))
+    return undefined;
+  const cap = await gatewayGet<{ tenant_cap?: AgentInsightsResponse['tenant_cap'] }>(
+    '/budgets/tenant-cap',
+    accessToken,
+  );
+  return cap.ok ? cap.data.tenant_cap : undefined;
+}
+
 /**
- * Usage, model split, spend over time and run outcomes for one window. The
- * gateway and orbit-agents are asked together. Run outcomes are optional: when
- * orbit-agents cannot count them the rest still stands.
+ * Usage, model split, spend over time and budgets from the gateway, run
+ * outcomes from orbit-agents and, for a caller who may read it, the tenant cap,
+ * all at once. Outcomes and the cap are optional: when either cannot be had the
+ * rest still stands.
  */
 export async function loadInsights(
   accessToken: string,
   period: Period,
 ): Promise<Result<AgentInsightsResponse>> {
-  const [usage, outcomes] = await Promise.all([
-    gatewayGet<AgentInsightsResponse>(`/usage/agent-insights?period=${period}`, accessToken),
-    agentsGet<{ completed: number; failed: number }>(
-      `/api/v1/run-outcomes?period=${period}`,
-      accessToken,
-    ),
+  const query = `period=${period}&end=${encodeURIComponent(new Date().toISOString())}`;
+  const [usage, outcomes, tenantCap] = await Promise.all([
+    gatewayGet<AgentInsightsResponse>(`/usage/agent-insights?${query}`, accessToken),
+    agentsGet<{ completed: number; failed: number }>(`/api/v1/run-outcomes?${query}`, accessToken),
+    loadTenantCap(accessToken),
   ]);
   if (!usage.ok) return usage;
   return {
     ok: true,
-    data: outcomes.ok ? { ...usage.data, outcomes: outcomes.data } : usage.data,
+    data: {
+      ...usage.data,
+      ...(outcomes.ok ? { outcomes: outcomes.data } : {}),
+      ...(tenantCap ? { tenant_cap: tenantCap } : {}),
+    },
   };
-}
-
-interface GatewayBudgets {
-  agents: { agent_slug: string; week_to_date_usd: number; month_to_date_usd: number }[];
-}
-
-interface GatewayTenantCap {
-  tenant_cap?: { limit_usd: number; reset_cadence: string; spend_usd: number };
-}
-
-/**
- * Each visible agent's spend in its budget windows beside its limit, and the
- * tenant cap for callers who may read platform budgets. The cap comes from its
- * own gateway read, not the per-principal budget report. Spend and limits are
- * both needed: a row with only one would misstate the other. The tenant cap is
- * optional, and a 403 is the expected answer for most callers.
- */
-export async function loadBudgets(accessToken: string): Promise<Result<AgentBudgetsResponse>> {
-  const [spend, limits, cap] = await Promise.all([
-    gatewayGet<GatewayBudgets>('/usage/agent-budgets', accessToken),
-    agentsGet<{
-      data: { agent_slug: string; limit_usd: number; reset_cadence: string }[];
-    }>('/api/v1/agent-budgets', accessToken),
-    gatewayGet<GatewayTenantCap>('/budgets/tenant-cap', accessToken),
-  ]);
-  if (!spend.ok) return spend;
-  if (!limits.ok) return limits;
-  if (!cap.ok && cap.status !== 403) {
-    console.error(`[loadBudgets] tenant budget unavailable (${cap.status})`);
-  }
-
-  const limitBySlug = new Map(limits.data.data.map((l) => [l.agent_slug, l]));
-  const spendBySlug = new Map(spend.data.agents.map((a) => [a.agent_slug, a]));
-  const slugs = [...new Set([...spendBySlug.keys(), ...limitBySlug.keys()])];
-
-  const agents = slugs.map((slug) => {
-    const s = spendBySlug.get(slug);
-    const l = limitBySlug.get(slug);
-    return {
-      agent_slug: slug,
-      week_to_date_usd: s?.week_to_date_usd ?? 0,
-      month_to_date_usd: s?.month_to_date_usd ?? 0,
-      ...(l ? { limit_usd: l.limit_usd, reset_cadence: l.reset_cadence } : {}),
-    };
-  });
-  const tenantCap = cap.ok ? cap.data.tenant_cap : undefined;
-  return { ok: true, data: { agents, ...(tenantCap ? { tenant_cap: tenantCap } : {}) } };
 }

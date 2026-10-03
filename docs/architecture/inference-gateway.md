@@ -20,7 +20,7 @@ The gateway holds each provider's credentials and speaks its native wire format:
 
 Each call writes an `inference_usage` row to Postgres (tokens, estimated cost, latency, and full principal attribution) and increments the Redis spend counters that back budgets.
 
-The Agents page reads agent-only rollups over 24-hour, 7-day, 30-day and 90-day windows: usage per agent, spend by model, spend over time, and the previous window's total. The gateway asks orbit-agents which agents the caller may see and counts only those. A delegated agent's rows count only for the person who ran it, or for a platform admin. The agent overview's per-agent usage read follows the same rule, through the same code. The answer is cached for five seconds per token.
+The Agents page reads agent-only rollups over 24-hour, 7-day, 30-day and 90-day windows: usage per agent, spend by model, spend over time, the previous window's total, and each agent's budget windows. One SQL predicate decides what a caller sees. A row without a delegator counts for everyone, a delegated agent's row counts for the person who ran it, and a platform admin, read from the `roles` claim, sees every row. Spend of deleted agents counts. The agent overview's per-agent usage read follows the same predicate.
 
 ## ADRs
 

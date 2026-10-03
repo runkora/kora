@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"strconv"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
@@ -130,81 +129,47 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 	return g.ID, nil
 }
 
-// ListGrants returns the grants for a principal within a tenant, up to the
-// service's default page. Used by the provisioner to find grant IDs for
-// deletion on deprovision.
+// ListGrants returns all grants for a principal within a tenant.
+// Used by the provisioner to find grant IDs for deletion on deprovision.
 func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, principalID string) ([]Grant, error) {
-	grants, _, err := c.listGrantsPage(ctx, tenantID, principalType, principalID, 0, 0)
-	return grants, err
-}
-
-// grantPageSize is the page size ListGrantsByType asks for. The service lowers
-// it to its own maximum if that is smaller, which the loop below tolerates by
-// reading the total the service reports rather than assuming a full page.
-const grantPageSize = 1000
-
-// ListGrantsByType returns every grant of one principal type within a tenant,
-// reading the policy service a page at a time until it has read the total the
-// service reports, or a page comes back empty.
-func (c *Client) ListGrantsByType(ctx context.Context, tenantID, principalType string) ([]Grant, error) {
-	var all []Grant
-	for {
-		page, total, err := c.listGrantsPage(ctx, tenantID, principalType, "", grantPageSize, len(all))
-		if err != nil {
-			return nil, err
-		}
-		all = append(all, page...)
-		if len(page) == 0 || len(all) >= total {
-			return all, nil
-		}
-	}
-}
-
-// listGrantsPage reads one page of grants. A zero limit takes the service default.
-func (c *Client) listGrantsPage(ctx context.Context, tenantID, principalType, principalID string, limit, offset int) ([]Grant, int, error) {
 	tok, err := c.bearerToken(ctx)
 	if err != nil {
-		return nil, 0, fmt.Errorf("get bearer token for list grants request: %w", err)
+		return nil, fmt.Errorf("get bearer token for list grants request: %w", err)
 	}
 
 	u, err := url.Parse(c.serviceURL + "/api/v1/policy/grants")
 	if err != nil {
-		return nil, 0, fmt.Errorf("parse list grants URL: %w", err)
+		return nil, fmt.Errorf("parse list grants URL: %w", err)
 	}
 	q := u.Query()
 	q.Set("tenant_id", tenantID)
 	q.Set("principal_type", principalType)
 	q.Set("principal_id", principalID)
-	if limit > 0 {
-		q.Set("limit", strconv.Itoa(limit))
-		q.Set("offset", strconv.Itoa(offset))
-	}
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, 0, fmt.Errorf("build list grants request: %w", err)
+		return nil, fmt.Errorf("build list grants request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+tok)
 
 	_, span, resp, err := c.Do(ctx, "policy.Client.ListGrants", req)
 	defer span.End()
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, 0, c.HandleErrorResponse(span, resp, fmt.Errorf("list grants failed: status %d", resp.StatusCode))
+		return nil, c.HandleErrorResponse(span, resp, fmt.Errorf("list grants failed: status %d", resp.StatusCode))
 	}
 
 	var result struct {
 		Grants []Grant `json:"grants"`
-		Total  int     `json:"total"`
 	}
 	if err := c.DecodeJSON(span, resp, &result); err != nil {
-		return nil, 0, fmt.Errorf("decode list grants response: %w", err)
+		return nil, fmt.Errorf("decode list grants response: %w", err)
 	}
-	return result.Grants, result.Total, nil
+	return result.Grants, nil
 }
 
 // UpdateGrantBudget replaces the budget on an existing grant in place

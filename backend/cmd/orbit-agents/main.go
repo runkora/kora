@@ -253,13 +253,6 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	catalog := agents.NewConnectionCatalog(cfg.Agents.ConnectionRegistryPath, logger)
 	catalogController := agents.NewConnectionCatalogController(catalog, verifier, logger)
 
-	// Agent visibility and run outcome aggregates for the Agents page, behind the
-	// same route-to-scope table as the main controller.
-	insightsController := agents.NewInsightsController(
-		agents.NewInsightsService(repo, authz, k8s),
-		verifier, eval, agentRoutes(), cfg.Server.BasePath, logger,
-	)
-
 	// Wire the grant scope resolver: it folds a referenced environment's egress +
 	// connectors and each connector's adapter-declared auto-egress into the agent's
 	// effective grant (env store + connection catalog back it). The agent type
@@ -288,7 +281,6 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		),
 		controller,
 		catalogController,
-		insightsController,
 	)
 	return server, repo, atSvc, runSvc, draftSvc, nil
 }
@@ -380,14 +372,10 @@ func agentRoutes() []routescopes.RouteScope {
 		// The parent scope still covers the per-agent check for the admin roles
 		// that legitimately hold it.
 		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: ""},
-		// Insights: sibling prefixes, like the drafts, because they are
-		// aggregates over the agent types and runs rather than a resource under
-		// either. Visibility answers which agents the caller may read; outcomes
-		// counts the runs the caller may read.
-		{PathPrefix: "/api/v1/agent-visibility", Method: "GET", RequiredScope: "agents:types:read"},
-		{PathPrefix: "/api/v1/run-outcomes", Method: "GET", RequiredScope: "agents:runs:read"},
-		{PathPrefix: "/api/v1/agent-budgets", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
+		// Run outcome counts: a sibling of /runs, with the same scope and the same
+		// delegated-run visibility rule.
+		{PathPrefix: "/api/v1/run-outcomes", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: "agents:runs:write"},

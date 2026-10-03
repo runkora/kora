@@ -9,9 +9,9 @@ import {
 /**
  * GET /api/agents/insights?period=24h|7d|30d|90d
  *
- * Usage, model split, spend over time and run outcomes for the agents the
- * caller may see. The inference gateway and orbit-agents decide which agents
- * those are from the session token, which stays on the server.
+ * Usage, model split, spend over time, budgets and run outcomes for one window,
+ * and the tenant cap when the caller may read it. The inference gateway counts
+ * what the caller may see from the session token, which stays on the server.
  */
 export const GET = withAuth(async (req: NextRequest, session) => {
   const period = parsePeriod(req.nextUrl.searchParams.get('period'));

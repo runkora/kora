@@ -1,8 +1,8 @@
 /**
- * Integration tests for GET /api/agents/insights and /api/agents/insights/budgets
+ * Integration tests for GET /api/agents/insights
  *
  * Strategy:
- * - `@orbit/server/config` is vi.mock'd to point the gateway and orbit-agents at test hosts.
+ * - `@orbit/server/config` is vi.mock'd to point the gateway, orbit-agents and the policy gateway at test hosts.
  * - `@orbit/server/session` is vi.mock'd to control session state.
  * - MSW intercepts the upstream calls.
  */
@@ -12,7 +12,11 @@ import { NextRequest } from 'next/server';
 import { server } from '@orbit/test-utils';
 
 vi.mock('@orbit/server/config', () => ({
-  config: { inferenceGatewayUrl: 'http://test-gw', orbitAgentsUrl: 'http://test-agents' },
+  config: {
+    inferenceGatewayUrl: 'http://test-gw',
+    orbitAgentsUrl: 'http://test-agents',
+    policyGatewayUrl: 'http://test-policy',
+  },
 }));
 
 vi.mock('@orbit/server/session', () => ({
@@ -20,8 +24,7 @@ vi.mock('@orbit/server/session', () => ({
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
 
-import { GET as getInsights } from './route';
-import { GET as getBudgets } from './budgets/route';
+import { GET } from './route';
 import { getSession, isSessionValid } from '@orbit/server/session';
 
 const GATEWAY_INSIGHTS = {
@@ -34,10 +37,46 @@ const GATEWAY_INSIGHTS = {
   previous_total_usd: 0,
   models: [],
   trend: [],
+  all_delegated_usage: false,
+  budgets: [
+    {
+      agent_slug: 'coder',
+      windows: [
+        { cadence: 'monthly', limit_usd: 100, spend_usd: 5, resets_at: '2026-11-01T00:00:00Z' },
+      ],
+    },
+  ],
 };
+const CAP = { limit_usd: 1000, reset_cadence: 'monthly', spend_usd: 300 };
 
-function insightsRequest(query = '') {
+function request(query = '') {
   return new NextRequest(`http://localhost/api/agents/insights${query}`);
+}
+
+/** Answers every upstream the route calls, for a session that holds `scopes`. */
+function upstream(scopes: string[], seen: Record<string, string | null> = {}) {
+  server.use(
+    http.get('http://test-gw/usage/agent-insights', ({ request: r }) => {
+      const url = new URL(r.url);
+      seen.gwPeriod = url.searchParams.get('period');
+      seen.gwEnd = url.searchParams.get('end');
+      seen.gwAuth = r.headers.get('authorization');
+      return HttpResponse.json(GATEWAY_INSIGHTS);
+    }),
+    http.get('http://test-agents/api/v1/run-outcomes', ({ request: r }) => {
+      const url = new URL(r.url);
+      seen.agentsPeriod = url.searchParams.get('period');
+      seen.agentsEnd = url.searchParams.get('end');
+      seen.agentsAuth = r.headers.get('authorization');
+      return HttpResponse.json({ completed: 4, failed: 1 });
+    }),
+    http.get('http://test-policy/policy/scopes', () => HttpResponse.json({ scopes })),
+    http.get('http://test-gw/budgets/tenant-cap', () => {
+      seen.capCalled = 'yes';
+      return HttpResponse.json({ tenant_cap: CAP });
+    }),
+  );
+  return seen;
 }
 
 beforeEach(() => {
@@ -54,150 +93,80 @@ beforeEach(() => {
 describe('GET /api/agents/insights', () => {
   it('returns 401 when the session is invalid', async () => {
     vi.mocked(isSessionValid).mockReturnValue(false);
-    expect((await getInsights(insightsRequest())).status).toBe(401);
+    expect((await GET(request())).status).toBe(401);
   });
 
-  it('rejects an unknown period without calling upstream', async () => {
-    const res = await getInsights(insightsRequest('?period=1y'));
-    expect(res.status).toBe(400);
+  it('rejects an unknown period, including an inherited object key', async () => {
+    expect((await GET(request('?period=1y'))).status).toBe(400);
+    expect((await GET(request('?period=constructor'))).status).toBe(400);
   });
 
-  it('asks the gateway and orbit-agents for the same period with the session token', async () => {
-    const seen: Record<string, string | null> = {};
-    server.use(
-      http.get('http://test-gw/usage/agent-insights', ({ request }) => {
-        seen.gwPeriod = new URL(request.url).searchParams.get('period');
-        seen.gwAuth = request.headers.get('authorization');
-        return HttpResponse.json(GATEWAY_INSIGHTS);
-      }),
-      http.get('http://test-agents/api/v1/run-outcomes', ({ request }) => {
-        seen.agentsPeriod = new URL(request.url).searchParams.get('period');
-        seen.agentsAuth = request.headers.get('authorization');
-        return HttpResponse.json({ completed: 4, failed: 1 });
-      }),
-    );
+  it('sends the gateway and orbit-agents the same period and end time, with the session token', async () => {
+    const seen = upstream([]);
+    const res = await GET(request('?period=30d'));
 
-    const res = await getInsights(insightsRequest('?period=30d'));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       ...GATEWAY_INSIGHTS,
       outcomes: { completed: 4, failed: 1 },
     });
-    expect(seen).toEqual({
-      gwPeriod: '30d',
-      gwAuth: 'Bearer test-access-token',
-      agentsPeriod: '30d',
-      agentsAuth: 'Bearer test-access-token',
-    });
+    expect(seen.gwPeriod).toBe('30d');
+    expect(seen.agentsPeriod).toBe('30d');
+    expect(seen.gwEnd).toBeTruthy();
+    expect(seen.gwEnd).toBe(seen.agentsEnd);
+    expect(seen.gwAuth).toBe('Bearer test-access-token');
+    expect(seen.agentsAuth).toBe('Bearer test-access-token');
   });
 
   it('defaults to 7d', async () => {
-    let gwPeriod: string | null = null;
+    const seen = upstream([]);
+    await GET(request());
+    expect(seen.gwPeriod).toBe('7d');
+  });
+
+  it('adds the tenant cap only for a session that holds platform:budgets:read', async () => {
+    const without = upstream(['agents:types:read']);
+    const noCap = await (await GET(request())).json();
+    expect('tenant_cap' in noCap).toBe(false);
+    expect(without.capCalled).toBeUndefined();
+
+    const withScope = upstream(['agents:types:read', 'platform:budgets:read']);
+    const body = await (await GET(request())).json();
+    expect(body.tenant_cap).toEqual(CAP);
+    expect(withScope.capCalled).toBe('yes');
+  });
+
+  it('leaves the cap out when the scopes cannot be read', async () => {
+    const seen = upstream([]);
     server.use(
-      http.get('http://test-gw/usage/agent-insights', ({ request }) => {
-        gwPeriod = new URL(request.url).searchParams.get('period');
-        return HttpResponse.json(GATEWAY_INSIGHTS);
-      }),
-      http.get('http://test-agents/api/v1/run-outcomes', () =>
-        HttpResponse.json({ completed: 0, failed: 0 }),
-      ),
+      http.get('http://test-policy/policy/scopes', () => HttpResponse.json({}, { status: 503 })),
     );
-    await getInsights(insightsRequest());
-    expect(gwPeriod).toBe('7d');
+    const body = await (await GET(request())).json();
+    expect('tenant_cap' in body).toBe(false);
+    expect(seen.capCalled).toBeUndefined();
   });
 
   it('still answers when orbit-agents cannot count runs', async () => {
+    upstream([]);
     server.use(
-      http.get('http://test-gw/usage/agent-insights', () => HttpResponse.json(GATEWAY_INSIGHTS)),
       http.get('http://test-agents/api/v1/run-outcomes', () =>
         HttpResponse.json({ code: 'internal_error' }, { status: 500 }),
       ),
     );
-    const res = await getInsights(insightsRequest('?period=30d'));
+    const res = await GET(request('?period=30d'));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual(GATEWAY_INSIGHTS);
   });
 
   it('passes the gateway status through when usage is unavailable', async () => {
+    upstream([]);
     server.use(
       http.get('http://test-gw/usage/agent-insights', () =>
-        HttpResponse.json({ code: 'agent_visibility_unavailable' }, { status: 503 }),
-      ),
-      http.get('http://test-agents/api/v1/run-outcomes', () =>
-        HttpResponse.json({ completed: 1, failed: 0 }),
+        HttpResponse.json({ code: 'agent_insights_unavailable' }, { status: 503 }),
       ),
     );
-    expect((await getInsights(insightsRequest())).status).toBe(503);
-  });
-});
-
-describe('GET /api/agents/insights/budgets', () => {
-  const spend = {
-    week_start: '2026-09-28T00:00:00Z',
-    month_start: '2026-10-01T00:00:00Z',
-    agents: [{ agent_slug: 'coder', week_to_date_usd: 2, month_to_date_usd: 5 }],
-  };
-  const limits = {
-    data: [
-      { agent_slug: 'coder', limit_usd: 50, reset_cadence: 'monthly' },
-      { agent_slug: 'idle', limit_usd: 10, reset_cadence: 'weekly' },
-    ],
-  };
-  const cap = { tenant_cap: { limit_usd: 1000, reset_cadence: 'monthly', spend_usd: 300 } };
-
-  function upstream(principals: () => Response) {
-    server.use(
-      http.get('http://test-gw/usage/agent-budgets', () => HttpResponse.json(spend)),
-      http.get('http://test-agents/api/v1/agent-budgets', () => HttpResponse.json(limits)),
-      http.get('http://test-gw/budgets/tenant-cap', principals),
-    );
-  }
-
-  it('joins spend to limits and includes the tenant cap for a caller who may read it', async () => {
-    upstream(() => HttpResponse.json(cap));
-    const res = await getBudgets(new NextRequest('http://localhost/api/agents/insights/budgets'));
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({
-      agents: [
-        {
-          agent_slug: 'coder',
-          week_to_date_usd: 2,
-          month_to_date_usd: 5,
-          limit_usd: 50,
-          reset_cadence: 'monthly',
-        },
-        {
-          agent_slug: 'idle',
-          week_to_date_usd: 0,
-          month_to_date_usd: 0,
-          limit_usd: 10,
-          reset_cadence: 'weekly',
-        },
-      ],
-      ...cap,
-    });
-  });
-
-  it('leaves the tenant cap out for a caller without platform:budgets:read', async () => {
-    upstream(() => HttpResponse.json({ code: 'forbidden' }, { status: 403 }));
-    const res = await getBudgets(new NextRequest('http://localhost/api/agents/insights/budgets'));
-    expect(res.status).toBe(200);
-    expect('tenant_cap' in (await res.json())).toBe(false);
-  });
-
-  it('fails when the limits cannot be read, rather than show spend as unbudgeted', async () => {
-    server.use(
-      http.get('http://test-gw/usage/agent-budgets', () => HttpResponse.json(spend)),
-      http.get('http://test-agents/api/v1/agent-budgets', () =>
-        HttpResponse.json({ code: 'internal_error' }, { status: 500 }),
-      ),
-      http.get('http://test-gw/budgets/tenant-cap', () => HttpResponse.json(cap)),
-    );
-    const res = await getBudgets(new NextRequest('http://localhost/api/agents/insights/budgets'));
-    expect(res.status).toBe(500);
-    expect(await res.json()).toMatchObject({
-      code: 'budgets_unavailable',
-      message: expect.any(String),
-    });
+    const res = await GET(request());
+    expect(res.status).toBe(503);
+    expect(await res.json()).toMatchObject({ code: 'insights_unavailable' });
   });
 });
