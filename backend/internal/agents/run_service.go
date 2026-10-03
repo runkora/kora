@@ -33,6 +33,8 @@ type RunServiceConfig struct {
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
+	// EnvironmentSizes size the built-in default environment.
+	EnvironmentSizes EnvironmentSizes
 }
 
 // RunService is the single state machine authority for agent runs.
@@ -48,9 +50,8 @@ type RunService struct {
 	logger     logging.Logger
 	resolver   *ScopeResolver    // resolves the runtime-environment brief; nil = no brief
 	delegation *DelegationBroker // mints/revokes run delegations; nil = issuer not wired (delegated runs fail closed)
-	envs       environmentLookup // the agent's environments; nil = the built-in default only
+	envs       runEnvironmentStore
 	images     sandboxImageLookup
-	sizes      EnvironmentSizes
 }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
@@ -94,6 +95,8 @@ func NewRunService(
 	k8s k8sProvisioner,
 	pubsub *PubSub,
 	authz *Authz,
+	envs runEnvironmentStore,
+	images sandboxImageLookup,
 	cfg RunServiceConfig,
 	logger logging.Logger,
 ) *RunService {
@@ -104,6 +107,8 @@ func NewRunService(
 		k8s:    k8s,
 		pubsub: pubsub,
 		authz:  authz,
+		envs:   envs,
+		images: images,
 		cfg:    cfg,
 		logger: logger,
 	}
@@ -808,15 +813,9 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	)
 	defer span.End()
 
-	fail := func(status, err error) error {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, status.Error())
-		return err
-	}
-
 	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
-		return Sandbox{}, fail(errLoadRun, err)
+		return Sandbox{}, failSpan(span, errLoadRun, err)
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
@@ -832,30 +831,28 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 
 	envs, err := s.agentEnvironments(ctx, *at)
 	if err != nil {
-		return Sandbox{}, fail(errResolveEnvironment, err)
+		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
 	}
 	current, live, err := s.currentEnvironment(ctx, *run, namespace)
 	if err != nil {
-		return Sandbox{}, fail(errResolveEnvironment, err)
+		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
 	}
-	env, err := pickEnvironment(envs, strings.TrimSpace(environment), &current)
+	env, err := pickEnvironment(envs, strings.TrimSpace(environment), current)
 	if err != nil {
-		return Sandbox{}, fail(errResolveEnvironment, err)
+		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
 	}
 	if live && env.ID != current {
-		return Sandbox{}, fail(errResolveEnvironment, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name))
+		return Sandbox{}, failSpan(span, errResolveEnvironment, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name))
 	}
 	spec, err := s.sandboxSpec(ctx, namespace, env)
 	if err != nil {
-		return Sandbox{}, fail(errResolveSandboxImage, err)
+		return Sandbox{}, failSpan(span, errResolveSandboxImage, err)
 	}
 	spec.KubeClusters = kubeClusters
 
 	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, spec)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "provision sandbox pod")
-		return Sandbox{}, fmt.Errorf("provision sandbox pod: %w", err)
+		return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("provision sandbox pod: %w", err))
 	}
 	if sandbox.Created {
 		s.recordSandboxEnvironment(ctx, runID, "start", spec)

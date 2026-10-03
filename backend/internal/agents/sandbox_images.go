@@ -23,9 +23,6 @@ type SandboxImageView struct {
 // ListSandboxImages lists the caller's tenant's registered sandbox images by name.
 func (s *EnvironmentService) ListSandboxImages(ctx context.Context) ([]SandboxImageView, error) {
 	out := []SandboxImageView{}
-	if s.images == nil {
-		return out, nil
-	}
 	imgs, err := s.images.SandboxImages(ctx, s.cfg.TenantNamespaceFn(tenantFromContext(ctx)))
 	if err != nil {
 		return nil, err

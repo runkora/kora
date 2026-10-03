@@ -49,7 +49,7 @@ type EnvironmentSizes struct {
 
 // Validate checks every maximum is a positive quantity and the default fits within it.
 func (s EnvironmentSizes) Validate() error {
-	if err := s.Max.within(s.Max); err != nil {
+	if err := s.Max.positive(); err != nil {
 		return fmt.Errorf("maximum environment %w", err)
 	}
 	if err := s.Default.within(s.Max); err != nil {
@@ -107,20 +107,31 @@ func (e Environment) Validate(maxSize EnvironmentSize) error {
 
 // within checks each dimension is a positive quantity no larger than its maximum.
 func (s EnvironmentSize) within(maxSize EnvironmentSize) error {
+	if err := s.positive(); err != nil {
+		return err
+	}
 	for _, d := range []struct{ name, value, limit string }{
 		{"cpu", s.CPU, maxSize.CPU},
 		{"memory", s.Memory, maxSize.Memory},
 		{"disk", s.Disk, maxSize.Disk},
 	} {
+		q := resource.MustParse(d.value)
+		if limit, err := resource.ParseQuantity(d.limit); err == nil && q.Cmp(limit) > 0 {
+			return fmt.Errorf("size.%s %s is above the maximum %s", d.name, d.value, d.limit)
+		}
+	}
+	return nil
+}
+
+// positive checks each dimension is a quantity greater than zero.
+func (s EnvironmentSize) positive() error {
+	for _, d := range []struct{ name, value string }{{"cpu", s.CPU}, {"memory", s.Memory}, {"disk", s.Disk}} {
 		q, err := resource.ParseQuantity(d.value)
 		if err != nil {
 			return fmt.Errorf("size.%s %q is not a quantity", d.name, d.value)
 		}
 		if q.Sign() <= 0 {
 			return fmt.Errorf("size.%s must be greater than zero", d.name)
-		}
-		if limit, err := resource.ParseQuantity(d.limit); err == nil && q.Cmp(limit) > 0 {
-			return fmt.Errorf("size.%s %s is above the maximum %s", d.name, d.value, d.limit)
 		}
 	}
 	return nil

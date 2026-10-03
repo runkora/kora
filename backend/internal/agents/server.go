@@ -967,6 +967,7 @@ func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Req
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
+	req.Environment = strings.TrimSpace(req.Environment)
 	if req.Environment == "" {
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeMissingField, "environment is required", nil), nil)
 		return

@@ -225,7 +225,12 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
 
-	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, agents.RunServiceConfig{
+	sizes := environmentSizes(cfg)
+	if err := sizes.Validate(); err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
+	}
+	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, agents.RunServiceConfig{
+		EnvironmentSizes:        sizes,
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 		SandboxGuardrails: agents.SandboxGuardrails{
@@ -235,15 +240,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		},
 	}, logger)
 
-	sizes := environmentSizes(cfg)
-	if err := sizes.Validate(); err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
-	}
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,
 		Sizes:             sizes,
 	}, logger)
-	runSvc.SetEnvironments(repo, k8s, sizes)
 
 	draftSvc := agents.NewDraftService(repo, authz, agents.DraftServiceConfig{
 		ReaperInterval: cfg.Drafts.ReaperInterval(),

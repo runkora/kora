@@ -112,8 +112,8 @@ func (r *ScopeResolver) EffectiveScopes(ctx context.Context, at AgentType) ([]st
 	return dedupeScopes(scopes), nil
 }
 
-// attachedEnvironments loads the agent's environments. One deleted since it was
-// attached is skipped: the agent loses its contribution rather than its grant.
+// attachedEnvironments loads the agent's environments. One the store cannot
+// find contributes nothing and does not fail the grant.
 func (r *ScopeResolver) attachedEnvironments(ctx context.Context, at AgentType) ([]Environment, error) {
 	if r.envs == nil {
 		return nil, nil

@@ -32,10 +32,27 @@ var (
 	errLoadRun             = errors.New("load run and agent type")
 	errResolveEnvironment  = errors.New("resolve environment")
 	errResolveSandboxImage = errors.New("resolve sandbox image")
+	errProvisionPod        = errors.New("provision sandbox pod")
+	errReplaceEnvironment  = errors.New("replace environment")
 )
 
-// errReplaceEnvironment is the span status of a failed replacement.
-var errReplaceEnvironment = errors.New("replace environment")
+// failSpan records err on span with a static status and returns err.
+func failSpan(span trace.Span, status, err error) error {
+	span.RecordError(err)
+	span.SetStatus(codes.Error, status.Error())
+	return err
+}
+
+// runEnvironmentRecorder records the environment of a run's current sandbox.
+type runEnvironmentRecorder interface {
+	SetRunEnvironment(ctx context.Context, runID string, environmentID *string) error
+}
+
+// runEnvironmentStore is what sandbox provisioning reads environments from and records them to.
+type runEnvironmentStore interface {
+	environmentLookup
+	runEnvironmentRecorder
+}
 
 // eventSandboxEnvironment records which environment and image a sandbox started in.
 const eventSandboxEnvironment = "sandbox_environment"
@@ -50,17 +67,11 @@ type RunEnvironment struct {
 	Current     bool            `json:"current"`
 }
 
-// SetEnvironments installs what sandbox provisioning needs to resolve a run's
-// environment: the environment store, the SandboxImage reader and the sizes.
-func (s *RunService) SetEnvironments(envs environmentLookup, images sandboxImageLookup, sizes EnvironmentSizes) {
-	s.envs, s.images, s.sizes = envs, images, sizes
-}
-
 // agentEnvironments lists the environments the agent may use, default first.
 // An agent with none attached has the built-in default.
 func (s *RunService) agentEnvironments(ctx context.Context, at AgentType) ([]Environment, error) {
-	if len(at.Environments) == 0 || s.envs == nil {
-		return []Environment{DefaultEnvironment(s.sizes.Default)}, nil
+	if len(at.Environments) == 0 {
+		return []Environment{DefaultEnvironment(s.cfg.EnvironmentSizes.Default)}, nil
 	}
 	out := make([]Environment, 0, len(at.Environments))
 	for _, ae := range at.Environments {
@@ -79,7 +90,7 @@ func (s *RunService) agentEnvironments(ctx context.Context, at AgentType) ([]Env
 
 // pickEnvironment chooses the environment for a sandbox: the named one, else
 // the run's current one, else the agent's default.
-func pickEnvironment(envs []Environment, name string, current *string) (Environment, error) {
+func pickEnvironment(envs []Environment, name, current string) (Environment, error) {
 	if name != "" {
 		names := make([]string, 0, len(envs))
 		for _, e := range envs {
@@ -90,11 +101,9 @@ func pickEnvironment(envs []Environment, name string, current *string) (Environm
 		}
 		return Environment{}, fmt.Errorf("%w: %q; this agent has %s", ErrEnvironmentNotAttached, name, strings.Join(names, ", "))
 	}
-	if current != nil {
-		for _, e := range envs {
-			if e.ID == *current {
-				return e, nil
-			}
+	for _, e := range envs {
+		if e.ID == current {
+			return e, nil
 		}
 	}
 	return envs[0], nil
@@ -140,20 +149,17 @@ func (s *RunService) recordSandboxEnvironment(ctx context.Context, runID, action
 	if spec.EnvironmentID != "" {
 		envID = &spec.EnvironmentID
 	}
-	if err := s.repo.SetRunEnvironment(ctx, runID, envID); err != nil {
+	if err := s.envs.SetRunEnvironment(ctx, runID, envID); err != nil {
 		s.logger.Warn(ctx, "recording the run's environment failed",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
-	payload, err := json.Marshal(map[string]string{
+	payload, _ := json.Marshal(map[string]string{
 		"action":      action,
 		"environment": spec.Environment,
 		"image":       spec.Image,
 	})
-	if err != nil {
-		return
-	}
 	at := eventTime()
 	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: eventSandboxEnvironment, Payload: payload, CreatedAt: at})
 	if err != nil {
@@ -168,13 +174,9 @@ func (s *RunService) recordSandboxEnvironment(ctx context.Context, runID, action
 
 // ListRunEnvironments lists the environments the run's agent may use.
 func (s *RunService) ListRunEnvironments(ctx context.Context, runID string) ([]RunEnvironment, error) {
-	run, err := s.repo.GetRun(ctx, runID)
+	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
 		return nil, err
-	}
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
-	if err != nil {
-		return nil, fmt.Errorf("get agent type: %w", err)
 	}
 	envs, err := s.agentEnvironments(ctx, *at)
 	if err != nil {
@@ -205,47 +207,38 @@ func (s *RunService) ReplaceEnvironment(ctx context.Context, runID, name string)
 		trace.WithAttributes(attribute.String("run_id", runID), attribute.String("environment", name)))
 	defer span.End()
 
-	fail := func(status, err error) error {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, status.Error())
-		return err
-	}
 	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
-		return Sandbox{}, fail(errLoadRun, err)
+		return Sandbox{}, failSpan(span, errLoadRun, err)
 	}
 	envs, err := s.agentEnvironments(ctx, *at)
 	if err != nil {
-		return Sandbox{}, fail(errResolveEnvironment, err)
+		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
 	}
-	env, err := pickEnvironment(envs, strings.TrimSpace(name), nil)
+	env, err := pickEnvironment(envs, strings.TrimSpace(name), "")
 	if err != nil {
-		return Sandbox{}, fail(errResolveEnvironment, err)
+		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
 	}
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	current, live, err := s.currentEnvironment(ctx, *run, namespace)
 	if err != nil {
-		return Sandbox{}, fail(errResolveEnvironment, err)
+		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
 	}
 	if live && env.ID == current {
-		return Sandbox{}, fail(errResolveEnvironment, fmt.Errorf("%w: %q", ErrSameEnvironment, env.Name))
+		return Sandbox{}, failSpan(span, errResolveEnvironment, fmt.Errorf("%w: %q", ErrSameEnvironment, env.Name))
 	}
 	spec, err := s.sandboxSpec(ctx, namespace, env)
 	if err != nil {
-		return Sandbox{}, fail(errResolveSandboxImage, err)
+		return Sandbox{}, failSpan(span, errResolveSandboxImage, err)
 	}
 	spec.KubeClusters, _ = s.sandboxKubeClusters(ctx, *at)
 
 	if err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errReplaceEnvironment.Error())
-		return Sandbox{}, fmt.Errorf("delete sandbox: %w", err)
+		return Sandbox{}, failSpan(span, errReplaceEnvironment, fmt.Errorf("delete sandbox: %w", err))
 	}
 	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, spec)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, errReplaceEnvironment.Error())
-		return Sandbox{}, fmt.Errorf("provision sandbox pod: %w", err)
+		return Sandbox{}, failSpan(span, errReplaceEnvironment, fmt.Errorf("provision sandbox pod: %w", err))
 	}
 	s.recordSandboxEnvironment(ctx, runID, "replace", spec)
 	sandbox.CanaryHost = s.egressCanaryHost(ctx, *at)

@@ -51,8 +51,6 @@ type RunRepository interface {
 	// run at start (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3),
 	// so terminal-state transitions can revoke it.
 	SetRunDelegationJTI(ctx context.Context, runID, jti string) error
-	// SetRunEnvironment records the environment of the run's current sandbox; nil is the built-in default.
-	SetRunEnvironment(ctx context.Context, runID string, environmentID *string) error
 	DeleteRun(ctx context.Context, id string) error
 	// DeleteRunsByAgentType force-deletes all runs for the given agent type and
 	// returns them as (id, delegation JTI) pairs. Used during agent type deletion
