@@ -275,7 +275,11 @@ func (s *mcpServer) listEnvironments() (string, error) {
 		if len(marks) > 0 {
 			fmt.Fprintf(&b, " (%s)", strings.Join(marks, ", "))
 		}
-		fmt.Fprintf(&b, ": %s Image %s. %s CPU, %s memory, %s local disk.\n", e.Description, e.Image, e.Size.CPU, e.Size.Memory, e.Size.Disk)
+		b.WriteString(":")
+		if desc := strings.TrimSuffix(strings.TrimSpace(e.Description), "."); desc != "" {
+			fmt.Fprintf(&b, " %s.", desc)
+		}
+		fmt.Fprintf(&b, " Image %s. %s CPU, %s memory, %s local disk.\n", e.Image, e.Size.CPU, e.Size.Memory, e.Size.Disk)
 	}
 	return b.String(), nil
 }

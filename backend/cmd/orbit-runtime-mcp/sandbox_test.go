@@ -72,7 +72,7 @@ func TestEnvironmentTools(t *testing.T) {
 		if r.URL.Path == "/internal/session/run-1/environments" {
 			_, _ = w.Write([]byte(`{"environments":[
 				{"name":"go","description":"Go services.","image":"acme-go","size":{"cpu":"4","memory":"8Gi","disk":"20Gi"},"default":true,"current":true},
-				{"name":"node","description":"Node apps.","image":"acme-node","size":{"cpu":"2","memory":"4Gi","disk":"10Gi"}}]}`))
+				{"name":"node","description":"Node apps","image":"acme-node","size":{"cpu":"2","memory":"4Gi","disk":"10Gi"}}]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"endpoint":"10.0.0.5:50051"}`))
@@ -91,7 +91,7 @@ func TestEnvironmentTools(t *testing.T) {
 
 	list := text(s.handleToolsCall(jsonRPCRequest{ID: 1, Params: []byte(`{"name":"list_environments"}`)}))
 	if !strings.Contains(list, "- go (default, current sandbox): Go services. Image acme-go. 4 CPU, 8Gi memory, 20Gi local disk.") ||
-		!strings.Contains(list, "- node: Node apps.") {
+		!strings.Contains(list, "- node: Node apps. Image acme-node.") {
 		t.Errorf("list = %q", list)
 	}
 	text(s.handleToolsCall(jsonRPCRequest{ID: 2, Params: []byte(`{"name":"provision_sandbox","arguments":{"environment":"go"}}`)}))
