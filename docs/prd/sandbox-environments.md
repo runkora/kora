@@ -99,13 +99,7 @@ None at this time.
 
 ### Secondary User Stories
 
-**As a** kora maintainer,  
-**I want to** run sandbox benchmarks for Go and Node,  
-**So that** I can measure sandbox performance before and after a change.
-
-**Acceptance Criteria:**
-*   [ ] Benchmarks time sandbox start, clone, dependency install, build and test.
-*   [ ] Benchmarks run against the local cluster.
+None at this time.
 
 ---
 
@@ -132,7 +126,6 @@ An environment becomes the base an agent works from. kora publishes a base image
 *   **Environment:** A registered image, a size, egress hosts, connectors and a description.
 *   **Default environment:** Created for every tenant. It uses the base image and is attached to new agents.
 *   **Run-local build space:** Build outputs, installed dependencies and tools on the sandbox's own disk.
-*   **Benchmarks:** Fixed Go and Node tasks that time each stage of sandbox work.
 
 ---
 
@@ -146,7 +139,6 @@ An environment becomes the base an agent works from. kora publishes a base image
 *   A default environment per tenant.
 *   Several environments per agent, and environment selection and switching during a run.
 *   Run-local build space.
-*   Go and Node benchmarks.
 
 ### Out of Scope
 
@@ -159,9 +151,9 @@ An environment becomes the base an agent works from. kora publishes a base image
 
 *   A repository file such as `.kora/sandbox.yaml` that selects the environment for that repository.
 *   Building environment images inside kora.
-*   Benchmarks as an integration test for sandbox performance.
+*   Sandbox performance integration tests in a production-like environment.
 *   Triggers and run starts that select the starting environment.
-*   A package cache shared across runs, if the benchmarks show the need.
+*   A package cache shared across runs, if measurements show the need.
 
 ---
 
@@ -181,7 +173,6 @@ An environment becomes the base an agent works from. kora publishes a base image
 *   [ ] Agent access equal to the union of its environments plus its own egress hosts and connectors.
 *   [ ] Selection limited to the agent's attached environments.
 *   [ ] A record of the environment each sandbox used.
-*   [ ] Go and Node benchmarks with a recorded baseline.
 
 ### Non-Functional Requirements
 
@@ -284,7 +275,7 @@ None at this time.
 ### Key Milestones
 
 *   [ ] PRD Approved
-*   [ ] ADR Created
+*   [x] ADR Created
 
 ---
 
