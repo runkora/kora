@@ -147,7 +147,6 @@ export const ListView: Story = {
 
 const emptyRoutes = listRoutes({
   'GET /api/agents/types/drafts': { data: [] },
-  'GET /api/agents/types/usage': { data: [] },
   'GET /api/agents/types': { data: [] },
   'GET /api/agents/runs': { data: [] },
 });

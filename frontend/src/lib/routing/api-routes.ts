@@ -348,13 +348,6 @@ export const ApiRoute = {
     usage: (slug: string): `${typeof API_BASE}/agents/types/usage/${string}` =>
       `${API_BASE}/agents/types/usage/${encodeURIComponent(slug)}`,
     /**
-     * `/api/agents/types/usage`
-     *
-     * GET — returns the 7-day token breakdown and spend for every agent type in
-     *       the tenant. Powers the total + per-agent cost on the agents list.
-     */
-    usageAll: (): `${typeof API_BASE}/agents/types/usage` => `${API_BASE}/agents/types/usage`,
-    /**
      * `/api/agents/types/drafts`
      *
      * Agent type drafts — the builder's persistence. A draft is a saved form,
