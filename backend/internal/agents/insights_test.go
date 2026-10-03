@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
-	"sync"
 	"testing"
 	"time"
 
@@ -58,7 +57,7 @@ var insightsRefs = []AgentTypeRef{
 }
 
 func newInsights(store *fakeInsightsStore, allowed map[string][]string) *InsightsService {
-	return NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: allowed}), fakeBudgets{}, func(string) string { return "ns" })
+	return NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: allowed}), fakeBudgets{})
 }
 
 func TestVisibleAgents_PartitionsDelegatedAgents(t *testing.T) {
@@ -126,7 +125,7 @@ func TestRunOutcomes_ScopesTheCount(t *testing.T) {
 	if store.scope.Subject != "alice" || store.scope.TenantID != "t1" {
 		t.Errorf("scope identity = %q in %q", store.scope.Subject, store.scope.TenantID)
 	}
-	if age := time.Since(store.scope.Since); age < 29*24*time.Hour || age > 30*24*time.Hour {
+	if age := time.Since(store.scope.Since); age < 30*24*time.Hour || age > 30*24*time.Hour+time.Minute {
 		t.Errorf("since is %s ago, want a 30d window", age)
 	}
 }
@@ -181,47 +180,34 @@ func TestInsightsController_Handlers(t *testing.T) {
 	})
 }
 
-// fakeBudgets serves a budget per slug and records the namespace it was asked for.
+// fakeBudgets serves the budgets of a tenant's agents.
 type fakeBudgets struct {
-	bySlug map[string]*AgentBudget
-	failOn string
-	mu     *sync.Mutex
-	ns     *string
+	bySlug map[string]AgentBudget
+	err    error
 }
 
-func (f fakeBudgets) GetAgentBudget(_ context.Context, at AgentType, namespace string) (*AgentBudget, error) {
-	if f.ns != nil {
-		f.mu.Lock()
-		*f.ns = namespace
-		f.mu.Unlock()
-	}
-	if at.Slug == f.failOn {
-		return nil, errors.New("policy service down")
-	}
-	return f.bySlug[at.Slug], nil
+func (f fakeBudgets) AgentBudgetsBySlug(context.Context, string) (map[string]AgentBudget, error) {
+	return f.bySlug, f.err
 }
 
 func TestBudgetLimits(t *testing.T) {
 	store := &fakeInsightsStore{refs: insightsRefs}
-	var ns string
-	budgets := fakeBudgets{mu: &sync.Mutex{}, ns: &ns, bySlug: map[string]*AgentBudget{
+	budgets := fakeBudgets{bySlug: map[string]AgentBudget{
 		"coder":  {LimitUSD: 50},
 		"notes":  {LimitUSD: 10, ResetCadence: "weekly"},
 		"secret": {LimitUSD: 99, ResetCadence: "weekly"},
 	}}
-	svc := NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: map[string][]string{"types": {"coder", "notes"}}}), budgets, func(tenant string) string { return "ns-" + tenant })
+	svc := NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: map[string][]string{"types": {"coder", "notes"}}}), budgets)
 
 	got, err := svc.BudgetLimits(withRunCallerCtx(context.Background(), "t1", "alice", ""))
 	if err != nil {
 		t.Fatalf("BudgetLimits: %v", err)
 	}
 	// notes is delegated and so seen only for alice's own runs: no ceiling shown.
+	// secret is not readable by her at all.
 	want := []AgentBudgetLimit{{AgentSlug: "coder", LimitUSD: 50, ResetCadence: "monthly"}}
 	if len(got) != 1 || got[0] != want[0] {
 		t.Errorf("limits = %+v, want %+v", got, want)
-	}
-	if ns != "ns-t1" {
-		t.Errorf("namespace = %q, want ns-t1", ns)
 	}
 
 	admin, err := svc.BudgetLimits(withRunCallerCtx(context.Background(), "t1", "root", rolePlatformAdmin))
@@ -232,7 +218,7 @@ func TestBudgetLimits(t *testing.T) {
 
 func TestBudgetLimits_LookupFailureFailsTheCall(t *testing.T) {
 	store := &fakeInsightsStore{refs: insightsRefs}
-	svc := NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: map[string][]string{"types": {"coder"}}}), fakeBudgets{failOn: "coder"}, func(string) string { return "ns" })
+	svc := NewInsightsService(store, NewAuthz(readOnlyEvaluator{allowed: map[string][]string{"types": {"coder"}}}), fakeBudgets{err: errors.New("policy service down")})
 	if _, err := svc.BudgetLimits(withRunCallerCtx(context.Background(), "t1", "alice", "")); err == nil {
 		t.Error("a failed lookup must fail the call: a row without its limit would read as unbudgeted")
 	}

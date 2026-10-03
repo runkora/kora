@@ -104,14 +104,14 @@ func (r *PostgresInferenceUsageRepository) AgentSpendByModel(ctx context.Context
 
 // AgentSpendBuckets returns the spend in each chart bucket of the window and
 // the total for the window before it. A row's bucket is the number of bucket
-// widths between the window start and the row; rows before the start fall in
-// bucket -1, the previous window.
+// widths between the window origin and the row; rows before the window start
+// fall in bucket -1, the previous window.
 func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context, scope AgentUsageScope, w usagewindow.Window) (SpendBuckets, error) {
-	clause, args := scope.visibilityClause(6)
+	clause, args := scope.visibilityClause(7)
 	q := `
 		SELECT
 		    CASE WHEN created_at < $2 THEN -1
-		         ELSE floor(extract(epoch FROM created_at - $2) / $4)::int END AS bucket,
+		         ELSE floor(extract(epoch FROM created_at - $6::timestamptz) / $4)::int END AS bucket,
 		    COALESCE(SUM(estimated_cost_usd), 0)
 		FROM inference_usage
 		WHERE tenant_id = $1
@@ -120,7 +120,7 @@ func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context
 		GROUP BY bucket`
 
 	rows, err := r.pool.Query(ctx, q,
-		append([]any{scope.TenantID, w.Start, w.PreviousStart(), int64(w.Bucket / time.Second), w.End}, args...)...)
+		append([]any{scope.TenantID, w.Start, w.PreviousStart(), int64(w.Bucket / time.Second), w.End, w.Origin}, args...)...)
 	if err != nil {
 		return SpendBuckets{}, fmt.Errorf("agent spend buckets: %w", err)
 	}

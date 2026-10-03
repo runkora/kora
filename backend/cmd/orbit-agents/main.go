@@ -256,7 +256,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// Agent visibility and run outcome aggregates for the Agents page, behind the
 	// same route-to-scope table as the main controller.
 	insightsController := agents.NewInsightsController(
-		agents.NewInsightsService(repo, authz, k8s, cfg.TenantNamespace),
+		agents.NewInsightsService(repo, authz, k8s),
 		verifier, eval, agentRoutes(), cfg.Server.BasePath, logger,
 	)
 

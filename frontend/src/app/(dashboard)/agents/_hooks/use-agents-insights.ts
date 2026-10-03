@@ -35,12 +35,22 @@ export function useAgentsInsights(
   // loaded nor already on its way, whatever the render that triggers them.
   const loaded = useRef(new Set<Period>());
   const inFlight = useRef(new Set<Period>());
+  // A fetch answers whichever period it was for, so a response is dropped only
+  // when the page has gone, never when the selection moved on.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!enabled || loaded.current.has(period) || inFlight.current.has(period)) return;
     inFlight.current.add(period);
     void fetchAgentInsights(period).then(({ data }) => {
       inFlight.current.delete(period);
+      if (!mounted.current) return;
       if (!data) {
         setFailed((f) => ({ ...f, [period]: true }));
         return;
@@ -53,7 +63,9 @@ export function useAgentsInsights(
 
   useEffect(() => {
     if (!enabled) return;
-    void fetchAgentBudgets().then(({ data }) => setBudgets(data));
+    void fetchAgentBudgets().then(({ data }) => {
+      if (mounted.current) setBudgets(data);
+    });
   }, [enabled]);
 
   return useMemo(() => {

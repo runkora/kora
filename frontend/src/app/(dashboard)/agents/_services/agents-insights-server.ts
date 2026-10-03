@@ -83,13 +83,13 @@ interface GatewayBudgets {
   agents: { agent_slug: string; week_to_date_usd: number; month_to_date_usd: number }[];
 }
 
-interface GatewayBudgetPrincipals {
+interface GatewayTenantCap {
   tenant_cap?: { limit_usd: number; reset_cadence: string; spend_usd: number };
 }
 
 /**
  * Each visible agent's spend in its budget windows beside its limit, and the
- * tenant cap for callers who may read platform budgets. Spend and limits are
+ * tenant cap for callers who may read platform budgets. The cap comes from its own gateway read, not the per-principal budget report. Spend and limits are
  * both needed: a row with only one would misstate the other. The tenant cap is
  * optional, and a 403 is the expected answer for most callers.
  */
@@ -99,7 +99,7 @@ export async function loadBudgets(accessToken: string): Promise<Result<AgentBudg
     agentsGet<{
       data: { agent_slug: string; limit_usd: number; reset_cadence: string }[];
     }>('/api/v1/agent-budgets', accessToken),
-    gatewayGet<GatewayBudgetPrincipals>('/budgets/principals', accessToken),
+    gatewayGet<GatewayTenantCap>('/budgets/tenant-cap', accessToken),
   ]);
   if (!spend.ok) return spend;
   if (!limits.ok) return limits;

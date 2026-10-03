@@ -32,7 +32,7 @@ func seedTerminalRun(t *testing.T, r *PostgresRepository, tenant, agentTypeID, c
 	if err := r.CreateRun(ctx, run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
-	if _, err := r.pool.Exec(ctx, `UPDATE runs SET state=$1, created_at=$2 WHERE id=$3`, string(state), time.Now().Add(-age), run.ID); err != nil {
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET state=$1, completed_at=$2 WHERE id=$3`, string(state), time.Now().Add(-age), run.ID); err != nil {
 		t.Fatalf("set run state: %v", err)
 	}
 }
@@ -69,11 +69,21 @@ func TestPostgres_CountRunOutcomes_Visibility(t *testing.T) {
 	seedTerminalRun(t, r, tenant, auto.ID, "alice", RunStateCompleted, time.Hour)
 	seedTerminalRun(t, r, tenant, auto.ID, "bob", RunStateFailed, time.Hour)
 	seedTerminalRun(t, r, tenant, auto.ID, "bob", RunStateActive, time.Hour)               // not terminal
-	seedTerminalRun(t, r, tenant, auto.ID, "bob", RunStateCompleted, 40*24*time.Hour)      // outside 7d
+	seedTerminalRun(t, r, tenant, auto.ID, "bob", RunStateCompleted, 40*24*time.Hour)      // finished outside 7d
 	seedTerminalRun(t, r, tenant, del.ID, "alice", RunStateCompleted, time.Hour)           // alice's own
 	seedTerminalRun(t, r, tenant, del.ID, "bob", RunStateCompleted, time.Hour)             // bob's, private
 	seedTerminalRun(t, r, tenant, del.ID, "bob", RunStateFailed, time.Hour)                // bob's, private
 	seedTerminalRun(t, r, tenant+"-other", auto.ID, "alice", RunStateCompleted, time.Hour) // other tenant
+
+	// Started long before the window but finished inside it: counted.
+	long := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: auto.ID, CreatedBy: "alice"}
+	if err := r.CreateRun(ctx, long); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET state='completed', created_at=$1, completed_at=$2 WHERE id=$3`,
+		time.Now().Add(-40*24*time.Hour), time.Now().Add(-time.Hour), long.ID); err != nil {
+		t.Fatalf("age run: %v", err)
+	}
 
 	since := time.Now().Add(-7 * 24 * time.Hour)
 
@@ -81,16 +91,16 @@ func TestPostgres_CountRunOutcomes_Visibility(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CountRunOutcomes alice: %v", err)
 	}
-	if alice != (RunOutcomes{Completed: 2, Failed: 1}) {
-		t.Errorf("alice = %+v, want 2 completed 1 failed (autonomous runs plus her own delegated run)", alice)
+	if alice != (RunOutcomes{Completed: 3, Failed: 1}) {
+		t.Errorf("alice = %+v, want 3 completed 1 failed (autonomous runs plus her own delegated run)", alice)
 	}
 
 	admin, err := r.CountRunOutcomes(ctx, RunOutcomeScope{TenantID: tenant, Since: since, AllRows: []string{auto.ID, del.ID}, Subject: "root"})
 	if err != nil {
 		t.Fatalf("CountRunOutcomes admin: %v", err)
 	}
-	if admin != (RunOutcomes{Completed: 3, Failed: 2}) {
-		t.Errorf("admin = %+v, want 3 completed 2 failed", admin)
+	if admin != (RunOutcomes{Completed: 4, Failed: 2}) {
+		t.Errorf("admin = %+v, want 4 completed 2 failed", admin)
 	}
 
 	noSubject, err := r.CountRunOutcomes(ctx, RunOutcomeScope{TenantID: tenant, Since: since, OwnRows: []string{del.ID}})

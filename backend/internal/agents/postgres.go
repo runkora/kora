@@ -663,8 +663,9 @@ func (r *PostgresRepository) ListAgentTypeRefs(ctx context.Context, tenantID str
 	return out, rows.Err()
 }
 
-// CountRunOutcomes counts the completed and failed runs started at or after
-// scope.Since. The tenant and created_at predicates use idx_runs_tenant_id.
+// CountRunOutcomes counts the completed and failed runs that finished at or
+// after scope.Since. The tenant and completed_at predicates use
+// idx_runs_tenant_completed.
 func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, scope RunOutcomeScope) (RunOutcomes, error) {
 	allRows, ownRows := scope.AllRows, scope.OwnRows
 	if allRows == nil {
@@ -679,7 +680,7 @@ func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, scope RunOutc
 		    COUNT(*) FILTER (WHERE state = 'failed')
 		FROM runs
 		WHERE tenant_id = $1
-		  AND created_at >= $2
+		  AND completed_at >= $2
 		  AND state IN ('completed', 'failed')
 		  AND (agent_type_id = ANY($3)
 		       OR (agent_type_id = ANY($4) AND $5 <> '' AND created_by = $5))`

@@ -26,7 +26,7 @@ const Default = Period7d
 var ErrInvalidPeriod = errors.New("period must be one of 24h, 7d, 30d, 90d")
 
 // spec describes how one period is cut: its length, the width of a chart
-// bucket, and the grid the window end is rounded up to.
+// bucket, and the grid the first bucket is aligned to.
 type spec struct {
 	length time.Duration
 	bucket time.Duration
@@ -35,9 +35,9 @@ type spec struct {
 
 const day = 24 * time.Hour
 
-// The bucket widths give 8, 7, 10 and 13 chart points, which suits the axis
-// labels the page draws. The grid is the bucket for 24h and a UTC day for the
-// rest, so the last bucket is always the current, partial one.
+// The bucket widths give about 8, 7, 10 and 13 chart points, which suits the
+// axis labels the page draws. Buckets sit on a UTC grid (the bucket for 24h, a
+// day for the rest), so the first and last points can be partial.
 var specs = map[Period]spec{
 	Period24h: {length: day, bucket: 3 * time.Hour, grid: 3 * time.Hour},
 	Period7d:  {length: 7 * day, bucket: day, grid: day},
@@ -57,22 +57,26 @@ func Parse(raw string) (Period, error) {
 	return p, nil
 }
 
-// Window is one concrete reporting window: [Start, End) is the current window
-// and the previous window of the same length ends where this one starts.
+// Window is one concrete reporting window: [Start, End) is the trailing window
+// ending now, and the previous window of the same length ends where this one
+// starts.
 type Window struct {
 	Period Period
 	Start  time.Time
 	End    time.Time
-	// Bucket is the width of one chart point, counted from Start.
+	// Origin is where the first chart bucket begins: Start rounded down to the
+	// period's grid. Bucket i covers [Origin+i*Bucket, Origin+(i+1)*Bucket).
+	Origin time.Time
+	// Bucket is the width of one chart point.
 	Bucket time.Duration
 }
 
-// For returns the window for a period at the given instant. End is rounded up
-// to the period's grid, so it lies in the future by less than one grid step.
+// For returns the trailing window for a period at the given instant.
 func For(p Period, now time.Time) Window {
 	s := specs[p]
-	end := now.UTC().Truncate(s.grid).Add(s.grid)
-	return Window{Period: p, Start: end.Add(-s.length), End: end, Bucket: s.bucket}
+	end := now.UTC()
+	start := end.Add(-s.length)
+	return Window{Period: p, Start: start, End: end, Origin: start.Truncate(s.grid), Bucket: s.bucket}
 }
 
 // Length is the duration of the window.
@@ -81,7 +85,8 @@ func (w Window) Length() time.Duration { return w.End.Sub(w.Start) }
 // PreviousStart is where the window before this one begins.
 func (w Window) PreviousStart() time.Time { return w.Start.Add(-w.Length()) }
 
-// Buckets is the number of chart points, the last one possibly shorter.
+// Buckets is the number of chart points, from the bucket holding Start to the
+// one holding End.
 func (w Window) Buckets() int {
-	return int((w.Length() + w.Bucket - 1) / w.Bucket)
+	return int((w.End.Sub(w.Origin) + w.Bucket - 1) / w.Bucket)
 }

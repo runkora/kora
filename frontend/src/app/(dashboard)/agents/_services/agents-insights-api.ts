@@ -20,7 +20,11 @@ async function getJson<T>(url: string): Promise<{ data: T | null; error: string 
       error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
     };
   }
-  return { data: (await res.json()) as T, error: null };
+  try {
+    return { data: (await res.json()) as T, error: null };
+  } catch {
+    return { data: null, error: 'Invalid response from the server.' };
+  }
 }
 
 /** Usage, model split, spend over time and run outcomes for one window. */

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
@@ -129,9 +130,34 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 	return g.ID, nil
 }
 
-// ListGrants returns all grants for a principal within a tenant.
-// Used by the provisioner to find grant IDs for deletion on deprovision.
+// ListGrants returns the grants for a principal within a tenant, up to the
+// service's default page. Used by the provisioner to find grant IDs for
+// deletion on deprovision.
 func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, principalID string) ([]Grant, error) {
+	return c.listGrantsPage(ctx, tenantID, principalType, principalID, 0, 0)
+}
+
+// grantPageSize is the page size ListGrantsByType asks for: the policy service's maximum.
+const grantPageSize = 1000
+
+// ListGrantsByType returns every grant of one principal type within a tenant,
+// reading the policy service a page at a time.
+func (c *Client) ListGrantsByType(ctx context.Context, tenantID, principalType string) ([]Grant, error) {
+	var all []Grant
+	for offset := 0; ; offset += grantPageSize {
+		page, err := c.listGrantsPage(ctx, tenantID, principalType, "", grantPageSize, offset)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, page...)
+		if len(page) < grantPageSize {
+			return all, nil
+		}
+	}
+}
+
+// listGrantsPage reads one page of grants. A zero limit takes the service default.
+func (c *Client) listGrantsPage(ctx context.Context, tenantID, principalType, principalID string, limit, offset int) ([]Grant, error) {
 	tok, err := c.bearerToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get bearer token for list grants request: %w", err)
@@ -145,6 +171,10 @@ func (c *Client) ListGrants(ctx context.Context, tenantID, principalType, princi
 	q.Set("tenant_id", tenantID)
 	q.Set("principal_type", principalType)
 	q.Set("principal_id", principalID)
+	if limit > 0 {
+		q.Set("limit", strconv.Itoa(limit))
+		q.Set("offset", strconv.Itoa(offset))
+	}
 	u.RawQuery = q.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {

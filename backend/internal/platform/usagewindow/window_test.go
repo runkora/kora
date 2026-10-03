@@ -39,24 +39,24 @@ func TestFor(t *testing.T) {
 	cases := []struct {
 		period  Period
 		start   time.Time
-		end     time.Time
+		origin  time.Time
 		buckets int
 	}{
-		{Period24h, time.Date(2026, 10, 2, 15, 0, 0, 0, time.UTC), time.Date(2026, 10, 3, 15, 0, 0, 0, time.UTC), 8},
-		{Period7d, time.Date(2026, 9, 27, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC), 7},
-		{Period30d, time.Date(2026, 9, 4, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC), 10},
-		{Period90d, time.Date(2026, 7, 6, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC), 13},
+		{Period24h, time.Date(2026, 10, 2, 14, 23, 5, 0, time.UTC), time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC), 9},
+		{Period7d, time.Date(2026, 9, 26, 14, 23, 5, 0, time.UTC), time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), 8},
+		{Period30d, time.Date(2026, 9, 3, 14, 23, 5, 0, time.UTC), time.Date(2026, 9, 3, 0, 0, 0, 0, time.UTC), 11},
+		{Period90d, time.Date(2026, 7, 5, 14, 23, 5, 0, time.UTC), time.Date(2026, 7, 5, 0, 0, 0, 0, time.UTC), 13},
 	}
 	for _, tc := range cases {
 		w := For(tc.period, now)
-		if !w.Start.Equal(tc.start) || !w.End.Equal(tc.end) {
-			t.Errorf("%s: window = [%s, %s), want [%s, %s)", tc.period, w.Start, w.End, tc.start, tc.end)
+		if !w.End.Equal(now) || !w.Start.Equal(tc.start) || !w.Origin.Equal(tc.origin) {
+			t.Errorf("%s: window = [%s, %s) origin %s, want [%s, %s) origin %s", tc.period, w.Start, w.End, w.Origin, tc.start, now, tc.origin)
 		}
 		if got := w.Buckets(); got != tc.buckets {
 			t.Errorf("%s: buckets = %d, want %d", tc.period, got, tc.buckets)
 		}
-		if !w.End.After(now) {
-			t.Errorf("%s: end %s must be after now", tc.period, w.End)
+		if w.Length() != specs[tc.period].length {
+			t.Errorf("%s: length = %s, want the full period", tc.period, w.Length())
 		}
 		if got := w.PreviousStart(); !got.Equal(w.Start.Add(-w.Length())) {
 			t.Errorf("%s: previous start = %s", tc.period, got)
@@ -67,7 +67,8 @@ func TestFor(t *testing.T) {
 func TestForNonUTCInput(t *testing.T) {
 	loc := time.FixedZone("AEDT", 11*3600)
 	now := time.Date(2026, 10, 4, 1, 0, 0, 0, loc) // 14:00 UTC on 3 Oct
-	if got, want := For(Period7d, now).End, time.Date(2026, 10, 4, 0, 0, 0, 0, time.UTC); !got.Equal(want) {
-		t.Errorf("end = %s, want %s", got, want)
+	w := For(Period7d, now)
+	if want := time.Date(2026, 10, 3, 14, 0, 0, 0, time.UTC); !w.End.Equal(want) || w.End.Location() != time.UTC {
+		t.Errorf("end = %s, want %s in UTC", w.End, want)
 	}
 }

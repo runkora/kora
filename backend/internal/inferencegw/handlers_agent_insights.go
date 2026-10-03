@@ -31,7 +31,7 @@ func (c *Controller) callerForAgentInsights(w http.ResponseWriter, r *http.Reque
 		api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError("agent_insights_unavailable", "agent usage is not available", nil), nil)
 		return "", "", "", false
 	}
-	bearer = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	bearer = strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 	return claims.Orbit.TenantID, claims.Subject, bearer, true
 }
 

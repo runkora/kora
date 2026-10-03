@@ -149,7 +149,7 @@ describe('GET /api/agents/insights/budgets', () => {
     server.use(
       http.get('http://test-gw/usage/agent-budgets', () => HttpResponse.json(spend)),
       http.get('http://test-agents/api/v1/agent-budgets', () => HttpResponse.json(limits)),
-      http.get('http://test-gw/budgets/principals', principals),
+      http.get('http://test-gw/budgets/tenant-cap', principals),
     );
   }
 
@@ -191,9 +191,13 @@ describe('GET /api/agents/insights/budgets', () => {
       http.get('http://test-agents/api/v1/agent-budgets', () =>
         HttpResponse.json({ code: 'internal_error' }, { status: 500 }),
       ),
-      http.get('http://test-gw/budgets/principals', () => HttpResponse.json(cap)),
+      http.get('http://test-gw/budgets/tenant-cap', () => HttpResponse.json(cap)),
     );
     const res = await getBudgets(new NextRequest('http://localhost/api/agents/insights/budgets'));
     expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({
+      code: 'budgets_unavailable',
+      message: expect.any(String),
+    });
   });
 });

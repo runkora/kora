@@ -477,6 +477,11 @@ type BudgetPrincipalStatus struct {
 	LastActiveAt          string                 `json:"last_active_at,omitempty"` // RFC3339
 }
 
+// TenantCapResponse is the payload returned by GET /v1/budgets/tenant-cap.
+type TenantCapResponse struct {
+	TenantCap *TenantCapStatus `json:"tenant_cap,omitempty"`
+}
+
 // BudgetPrincipalsResponse is the payload returned by GET /v1/budgets/principals.
 type BudgetPrincipalsResponse struct {
 	Period    string                  `json:"period"` // e.g. "2026-06"

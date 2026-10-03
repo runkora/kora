@@ -191,7 +191,7 @@ func TestAgentInsights_ScopesQueriesToVisibleAgents(t *testing.T) {
 	store := &fakeAgentUsageStore{
 		usage:   []AgentTypeUsage{{AgentSlug: "coder", EstimatedCostUSD: 1.5}, {AgentSlug: "notes", EstimatedCostUSD: 0.5}},
 		models:  []ModelSpend{{ModelID: "m1", CostUSD: 2}},
-		buckets: SpendBuckets{PreviousUSD: 1, Buckets: []float64{0, 0, 0, 0, 0, 1, 1}},
+		buckets: SpendBuckets{PreviousUSD: 1, Buckets: []float64{0, 0, 0, 0, 0, 1, 1, 0}},
 	}
 	svc := newInsightsService(store, agentsclient.Visibility{AllRows: []string{"coder"}, OwnRows: []string{"notes"}}, nil)
 
@@ -210,10 +210,12 @@ func TestAgentInsights_ScopesQueriesToVisibleAgents(t *testing.T) {
 	if out.TotalCostUSD != 2.0 || out.PreviousTotalUSD != 1 {
 		t.Errorf("total %v previous %v", out.TotalCostUSD, out.PreviousTotalUSD)
 	}
-	if len(out.Trend) != 7 || out.Trend[5].CostUSD != 1 || out.BucketSeconds != 86400 {
+	// 14:00 on 3 Oct: the trailing 7 days start 26 Sep 14:00, so the origin is
+	// 26 Sep 00:00 and the buckets run to the one holding now.
+	if len(out.Trend) != 8 || out.Trend[5].CostUSD != 1 || out.BucketSeconds != 86400 {
 		t.Errorf("trend = %+v bucket %d", out.Trend, out.BucketSeconds)
 	}
-	if !out.Trend[0].Start.Equal(out.Start) || !out.End.Equal(out.Start.AddDate(0, 0, 7)) {
+	if want := time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC); !out.Trend[0].Start.Equal(want) || !out.End.Equal(out.Start.AddDate(0, 0, 7)) {
 		t.Errorf("window = %s to %s, first bucket %s", out.Start, out.End, out.Trend[0].Start)
 	}
 }
@@ -229,7 +231,7 @@ func TestAgentInsights_NothingVisibleRunsNoQuery(t *testing.T) {
 	if store.queries.Load() != 0 {
 		t.Errorf("queries = %d, want 0", store.queries.Load())
 	}
-	if out.TotalCostUSD != 0 || len(out.Usage) != 0 || len(out.Models) != 0 || len(out.Trend) != 8 {
+	if out.TotalCostUSD != 0 || len(out.Usage) != 0 || len(out.Models) != 0 || len(out.Trend) != 9 {
 		t.Errorf("out = %+v", out)
 	}
 	raw, _ := json.Marshal(out)
@@ -341,7 +343,7 @@ func TestHandleAgentInsights(t *testing.T) {
 			t.Fatalf("status = %d: %s", w.Code, w.Body)
 		}
 		var out AgentInsights
-		if err := json.NewDecoder(w.Body).Decode(&out); err != nil || out.Period != "30d" || len(out.Trend) != 10 {
+		if err := json.NewDecoder(w.Body).Decode(&out); err != nil || out.Period != "30d" || len(out.Trend) != 11 {
 			t.Errorf("out = %+v, %v", out, err)
 		}
 	})

@@ -7,8 +7,6 @@ import (
 	"slices"
 	"time"
 
-	"golang.org/x/sync/errgroup"
-
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -42,7 +40,7 @@ type AgentVisibility struct {
 	OwnRows []string `json:"own_rows"`
 }
 
-// RunOutcomes counts the terminal runs in a window.
+// RunOutcomes counts the runs that finished in a window.
 type RunOutcomes struct {
 	Completed int64 `json:"completed"`
 	Failed    int64 `json:"failed"`
@@ -67,36 +65,31 @@ type AgentBudgetLimit struct {
 	ResetCadence string  `json:"reset_cadence"`
 }
 
-// budgetReader reads the budget carried by an agent's grant.
+// budgetReader reads the budgets carried by a tenant's agent grants.
 type budgetReader interface {
-	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
+	AgentBudgetsBySlug(ctx context.Context, tenantID string) (map[string]AgentBudget, error)
 }
-
-// budgetLookupConcurrency bounds the policy-service reads one request makes.
-const budgetLookupConcurrency = 8
 
 // insightsStore is the persistence the insights service reads.
 type insightsStore interface {
 	// ListAgentTypeRefs returns the id, slug and identity model of each agent
 	// type in the tenant, without the rest of the row.
 	ListAgentTypeRefs(ctx context.Context, tenantID string) ([]AgentTypeRef, error)
-	// CountRunOutcomes counts completed and failed runs started at or after
+	// CountRunOutcomes counts completed and failed runs finished at or after
 	// scope.Since, within scope's agent types.
 	CountRunOutcomes(ctx context.Context, scope RunOutcomeScope) (RunOutcomes, error)
 }
 
 // InsightsService answers the agent visibility and run outcome questions.
 type InsightsService struct {
-	store       insightsStore
-	authz       *Authz
-	budgets     budgetReader
-	namespaceFn func(tenantID string) string
+	store   insightsStore
+	authz   *Authz
+	budgets budgetReader
 }
 
-// NewInsightsService creates an InsightsService. namespaceFn maps a tenant to
-// the namespace its agents' grants are keyed under.
-func NewInsightsService(store insightsStore, authz *Authz, budgets budgetReader, namespaceFn func(tenantID string) string) *InsightsService {
-	return &InsightsService{store: store, authz: authz, budgets: budgets, namespaceFn: namespaceFn}
+// NewInsightsService creates an InsightsService.
+func NewInsightsService(store insightsStore, authz *Authz, budgets budgetReader) *InsightsService {
+	return &InsightsService{store: store, authz: authz, budgets: budgets}
 }
 
 // partition keeps the refs the caller may read under resource ("types" or
@@ -176,36 +169,21 @@ func (s *InsightsService) BudgetLimits(ctx context.Context) ([]AgentBudgetLimit,
 	if err != nil {
 		return nil, err
 	}
-	tenantID := tenantFromContext(ctx)
-	namespace := s.namespaceFn(tenantID)
-	limits := make([]*AgentBudgetLimit, len(all))
-
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(budgetLookupConcurrency)
-	for i, ref := range all {
-		g.Go(func() error {
-			b, err := s.budgets.GetAgentBudget(gctx, AgentType{TenantID: tenantID, Slug: ref.Slug}, namespace)
-			if err != nil {
-				return fmt.Errorf("read budget of %s: %w", ref.Slug, err)
-			}
-			if b != nil && b.LimitUSD > 0 {
-				cadence := b.ResetCadence
-				if cadence == "" {
-					cadence = "monthly"
-				}
-				limits[i] = &AgentBudgetLimit{AgentSlug: ref.Slug, LimitUSD: b.LimitUSD, ResetCadence: cadence}
-			}
-			return nil
-		})
-	}
-	if err := g.Wait(); err != nil {
-		return nil, err
+	budgets, err := s.budgets.AgentBudgetsBySlug(ctx, tenantFromContext(ctx))
+	if err != nil {
+		return nil, fmt.Errorf("read agent budgets: %w", err)
 	}
 	out := []AgentBudgetLimit{}
-	for _, l := range limits {
-		if l != nil {
-			out = append(out, *l)
+	for _, ref := range all {
+		b, ok := budgets[ref.Slug]
+		if !ok || b.LimitUSD <= 0 {
+			continue
 		}
+		cadence := b.ResetCadence
+		if cadence == "" {
+			cadence = "monthly"
+		}
+		out = append(out, AgentBudgetLimit{AgentSlug: ref.Slug, LimitUSD: b.LimitUSD, ResetCadence: cadence})
 	}
 	return out, nil
 }

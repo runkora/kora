@@ -1081,6 +1081,28 @@ func (s *Service) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]Ag
 	return usages, nil
 }
 
+// TenantCap returns the tenant rollup cap with its period spend, or nil when
+// the tenant has no cap or its spend cannot be read.
+func (s *Service) TenantCap(ctx context.Context, tenantID string) *TenantCapStatus {
+	tb, err := s.policy.GetTenantBudget(ctx, tenantID)
+	if err != nil || tb == nil {
+		return nil
+	}
+	capSpend, err := s.usage.GetTenantSpendSince(ctx, tenantID, periodStart(tb.ResetCadence, time.Now().UTC()))
+	if err != nil {
+		s.logger.Warn(ctx, "budget.tenant_cap_spend_unavailable",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil
+	}
+	return &TenantCapStatus{
+		LimitUSD:     tb.LimitUSD,
+		ResetCadence: tb.ResetCadence,
+		SpendUSD:     capSpend,
+		Reached:      capSpend >= tb.LimitUSD,
+	}
+}
+
 // ListBudgetPrincipals returns per-principal budget status for the tenant:
 // every principal with a budget assignment (grant budgets from the compiled
 // bundle, role budgets attributed via their active spend counters) plus every
@@ -1105,21 +1127,7 @@ func (s *Service) ListBudgetPrincipals(ctx context.Context, tenantID string) (Bu
 	}
 
 	// Tenant rollup cap with its period spend (DB-authoritative).
-	if tb, tbErr := s.policy.GetTenantBudget(ctx, tenantID); tbErr == nil && tb != nil {
-		capSpend, spErr := s.usage.GetTenantSpendSince(ctx, tenantID, periodStart(tb.ResetCadence, now))
-		if spErr != nil {
-			s.logger.Warn(ctx, "budget.tenant_cap_spend_unavailable",
-				logging.Field{Key: "error", Value: spErr.Error()},
-			)
-		} else {
-			resp.TenantCap = &TenantCapStatus{
-				LimitUSD:     tb.LimitUSD,
-				ResetCadence: tb.ResetCadence,
-				SpendUSD:     capSpend,
-				Reached:      capSpend >= tb.LimitUSD,
-			}
-		}
-	}
+	resp.TenantCap = s.TenantCap(ctx, tenantID)
 
 	// Per-principal period spend — the DB is authoritative.
 	spenders, err := s.usage.GetMonthlySpendByPrincipal(ctx, tenantID, now)

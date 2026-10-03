@@ -47,7 +47,7 @@ export function toBudgetRows(
       return {
         name: names.get(a.agent_slug) ?? a.agent_slug,
         spent: weekly ? a.week_to_date_usd : a.month_to_date_usd,
-        ...(a.limit_usd ? { limit: a.limit_usd } : {}),
+        ...(a.limit_usd != null ? { limit: a.limit_usd } : {}),
         ...(weekly ? { cadence: 'weekly' as const } : {}),
       };
     })

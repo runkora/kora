@@ -143,7 +143,7 @@ func (s *AgentInsightsService) Insights(ctx context.Context, tenantID, subject, 
 		Trend:         make([]TrendPoint, w.Buckets()),
 	}
 	for i := range out.Trend {
-		out.Trend[i].Start = w.Start.Add(time.Duration(i) * w.Bucket)
+		out.Trend[i].Start = w.Origin.Add(time.Duration(i) * w.Bucket)
 	}
 	if scope.empty() {
 		return out, nil

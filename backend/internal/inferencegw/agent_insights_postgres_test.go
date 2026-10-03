@@ -143,7 +143,7 @@ func TestPostgres_AgentRollups_BucketsPreviousAndModels(t *testing.T) {
 	scope := AgentUsageScope{TenantID: tenant, AllRows: []string{"coder"}}
 	w := usagewindow.For(usagewindow.Period7d, time.Now())
 
-	// One row mid-way through the third bucket of the current window, one
+	// One row mid-way through the third bucket from the origin, one
 	// just before the window, one in the window before that and one beyond it.
 	insertAgentRowAt := func(at time.Time, model string, cost float64) {
 		t.Helper()
@@ -155,8 +155,8 @@ func TestPostgres_AgentRollups_BucketsPreviousAndModels(t *testing.T) {
 			t.Fatalf("insert: %v", err)
 		}
 	}
-	insertAgentRowAt(w.Start.Add(2*24*time.Hour+time.Hour), "big", 3)
-	insertAgentRowAt(w.Start.Add(2*24*time.Hour+2*time.Hour), "small", 1)
+	insertAgentRowAt(w.Origin.Add(2*24*time.Hour+time.Hour), "big", 3)
+	insertAgentRowAt(w.Origin.Add(2*24*time.Hour+2*time.Hour), "small", 1)
 	insertAgentRowAt(w.Start.Add(-time.Second), "big", 5)
 	insertAgentRowAt(w.Start.Add(-7*24*time.Hour), "big", 2)
 	insertAgentRowAt(w.Start.Add(-7*24*time.Hour-time.Second), "big", 100)
@@ -165,7 +165,7 @@ func TestPostgres_AgentRollups_BucketsPreviousAndModels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AgentSpendBuckets: %v", err)
 	}
-	if len(buckets.Buckets) != 7 || !near(buckets.Buckets[2], 4) || !near(buckets.PreviousUSD, 7) {
+	if len(buckets.Buckets) != w.Buckets() || !near(buckets.Buckets[2], 4) || !near(buckets.PreviousUSD, 7) {
 		t.Errorf("buckets = %v previous = %v, want bucket 2 = 4 and previous = 7", buckets.Buckets, buckets.PreviousUSD)
 	}
 	for i, b := range buckets.Buckets {
