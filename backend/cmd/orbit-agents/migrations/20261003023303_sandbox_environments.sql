@@ -2,9 +2,9 @@
 -- +goose StatementBegin
 -- Environments become prepackaged sandboxes (docs/adr/2026-10-03-sandbox-environments.md).
 -- Expand only: agent_types.environment_id stays for the previous release and is no longer read.
--- sandbox_image names a SandboxImage in the tenant namespace; empty is the base image.
+-- sandbox_image names a SandboxImage in the tenant namespace; kora-base is the base image.
 -- cpu, memory and disk are Kubernetes quantities. The defaults match the chart's default size.
-ALTER TABLE environments ADD COLUMN sandbox_image TEXT DEFAULT '' NOT NULL;
+ALTER TABLE environments ADD COLUMN sandbox_image TEXT DEFAULT 'kora-base' NOT NULL;
 ALTER TABLE environments ADD COLUMN cpu TEXT DEFAULT '2' NOT NULL;
 ALTER TABLE environments ADD COLUMN memory TEXT DEFAULT '4Gi' NOT NULL;
 ALTER TABLE environments ADD COLUMN disk TEXT DEFAULT '10Gi' NOT NULL;
