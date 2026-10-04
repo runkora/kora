@@ -24,18 +24,17 @@ import { StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
-import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
+import type { BudgetRow } from '../../_lib/spend';
 import { AgentRunsTab } from './agent-runs-tab';
 import { AgentConfigurationTab } from './agent-configuration-tab';
 import { AgentTriggersTab } from './agent-triggers-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 
 interface AgentDetailPageProps {
-  budget: BudgetPrincipalStatus | null;
-  tenantCap: TenantCapStatus | null;
+  budget: BudgetRow | null;
 }
 
-export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
+export function AgentDetailPage({ budget }: AgentDetailPageProps) {
   const { agent, status, error } = useAgentDetailContext();
   const router = useRouter();
 
@@ -198,7 +197,7 @@ export function AgentDetailPage({ budget, tenantCap }: AgentDetailPageProps) {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
-          <AgentOverviewTab budget={budget} tenantCap={tenantCap} />
+          <AgentOverviewTab budget={budget} />
         </TabsContent>
         <TabsContent value="runs">
           <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />

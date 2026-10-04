@@ -1,9 +1,10 @@
-// RSC — fetches agent type + runs by slug server-side.
+// RSC: fetches the agent type, its runs and its budget row by slug.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAgentDetailFromBFF } from './_services/agent-detail-server';
-import { fetchBudgetPrincipalsFromGateway } from '../../model-gateway/_services/budgets-server';
-import type { BudgetPrincipalStatus, TenantCapStatus } from '../../model-gateway/_types';
+import { fetchGatewayInsights } from '../_services/agents-insights-server';
+import { toBudgetRows } from '../_lib/insights';
+import { DEFAULT_PERIOD } from '../_lib/spend';
 import { AgentDetailShell } from './_components/agent-detail-shell';
 
 interface AgentDetailPageProps {
@@ -14,29 +15,17 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
   const { slug } = await params;
   const session = await getSession();
   const valid = isSessionValid(session);
-  const [result, budgets] = valid
+  const [result, insights] = valid
     ? await Promise.all([
         fetchAgentDetailFromBFF(slug, session.accessToken, session.tenantId),
-        fetchBudgetPrincipalsFromGateway(session.accessToken),
+        fetchGatewayInsights(session.accessToken, DEFAULT_PERIOD),
       ])
     : [null, null];
 
-  // The agent's budget usage comes from the budgets listing — its grant
-  // ceilings joined with live spend. Best-effort: viewers without
-  // platform:budgets:read simply see no budget card.
-  let budget: BudgetPrincipalStatus | null = null;
-  let tenantCap: TenantCapStatus | null = null;
-  if (budgets?.ok) {
-    budget =
-      budgets.data.data.find(
-        (p) => p.principal_type === 'AGENT' && p.principal_id.endsWith(`/agent/${slug}`),
-      ) ?? null;
-    tenantCap = budgets.data.tenant_cap ?? null;
-  } else if (budgets && budgets.status !== 403) {
-    // 403 is expected for callers without platform:budgets:read; anything else
-    // is an unexpected service failure — log it so it surfaces in server logs.
-    console.error(`[AgentDetailPage] budgets fetch failed (${budgets.status}): ${budgets.message}`);
-  }
+  // The budget row comes from the same read as the list page. Callers without
+  // agents:usage:read get a 403, which shows no budget card.
+  const row = insights?.ok ? insights.data.budgets?.find((b) => b.agent_slug === slug) : undefined;
+  const budget = toBudgetRows(row ? [row] : [], [])[0] ?? null;
 
   const initialAgent = result?.ok ? result.agent : null;
   const initialRuns = result?.ok ? result.runs : [];
@@ -57,7 +46,6 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
       initialError={initialError}
       initialStatus={initialStatus}
       budget={budget}
-      tenantCap={tenantCap}
     />
   );
 }

@@ -22,44 +22,22 @@ import {
   RAW_RUNS,
   USAGE,
   ago,
+  ahead,
   runsForAgent,
 } from '../../_components/agents-mock-data';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
-import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
+import type { BudgetRow } from '../../_lib/spend';
 import { AgentDetailShell } from './agent-detail-shell';
 
 const DAY = 24 * 60 * 60 * 1000;
 
 // ── Mock data specific to the detail page ────────────────────────────────────
 
-const BUDGET: BudgetPrincipalStatus = {
-  principal_id: 'spiffe://kora.example/tenant/ten_8f3a21/agent/code-reviewer',
-  principal_type: 'AGENT',
-  categories: [
-    {
-      source: 'grant',
-      id: 'grant_code_reviewer',
-      limit_usd: 150,
-      reset_cadence: 'monthly',
-      per_run_limit_usd: 4,
-      spend_usd: 96.4,
-    },
-  ],
-  effective_limit_usd: 150,
-  effective_reset_cadence: 'monthly',
-  effective_spend_usd: 96.4,
-  current_spend_usd: 96.4,
-  has_limit: true,
-  spend_limit_reached: false,
-  last_active_at: ago(4 * 60_000),
-};
-
-const TENANT_CAP: TenantCapStatus = {
-  limit_usd: 2000,
-  reset_cadence: 'monthly',
-  spend_usd: 812.55,
-  reached: false,
+const BUDGET: BudgetRow = {
+  name: 'Code Reviewer',
+  perRunLimit: 4,
+  windows: [{ cadence: 'monthly', limit: 150, spent: 96.4, resetsAt: ahead(20 * DAY) }],
 };
 
 const SOURCES: WebhookSource[] = [
@@ -198,7 +176,6 @@ const meta: Meta<typeof AgentDetailShell> = {
     initialError: null,
     initialStatus: 'success',
     budget: BUDGET,
-    tenantCap: TENANT_CAP,
   },
 };
 
@@ -239,7 +216,6 @@ export const DelegatedAgent: Story = {
     initialAgent: rowFor(RELEASE_NOTES),
     initialRuns: runRowsFor(RELEASE_NOTES),
     budget: null,
-    tenantCap: null,
   },
   decorators: withRoutes(RELEASE_NOTES),
   parameters: {
@@ -255,7 +231,6 @@ export const Provisioning: Story = {
     initialAgent: rowFor(PROVISIONING),
     initialRuns: [],
     budget: null,
-    tenantCap: null,
   },
   decorators: withRoutes(PROVISIONING),
   parameters: {

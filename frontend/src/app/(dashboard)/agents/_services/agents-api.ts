@@ -5,9 +5,10 @@
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
+  AgentInsightsPeriod,
+  AgentInsightsResponse,
   AgentType,
   AgentTypeDraft,
-  AgentTypeUsage,
   ConnectionCatalogEntry,
   CreateAgentTypeRequest,
   Environment,
@@ -40,31 +41,20 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
 }
 
-// ── fetchAgentTypesUsage ──────────────────────────────────────────────────────
-// Returns the 7-day token + spend aggregate per agent, keyed by agent slug (the
-// identity the gateway attributes usage to). Never throws; on error returns an empty map.
+// ── fetchAgentInsights ──
+// The page rollups for one window. Never throws; on error `data` is null.
 
-export async function fetchAgentTypesUsage(): Promise<{
-  byAgentType: Record<string, AgentTypeUsage>;
-  error: string | null;
-}> {
+export async function fetchAgentInsights(
+  period: AgentInsightsPeriod,
+): Promise<{ data: AgentInsightsResponse | null; error: string | null }> {
   let res: Response;
   try {
-    res = await fetch(ApiRoute.agentTypes.usageAll(), { cache: 'no-store' });
+    res = await fetch(ApiRoute.agentInsights.window(period), { cache: 'no-store' });
   } catch {
-    return { byAgentType: {}, error: 'Network error: could not reach the server.' };
+    return { data: null, error: 'Network error: could not reach the server.' };
   }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      byAgentType: {},
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
-  }
-  const body = (await res.json()) as { data: AgentTypeUsage[] };
-  const byAgentType: Record<string, AgentTypeUsage> = {};
-  for (const u of body.data ?? []) byAgentType[u.agent_slug] = u;
-  return { byAgentType, error: null };
+  if (!res.ok) return { data: null, error: `Request failed (${res.status})` };
+  return { data: (await res.json()) as AgentInsightsResponse, error: null };
 }
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────

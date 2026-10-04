@@ -11,6 +11,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/clear-route/orbit/internal/platform/usagewindow"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -127,11 +128,15 @@ func (s *stubUsageRepo) GetRunUsage(_ context.Context, _, _ string) (float64, in
 	return s.runSpend, 0, s.err
 }
 
-func (s *stubUsageRepo) GetAgentTypeUsage(_ context.Context, _, _ string) (AgentTypeUsage, error) {
-	return AgentTypeUsage{}, nil
+func (s *stubUsageRepo) AgentUsage(_ context.Context, _ string, _ usagewindow.Window, _ string) ([]AgentModelUsage, error) {
+	return nil, nil
 }
 
-func (s *stubUsageRepo) ListAgentTypeUsage(_ context.Context, _ string) ([]AgentTypeUsage, error) {
+func (s *stubUsageRepo) AgentSpendBuckets(_ context.Context, _ string, _ usagewindow.Window) (float64, []float64, error) {
+	return 0, nil, nil
+}
+
+func (s *stubUsageRepo) AgentBudgetSpend(_ context.Context, _ string, _ []string, _, _ time.Time) ([]AgentBudgetSpend, error) {
 	return nil, nil
 }
 

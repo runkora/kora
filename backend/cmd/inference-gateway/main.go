@@ -257,32 +257,10 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
-		// GET /v1/usage/agent-types and /v1/usage/agent-type/{slug} report spend
-		// per agent type rather than the caller's own usage, so they need a scope.
-		//
-		// That scope is agents:types:read, because an agent's spend is an
-		// attribute of the agent: authority to see what it cost follows authority
-		// to see it at all. These two endpoints line up exactly with the reads
-		// that scope already guards in orbit-agents (GET /api/v1/agent-types and
-		// GET /api/v1/agent-types/{id}), so whoever can list an agent can list
-		// what it spent, and nobody gains sight of an agent they could not
-		// already see.
-		//
-		// Deliberately not platform:analytics:read. That scope covers tenant-wide
-		// analytics across every principal, and requiring it here would make cost
-		// an admin-only figure, so the people building agents could not see what
-		// their own agents spend. A caller's own spend, including spend on runs
-		// they delegated, comes from the personal endpoints below and from
-		// /v1/analytics/me, which attribute delegated rows back to the delegator.
-		//
-		// The scope is declared by orbit-agents, not here. The vocabulary is
-		// global once registered, and /v1/budgets below already depends on
-		// platform:budgets:read from the policy service in the same way.
-		//
-		// Prefix matching is segment-bounded, so "/v1/usage/agent-type" does not
-		// cover "/v1/usage/agent-types"; both are listed.
-		{PathPrefix: "/v1/usage/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
-		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:types:read"},
+		// Agent usage needs agents:usage:read; a per-agent scope does not cover it. A new
+		// /v1/usage route needs its own entry or it falls to the open one below.
+		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:usage:read"},
+		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:usage:read"},
 		// GET /v1/usage is the caller's own inference usage log; tenant and
 		// principal come from the verified claims.
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},

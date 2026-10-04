@@ -11,7 +11,6 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/token"
-	"k8s.io/apimachinery/pkg/util/validation"
 )
 
 // ─── GET /v1/usage ───────────────────────────────────────────────────────────
@@ -261,61 +260,6 @@ func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
-}
-
-// handleGetAgentTypeUsage handles GET /v1/usage/agent-type/{slug}.
-// Returns the token breakdown and spend recorded against the agent's SPIFFE
-// principal over the last 7 days, scoped to the caller's verified tenant.
-// The route requires agents:types:read, and the query filters by tenant_id.
-func (c *Controller) handleGetAgentTypeUsage(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
-		return
-	}
-
-	// Slugs are pod label values (spiffe.io/agent), so anything else cannot be an agent principal.
-	slug := r.PathValue("slug")
-	if slug == "" || len(validation.IsValidLabelValue(slug)) > 0 {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "a valid agent slug is required", nil), nil)
-		return
-	}
-
-	usage, err := c.svc.GetAgentTypeUsage(ctx, claims.Orbit.TenantID, slug)
-	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent type usage", nil), err)
-		return
-	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
-}
-
-// handleListAgentTypeUsage handles GET /v1/usage/agent-types. Returns the
-// 7-day token breakdown and spend per agent slug for the caller's verified
-// tenant, powering the total + per-agent cost on the agents list page. Scoped
-// to the caller's tenant; the query filters by tenant_id so no cross-tenant
-// leakage is possible.
-func (c *Controller) handleListAgentTypeUsage(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
-		return
-	}
-
-	usages, err := c.svc.ListAgentTypeUsage(ctx, claims.Orbit.TenantID)
-	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to list agent type usage", nil), err)
-		return
-	}
-	if usages == nil {
-		usages = []AgentTypeUsage{}
-	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": usages})
 }
 
 // handleUsageStats handles GET /v1/usage/stats.

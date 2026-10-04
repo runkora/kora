@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// RunOutcomes counts the runs that finished in a window.
+type RunOutcomes struct {
+	Completed int64 `json:"completed"`
+	Failed    int64 `json:"failed"`
+}
+
 // ── Agent Types ───────────────────────────────────────────────────────────────
 
 type AgentTypeState string

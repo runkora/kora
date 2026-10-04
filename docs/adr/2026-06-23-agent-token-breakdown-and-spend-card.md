@@ -1,7 +1,7 @@
 # Agent Token Breakdown and Spend Card
 
 **Date:** 2026-06-23  
-**Status:** Accepted (Amended 2026-09-29)  
+**Status:** Accepted (Amended 2026-10-03)  
 **Deciders:** Engineering  
 **PRD:** [agent-token-breakdown-and-spend-card](../prd/agent-token-breakdown-and-spend-card.md)
 
@@ -171,7 +171,7 @@ Data is fetched on component mount via a `useEffect`/`useState` inside `AgentOve
 
 **Negative / Trade-offs:**
 - New endpoint on inference-gateway adds one more route to maintain.
-- The 7-day window is hard-coded (acceptable for now; can be made configurable later via query param).
+- Superseded by Amendment 2: The 7-day window is hard-coded (acceptable for now; can be made configurable later via query param).
 - Agents not using the inference gateway (BYOC with direct Anthropic API access) will show zeros — this is a correct and expected result.
 
 ---
@@ -207,8 +207,8 @@ Option B.
 - `inference_usage` gains a nullable `agent_slug` column and the index `idx_inference_usage_agent_slug (tenant_id, agent_slug, created_at DESC) WHERE agent_slug IS NOT NULL`. The migration is additive.
 - When the gateway writes a usage row for an `AGENT` principal whose ID has the form `spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}[/sandbox/{run-id}]`, it stores `{slug}`. Every other principal stores NULL.
 - The same migration backfills existing `AGENT` rows from the exact `/agent/{slug}` path segment. SERVICE, HUMAN and PAT rows stay NULL.
-- `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant and `agent_slug = {slug}` over the last 7 days. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
-- `GET /v1/usage/agent-types` groups the same rows by `agent_slug`.
+- Superseded by Amendment 2 in part (scope, window): `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant and `agent_slug = {slug}` over the last 7 days. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
+- Superseded by Amendment 2 (removed): `GET /v1/usage/agent-types` groups the same rows by `agent_slug`.
 - Responses carry `agent_slug` in place of `agent_type_id`. The BFF route moves to `GET /api/agents/types/usage/{slug}`, and the frontend looks usage up by slug.
 - The run tables drop the "Tokens" column and the agents list drops the runs-based token fallback. Per-run tokens stay on the run page, which reads `GET /v1/usage/run/{runID}`.
 
@@ -217,7 +217,35 @@ Option B.
 - The aggregates show real numbers for every agent, whatever the trust domain or tenant namespace, and both queries are served by the new index.
 - Identity is parsed once, at write time, from the verified principal; reads never interpret `principal_id`.
 - Usage follows the slug. An agent type deleted and recreated with the same slug within the 7-day window reports the combined usage, as both held the same SPIFFE identity.
-- Delegated runs count toward the agent's aggregate, so anyone with `agents:types:read` sees the agent's combined 7-day spend across all delegators. Per-person figures stay on the personal usage views.
+- Delegated runs count toward the agent's aggregate, so anyone with `agents:usage:read` sees the agent's combined spend across all delegators (scope changed by Amendment 2). Per-person figures stay on the personal usage views.
 - Rows written by a gateway binary older than the migration carry no slug until they are backfilled; the migration backfills everything present when it runs.
 - The index is built without `CONCURRENTLY`, so on a large `inference_usage` the migration blocks writes for the length of the backfill and index build. That is acceptable at current production volume; a larger install needs a concurrent build in a no-transaction migration.
 - Per-run token counts are no longer shown in run lists. Showing them again needs a batch per-run usage read from the gateway.
+
+---
+
+## Amendment 2 (2026-10-03): Agent usage scope, windows and budgets
+
+Touches **What can it access?**: a new scope, `agents:usage:read`, decides who may read agent usage.
+
+### Context
+
+Amendment 1 left the usage reads on `agents:types:read` with a fixed 7-day window. The Agents page needs a selectable window, a model split, spend over time, per-agent budgets and run outcomes.
+
+### Decision
+
+- Agent usage is gated by the route scope `agents:usage:read`. `agents:usage:{slug}:read` covers one agent and does not open the routes. Both scopes are siblings of `agents:types` and `agents:runs` in the orbit-agents vocabulary. No role is evaluated.
+- `GET /v1/usage/agent-insights` and `GET /v1/usage/agent-type/{slug}` return aggregates per agent: totals, spend by model, spend over time, the previous window's total and budgets. The responses carry no per-person data.
+- The predicate is the verified tenant, `agent_slug IS NOT NULL` and the window, with the slug when one is asked for. Delegated rows and the rows of deleted agents count for every caller.
+- The window is 24h, 7d, 30d or 90d, ends at the server's now, and defaults to 7d. Both services parse it through `internal/platform/usagewindow`.
+- Budget rows come from the policy bundle's agent principals: one row per agent with a window limit, delegated agents included. Spend follows the same predicate. The tenant cap is not part of the page.
+- `GET /api/v1/run-outcomes` in orbit-agents counts completed and failed runs by `completed_at` under the run list visibility rule. It requires `agents:runs:read` and uses the index `idx_runs_tenant_completed`.
+- The rollups run in `pgx.QueryExecModeExec`. The generic plan of a prepared statement reads most of the table through an index and took 2 s at 90 days and 150 agents, against 0.3 s with the actual window.
+- The trend query sums one `FILTER` aggregate per bucket in a single scan. A plain `GROUP BY` on the bucket measured 1.35 to 3.5 times slower. The `FILTER` clauses use generated `$N` placeholders and no value is formatted into the SQL.
+- `GET /v1/usage/agent-types` is removed.
+
+### Consequences
+
+- A platform admin holds `agents:usage:read` through the derived admin scopes.
+- A holder of `agents:usage:read` sees every delegator's spend on a delegated agent.
+- Budget spend is counted by agent slug and can differ slightly from the per-principal spend the limit check counts.

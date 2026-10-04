@@ -40,10 +40,20 @@ export interface AgentCardProps {
   liveRuns: number;
   /** Short name for the window the cost covers, for example "7d". */
   period: string;
+  /** Shown in place of the usage line while the figures are loading or unavailable. */
+  usageNote?: string | undefined;
   onRun: (agent: AgentTypeRow) => void;
 }
 
-export function AgentCard({ agent, usage, totalCost, liveRuns, period, onRun }: AgentCardProps) {
+export function AgentCard({
+  agent,
+  usage,
+  totalCost,
+  liveRuns,
+  period,
+  usageNote,
+  onRun,
+}: AgentCardProps) {
   const router = useRouter();
   const cost = usage?.estimated_cost_usd ?? 0;
   const share = totalCost > 0 ? (cost / totalCost) * 100 : 0;
@@ -104,7 +114,7 @@ export function AgentCard({ agent, usage, totalCost, liveRuns, period, onRun }: 
                 {agent.framework}
               </Text>
               <Text size="caption" color="muted" mono tabular>
-                {usage ? `${fmtUsd(cost)} · ${period}` : 'No usage yet'}
+                {usageNote ?? (usage ? `${fmtUsd(cost)} · ${period}` : 'No usage yet')}
               </Text>
             </Stack>
             <Progress

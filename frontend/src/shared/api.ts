@@ -437,6 +437,47 @@ export interface AgentTypeUsage {
   estimated_cost_usd: number;
 }
 
+/** The reporting windows the agent insights routes accept. Mirrors Go: usagewindow.Period. */
+export type AgentInsightsPeriod = '24h' | '7d' | '30d' | '90d';
+
+/** One budget window of an agent. Mirrors Go: inferencegw.BudgetWindow. */
+export interface AgentBudgetWindow {
+  cadence: 'weekly' | 'monthly';
+  limit_usd: number;
+  /** Spend by agent in the window now. It can differ from the spend the limit check counts. */
+  spend_usd: number;
+  /** RFC 3339 time the window resets. */
+  resets_at: string;
+}
+
+/** An agent's budget: a row per agent that has a window limit. Mirrors Go: inferencegw.AgentBudgetRow. */
+export interface AgentBudgetStatus {
+  agent_slug: string;
+  per_run_limit_usd?: number;
+  windows: AgentBudgetWindow[];
+}
+
+/**
+ * Mirrors Go: inferencegw.AgentInsights plus what the BFF adds.
+ * GET /api/agents/insights?period=24h|7d|30d|90d
+ *
+ * Agent traffic across the tenant, as aggregates per agent.
+ */
+export interface AgentInsightsResponse {
+  period: AgentInsightsPeriod;
+  usage: AgentTypeUsage[];
+  total_cost_usd: number;
+  /** Total for the window of the same length that ends where this one starts. */
+  previous_total_usd: number;
+  models: { model_id: string; estimated_cost_usd: number }[];
+  /** Spend per bucket, oldest first, each with where it starts. */
+  trend: { start: string; cost_usd: number }[];
+  /** Absent when the policy bundle could not be read. */
+  budgets?: AgentBudgetStatus[];
+  /** Absent when orbit-agents could not count runs. */
+  outcomes?: { completed: number; failed: number };
+}
+
 /** Request body for POST /api/agents/types. */
 export interface CreateAgentTypeRequest {
   name: string;

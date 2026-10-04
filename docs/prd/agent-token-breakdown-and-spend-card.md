@@ -58,7 +58,7 @@ Additionally, operators and team leads have no way to see total spend for an age
 
 - Historical charts / trends on the agent detail page (covered by model-gateway analytics).
 - Per-run token breakdown in the runs table (still shows aggregate per run).
-- Changing the 7-day window or adding a period selector (future work).
+- Changing the 7-day window or adding a period selector on the agent overview.
 
 ---
 
@@ -129,14 +129,14 @@ The Tokens card expands to show sub-rows:
 
 ### Out of Scope
 
-- Period selector (hard-coded 7 days to match the existing Tokens card label)
+- Period selector on the agent overview (hard-coded 7 days to match the existing Tokens card label)
 - Historical trend charts
 - Per-run token breakdown columns in the runs table
 - Changes to the runs table schema
 
 ### Future Considerations
 
-- Configurable period selector
+- Configurable period selector on the agent overview
 - Cache hit rate display
 - Cost breakdown by model (if agent calls multiple models)
 

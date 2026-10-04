@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import type { MockRoutes } from '@orbit/storybook/mock-api';
+import type { MockRequest, MockRoutes } from '@orbit/storybook/mock-api';
 import AgentsLayout from '../layout';
 import { AgentsShell } from './agents-shell';
 import {
@@ -12,26 +12,31 @@ import {
   MANY_AGENT_TYPES,
   MANY_RAW_RUNS,
   MANY_RUN_ROWS,
+  SCALE_AGENT_ROWS,
+  SCALE_AGENT_TYPES,
+  SCALE_RUN_ROWS,
+  SCALE_USAGE,
   RAW_RUNS,
   RUN_ROWS,
-  USAGE,
 } from './agents-mock-data';
-import { INSIGHTS } from './agents-insights-mock-data';
+import { SCALE_BUDGETS, mockInsightsResponse } from './agents-insights-mock-data';
+import type { Period } from '../_lib/spend';
 
-/** The routes the list page calls on mount and on refresh. */
+/** The routes the list page calls on mount and on refresh, and the insights for each period. */
 function listRoutes(overrides: MockRoutes = {}): MockRoutes {
   return {
     'GET /api/agents/types/drafts': { data: DRAFTS },
-    'GET /api/agents/types/usage': { data: USAGE },
     'GET /api/agents/types': { data: AGENT_TYPES },
     'GET /api/agents/runs': { data: RAW_RUNS },
+    'GET /api/agents/insights': ({ url }: MockRequest) =>
+      mockInsightsResponse(url.searchParams.get('period') as Period),
     ...overrides,
   };
 }
 
 /**
- * The agents list as an operator sees it, with mock agents and runs. The stories pass `insights`
- * (period data, a model split, spend over time and budgets) that the live page does not receive yet.
+ * The agents list as an operator sees it, with mock agents and runs. The 7-day insights
+ * arrive as the server render's seed and the other periods through the mock API.
  */
 const meta: Meta<typeof AgentsShell> = {
   title: 'Pages/Agents',
@@ -54,13 +59,15 @@ export const Default: Story = {
     initialAgentTypes: AGENT_ROWS,
     initialRuns: RUN_ROWS,
     initialError: null,
-    insights: INSIGHTS,
+    initialInsights: mockInsightsResponse('7d'),
   },
 };
 
-/** What the live page renders today: no period control, and the spend card shows only the agent split. */
+/** The insights route fails: the figures that need it say they are unavailable. */
 export const WithoutInsights: Story = {
-  decorators: withRoutes(listRoutes()),
+  decorators: withRoutes(
+    listRoutes({ 'GET /api/agents/insights': new Response(null, { status: 503 }) }),
+  ),
   args: { initialAgentTypes: AGENT_ROWS, initialRuns: RUN_ROWS, initialError: null },
 };
 
@@ -69,6 +76,16 @@ export const ThirtyDays: Story = {
   ...Default,
   play: async ({ canvasElement }) => {
     await userEvent.click(await within(canvasElement).findByRole('button', { name: '30d' }));
+  },
+};
+
+/** The longest window, charted weekly. */
+export const NinetyDays: Story = {
+  ...Default,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(await canvas.findByRole('button', { name: '90d' }));
+    await userEvent.click(await canvas.findByRole('button', { name: 'Trend' }));
   },
 };
 
@@ -106,7 +123,7 @@ export const FewAgents: Story = {
     initialAgentTypes: AGENT_ROWS.slice(0, 2),
     initialRuns: RUN_ROWS.slice(0, 2),
     initialError: null,
-    insights: INSIGHTS,
+    initialInsights: mockInsightsResponse('7d'),
   },
 };
 
@@ -121,7 +138,6 @@ export const ListView: Story = {
 
 const emptyRoutes = listRoutes({
   'GET /api/agents/types/drafts': { data: [] },
-  'GET /api/agents/types/usage': { data: [] },
   'GET /api/agents/types': { data: [] },
   'GET /api/agents/runs': { data: [] },
 });
@@ -154,7 +170,7 @@ export const ManyAgents: Story = {
     initialAgentTypes: MANY_AGENT_ROWS,
     initialRuns: MANY_RUN_ROWS,
     initialError: null,
-    insights: INSIGHTS,
+    initialInsights: mockInsightsResponse('7d'),
   },
   decorators: withRoutes(manyRoutes),
 };
@@ -162,4 +178,24 @@ export const ManyAgents: Story = {
 export const ManyAgentsListView: Story = {
   ...ManyAgents,
   play: ListView.play,
+};
+
+const scaleInsights = (period: Period) =>
+  mockInsightsResponse(period, SCALE_USAGE, SCALE_RUN_ROWS, SCALE_BUDGETS);
+
+const scaleRoutes = listRoutes({
+  'GET /api/agents/types': { data: SCALE_AGENT_TYPES },
+  'GET /api/agents/insights': ({ url }: MockRequest) =>
+    scaleInsights(url.searchParams.get('period') as Period),
+});
+
+/** 150 agents with spend, a budget on each and forty runs: the size a normal install reaches. */
+export const HundredFiftyAgents: Story = {
+  args: {
+    initialAgentTypes: SCALE_AGENT_ROWS,
+    initialRuns: SCALE_RUN_ROWS,
+    initialError: null,
+    initialInsights: scaleInsights('7d'),
+  },
+  decorators: withRoutes(scaleRoutes),
 };

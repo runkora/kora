@@ -13,6 +13,7 @@ import (
 	"github.com/clear-route/orbit/internal/agents"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
 
 // stubSlugLister is the whole repository surface scope registration uses.
@@ -116,9 +117,14 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 			t.Errorf("route %s %s requires undeclared scope %q", r.Method, r.PathPrefix, r.RequiredScope)
 		}
 	}
-	for _, want := range []string{"agents:runs:triage:read", "agents:runs:triage:write"} {
+	for _, want := range []string{"agents:runs:triage:read", "agents:runs:triage:write", "agents:usage:triage:read"} {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("per-agent-type scope %q missing from the registration", want)
+		}
+	}
+	for _, want := range []string{"agents:usage:read", "agents:delegated:read"} {
+		if _, ok := declared[want]; !ok {
+			t.Errorf("scope %q missing from the registration", want)
 		}
 	}
 }
@@ -138,5 +144,12 @@ func TestAgentRoutesFilterDropsOnlyUnscopedRoutes(t *testing.T) {
 		if want := r.RequiredScope != ""; kept != want {
 			t.Errorf("route %+v: kept=%v, want %v", r, kept, want)
 		}
+	}
+}
+
+func TestAgentRoutesRunOutcomesScope(t *testing.T) {
+	got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", "/api/v1/run-outcomes")
+	if !ok || got != "agents:runs:read" {
+		t.Errorf("scope %q (matched %v), want agents:runs:read", got, ok)
 	}
 }

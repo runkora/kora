@@ -24,7 +24,7 @@ import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { fetchAgentTypeUsage } from '../_services/agent-detail-api';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
-import type { BudgetPrincipalStatus, TenantCapStatus } from '../../../model-gateway/_types';
+import type { BudgetRow } from '../../_lib/spend';
 import { AgentBudgetCard } from './agent-budget-card';
 import { StartedByCell } from './started-by-cell';
 import type { AgentTypeUsage } from '@orbit/shared/api';
@@ -63,11 +63,10 @@ function runStatusBadge(row: RunRow) {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 interface AgentOverviewTabProps {
-  budget: BudgetPrincipalStatus | null;
-  tenantCap: TenantCapStatus | null;
+  budget: BudgetRow | null;
 }
 
-export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
+export function AgentOverviewTab({ budget }: AgentOverviewTabProps) {
   const { agent, runs } = useAgentDetailContext();
   const router = useRouter();
   const [promptExpanded, setPromptExpanded] = useState(false);
@@ -292,8 +291,7 @@ export function AgentOverviewTab({ budget, tenantCap }: AgentOverviewTabProps) {
 
         {/* Right column: budget + grant scopes + metadata */}
         <Stack gap="comfortable" style={{ flexShrink: 0, flexBasis: '300px' }}>
-          {/* Budget usage — the agent's grant ceilings joined with live spend */}
-          <AgentBudgetCard budget={budget} tenantCap={tenantCap} />
+          <AgentBudgetCard budget={budget} />
 
           {/* Token usage (7d) — sits with Budget; the spend total is in the
               stat row above. Compact label → value list. */}

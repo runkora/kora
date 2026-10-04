@@ -373,6 +373,8 @@ func agentRoutes() []routescopes.RouteScope {
 		// that legitimately hold it.
 		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
+		// Run outcome counts: the same scope and delegated-run rule as GET /runs.
+		{PathPrefix: "/api/v1/run-outcomes", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: "agents:runs:write"},
@@ -394,6 +396,8 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 		{Scope: "agents:types:autonomous:write", ResourceType: "agents", PathSegments: []string{"types", "autonomous"}, Action: "write", Description: "Create and mutate autonomous agent types (higher privilege: confers standing authority the agent holds on its own, whoever starts it)"},
 		{Scope: "agents:runs:read", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "read", Description: "View runs and stream agent events"},
 		{Scope: "agents:runs:write", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "write", Description: "Start, message, and terminate runs"},
+		{Scope: "agents:usage:read", ResourceType: "agents", PathSegments: []string{"usage"}, Action: "read", Description: "View every agent's usage, spend and budgets (prefix-covers the per-agent usage scopes)"},
+		{Scope: "agents:delegated:read", ResourceType: "agents", PathSegments: []string{"delegated"}, Action: "read", Description: "View the runs of delegated agents that other people started, with their messages, events and outputs"},
 		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list connectivity environments"},
 		{Scope: "agents:environments:write", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "write", Description: "Create, edit, and delete connectivity environments"},
 	}
@@ -412,6 +416,13 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 				PathSegments: []string{"runs", slug},
 				Action:       "write",
 				Description:  "Start, message, and terminate runs for the " + slug + " agent type",
+			},
+			routescopes.ScopeDeclaration{
+				Scope:        "agents:usage:" + slug + ":read",
+				ResourceType: "agents",
+				PathSegments: []string{"usage", slug},
+				Action:       "read",
+				Description:  "View usage, spend and budget for the " + slug + " agent type",
 			},
 		)
 	}

@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
 // InferenceUsageRepository defines the storage contract for inference usage records.
@@ -71,17 +72,6 @@ type InferenceUsageRepository interface {
 	// for a run with no recorded usage.
 	GetRunUsage(ctx context.Context, tenantID, runID string) (spendUSD float64, totalTokens int64, err error)
 
-	// GetAgentTypeUsage returns aggregated token breakdown and spend for the
-	// agent with the given slug over the last 7 days, tenant-scoped. Powers the
-	// token breakdown and spend cards on the agent overview page. Returns a
-	// zero-value result (not an error) when no usage exists.
-	GetAgentTypeUsage(ctx context.Context, tenantID, slug string) (AgentTypeUsage, error)
-
-	// ListAgentTypeUsage returns aggregated token breakdown and spend per agent
-	// slug for the tenant over the last 7 days. Agents with no usage in the
-	// window are absent. Powers the total and per-agent cost on the agents list.
-	ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error)
-
 	// GetMonthlySpendByPrincipal returns per-principal spend aggregates for the
 	// tenant within the calendar month that contains the provided time value.
 	// Principals with no usage in the period are absent from the result.
@@ -107,6 +97,18 @@ type InferenceUsageRepository interface {
 	// This is the per-request resolution that backs role-budget attribution and
 	// enforcement for credentials that carry no roles claim.
 	GetPrincipalRoles(ctx context.Context, tenantID, principalID string) ([]string, error)
+
+	// AgentUsage returns the tenant's agent usage per agent and model over the
+	// window, or for one agent when slug is set. Powers the Agents page.
+	AgentUsage(ctx context.Context, tenantID string, w usagewindow.Window, slug string) ([]AgentModelUsage, error)
+
+	// AgentSpendBuckets returns the previous window's total agent spend and the
+	// spend in each bucket of the window.
+	AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window) (previous float64, buckets []float64, err error)
+
+	// AgentBudgetSpend returns each listed agent's spend since the start of the
+	// current week and month.
+	AgentBudgetSpend(ctx context.Context, tenantID string, slugs []string, weekStart, monthStart time.Time) ([]AgentBudgetSpend, error)
 }
 
 // ─── PostgresInferenceUsageRepository ────────────────────────────────────────
@@ -830,84 +832,6 @@ func (r *PostgresInferenceUsageRepository) GetRunUsage(ctx context.Context, tena
 		return 0, 0, fmt.Errorf("get run usage: %w", err)
 	}
 	return spend, tokens, nil
-}
-
-// GetAgentTypeUsage returns aggregated token breakdown and spend for the agent
-// with the given slug over the last 7 days, tenant-scoped.
-func (r *PostgresInferenceUsageRepository) GetAgentTypeUsage(ctx context.Context, tenantID, slug string) (AgentTypeUsage, error) {
-	const q = `
-		SELECT
-		    COALESCE(SUM(prompt_tokens), 0),
-		    COALESCE(SUM(completion_tokens), 0),
-		    COALESCE(SUM(cache_read_input_tokens), 0),
-		    COALESCE(SUM(cache_creation_input_tokens), 0),
-		    COALESCE(SUM(total_tokens), 0),
-		    COALESCE(SUM(estimated_cost_usd), 0)
-		FROM inference_usage
-		WHERE tenant_id = $1
-		  AND agent_slug = $2
-		  AND created_at >= NOW() - INTERVAL '7 days'`
-
-	u := AgentTypeUsage{AgentSlug: slug}
-	if err := r.pool.QueryRow(ctx, q, tenantID, slug).Scan(
-		&u.PromptTokens,
-		&u.CompletionTokens,
-		&u.CacheReadTokens,
-		&u.CacheCreationTokens,
-		&u.TotalTokens,
-		&u.EstimatedCostUSD,
-	); err != nil {
-		return AgentTypeUsage{}, fmt.Errorf("get agent type usage: %w", err)
-	}
-	return u, nil
-}
-
-// ListAgentTypeUsage returns aggregated token breakdown and spend per agent slug
-// for the tenant over the last 7 days. Agents with no usage in the window are
-// absent from the result.
-func (r *PostgresInferenceUsageRepository) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error) {
-	const q = `
-		SELECT
-		    agent_slug,
-		    COALESCE(SUM(prompt_tokens), 0),
-		    COALESCE(SUM(completion_tokens), 0),
-		    COALESCE(SUM(cache_read_input_tokens), 0),
-		    COALESCE(SUM(cache_creation_input_tokens), 0),
-		    COALESCE(SUM(total_tokens), 0),
-		    COALESCE(SUM(estimated_cost_usd), 0)
-		FROM inference_usage
-		WHERE tenant_id = $1
-		  AND agent_slug IS NOT NULL
-		  AND created_at >= NOW() - INTERVAL '7 days'
-		GROUP BY agent_slug
-		ORDER BY agent_slug`
-
-	rows, err := r.pool.Query(ctx, q, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("list agent type usage: %w", err)
-	}
-	defer rows.Close()
-
-	var out []AgentTypeUsage
-	for rows.Next() {
-		var u AgentTypeUsage
-		if err := rows.Scan(
-			&u.AgentSlug,
-			&u.PromptTokens,
-			&u.CompletionTokens,
-			&u.CacheReadTokens,
-			&u.CacheCreationTokens,
-			&u.TotalTokens,
-			&u.EstimatedCostUSD,
-		); err != nil {
-			return nil, fmt.Errorf("scan agent type usage: %w", err)
-		}
-		out = append(out, u)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate agent type usage: %w", err)
-	}
-	return out, nil
 }
 
 // GetSpendByPrincipalSince returns principal ID → total spend from the given

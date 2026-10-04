@@ -39,7 +39,7 @@ func testRunRepo(t *testing.T) (*PostgresRepository, string) {
 	return NewPostgresRepository(pool), tenant
 }
 
-func seedRunAgentType(t *testing.T, r *PostgresRepository, tenant string) AgentType {
+func seedRunAgentType(t *testing.T, r *PostgresRepository, tenant string, mode IdentityMode) AgentType {
 	t.Helper()
 	at := AgentType{
 		ID:                      uuid.NewString(),
@@ -48,6 +48,7 @@ func seedRunAgentType(t *testing.T, r *PostgresRepository, tenant string) AgentT
 		Slug:                    "reviewer-" + uuid.NewString()[:8],
 		State:                   AgentTypeStateActive,
 		MaxConcurrentRunsPerPod: 5,
+		IdentityMode:            mode,
 		GrantScopes:             []string{},
 		Connectors:              []Connector{},
 		MCPTools:                []string{},
@@ -64,7 +65,7 @@ func seedRunAgentType(t *testing.T, r *PostgresRepository, tenant string) AgentT
 func TestPostgres_RunTriggerAttribution(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()
-	at := seedRunAgentType(t, r, tenant)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 
 	started := Run{
 		ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "trigger:trig-1",
@@ -126,7 +127,7 @@ func TestPostgres_RunTriggerAttribution(t *testing.T) {
 func TestPostgres_RunTriggerAttribution_NoForeignKey(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	ctx := context.Background()
-	at := seedRunAgentType(t, r, tenant)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 
 	run := Run{
 		ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID, CreatedBy: "trigger:ghost",

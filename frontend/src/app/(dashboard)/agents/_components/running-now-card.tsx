@@ -7,6 +7,7 @@ import {
   Button,
   Card,
   CardContent,
+  CardFooter,
   CardHeader,
   Stack,
   StatusDot,
@@ -21,6 +22,7 @@ import {
 } from '@orbit/terra';
 import type { StatusDotProps } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing';
+import { RUNNING_ROWS } from '../_lib/spend';
 import { formatDuration, formatRelativeTime } from '../_types';
 import type { RunRow } from '../_types';
 
@@ -97,7 +99,7 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {runs.map((run) => {
+                {runs.slice(0, RUNNING_ROWS).map((run) => {
                   const state = LIVE_STATES[run.state];
                   return (
                     <TableRow key={run.id}>
@@ -151,6 +153,14 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
               </TableBody>
             </Table>
           </TableRoot>
+        )}
+        {runs.length > RUNNING_ROWS && (
+          <CardFooter compact>
+            <Text size="caption" color="subtle">
+              +{runs.length - RUNNING_ROWS} more {runs.length - RUNNING_ROWS === 1 ? 'run' : 'runs'}{' '}
+              not shown
+            </Text>
+          </CardFooter>
         )}
       </Card>
     </Stack>

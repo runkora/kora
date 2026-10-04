@@ -22,6 +22,8 @@
  *   fetch(ApiRoute.session.POST(), { method: 'POST', body: JSON.stringify({ id_token }) });
  */
 
+import type { AgentInsightsPeriod } from '@orbit/shared/api';
+
 // ── Base segments ─────────────────────────────────────────────────────────────
 
 const AUTH_BASE = '/api/auth' as const;
@@ -304,6 +306,19 @@ export const ApiRoute = {
     },
   },
 
+  /**
+   * `/api/agents/insights?period=24h|7d|30d|90d`
+   *
+   * GET: the Agents page rollups. Usage, model split, spend over time, budgets
+   * and run outcomes for one window.
+   */
+  agentInsights: {
+    window: (
+      period: AgentInsightsPeriod,
+    ): `${typeof API_BASE}/agents/insights?period=${AgentInsightsPeriod}` =>
+      `${API_BASE}/agents/insights?period=${period}`,
+  },
+
   agentTypes: {
     list: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
     create: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
@@ -332,13 +347,6 @@ export const ApiRoute = {
      */
     usage: (slug: string): `${typeof API_BASE}/agents/types/usage/${string}` =>
       `${API_BASE}/agents/types/usage/${encodeURIComponent(slug)}`,
-    /**
-     * `/api/agents/types/usage`
-     *
-     * GET — returns the 7-day token breakdown and spend for every agent type in
-     *       the tenant. Powers the total + per-agent cost on the agents list.
-     */
-    usageAll: (): `${typeof API_BASE}/agents/types/usage` => `${API_BASE}/agents/types/usage`,
     /**
      * `/api/agents/types/drafts`
      *

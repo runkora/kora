@@ -49,6 +49,8 @@ type mockRepository struct {
 	appendRunEventErr      error
 	listRunEventsErr       error
 	appendRunMessageErr    error
+
+	outcomesVis RunVisibility
 }
 
 func newMockRepository() *mockRepository {
@@ -218,6 +220,11 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 		return at.IdentityMode.OrDefault()
 	}
 	return r.IdentityMode.OrDefault()
+}
+
+func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVisibility, _, _ time.Time) (RunOutcomes, error) {
+	m.outcomesVis = vis
+	return RunOutcomes{}, nil
 }
 
 func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
@@ -608,11 +615,16 @@ func (m *mockSMClient) CloseSession(_ context.Context, _, runID string) error {
 
 func newTestService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
 	t.Helper()
+	return newTestServiceWithEval(t, &allowAllEvaluator{})
+}
+
+func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {
+	t.Helper()
 	repo := newMockRepository()
 	k8s := &mockK8s{}
 	sm := &mockSMClient{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	authz := NewAuthz(&allowAllEvaluator{})
+	authz := NewAuthz(eval)
 	atSvc := NewAgentTypeService(
 		repo, repo, k8s, authz,
 		AgentTypeServiceConfig{
