@@ -11,7 +11,7 @@ type SkillFile struct {
 // Skill is the complete skill record stored in Redis and returned by the
 // detail endpoint. The list endpoint projects only Slug, Name, Description.
 type Skill struct {
-	Slug        string      `json:"slug"`
+	Slug        string      `json:"slug,omitempty"`
 	Name        string      `json:"name"`
 	Description string      `json:"description"`
 	Skill       SkillFile   `json:"skill"`

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 
@@ -18,8 +17,6 @@ import (
 )
 
 const marketplaceReadScope = "marketplace:read"
-
-var marketplaceSeparators = regexp.MustCompile(`[^a-z0-9]+`)
 
 type marketplaceRegistry interface {
 	ListSources(tenantID string) []MarketplaceSource
@@ -177,10 +174,6 @@ func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, b
 		return "", false
 	}
 	return claims.Orbit.TenantID, true
-}
-
-func marketplaceSlug(name string) string {
-	return strings.Trim(marketplaceSeparators.ReplaceAllString(strings.ToLower(name), "-"), "-")
 }
 
 func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err error) {

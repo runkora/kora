@@ -48,6 +48,8 @@ type handlerDetailResponse struct {
 	Documents   []SkillFile `json:"documents"`
 }
 
+// --- fakes ---
+
 type handlerRegistry struct {
 	sources map[string][]MarketplaceSource
 	calls   []string
@@ -89,55 +91,76 @@ func (f *handlerCache) Set(_ context.Context, tenantID, org, repo string, skills
 }
 
 type handlerCrawler struct {
-	skills []Skill
-	err    error
-	calls  []MarketplaceSource
+	skills    []Skill
+	skillsErr error
+	calls     int
 }
 
-func (f *handlerCrawler) Crawl(_ context.Context, source MarketplaceSource) ([]Skill, error) {
-	f.calls = append(f.calls, source)
-	return f.skills, f.err
+func (f *handlerCrawler) FetchTree(_ context.Context, _ MarketplaceSource) (map[string]SkillFilePaths, error) {
+	return map[string]SkillFilePaths{}, nil
+}
+
+func (f *handlerCrawler) FetchSkills(_ context.Context, _ string, _ MarketplaceSource, _ map[string]SkillFilePaths) ([]Skill, error) {
+	f.calls++
+	return f.skills, f.skillsErr
+}
+
+// handlerFixture bundles a Controller with the underlying fakes so tests can
+// inspect cache and crawl calls without the Controller exposing those fields.
+type handlerFixture struct {
+	*Controller
+	registry *handlerRegistry
+	cache    *handlerCache
+	crawler  *handlerCrawler
 }
 
 func handlerSkills() []Skill {
 	return []Skill{
 		{
-			Slug: "internal-org/internal-repo/react-expert", Name: "React Expert", Description: "React development",
-			Skill: SkillFile{Path: "plugins/web/skills/react-expert/SKILL.md", Name: "SKILL.md", Content: "private skill body"},
+			Slug:        "internal-org/internal-repo/react-expert",
+			Name:        "React Expert",
+			Description: "React development",
+			Skill:       SkillFile{Path: "plugins/web/skills/react-expert/SKILL.md", Name: "SKILL.md", Content: "private skill body"},
+			Documents:   []SkillFile{},
 		},
 		{
-			Slug: "internal-org/internal-repo/react-testing", Name: "React Testing", Description: "React tests",
-			Skill:     SkillFile{Path: "skills/react-testing/SKILL.md", Name: "SKILL.md", Content: "testing skill body"},
-			Documents: []SkillFile{{Path: "skills/react-testing/resources/example.md", Name: "example.md", Content: "resource body"}},
+			Slug:        "internal-org/internal-repo/react-testing",
+			Name:        "React Testing",
+			Description: "React tests",
+			Skill:       SkillFile{Path: "skills/react-testing/SKILL.md", Name: "SKILL.md", Content: "testing skill body"},
+			Documents:   []SkillFile{{Path: "skills/react-testing/resources/example.md", Name: "example.md", Content: "resource body"}},
 		},
 		{
-			Slug: "internal-org/internal-repo/go-expert", Name: "Go Expert", Description: "Go development",
-			Skill: SkillFile{Path: "skills/go-expert/SKILL.md", Name: "SKILL.md", Content: "go skill body"},
+			Slug:        "internal-org/internal-repo/go-expert",
+			Name:        "Go Expert",
+			Description: "Go development",
+			Skill:       SkillFile{Path: "skills/go-expert/SKILL.md", Name: "SKILL.md", Content: "go skill body"},
+			Documents:   []SkillFile{},
 		},
 	}
 }
 
-func newHandlerController(cached bool) *Controller {
+func newHandlerController(cached bool) *handlerFixture {
+	reg := &handlerRegistry{sources: map[string][]MarketplaceSource{"tenant-a": {handlerSource}}}
 	cache := &handlerCache{}
 	if cached {
 		cache.values = map[string][]Skill{CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo): handlerSkills()}
 	}
-	return &Controller{
-		registry: &handlerRegistry{sources: map[string][]MarketplaceSource{"tenant-a": {handlerSource}}},
-		cache:    cache,
-		crawler:  &handlerCrawler{skills: handlerSkills()},
-		logger:   logging.NewDevelopmentLogger(),
-	}
+	crawler := &handlerCrawler{skills: handlerSkills()}
+	logger := logging.NewDevelopmentLogger()
+	svc := NewService(reg, cache, crawler, logger)
+	c := &Controller{service: svc, registry: reg, logger: logger}
+	return &handlerFixture{Controller: c, registry: reg, cache: cache, crawler: crawler}
 }
 
 // Exercise routing and transport with verified claims supplied in context.
 // TestControllerAuthorization separately exercises the full middleware chain.
-func handlerRequest(c *Controller, target, tenantID string) *httptest.ResponseRecorder {
+func handlerRequest(fix *handlerFixture, target, tenantID string) *httptest.ResponseRecorder {
 	ctx := token.WithClaims(context.Background(), &token.PlatformClaims{
 		Orbit: token.OrbitClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
 	})
-	mux := api.NewMux(ctx, c.logger)
-	c.Boot(mux)
+	mux := api.NewMux(ctx, fix.logger)
+	fix.Boot(mux)
 	recorder := httptest.NewRecorder()
 	mux.ServeHTTP(recorder, httptest.NewRequestWithContext(ctx, http.MethodGet, target, nil))
 	return recorder
@@ -146,8 +169,8 @@ func handlerRequest(c *Controller, target, tenantID string) *httptest.ResponseRe
 func TestControllerMarketplaces(t *testing.T) {
 	for _, tenantID := range []string{"tenant-a", "tenant-b"} {
 		t.Run(tenantID, func(t *testing.T) {
-			c := newHandlerController(true)
-			rr := handlerRequest(c, "/marketplaces?tenant_id=tenant-a", tenantID)
+			fix := newHandlerController(true)
+			rr := handlerRequest(fix, "/marketplaces?tenant_id=tenant-a", tenantID)
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 			}
@@ -165,10 +188,10 @@ func TestControllerMarketplaces(t *testing.T) {
 			} else if body.Marketplaces == nil || len(body.Marketplaces) != 0 {
 				t.Fatalf("unknown tenant must get [], got %v", body.Marketplaces)
 			}
-			if !reflect.DeepEqual(c.registry.(*handlerRegistry).calls, []string{tenantID}) {
+			if !reflect.DeepEqual(fix.registry.calls, []string{tenantID}) {
 				t.Fatal("request parameters changed tenant resolution")
 			}
-			if len(c.cache.(*handlerCache).getCalls) != 0 || len(c.crawler.(*handlerCrawler).calls) != 0 {
+			if len(fix.cache.getCalls) != 0 || fix.crawler.calls != 0 {
 				t.Fatal("marketplace listing must not call Redis or GitHub")
 			}
 		})
@@ -176,8 +199,8 @@ func TestControllerMarketplaces(t *testing.T) {
 }
 
 func TestControllerListSkills(t *testing.T) {
-	c := newHandlerController(true)
-	rr := handlerRequest(c, "/marketplaces/clear-route-skills/skills?search=REACT&offset=1&limit=1", "tenant-a")
+	fix := newHandlerController(true)
+	rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills?search=REACT&offset=1&limit=1", "tenant-a")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
@@ -188,13 +211,14 @@ func TestControllerListSkills(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
+	// List response exposes only name and description — no slug.
 	want := []map[string]any{{
-		"slug": "internal-org/internal-repo/react-testing", "name": "React Testing", "description": "React tests",
+		"name": "React Testing", "description": "React tests",
 	}}
 	if !reflect.DeepEqual(body.Skills, want) || body.Pagination != (handlerPagination{Offset: 1, Limit: 1, TotalItems: 2}) {
 		t.Fatalf("unexpected list response: %s", rr.Body.String())
 	}
-	if len(c.crawler.(*handlerCrawler).calls) != 0 {
+	if fix.crawler.calls != 0 {
 		t.Fatal("cache hit caused a crawl")
 	}
 }
@@ -220,15 +244,15 @@ func TestControllerPagination(t *testing.T) {
 		{"?limit=", http.StatusBadRequest, 0},
 	} {
 		t.Run(tc.query, func(t *testing.T) {
-			c := newHandlerController(true)
+			fix := newHandlerController(true)
 			items := make([]Skill, 20)
-			c.cache.(*handlerCache).values[CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo)] = items
-			rr := handlerRequest(c, "/marketplaces/clear-route-skills/skills"+tc.query, "tenant-a")
+			fix.cache.values[CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo)] = items
+			rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills"+tc.query, "tenant-a")
 			if rr.Code != tc.code {
 				t.Fatalf("status %d, want %d: %s", rr.Code, tc.code, rr.Body.String())
 			}
 			if tc.code != http.StatusOK {
-				if len(c.cache.(*handlerCache).getCalls) != 0 {
+				if len(fix.cache.getCalls) != 0 {
 					t.Fatal("invalid query reached the cache")
 				}
 				return
@@ -250,13 +274,13 @@ func TestControllerPagination(t *testing.T) {
 func TestControllerCacheMissAndDetail(t *testing.T) {
 	for _, first := range []string{"/skills", "/skills/react-expert"} {
 		t.Run(first, func(t *testing.T) {
-			c := newHandlerController(false)
+			fix := newHandlerController(false)
 			prefix := "/marketplaces/clear-route-skills"
-			rr := handlerRequest(c, prefix+first+"?tenant_id=tenant-b", "tenant-a")
+			rr := handlerRequest(fix, prefix+first+"?tenant_id=tenant-b", "tenant-a")
 			if rr.Code != http.StatusOK {
 				t.Fatalf("cold cache status %d: %s", rr.Code, rr.Body.String())
 			}
-			rr = handlerRequest(c, prefix+"/skills/react-expert", "tenant-a")
+			rr = handlerRequest(fix, prefix+"/skills/react-expert", "tenant-a")
 			if rr.Code != http.StatusOK {
 				t.Fatalf("detail status %d: %s", rr.Code, rr.Body.String())
 			}
@@ -274,15 +298,14 @@ func TestControllerCacheMissAndDetail(t *testing.T) {
 			if detail.Skill != handlerSkills()[0].Skill || detail.Name != "React Expert" {
 				t.Fatalf("detail lost SKILL.md content: %+v", detail)
 			}
-			cache := c.cache.(*handlerCache)
 			key := CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo)
-			if !reflect.DeepEqual(cache.getCalls, []string{key, key}) || !reflect.DeepEqual(cache.setCalls, []string{key}) {
-				t.Fatalf("cache calls: get %v, set %v", cache.getCalls, cache.setCalls)
+			if !reflect.DeepEqual(fix.cache.getCalls, []string{key, key}) || !reflect.DeepEqual(fix.cache.setCalls, []string{key}) {
+				t.Fatalf("cache calls: get %v, set %v", fix.cache.getCalls, fix.cache.setCalls)
 			}
-			if !reflect.DeepEqual(c.crawler.(*handlerCrawler).calls, []MarketplaceSource{handlerSource}) {
+			if fix.crawler.calls != 1 {
 				t.Fatal("cold list/detail did not share one cache fill")
 			}
-			rr = handlerRequest(c, prefix+"/skills/react-testing", "tenant-a")
+			rr = handlerRequest(fix, prefix+"/skills/react-testing", "tenant-a")
 			if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
 				t.Fatal(err)
 			}
@@ -308,18 +331,18 @@ func TestControllerNotFound(t *testing.T) {
 		{"ambiguous marketplace", "/marketplaces/clear-route-skills/skills", "tenant-a", http.StatusNotFound, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := newHandlerController(true)
+			fix := newHandlerController(true)
 			if tc.name == "ambiguous marketplace" {
-				c.registry.(*handlerRegistry).sources["tenant-a"] = append(
-					c.registry.(*handlerRegistry).sources["tenant-a"],
+				fix.registry.sources["tenant-a"] = append(
+					fix.registry.sources["tenant-a"],
 					MarketplaceSource{Name: "Clear-Route-Skills", Org: "other", Repo: "other"},
 				)
 			}
-			rr := handlerRequest(c, tc.target, tc.tenantID)
-			if rr.Code != tc.code || len(c.cache.(*handlerCache).getCalls) != tc.reads {
-				t.Fatalf("status %d, reads %v: %s", rr.Code, c.cache.(*handlerCache).getCalls, rr.Body.String())
+			rr := handlerRequest(fix, tc.target, tc.tenantID)
+			if rr.Code != tc.code || len(fix.cache.getCalls) != tc.reads {
+				t.Fatalf("status %d, reads %v: %s", rr.Code, fix.cache.getCalls, rr.Body.String())
 			}
-			if len(c.crawler.(*handlerCrawler).calls) != 0 {
+			if fix.crawler.calls != 0 {
 				t.Fatal("not-found request caused a crawl")
 			}
 		})
@@ -341,14 +364,12 @@ func TestControllerReadFailures(t *testing.T) {
 			{"crawl timeout", nil, context.DeadlineExceeded, nil, http.StatusServiceUnavailable, 1, 0},
 		} {
 			t.Run(target+"/"+tc.name, func(t *testing.T) {
-				c := newHandlerController(false)
-				cache := c.cache.(*handlerCache)
-				cache.getError, cache.setErr = tc.getErr, tc.setErr
-				crawler := c.crawler.(*handlerCrawler)
-				crawler.err = tc.crawlErr
-				rr := handlerRequest(c, "/marketplaces/clear-route-skills"+target, "tenant-a")
-				if rr.Code != tc.code || len(crawler.calls) != tc.crawls || len(cache.setCalls) != tc.writes {
-					t.Fatalf("status %d, crawls %d, writes %d: %s", rr.Code, len(crawler.calls), len(cache.setCalls), rr.Body.String())
+				fix := newHandlerController(false)
+				fix.cache.getError, fix.cache.setErr = tc.getErr, tc.setErr
+				fix.crawler.skillsErr = tc.crawlErr
+				rr := handlerRequest(fix, "/marketplaces/clear-route-skills"+target, "tenant-a")
+				if rr.Code != tc.code || fix.crawler.calls != tc.crawls || len(fix.cache.setCalls) != tc.writes {
+					t.Fatalf("status %d, crawls %d, writes %d: %s", rr.Code, fix.crawler.calls, len(fix.cache.setCalls), rr.Body.String())
 				}
 				if strings.Contains(rr.Body.String(), "private") {
 					t.Fatal("underlying error leaked to response")
@@ -361,13 +382,13 @@ func TestControllerReadFailures(t *testing.T) {
 func TestControllerRequiresTenant(t *testing.T) {
 	for _, target := range []string{"/marketplaces", "/marketplaces/clear-route-skills/skills", "/marketplaces/clear-route-skills/skills/react-expert"} {
 		for _, claims := range []*token.PlatformClaims{nil, {}} {
-			c := newHandlerController(true)
+			fix := newHandlerController(true)
 			ctx := token.WithClaims(context.Background(), claims)
-			mux := api.NewMux(ctx, c.logger)
-			c.Boot(mux)
+			mux := api.NewMux(ctx, fix.logger)
+			fix.Boot(mux)
 			rr := httptest.NewRecorder()
 			mux.ServeHTTP(rr, httptest.NewRequestWithContext(ctx, http.MethodGet, target, nil))
-			if rr.Code != http.StatusUnauthorized || len(c.registry.(*handlerRegistry).calls) != 0 {
+			if rr.Code != http.StatusUnauthorized || len(fix.registry.calls) != 0 {
 				t.Fatalf("missing tenant reached data access: %d %s", rr.Code, rr.Body.String())
 			}
 		}
@@ -450,7 +471,8 @@ func TestControllerAuthorization(t *testing.T) {
 			t.Run(tc.name+target, func(t *testing.T) {
 				fixture := newHandlerController(true)
 				eval := &handlerEvaluator{allow: tc.allow, err: tc.policyErr}
-				c := NewController(logger, fixture.registry, fixture.cache, fixture.crawler, verifier, eval, "/v1")
+				svc := NewService(fixture.registry, fixture.cache, fixture.crawler, logger)
+				c := NewController(logger, svc, fixture.registry, verifier, eval, "/v1")
 				server := api.NewAPI(context.Background(), logger).Server(context.Background(), 0, "/v1", nil, c)
 				r := httptest.NewRequest(http.MethodGet, "/v1"+target, nil)
 				if tc.auth != "" {
@@ -464,7 +486,7 @@ func TestControllerAuthorization(t *testing.T) {
 				if rr.Code != tc.code || len(eval.inputs) != tc.checks {
 					t.Fatalf("status %d, policy calls %d: %s", rr.Code, len(eval.inputs), rr.Body.String())
 				}
-				if tc.code != http.StatusOK && (len(fixture.registry.(*handlerRegistry).calls) != 0 || len(fixture.cache.(*handlerCache).getCalls) != 0) {
+				if tc.code != http.StatusOK && (len(fixture.registry.calls) != 0 || len(fixture.cache.getCalls) != 0) {
 					t.Fatal("denied request reached marketplace data")
 				}
 				if tc.checks == 1 {

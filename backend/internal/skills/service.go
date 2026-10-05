@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -12,6 +13,14 @@ const (
 	defaultLimit = 15
 	maxLimit     = 100
 )
+
+var marketplaceSeparators = regexp.MustCompile(`[^a-z0-9]+`)
+
+// marketplaceSlug converts a display name to the URL-safe slug used in API paths,
+// e.g. "Clear Route Skills" → "clear-route-skills".
+func marketplaceSlug(name string) string {
+	return strings.Trim(marketplaceSeparators.ReplaceAllString(strings.ToLower(name), "-"), "-")
+}
 
 type skillCache interface {
 	Get(ctx context.Context, tenantID, org, repo string) ([]Skill, bool, error)
@@ -23,9 +32,10 @@ type skillCrawler interface {
 	FetchSkills(ctx context.Context, marketplaceName string, source MarketplaceSource, skillPaths map[string]SkillFilePaths) ([]Skill, error)
 }
 
+// sourceRegistry is the minimal interface the service needs from the registry.
+// Only ListSources is required; slug resolution and ambiguity detection happen here.
 type sourceRegistry interface {
 	ListSources(tenantID string) []MarketplaceSource
-	FindByName(tenantID, name string) (MarketplaceSource, bool)
 }
 
 type Service struct {
@@ -35,6 +45,8 @@ type Service struct {
 	logger   logging.Logger
 }
 
+// SkillSummary is the list-endpoint projection. Slug is intentionally omitted —
+// the FE receives only name and description.
 type SkillSummary struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -69,21 +81,31 @@ func (s *Service) ListMarketplaceSkills(tenantID string) []string {
 	return names
 }
 
+// resolve returns skills for a marketplace identified by its URL slug.
+// It matches sources by slugifying their display name; two sources that produce
+// the same slug (ambiguous) are treated as not found.
 func (s *Service) resolve(ctx context.Context, tenantID, marketplaceName string) ([]Skill, error) {
-	source, ok := s.registry.FindByName(tenantID, marketplaceName)
-	if !ok {
+	sources := s.registry.ListSources(tenantID)
+	var source MarketplaceSource
+	found := 0
+	for _, src := range sources {
+		if marketplaceSlug(src.Name) == marketplaceName {
+			source = src
+			found++
+		}
+	}
+	if found != 1 {
 		return nil, ErrMarketplaceNotFound
 	}
 
 	skills, hit, err := s.cache.Get(ctx, tenantID, source.Org, source.Repo)
 	if err != nil {
-		return nil, ErrRedisUnavailable
+		return nil, fmt.Errorf("read cache: %w", err)
 	}
 	if hit {
 		return skills, nil
 	}
 
-	// cache miss — crawl GitHub
 	skillPaths, err := s.crawler.FetchTree(ctx, source)
 	if err != nil {
 		return nil, fmt.Errorf("fetch tree: %w", err)
@@ -95,8 +117,7 @@ func (s *Service) resolve(ctx context.Context, tenantID, marketplaceName string)
 	}
 
 	if err := s.cache.Set(ctx, tenantID, source.Org, source.Repo, skills); err != nil {
-		s.logger.Warn(ctx, "failed to write skills to cache",
-			logging.Field{Key: "error", Value: err.Error()})
+		return nil, fmt.Errorf("write cache: %w", err)
 	}
 
 	return skills, nil
@@ -148,6 +169,8 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceName, sea
 	}, nil
 }
 
+// GetSkill finds a skill by its folder name (the last segment of its slug).
+// The URL path uses the folder name, not the display name.
 func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceName, skillName string) (Skill, error) {
 	skills, err := s.resolve(ctx, tenantID, marketplaceName)
 	if err != nil {
@@ -155,8 +178,8 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceName, skill
 	}
 
 	for _, sk := range skills {
-		if sk.Name == skillName {
-			sk.Slug = "" // omit slug from detail response per ADR
+		if strings.HasSuffix(sk.Slug, "/"+skillName) {
+			sk.Slug = ""
 			return sk, nil
 		}
 	}
