@@ -3,9 +3,7 @@ package operator
 import (
 	"context"
 	"fmt"
-	"maps"
 
-	"k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -22,12 +20,11 @@ type SandboxBase struct {
 }
 
 // ensureBaseSandboxImage keeps kora-base pointing at the install's base image.
-// Every reconcile replaces its whole spec. A field a tenant added, which a
-// server-side apply would keep, does not survive the next reconcile.
+// Every reconcile replaces its whole spec and drops a field a tenant added.
 func (r *TenantReconciler) ensureBaseSandboxImage(ctx context.Context, tenant *OrbitTenant) error {
 	desired := baseSandboxImage(tenantNamespace(tenant), tenant.Name, r.SandboxBase)
-	live := &si.SandboxImage{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), live)
+	existing := &si.SandboxImage{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
 	if apierrors.IsNotFound(err) {
 		if err = r.Create(ctx, desired); err != nil {
 			return fmt.Errorf("create SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
@@ -37,13 +34,11 @@ func (r *TenantReconciler) ensureBaseSandboxImage(ctx context.Context, tenant *O
 	if err != nil {
 		return fmt.Errorf("get SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
 	}
-	if equality.Semantic.DeepEqual(live.Spec, desired.Spec) && maps.Equal(live.Labels, desired.Labels) {
-		return nil
-	}
-	live.Spec = desired.Spec
-	live.Labels = desired.Labels
-	if err = r.Update(ctx, live); err != nil {
-		return fmt.Errorf("update SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
+	patch := client.MergeFrom(existing.DeepCopy())
+	existing.Spec = desired.Spec
+	existing.Labels = desired.Labels
+	if err = r.Patch(ctx, existing, patch); err != nil {
+		return fmt.Errorf("patch SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
 	}
 	return nil
 }
