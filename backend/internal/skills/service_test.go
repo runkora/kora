@@ -3,6 +3,7 @@ package skills
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -16,15 +17,6 @@ type fakeRegistry struct {
 
 func (f *fakeRegistry) ListSources(tenantID string) []MarketplaceSource {
 	return f.sources[tenantID]
-}
-
-func (f *fakeRegistry) FindByName(tenantID, name string) (MarketplaceSource, bool) {
-	for _, s := range f.sources[tenantID] {
-		if s.Name == name {
-			return s, true
-		}
-	}
-	return MarketplaceSource{}, false
 }
 
 type fakeCache struct {
@@ -149,7 +141,7 @@ func TestListSkills_MarketplaceNotFound(t *testing.T) {
 }
 
 func TestListSkills_RedisUnavailable(t *testing.T) {
-	cache := &fakeCache{getErr: errors.New("redis down")}
+	cache := &fakeCache{getErr: fmt.Errorf("connection refused: %w", ErrRedisUnavailable)}
 	svc := newTestService(cache, &fakeCrawler{})
 	_, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "", 0, 15)
 	if !errors.Is(err, ErrRedisUnavailable) {
