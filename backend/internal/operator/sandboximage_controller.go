@@ -110,16 +110,16 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			logging.Field{Key: "sandbox_image", Value: req.String()},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		if err := r.reconcileWarmer(ctx, img); err != nil {
-			return ctrl.Result{}, err
+		if warmErr := r.reconcileWarmer(ctx, img); warmErr != nil {
+			return ctrl.Result{}, warmErr
 		}
 		return ctrl.Result{RequeueAfter: registryRetry}, r.patchStatus(ctx, before, img)
 	case err != nil:
 		// The image the spec names has not been read. It stays unusable and is read again soon.
 		setCondition(img, si.ConditionValid, metav1.ConditionFalse, reason, err.Error())
 		setCondition(img, si.ConditionWarm, metav1.ConditionFalse, reasonWarmNotValid, "the image is not valid")
-		if err := r.deleteWarmer(ctx, img); err != nil {
-			return ctrl.Result{}, err
+		if delErr := r.deleteWarmer(ctx, img); delErr != nil {
+			return ctrl.Result{}, delErr
 		}
 		return ctrl.Result{RequeueAfter: registryRetry}, r.patchStatus(ctx, before, img)
 	}
