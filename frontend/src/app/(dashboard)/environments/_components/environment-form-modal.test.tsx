@@ -133,20 +133,6 @@ describe('EnvironmentFormModal', () => {
     );
   });
 
-  it('blocks a size above the maximum before submitting', () => {
-    const { dialog } = renderModal(null);
-    fireEvent.change(dialog.getByLabelText('Name'), { target: { value: 'Big' } });
-    fireEvent.change(dialog.getByLabelText('CPU'), { target: { value: '64' } });
-    expect(dialog.getByText('Above the maximum of 8.')).toBeInTheDocument();
-    const create = dialog.getByRole('button', { name: 'Create environment' });
-    expect(create).toBeDisabled();
-    fireEvent.click(create);
-    expect(createEnvironment).not.toHaveBeenCalled();
-
-    fireEvent.change(dialog.getByLabelText('CPU'), { target: { value: '8' } });
-    expect(create).toBeEnabled();
-  });
-
   it('blocks saving an environment whose image is not valid', () => {
     const { dialog } = renderModal(ROW);
     expect(dialog.getByText('runs as root')).toBeInTheDocument();
@@ -156,13 +142,12 @@ describe('EnvironmentFormModal', () => {
     expect(dialog.getByRole('button', { name: 'Save changes' })).toBeEnabled();
   });
 
-  it('keeps the API error as the backstop when the limits did not load', async () => {
+  it("shows the API's error when a size is above the maximum", async () => {
     updateEnvironment.mockResolvedValue({
       environment: null,
       error: 'invalid environment: size.cpu 64 is above the maximum 8',
     });
-    const { dialog } = renderModal({ ...ROW, sandboxImage: 'kora-base' }, IMAGES, null);
-    expect(dialog.getByText(/Could not load the size limits/)).toBeInTheDocument();
+    const { dialog } = renderModal({ ...ROW, sandboxImage: 'kora-base' });
     fireEvent.change(dialog.getByLabelText('CPU'), { target: { value: '64' } });
     fireEvent.click(dialog.getByRole('button', { name: 'Save changes' }));
     expect(

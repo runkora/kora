@@ -36,7 +36,7 @@ import {
   updateEnvironment,
 } from '../_services/environments-api';
 import { EgressHostsEditor } from './egress-hosts-editor';
-import { BASE_IMAGE_NAME, imageProblem, sizeProblems } from '@orbit/lib/environments';
+import { BASE_IMAGE_NAME, imageProblem } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentFormModalProps {
@@ -139,8 +139,6 @@ export function EnvironmentFormModal({
   const choices = images ?? [];
   const selected = choices.find((i) => i.name === sandboxImage);
   const problem = imageProblem(sandboxImage, images);
-  const problems = sizeProblems(size, sizes);
-  const blocked = problem !== null || Object.keys(problems).length > 0;
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
@@ -211,7 +209,6 @@ export function EnvironmentFormModal({
                   id={`environment-${field.key}`}
                   label={field.label}
                   hint={sizes ? `Maximum ${sizes.max[field.key]}` : undefined}
-                  error={problems[field.key]}
                 >
                   <Input
                     id={`environment-${field.key}`}
@@ -256,7 +253,7 @@ export function EnvironmentFormModal({
         <Button
           size="sm"
           onClick={() => void handleSubmit()}
-          disabled={submitting || !name.trim() || blocked}
+          disabled={submitting || !name.trim() || problem !== null}
         >
           {submitting
             ? isEdit

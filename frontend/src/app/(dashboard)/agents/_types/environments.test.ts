@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { environmentsKey, setDefaultEnvironment, toggleEnvironment } from '.';
+import { setDefaultEnvironment, toggleEnvironment } from '.';
 
 describe('toggleEnvironment', () => {
   it('makes the first attached environment the default', () => {
@@ -44,19 +44,5 @@ describe('setDefaultEnvironment', () => {
       'b',
     );
     expect(next.filter((e) => e.is_default).map((e) => e.environment_id)).toEqual(['b']);
-  });
-});
-
-describe('environmentsKey', () => {
-  it('ignores order but not the default', () => {
-    const a = { environment_id: 'a', is_default: true };
-    const b = { environment_id: 'b', is_default: false };
-    expect(environmentsKey([a, b])).toBe(environmentsKey([b, a]));
-    expect(environmentsKey([a, b])).not.toBe(
-      environmentsKey([
-        { ...a, is_default: false },
-        { ...b, is_default: true },
-      ]),
-    );
   });
 });

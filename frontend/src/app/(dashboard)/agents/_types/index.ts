@@ -273,12 +273,3 @@ export function toggleEnvironment(list: AgentEnvironment[], id: string): AgentEn
 export function setDefaultEnvironment(list: AgentEnvironment[], id: string): AgentEnvironment[] {
   return list.map((e) => ({ ...e, is_default: e.environment_id === id }));
 }
-
-/** An order-independent form of the list for dirty checks. */
-export function environmentsKey(list: AgentEnvironment[]): string {
-  return JSON.stringify(
-    list
-      .map((e) => [e.environment_id, e.is_default])
-      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
-  );
-}
