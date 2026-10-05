@@ -34,7 +34,6 @@ import {
   loopGuardrailErrors,
   loopGuardrailsPayload,
   loopGuardrailValues,
-  environmentsKey,
   type AgentTypeRow,
   type LoopGuardrailValues,
 } from '../../_types';
@@ -58,6 +57,15 @@ function normalizeConnectors(connectors: Connector[]): string {
 }
 
 const sortedJson = (xs: string[]) => JSON.stringify(xs.slice().sort());
+
+/** Order-independent canonical form for dirty-checking attached environments. */
+function environmentsKey(list: AgentEnvironment[]): string {
+  return JSON.stringify(
+    list
+      .map((e) => [e.environment_id, e.is_default])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  );
+}
 
 interface ConfigurationBaseline {
   name: string;

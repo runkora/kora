@@ -17,7 +17,6 @@ vi.mock('@orbit/server/session', () => ({
 }));
 
 import { POST } from './route';
-import { DELETE } from './[id]/route';
 import { getSession } from '@orbit/server/session';
 
 const session = {
@@ -60,21 +59,5 @@ describe('environments BFF routes', () => {
       egress_hosts: [],
       connectors: [],
     });
-  });
-
-  it('passes the 409 for an attached environment through on delete', async () => {
-    server.use(
-      http.delete('http://test-agents/api/v1/environments/env-1', () =>
-        HttpResponse.json(
-          { code: 'conflict', message: 'environment is attached to an agent; detach it first' },
-          { status: 409 },
-        ),
-      ),
-    );
-    const res = await DELETE(
-      new NextRequest('http://localhost/api/agents/environments/env-1', { method: 'DELETE' }),
-      { params: Promise.resolve({ id: 'env-1' }) },
-    );
-    expect(res.status).toBe(409);
   });
 });

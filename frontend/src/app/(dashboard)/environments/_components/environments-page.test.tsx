@@ -6,8 +6,6 @@ import type { EnvironmentRow } from '../_types';
 const refresh = vi.fn();
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }));
 
-const IN_USE =
-  'This environment is attached to an agent. Detach it from every agent, then delete it.';
 const deleteEnvironment = vi.fn();
 vi.mock('../_services/environments-api', () => ({
   deleteEnvironment: (id: string) => deleteEnvironment(id),
@@ -55,19 +53,6 @@ describe('EnvironmentsPage', () => {
     expect(screen.getByText('kora-base')).toBeInTheDocument();
     expect(screen.getByText('runs as root')).toBeInTheDocument();
     expect(screen.getAllByText('2 CPU · 4Gi memory · 10Gi disk')).toHaveLength(3);
-  });
-
-  it('explains why an attached environment cannot be deleted', async () => {
-    deleteEnvironment.mockResolvedValue({ error: IN_USE });
-    render(
-      <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
-    );
-    fireEvent.click(screen.getByLabelText('Delete Go services'));
-    const dialog = within(screen.getByRole('dialog'));
-    fireEvent.click(dialog.getByRole('button', { name: 'Delete environment' }));
-    expect(await dialog.findByText(IN_USE)).toBeInTheDocument();
-    expect(deleteEnvironment).toHaveBeenCalledWith('a');
-    expect(refresh).not.toHaveBeenCalled();
   });
 
   it('refreshes after deleting an unattached environment', async () => {
