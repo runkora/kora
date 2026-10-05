@@ -38,6 +38,8 @@ ALLOWED=(
   "skills/cache.go.*NewCache"
   "skills/cache.go.*Cache.Get"
   "skills/cache.go.*Cache.Set"
+  # Marketplace scope publication is wired in the policy-service registration ticket.
+  "skills/handlers_skills_entry.go.*MarketplaceScopes"
 )
 
 echo "Checking for unreachable Go functions..."

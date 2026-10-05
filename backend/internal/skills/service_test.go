@@ -224,11 +224,10 @@ func TestListSkills_DefaultLimitApplied(t *testing.T) {
 	}
 }
 
-
 // --- GetSkill ---
 
 func TestGetSkill_Found(t *testing.T) {
-	skills := makeSkills("react-expert","go-expert","react-novice")
+	skills := makeSkills("react-expert", "go-expert", "react-novice")
 	cache := &fakeCache{data: map[string][]Skill{"tenant-a:org:repo": skills}}
 	svc := newTestService(cache, &fakeCrawler{})
 
