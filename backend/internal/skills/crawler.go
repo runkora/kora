@@ -24,9 +24,9 @@ type SkillFilePaths struct {
 }
 
 const (
-	// perRepoCap bounds the concurrent GitHub fetches of a single Crawl call.
+	// perRepoCap bounds the concurrent GitHub fetches of a single FetchSkills call.
 	perRepoCap = 20
-	// globalCap bounds the concurrent GitHub fetches across every Crawl call
+	// globalCap bounds the concurrent GitHub fetches across every FetchSkills call
 	// in the process, protecting the shared GitHub rate limit.
 	globalCap = 100
 )
@@ -37,7 +37,7 @@ type Crawler struct {
 	tokens githubTokenProvider
 	logger logging.Logger
 
-	// globalSem is shared by every Crawl call on this Crawler. Crawler is
+	// globalSem is shared by every FetchSkills call on this Crawler. Crawler is
 	// constructed once per process (main.go wires one), so this one instance
 	// is the process-wide cap.
 	globalSem *semaphore.Weighted
@@ -140,24 +140,20 @@ func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[
 	return skills, nil
 }
 
-// Crawl finds the skills in the marketplace repository and downloads their
-// files. It is the entry point the service layer calls on a cache miss.
+// FetchSkills downloads the files of the skills that FetchTree found. The
+// service layer calls it on a cache miss, after FetchTree. The marketplace
+// name parameter is not used.
 //
-// Skills are fetched in parallel. Crawl returns an error if the tree walk or
-// the token fails, if ctx ends, or if GitHub is unavailable or rate-limits a
-// download (ghclient.ErrUnavailable). For these errors the backend ADR
+// Skills are fetched in parallel. FetchSkills returns an error if the token
+// fails, if ctx ends, or if GitHub is unavailable or rate-limits a download
+// (ghclient.ErrUnavailable). For these errors the backend ADR
 // (docs/adr/2026-08-28-marketplace-adr-backend.md) expects a 503 and no cache
 // write, so a GitHub outage never leaves a partial list in the cache. Any
 // other failure of one skill — bad frontmatter, or a file that fails to
 // download — skips only that skill, with a warning.
 //
 // The result is sorted by Slug.
-func (c *Crawler) Crawl(ctx context.Context, source MarketplaceSource) ([]Skill, error) {
-	skillPaths, err := c.FetchTree(ctx, source)
-	if err != nil {
-		return nil, err
-	}
-
+func (c *Crawler) FetchSkills(ctx context.Context, _ string, source MarketplaceSource, skillPaths map[string]SkillFilePaths) ([]Skill, error) {
 	token, err := c.tokens.Token(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get github token: %w", err)
@@ -200,6 +196,16 @@ func (c *Crawler) Crawl(ctx context.Context, source MarketplaceSource) ([]Skill,
 
 	sort.Slice(skills, func(i, j int) bool { return skills[i].Slug < skills[j].Slug })
 	return skills, nil
+}
+
+// Crawl walks the repository tree and downloads the skills. It calls
+// FetchTree, then FetchSkills, so it returns the same errors and result.
+func (c *Crawler) Crawl(ctx context.Context, source MarketplaceSource) ([]Skill, error) {
+	skillPaths, err := c.FetchTree(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	return c.FetchSkills(ctx, source.Name, source, skillPaths)
 }
 
 // fetchSkill downloads the SKILL.md of one skill, parses its frontmatter,
