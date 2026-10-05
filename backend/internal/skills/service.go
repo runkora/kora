@@ -133,10 +133,7 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceName, sea
 	if offset >= total {
 		skills = []Skill{}
 	} else {
-		end := offset + limit
-		if end > total {
-			end = total
-		}
+		end := min(offset+limit, total)
 		skills = skills[offset:end]
 	}
 
@@ -152,18 +149,17 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceName, sea
 }
 
 func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceName, skillName string) (Skill, error) {
-    skills, err := s.resolve(ctx, tenantID, marketplaceName)
-    if err != nil {
-        return Skill{}, err
-    }
+	skills, err := s.resolve(ctx, tenantID, marketplaceName)
+	if err != nil {
+		return Skill{}, err
+	}
 
-    for _, sk := range skills {
-        if sk.Name == skillName {
-            sk.Slug = ""  // omit slug from detail response per ADR
-            return sk, nil
-        }
-    }
+	for _, sk := range skills {
+		if sk.Name == skillName {
+			sk.Slug = "" // omit slug from detail response per ADR
+			return sk, nil
+		}
+	}
 
-    return Skill{}, ErrSkillNotFound
+	return Skill{}, ErrSkillNotFound
 }
-
