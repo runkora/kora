@@ -847,6 +847,10 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		if err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
 			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("delete sandbox: %w", err))
 		}
+		// The old pod is gone. Record the target so a failed start does not fall back to the old environment.
+		if err = s.envs.SetRunEnvironment(ctx, runID, environmentIDPtr(spec.EnvironmentID)); err != nil {
+			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("record environment: %w", err))
+		}
 	}
 	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, spec)
 	if err != nil {

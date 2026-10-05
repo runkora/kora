@@ -187,6 +187,24 @@ func TestReplaceEnvironment_RetryAfterHalfSuccess(t *testing.T) {
 	}
 }
 
+// A switch whose new pod fails to start leaves the run on the requested
+// environment, not the old one.
+func TestReplaceEnvironment_FailedStartKeepsTarget(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	seedEnvironments(t, repo, k8s)
+	goID := "env-go"
+	repo.runs["run-1"].EnvironmentID = &goID
+	k8s.podEnv, k8s.podLive = "env-go", true
+	k8s.provisionSandboxErr = errors.New("quota exceeded")
+
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "node", true); err == nil {
+		t.Fatal("replace succeeded, want the start failure")
+	}
+	if got := repo.runs["run-1"].EnvironmentID; got == nil || *got != "env-node" {
+		t.Errorf("run environment = %v, want env-node", got)
+	}
+}
+
 func TestListRunEnvironments(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	seedEnvironments(t, repo, k8s)

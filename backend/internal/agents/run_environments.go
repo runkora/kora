@@ -142,11 +142,7 @@ func (s *RunService) sandboxSpec(ctx context.Context, namespace string, env Envi
 // recordSandboxEnvironment stores the run's environment and emits the event
 // naming the environment and image a sandbox started in.
 func (s *RunService) recordSandboxEnvironment(ctx context.Context, runID, action string, spec SandboxSpec) {
-	var envID *string
-	if spec.EnvironmentID != "" {
-		envID = &spec.EnvironmentID
-	}
-	if err := s.envs.SetRunEnvironment(ctx, runID, envID); err != nil {
+	if err := s.envs.SetRunEnvironment(ctx, runID, environmentIDPtr(spec.EnvironmentID)); err != nil {
 		s.logger.Warn(ctx, "recording the run's environment failed",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},
@@ -208,4 +204,12 @@ func (s *RunService) runAndAgent(ctx context.Context, runID string) (*Run, *Agen
 		return nil, nil, fmt.Errorf("get agent type: %w", err)
 	}
 	return run, at, nil
+}
+
+// environmentIDPtr stores the built-in default, which has no ID, as NULL.
+func environmentIDPtr(id string) *string {
+	if id == "" {
+		return nil
+	}
+	return &id
 }
