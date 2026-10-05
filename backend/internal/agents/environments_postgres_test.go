@@ -207,3 +207,24 @@ func TestPostgres_DeleteAttachedEnvironment(t *testing.T) {
 		t.Errorf("run environment = %v after the delete, want nil", *got.EnvironmentID)
 	}
 }
+
+// ListEnvironmentsByIDs keeps the order of the IDs and leaves out IDs the tenant has no environment for.
+func TestPostgres_ListEnvironmentsByIDs(t *testing.T) {
+	r, tenant := testEnvironmentRepo(t)
+	ctx := context.Background()
+	a := testEnvironment(t, r, tenant, "a")
+	b := testEnvironment(t, r, tenant, "b")
+	other, otherTenant := testEnvironmentRepo(t)
+	foreign := testEnvironment(t, other, otherTenant, "c")
+
+	got, err := r.ListEnvironmentsByIDs(ctx, tenant, []string{b.ID, "missing", foreign.ID, a.ID})
+	if err != nil {
+		t.Fatalf("ListEnvironmentsByIDs: %v", err)
+	}
+	if len(got) != 2 || got[0].ID != b.ID || got[1].ID != a.ID {
+		t.Errorf("got %+v, want b then a", got)
+	}
+	if got, err := r.ListEnvironmentsByIDs(ctx, tenant, nil); err != nil || len(got) != 0 {
+		t.Errorf("no ids = %v, %v", got, err)
+	}
+}

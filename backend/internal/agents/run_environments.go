@@ -46,15 +46,11 @@ func failSpan(span trace.Span, status, err error) error {
 	return err
 }
 
-// runEnvironmentRecorder records the environment of a run's current sandbox.
-type runEnvironmentRecorder interface {
-	SetRunEnvironment(ctx context.Context, runID string, environmentID *string) error
-}
-
-// runEnvironmentStore is what sandbox provisioning reads environments from and records them to.
+// runEnvironmentStore is what sandbox provisioning reads environments from and
+// where it records the environment of a run's current sandbox.
 type runEnvironmentStore interface {
 	environmentLookup
-	runEnvironmentRecorder
+	SetRunEnvironment(ctx context.Context, runID string, environmentID *string) error
 }
 
 // eventSandboxEnvironment records which environment and image a sandbox started in.
@@ -76,19 +72,14 @@ func (s *RunService) agentEnvironments(ctx context.Context, at AgentType) ([]Env
 	if len(at.Environments) == 0 {
 		return []Environment{DefaultEnvironment(s.cfg.EnvironmentSizes.Default)}, nil
 	}
-	out := make([]Environment, 0, len(at.Environments))
-	for _, ae := range at.Environments {
-		env, err := s.envs.GetEnvironment(ctx, at.TenantID, ae.EnvironmentID)
-		if err != nil {
-			return nil, fmt.Errorf("load environment %q: %w", ae.EnvironmentID, err)
-		}
-		if ae.IsDefault {
-			out = append([]Environment{*env}, out...)
-		} else {
-			out = append(out, *env)
-		}
+	envs, err := s.envs.ListEnvironmentsByIDs(ctx, at.TenantID, environmentIDs(at.Environments))
+	if err != nil {
+		return nil, fmt.Errorf("load environments: %w", err)
 	}
-	return out, nil
+	if len(envs) != len(at.Environments) {
+		return nil, fmt.Errorf("load environments: %w", ErrNotFound)
+	}
+	return envs, nil
 }
 
 // pickEnvironment chooses the environment for a sandbox: the named one, else

@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -12,11 +11,20 @@ import (
 	platformconns "github.com/clear-route/orbit/internal/platform/connections"
 )
 
-// environmentLookup loads an environment by id within a tenant. Implemented by
-// the environments repository; may be nil in a deployment without an
-// environments store, in which case environment expansion is skipped.
+// environmentLookup loads a tenant's environments by ID, in the order given.
+// An ID the tenant has no environment for is left out. Implemented by the
+// environments repository.
 type environmentLookup interface {
-	GetEnvironment(ctx context.Context, tenantID, id string) (*Environment, error)
+	ListEnvironmentsByIDs(ctx context.Context, tenantID string, ids []string) ([]Environment, error)
+}
+
+// environmentIDs lists the IDs of the attached environments, default first as stored.
+func environmentIDs(envs []AgentEnvironment) []string {
+	ids := make([]string, 0, len(envs))
+	for _, e := range envs {
+		ids = append(ids, e.EnvironmentID)
+	}
+	return ids
 }
 
 // connectionResolver resolves a connection name to its adapter and base host.
@@ -118,18 +126,11 @@ func (r *ScopeResolver) attachedEnvironments(ctx context.Context, at AgentType) 
 	if r.envs == nil {
 		return nil, nil
 	}
-	out := make([]Environment, 0, len(at.Environments))
-	for _, ae := range at.Environments {
-		env, err := r.envs.GetEnvironment(ctx, at.TenantID, ae.EnvironmentID)
-		switch {
-		case err == nil:
-			out = append(out, *env)
-		case errors.Is(err, ErrNotFound):
-		default:
-			return nil, fmt.Errorf("resolve environment %q: %w", ae.EnvironmentID, err)
-		}
+	envs, err := r.envs.ListEnvironmentsByIDs(ctx, at.TenantID, environmentIDs(at.Environments))
+	if err != nil {
+		return nil, fmt.Errorf("resolve environments: %w", err)
 	}
-	return out, nil
+	return envs, nil
 }
 
 // hasAction reports whether the connector grants at least one non-empty action

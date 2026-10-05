@@ -62,6 +62,32 @@ func (r *PostgresRepository) ListEnvironments(ctx context.Context, tenantID stri
 	return out, rows.Err()
 }
 
+// ListEnvironmentsByIDs returns a tenant's environments with the given IDs, in
+// the order of ids. An ID the tenant has no environment for is left out.
+func (r *PostgresRepository) ListEnvironmentsByIDs(ctx context.Context, tenantID string, ids []string) ([]Environment, error) {
+	if len(ids) == 0 {
+		return []Environment{}, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+environmentColumns+` FROM environments
+		WHERE tenant_id = $1 AND id = ANY($2)
+		ORDER BY array_position($2, id)`, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("query environments by id: %w", err)
+	}
+	defer rows.Close()
+
+	out := []Environment{}
+	for rows.Next() {
+		e, err := scanEnvironment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *e)
+	}
+	return out, rows.Err()
+}
+
 func (r *PostgresRepository) UpdateEnvironment(ctx context.Context, env Environment) error {
 	connectorsJSON, err := marshalConnectors(env.Connectors)
 	if err != nil {

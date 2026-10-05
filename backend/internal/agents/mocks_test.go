@@ -313,6 +313,19 @@ func (m *mockRepository) MarkRunFailed(_ context.Context, id string) error {
 	return nil
 }
 
+// ListEnvironmentsByIDs returns the seeded environments of a tenant in the order of ids.
+func (m *mockRepository) ListEnvironmentsByIDs(_ context.Context, tenantID string, ids []string) ([]Environment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Environment{}
+	for _, id := range ids {
+		if e, ok := m.envs[id]; ok && e.TenantID == tenantID {
+			out = append(out, *e)
+		}
+	}
+	return out, nil
+}
+
 // GetEnvironment returns a seeded environment within its tenant.
 func (m *mockRepository) GetEnvironment(_ context.Context, tenantID, id string) (*Environment, error) {
 	m.mu.Lock()

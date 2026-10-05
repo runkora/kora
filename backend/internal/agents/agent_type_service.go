@@ -192,12 +192,13 @@ func (s *AgentTypeService) validateEnvironments(ctx context.Context, tenantID st
 	if s.envs == nil {
 		return out, nil
 	}
+	found, err := s.envs.ListEnvironmentsByIDs(ctx, tenantID, environmentIDs(out))
+	if err != nil {
+		return nil, fmt.Errorf("validate environments: %w", err)
+	}
 	for _, e := range out {
-		if _, err := s.envs.GetEnvironment(ctx, tenantID, e.EnvironmentID); err != nil {
-			if errors.Is(err, ErrNotFound) {
-				return nil, fmt.Errorf("%w: environment %q not found", ErrInvalidEnvironment, e.EnvironmentID)
-			}
-			return nil, fmt.Errorf("validate environment %q: %w", e.EnvironmentID, err)
+		if !slices.ContainsFunc(found, func(f Environment) bool { return f.ID == e.EnvironmentID }) {
+			return nil, fmt.Errorf("%w: environment %q not found", ErrInvalidEnvironment, e.EnvironmentID)
 		}
 	}
 	return out, nil

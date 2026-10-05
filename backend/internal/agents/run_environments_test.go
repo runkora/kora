@@ -24,9 +24,10 @@ func seedEnvironments(t *testing.T, repo *mockRepository, k8s *mockK8s) {
 		"acme-go":   validSandboxImage("acme-go", "ghcr.io/acme/go:1", "sha256:go"),
 		"acme-node": validSandboxImage("acme-node", "ghcr.io/acme/node:1", "sha256:node"),
 	}
+	// Stored links come back default first.
 	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot", Environments: []AgentEnvironment{
-		{EnvironmentID: "env-node"},
 		{EnvironmentID: "env-go", IsDefault: true},
+		{EnvironmentID: "env-node"},
 	}})
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 }
