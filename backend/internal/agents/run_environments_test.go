@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
 	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 )
 
@@ -82,9 +84,14 @@ func TestProvisionSandbox_Refusals(t *testing.T) {
 	}{
 		{"not attached", func(*mockRepository, *mockK8s) {}, "rust", ErrEnvironmentNotAttached},
 		{"switch while alive", func(_ *mockRepository, k8s *mockK8s) { k8s.podEnv, k8s.podLive = "env-go", true }, "node", ErrEnvironmentSwitch},
-		{"image not valid", func(_ *mockRepository, k8s *mockK8s) {
-			k8s.sandboxImages["acme-node"].Status.Digest = ""
+		{"image rejected", func(_ *mockRepository, k8s *mockK8s) {
+			img := k8s.sandboxImages["acme-node"]
+			img.Status.Digest = ""
+			img.Status.Conditions = []metav1.Condition{{Type: si.ConditionValid, Status: metav1.ConditionFalse, Reason: si.ReasonWrongUser, Message: "runs as root"}}
 		}, "node", ErrSandboxImageUnavailable},
+		{"image not validated yet", func(_ *mockRepository, k8s *mockK8s) {
+			k8s.sandboxImages["acme-node"].Spec.Image = "ghcr.io/acme/node:2"
+		}, "node", errSandboxImagePending},
 		{"image not registered", func(_ *mockRepository, k8s *mockK8s) { delete(k8s.sandboxImages, "acme-node") }, "node", ErrSandboxImageUnavailable},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -224,5 +231,17 @@ func TestProvisionSandbox_PodEnvironmentWinsOverRecord(t *testing.T) {
 	envs, err := svc.run.ListRunEnvironments(context.Background(), "run-1")
 	if err != nil || !envs[1].Current {
 		t.Errorf("list = %+v, %v; want node current", envs, err)
+	}
+}
+
+// An image the operator has not validated yet is a retryable failure, not a refusal.
+func TestHandleProvisionSandbox_PendingImageIsRetryable(t *testing.T) {
+	c, repo, k8s, _ := newTestController(t)
+	seedEnvironments(t, repo, k8s)
+	k8s.sandboxImages["acme-go"].Spec.Image = "ghcr.io/acme/go:2"
+	w := httptest.NewRecorder()
+	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", "{}"))
+	if w.Code == http.StatusConflict || w.Code < 500 {
+		t.Errorf("status %d, want a 5xx the session-manager retries", w.Code)
 	}
 }

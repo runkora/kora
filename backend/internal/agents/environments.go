@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -351,34 +352,40 @@ func (s *EnvironmentService) validate(ctx context.Context, env Environment) erro
 	if err := env.Validate(s.cfg.Sizes.Max); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEnvironment, err)
 	}
-	_, err := usableSandboxImage(ctx, s.images, s.cfg.TenantNamespaceFn(env.TenantID), env.SandboxImage, ErrInvalidEnvironment)
+	_, err := usableSandboxImage(ctx, s.images, s.cfg.TenantNamespaceFn(env.TenantID), env.SandboxImage, ErrInvalidEnvironment, ErrInvalidEnvironment)
 	return err
 }
 
 // usableSandboxImage returns the named SandboxImage when it is registered and
-// valid. A missing or invalid image is reported with the caller's sentinel.
-func usableSandboxImage(ctx context.Context, images sandboxImageLookup, namespace, name string, sentinel error) (*si.SandboxImage, error) {
+// valid. A missing or rejected image is reported with unusable. An image the
+// operator has not validated yet is reported with pending.
+func usableSandboxImage(ctx context.Context, images sandboxImageLookup, namespace, name string, unusable, pending error) (*si.SandboxImage, error) {
 	img, err := images.SandboxImage(ctx, namespace, name)
 	if errors.Is(err, ErrNotFound) {
-		return nil, fmt.Errorf("%w: sandbox image %q is not registered", sentinel, name)
+		return nil, fmt.Errorf("%w: sandbox image %q is not registered", unusable, name)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("look up sandbox image %q: %w", name, err)
 	}
-	if !img.Valid() {
-		return nil, fmt.Errorf("%w: sandbox image %q is not valid: %s", sentinel, name, sandboxImageProblem(img))
+	switch {
+	case img.Valid():
+		return img, nil
+	case img.Rejected():
+		return nil, fmt.Errorf("%w: sandbox image %q is not valid: %s", unusable, name, sandboxImageProblem(img))
+	default:
+		return nil, fmt.Errorf("%w: sandbox image %q is not validated yet: %s", pending, name, sandboxImageProblem(img))
 	}
-	return img, nil
 }
 
-// sandboxImageProblem is the operator's reason a SandboxImage is not valid.
+// sandboxImageProblem is the operator's reason a SandboxImage is not valid. A
+// success message from an earlier image does not count.
 func sandboxImageProblem(img *si.SandboxImage) string {
 	for _, c := range img.Status.Conditions {
-		if c.Type == si.ConditionValid && c.Message != "" {
+		if c.Type == si.ConditionValid && c.Status == metav1.ConditionFalse && c.Message != "" {
 			return c.Message
 		}
 	}
-	return "the operator has not validated it yet"
+	return "the operator has not validated the current image"
 }
 
 // reReconcileAgents recompiles each agent's grant in the background, so an

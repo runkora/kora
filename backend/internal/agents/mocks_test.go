@@ -563,7 +563,7 @@ func validSandboxImage(name, image, digest string) *si.SandboxImage {
 	return &si.SandboxImage{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Generation: 1},
 		Spec:       si.Spec{Image: image},
-		Status: si.Status{Digest: digest, ObservedGeneration: 1, Conditions: []metav1.Condition{
+		Status: si.Status{Image: image, Digest: digest, ObservedGeneration: 1, Conditions: []metav1.Condition{
 			{Type: si.ConditionValid, Status: metav1.ConditionTrue, Reason: "Validated"},
 		}},
 	}

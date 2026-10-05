@@ -23,25 +23,40 @@ func TestPin(t *testing.T) {
 }
 
 func TestValid(t *testing.T) {
+	const ref = "ghcr.io/acme/go:1"
 	valid := metav1.Condition{Type: ConditionValid, Status: metav1.ConditionTrue}
-	invalid := metav1.Condition{Type: ConditionValid, Status: metav1.ConditionFalse}
+	rejected := metav1.Condition{Type: ConditionValid, Status: metav1.ConditionFalse, Reason: ReasonWrongUser}
+	unread := metav1.Condition{Type: ConditionValid, Status: metav1.ConditionFalse, Reason: "RegistryError"}
 	for _, tc := range []struct {
-		name   string
-		gen    int64
-		status Status
-		want   bool
+		name         string
+		spec         string
+		status       Status
+		wantValid    bool
+		wantRejected bool
 	}{
-		{"accepted at this generation", 2, Status{Digest: "sha256:a", ObservedGeneration: 2, Conditions: []metav1.Condition{valid}}, true},
-		{"rejected", 2, Status{Digest: "sha256:a", ObservedGeneration: 2, Conditions: []metav1.Condition{invalid}}, false},
-		{"stale generation", 3, Status{Digest: "sha256:a", ObservedGeneration: 2, Conditions: []metav1.Condition{valid}}, false},
-		{"no digest", 2, Status{ObservedGeneration: 2, Conditions: []metav1.Condition{valid}}, false},
-		{"no status", 1, Status{}, false},
+		{"accepted", ref, Status{Image: ref, Digest: "sha256:a", Conditions: []metav1.Condition{valid}}, true, false},
+		{"accepted at an older generation", ref, Status{Image: ref, Digest: "sha256:a", ObservedGeneration: 1, Conditions: []metav1.Condition{valid}}, true, false},
+		{"spec names another image", "ghcr.io/acme/go:2", Status{Image: ref, Digest: "sha256:a", Conditions: []metav1.Condition{valid}}, false, false},
+		{"rejected", ref, Status{Image: ref, Conditions: []metav1.Condition{rejected}}, false, true},
+		{"rejection of an older image", "ghcr.io/acme/go:2", Status{Image: ref, Conditions: []metav1.Condition{rejected}}, false, false},
+		{"not read yet", ref, Status{Conditions: []metav1.Condition{unread}}, false, false},
+		{"no status", ref, Status{}, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s := SandboxImage{ObjectMeta: metav1.ObjectMeta{Generation: tc.gen}, Status: tc.status}
-			if got := s.Valid(); got != tc.want {
-				t.Errorf("Valid() = %v, want %v", got, tc.want)
+			s := SandboxImage{ObjectMeta: metav1.ObjectMeta{Generation: 2}, Spec: Spec{Image: tc.spec}, Status: tc.status}
+			if got := s.Valid(); got != tc.wantValid {
+				t.Errorf("Valid() = %v, want %v", got, tc.wantValid)
+			}
+			if got := s.Rejected(); got != tc.wantRejected {
+				t.Errorf("Rejected() = %v, want %v", got, tc.wantRejected)
 			}
 		})
+	}
+}
+
+func TestPinnedRefUsesTheValidatedImage(t *testing.T) {
+	s := SandboxImage{Spec: Spec{Image: "ghcr.io/acme/go:2"}, Status: Status{Image: "ghcr.io/acme/go:1", Digest: "sha256:a"}}
+	if got := s.PinnedRef(); got != "ghcr.io/acme/go@sha256:a" {
+		t.Errorf("PinnedRef() = %q", got)
 	}
 }

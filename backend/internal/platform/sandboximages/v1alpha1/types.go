@@ -58,25 +58,37 @@ type SecretNameRef struct {
 	Name string `json:"name"`
 }
 
-// Status is written by the operator.
+// Status is written by the operator. Image and Digest are the reference it
+// last read from the registry and the digest that reference resolved to.
 type Status struct {
+	Image              string             `json:"image,omitempty"`
 	Digest             string             `json:"digest,omitempty"`
 	ObservedGeneration int64              `json:"observedGeneration,omitempty"`
 	Conditions         []metav1.Condition `json:"conditions,omitempty"`
 }
 
-// Valid reports whether the operator accepted the image at its current generation.
+// Valid reasons that reject an image. Any other not-valid state may still pass on a later read.
+const (
+	ReasonWrongUser        = "WrongUser"
+	ReasonMissingBaseLabel = "MissingBaseLabel"
+)
+
+// Valid reports whether the operator accepted the image the spec names now.
 func (s *SandboxImage) Valid() bool {
-	if s.Status.Digest == "" || s.Status.ObservedGeneration != s.Generation {
-		return false
-	}
 	c := meta.FindStatusCondition(s.Status.Conditions, ConditionValid)
-	return c != nil && c.Status == metav1.ConditionTrue
+	return s.Status.Digest != "" && s.Status.Image == s.Spec.Image && c != nil && c.Status == metav1.ConditionTrue
 }
 
-// PinnedRef is the image reference pinned to the resolved digest.
+// Rejected reports whether the operator read the image the spec names and refused it.
+func (s *SandboxImage) Rejected() bool {
+	c := meta.FindStatusCondition(s.Status.Conditions, ConditionValid)
+	return s.Status.Image == s.Spec.Image && c != nil && c.Status == metav1.ConditionFalse &&
+		(c.Reason == ReasonWrongUser || c.Reason == ReasonMissingBaseLabel)
+}
+
+// PinnedRef is the validated image reference pinned to its digest.
 func (s *SandboxImage) PinnedRef() string {
-	return pin(s.Spec.Image, s.Status.Digest)
+	return pin(s.Status.Image, s.Status.Digest)
 }
 
 // pin replaces any tag or digest on ref with digest.

@@ -24,8 +24,11 @@ var ErrEnvironmentSwitch = errors.New("the run's sandbox runs in another environ
 // ErrSameEnvironment rejects a replacement into the environment the sandbox already runs in.
 var ErrSameEnvironment = errors.New("the run's sandbox already runs in this environment")
 
-// ErrSandboxImageUnavailable means the environment's SandboxImage is missing or not valid.
+// ErrSandboxImageUnavailable means the environment's SandboxImage is missing or rejected.
 var ErrSandboxImageUnavailable = errors.New("sandbox image unavailable")
+
+// errSandboxImagePending means the operator has not validated the image yet. A later attempt can succeed.
+var errSandboxImagePending = errors.New("sandbox image not validated yet")
 
 // Span statuses of the sandbox provisioning steps.
 var (
@@ -126,7 +129,7 @@ func (s *RunService) currentEnvironment(ctx context.Context, run Run, namespace 
 // sandboxSpec resolves the environment's image to its pinned digest. A missing
 // or invalid SandboxImage cannot start a sandbox.
 func (s *RunService) sandboxSpec(ctx context.Context, namespace string, env Environment) (SandboxSpec, error) {
-	img, err := usableSandboxImage(ctx, s.images, namespace, env.SandboxImage, ErrSandboxImageUnavailable)
+	img, err := usableSandboxImage(ctx, s.images, namespace, env.SandboxImage, ErrSandboxImageUnavailable, errSandboxImagePending)
 	if err != nil {
 		return SandboxSpec{}, err
 	}

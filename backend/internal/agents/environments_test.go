@@ -107,7 +107,7 @@ func TestCreateEnvironment(t *testing.T) {
 		{"blank image is the base image", EnvironmentRequest{Name: "blank", SandboxImage: "  "}, ""},
 		{"registered image", EnvironmentRequest{Name: "go", SandboxImage: "acme-go", Size: EnvironmentSize{CPU: "4"}}, ""},
 		{"unregistered image", EnvironmentRequest{Name: "rust", SandboxImage: "acme-rust"}, "is not registered"},
-		{"invalid image", EnvironmentRequest{Name: "x", SandboxImage: "broken"}, "is not valid"},
+		{"image not validated", EnvironmentRequest{Name: "x", SandboxImage: "broken"}, "is not validated yet"},
 		{"too large", EnvironmentRequest{Name: "big", Size: EnvironmentSize{Memory: "64Gi"}}, "above the maximum"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
