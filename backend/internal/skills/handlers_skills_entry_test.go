@@ -414,6 +414,23 @@ func TestControllerAuthorization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	delegationClaims := jwt.MapClaims{
+		"iss":                      token.DefaultIssuer,
+		"aud":                      token.DefaultAudience,
+		"exp":                      time.Now().Add(5 * time.Minute).Unix(),
+		"sub":                      "caller",
+		"act":                      map[string]string{"sub": "agent-1"},
+		"jti":                      "delegation-1",
+		"run_id":                   "run-1",
+		"delegator_principal_type": string(token.PrincipalTypeHuman),
+		"tenant_id":                "tenant-a",
+	}
+	signedDelegation := jwt.NewWithClaims(jwt.SigningMethodRS256, delegationClaims)
+	signedDelegation.Header["kid"] = "skills-test"
+	validDelegation, err := signedDelegation.SignedString(key)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, tc := range []struct {
 		name, auth, delegation string
@@ -424,6 +441,7 @@ func TestControllerAuthorization(t *testing.T) {
 		{"missing token", "", "", true, nil, http.StatusUnauthorized, 0},
 		{"invalid token", "invalid", "", true, nil, http.StatusUnauthorized, 0},
 		{"invalid delegation", validToken, "invalid", true, nil, http.StatusUnauthorized, 0},
+		{"valid delegation token", validToken, validDelegation, true, nil, http.StatusOK, 1},
 		{"denied scope", validToken, "", false, nil, http.StatusForbidden, 1},
 		{"policy unavailable", validToken, "", true, errors.New("policy unavailable"), http.StatusForbidden, 1},
 		{"allowed", validToken, "", true, nil, http.StatusOK, 1},
@@ -453,6 +471,13 @@ func TestControllerAuthorization(t *testing.T) {
 					input := eval.inputs[0]
 					if input.Claims.Orbit.TenantID != "tenant-a" || input.ResourceType != "marketplace" || input.Action != "read" {
 						t.Fatalf("wrong policy input: %+v", input)
+					}
+					if tc.delegation != "" {
+						if input.Delegation == nil || input.Delegation.JTI != "delegation-1" {
+							t.Fatalf("delegation did not reach policy: %+v", input.Delegation)
+						}
+					} else if input.Delegation != nil {
+						t.Fatalf("unexpected delegation in policy input: %+v", input.Delegation)
 					}
 				}
 			})
