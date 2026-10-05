@@ -45,10 +45,9 @@ type Notifier interface {
 	ExhaustRun(ctx context.Context, runID string, fromState string) error
 	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 	// given run and returns how to reach and authenticate to it.
-	// environment names one of the agent's environments; empty keeps the current one.
-	ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string) (Sandbox, error)
-	// ReplaceEnvironment replaces the run's sandbox with one in another environment.
-	ReplaceEnvironment(ctx context.Context, runID, environment string) (Sandbox, error)
+	// environment names one of the agent's environments; empty keeps the
+	// current one. replace switches a live sandbox to it.
+	ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error)
 	// ListEnvironments returns orbit-agents' list of the run's environments as is.
 	ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error)
 	GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error)
@@ -66,10 +65,7 @@ func (NoopNotifier) IdleRun(_ context.Context, _ string) error                  
 func (NoopNotifier) ActivateRun(_ context.Context, _ string) error                   { return nil }
 func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ string, _ bool) error { return nil }
 func (NoopNotifier) ExhaustRun(_ context.Context, _ string, _ string) error          { return nil }
-func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, _ string) (Sandbox, error) {
-	return Sandbox{}, nil
-}
-func (NoopNotifier) ReplaceEnvironment(_ context.Context, _, _ string) (Sandbox, error) {
+func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, _ string, _ bool) (Sandbox, error) {
 	return Sandbox{}, nil
 }
 func (NoopNotifier) ListEnvironments(_ context.Context, _ string) (json.RawMessage, error) {
@@ -187,24 +183,19 @@ func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, b
 	return result, true, nil
 }
 
-func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string) (Sandbox, error) {
+func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error) {
 	target := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
 	if ahead {
 		target += "?ahead=true"
 	}
-	return n.sandboxCall(ctx, "sessionmanager.Notifier.ProvisionSandbox", target, environment)
+	return n.sandboxCall(ctx, "sessionmanager.Notifier.ProvisionSandbox", target, environment, replace)
 }
 
-func (n *HTTPNotifier) ReplaceEnvironment(ctx context.Context, runID, environment string) (Sandbox, error) {
-	target := fmt.Sprintf("%s/internal/runs/%s/replace-environment", n.baseURL, runID)
-	return n.sandboxCall(ctx, "sessionmanager.Notifier.ReplaceEnvironment", target, environment)
-}
-
-// sandboxCall posts the environment to a route that answers with a sandbox. A
-// 409 is a refused environment choice, returned as ErrEnvironmentRejected with
+// sandboxCall posts the environment choice to a route that answers with a
+// sandbox. A 409 is a refused choice, returned as ErrEnvironmentRejected with
 // orbit-agents' message.
-func (n *HTTPNotifier) sandboxCall(ctx context.Context, name, target, environment string) (Sandbox, error) {
-	body, _ := json.Marshal(map[string]string{"environment": environment})
+func (n *HTTPNotifier) sandboxCall(ctx context.Context, name, target, environment string, replace bool) (Sandbox, error) {
+	body, _ := json.Marshal(map[string]any{"environment": environment, "replace": replace})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("build request: %w", err)

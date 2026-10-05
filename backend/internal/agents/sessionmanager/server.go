@@ -414,7 +414,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 	bgCtx := context.WithoutCancel(ctx)
 	go func() {
-		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true, ""); err != nil {
+		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true, "", false); err != nil {
 			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -631,7 +631,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, strings.TrimSpace(req.Environment))
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, false)
 	if err != nil {
 		c.writeSandboxError(ctx, w, runID, err, "failed to provision sandbox")
 		return
@@ -650,12 +650,8 @@ func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Req
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	req.Environment = strings.TrimSpace(req.Environment)
-	if req.Environment == "" {
-		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeMissingField, "environment is required", nil), nil)
-		return
-	}
-	endpoint, err := c.registry.ReplaceEnvironment(ctx, runID, req.Environment)
+	// orbit-agents checks the name and refuses a replacement without one.
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, true)
 	if err != nil {
 		c.writeSandboxError(ctx, w, runID, err, "failed to replace the sandbox")
 		return

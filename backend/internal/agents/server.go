@@ -148,7 +148,6 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
 	mux.Handle("GET /internal/runs/{id}/environments", c.handleListRunEnvironments)
-	mux.Handle("POST /internal/runs/{id}/replace-environment", c.handleReplaceEnvironment)
 }
 
 // handleHealth returns liveness status.
@@ -896,7 +895,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
 		return
 	}
-	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead, strings.TrimSpace(req.Environment))
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead, req.Environment, req.Replace)
 	if err != nil {
 		if c.writeEnvironmentChoiceError(ctx, w, err) {
 			return
@@ -932,7 +931,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 // writeEnvironmentChoiceError answers a refused environment choice with a 409
 // whose message the agent reads. It reports whether err was one.
 func (c *Controller) writeEnvironmentChoiceError(ctx context.Context, w http.ResponseWriter, err error) bool {
-	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrSameEnvironment, ErrSandboxImageUnavailable} {
+	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrEnvironmentRequired, ErrSandboxImageUnavailable} {
 		if errors.Is(err, target) {
 			api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
 			return true
@@ -957,41 +956,11 @@ func (c *Controller) handleListRunEnvironments(w http.ResponseWriter, r *http.Re
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"environments": envs})
 }
 
-// sandboxEnvironmentRequest names the environment of a sandbox provision or replacement.
+// sandboxEnvironmentRequest names the environment of a sandbox. Replace
+// switches a live sandbox to it.
 type sandboxEnvironmentRequest struct {
 	Environment string `json:"environment"`
-}
-
-// handleReplaceEnvironment replaces the run's sandbox with one in another environment.
-func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	id := r.PathValue("id")
-	if !c.authorizeCallback(ctx, w, id) {
-		return
-	}
-	var req sandboxEnvironmentRequest
-	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
-		return
-	}
-	req.Environment = strings.TrimSpace(req.Environment)
-	if req.Environment == "" {
-		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeMissingField, "environment is required", nil), nil)
-		return
-	}
-	sandbox, err := c.runs.ReplaceEnvironment(ctx, id, req.Environment)
-	if err != nil {
-		if c.writeEnvironmentChoiceError(ctx, w, err) {
-			return
-		}
-		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to replace the sandbox", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
-		return
-	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
-		"endpoint":    sandbox.Endpoint,
-		"exec_token":  sandbox.ExecToken,
-		"canary_host": sandbox.CanaryHost,
-	})
+	Replace     bool   `json:"replace"`
 }
 
 // invalidAgentTypeField reports an agent-type write the request itself got wrong, answered with a 400.

@@ -122,7 +122,7 @@ var ErrSandboxLost = errors.New("sandbox lost")
 // backoff within the attempt count and the overall budget. Each attempt gets an
 // equal share of the budget, so one hung call cannot use up every retry. It
 // returns how many attempts it made.
-func (reg *Registry) provisionWithRetry(ctx context.Context, s *session, environment string) (Sandbox, int, error) {
+func (reg *Registry) provisionWithRetry(ctx context.Context, s *session, environment string, replace bool) (Sandbox, int, error) {
 	runID := s.runID
 	g := reg.limits(s)
 	ctx, cancel := context.WithTimeout(ctx, g.SandboxProvisionBudget)
@@ -133,7 +133,7 @@ func (reg *Registry) provisionWithRetry(ctx context.Context, s *session, environ
 	var lastErr error
 	for attempt := 1; attempt <= g.SandboxProvisionAttempts; attempt++ {
 		attemptCtx, attemptCancel := context.WithTimeout(ctx, perAttempt)
-		sandbox, err := reg.notifier.ProvisionSandbox(attemptCtx, runID, false, environment)
+		sandbox, err := reg.notifier.ProvisionSandbox(attemptCtx, runID, false, environment, replace)
 		attemptCancel()
 		if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
 			err = ErrSandboxIncomplete

@@ -365,7 +365,7 @@ type Sandbox struct {
 // answer or the wait runs out. An agent with no named host skips the probe. This eliminates the first-minute window where
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
-func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string) (string, error) {
+func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (string, error) {
 	// Only runs this pod hosts: loopback tells the /internal routes that the
 	// caller is in this pod, not which run it belongs to.
 	reg.mu.RLock()
@@ -379,8 +379,8 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	s.provisionMu.Lock()
 	defer s.provisionMu.Unlock()
 
-	// A named environment always asks orbit-agents, which refuses a switch.
-	if disk, ok := reg.sandboxFromDisk(runID); ok && environment == "" {
+	// A named environment or a replacement always asks orbit-agents.
+	if disk, ok := reg.sandboxFromDisk(runID); ok && environment == "" && !replace {
 		cached, token := disk.Endpoint, disk.ExecToken
 		if endpointAlive(cached) {
 			reg.logger.Info(ctx, "Sandbox endpoint cache hit",
@@ -398,38 +398,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 
 	started := time.Now()
 	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
-	sandbox, err := reg.provision(ctx, s, ahead, environment)
-	if err != nil {
-		reg.sandboxFailed(ctx, runID, started, err)
-		return "", err
-	}
-	return reg.handOver(ctx, runID, sandbox, started)
-}
-
-// ReplaceEnvironment replaces the run's sandbox with one in another of its
-// agent's environments, then hands the new sandbox over like a provision.
-func (reg *Registry) ReplaceEnvironment(ctx context.Context, runID, environment string) (string, error) {
-	reg.mu.RLock()
-	s, ok := reg.sessions[runID]
-	reg.mu.RUnlock()
-	if !ok {
-		return "", ErrSessionNotFound
-	}
-	s.provisionMu.Lock()
-	defer s.provisionMu.Unlock()
-	if s.sandboxLost.Load() {
-		return "", ErrSandboxLost
-	}
-
-	// The replacement outlives the caller like a provision does: the agent's
-	// tool call can time out while the new pod starts.
-	runCtx := s.runCtx
-	if runCtx == nil {
-		runCtx = context.Background()
-	}
-	started := time.Now()
-	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
-	sandbox, err := reg.notifier.ReplaceEnvironment(runCtx, runID, environment)
+	sandbox, err := reg.provision(ctx, s, ahead, environment, replace)
 	if err != nil {
 		reg.sandboxFailed(ctx, runID, started, err)
 		return "", err
@@ -536,9 +505,9 @@ func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, sta
 //
 // The retries outlive the caller: Claude Code kills a Bash call after its own
 // timeout, and the outcome must still be recorded.
-func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, environment string) (Sandbox, error) {
+func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, environment string, replace bool) (Sandbox, error) {
 	if ahead {
-		sandbox, err := reg.notifier.ProvisionSandbox(ctx, s.runID, true, environment)
+		sandbox, err := reg.notifier.ProvisionSandbox(ctx, s.runID, true, environment, replace)
 		if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
 			err = ErrSandboxIncomplete
 		}
@@ -552,7 +521,7 @@ func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, envi
 	if runCtx == nil {
 		runCtx = context.Background()
 	}
-	sandbox, attempts, err := reg.provisionWithRetry(runCtx, s, environment)
+	sandbox, attempts, err := reg.provisionWithRetry(runCtx, s, environment, replace)
 	if err == nil {
 		return sandbox, nil
 	}

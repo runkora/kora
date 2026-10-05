@@ -30,24 +30,24 @@ func TestHTTPNotifier_EnvironmentRejected(t *testing.T) {
 	defer srv.Close()
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 
-	_, err := n.ProvisionSandbox(context.Background(), "run-1", true, "rust")
+	_, err := n.ProvisionSandbox(context.Background(), "run-1", true, "rust", false)
 	if !errors.Is(err, ErrEnvironmentRejected) || !strings.Contains(err.Error(), "not attached") {
 		t.Fatalf("err = %v, want ErrEnvironmentRejected with the message", err)
 	}
-	if gotQuery != "ahead=true" || gotBody != `{"environment":"rust"}` {
+	if gotQuery != "ahead=true" || gotBody != `{"environment":"rust","replace":false}` {
 		t.Errorf("query %q body %s, want ahead=true and the environment in the body", gotQuery, gotBody)
 	}
 
-	_, err = n.ReplaceEnvironment(context.Background(), "run-1", "node")
+	_, err = n.ProvisionSandbox(context.Background(), "run-1", false, "node", true)
 	if !errors.Is(err, ErrEnvironmentRejected) {
 		t.Fatalf("replace err = %v, want ErrEnvironmentRejected", err)
 	}
-	if gotBody != `{"environment":"node"}` {
+	if gotBody != `{"environment":"node","replace":true}` {
 		t.Errorf("replace body = %s", gotBody)
 	}
 }
 
-// envNotifier refuses every provision and replaces into a dead address.
+// envNotifier refuses every provision and answers a replacement with a sandbox at a dead address.
 type envNotifier struct {
 	NoopNotifier
 	mu          sync.Mutex
@@ -59,20 +59,17 @@ type envNotifier struct {
 	replaceCtxErr error
 }
 
-func (n *envNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, env string) (Sandbox, error) {
+func (n *envNotifier) ProvisionSandbox(ctx context.Context, _ string, _ bool, env string, replace bool) (Sandbox, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
+	if replace {
+		n.replaced = env
+		n.replaceCtxErr = ctx.Err()
+		return Sandbox{Endpoint: "127.0.0.1:1", ExecToken: "tok-new"}, nil
+	}
 	n.calls++
 	n.environment = env
 	return Sandbox{}, fmt.Errorf("%w: not attached", ErrEnvironmentRejected)
-}
-
-func (n *envNotifier) ReplaceEnvironment(ctx context.Context, _ string, env string) (Sandbox, error) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	n.replaced = env
-	n.replaceCtxErr = ctx.Err()
-	return Sandbox{Endpoint: "127.0.0.1:1", ExecToken: "tok-new"}, nil
 }
 
 func (n *envNotifier) Notify(_ context.Context, _ string, ev Event) error {
@@ -91,7 +88,7 @@ func TestProvisionSandbox_RefusedEnvironmentIsNotALoss(t *testing.T) {
 	setGuardrails(reg, fastGuardrails())
 	hostSession(reg, "run-1")
 
-	_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "rust")
+	_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "rust", false)
 	if !errors.Is(err, ErrEnvironmentRejected) {
 		t.Fatalf("err = %v, want ErrEnvironmentRejected", err)
 	}
@@ -113,8 +110,8 @@ func TestReplaceEnvironment_WritesDescriptor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := reg.ReplaceEnvironment(context.Background(), "run-1", "node"); err != nil {
-		t.Fatalf("ReplaceEnvironment: %v", err)
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "node", true); err != nil {
+		t.Fatalf("replace: %v", err)
 	}
 	if n.replaced != "node" {
 		t.Errorf("replaced into %q, want node", n.replaced)
@@ -166,7 +163,7 @@ func TestHTTPNotifier_SandboxCallErrorBody(t *testing.T) {
 			_, _ = w.Write([]byte(tc.body))
 		}))
 		n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-		_, err := n.ProvisionSandbox(context.Background(), "run-1", false, "")
+		_, err := n.ProvisionSandbox(context.Background(), "run-1", false, "", false)
 		srv.Close()
 		if errors.Is(err, ErrEnvironmentRejected) || err == nil || !strings.Contains(err.Error(), tc.body) || !strings.Contains(err.Error(), fmt.Sprint(tc.status)) {
 			t.Errorf("status %d: err = %v, want the status and body", tc.status, err)
@@ -181,8 +178,24 @@ func TestReplaceEnvironment_OutlivesTheRequest(t *testing.T) {
 	hostSession(reg, "run-1")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _ = reg.ReplaceEnvironment(ctx, "run-1", "node")
+	_, _ = reg.ProvisionSandbox(ctx, "run-1", false, "node", true)
 	if n.replaceCtxErr != nil {
 		t.Errorf("replacement ran on the cancelled request context: %v", n.replaceCtxErr)
+	}
+}
+
+// A replacement shares the provision retries and the sandbox-lost handling.
+func TestReplaceEnvironment_RetriesThenLosesTheSandbox(t *testing.T) {
+	n := &failingNotifier{failures: 100}
+	reg, _ := newTestRegistry(t, n)
+	setGuardrails(reg, fastGuardrails())
+	hostSession(reg, "run-1")
+
+	_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "node", true)
+	if !errors.Is(err, ErrSandboxLost) {
+		t.Fatalf("err = %v, want ErrSandboxLost", err)
+	}
+	if n.calls != fastGuardrails().SandboxProvisionAttempts {
+		t.Errorf("calls = %d, want %d attempts", n.calls, fastGuardrails().SandboxProvisionAttempts)
 	}
 }

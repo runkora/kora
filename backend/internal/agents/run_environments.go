@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"strings"
 
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
@@ -21,8 +20,8 @@ var ErrEnvironmentNotAttached = errors.New("environment is not attached to this 
 // run's sandbox is alive. replace_environment switches.
 var ErrEnvironmentSwitch = errors.New("the run's sandbox runs in another environment")
 
-// ErrSameEnvironment rejects a replacement into the environment the sandbox already runs in.
-var ErrSameEnvironment = errors.New("the run's sandbox already runs in this environment")
+// ErrEnvironmentRequired rejects a replacement that names no environment.
+var ErrEnvironmentRequired = errors.New("environment is required")
 
 // ErrSandboxImageUnavailable means the environment's SandboxImage is missing or rejected.
 var ErrSandboxImageUnavailable = errors.New("sandbox image unavailable")
@@ -36,7 +35,6 @@ var (
 	errResolveEnvironment  = errors.New("resolve environment")
 	errResolveSandboxImage = errors.New("resolve sandbox image")
 	errProvisionPod        = errors.New("provision sandbox pod")
-	errReplaceEnvironment  = errors.New("replace environment")
 )
 
 // failSpan records err on span with a static status and returns err.
@@ -103,6 +101,14 @@ func pickEnvironment(envs []Environment, name, current string) (Environment, err
 	return envs[0], nil
 }
 
+// recordedEnvironment is the environment the run record names, "" for the built-in default.
+func recordedEnvironment(run Run) string {
+	if run.EnvironmentID == nil {
+		return ""
+	}
+	return *run.EnvironmentID
+}
+
 // currentEnvironment is the environment ID of the run's sandbox, "" for the
 // built-in default. A live pod's own annotation wins over the run record,
 // which a provision that timed out mid-start can leave behind.
@@ -111,10 +117,7 @@ func (s *RunService) currentEnvironment(ctx context.Context, run Run, namespace 
 	if err != nil || live {
 		return podEnv, live, err
 	}
-	if run.EnvironmentID == nil {
-		return "", false, nil
-	}
-	return *run.EnvironmentID, false, nil
+	return recordedEnvironment(run), false, nil
 }
 
 // sandboxSpec resolves the environment's image to its pinned digest. A missing
@@ -192,51 +195,6 @@ func (s *RunService) ListRunEnvironments(ctx context.Context, runID string) ([]R
 		})
 	}
 	return out, nil
-}
-
-// ReplaceEnvironment replaces the run's sandbox with one in another of its
-// agent's environments. Running commands end; the workspace stays.
-func (s *RunService) ReplaceEnvironment(ctx context.Context, runID, name string) (Sandbox, error) {
-	ctx, span := agentsTracer.Start(ctx, "agents.ReplaceEnvironment",
-		trace.WithAttributes(attribute.String("run_id", runID), attribute.String("environment", name)))
-	defer span.End()
-
-	run, at, err := s.runAndAgent(ctx, runID)
-	if err != nil {
-		return Sandbox{}, failSpan(span, errLoadRun, err)
-	}
-	envs, err := s.agentEnvironments(ctx, *at)
-	if err != nil {
-		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
-	}
-	env, err := pickEnvironment(envs, strings.TrimSpace(name), "")
-	if err != nil {
-		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
-	}
-	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	current, live, err := s.currentEnvironment(ctx, *run, namespace)
-	if err != nil {
-		return Sandbox{}, failSpan(span, errResolveEnvironment, err)
-	}
-	if live && env.ID == current {
-		return Sandbox{}, failSpan(span, errResolveEnvironment, fmt.Errorf("%w: %q", ErrSameEnvironment, env.Name))
-	}
-	spec, err := s.sandboxSpec(ctx, namespace, env)
-	if err != nil {
-		return Sandbox{}, failSpan(span, errResolveSandboxImage, err)
-	}
-	spec.KubeClusters, _ = s.sandboxKubeClusters(ctx, *at)
-
-	if err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
-		return Sandbox{}, failSpan(span, errReplaceEnvironment, fmt.Errorf("delete sandbox: %w", err))
-	}
-	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, spec)
-	if err != nil {
-		return Sandbox{}, failSpan(span, errReplaceEnvironment, fmt.Errorf("provision sandbox pod: %w", err))
-	}
-	s.recordSandboxEnvironment(ctx, runID, "replace", spec)
-	sandbox.CanaryHost = s.egressCanaryHost(ctx, *at)
-	return sandbox, nil
 }
 
 // runAndAgent loads a run and its agent type.
