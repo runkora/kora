@@ -163,7 +163,7 @@ agents:
 
 `disk` sizes a node-local volume in each sandbox that holds the Go, npm and pip caches and user-level tool installs. The repository checkout stays on the shared workspace.
 
-The operator needs `agents.sandboxImages.registryPorts` for a registry on a port other than 443. `agents.sandboxImages.insecureRegistries` lists registries it reads over plain HTTP, such as the local k3d registry. `agents.sandboxImages.registryMirrors` maps a registry host in image references to the host the operator reads from, as the nodes' registry mirrors do.
+The operator needs `agents.sandboxImages.registryPorts` for a registry on a port other than 443. `agents.sandboxImages.registryMirrors` maps a registry host in image references to the host the operator reads from, as the nodes' registry mirrors do. A mirror given as `http://host` is read over plain HTTP, such as the local k3d registry.
 
 ### Pod metadata and cloud identity for agents
 

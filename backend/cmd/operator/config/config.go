@@ -11,6 +11,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
+	"github.com/clear-route/orbit/internal/operator"
 	"github.com/clear-route/orbit/internal/platform/config"
 )
 
@@ -76,14 +77,11 @@ type SandboxImages struct {
 	BaseImage string
 	// BaseWarm keeps the base image pulled on the nodes that run sandboxes.
 	BaseWarm bool
-	// InsecureRegistries are read over plain HTTP, such as the local k3d registry.
-	InsecureRegistries []string
 	// RegistryMirrors maps a registry host in an image reference to the host the
-	// operator reads it from, as comma-separated from=to pairs.
-	RegistryMirrors string
-	// WarmerPlacement is the sandbox placement as JSON: nodeSelector,
-	// tolerations, affinity, topologySpreadConstraints and priorityClassName.
-	WarmerPlacement string
+	// operator reads it from. A target given as http://host is read over plain HTTP.
+	RegistryMirrors map[string]string
+	// WarmerPlacement is where image warmers run: the sandbox placement.
+	WarmerPlacement operator.WarmerPlacement
 }
 
 // Injection describes the containers the webhook adds to every tenant pod.
@@ -162,11 +160,10 @@ func loadInstall() Install {
 			Audit:   envOr("ORBIT_TENANT_PSA_AUDIT", "restricted"),
 		},
 		SandboxImages: SandboxImages{
-			BaseImage:          envOr("ORBIT_SANDBOX_BASE_IMAGE", "ghcr.io/clear-route/kora-sandbox-base:latest"),
-			BaseWarm:           os.Getenv("ORBIT_SANDBOX_BASE_WARM") == "true",
-			InsecureRegistries: splitList(os.Getenv("ORBIT_SANDBOX_INSECURE_REGISTRIES")),
-			RegistryMirrors:    os.Getenv("ORBIT_SANDBOX_REGISTRY_MIRRORS"),
-			WarmerPlacement:    os.Getenv("ORBIT_SANDBOX_WARMER_PLACEMENT"),
+			BaseImage:       envOr("ORBIT_SANDBOX_BASE_IMAGE", "ghcr.io/clear-route/kora-sandbox-base:latest"),
+			BaseWarm:        os.Getenv("ORBIT_SANDBOX_BASE_WARM") == "true",
+			RegistryMirrors: jsonEnv[map[string]string]("ORBIT_SANDBOX_REGISTRY_MIRRORS"),
+			WarmerPlacement: jsonEnv[operator.WarmerPlacement]("ORBIT_SANDBOX_WARMER_PLACEMENT"),
 		},
 		Preflight: Preflight{
 			SupportedIstioMinors: splitList(os.Getenv("ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS")),
@@ -200,6 +197,21 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// StartupErrors collects settings that do not parse. main refuses to start while any exist.
+var StartupErrors []error
+
+// jsonEnv parses a JSON environment variable. An empty variable is the zero value.
+// Malformed JSON is recorded in StartupErrors.
+func jsonEnv[T any](key string) T {
+	var v T
+	if raw := os.Getenv(key); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &v); err != nil {
+			StartupErrors = append(StartupErrors, fmt.Errorf("%s: %w", key, err))
+		}
+	}
+	return v
 }
 
 // ResourceParseErrors collects the keys resourcesEnv failed to parse, so

@@ -58,8 +58,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
-| agents.sandboxImages.insecureRegistries | list | `[]` | Registries the operator reads over plain HTTP when it validates an image. For a local development registry only. |
-| agents.sandboxImages.registryMirrors | object | `{}` | Registry hosts the operator reads through another host, as the nodes' registry mirrors do. Keys are the host in image references. |
+| agents.sandboxImages.registryMirrors | object | `{}` | Registry hosts the operator reads through another host, as the nodes' registry mirrors do. Keys are the host in image references. A value given as http://host is read over plain HTTP, for a local registry only. |
 | agents.sandboxImages.registryPorts | list | `[]` | Registry ports other than 443 the operator may dial to validate images. |
 | agents.sandboxImages.warmBase | bool | `false` | Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage sets its own with spec.warm. Each warm image runs one DaemonSet per tenant. |
 | agents.sandboxWarming.affinity | object | `{}` |  |

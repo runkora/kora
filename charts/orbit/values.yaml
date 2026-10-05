@@ -598,13 +598,11 @@ agents:
     # -- Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage
     # sets its own with spec.warm. Each warm image runs one DaemonSet per tenant.
     warmBase: false
-    # -- Registries the operator reads over plain HTTP when it validates an
-    # image. For a local development registry only.
-    insecureRegistries: []
     # -- Registry ports other than 443 the operator may dial to validate images.
     registryPorts: []
     # -- Registry hosts the operator reads through another host, as the nodes'
-    # registry mirrors do. Keys are the host in image references.
+    # registry mirrors do. Keys are the host in image references. A value given
+    # as http://host is read over plain HTTP, for a local registry only.
     registryMirrors: {}
   # Warm-start for sandboxes, so a run does not wait for a node to boot and the
   # sandbox image to pull. Placement follows agents.workloads.sandbox, so the

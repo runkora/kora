@@ -516,14 +516,3 @@ endpoint is set. The port parse matches the collector rule in netpols.yaml.
 {{- $cidrs | uniq | join "," -}}
 {{- end -}}
 {{- end -}}
-
-{{/*
-A map as comma-separated key=value pairs, sorted by key.
-*/}}
-{{- define "orbit.pairs" -}}
-{{- $out := list -}}
-{{- range $k := keys . | sortAlpha -}}
-{{- $out = append $out (printf "%s=%s" $k (index $ $k)) -}}
-{{- end -}}
-{{- join "," $out -}}
-{{- end }}

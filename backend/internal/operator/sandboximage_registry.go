@@ -3,10 +3,8 @@ package operator
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"runtime"
-	"slices"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -30,53 +28,33 @@ type registryReader interface {
 	Read(ctx context.Context, ref string, auth []dockerConfig) (imageConfig, error)
 }
 
-// remoteRegistry reads registries over HTTPS. Insecure lists registries reached
-// over plain HTTP. Mirrors maps a registry host in an image reference to the
-// host the operator reads it from, as the nodes' own registry mirrors do.
+// remoteRegistry reads registries over HTTPS. Mirrors maps a registry host in
+// an image reference to the host the operator reads it from, as the nodes'
+// own registry mirrors do. A mirror given as http://host is read over plain HTTP.
 type remoteRegistry struct {
-	Insecure []string
-	Mirrors  map[string]string
-}
-
-// errRegistryMirror reports a registry mirror entry that is not from=to.
-var errRegistryMirror = errors.New("registry mirror must be from=to")
-
-// ParseRegistryMirrors parses comma-separated from=to registry host pairs.
-func ParseRegistryMirrors(v string) (map[string]string, error) {
-	out := map[string]string{}
-	for entry := range strings.SplitSeq(v, ",") {
-		entry = strings.TrimSpace(entry)
-		if entry == "" {
-			continue
-		}
-		from, to, ok := strings.Cut(entry, "=")
-		from, to = strings.TrimSpace(from), strings.TrimSpace(to)
-		if !ok || from == "" || to == "" {
-			return nil, fmt.Errorf("%w: %q", errRegistryMirror, entry)
-		}
-		out[from] = to
-	}
-	return out, nil
+	Mirrors map[string]string
 }
 
 // NewRemoteRegistry reads image configs from their registries.
-func NewRemoteRegistry(insecure []string, mirrors map[string]string) registryReader {
-	return remoteRegistry{Insecure: insecure, Mirrors: mirrors}
+func NewRemoteRegistry(mirrors map[string]string) registryReader {
+	return remoteRegistry{Mirrors: mirrors}
 }
 
 // Read resolves ref to a digest and reads the config of the image for the
 // operator's own architecture. An index digest is returned as is. Each node
 // then pulls its own platform from it.
 func (r remoteRegistry) Read(ctx context.Context, ref string, auth []dockerConfig) (imageConfig, error) {
+	var opts []name.Option
 	for from, to := range r.Mirrors {
 		if rest, ok := strings.CutPrefix(ref, from+"/"); ok {
-			ref = to + "/" + rest
+			// An http:// mirror is read over plain HTTP.
+			if host, plain := strings.CutPrefix(to, "http://"); plain {
+				to = host
+				opts = append(opts, name.Insecure)
+			}
+			ref = strings.TrimPrefix(to, "https://") + "/" + rest
 			break
 		}
-	}
-	var opts []name.Option
-	if parsed, err := name.ParseReference(ref); err == nil && slices.Contains(r.Insecure, parsed.Context().RegistryStr()) {
-		opts = append(opts, name.Insecure)
 	}
 	parsed, err := name.ParseReference(ref, opts...)
 	if err != nil {

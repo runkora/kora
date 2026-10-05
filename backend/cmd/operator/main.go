@@ -2,7 +2,7 @@ package main
 
 import (
 	"context"
-	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -90,6 +90,9 @@ func main() {
 }
 
 func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error {
+	if len(oc.StartupErrors) > 0 {
+		return fmt.Errorf("parse configuration: %w", errors.Join(oc.StartupErrors...))
+	}
 	install := oc.Current.Install
 
 	// controller-runtime logs Reconcile errors and webhook TLS failures itself;
@@ -340,23 +343,13 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		return err
 	}
 
-	var placement operator.WarmerPlacement
-	if raw := install.SandboxImages.WarmerPlacement; raw != "" {
-		if err := json.Unmarshal([]byte(raw), &placement); err != nil {
-			return fmt.Errorf("parse ORBIT_SANDBOX_WARMER_PLACEMENT: %w", err)
-		}
-	}
-	mirrors, err := operator.ParseRegistryMirrors(install.SandboxImages.RegistryMirrors)
-	if err != nil {
-		return fmt.Errorf("parse ORBIT_SANDBOX_REGISTRY_MIRRORS: %w", err)
-	}
 	sandboxImageReconciler := &operator.SandboxImageReconciler{
 		Client:      mgr.GetClient(),
 		Scheme:      mgr.GetScheme(),
-		Registry:    operator.NewRemoteRegistry(install.SandboxImages.InsecureRegistries, mirrors),
+		Registry:    operator.NewRemoteRegistry(install.SandboxImages.RegistryMirrors),
 		Logger:      logger,
 		PullSecrets: install.ImagePullSecrets,
-		Placement:   placement,
+		Placement:   install.SandboxImages.WarmerPlacement,
 		Resync:      oc.Current.SyncPeriod(),
 	}
 	if err := sandboxImageReconciler.SetupWithManager(mgr); err != nil {

@@ -95,10 +95,8 @@ spec:
               value: {{ include "orbit.sandboxBaseImage" . | quote }}
             - name: ORBIT_SANDBOX_BASE_WARM
               value: {{ .Values.agents.sandboxImages.warmBase | quote }}
-            - name: ORBIT_SANDBOX_INSECURE_REGISTRIES
-              value: {{ join "," .Values.agents.sandboxImages.insecureRegistries | quote }}
             - name: ORBIT_SANDBOX_REGISTRY_MIRRORS
-              value: {{ include "orbit.pairs" .Values.agents.sandboxImages.registryMirrors | quote }}
+              value: {{ toJson .Values.agents.sandboxImages.registryMirrors | quote }}
             - name: ORBIT_SANDBOX_WARMER_PLACEMENT
               value: {{ include "orbit.sandboxWarmerPlacement" . | quote }}
             - name: ORBIT_PREFLIGHT_SUPPORTED_ISTIO_MINORS

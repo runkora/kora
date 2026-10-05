@@ -3,7 +3,6 @@ package operator
 import (
 	"context"
 	"encoding/base64"
-	"errors"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -106,23 +105,11 @@ func TestRemoteRegistryRead(t *testing.T) {
 	want, _ := img.Digest()
 
 	// The reference names a registry the operator reaches through a mirror.
-	got, err := remoteRegistry{Insecure: []string{host}, Mirrors: map[string]string{"registry.local:5001": host}}.Read(context.Background(), "registry.local:5001/acme/go:1", nil)
+	got, err := remoteRegistry{Mirrors: map[string]string{"registry.local:5001": "http://" + host}}.Read(context.Background(), "registry.local:5001/acme/go:1", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got.Digest != want.String() || got.User != "100:100" || got.Labels[si.BaseLabel] != "v1" {
 		t.Errorf("Read = %+v, want digest %s, user 100:100 and the base label", got, want)
-	}
-}
-
-func TestParseRegistryMirrors(t *testing.T) {
-	got, err := ParseRegistryMirrors(" orbit-registry:5001=orbit-registry:5000 , ")
-	if err != nil || got["orbit-registry:5001"] != "orbit-registry:5000" || len(got) != 1 {
-		t.Errorf("got %v, %v", got, err)
-	}
-	for _, bad := range []string{"orbit-registry:5001", "=x", "x="} {
-		if _, err := ParseRegistryMirrors(bad); !errors.Is(err, errRegistryMirror) {
-			t.Errorf("%q: err = %v, want errRegistryMirror", bad, err)
-		}
 	}
 }
