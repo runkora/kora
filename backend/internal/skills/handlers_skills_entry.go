@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -18,11 +17,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
-const (
-	marketplaceReadScope = "marketplace:read"
-	defaultSkillsLimit   = 15
-	maxSkillsLimit       = 100
-)
+const marketplaceReadScope = "marketplace:read"
 
 var marketplaceSeparators = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -30,42 +25,19 @@ type marketplaceRegistry interface {
 	ListSources(tenantID string) []MarketplaceSource
 }
 
-type marketplaceCache interface {
-	Get(ctx context.Context, tenantID, org, repo string) ([]Skill, bool, error)
-	Set(ctx context.Context, tenantID, org, repo string, skills []Skill) error
-}
-
-type marketplaceCrawler interface {
-	Crawl(ctx context.Context, source MarketplaceSource) ([]Skill, error)
-}
-
 // Controller handles marketplace listing, skill listing, and skill details.
 type Controller struct {
+	service    *Service
 	registry   marketplaceRegistry
-	cache      marketplaceCache
-	crawler    marketplaceCrawler
 	logger     logging.Logger
 	middleware mw.MiddlewareHandler
 }
 
 // NewController protects every route with authentication and marketplace:read.
-//
-// Arguments:
-//   - logger: records logs from handlers and middleware.
-//   - registry: lists the marketplaces configured for each tenant.
-//   - cache: reads and writes cached skill lists in Redis.
-//   - crawler: fetches skill files and documents from GitHub on a cache miss.
-//   - verifier: validates platform authentication tokens and delegation tokens.
-//   - eval: checks whether policy allows the caller to read marketplaces and skills.
-//   - basePath: the API prefix, such as "/v1"; it must match api.Server.
-//
-// Publish MarketplaceRoutes and MarketplaceScopes to policy-service when wiring
-// this controller into the binary.
 func NewController(
 	logger logging.Logger,
+	service *Service,
 	registry marketplaceRegistry,
-	cache marketplaceCache,
-	crawler marketplaceCrawler,
 	verifier *token.Verifier,
 	eval policy.Evaluator,
 	basePath string,
@@ -78,9 +50,8 @@ func NewController(
 	}
 
 	return &Controller{
+		service:  service,
 		registry: registry,
-		cache:    cache,
-		crawler:  crawler,
 		logger:   logger,
 		middleware: mw.MiddlewareChain(
 			mw.AuthMiddleware(verifier, logger),
@@ -145,7 +116,7 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query()
-	offset, limit := 0, defaultSkillsLimit
+	offset, limit := 0, defaultLimit
 	if query.Has("offset") {
 		value, err := strconv.Atoi(query.Get("offset"))
 		if err != nil || value < 0 {
@@ -157,7 +128,7 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	}
 	if query.Has("limit") {
 		value, err := strconv.Atoi(query.Get("limit"))
-		if err != nil || value < 1 || value > maxSkillsLimit {
+		if err != nil || value < 1 || value > maxLimit {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, "limit must be an integer between 1 and 100", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -165,35 +136,13 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		limit = value
 	}
 
-	skills, err := c.readSkills(ctx, tenantID, r.PathValue("marketplaceName"))
+	result, err := c.service.ListSkills(ctx, tenantID, r.PathValue("marketplaceName"), query.Get("search"), offset, limit)
 	if err != nil {
 		c.respondError(w, r, err)
 		return
 	}
 
-	search := strings.ToLower(query.Get("search"))
-	items := make([]map[string]string, 0, len(skills))
-	for _, skill := range skills {
-		if !strings.Contains(strings.ToLower(skill.Name), search) {
-			continue
-		}
-		items = append(items, map[string]string{
-			"slug":        skill.Slug,
-			"name":        skill.Name,
-			"description": skill.Description,
-		})
-	}
-
-	total := len(items)
-	start := min(offset, total)
-	// Subtract before adding so a very large offset cannot overflow or panic.
-	end := start + min(limit, total-start)
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
-		"skills": items[start:end],
-		"pagination": map[string]int{
-			"offset": offset, "limit": limit, "totalItems": total,
-		},
-	})
+	api.JSON(ctx, w, c.logger, http.StatusOK, result)
 }
 
 func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
@@ -210,29 +159,13 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	skills, err := c.readSkills(ctx, tenantID, r.PathValue("marketplaceName"))
+	skill, err := c.service.GetSkill(ctx, tenantID, r.PathValue("marketplaceName"), skillName)
 	if err != nil {
 		c.respondError(w, r, err)
 		return
 	}
 
-	for _, skill := range skills {
-		if path.Base(skill.Slug) != skillName {
-			continue
-		}
-		documents := skill.Documents
-		if documents == nil {
-			documents = []SkillFile{}
-		}
-		api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
-			"name":        skill.Name,
-			"description": skill.Description,
-			"skill":       skill.Skill,
-			"documents":   documents,
-		})
-		return
-	}
-	c.respondError(w, r, ErrSkillNotFound)
+	api.JSON(ctx, w, c.logger, http.StatusOK, skill)
 }
 
 // tenantID always comes from verified platform claims, never request parameters.
@@ -244,42 +177,6 @@ func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, b
 		return "", false
 	}
 	return claims.Orbit.TenantID, true
-}
-
-// readSkills finds the tenant's marketplace, reads Redis, and crawls on a miss.
-func (c *Controller) readSkills(ctx context.Context, tenantID, marketplaceName string) ([]Skill, error) {
-	var source MarketplaceSource
-	found := false
-	for _, candidate := range c.registry.ListSources(tenantID) {
-		if marketplaceSlug(candidate.Name) != marketplaceName {
-			continue
-		}
-		// Refuse ambiguous names rather than choosing an arbitrary repository.
-		if found {
-			return nil, ErrMarketplaceNotFound
-		}
-		source, found = candidate, true
-	}
-	if !found {
-		return nil, ErrMarketplaceNotFound
-	}
-
-	skills, hit, err := c.cache.Get(ctx, tenantID, source.Org, source.Repo)
-	if err != nil {
-		return nil, err
-	}
-	if hit {
-		return skills, nil
-	}
-
-	skills, err = c.crawler.Crawl(ctx, source)
-	if err != nil {
-		return nil, err
-	}
-	if err := c.cache.Set(ctx, tenantID, source.Org, source.Repo, skills); err != nil {
-		return nil, err
-	}
-	return skills, nil
 }
 
 func marketplaceSlug(name string) string {
