@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -239,7 +240,7 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 				&ip.InferenceProvider{}:    {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 				// Only the sandbox image warmers, not every DaemonSet in the cluster.
-				operator.NewWarmerDaemonSet(): {Label: operator.WarmerSelector()},
+				&appsv1.DaemonSet{}: {Label: operator.WarmerSelector()},
 			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.

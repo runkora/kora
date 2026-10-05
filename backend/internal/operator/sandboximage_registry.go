@@ -146,8 +146,8 @@ const (
 	reasonValidated        = "Validated"
 	reasonRegistryError    = "RegistryError"
 	reasonPullSecretError  = "PullSecretError"
-	reasonWrongUser        = "WrongUser"
-	reasonMissingBaseLabel = "MissingBaseLabel"
+	reasonWrongUser        = si.ReasonWrongUser
+	reasonMissingBaseLabel = si.ReasonMissingBaseLabel
 )
 
 // validateImageConfig checks an image is built on the base image. It returns

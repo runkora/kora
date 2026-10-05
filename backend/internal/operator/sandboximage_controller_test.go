@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
 	"testing"
 	"time"
 
@@ -172,31 +171,18 @@ func TestSandboxImage_NotWarm(t *testing.T) {
 	}
 }
 
+// A rejected image loses its digest and its warmer. The rejection reasons are tested in TestValidateImageConfig.
 func TestSandboxImage_Invalid(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		cfg    imageConfig
-		reason string
-	}{
-		{"root user", imageConfig{Digest: "sha256:x", User: "0", Labels: goodConfig.Labels}, reasonWrongUser},
-		{"no base label", imageConfig{Digest: "sha256:x", User: "100"}, reasonMissingBaseLabel},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": tc.cfg}}
-			stale := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-image-go", Namespace: testNS}}
-			r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", true), stale)
+	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": {Digest: "sha256:x", User: "0", Labels: goodConfig.Labels}}}
+	stale := &appsv1.DaemonSet{ObjectMeta: metav1.ObjectMeta{Name: "sandbox-image-go", Namespace: testNS}}
+	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", true), stale)
 
-			img, _ := reconcileImage(t, r, c, "go")
-			if img.Valid() || img.Status.Digest != "" {
-				t.Fatalf("status = %+v, want invalid without a digest", img.Status)
-			}
-			if v := condition(img, si.ConditionValid); v.Reason != tc.reason || v.Message == "" {
-				t.Errorf("Valid = %+v, want reason %s with a message", v, tc.reason)
-			}
-			if _, ok := warmer(t, c, "go"); ok {
-				t.Error("an invalid image keeps its DaemonSet")
-			}
-		})
+	img, _ := reconcileImage(t, r, c, "go")
+	if img.Valid() || !img.Rejected() || img.Status.Digest != "" {
+		t.Fatalf("status = %+v, want rejected without a digest", img.Status)
+	}
+	if _, ok := warmer(t, c, "go"); ok {
+		t.Error("an invalid image keeps its DaemonSet")
 	}
 }
 
@@ -310,7 +296,6 @@ func TestSandboxImage_WarmerDropsRemovedPlacement(t *testing.T) {
 	reconcileImage(t, r, c, "go")
 
 	r.Placement = WarmerPlacement{}
-	r.nextRead = sync.Map{}
 	reconcileImage(t, r, c, "go")
 	ds, ok := warmer(t, c, "go")
 	if !ok {
@@ -321,23 +306,57 @@ func TestSandboxImage_WarmerDropsRemovedPlacement(t *testing.T) {
 	}
 }
 
-// Between scheduled reads, a reconcile refreshes Warm without reading the registry.
-func TestSandboxImage_ReadsRegistryOnlyWhenDue(t *testing.T) {
+// Toggling warm changes the generation, not the image. The image stays valid
+// even while the registry is down.
+func TestSandboxImage_WarmToggleKeepsValid(t *testing.T) {
 	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": goodConfig}}
 	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", true))
-	reconcileImage(t, r, c, "go")
-	reg.configs = nil // a read now would fail the image
+	img, _ := reconcileImage(t, r, c, "go")
 
-	ds, _ := warmer(t, c, "go")
-	ds.Status = appsv1.DaemonSetStatus{DesiredNumberScheduled: 1, UpdatedNumberScheduled: 1, NumberReady: 1, ObservedGeneration: ds.Generation}
-	if err := c.Status().Update(context.Background(), ds); err != nil {
+	img.Spec.Warm = false
+	img.Generation++
+	if err := c.Update(context.Background(), img); err != nil {
 		t.Fatal(err)
 	}
-	img, res := reconcileImage(t, r, c, "go")
-	if !img.Valid() || condition(img, si.ConditionWarm).Status != metav1.ConditionTrue {
-		t.Errorf("status = %+v, want valid and warm without a registry read", img.Status)
+	got := &si.SandboxImage{}
+	_ = c.Get(context.Background(), types.NamespacedName{Namespace: testNS, Name: "go"}, got)
+	if !got.Valid() {
+		t.Fatalf("status = %+v, want valid before the next read", got.Status)
 	}
-	if res.RequeueAfter <= 0 || res.RequeueAfter > time.Minute {
-		t.Errorf("RequeueAfter = %v, want the time left until the next read", res.RequeueAfter)
+	reg.err = errors.New("registry unavailable")
+	got, _ = reconcileImage(t, r, c, "go")
+	if !got.Valid() || got.Status.Digest != "sha256:good" {
+		t.Errorf("status = %+v, want the accepted digest kept", got.Status)
+	}
+	if _, ok := warmer(t, c, "go"); ok {
+		t.Error("the warmer stayed after warm was turned off")
+	}
+}
+
+// An upgrade that changes the image while the registry is down leaves the image
+// not valid but not rejected, with the old digest kept in status.
+func TestSandboxImage_ImageChangeWithRegistryDown(t *testing.T) {
+	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": goodConfig}}
+	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", false))
+	img, _ := reconcileImage(t, r, c, "go")
+
+	img.Spec.Image = "ghcr.io/acme/go:2"
+	img.Generation++
+	if err := c.Update(context.Background(), img); err != nil {
+		t.Fatal(err)
+	}
+	reg.err = errors.New("registry unavailable")
+	got, res := reconcileImage(t, r, c, "go")
+	if got.Valid() || got.Rejected() {
+		t.Errorf("valid=%v rejected=%v, want neither while the new image is unread", got.Valid(), got.Rejected())
+	}
+	if got.Status.Image != "ghcr.io/acme/go:1" || got.Status.Digest != "sha256:good" {
+		t.Errorf("status = %+v, want the last read image and digest kept", got.Status)
+	}
+	if v := condition(got, si.ConditionValid); v.Reason != reasonRegistryError {
+		t.Errorf("Valid = %+v, want RegistryError", v)
+	}
+	if res.RequeueAfter != registryRetry {
+		t.Errorf("RequeueAfter = %v, want the registry retry", res.RequeueAfter)
 	}
 }

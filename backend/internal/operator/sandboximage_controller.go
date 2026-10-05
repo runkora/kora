@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -17,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -85,19 +85,13 @@ type SandboxImageReconciler struct {
 	Placement   WarmerPlacement
 	// Resync is how often each image is read again. New sandboxes pick up a moved tag after the read.
 	Resync time.Duration
-
-	// nextRead holds when each image is due its next registry read.
-	nextRead sync.Map
 }
 
-// Reconcile validates one SandboxImage and converges its status and DaemonSet.
-// The registry is read when the generation changed or the image is due a
-// re-read. Other events, such as a warmer's status, refresh only the Warm condition.
+// Reconcile reads one SandboxImage from its registry and converges its status and DaemonSet.
 func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	img := &si.SandboxImage{}
 	if err := r.Client.Get(ctx, req.NamespacedName, img); err != nil {
 		if apierrors.IsNotFound(err) {
-			r.nextRead.Delete(req.NamespacedName)
 			return ctrl.Result{}, nil
 		}
 		return ctrl.Result{}, fmt.Errorf("get SandboxImage %q: %w", req.NamespacedName, err)
@@ -106,33 +100,31 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		return ctrl.Result{}, err
 	}
 	before := img.DeepCopy()
-
-	now := time.Now()
-	if due, ok := r.readDue(img, now); !ok {
-		return r.refreshWarm(ctx, before, img, due.Sub(now))
-	}
+	img.Status.ObservedGeneration = img.Generation
 
 	cfg, reason, message, err := r.inspect(ctx, img)
-	if err != nil {
-		// A registry outage must not take an accepted image out of service.
-		if img.Valid() && img.Status.ObservedGeneration == img.Generation {
-			r.Logger.Warn(ctx, "re-reading a sandbox image failed; keeping its pinned digest",
-				logging.Field{Key: "sandbox_image", Value: req.String()},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-			r.nextRead.Store(req.NamespacedName, now.Add(r.Resync))
-			return ctrl.Result{RequeueAfter: r.Resync}, nil
+	switch {
+	case err != nil && img.Valid():
+		// A registry outage keeps an accepted image in service with its pinned digest.
+		r.Logger.Warn(ctx, "re-reading a sandbox image failed; keeping its pinned digest",
+			logging.Field{Key: "sandbox_image", Value: req.String()},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		if err := r.reconcileWarmer(ctx, img); err != nil {
+			return ctrl.Result{}, err
 		}
-		message = err.Error()
+		return ctrl.Result{RequeueAfter: registryRetry}, r.patchStatus(ctx, before, img)
+	case err != nil:
+		// The image the spec names has not been read. It stays unusable and is read again soon.
+		setCondition(img, si.ConditionValid, metav1.ConditionFalse, reason, err.Error())
+		setCondition(img, si.ConditionWarm, metav1.ConditionFalse, reasonWarmNotValid, "the image is not valid")
+		if err := r.deleteWarmer(ctx, img); err != nil {
+			return ctrl.Result{}, err
+		}
+		return ctrl.Result{RequeueAfter: registryRetry}, r.patchStatus(ctx, before, img)
 	}
-	// No sandbox can use an image whose read failed. It is read again sooner.
-	resync := r.Resync
-	if err != nil {
-		resync = min(r.Resync, registryRetry)
-	}
-	r.nextRead.Store(req.NamespacedName, now.Add(resync))
 
-	img.Status.ObservedGeneration = img.Generation
+	img.Status.Image = img.Spec.Image
 	if reason != reasonValidated {
 		img.Status.Digest = ""
 		setCondition(img, si.ConditionValid, metav1.ConditionFalse, reason, message)
@@ -140,7 +132,7 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 		if err := r.deleteWarmer(ctx, img); err != nil {
 			return ctrl.Result{}, err
 		}
-		return ctrl.Result{RequeueAfter: resync}, r.patchStatus(ctx, before, img)
+		return ctrl.Result{RequeueAfter: r.Resync}, r.patchStatus(ctx, before, img)
 	}
 
 	img.Status.Digest = cfg.Digest
@@ -149,7 +141,7 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	if err := r.reconcileWarmer(ctx, img); err != nil {
 		return ctrl.Result{}, err
 	}
-	return ctrl.Result{RequeueAfter: resync}, r.patchStatus(ctx, before, img)
+	return ctrl.Result{RequeueAfter: r.Resync}, r.patchStatus(ctx, before, img)
 }
 
 // inTenantNamespace reports whether img sits in a tenant namespace. Images
@@ -166,28 +158,6 @@ func (r *SandboxImageReconciler) inTenantNamespace(ctx context.Context, img *si.
 		return false, nil
 	}
 	return true, nil
-}
-
-// readDue reports whether img needs a registry read: its generation changed,
-// its read is due, or the operator has not read it since it started. due is
-// when the next read is scheduled.
-func (r *SandboxImageReconciler) readDue(img *si.SandboxImage, now time.Time) (due time.Time, read bool) {
-	next, scheduled := r.nextRead.Load(types.NamespacedName{Namespace: img.Namespace, Name: img.Name})
-	if !scheduled || img.Status.ObservedGeneration != img.Generation {
-		return now, true
-	}
-	due = next.(time.Time)
-	return due, !now.Before(due)
-}
-
-// refreshWarm updates only the Warm condition of an image read recently.
-func (r *SandboxImageReconciler) refreshWarm(ctx context.Context, before, img *si.SandboxImage, untilRead time.Duration) (ctrl.Result, error) {
-	if img.Valid() {
-		if err := r.reconcileWarmer(ctx, img); err != nil {
-			return ctrl.Result{}, err
-		}
-	}
-	return ctrl.Result{RequeueAfter: untilRead}, r.patchStatus(ctx, before, img)
 }
 
 // inspect reads the image config and judges it. The returned error is a
@@ -252,12 +222,17 @@ func (r *SandboxImageReconciler) reconcileWarmer(ctx context.Context, img *si.Sa
 	if err := controllerutil.SetControllerReference(img, ds, r.Scheme); err != nil {
 		return fmt.Errorf("own DaemonSet for %q: %w", img.Name, err)
 	}
-	if err := apply(ctx, r.Client, ds); err != nil {
+	if err := r.applyWarmer(ctx, ds); err != nil {
 		return err
 	}
 	live := &appsv1.DaemonSet{}
 	if err := r.Client.Get(ctx, client.ObjectKeyFromObject(ds), live); err != nil {
-		return fmt.Errorf("get DaemonSet %q: %w", ds.Name, err)
+		if !apierrors.IsNotFound(err) {
+			return fmt.Errorf("get DaemonSet %q: %w", ds.Name, err)
+		}
+		// The cache has not seen the DaemonSet just created. Its status event reconciles again.
+		setCondition(img, si.ConditionWarm, metav1.ConditionFalse, reasonWarmPulling, "the warmer is starting")
+		return nil
 	}
 	st := live.Status
 	current := st.ObservedGeneration >= live.Generation && st.UpdatedNumberScheduled == st.DesiredNumberScheduled
@@ -268,6 +243,22 @@ func (r *SandboxImageReconciler) reconcileWarmer(ctx context.Context, img *si.Sa
 	}
 	setCondition(img, si.ConditionWarm, metav1.ConditionFalse, reasonWarmPulling,
 		fmt.Sprintf("ready on %d of %d node(s)", st.NumberReady, st.DesiredNumberScheduled))
+	return nil
+}
+
+// applyWarmer server-side applies the warmer as orbit-operator. A field the
+// operator applied before and leaves out now is removed.
+func (r *SandboxImageReconciler) applyWarmer(ctx context.Context, ds *appsv1.DaemonSet) error {
+	u, err := runtime.DefaultUnstructuredConverter.ToUnstructured(ds)
+	if err != nil {
+		return fmt.Errorf("convert DaemonSet %q: %w", ds.Name, err)
+	}
+	delete(u, "status")
+	unstructured.RemoveNestedField(u, "metadata", "creationTimestamp")
+	cfg := client.ApplyConfigurationFromUnstructured(&unstructured.Unstructured{Object: u})
+	if err := r.Client.Apply(ctx, cfg, client.FieldOwner("orbit-operator"), client.ForceOwnership); err != nil {
+		return fmt.Errorf("apply DaemonSet %q in %q: %w", ds.Name, ds.Namespace, err)
+	}
 	return nil
 }
 
@@ -360,9 +351,6 @@ func (r *SandboxImageReconciler) patchStatus(ctx context.Context, before, after 
 	}
 	return nil
 }
-
-// NewWarmerDaemonSet is an empty DaemonSet, for the operator's cache configuration.
-func NewWarmerDaemonSet() *appsv1.DaemonSet { return &appsv1.DaemonSet{} }
 
 // WarmerSelector selects the DaemonSets the operator caches.
 func WarmerSelector() labels.Selector {
