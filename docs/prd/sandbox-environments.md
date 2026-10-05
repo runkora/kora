@@ -212,31 +212,7 @@ None at this time.
 
 **Why not chosen:** General agents work across repositories with different stacks.
 
-### Alternative 2: Access Limited to the Selected Environment
-
-**Description:** A sandbox would reach only the hosts and connectors of the environment it runs in.
-
-**Why not chosen:** The team that builds an agent decides its reach when it chooses the agent's environments.
-
-### Alternative 3: Copy the Workspace into Each Sandbox
-
-**Description:** Each sandbox would get its own copy of the run's files on fast disk.
-
-**Why not chosen:** The agent edits files outside the sandbox, and a copy would separate those edits from the sandbox's builds.
-
-### Alternative 4: Build Images Inside kora
-
-**Description:** kora would build environment images from setup commands.
-
-**Why not chosen:** Platform teams manage images through GitOps.
-
-### Alternative 5: Repository-Declared Tool Versions
-
-**Description:** A version manager in the base image would install the versions a repository declares.
-
-**Why not chosen:** The base image packages the tools agents use generally, and platform teams add toolchains in their own images.
-
-### Alternative 6: Per-Run Setup Hook
+### Alternative 2: Per-Run Setup Hook
 
 **Description:** A repository script would run at the start of every run.
 

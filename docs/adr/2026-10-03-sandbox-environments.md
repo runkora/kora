@@ -135,13 +135,13 @@ Each tenant will register sandbox images as `SandboxImage` resources built on `k
 `SandboxImage` will be a namespaced `orbit.io/v1alpha1` resource (`charts/orbit-crds/templates/crd-sandboximage.yaml`) with these fields:
 
 *   `spec.image`, `spec.description`, `spec.pullSecretRef.name` and `spec.warm`.
-*   `status.digest` and the `Valid` and `Warm` conditions.
+*   `status.image`, `status.digest` and the `Valid` and `Warm` conditions.
 
 On every tenant reconcile, the operator will create and patch a `SandboxImage` named `kora-base` that points at `agents.config.sandboxImage`. Its `warm` flag will come from `agents.sandboxImages.warmBase`.
 
 ### 3. Validation
 
-The operator will read the image config from the registry. An image will be valid when it runs as uid 100 and carries the `io.orbit.sandbox.base` label. An invalid image cannot be selected, and its `Valid` condition will state the reason. The operator will re-read every image each sync period and pin the resolved digest.
+The operator will read the image config from the registry. An image will be valid when it runs as uid 100 and carries the `io.orbit.sandbox.base` label. An invalid image cannot be selected, and its `Valid` condition will state the reason. The operator will read the registry on every reconcile and pin the resolved digest. An image will stay valid while `status.image` matches `spec.image`, and a registry failure will keep its accepted digest. Provisioning against an image the operator has not yet read will return a retryable error.
 
 ### 4. Warming
 
@@ -163,7 +163,7 @@ The effective grant will be the union of every attached environment and the agen
 
 ### 7. Agent Tools
 
-The runtime MCP server will expose `list_environments`, `provision_sandbox` with an optional environment, and `replace_environment`. Replacing an environment will end the sandbox's running commands and keep the workspace. The run will record its current environment, and each start and replacement will emit an event with the environment and the image digest.
+The runtime MCP server will expose `list_environments`, `provision_sandbox` with an optional environment, and `replace_environment`. Replacing an environment will end the sandbox's running commands and keep the workspace. A replacement will run through the provision path and share its retries and sandbox-lost handling. The run will record its current environment, and each start and replacement will emit an event with the environment and the image digest.
 
 ### 8. Local Disk
 
