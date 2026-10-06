@@ -68,6 +68,37 @@ describe('DashboardSidebar', () => {
     });
   });
 
+  describe('scoped nav entries', () => {
+    it('hides Environments and Models when the user has no scopes', () => {
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /environments/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^models$/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Environments when the user holds agents:environments:read', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:environments:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /environments/i })).toHaveAttribute(
+        'href',
+        APP_ROUTES.environments,
+      );
+    });
+
+    it('shows Models when the user holds inference:list', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['inference:list'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /^models$/i })).toBeInTheDocument();
+    });
+  });
+
   describe('nav link hrefs', () => {
     it('Dashboard link points to APP_ROUTES.home', () => {
       renderSidebar();
@@ -78,6 +109,11 @@ describe('DashboardSidebar', () => {
     });
 
     it('Models link points to the correct route', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['inference:list'],
+        user: null,
+        loaded: true,
+      });
       renderSidebar();
       expect(screen.getByRole('link', { name: /models/i })).toHaveAttribute(
         'href',
