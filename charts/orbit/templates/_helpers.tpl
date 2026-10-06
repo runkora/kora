@@ -74,21 +74,6 @@ gateway.create is true, otherwise gateway.name.
 Image reference for a component: <registry>/<repository>@<digest> when set
 (released charts), otherwise <registry>/<repository>:<tag|appVersion>.
 */}}
-{{/*
-Service config value: the component's own config.<field> when the key is present,
-otherwise the global default. Key presence is checked with hasKey so an explicit
-false is honoured; sprig default would treat false as unset and use the global.
-Takes (dict "root" $ "name" "<component>" "field" "<field>" "default" <global value>).
-*/}}
-{{- define "orbit.serviceConfig" -}}
-{{- $c := (index .root.Values .name).config | default dict -}}
-{{- if hasKey $c .field -}}
-{{- index $c .field -}}
-{{- else -}}
-{{- .default -}}
-{{- end -}}
-{{- end }}
-
 {{- define "orbit.image" -}}
 {{- $img := (index .root.Values .name).image -}}
 {{- $reg := $img.registry | default .root.Values.global.imageRegistry -}}
@@ -162,8 +147,8 @@ the SandboxImage kora-base.
 {{- end }}
 
 {{/*
-The placement of sandbox image warmers in JSON for the operator. It carries the
-warm-start scheduling and the sandbox priority class.
+The placement of sandbox image warmers for the operator's config file. It
+carries the warm-start scheduling and the sandbox priority class.
 */}}
 {{- define "orbit.sandboxWarmerPlacement" -}}
 {{- $placement := include "orbit.sandboxWarmingScheduling" (dict "root" .) | fromYaml | default dict -}}
@@ -286,14 +271,109 @@ CSI socket lands at the path the proxy checks for an external SDS socket.
 {{- end }}
 
 {{/*
-envFrom for the platform ConfigMap and Secret every service reads.
+envFrom for the platform Secret every service reads.
 */}}
 {{- define "orbit.platformEnvFrom" -}}
 envFrom:
-  - configMapRef:
-      name: orbit-config
   - secretRef:
       name: {{ .Values.config.platformSecretName }}
+{{- end }}
+
+{{/*
+Rendered service config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+A workload's modules map a config module (cmd/identity, internal/platform/storage)
+to the YAML the loader merges last; <values key>.configOverrides merges over them.
+These helpers take (dict "root" $ "name" "<values key>" "configMap" "<ConfigMap name>"
+"modules" <dict>).
+*/}}
+{{- define "orbit.configModules" -}}
+{{- $overrides := (index .root.Values .name).configOverrides | default dict -}}
+{{- mergeOverwrite (deepCopy .modules) (deepCopy $overrides) | toYaml -}}
+{{- end }}
+
+{{- define "orbit.configMap" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .configMap }}
+  namespace: {{ include "orbit.systemNamespace" .root }}
+  labels:
+    {{- include "orbit.labels" .root | nindent 4 }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{- range $module, $content := include "orbit.configModules" . | fromYaml }}
+  {{ $module | replace "/" "." }}.yaml: |
+    {{- toYaml $content | nindent 4 }}
+  {{- end }}
+{{- end }}
+
+{{- define "orbit.configVolume" -}}
+- name: config-files
+  configMap:
+    name: {{ .configMap }}
+    items:
+      {{- range $module, $_ := include "orbit.configModules" . | fromYaml }}
+      - key: {{ $module | replace "/" "." }}.yaml
+        path: {{ $module }}.yaml
+      {{- end }}
+{{- end }}
+
+{{- define "orbit.configVolumeMount" -}}
+- name: config-files
+  mountPath: /etc/orbit/config
+  readOnly: true
+{{- end }}
+
+{{/*
+Config modules of the shared platform packages. Take the root context.
+*/}}
+{{- define "orbit.observabilityConfigModule" -}}
+{{- $obs := .Values.global.observability -}}
+internal/platform/observability:
+  logFormat: {{ .Values.global.logFormat | toJson }}
+  otlpEndpoint: {{ $obs.otlpEndpoint | toJson }}
+  tenantOtlpEndpoint: {{ $obs.otlpEndpoint | toJson }}
+  {{- if ne (toString $obs.samplingRate) "" }}
+  samplingRate: {{ $obs.samplingRate | float64 }}
+  {{- end }}
+{{- end }}
+
+{{- define "orbit.storageConfigModule" -}}
+internal/platform/storage:
+  postgres:
+    host: {{ required "config.db.host must be set" .Values.config.db.host | toJson }}
+    port: {{ .Values.config.db.port | int }}
+    database: {{ .Values.config.db.name | toJson }}
+    user: {{ .Values.config.db.user | toJson }}
+    sslMode: {{ .Values.global.postgres.sslMode | toJson }}
+    captureQueryText: {{ eq (toString .Values.global.postgres.captureQueryText) "true" }}
+  redis:
+    host: {{ required "config.redis.host must be set" .Values.config.redis.host | toJson }}
+    port: {{ .Values.config.redis.port | int }}
+{{- end }}
+
+{{- define "orbit.tokenConfigModule" -}}
+internal/platform/token:
+  jwksURL: {{ printf "%s/api/v1/identity/.well-known/jwks.json" (include "orbit.serviceURL" (dict "root" . "name" "orbit-identity")) | toJson }}
+{{- end }}
+
+{{/*
+The policy-service bundle endpoint the in-process evaluators poll.
+*/}}
+{{- define "orbit.bundleEndpoint" -}}
+{{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") }}/api/v1/policy/bundles
+{{- end }}
+
+{{/*
+The names of global.imagePullSecrets, as a JSON list.
+*/}}
+{{- define "orbit.imagePullSecretNames" -}}
+{{- $names := list -}}
+{{- range .Values.global.imagePullSecrets }}{{ $names = append $names .name }}{{ end -}}
+{{- $names | toJson -}}
 {{- end }}
 
 {{/*

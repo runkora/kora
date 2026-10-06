@@ -12,17 +12,14 @@ observability:
 kubernetes:
   inCluster: true
   tenantNamespacePrefix: orbit-tenant-
-  # The chart overrides this with ORBIT_SYSTEM_NAMESPACE (the release namespace).
   systemNamespace: orbit-system
 
+# The chart renders the trust domain and the identity and policy service URLs.
 platform:
-  # No default: the chart sets ORBIT_TRUST_DOMAIN and local.yaml sets orbit.test.
+  # No default: local.yaml sets orbit.test.
   trustDomain: ""
-  identityServiceURL: "http://orbit-identity.orbit-system.svc"
-  policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
 
 policy:
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   # Shorter than the platform default (30s): triggers.createScheduledTrigger /
   # createManualTrigger mint a brand-new SERVICE principal and its grant, then
   # immediately resolve the agent type through this bundle in the same
@@ -37,11 +34,10 @@ drafts:
   retentionDays: 30
 
 agents:
-  # Overridden per install by ORBIT_SESSION_MANAGER_IMAGE / ORBIT_SANDBOX_IMAGE.
+  # The chart renders the images for each install.
   sessionManagerImage: ghcr.io/clear-route/orbit-session-manager:latest
   sandboxImage: ghcr.io/clear-route/kora-sandbox-base:latest
-  # Default and maximum environment sizes.
-  # ORBIT_ENVIRONMENT_{DEFAULT,MAX}_{CPU,MEMORY,DISK} override them.
+  # Default and maximum environment sizes, rendered by the chart.
   environments:
     defaultSize:
       cpu: "2"
@@ -51,8 +47,7 @@ agents:
       cpu: "8"
       memory: 16Gi
       disk: 50Gi
-  # Pull secrets for the images above, named per install by
-  # ORBIT_AGENTS_IMAGE_PULL_SECRETS (comma-separated).
+  # Pull secrets for the images above, rendered by the chart.
   imagePullSecrets: []
   maxConcurrentRunsPerPod: 10
   # Sandbox provisioning guardrails, sent with every run: attempts per request,
@@ -63,18 +58,15 @@ agents:
     sandboxProvisionBackoffSecs: 5
     sandboxProvisionBudgetSecs: 300
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
-  # Where the chart mounts the manifest patches ConfigMap. Overridden by
-  # ORBIT_MANIFEST_PATCH_DIR.
+  # Where the chart mounts the manifest patches ConfigMap.
   manifestPatchDir: /etc/orbit/manifest-patches
   # Where the chart mounts the workload customization ConfigMap (placement, pod
   # metadata, service account annotations and workspace storage). A missing file
-  # means no customization. Overridden by ORBIT_WORKLOADS_FILE.
+  # means no customization.
   workloadsFile: /etc/orbit/workloads/workloads.yaml
   sessionManager:
     # Restricts each agent pod's session-manager port to the orbit-agents
-    # SPIFFE principal at the mesh layer. Overridden per-deployment by
-    # ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED; requires SPIFFE.
+    # SPIFFE principal at the mesh layer. Requires SPIFFE.
     authorizationPolicyEnabled: true
-    # Heap cap (MB) for Node processes a run starts on its agent pod. Overridden
-    # per install by ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB; 0 disables it.
+    # Heap cap (MB) for Node processes a run starts on its agent pod. 0 disables it.
     nodeMaxOldSpaceMB: 512

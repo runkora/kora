@@ -1,6 +1,6 @@
 # YAML File-Based Configuration with Typed Generic Loader
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-06)
 **Date:** 2026-02-18
 **Deciders:** Engineering Team
 **Technical Story:** Establishing a configuration management strategy for the kora control plane that supports multiple environments without requiring every non-secret value to be managed as an environment variable.
@@ -344,4 +344,12 @@ If the need arises for env-var override of specific YAML keys (e.g., for Kuberne
 **On config layering (future enhancement):**
 As the number of environments grows, the current model requires duplicating all shared values across every environment-specific YAML file (e.g., `local.yaml` and `development.yaml` are currently identical except for `logFormat`). A future improvement is to introduce a `base.yaml` per module that holds all shared defaults, with environment-specific files containing only their overrides — merged at load time via a second `MergeInConfig`-style call. This would eliminate duplication across environment files and make diffs between environments trivially small. This is explicitly deferred until the config surface area grows large enough to justify the added loader complexity. See `docs/product/scratch/config-layering.md` for a short feature sketch.
 
-**Last Updated:** 2026-06-10
+## Amendment 1 (2026-10-06): Rendered service config files
+
+[rendered-service-config-files](2026-10-06-rendered-service-config-files.md) adds a chart-rendered per-install config file that `config.LoadService` and `config.Load` merge as the last layer.
+
+The loader reads each layer with `go.yaml.in/yaml/v3`, deep-merges `base.yaml`, `{env}.yaml` and the rendered file, and decodes the result strictly with `go-viper/mapstructure`. `APP_ENV` defaults to `production` when it is unset.
+
+---
+
+**Last Updated:** 2026-10-06 (Amendment 1: rendered service config files)

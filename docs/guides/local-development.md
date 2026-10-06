@@ -72,7 +72,7 @@ Local accounts are backed by `glauth` and surfaced to Dex over LDAP. Their defau
 | `dev@orbit.local.clearroute.io` | `platform-admin`, `engineer` | The admin. Policy administration and everything else. |
 | `engineer@orbit.local.clearroute.io` | `engineer` | Checking what a regular engineer can and cannot do. |
 
-Access tokens last four hours locally, set by `identity.accessTokenTtlMinutes` in `deploy/reference/environments/local.yaml`. `make auth-refresh` rotates the pair when one expires. If the refresh token has expired too, run `make auth` again.
+Access tokens last four hours locally, set by `identity.config.accessTokenTtlMinutes` in `deploy/reference/values/orbit.local.yaml`. `make auth-refresh` rotates the pair when one expires. If the refresh token has expired too, run `make auth` again.
 
 ## Using your token
 
@@ -186,8 +186,10 @@ Migrations are DDL only: no `INSERT` or `DELETE`, an `UPDATE` only alongside an 
 `Down` sections exist for local development only. To roll back one migration against the compose Postgres:
 
 ```bash
-cd backend && ORBIT_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_HOST=localhost DB_NAME=orbit DB_USER=orbit DB_PASSWORD=orbit go run ./cmd/migrate down
+cd backend && ORBIT_MIGRATE_ALLOW_DOWN=1 APP_ENV=local DB_PASSWORD=orbit go run ./cmd/migrate down
 ```
+
+`APP_ENV=local` reads the compose Postgres address from `backend/internal/platform/storage/config/local.yaml`.
 
 There are no migration `Down` triggers in kora, a rollback via `helm rollback` will leave the database schema in place.
 

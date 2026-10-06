@@ -15,6 +15,7 @@ import (
 //
 //  1. cmd/identity/config/base.yaml        — service defaults
 //  2. cmd/identity/config/{env}.yaml       — service env overrides (optional)
+//  3. /etc/orbit/config/cmd/identity.yaml  — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -29,6 +30,14 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	// PublicHosts is the trusted-host allowlist for OAuth discovery metadata,
+	// canonical host first (ADR 2026-07-04). Empty disables validation.
+	PublicHosts []string `yaml:"publicHosts"`
+
+	// PolicyServiceURL is the policy service's in-cluster base URL, for PAT
+	// grant management and the policy bundle.
+	PolicyServiceURL string `yaml:"policyServiceURL"`
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.

@@ -10,7 +10,6 @@ import type {
 } from '@orbit/shared/api';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
 import type { MockRoutes } from '@orbit/storybook/mock-api';
-import AgentsLayout from '../../layout';
 import {
   AGENT_TYPES,
   CODE_REVIEWER,
@@ -153,7 +152,7 @@ function detailRoutes(agent: AgentType): MockRoutes {
   };
 }
 
-const withRoutes = (agent: AgentType) => [dashboardPage(detailRoutes(agent), AgentsLayout)];
+const withRoutes = (agent: AgentType) => [dashboardPage(detailRoutes(agent))];
 
 const rowFor = (agent: AgentType): AgentTypeRow => toAgentTypeRow(agent);
 

@@ -163,7 +163,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB) *htt
 }
 ```
 
-Config is loaded per-binary with `config.MustLoadService[T]` from `cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, selected by `APP_ENV`). No raw viper or yaml.
+Config is loaded per-binary with `config.MustLoadService[T]` from `cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, selected by `APP_ENV`, and the chart-rendered `/etc/orbit/config/cmd/{service}.yaml`). No raw viper or yaml.
 
 ## 6. Test it
 

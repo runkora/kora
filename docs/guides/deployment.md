@@ -267,7 +267,18 @@ ingressGateway:
     type: LoadBalancer
 ```
 
-`global` holds the values every service shares: trust domain, image registry and tag, log format, Postgres SSL mode, and OTLP settings. A component can override any of them.
+`global` holds the values every service shares: trust domain, image registry and tag, log format, Postgres SSL mode, and OTLP settings.
+
+The chart renders each service's settings into a ConfigMap of config files mounted at `/etc/orbit/config` ([rendered service config files](../adr/2026-10-06-rendered-service-config-files.md)). A component's `configOverrides` merges last, keyed by config module, and its keys follow the Go config structs:
+
+```yaml
+policyService:
+  configOverrides:
+    internal/platform/observability:
+      logFormat: console
+```
+
+An unknown key in `configOverrides` fails the service at startup. A component's `extraEnv` is for secrets only.
 
 Image tags resolve as follows:
 

@@ -63,3 +63,24 @@ func TestTenantOTLPEndpoint(t *testing.T) {
 		t.Errorf("CollectorAuthority() = %q, want global:4317", got)
 	}
 }
+
+func TestApplyGoSetEnv(t *testing.T) {
+	env := map[string]string{"ORBIT_OTLP_ENDPOINT": "http://collector:4317", "ORBIT_SAMPLING_RATE": "0.25"}
+	cfg := &ObservabilityConfig{OTLPEndpoint: "from-file"}
+	if err := applyGoSetEnv(cfg, func(k string) string { return env[k] }); err != nil {
+		t.Fatalf("applyGoSetEnv() error: %v", err)
+	}
+	if cfg.OTLPEndpoint != "http://collector:4317" || cfg.SamplingRate == nil || *cfg.SamplingRate != 0.25 {
+		t.Errorf("got endpoint %q, sampling %v", cfg.OTLPEndpoint, cfg.SamplingRate)
+	}
+
+	unset := &ObservabilityConfig{OTLPEndpoint: "from-file"}
+	if err := applyGoSetEnv(unset, func(string) string { return "" }); err != nil || unset.OTLPEndpoint != "from-file" {
+		t.Errorf("unset env changed the file value: %q, %v", unset.OTLPEndpoint, err)
+	}
+
+	bad := map[string]string{"ORBIT_SAMPLING_RATE": "most"}
+	if err := applyGoSetEnv(&ObservabilityConfig{}, func(k string) string { return bad[k] }); err == nil {
+		t.Error("a malformed ORBIT_SAMPLING_RATE must fail")
+	}
+}

@@ -31,6 +31,7 @@ Kubernetes: `>=1.34.0-0`
 | agents.config.sandboxGitAuthorName | string | `""` |  |
 | agents.config.sandboxImage | string | `""` |  |
 | agents.config.sessionManagerImage | string | `""` |  |
+| agents.configOverrides | object | `{}` | Raw config merged last over orbit-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}} |
 | agents.environments.defaultSize.cpu | string | `"2"` |  |
 | agents.environments.defaultSize.disk | string | `"10Gi"` |  |
 | agents.environments.defaultSize.memory | string | `"4Gi"` |  |
@@ -104,7 +105,7 @@ Kubernetes: `>=1.34.0-0`
 | config.redis.port | int | `6379` |  |
 | egressGateway.adminPort | int | `8086` |  |
 | egressGateway.affinity | object | `{}` |  |
-| egressGateway.config | object | `{}` |  |
+| egressGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | egressGateway.connectPort | int | `8085` |  |
 | egressGateway.connectionSecretName | string | `"orbit-tenant-connection-secrets"` |  |
 | egressGateway.extraEnv | list | `[]` |  |
@@ -200,7 +201,7 @@ Kubernetes: `>=1.34.0-0`
 | identity.affinity | object | `{}` |  |
 | identity.clientSecretsSecret | string | `"orbit-tenant-oidc-secrets"` |  |
 | identity.config.accessTokenTtlMinutes | int | `15` |  |
-| identity.config.redisTLSEnabled | string | `"true"` |  |
+| identity.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | identity.extraEnv | list | `[]` |  |
 | identity.extraVolumeMounts | list | `[]` |  |
 | identity.extraVolumes | list | `[]` |  |
@@ -234,7 +235,7 @@ Kubernetes: `>=1.34.0-0`
 | identityProxy.resources.requests.cpu | string | `"50m"` |  |
 | identityProxy.resources.requests.memory | string | `"32Mi"` |  |
 | inferenceGateway.affinity | object | `{}` |  |
-| inferenceGateway.config | object | `{}` |  |
+| inferenceGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | inferenceGateway.extraEnv | list | `[]` |  |
 | inferenceGateway.extraVolumeMounts | list | `[]` |  |
 | inferenceGateway.extraVolumes | list | `[]` |  |
@@ -281,7 +282,7 @@ Kubernetes: `>=1.34.0-0`
 | istio.revision | string | `""` |  |
 | migrate.activeDeadlineSeconds | int | `240` |  |
 | migrate.affinity | object | `{}` |  |
-| migrate.config | object | `{}` |  |
+| migrate.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | migrate.extraEnv | list | `[]` |  |
 | migrate.image.digest | string | `""` |  |
 | migrate.image.pullPolicy | string | `""` |  |
@@ -319,6 +320,7 @@ Kubernetes: `>=1.34.0-0`
 | opaGateway.tolerations | list | `[]` |  |
 | opaGateway.topologySpreadConstraints | list | `[]` |  |
 | operator.affinity | object | `{}` |  |
+| operator.configOverrides | object | `{}` | Raw config merged last over the operator's rendered config file, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/operator: {operator: {syncPeriodSecs: 120}}} |
 | operator.extraEnv | list | `[]` |  |
 | operator.image.digest | string | `""` |  |
 | operator.image.pullPolicy | string | `""` |  |
@@ -353,7 +355,7 @@ Kubernetes: `>=1.34.0-0`
 | operator.tolerations | list | `[]` |  |
 | operator.topologySpreadConstraints | list | `[]` |  |
 | orbitMcp.affinity | object | `{}` |  |
-| orbitMcp.config | object | `{}` |  |
+| orbitMcp.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | orbitMcp.extraEnv | list | `[]` |  |
 | orbitMcp.extraVolumeMounts | list | `[]` |  |
 | orbitMcp.extraVolumes | list | `[]` |  |
@@ -377,7 +379,7 @@ Kubernetes: `>=1.34.0-0`
 | orbitMcp.topologySpreadConstraints | list | `[]` |  |
 | platform.spiffe.enabled | bool | `true` |  |
 | policyGateway.affinity | object | `{}` |  |
-| policyGateway.config | object | `{}` |  |
+| policyGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | policyGateway.extraEnv | list | `[]` |  |
 | policyGateway.extraVolumeMounts | list | `[]` |  |
 | policyGateway.extraVolumes | list | `[]` |  |
@@ -399,7 +401,7 @@ Kubernetes: `>=1.34.0-0`
 | policyGateway.tolerations | list | `[]` |  |
 | policyGateway.topologySpreadConstraints | list | `[]` |  |
 | policyService.affinity | object | `{}` |  |
-| policyService.config | object | `{}` |  |
+| policyService.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | policyService.extraEnv | list | `[]` |  |
 | policyService.extraVolumeMounts | list | `[]` |  |
 | policyService.extraVolumes | list | `[]` |  |
@@ -424,7 +426,7 @@ Kubernetes: `>=1.34.0-0`
 | publicHosts | list | `[]` |  |
 | spire.className | string | `"spire-system-spire"` |  |
 | toolGateway.affinity | object | `{}` |  |
-| toolGateway.config | object | `{}` |  |
+| toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | toolGateway.extraEnv | list | `[]` |  |
 | toolGateway.extraVolumeMounts | list | `[]` |  |
 | toolGateway.extraVolumes | list | `[]` |  |
@@ -453,7 +455,7 @@ Kubernetes: `>=1.34.0-0`
 | triggers.authorizationPolicy.systemPrincipals[0] | string | `"frontend"` |  |
 | triggers.authorizationPolicy.systemPrincipals[1] | string | `"orbit-mcp"` |  |
 | triggers.authorizationPolicy.systemPrincipals[2] | string | `"ingress-gateway"` |  |
-| triggers.config | object | `{}` |  |
+| triggers.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | triggers.extraEnv | list | `[]` |  |
 | triggers.extraVolumeMounts | list | `[]` |  |
 | triggers.extraVolumes | list | `[]` |  |

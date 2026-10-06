@@ -23,6 +23,7 @@ spec:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        checksum/config: {{ include (print $.Template.BasePath "/inference-gateway/config.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-inference-gateway
@@ -32,6 +33,7 @@ spec:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
+        {{- include "orbit.configVolume" (dict "root" $ "name" "inferenceGateway" "configMap" "orbit-inference-gateway-config" "modules" (include "orbit.inferenceGateway.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       containers:
         - name: orbit-inference-gateway
@@ -40,20 +42,8 @@ spec:
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
-            - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
-            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
-            - name: ORBIT_OTLP_ENDPOINT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
-            - name: ORBIT_SAMPLING_RATE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
-            - name: ORBIT_LOG_FORMAT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "inferenceGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            - name: ORBIT_SYSTEM_NAMESPACE
-              value: {{ include "orbit.systemNamespace" . | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
@@ -80,4 +70,5 @@ spec:
             {{- toYaml .Values.inferenceGateway.resources | nindent 12 }}
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}

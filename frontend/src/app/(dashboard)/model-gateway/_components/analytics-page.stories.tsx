@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { ALL_NAV_SCOPES, dashboardPage, sessionRoutes } from '@orbit/storybook/dashboard-frame';
 import type { MockRoutes } from '@orbit/storybook/mock-api';
 import type { AnalyticsDays } from '../_types';
-import ModelGatewayLayout from '../layout';
 import { AnalyticsShell } from '../analytics/_components/analytics-shell';
 import { MODEL_ROWS } from './model-mock-data';
 import {
@@ -36,8 +35,8 @@ const meta: Meta<typeof AnalyticsShell> = {
 export default meta;
 type Story = StoryObj<typeof AnalyticsShell>;
 
-const page = dashboardPage(routes(false), ModelGatewayLayout);
-const emptyPage = dashboardPage(routes(true), ModelGatewayLayout);
+const page = dashboardPage(routes(false));
+const emptyPage = dashboardPage(routes(true));
 
 const populated = {
   initialData: TENANT_ANALYTICS_7D,

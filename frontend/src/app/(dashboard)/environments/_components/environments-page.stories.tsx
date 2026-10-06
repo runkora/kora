@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import EnvironmentsLayout from '../layout';
 import { EnvironmentsPage } from './environments-page';
 import {
   MANY_ENVIRONMENTS,
@@ -21,13 +20,10 @@ const meta: Meta<typeof EnvironmentsPage> = {
     nextjs: { appDirectory: true, navigation: { pathname: '/environments' } },
   },
   decorators: [
-    dashboardPage(
-      {
-        'POST /api/agents/types/effective-access': previewHandler,
-        'DELETE /api/agents/environments/:id': { ok: true },
-      },
-      EnvironmentsLayout,
-    ),
+    dashboardPage({
+      'POST /api/agents/types/effective-access': previewHandler,
+      'DELETE /api/agents/environments/:id': { ok: true },
+    }),
   ],
   args: {
     rows: MOCK_ENVIRONMENTS,

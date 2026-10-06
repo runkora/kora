@@ -5,9 +5,8 @@
 # THIS FILE IS NOT USED IN CLUSTER DEPLOYMENTS.
 #
 # When you run the identity service directly on the host (make dev), there is
-# no Kubernetes operator, no ConfigMap, and no volume mount. The service reads
-# this file from the filesystem via the ORBIT_TENANTS_CONFIG env var (set in
-# .env to ./config/tenants.yaml).
+# no Kubernetes operator, no ConfigMap, and no volume mount. Point
+# registry.tenantsPath in backend/internal/identity/config/base.yaml at this file.
 #
 # For cluster dev (make cluster-platform + make cluster-deploy):
 #   The orbit-operator builds the orbit-tenants ConfigMap from OrbitTenant CRs
