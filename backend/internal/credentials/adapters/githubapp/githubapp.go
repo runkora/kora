@@ -35,7 +35,6 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/time/rate"
 
 	"github.com/clear-route/orbit/internal/credentials"
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
@@ -81,9 +80,8 @@ type config struct {
 // an interface so the mint logic is unit-testable without a live API.
 type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
-	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
+	ListInstallationRepositories(ctx context.Context, installationToken string) ([]ghclient.Repository, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
-	GetRepositoryFullName(ctx context.Context, installationToken, id string) (string, error)
 }
 
 // instPermsCacheTTL is how long the installation's permission set is cached
@@ -110,9 +108,8 @@ type Adapter struct {
 	mu             sync.Mutex
 	cache          map[string]credentials.Credential
 	instPermsCache map[int64]cachedInstPerms
-	// repoResolvers holds one bounded repository-ID resolver per tenant and
-	// connection, so one connection's lookups never throttle another's.
-	repoResolvers map[string]*repoResolver
+	// repoIndexes holds one repository-ID index per tenant and connection.
+	repoIndexes map[string]*repoIndex
 }
 
 // New constructs an Adapter backed by the given GitHub client and secret
@@ -125,7 +122,7 @@ func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Ad
 		now:            time.Now,
 		cache:          make(map[string]credentials.Credential),
 		instPermsCache: make(map[int64]cachedInstPerms),
-		repoResolvers:  make(map[string]*repoResolver),
+		repoIndexes:    make(map[string]*repoIndex),
 	}
 }
 
@@ -501,8 +498,9 @@ func classifyReleaseDownload(method, path, owner string) (credentials.Classifica
 
 // resolveRepositoryID rewrites /repositories/{id}/… to /repos/{owner}/{repo}/…
 // so the ID-addressed links GitHub paginates with classify like the paths they
-// stand for. The lookup runs only for a caller allowed holds metadata:read for.
-// An ID that is not looked up or cannot be resolved is unclassifiable.
+// stand for. Only IDs of repositories the installation covers resolve, and the
+// index is consulted only for a caller allowed holds metadata:read for. Any
+// other ID is unclassifiable.
 func (c *connector) resolveRepositoryID(ctx context.Context, path string, allowed func(action string) bool) (string, error) {
 	segs := pathSegments(path)
 	if len(segs) < 2 || segs[0] != "repositories" || !isNumeric(segs[1]) {
@@ -511,99 +509,85 @@ func (c *connector) resolveRepositoryID(ctx context.Context, path string, allowe
 	if allowed == nil || !allowed(ActionMetadataRead) {
 		return "", fmt.Errorf("%w: repository id lookup not permitted", credentials.ErrUnsupportedAction)
 	}
-	fullName, err := c.repositoryFullName(ctx, segs[1])
-	if err != nil {
-		return "", fmt.Errorf("%w: resolve repository id: %w", credentials.ErrUnsupportedAction, err)
+	fullName, ok := c.installationRepository(ctx, segs[1])
+	if !ok {
+		return "", fmt.Errorf("%w: repository id outside the installation", credentials.ErrUnsupportedAction)
 	}
 	return "/repos/" + strings.Join(append([]string{fullName}, segs[2:]...), "/"), nil
 }
 
-// Repository-ID lookups are bounded per tenant and connection: cached names expire after
-// repoNameTTL, and a cache miss needs a rate token and a free lookup slot.
-const (
-	repoNameTTL         = time.Hour
-	repoLookupEvery     = 6 * time.Second
-	repoLookupBurst     = 20
-	repoLookupsInFlight = 4
-)
+// repoIndexTTL is how long an installation's repository list is used before
+// it is fetched again.
+const repoIndexTTL = 10 * time.Minute
 
-// errLookupThrottled is returned when a repository-ID lookup is over its bounds.
-var errLookupThrottled = errors.New("repository lookup throttled")
-
-// cachedRepoName is a resolved "owner/name" and its expiry.
-type cachedRepoName struct {
-	name      string
-	expiresAt time.Time
+// repoIndex maps the repository IDs one connection's installation covers to
+// "owner/name". Its size is bounded by the installation's repository list.
+type repoIndex struct {
+	mu             sync.Mutex
+	installationID int64
+	byID           map[string]string
+	fetchedAt      time.Time
 }
 
-// repoResolver bounds repository-ID lookups for one tenant's connection:
-// its own name cache, rate limit, and in-flight cap.
-type repoResolver struct {
-	names   map[string]cachedRepoName // guarded by Adapter.mu
-	limiter *rate.Limiter
-	slots   chan struct{}
-}
-
-// maxRepoResolvers caps the per-connection resolvers held at once. Keys come
-// from registered connections, never from callers.
-const maxRepoResolvers = 256
-
-// resolverFor returns the connection's resolver, creating it on first use.
-// Called with a.mu held.
-func (a *Adapter) resolverFor(key string) *repoResolver {
-	r, ok := a.repoResolvers[key]
-	if !ok {
-		if len(a.repoResolvers) >= maxRepoResolvers {
-			clear(a.repoResolvers)
-		}
-		r = &repoResolver{
-			names:   make(map[string]cachedRepoName),
-			limiter: rate.NewLimiter(rate.Every(repoLookupEvery), repoLookupBurst),
-			slots:   make(chan struct{}, repoLookupsInFlight),
-		}
-		a.repoResolvers[key] = r
-	}
-	return r
-}
-
-// repositoryFullName looks up a repository ID with the metadata-scoped
-// installation token the caller's metadata:read grant already covers.
-func (c *connector) repositoryFullName(ctx context.Context, id string) (string, error) {
+// installationRepository returns the "owner/name" of id when the connection's
+// installation covers it. The index is built from the installation's own
+// repository list on first use and refreshed after repoIndexTTL or when the
+// connection's installation changes. A caller-supplied ID never causes a
+// lookup of its own.
+func (c *connector) installationRepository(ctx context.Context, id string) (string, bool) {
 	a := c.adapter
 	a.mu.Lock()
-	r := a.resolverFor(c.conn.TenantID + "/" + c.conn.ID)
-	cached, ok := r.names[id]
+	key := c.conn.TenantID + "/" + c.conn.ID
+	idx, ok := a.repoIndexes[key]
+	if !ok {
+		idx = &repoIndex{}
+		a.repoIndexes[key] = idx
+	}
 	a.mu.Unlock()
-	if ok && a.now().Before(cached.expiresAt) {
-		return cached.name, nil
-	}
 
-	if !r.limiter.Allow() {
-		return "", errLookupThrottled
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+	if idx.installationID != c.cfg.InstallationID || a.now().Sub(idx.fetchedAt) >= repoIndexTTL {
+		c.refreshRepoIndex(ctx, idx)
 	}
-	select {
-	case r.slots <- struct{}{}:
-		defer func() { <-r.slots }()
-	default:
-		return "", errLookupThrottled
-	}
+	name, ok := idx.byID[id]
+	return name, ok
+}
 
+// refreshRepoIndex replaces idx with the installation's repository list. A
+// failed fetch keeps the previous list until the next refresh.
+func (c *connector) refreshRepoIndex(ctx context.Context, idx *repoIndex) {
+	idx.fetchedAt = c.adapter.now()
+	if idx.installationID != c.cfg.InstallationID {
+		idx.installationID, idx.byID = c.cfg.InstallationID, nil
+	}
+	repos, err := c.installationRepositories(ctx)
+	if err != nil {
+		c.adapter.logger.Warn(ctx, "list installation repositories failed",
+			logging.Field{Key: "connection", Value: c.conn.Name},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return
+	}
+	byID := make(map[string]string, len(repos))
+	for _, r := range repos {
+		byID[strconv.FormatInt(r.ID, 10)] = r.FullName
+	}
+	idx.byID = byID
+}
+
+// installationRepositories lists the installation's repositories with a
+// metadata-scoped installation token.
+func (c *connector) installationRepositories(ctx context.Context) ([]ghclient.Repository, error) {
 	cred, err := c.Mint(ctx, credentials.CallerIdentity{TenantID: c.conn.TenantID, Action: ActionMetadataRead})
 	if err != nil {
-		return "", fmt.Errorf("resolve metadata token: %w", err)
+		return nil, fmt.Errorf("resolve metadata token for repository listing: %w", err)
 	}
-	name, err := a.api.GetRepositoryFullName(ctx, cred.Token, id)
+	repos, err := c.adapter.api.ListInstallationRepositories(ctx, cred.Token)
 	if err != nil {
-		return "", fmt.Errorf("get repository: %w", err)
+		return nil, fmt.Errorf("list installation repositories: %w", err)
 	}
-
-	a.mu.Lock()
-	if len(r.names) >= cacheEvictThreshold {
-		clear(r.names)
-	}
-	r.names[id] = cachedRepoName{name: name, expiresAt: a.now().Add(repoNameTTL)}
-	a.mu.Unlock()
-	return name, nil
+	return repos, nil
 }
 
 // verbClass maps an HTTP method to the read/write verb class.
@@ -876,7 +860,7 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 		}
 	}
 
-	cacheKey := a.cacheKey(conn.ID, repos, perms)
+	cacheKey := a.cacheKey(conn.ID+"@"+strconv.FormatInt(cfg.InstallationID, 10), repos, perms)
 	if cred, ok := a.cached(cacheKey); ok {
 		return cred, nil
 	}
@@ -931,18 +915,17 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 // QualifierEnumerator capability). It resolves a metadata-scoped installation
 // token, reusing the cache, and lists the installation's repositories.
 func (c *connector) ListQualifierValues(ctx context.Context) ([]string, error) {
-	cred, err := c.Mint(ctx, credentials.CallerIdentity{
-		TenantID: c.conn.TenantID,
-		Action:   ActionMetadataRead,
-	})
+	repos, err := c.installationRepositories(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("resolve metadata token for repository listing: %w", err)
+		return nil, err
 	}
-	repos, err := c.adapter.api.ListInstallationRepositories(ctx, cred.Token)
-	if err != nil {
-		return nil, fmt.Errorf("list installation repositories: %w", err)
+	names := make([]string, 0, len(repos))
+	for _, r := range repos {
+		if r.Name != "" {
+			names = append(names, strings.ToLower(r.Name))
+		}
 	}
-	return repos, nil
+	return names, nil
 }
 
 func (a *Adapter) cached(key string) (credentials.Credential, bool) {
@@ -977,7 +960,7 @@ func (a *Adapter) store(key string, cred credentials.Credential) {
 	a.cache[key] = cred
 }
 
-// cacheKey scopes a cached token to the connection and the exact derived
+// cacheKey scopes a cached token to the connection, its installation, and the exact derived
 // repository/permission set minted, so a narrower request never reuses a
 // broader token.
 func (a *Adapter) cacheKey(connID string, repos []string, perms map[string]string) string {

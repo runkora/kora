@@ -13,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -150,22 +149,25 @@ const listRepositoriesPageSize = 100
 // manual entry beyond the enumerated set).
 const listRepositoriesMaxPages = 5
 
+// Repository is one repository an installation can reach.
+type Repository struct {
+	ID       int64  `json:"id"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+}
+
 // installationRepositoriesResponse is the wire shape of
 // GET /installation/repositories.
 type installationRepositoriesResponse struct {
-	TotalCount   int `json:"total_count"`
-	Repositories []struct {
-		Name string `json:"name"`
-	} `json:"repositories"`
+	TotalCount   int          `json:"total_count"`
+	Repositories []Repository `json:"repositories"`
 }
 
-// ListInstallationRepositories enumerates the repository names the
-// installation token can reach, for the connector attachment picker.
-// installationToken must be a live installation access token (metadata read
-// suffices). Results are bare repository names — the installation fixes the
-// owner — truncated at listRepositoriesMaxPages pages.
-func (c *Client) ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error) {
-	names := make([]string, 0, listRepositoriesPageSize)
+// ListInstallationRepositories enumerates the repositories the installation
+// token can reach. installationToken must be a live installation access token
+// (metadata read suffices). Results are truncated at listRepositoriesMaxPages pages.
+func (c *Client) ListInstallationRepositories(ctx context.Context, installationToken string) ([]Repository, error) {
+	repos := make([]Repository, 0, listRepositoriesPageSize)
 	for page := 1; page <= listRepositoriesMaxPages; page++ {
 		endpoint := fmt.Sprintf("%s/installation/repositories?per_page=%d&page=%d", c.baseURL, listRepositoriesPageSize, page)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -195,16 +197,12 @@ func (c *Client) ListInstallationRepositories(ctx context.Context, installationT
 		if err != nil {
 			return nil, err
 		}
-		for _, r := range body.Repositories {
-			if r.Name != "" {
-				names = append(names, strings.ToLower(r.Name))
-			}
-		}
+		repos = append(repos, body.Repositories...)
 		if len(body.Repositories) < listRepositoriesPageSize {
 			break
 		}
 	}
-	return names, nil
+	return repos, nil
 }
 
 // installationResponse is the wire shape of GET /app/installations/{id}.
@@ -243,41 +241,4 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 		return nil, err
 	}
 	return body.Permissions, nil
-}
-
-// repositoryResponse is the wire shape of GET /repositories/{id}.
-type repositoryResponse struct {
-	FullName string `json:"full_name"`
-}
-
-// GetRepositoryFullName returns the "owner/name" of the repository with the
-// given numeric ID. installationToken must be a live installation access token.
-func (c *Client) GetRepositoryFullName(ctx context.Context, installationToken, id string) (string, error) {
-	endpoint := fmt.Sprintf("%s/repositories/%s", c.baseURL, url.PathEscape(id))
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return "", fmt.Errorf("build get repository request: %w", err)
-	}
-	req.Header.Set("Authorization", "Bearer "+installationToken)
-	req.Header.Set("Accept", acceptHeader)
-
-	_, span, resp, err := c.Do(ctx, "github.Client.GetRepositoryFullName", req)
-	defer span.End()
-	if err != nil {
-		return "", fmt.Errorf("get repository call: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
-	}
-
-	var body repositoryResponse
-	if err = c.DecodeJSON(span, resp, &body); err != nil {
-		return "", err
-	}
-	if body.FullName == "" {
-		return "", c.RecordError(span, ErrUnexpectedStatus)
-	}
-	return body.FullName, nil
 }
