@@ -3,12 +3,15 @@ package agents
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
@@ -270,5 +273,17 @@ func TestHandleEnvironmentSizes(t *testing.T) {
 	want := `{"default":{"cpu":"2","memory":"4Gi","disk":"10Gi"},"max":{"cpu":"8","memory":"16Gi","disk":"50Gi"}}`
 	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != want {
 		t.Errorf("status %d body %s, want %s", w.Code, w.Body.String(), want)
+	}
+}
+
+// The SQLSTATE helpers match the wrapped Postgres code and nothing else.
+func TestSQLStateHelpers(t *testing.T) {
+	fk := fmt.Errorf("delete: %w", &pgconn.PgError{Code: "23503"})
+	unique := fmt.Errorf("insert: %w", &pgconn.PgError{Code: "23505"})
+	if !isForeignKeyViolation(fk) || isForeignKeyViolation(unique) || isForeignKeyViolation(errors.New("plain")) {
+		t.Error("isForeignKeyViolation matched the wrong errors")
+	}
+	if !isUniqueViolation(unique) || isUniqueViolation(fk) {
+		t.Error("isUniqueViolation matched the wrong errors")
 	}
 }

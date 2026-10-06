@@ -660,19 +660,14 @@ func (r *PostgresRepository) SetRunEnvironment(ctx context.Context, runID string
 	return nil
 }
 
-func isForeignKeyViolation(err error) bool {
-	var pe interface{ SQLState() string }
-	return errors.As(err, &pe) && pe.SQLState() == "23503"
-}
+func isForeignKeyViolation(err error) bool { return hasSQLState(err, "23503") }
 
-func isUniqueViolation(err error) bool {
-	// pgx wraps pgconn.PgError; check the SQLSTATE code for unique_violation (23505).
-	type pgErr interface{ SQLState() string }
-	var pe pgErr
-	if errors.As(err, &pe) {
-		return pe.SQLState() == "23505"
-	}
-	return false
+func isUniqueViolation(err error) bool { return hasSQLState(err, "23505") }
+
+// hasSQLState reports whether err wraps a Postgres error with the given SQLSTATE code.
+func hasSQLState(err error, code string) bool {
+	var pe interface{ SQLState() string }
+	return errors.As(err, &pe) && pe.SQLState() == code
 }
 
 // CountRunOutcomes counts completed and failed runs finished in [from, to), using
