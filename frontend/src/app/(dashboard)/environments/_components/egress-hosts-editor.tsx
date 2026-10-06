@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents/environments-shared. Add/remove chip editor for an egress
  * host list, with an optional one-click "common package registries" quick-add.
- * Used by the Environments form and the agent Connectivity tab. */
+ * Used by the Environments wizard and the agent Connectivity tab. */
 
 import { useState } from 'react';
 import { Button, Card, Icon, Input, Stack, Text } from '@orbit/terra';

@@ -192,7 +192,7 @@ const ADAPTER_HOSTS: Record<string, string[]> = {
   kubernetes: ['kubernetes.default.svc'],
 };
 
-/** Answers the live preview the form modal calls, resolving the draft the way the backend does. */
+/** Answers the live preview the environment wizard calls, resolving the draft the way the backend does. */
 export function previewHandler(request: MockRequest): { data: EffectiveAccess } {
   const draft = request.body as EffectiveAccessPreviewRequest;
   const own = draft.connectivity.mode === 'whitelist' ? (draft.connectivity.hosts ?? []) : [];

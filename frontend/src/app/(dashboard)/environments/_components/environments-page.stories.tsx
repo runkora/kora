@@ -11,7 +11,7 @@ import {
   previewHandler,
 } from './environments-mock-data';
 
-/** The environments list and its create/edit modal, with mock environments and a mock preview endpoint. */
+/** The environments list and its create/edit wizard, with mock environments and a mock preview endpoint. */
 const meta: Meta<typeof EnvironmentsPage> = {
   title: 'Pages/Environments',
   component: EnvironmentsPage,
@@ -65,29 +65,29 @@ export const Filtered: Story = {
   },
 };
 
-/** The create modal, empty. */
-export const CreateFormOpen: Story = {
+/** The create wizard on its first step. */
+export const CreateWizardOpen: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByRole('button', { name: /New environment/ }));
-    await expect(await within(document.body).findByRole('dialog')).toBeTruthy();
+    await expect(
+      await within(document.body).findByRole('dialog', { name: 'New environment' }),
+    ).toBeTruthy();
   },
 };
 
-/** The edit modal scrolled to the effective access panel, resolved from the environment's hosts and connectors. */
-export const EditFormOpen: Story = {
+/** The edit wizard on its access step, with the effective access resolved from the environment's hosts and connectors. */
+export const EditWizardOpen: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement);
     await userEvent.click(await canvas.findByLabelText('Edit code-review'));
-    const body = within(document.body);
-    await expect(await body.findByRole('heading', { name: 'Edit environment' })).toBeTruthy();
-    // The preview resolves after a short debounce; wait for a resolved host, then scroll the modal body to the bottom.
-    const dialog = await body.findByRole('dialog');
-    await within(dialog).findAllByText('api.github.com', {}, { timeout: 3000 });
-    const scroller = [...dialog.querySelectorAll<HTMLElement>('*')].find(
-      (el) => getComputedStyle(el).overflowY === 'auto' && el.scrollHeight > el.clientHeight,
+    const dialog = within(
+      await within(document.body).findByRole('dialog', { name: 'Edit environment' }),
     );
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    await userEvent.click(dialog.getByRole('button', { name: 'Continue' }));
+    await userEvent.click(dialog.getByRole('button', { name: 'Continue' }));
+    // The preview resolves after a short debounce.
+    await dialog.findAllByText('api.github.com', {}, { timeout: 3000 });
   },
 };
 
