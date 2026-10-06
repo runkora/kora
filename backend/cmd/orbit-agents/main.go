@@ -230,7 +230,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
 	}
 	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, agents.RunServiceConfig{
-		EnvironmentSizes:        sizes,
+		DefaultEnvironmentSize:  sizes.Default,
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 		SandboxGuardrails: agents.SandboxGuardrails{
@@ -242,7 +242,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,
-		Sizes:             sizes,
+		EnvironmentSizes:  sizes,
 	}, logger)
 
 	draftSvc := agents.NewDraftService(repo, authz, agents.DraftServiceConfig{

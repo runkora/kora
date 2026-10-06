@@ -26,6 +26,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -44,7 +45,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/ports"
 	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
-	"k8s.io/apimachinery/pkg/runtime"
 )
 
 var k8sTracer = otel.Tracer("orbit.agents.k8s")
@@ -73,9 +73,9 @@ type K8sProvisionerConfig struct {
 	// SandboxImage is the base image reference that rendered previews use. A
 	// live sandbox runs the digest the operator pinned on its SandboxImage.
 	SandboxImage string
-	// DefaultSandboxSize sizes rendered previews.
-	DefaultSandboxSize EnvironmentSize
-	SandboxGRPCPort    int32
+	// DefaultEnvironmentSize sizes rendered previews.
+	DefaultEnvironmentSize EnvironmentSize
+	SandboxGRPCPort        int32
 	// GitAuthorName/GitAuthorEmail set the git identity for commits the agent
 	// makes in the sandbox (GIT_AUTHOR_*/GIT_COMMITTER_*). Empty = leave unset.
 	GitAuthorName  string

@@ -16,11 +16,11 @@ import (
 // unless RenderResources is updated to match.
 func TestRenderResources_ParityWithBuilders(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "kora-sandbox-base:render",
-		DefaultSandboxSize:  testSizes.Default,
-		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SessionManagerImage:    "orbit-session-manager:render",
+		SandboxImage:           "kora-sandbox-base:render",
+		DefaultEnvironmentSize: testSizes.Default,
+		SandboxGRPCPort:        50051,
+		SystemNamespace:        "orbit-system",
 	}
 	at := AgentType{ID: "render-coder", Slug: "coder", TenantID: "example"}
 	objs, err := RenderResources(cfg, at, "tenant-example", true)
@@ -67,11 +67,11 @@ func TestRenderResources_ParityWithBuilders(t *testing.T) {
 // flavours and leaves the sandbox identity labels in place.
 func TestRenderResources_AppliesPatches(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "kora-sandbox-base:render",
-		DefaultSandboxSize:  testSizes.Default,
-		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SessionManagerImage:    "orbit-session-manager:render",
+		SandboxImage:           "kora-sandbox-base:render",
+		DefaultEnvironmentSize: testSizes.Default,
+		SandboxGRPCPort:        50051,
+		SystemNamespace:        "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-sts.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -149,11 +149,11 @@ patch: |
 // error on the first run into a startup failure.
 func TestRenderResources_SplitPoolRejectsReadWriteOnceWorkspace(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "kora-sandbox-base:render",
-		DefaultSandboxSize:  testSizes.Default,
-		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SessionManagerImage:    "orbit-session-manager:render",
+		SandboxImage:           "kora-sandbox-base:render",
+		DefaultEnvironmentSize: testSizes.Default,
+		SandboxGRPCPort:        50051,
+		SystemNamespace:        "orbit-system",
 		Patches: loadTestPatches(t, splitPoolPatches(`target: {kind: PersistentVolumeClaim}
 patch: |
   apiVersion: v1
@@ -176,11 +176,11 @@ patch: |
 
 func TestRenderResources_SplitPoolAcceptsReadWriteManyWorkspace(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "kora-sandbox-base:render",
-		DefaultSandboxSize:  testSizes.Default,
-		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SessionManagerImage:    "orbit-session-manager:render",
+		SandboxImage:           "kora-sandbox-base:render",
+		DefaultEnvironmentSize: testSizes.Default,
+		SandboxGRPCPort:        50051,
+		SystemNamespace:        "orbit-system",
 		Patches: loadTestPatches(t, splitPoolPatches(`target: {kind: PersistentVolumeClaim}
 patch: |
   apiVersion: v1
@@ -233,11 +233,11 @@ func TestRenderResources_SplitByNodeAffinityRejectsReadWriteOnceWorkspace(t *tes
 `
 	}
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "kora-sandbox-base:render",
-		DefaultSandboxSize:  testSizes.Default,
-		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SessionManagerImage:    "orbit-session-manager:render",
+		SandboxImage:           "kora-sandbox-base:render",
+		DefaultEnvironmentSize: testSizes.Default,
+		SandboxGRPCPort:        50051,
+		SystemNamespace:        "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-agent.yaml": `target: {kind: StatefulSet}
 patch: |
@@ -270,11 +270,11 @@ patch: |
 // type at provisioning time.
 func TestCheckSandboxPlacement_CatchesPatchesScopedToOneAgentType(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "kora-sandbox-base:render",
-		DefaultSandboxSize:  testSizes.Default,
-		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SessionManagerImage:    "orbit-session-manager:render",
+		SandboxImage:           "kora-sandbox-base:render",
+		DefaultEnvironmentSize: testSizes.Default,
+		SandboxGRPCPort:        50051,
+		SystemNamespace:        "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-agent.yaml": `target: {kind: StatefulSet, labelSelector: "orbit.io/agent-type=render-coder"}
 patch: |
@@ -318,11 +318,11 @@ patch: |
 // the pods, so a ReadWriteOnce workspace stays valid.
 func TestRenderResources_OneSidedPlacementKeepsReadWriteOnce(t *testing.T) {
 	cfg := K8sProvisionerConfig{
-		SessionManagerImage: "orbit-session-manager:render",
-		SandboxImage:        "kora-sandbox-base:render",
-		DefaultSandboxSize:  testSizes.Default,
-		SandboxGRPCPort:     50051,
-		SystemNamespace:     "orbit-system",
+		SessionManagerImage:    "orbit-session-manager:render",
+		SandboxImage:           "kora-sandbox-base:render",
+		DefaultEnvironmentSize: testSizes.Default,
+		SandboxGRPCPort:        50051,
+		SystemNamespace:        "orbit-system",
 		Patches: loadTestPatches(t, map[string]string{
 			"10-sts.yaml": `target: {kind: StatefulSet}
 patch: |

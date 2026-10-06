@@ -96,7 +96,7 @@ func (p *K8sProvisioner) applyStatefulSetPatches(ss appsv1.StatefulSet) (appsv1.
 // placeholder exec token, since nothing will call it. ProvisionSandbox builds
 // the real pod from the run.
 func (p *K8sProvisioner) sampleSandboxPod(runID, agentTypeSlug, namespace string) (corev1.Pod, error) {
-	spec := SandboxSpec{Environment: DefaultEnvironmentName, Image: p.cfg.SandboxImage, Size: p.cfg.DefaultSandboxSize, KubeClusters: []kubeconfig.Cluster{}}
+	spec := SandboxSpec{Environment: DefaultEnvironmentName, Image: p.cfg.SandboxImage, Size: p.cfg.DefaultEnvironmentSize, KubeClusters: []kubeconfig.Cluster{}}
 	built, err := p.buildSandboxPod(Run{ID: runID}, agentTypeSlug, namespace, spec, "sample-not-a-real-token")
 	if err != nil {
 		return corev1.Pod{}, err

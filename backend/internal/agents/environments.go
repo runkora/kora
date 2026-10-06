@@ -175,7 +175,7 @@ type EnvironmentRequest struct {
 // EnvironmentServiceConfig holds runtime parameters for EnvironmentService.
 type EnvironmentServiceConfig struct {
 	TenantNamespaceFn func(tenantID string) string // maps tenant ID → k8s namespace
-	Sizes             EnvironmentSizes
+	EnvironmentSizes  EnvironmentSizes
 }
 
 // environmentStore is the storage the environment service uses.
@@ -263,7 +263,7 @@ func (s *EnvironmentService) ListEnvironments(ctx context.Context) ([]Environmen
 
 // Sizes are the install's default and maximum environment sizes.
 func (s *EnvironmentService) Sizes() EnvironmentSizes {
-	return s.cfg.Sizes
+	return s.cfg.EnvironmentSizes
 }
 
 // UpdateEnvironment replaces an environment's fields and recompiles the grants
@@ -339,7 +339,7 @@ func (s *EnvironmentService) fromRequest(tenantID, id string, req EnvironmentReq
 		Name:         strings.TrimSpace(req.Name),
 		Description:  req.Description,
 		SandboxImage: image,
-		Size:         req.Size.withDefaults(s.cfg.Sizes.Default),
+		Size:         req.Size.withDefaults(s.cfg.EnvironmentSizes.Default),
 		EgressHosts:  trimNonEmpty(req.EgressHosts),
 		Connectors:   connectors,
 	}
@@ -347,7 +347,7 @@ func (s *EnvironmentService) fromRequest(tenantID, id string, req EnvironmentReq
 
 // validate checks the fields and that the named SandboxImage is valid.
 func (s *EnvironmentService) validate(ctx context.Context, env Environment) error {
-	if err := env.Validate(s.cfg.Sizes.Max); err != nil {
+	if err := env.Validate(s.cfg.EnvironmentSizes.Max); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEnvironment, err)
 	}
 	_, err := usableSandboxImage(ctx, s.images, s.cfg.TenantNamespaceFn(env.TenantID), env.SandboxImage, ErrInvalidEnvironment, ErrInvalidEnvironment)

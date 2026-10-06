@@ -33,8 +33,8 @@ type RunServiceConfig struct {
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
-	// EnvironmentSizes size the built-in default environment.
-	EnvironmentSizes EnvironmentSizes
+	// DefaultEnvironmentSize sizes the built-in default environment.
+	DefaultEnvironmentSize EnvironmentSize
 }
 
 // RunService is the single state machine authority for agent runs.

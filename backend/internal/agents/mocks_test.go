@@ -725,7 +725,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 	runSvc := NewRunService(
 		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s,
 		RunServiceConfig{
-			EnvironmentSizes:        testSizes,
+			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 			SandboxGuardrails:       SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},

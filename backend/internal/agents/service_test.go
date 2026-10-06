@@ -1095,7 +1095,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 	runSvc := NewRunService(
 		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s,
 		RunServiceConfig{
-			EnvironmentSizes:        testSizes,
+			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 			StaleRunTimeout:         time.Minute, // shorter than UpdatedAt back-dating in tests
