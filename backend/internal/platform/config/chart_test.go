@@ -153,6 +153,10 @@ func writeMountedConfig(t *testing.T, rendered string) []string {
 		}
 		root := t.TempDir()
 		for _, item := range v.Items {
+			// A printf misuse in a template renders Go's %!(...) marker into the value.
+			if strings.Contains(data[item.Key], "%!") {
+				t.Errorf("%s %s has a printf error:\n%s", v.Name, item.Key, data[item.Key])
+			}
 			path := filepath.Join(root, item.Path)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
