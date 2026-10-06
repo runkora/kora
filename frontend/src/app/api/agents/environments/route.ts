@@ -32,6 +32,8 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     const created = await createEnvironment(session.accessToken, {
       name: body.name,
       description: body.description ?? '',
+      sandbox_image: body.sandbox_image ?? '',
+      size: body.size ?? { cpu: '', memory: '', disk: '' },
       egress_hosts: body.egress_hosts ?? [],
       connectors: body.connectors ?? [],
     });

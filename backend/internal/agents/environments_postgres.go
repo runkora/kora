@@ -13,20 +13,22 @@ import (
 
 // ── Environments ────────────────────────────────────────────────────────────
 
+const environmentColumns = `id, tenant_id, name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, created_at, updated_at`
+
 func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environment) error {
 	if env.ID == "" {
 		env.ID = uuid.NewString()
 	}
 	now := time.Now().UTC()
-	connectorsJSON, mErr := marshalConnectors(env.Connectors)
-	if mErr != nil {
-		return mErr
+	connectorsJSON, err := marshalConnectors(env.Connectors)
+	if err != nil {
+		return err
 	}
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO environments
-			(id, tenant_id, name, description, egress_hosts, connectors, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7,$8)`,
-		env.ID, env.TenantID, env.Name, env.Description, env.EgressHosts, connectorsJSON, now, now,
+	_, err = r.pool.Exec(ctx, `
+		INSERT INTO environments (`+environmentColumns+`)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)`,
+		env.ID, env.TenantID, env.Name, env.Description, env.SandboxImage,
+		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, now, now,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -38,16 +40,12 @@ func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environm
 }
 
 func (r *PostgresRepository) GetEnvironment(ctx context.Context, tenantID, id string) (*Environment, error) {
-	row := r.pool.QueryRow(ctx, `
-		SELECT id, tenant_id, name, description, egress_hosts, connectors, created_at, updated_at
-		FROM environments WHERE tenant_id = $1 AND id = $2`, tenantID, id)
+	row := r.pool.QueryRow(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 AND id = $2`, tenantID, id)
 	return scanEnvironment(row)
 }
 
 func (r *PostgresRepository) ListEnvironments(ctx context.Context, tenantID string) ([]Environment, error) {
-	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, name, description, egress_hosts, connectors, created_at, updated_at
-		FROM environments WHERE tenant_id = $1 ORDER BY name`, tenantID)
+	rows, err := r.pool.Query(ctx, `SELECT `+environmentColumns+` FROM environments WHERE tenant_id = $1 ORDER BY name`, tenantID)
 	if err != nil {
 		return nil, fmt.Errorf("query environments: %w", err)
 	}
@@ -64,16 +62,43 @@ func (r *PostgresRepository) ListEnvironments(ctx context.Context, tenantID stri
 	return out, rows.Err()
 }
 
+// ListEnvironmentsByIDs returns a tenant's environments with the given IDs, in
+// the order of ids. An ID the tenant has no environment for is left out.
+func (r *PostgresRepository) ListEnvironmentsByIDs(ctx context.Context, tenantID string, ids []string) ([]Environment, error) {
+	if len(ids) == 0 {
+		return []Environment{}, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+environmentColumns+` FROM environments
+		WHERE tenant_id = $1 AND id = ANY($2)
+		ORDER BY array_position($2, id)`, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("query environments by id: %w", err)
+	}
+	defer rows.Close()
+
+	out := []Environment{}
+	for rows.Next() {
+		e, err := scanEnvironment(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *e)
+	}
+	return out, rows.Err()
+}
+
 func (r *PostgresRepository) UpdateEnvironment(ctx context.Context, env Environment) error {
-	connectorsJSON, mErr := marshalConnectors(env.Connectors)
-	if mErr != nil {
-		return mErr
+	connectorsJSON, err := marshalConnectors(env.Connectors)
+	if err != nil {
+		return err
 	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE environments
-		SET name=$1, description=$2, egress_hosts=$3, connectors=$4::jsonb, updated_at=$5
-		WHERE tenant_id=$6 AND id=$7`,
-		env.Name, env.Description, env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID,
+		SET name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9
+		WHERE tenant_id=$10 AND id=$11`,
+		env.Name, env.Description, env.SandboxImage, env.Size.CPU, env.Size.Memory, env.Size.Disk,
+		env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
@@ -87,9 +112,13 @@ func (r *PostgresRepository) UpdateEnvironment(ctx context.Context, env Environm
 	return nil
 }
 
+// DeleteEnvironment refuses an environment an agent has attached.
 func (r *PostgresRepository) DeleteEnvironment(ctx context.Context, tenantID, id string) error {
 	tag, err := r.pool.Exec(ctx, `DELETE FROM environments WHERE tenant_id=$1 AND id=$2`, tenantID, id)
 	if err != nil {
+		if isForeignKeyViolation(err) {
+			return ErrEnvironmentInUse
+		}
 		return fmt.Errorf("delete environment: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
@@ -98,10 +127,13 @@ func (r *PostgresRepository) DeleteEnvironment(ctx context.Context, tenantID, id
 	return nil
 }
 
+// ListAgentTypesByEnvironment returns the agents in a tenant an environment is attached to.
 func (r *PostgresRepository) ListAgentTypesByEnvironment(ctx context.Context, tenantID, environmentID string) ([]AgentType, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT `+agentTypeColumns+`
-		FROM agent_types WHERE tenant_id = $1 AND environment_id = $2 ORDER BY created_at DESC`, tenantID, environmentID)
+		FROM agent_types
+		WHERE tenant_id = $1 AND id IN (SELECT agent_type_id FROM agent_environments WHERE environment_id = $2)
+		ORDER BY created_at DESC`, tenantID, environmentID)
 	if err != nil {
 		return nil, fmt.Errorf("query agent_types by environment: %w", err)
 	}
@@ -134,7 +166,8 @@ func marshalConnectors(connectors []Connector) (string, error) {
 func scanEnvironment(s scanner) (*Environment, error) {
 	var e Environment
 	var connectorsJSON []byte
-	err := s.Scan(&e.ID, &e.TenantID, &e.Name, &e.Description, &e.EgressHosts, &connectorsJSON, &e.CreatedAt, &e.UpdatedAt)
+	err := s.Scan(&e.ID, &e.TenantID, &e.Name, &e.Description, &e.SandboxImage,
+		&e.Size.CPU, &e.Size.Memory, &e.Size.Disk, &e.EgressHosts, &connectorsJSON, &e.CreatedAt, &e.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

@@ -59,8 +59,15 @@ type Config struct {
 	Agents struct {
 		// SessionManagerImage is the container image for session-manager StatefulSet pods.
 		SessionManagerImage string `yaml:"sessionManagerImage"`
-		// SandboxImage is the default container image for sandbox pods.
+		// SandboxImage is the base image reference that rendered previews use.
+		// Live sandboxes run the digest pinned on the kora-base SandboxImage.
 		SandboxImage string `yaml:"sandboxImage"`
+		// Environments bounds environment sizes. Default also sizes the
+		// built-in default environment. Each dimension is a Kubernetes quantity.
+		Environments struct {
+			DefaultSize EnvironmentSize `yaml:"defaultSize"`
+			MaxSize     EnvironmentSize `yaml:"maxSize"`
+		} `yaml:"environments"`
 		// SandboxGitAuthorName/Email set the git identity (GIT_AUTHOR_* and
 		// GIT_COMMITTER_*) for commits the agent makes inside the sandbox. Set
 		// per-deployment so the platform identity is not baked into the operator.
@@ -107,6 +114,13 @@ type Config struct {
 			NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 		} `yaml:"sessionManager"`
 	} `yaml:"agents"`
+}
+
+// EnvironmentSize is a sandbox's CPU, memory and local disk.
+type EnvironmentSize struct {
+	CPU    string `yaml:"cpu"`
+	Memory string `yaml:"memory"`
+	Disk   string `yaml:"disk"`
 }
 
 // PolicyConfig configures the in-process OPA policy evaluator.

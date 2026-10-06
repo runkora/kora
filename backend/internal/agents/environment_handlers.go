@@ -12,7 +12,7 @@ import (
 
 func (c *Controller) handleCreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	var req CreateEnvironmentRequest
+	var req EnvironmentRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
@@ -55,7 +55,7 @@ func (c *Controller) handleGetEnvironment(w http.ResponseWriter, r *http.Request
 
 func (c *Controller) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	var req UpdateEnvironmentRequest
+	var req EnvironmentRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
@@ -91,6 +91,9 @@ func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseW
 	case errors.Is(err, ErrEnvironmentNameTaken):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ConflictError(api.ErrCodeResourceExists, "environment name already taken for this tenant", nil), nil)
+	case errors.Is(err, ErrEnvironmentInUse):
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ConflictError(api.ErrCodeConflict, "environment is attached to an agent; detach it first", nil), nil)
 	case errors.Is(err, ErrInvalidEnvironment):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil), nil)
@@ -98,4 +101,9 @@ func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseW
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "environment operation failed", nil), err)
 	}
+}
+
+// handleEnvironmentSizes returns the install's default and maximum environment sizes.
+func (c *Controller) handleEnvironmentSizes(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, c.environments.Sizes())
 }

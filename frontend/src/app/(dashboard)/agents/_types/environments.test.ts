@@ -1,0 +1,48 @@
+import { describe, expect, it } from 'vitest';
+import { setDefaultEnvironment, toggleEnvironment } from '.';
+
+describe('toggleEnvironment', () => {
+  it('makes the first attached environment the default', () => {
+    expect(toggleEnvironment([], 'a')).toEqual([{ environment_id: 'a', is_default: true }]);
+  });
+
+  it('attaches later environments without changing the default', () => {
+    const next = toggleEnvironment([{ environment_id: 'a', is_default: true }], 'b');
+    expect(next).toEqual([
+      { environment_id: 'a', is_default: true },
+      { environment_id: 'b', is_default: false },
+    ]);
+  });
+
+  it('moves the default to the first remaining environment when the default is detached', () => {
+    const next = toggleEnvironment(
+      [
+        { environment_id: 'a', is_default: true },
+        { environment_id: 'b', is_default: false },
+        { environment_id: 'c', is_default: false },
+      ],
+      'a',
+    );
+    expect(next).toEqual([
+      { environment_id: 'b', is_default: true },
+      { environment_id: 'c', is_default: false },
+    ]);
+  });
+
+  it('detaches the last environment', () => {
+    expect(toggleEnvironment([{ environment_id: 'a', is_default: true }], 'a')).toEqual([]);
+  });
+});
+
+describe('setDefaultEnvironment', () => {
+  it('leaves exactly one default', () => {
+    const next = setDefaultEnvironment(
+      [
+        { environment_id: 'a', is_default: true },
+        { environment_id: 'b', is_default: false },
+      ],
+      'b',
+    );
+    expect(next.filter((e) => e.is_default).map((e) => e.environment_id)).toEqual(['b']);
+  });
+});

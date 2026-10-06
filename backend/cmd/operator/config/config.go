@@ -59,9 +59,32 @@ type Install struct {
 	// and the operator must not manage it.
 	WebhookCertManager bool `yaml:"webhookCertManager"`
 
-	Injection   Injection   `yaml:"injection"`
-	PodSecurity PodSecurity `yaml:"podSecurity"`
-	Preflight   Preflight   `yaml:"preflight"`
+	Injection     Injection     `yaml:"injection"`
+	PodSecurity   PodSecurity   `yaml:"podSecurity"`
+	Preflight     Preflight     `yaml:"preflight"`
+	SandboxImages SandboxImages `yaml:"sandboxImages"`
+}
+
+// SandboxImages configures sandbox image validation and warming.
+type SandboxImages struct {
+	// BaseImage is registered in every tenant namespace as kora-base.
+	BaseImage string `yaml:"baseImage"`
+	// WarmBase keeps the base image pulled on the nodes that run sandboxes.
+	WarmBase bool `yaml:"warmBase"`
+	// RegistryMirrors maps a registry host in an image reference to the host the
+	// operator reads it from. A target given as http://host is read over plain HTTP.
+	RegistryMirrors map[string]string `yaml:"registryMirrors"`
+	// WarmerPlacement is the sandbox placement that image warmers run in.
+	WarmerPlacement WarmerPlacement `yaml:"warmerPlacement"`
+}
+
+// WarmerPlacement mirrors operator.WarmerPlacement with yaml tags. main converts between them, which needs identical fields.
+type WarmerPlacement struct {
+	NodeSelector              map[string]string                 `yaml:"nodeSelector"`
+	Tolerations               []corev1.Toleration               `yaml:"tolerations"`
+	Affinity                  *corev1.Affinity                  `yaml:"affinity"`
+	TopologySpreadConstraints []corev1.TopologySpreadConstraint `yaml:"topologySpreadConstraints"`
+	PriorityClassName         string                            `yaml:"priorityClassName"`
 }
 
 // Injection describes the containers the webhook adds to every tenant pod.

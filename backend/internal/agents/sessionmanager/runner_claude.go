@@ -210,18 +210,11 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	}
 	args = append(args, "--mcp-config", mcpConfigPath)
 
-	// Per-run home: isolates ~/.claude/ (session transcripts, memories) from
-	// sibling runs on the same pod. See docs/adr/2026-06-04-per-session-home-isolation.md.
-	runHome := filepath.Join(workDir, ".runhome")
-	if err := os.MkdirAll(runHome, 0o700); err != nil {
-		return fmt.Errorf("create run home: %w", err)
+	// Per-run home, tmp and local dirs. See docs/adr/2026-06-04-per-session-home-isolation.md.
+	if _, err := runHomeDirs(workDir); err != nil {
+		return err
 	}
-
-	// Per-run tmp directory, shared with the sandbox's /tmp. See docs/adr/2026-06-04-per-session-home-isolation.md.
-	tmpDir := runfs.TmpDir(workDir)
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
-		return fmt.Errorf("create run tmpdir: %w", err)
-	}
+	runHome, tmpDir := runfs.HomeDir(workDir), runfs.TmpDir(workDir)
 
 	cmd, cmdArgs := r.buildExecCommand(workDir, args)
 	r.cmd = exec.CommandContext(ctx, cmd, cmdArgs...)

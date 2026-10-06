@@ -14,7 +14,7 @@ func TestBaseDefaults_NoLocalRegistryOrTrustDomain(t *testing.T) {
 	if cfg.Agents.SessionManagerImage != "ghcr.io/clear-route/orbit-session-manager:latest" {
 		t.Errorf("sessionManagerImage = %q, want the ghcr.io default", cfg.Agents.SessionManagerImage)
 	}
-	if cfg.Agents.SandboxImage != "ghcr.io/clear-route/orbit-sandbox-exec:latest" {
+	if cfg.Agents.SandboxImage != "ghcr.io/clear-route/kora-sandbox-base:latest" {
 		t.Errorf("sandboxImage = %q, want the ghcr.io default", cfg.Agents.SandboxImage)
 	}
 	if cfg.Platform.TrustDomain != "" {
@@ -22,6 +22,9 @@ func TestBaseDefaults_NoLocalRegistryOrTrustDomain(t *testing.T) {
 	}
 	if cfg.Kubernetes.SystemNamespace != "orbit-system" {
 		t.Errorf("systemNamespace = %q, want the orbit-system default", cfg.Kubernetes.SystemNamespace)
+	}
+	if e := cfg.Agents.Environments; e.DefaultSize != (EnvironmentSize{CPU: "2", Memory: "4Gi", Disk: "10Gi"}) || e.MaxSize != (EnvironmentSize{CPU: "8", Memory: "16Gi", Disk: "50Gi"}) {
+		t.Errorf("environments = %+v, want the documented default and maximum sizes", e)
 	}
 	if len(cfg.Agents.ImagePullSecrets) != 0 {
 		t.Errorf("imagePullSecrets = %v, want none by default", cfg.Agents.ImagePullSecrets)
@@ -36,7 +39,7 @@ func TestLocalOverlay_KeepsLocalRegistryAndTrustDomain(t *testing.T) {
 	if cfg.Agents.SessionManagerImage != "orbit-registry:5001/orbit-session-manager:latest" {
 		t.Errorf("sessionManagerImage = %q, want the local registry image", cfg.Agents.SessionManagerImage)
 	}
-	if cfg.Agents.SandboxImage != "orbit-registry:5001/orbit-sandbox-exec:latest" {
+	if cfg.Agents.SandboxImage != "orbit-registry:5001/kora-sandbox-base:latest" {
 		t.Errorf("sandboxImage = %q, want the local registry image", cfg.Agents.SandboxImage)
 	}
 	if cfg.Platform.TrustDomain != "orbit.test" {

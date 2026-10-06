@@ -558,6 +558,8 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 		"agents.environments.create":  "agents:environments:write",
 		"agents.environments.replace": "agents:environments:write",
 		"agents.environments.delete":  "agents:environments:write",
+		"agents.sandbox_images.list":  "agents:environments:read",
+		"agents.environments.sizes":   "agents:environments:read",
 		// orbit-agents  /api/v1/runs  → agents:runs:{read,write}
 		"runs.list": "agents:runs:read", "runs.get": "agents:runs:read", "runs.events": "agents:runs:read",
 		"runs.start": "agents:runs:write", "runs.send_message": "agents:runs:write",

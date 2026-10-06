@@ -1,0 +1,123 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: sandboximages.orbit.io
+  labels:
+    {{- include "orbit-crds.labels" . | nindent 4 }}
+  annotations:
+    # helm uninstall keeps this CRD. Image registrations outlive the product install.
+    helm.sh/resource-policy: keep
+spec:
+  group: orbit.io
+  names:
+    kind: SandboxImage
+    listKind: SandboxImageList
+    plural: sandboximages
+    singular: sandboximage
+    shortNames:
+      - osi
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Image
+          type: string
+          jsonPath: .spec.image
+        - name: Valid
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Valid")].status
+        - name: Warm
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Warm")].status
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            SandboxImage registers one sandbox image for the tenant whose
+            namespace holds it. The image must be built on kora-sandbox-base:
+            it runs as uid 100 and carries the io.orbit.sandbox.base label.
+            The operator validates it and resolves its digest. With warm set,
+            it keeps the image pulled on the nodes that run sandboxes.
+            Environments select it by name. The operator owns kora-base, the
+            base image, in every tenant namespace.
+          type: object
+          required:
+            - spec
+          x-kubernetes-validations:
+            - rule: "self.metadata.name.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$') && size(self.metadata.name) <= 63"
+              message: metadata.name must be a DNS label; it names the image's pre-pull DaemonSet.
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - image
+              properties:
+                image:
+                  type: string
+                  minLength: 1
+                  description: Image reference, by tag or by digest.
+                description:
+                  type: string
+                  description: Shown to people choosing an image for an environment.
+                warm:
+                  type: boolean
+                  default: false
+                  description: Keep the image pulled on every node that runs sandboxes, so a sandbox starts without a pull.
+                pullSecretRef:
+                  type: object
+                  description: A docker-registry Secret in this namespace. The operator reads the registry with it and sandboxes pull with it.
+                  required:
+                    - name
+                  properties:
+                    name:
+                      type: string
+                      minLength: 1
+            status:
+              type: object
+              properties:
+                image:
+                  type: string
+                  description: The image reference the operator last read from the registry. digest is what it resolved to.
+                digest:
+                  type: string
+                  description: The resolved image digest. Sandboxes pull the image by it.
+                observedGeneration:
+                  type: integer
+                  format: int64
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string

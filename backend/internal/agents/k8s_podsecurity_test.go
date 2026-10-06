@@ -24,7 +24,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 		logger: logging.NewLoggerWithOutput(io.Discard),
 		cfg: K8sProvisionerConfig{
 			SessionManagerImage: "ghcr.io/clear-route/orbit-session-manager:1.0.0",
-			SandboxImage:        "ghcr.io/clear-route/orbit-sandbox-exec:1.0.0",
+			SandboxImage:        "ghcr.io/clear-route/kora-sandbox-base:1.0.0",
 			SandboxGRPCPort:     50051,
 			ImagePullSecrets:    []string{"ghcr-pull", "mirror-pull"},
 			TrustDomain:         "orbit.example.com",
@@ -36,7 +36,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 }
 
 func renderedSandboxPod() *corev1.Pod {
-	return podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", nil, "test-exec-token")
+	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", testSandboxSpec(), "test-exec-token")
 }
 
 func renderedStatefulSet() appsv1.StatefulSet {
@@ -221,7 +221,7 @@ func TestSessionManagerStatefulSet_PassesNodeHeapCap(t *testing.T) {
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.cfg.ImagePullSecrets = nil
-	if pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", nil, "test-exec-token"); pod.Spec.ImagePullSecrets != nil {
+	if pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "ns", testSandboxSpec(), "test-exec-token"); pod.Spec.ImagePullSecrets != nil {
 		t.Errorf("sandbox imagePullSecrets = %+v, want field omitted", pod.Spec.ImagePullSecrets)
 	}
 	at := AgentType{Slug: "coder", TenantID: "acme"}

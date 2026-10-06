@@ -13,6 +13,7 @@ import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { hasScopeCovering } from '@orbit/lib/permissions';
 import { usePermissions } from '../../_components/permissions-provider';
 import type {
+  AgentEnvironment,
   AgentFramework,
   AgentIdentityMode,
   AgentTypeDraft,
@@ -84,7 +85,8 @@ export interface BuilderFields extends LoopGuardrailValues {
   connectivityMode: ConnectivityMode;
   /** Textarea form — one host per line (connectivity-fields hostsToText). */
   connectivityHosts: string;
-  environmentId: string;
+  /** Attached environments. One is the default. Empty means the kora base image. */
+  environments: AgentEnvironment[];
   agentBudgetOn: boolean;
   agentBudgetUsd: string;
   agentBudgetCadence: 'weekly' | 'monthly';
@@ -155,7 +157,7 @@ const EMPTY_FIELDS: BuilderFields = {
   connectors: [],
   connectivityMode: 'none',
   connectivityHosts: '',
-  environmentId: '',
+  environments: [],
   agentBudgetOn: false,
   agentBudgetUsd: '500.00',
   agentBudgetCadence: 'monthly',
@@ -204,7 +206,7 @@ function toPayload(fields: BuilderFields, step: number): DraftPayload {
     mcp_tools: fields.mcpTools,
     connectors: fields.connectors,
     connectivity: { mode: fields.connectivityMode, hosts },
-    environment_id: fields.environmentId || undefined,
+    environments: fields.environments,
     _builder: { step },
   };
   if (Object.keys(budget).length > 0) payload.budget = budget;
@@ -231,7 +233,7 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     connectors: payload.connectors ?? [],
     connectivityMode: payload.connectivity?.mode ?? 'none',
     connectivityHosts: (payload.connectivity?.hosts ?? []).join('\n'),
-    environmentId: payload.environment_id ?? '',
+    environments: payload.environments ?? [],
     agentBudgetOn: (payload.budget?.limit_usd ?? 0) > 0,
     agentBudgetUsd: payload.budget?.limit_usd ? String(payload.budget.limit_usd) : '500.00',
     agentBudgetCadence: payload.budget?.reset_cadence === 'weekly' ? 'weekly' : 'monthly',

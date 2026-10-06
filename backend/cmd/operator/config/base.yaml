@@ -29,3 +29,5 @@ install:
     audit: restricted
   preflight:
     intervalSeconds: 300
+  sandboxImages:
+    baseImage: ghcr.io/clear-route/kora-sandbox-base:latest

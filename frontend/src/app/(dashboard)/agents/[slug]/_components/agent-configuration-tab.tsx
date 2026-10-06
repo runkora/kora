@@ -30,7 +30,7 @@ import { ModelPicker } from '@orbit/components';
 import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
 import { ConnectionCards } from '@orbit/components';
 import { EgressModeCards } from '../../_components/motif/egress-mode-cards';
-import { EnvironmentCard } from '../../_components/motif/environment-card';
+import { EnvironmentsCard } from '../../_components/motif/environments-card';
 import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
 import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
 import { PlannedLimits } from '../../_components/motif/planned-limits';
@@ -251,7 +251,7 @@ export function AgentConfigurationTab() {
             <SectionHeading
               icon="network"
               title="Network access"
-              description="The hosts the agent may reach, and the environment merged into its effective access."
+              description="The hosts the agent may reach, and the environments it can run in."
             />
             <Stack gap="cozy">
               <SectionLabel title="Network egress" desc="The hosts the agent may reach directly." />
@@ -264,13 +264,15 @@ export function AgentConfigurationTab() {
             </Stack>
             <Stack gap="cozy">
               <SectionLabel
-                title="Environment"
-                desc="An environment merges its egress hosts and connections into the agent's effective access."
+                title="Environments"
+                desc="The sandboxes this agent can run in. Their egress hosts and connections join the agent's effective access."
               />
-              <EnvironmentCard
-                environments={cfg.environments}
-                value={cfg.environmentId}
-                onChange={cfg.setEnvironmentId}
+              <EnvironmentsCard
+                environments={cfg.environmentCatalogue.data}
+                value={cfg.environments}
+                onChange={cfg.setEnvironments}
+                loading={cfg.environmentCatalogue.status === 'loading'}
+                error={cfg.environmentCatalogue.error}
               />
             </Stack>
             <EffectiveAccessPanel

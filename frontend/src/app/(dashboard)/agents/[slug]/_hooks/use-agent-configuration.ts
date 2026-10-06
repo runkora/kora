@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type {
+  AgentEnvironment,
   AgentFramework,
   ConnectionCatalogEntry,
   Connector,
@@ -26,6 +27,7 @@ import {
   fetchMcpCatalogue,
   fetchModels,
 } from '../../_services/agents-api';
+import type { LoadStatus } from '../../_hooks/use-agent-builder';
 import { previewEffectiveAccess, updateAgentType } from '../_services/agent-detail-api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import {
@@ -56,6 +58,15 @@ function normalizeConnectors(connectors: Connector[]): string {
 
 const sortedJson = (xs: string[]) => JSON.stringify(xs.slice().sort());
 
+/** Order-independent canonical form for dirty-checking attached environments. */
+function environmentsKey(list: AgentEnvironment[]): string {
+  return JSON.stringify(
+    list
+      .map((e) => [e.environment_id, e.is_default])
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+  );
+}
+
 interface ConfigurationBaseline {
   name: string;
   description: string;
@@ -66,7 +77,7 @@ interface ConfigurationBaseline {
   connectors: Connector[];
   connectivityMode: ConnectivityMode;
   connectivityHosts: string;
-  environmentId: string;
+  environments: AgentEnvironment[];
   maxConcurrentRuns: string;
   loopGuardrails: LoopGuardrailValues;
   budgetLimitUSD: string;
@@ -85,7 +96,7 @@ function baselineFrom(agent: AgentTypeRow | null): ConfigurationBaseline {
     connectors: agent?.connectors ?? [],
     connectivityMode: agent?.connectivity?.mode ?? 'none',
     connectivityHosts: (agent?.connectivity?.hosts ?? []).join('\n'),
-    environmentId: agent?.environmentId ?? '',
+    environments: agent?.environments ?? [],
     maxConcurrentRuns: String(agent?.maxConcurrentRunsPerPod ?? 10),
     loopGuardrails: loopGuardrailValues(agent?.guardrails),
     budgetLimitUSD: agent?.budget?.limit_usd ? String(agent.budget.limit_usd) : '',
@@ -112,7 +123,7 @@ export function useAgentConfiguration() {
     initial.connectivityMode,
   );
   const [connectivityHosts, setConnectivityHosts] = useState(initial.connectivityHosts);
-  const [environmentId, setEnvironmentId] = useState(initial.environmentId);
+  const [environments, setEnvironments] = useState<AgentEnvironment[]>(initial.environments);
   const [maxConcurrentRuns, setMaxConcurrentRuns] = useState(initial.maxConcurrentRuns);
   const [loopGuardrails, setLoopGuardrails] = useState<LoopGuardrailValues>(initial.loopGuardrails);
   const setLoopGuardrail = useCallback(
@@ -133,7 +144,11 @@ export function useAgentConfiguration() {
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [mcpCatalog, setMcpCatalog] = useState<McpCatalogTool[]>([]);
   const [mcpError, setMcpError] = useState<string | null>(null);
-  const [environments, setEnvironments] = useState<Environment[]>([]);
+  const [environmentCatalogue, setEnvironmentCatalogue] = useState<{
+    data: Environment[];
+    status: LoadStatus;
+    error: string | null;
+  }>({ data: [], status: 'loading', error: null });
 
   useEffect(() => {
     void fetchModels().then(({ data, error }) => {
@@ -146,7 +161,9 @@ export function useAgentConfiguration() {
       setMcpCatalog(data.catalog);
       setMcpError(error);
     });
-    void fetchEnvironments().then(({ data }) => setEnvironments(data));
+    void fetchEnvironments().then(({ data, error }) =>
+      setEnvironmentCatalogue({ data, status: error ? 'error' : 'success', error }),
+    );
   }, []);
 
   // ── Effective access (live, draft-driven preview) ───────────────────────────
@@ -164,14 +181,14 @@ export function useAgentConfiguration() {
             .filter(Boolean),
         },
         connectors,
-        environment_id: environmentId || null,
+        environments,
       }).then((result) => {
         setEffectiveAccess(result.access);
         setAccessError(result.error);
       });
     }, PREVIEW_DEBOUNCE_MS);
     return () => clearTimeout(timer);
-  }, [connectivityMode, connectivityHosts, connectors, environmentId]);
+  }, [connectivityMode, connectivityHosts, connectors, environments]);
 
   // ── Dirty check ─────────────────────────────────────────────────────────────
   const isDirty =
@@ -184,7 +201,7 @@ export function useAgentConfiguration() {
     normalizeConnectors(connectors) !== normalizeConnectors(savedBaseline.connectors) ||
     connectivityMode !== savedBaseline.connectivityMode ||
     connectivityHosts !== savedBaseline.connectivityHosts ||
-    environmentId !== savedBaseline.environmentId ||
+    environmentsKey(environments) !== environmentsKey(savedBaseline.environments) ||
     maxConcurrentRuns !== savedBaseline.maxConcurrentRuns ||
     JSON.stringify(loopGuardrails) !== JSON.stringify(savedBaseline.loopGuardrails) ||
     budgetLimitUSD !== savedBaseline.budgetLimitUSD ||
@@ -237,7 +254,7 @@ export function useAgentConfiguration() {
       mcp_tools: mcpTools,
       connectors,
       connectivity: { mode: connectivityMode, hosts },
-      environment_id: environmentId,
+      environments,
       ...(budgetChanged
         ? {
             budget: {
@@ -263,7 +280,7 @@ export function useAgentConfiguration() {
       connectors,
       connectivityMode,
       connectivityHosts,
-      environmentId,
+      environments,
       maxConcurrentRuns,
       loopGuardrails,
       budgetLimitUSD,
@@ -284,7 +301,7 @@ export function useAgentConfiguration() {
     connectors,
     connectivityMode,
     connectivityHosts,
-    environmentId,
+    environments,
     maxConcurrentRuns,
     loopGuardrails,
     budgetLimitUSD,
@@ -303,7 +320,7 @@ export function useAgentConfiguration() {
     setConnectors(savedBaseline.connectors);
     setConnectivityMode(savedBaseline.connectivityMode);
     setConnectivityHosts(savedBaseline.connectivityHosts);
-    setEnvironmentId(savedBaseline.environmentId);
+    setEnvironments(savedBaseline.environments);
     setMaxConcurrentRuns(savedBaseline.maxConcurrentRuns);
     setLoopGuardrails(savedBaseline.loopGuardrails);
     setBudgetLimitUSD(savedBaseline.budgetLimitUSD);
@@ -351,8 +368,8 @@ export function useAgentConfiguration() {
     setConnectivityMode,
     connectivityHosts,
     setConnectivityHosts,
-    environmentId,
-    setEnvironmentId,
+    environments,
+    setEnvironments,
     maxConcurrentRuns,
     setMaxConcurrentRuns,
     loopGuardrails,
@@ -370,7 +387,7 @@ export function useAgentConfiguration() {
     mcpServers,
     mcpCatalog,
     mcpError,
-    environments,
+    environmentCatalogue,
     // effective access
     effectiveAccess,
     accessError,

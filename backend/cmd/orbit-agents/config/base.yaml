@@ -36,7 +36,17 @@ drafts:
 agents:
   # The chart renders the images for each install.
   sessionManagerImage: ghcr.io/clear-route/orbit-session-manager:latest
-  sandboxImage: ghcr.io/clear-route/orbit-sandbox-exec:latest
+  sandboxImage: ghcr.io/clear-route/kora-sandbox-base:latest
+  # Default and maximum environment sizes, rendered by the chart.
+  environments:
+    defaultSize:
+      cpu: "2"
+      memory: 4Gi
+      disk: 10Gi
+    maxSize:
+      cpu: "8"
+      memory: 16Gi
+      disk: 50Gi
   # Pull secrets for the images above, rendered by the chart.
   imagePullSecrets: []
   maxConcurrentRunsPerPod: 10

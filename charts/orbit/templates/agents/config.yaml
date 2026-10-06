@@ -18,7 +18,15 @@ cmd/orbit-agents:
     bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
   agents:
     sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry $tag) | toJson }}
-    sandboxImage: {{ .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry $tag) | toJson }}
+    sandboxImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
+    {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}
+    environments:
+      {{- range $name, $size := dict "defaultSize" .Values.agents.environments.defaultSize "maxSize" .Values.agents.environments.maxSize }}
+      {{ $name }}:
+        cpu: {{ $size.cpu | toString | toJson }}
+        memory: {{ $size.memory | toString | toJson }}
+        disk: {{ $size.disk | toString | toJson }}
+      {{- end }}
     sandboxGitAuthorName: {{ .Values.agents.config.sandboxGitAuthorName | default "kora-agent" | toJson }}
     sandboxGitAuthorEmail: {{ .Values.agents.config.sandboxGitAuthorEmail | toJson }}
     imagePullSecrets: {{ include "orbit.imagePullSecretNames" . }}

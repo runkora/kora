@@ -75,10 +75,10 @@ func wrapExec(wrapperPath, workDir, binary string, args ...string) (string, []st
 	return wrapperPath, append([]string{workDir, binary}, args...)
 }
 
-// runHomeDirs creates this run's HOME and TMPDIR and returns them as
-// environment entries.
+// runHomeDirs creates this run's HOME, TMPDIR and local dir, and returns HOME
+// and TMPDIR as environment entries.
 //
-// Both must be directories Landlock makes writable: an agent left on the
+// Landlock must make all of them writable. An agent left on the
 // image's /home/orbit fails on its first write. Per-run also keeps sibling runs
 // out of each other's caches.
 func runHomeDirs(workDir string) ([]string, error) {
@@ -89,6 +89,9 @@ func runHomeDirs(workDir string) ([]string, error) {
 	tmpDir := runfs.TmpDir(workDir)
 	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create run tmpdir: %w", err)
+	}
+	if err := os.MkdirAll(runfs.LocalDir(workDir), 0o700); err != nil {
+		return nil, fmt.Errorf("create run local dir: %w", err)
 	}
 	return []string{"HOME=" + runHome, "TMPDIR=" + tmpDir}, nil
 }

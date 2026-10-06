@@ -29,7 +29,7 @@ func TestLoadPatches_RejectsProtectedField(t *testing.T) {
 patch: |
   - {op: replace, path: /spec/template/spec/serviceAccountName, value: default}
 `)
-	_, _, err := loadProvisioning(&agentsConfig.Config{}, dir)
+	_, _, err := loadProvisioning(testConfig(), dir)
 	if err == nil || !strings.Contains(err.Error(), "90-bad.yaml") || !strings.Contains(err.Error(), "spec.template.spec.serviceAccountName") {
 		t.Fatalf("got %v, want a protected-field error naming 90-bad.yaml", err)
 	}
@@ -163,7 +163,7 @@ func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := provisionerConfig(&agentsConfig.Config{}, nil, workloads)
+	cfg := provisionerConfig(testConfig(), nil, workloads)
 	at := agents.AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
 	objs, err := agents.RenderResources(cfg, at, "tenant-example", true)
 	if err != nil {
@@ -225,11 +225,18 @@ func TestLoadPatches_ValidPatchLoads(t *testing.T) {
 patch: |
   - {op: add, path: /spec/tolerations, value: [{key: dedicated, operator: Exists}]}
 `)
-	patches, _, err := loadProvisioning(&agentsConfig.Config{}, dir)
+	patches, _, err := loadProvisioning(testConfig(), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(patches) != 1 {
 		t.Fatalf("got %d patches, want 1", len(patches))
 	}
+}
+
+// testConfig is an empty config with the default environment size every sandbox render needs.
+func testConfig() *agentsConfig.Config {
+	cfg := &agentsConfig.Config{}
+	cfg.Agents.Environments.DefaultSize = agentsConfig.EnvironmentSize{CPU: "2", Memory: "4Gi", Disk: "10Gi"}
+	return cfg
 }

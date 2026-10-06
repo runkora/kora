@@ -109,7 +109,7 @@ type createAgentArgs struct {
 	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"outbound egress posture for the agent's sandboxes (default: none)"`
 	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"credential connections the agent may use and the actions allowed — call the agents.connectors tool to list available connections"`
 	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. The coarse mcp:invoke gate is derived automatically"`
-	EnvironmentID           string           `json:"environment_id,omitempty" jsonschema:"id of a reusable connectivity/connector environment to attach — call the agents.environments.list tool to list"`
+	Environments            []environmentRef `json:"environments,omitempty" jsonschema:"sandbox environments to attach; mark one is_default. Omit for the built-in default environment. Call agents.environments.list for ids"`
 	MaxConcurrentRunsPerPod int              `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"max concurrent runs per pod (0 = service default)"`
 	Guardrails              *guardrailsArg   `json:"guardrails,omitempty" jsonschema:"loop-guard thresholds for this agent's runs; omitted fields take the platform defaults"`
 }
@@ -132,6 +132,12 @@ type connectorArg struct {
 	Resources  []string `json:"resources,omitempty" jsonschema:"optionally narrow the connector to specific upstream resources of the connection's qualifier dimension (e.g. bare repository names for a github connection). Omit for all resources — agents.connectors lists the dimension and any allowlist ceiling"`
 }
 
+// environmentRef attaches one environment to an agent.
+type environmentRef struct {
+	EnvironmentID string `json:"environment_id" jsonschema:"the environment id"`
+	IsDefault     bool   `json:"is_default,omitempty" jsonschema:"sandboxes start in this environment unless the agent chooses another; a lone environment is the default"`
+}
+
 // connectivityArg is the agent's outbound egress posture.
 type connectivityArg struct {
 	Mode  string   `json:"mode" jsonschema:"egress posture: none (deny all egress), open (any host), or whitelist (only the listed hosts)"`
@@ -142,17 +148,17 @@ type connectivityArg struct {
 // pointers/slices: nil/omitted means "leave unchanged". agent_type_id selects the
 // target and is ignored by the agents service when present in the body.
 type updateAgentArgs struct {
-	AgentTypeID             string           `json:"agent_type_id" jsonschema:"the agent type id to update"`
-	Name                    *string          `json:"name,omitempty" jsonschema:"new display name"`
-	Description             *string          `json:"description,omitempty" jsonschema:"new description"`
-	SystemPrompt            *string          `json:"system_prompt,omitempty" jsonschema:"new system prompt"`
-	Framework               *string          `json:"framework,omitempty" jsonschema:"new agent CLI framework"`
-	ModelID                 *string          `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
-	MaxConcurrentRunsPerPod *int             `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"new max concurrent runs per pod"`
-	Guardrails              *guardrailsArg   `json:"guardrails,omitempty" jsonschema:"replacement loop-guard thresholds; omitted fields return to the platform defaults, an empty object restores all of them"`
-	GrantScopes             []string         `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
-	Connectivity            *connectivityArg `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`
-	Connectors              []connectorArg   `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`
-	MCPTools                []string         `json:"mcp_tools,omitempty" jsonschema:"replacement set of governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. An empty array clears all MCP tool access; the coarse mcp:invoke gate is derived automatically"`
-	EnvironmentID           *string          `json:"environment_id,omitempty" jsonschema:"id of a connectivity/connector environment to attach; empty string detaches — call the agents.environments.list tool to list"`
+	AgentTypeID             string            `json:"agent_type_id" jsonschema:"the agent type id to update"`
+	Name                    *string           `json:"name,omitempty" jsonschema:"new display name"`
+	Description             *string           `json:"description,omitempty" jsonschema:"new description"`
+	SystemPrompt            *string           `json:"system_prompt,omitempty" jsonschema:"new system prompt"`
+	Framework               *string           `json:"framework,omitempty" jsonschema:"new agent CLI framework"`
+	ModelID                 *string           `json:"model_id,omitempty" jsonschema:"new inference model id — call the models.list tool first to get valid ids"`
+	MaxConcurrentRunsPerPod *int              `json:"max_concurrent_runs_per_pod,omitempty" jsonschema:"new max concurrent runs per pod"`
+	Guardrails              *guardrailsArg    `json:"guardrails,omitempty" jsonschema:"replacement loop-guard thresholds; omitted fields return to the platform defaults, an empty object restores all of them"`
+	GrantScopes             []string          `json:"grant_scopes,omitempty" jsonschema:"replacement grant scopes. Optional — the server re-derives the inference scopes from model_id when you change the model; set this only to override"`
+	Connectivity            *connectivityArg  `json:"connectivity,omitempty" jsonschema:"replacement egress posture for the agent's sandboxes"`
+	Connectors              []connectorArg    `json:"connectors,omitempty" jsonschema:"replacement set of connectors — call the agents.connectors tool to list available connections"`
+	MCPTools                []string          `json:"mcp_tools,omitempty" jsonschema:"replacement set of governed MCP tools the agent may call through the gateway, as mcp:<server>:<tool>:use scopes — call the agents.mcp_tools tool to list what is available. An empty array clears all MCP tool access; the coarse mcp:invoke gate is derived automatically"`
+	Environments            *[]environmentRef `json:"environments,omitempty" jsonschema:"replacement set of attached environments; mark one is_default. An empty array leaves the built-in default. Call agents.environments.list for ids"`
 }

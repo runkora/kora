@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md -->
 
-**Status:** Accepted
+**Status:** Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md)
 **Date:** 2026-06-14
 **Deciders:** Justin Wilkin
 **Technical Story:** Make a sandboxed agent *effective* at real engineering work without weakening the JIT-credential-brokering governance model established in [2026-06-06-jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md).

@@ -130,6 +130,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /api/v1/environments/{id}", c.handleGetEnvironment)
 	mux.Handle("PUT /api/v1/environments/{id}", c.handleUpdateEnvironment)
 	mux.Handle("DELETE /api/v1/environments/{id}", c.handleDeleteEnvironment)
+	mux.Handle("GET /api/v1/sandbox-images", c.handleListSandboxImages)
+	mux.Handle("GET /api/v1/environment-sizes", c.handleEnvironmentSizes)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)
@@ -145,6 +147,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/summary", c.handleSetRunSummary)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
+	mux.Handle("GET /internal/runs/{id}/environments", c.handleListRunEnvironments)
 }
 
 // handleHealth returns liveness status.
@@ -177,7 +180,7 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidConnectivity) || errors.Is(err, ErrInvalidIdentityMode) || errors.Is(err, ErrInvalidGuardrails) {
+		if invalidAgentTypeField(err) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -291,7 +294,7 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidConnectivity) || errors.Is(err, ErrInvalidIdentityMode) || errors.Is(err, ErrIdentityModeImmutable) || errors.Is(err, ErrInvalidGuardrails) {
+		if invalidAgentTypeField(err) || errors.Is(err, ErrIdentityModeImmutable) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -886,8 +889,17 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// session-manager keeps the behavior it had.
 	ahead := r.URL.Query().Get("ahead") == "true"
 
-	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead)
+	// The body names the environment. An older session-manager sends none.
+	var req sandboxEnvironmentRequest
+	if err := api.DecodeBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
+		return
+	}
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead, req.Environment, req.Replace)
 	if err != nil {
+		if c.writeEnvironmentChoiceError(ctx, w, err) {
+			return
+		}
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -899,6 +911,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			// succeeds once it has.
 			apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "sandbox pre-provision deferred: connection registry not resolved", map[string]any{"run_id": id})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if errors.Is(err, errSandboxImagePending) {
+			// The operator has not read the image yet. The session-manager retries.
+			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil), nil)
 			return
 		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
@@ -914,4 +931,49 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		"exec_token":  sandbox.ExecToken,
 		"canary_host": sandbox.CanaryHost,
 	})
+}
+
+// writeEnvironmentChoiceError answers a refused environment choice with a 409
+// whose message the agent reads. It reports whether err was one.
+func (c *Controller) writeEnvironmentChoiceError(ctx context.Context, w http.ResponseWriter, err error) bool {
+	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrEnvironmentRequired, ErrSandboxImageUnavailable} {
+		if errors.Is(err, target) {
+			api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
+			return true
+		}
+	}
+	return false
+}
+
+// handleListRunEnvironments lists the environments the run's agent may use.
+func (c *Controller) handleListRunEnvironments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
+	envs, err := c.runs.ListRunEnvironments(ctx, id)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list environments", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"environments": envs})
+}
+
+// sandboxEnvironmentRequest names the environment of a sandbox. Replace
+// switches a live sandbox to it.
+type sandboxEnvironmentRequest struct {
+	Environment string `json:"environment"`
+	Replace     bool   `json:"replace"`
+}
+
+// invalidAgentTypeField reports an agent-type write the request itself got wrong. The handler answers it with a 400.
+func invalidAgentTypeField(err error) bool {
+	for _, target := range []error{ErrInvalidConnectivity, ErrInvalidConnector, ErrInvalidIdentityMode, ErrInvalidGuardrails, ErrInvalidEnvironment} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }

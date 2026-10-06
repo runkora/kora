@@ -40,7 +40,10 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 		"`/workspaces/run-1/.runhome`",
 		"`$TMPDIR` (`/workspaces/.tmp/run-1`)",
 		"`/tmp` is not available",
-		"land under `~` and are on your PATH",
+		"with your environment's package managers",
+		"land on the sandbox's local disk",
+		"mcp__runtime__list_environments",
+		"mcp__runtime__replace_environment",
 	} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief missing %q", want)

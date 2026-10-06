@@ -53,7 +53,7 @@ function agentType(
     created_at: ago(21 * DAY),
     updated_at: ago(2 * DAY),
     model_id: 'anthropic/claude-sonnet-4-6',
-    environment_id: null,
+    environments: [],
     ...partial,
   };
 }
@@ -77,7 +77,10 @@ export const CODE_REVIEWER: AgentType = agentType({
   guardrails: { repeated_call_warn: 5, repeated_call_pause: 10 },
   created_at: ago(34 * DAY),
   updated_at: ago(3 * DAY),
-  environment_id: 'env_engineering',
+  environments: [
+    { environment_id: 'env_engineering', is_default: true },
+    { environment_id: 'env_node', is_default: false },
+  ],
   budget: { limit_usd: 150, reset_cadence: 'monthly', per_run_limit_usd: 4 },
 });
 
@@ -601,10 +604,24 @@ export const ENVIRONMENTS: Environment[] = [
     tenant_id: TENANT,
     name: 'Engineering',
     description: 'Package registries and the internal docs site.',
+    sandbox_image: 'acme-go',
+    size: { cpu: '4', memory: '8Gi', disk: '20Gi' },
     egress_hosts: ['registry.npmjs.org', 'pkg.go.dev', 'docs.kora.example'],
     connectors: [{ connection: 'slack', actions: ['channels:read'] }],
     created_at: ago(60 * DAY),
     updated_at: ago(20 * DAY),
+  },
+  {
+    id: 'env_node',
+    tenant_id: TENANT,
+    name: 'Node apps',
+    description: 'Node and pnpm for the dashboard.',
+    sandbox_image: 'kora-base',
+    size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
+    egress_hosts: ['registry.npmjs.org'],
+    connectors: [],
+    created_at: ago(30 * DAY),
+    updated_at: ago(30 * DAY),
   },
 ];
 

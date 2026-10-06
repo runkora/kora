@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 import type { AgentBuilderStateShape } from '../../_hooks/use-agent-builder';
@@ -19,7 +19,7 @@ const builder = {
     connectors: [],
     connectivityMode: 'none',
     connectivityHosts: '',
-    environmentId: '',
+    environments: [{ environment_id: 'env-go', is_default: true }],
   },
   setField: () => {},
   catalogues: {
@@ -38,11 +38,22 @@ vi.mock('../../_context/agent-builder-context', () => ({
 }));
 
 describe('StepTools', () => {
+  afterEach(() => {
+    builder.catalogues.status.environments = 'success';
+  });
+
   it('offers governed access only, with no framework tool picker', () => {
     render(<StepTools />);
 
     expect(screen.getByText('Connections')).toBeTruthy();
     expect(screen.getByText('Network egress')).toBeTruthy();
     expect(screen.queryByText('Platform tools')).toBeNull();
+  });
+
+  it('shows a loading state, not deleted environments, while the catalogue loads', () => {
+    builder.catalogues.status.environments = 'loading';
+    render(<StepTools />);
+    expect(screen.getByText('Loading environments.')).toBeInTheDocument();
+    expect(screen.queryByText('Deleted environment')).toBeNull();
   });
 });

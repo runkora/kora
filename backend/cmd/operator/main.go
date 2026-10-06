@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -232,6 +233,8 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 			ByObject: map[client.Object]cache.ByObject{
 				&ip.InferenceProvider{}:    {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
+				// The operator caches only the sandbox image warmer DaemonSets.
+				&appsv1.DaemonSet{}: {Label: operator.WarmerSelector()},
 			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.
@@ -313,6 +316,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 			Audit:   install.PodSecurity.Audit,
 		},
 		ImagePullSecrets: install.ImagePullSecrets,
+		SandboxBase:      operator.SandboxBase{Image: install.SandboxImages.BaseImage, Warm: install.SandboxImages.WarmBase},
 		Collector:        agentCollector(install.CollectorNamespace, install.CollectorCIDRs),
 		Preflight:        preflightSource{checks},
 	}
@@ -327,6 +331,19 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 
 	providerReconciler := &operator.InferenceProviderReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
 	if err := providerReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+
+	sandboxImageReconciler := &operator.SandboxImageReconciler{
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Registry:    operator.NewRemoteRegistry(install.SandboxImages.RegistryMirrors),
+		Logger:      logger,
+		PullSecrets: install.ImagePullSecrets,
+		Placement:   operator.WarmerPlacement(install.SandboxImages.WarmerPlacement),
+		Resync:      oc.Current.SyncPeriod(),
+	}
+	if err := sandboxImageReconciler.SetupWithManager(mgr); err != nil {
 		return err
 	}
 

@@ -22,6 +22,8 @@ export const PUT = withAuth(
       const updated = await updateEnvironment(session.accessToken, id, {
         name: body.name,
         description: body.description ?? '',
+        sandbox_image: body.sandbox_image ?? '',
+        size: body.size ?? { cpu: '', memory: '', disk: '' },
         egress_hosts: body.egress_hosts ?? [],
         connectors: body.connectors ?? [],
       });

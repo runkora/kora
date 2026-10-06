@@ -33,6 +33,8 @@ type RunServiceConfig struct {
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
+	// DefaultEnvironmentSize sizes the built-in default environment.
+	DefaultEnvironmentSize EnvironmentSize
 }
 
 // RunService is the single state machine authority for agent runs.
@@ -48,6 +50,8 @@ type RunService struct {
 	logger     logging.Logger
 	resolver   *ScopeResolver    // resolves the runtime-environment brief; nil = no brief
 	delegation *DelegationBroker // mints/revokes run delegations; nil = issuer not wired (delegated runs fail closed)
+	envs       runEnvironmentStore
+	images     sandboxImageLookup
 }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
@@ -91,6 +95,8 @@ func NewRunService(
 	k8s k8sProvisioner,
 	pubsub *PubSub,
 	authz *Authz,
+	envs runEnvironmentStore,
+	images sandboxImageLookup,
 	cfg RunServiceConfig,
 	logger logging.Logger,
 ) *RunService {
@@ -101,6 +107,8 @@ func NewRunService(
 		k8s:    k8s,
 		pubsub: pubsub,
 		authz:  authz,
+		envs:   envs,
+		images: images,
 		cfg:    cfg,
 		logger: logger,
 	}
@@ -788,31 +796,31 @@ var ErrKubeconfigNotReady = errors.New("kubeconfig not resolved for sandbox pre-
 // request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
 // the exec token that sandbox requires.
 //
+// An empty environment keeps the run's current one, or the agent's default before the first sandbox.
+// replace switches a live sandbox to the named environment and ends its commands; a pod already in it is reused.
+//
 // ahead marks a pre-provision, which exists to spare the first command the
 // pod's cold start. It refuses while the connection registry is loading, since
 // the pod would keep an empty kubeconfig for the rest of the run. An on-demand
 // request provisions either way: no kubeconfig beats no sandbox.
-func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
+func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error) {
+	environment = strings.TrimSpace(environment)
 	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
 		trace.WithAttributes(
 			attribute.String("run_id", runID),
 			attribute.Bool("ahead", ahead),
+			attribute.String("environment", environment),
+			attribute.Bool("replace", replace),
 		),
 	)
 	defer span.End()
 
-	run, err := s.repo.GetRun(ctx, runID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get run")
-		return Sandbox{}, err
+	if replace && environment == "" {
+		return Sandbox{}, failSpan(span, errResolveEnvironment, ErrEnvironmentRequired)
 	}
-
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return Sandbox{}, fmt.Errorf("get agent type: %w", err)
+		return Sandbox{}, failSpan(span, errLoadRun, err)
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
@@ -826,11 +834,32 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		return Sandbox{}, ErrKubeconfigNotReady
 	}
 
-	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, kubeClusters)
+	spec, switching, err := s.chooseSandbox(ctx, span, *run, *at, namespace, environment, replace)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "provision sandbox pod")
-		return Sandbox{}, fmt.Errorf("provision sandbox pod: %w", err)
+		return Sandbox{}, err
+	}
+	spec.KubeClusters = kubeClusters
+
+	if switching {
+		if err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
+			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("delete sandbox: %w", err))
+		}
+		// The target is recorded before the start to keep a failed start on the requested environment.
+		if err = s.envs.SetRunEnvironment(ctx, runID, environmentIDPtr(spec.EnvironmentID)); err != nil {
+			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("record environment: %w", err))
+		}
+	}
+	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, spec)
+	if err != nil {
+		return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("provision sandbox pod: %w", err))
+	}
+	// A retry finds the pod an earlier attempt started but did not record.
+	if sandbox.Created || recordedEnvironment(*run) != spec.EnvironmentID {
+		action := "start"
+		if replace {
+			action = "replace"
+		}
+		s.recordSandboxEnvironment(ctx, runID, action, spec)
 	}
 
 	sandbox.CanaryHost = s.egressCanaryHost(ctx, *at)
@@ -839,9 +868,36 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	s.logger.Info(ctx, "Sandbox provisioned",
 		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "tenant_id", Value: run.TenantID},
+		logging.Field{Key: "environment", Value: spec.Environment},
 		logging.Field{Key: "endpoint", Value: sandbox.Endpoint},
 	)
 	return sandbox, nil
+}
+
+// chooseSandbox resolves the environment and spec of the run's next sandbox.
+// switching reports a live sandbox in another environment that a replacement removes first.
+func (s *RunService) chooseSandbox(ctx context.Context, span trace.Span, run Run, at AgentType, namespace, environment string, replace bool) (spec SandboxSpec, switching bool, err error) {
+	envs, err := s.agentEnvironments(ctx, at)
+	if err != nil {
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, err)
+	}
+	current, live, err := s.currentEnvironment(ctx, run, namespace)
+	if err != nil {
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, err)
+	}
+	env, err := pickEnvironment(envs, environment, current)
+	if err != nil {
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, err)
+	}
+	switching = live && env.ID != current
+	if switching && !replace {
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name))
+	}
+	spec, err = s.sandboxSpec(ctx, namespace, env)
+	if err != nil {
+		return SandboxSpec{}, false, failSpan(span, errResolveSandboxImage, err)
+	}
+	return spec, switching, nil
 }
 
 // egressCanaryHost picks a host this agent may reach, so the egress probe tests

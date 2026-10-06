@@ -7,6 +7,7 @@ import (
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 
 	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
+	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 )
 
 // AddToScheme registers the kora CRD types into a runtime.Scheme.
@@ -39,5 +40,6 @@ func NewScheme() *runtime.Scheme {
 	utilruntime.Must(clientgoscheme.AddToScheme(s))
 	utilruntime.Must(AddToScheme(s))
 	utilruntime.Must(ip.AddToScheme(s))
+	utilruntime.Must(si.AddToScheme(s))
 	return s
 }

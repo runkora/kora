@@ -3,7 +3,7 @@
 # redeploy.sh: build, push, and restart a single kora service in the k3d
 # cluster. Driven by the per-service registry below so every service uses the
 # same entry point, and edge cases (identity's mkcert CA layer, session-manager
-# living in a tenant namespace as a StatefulSet, sandbox-exec being build-only)
+# living in a tenant namespace as a StatefulSet, sandbox-base being build-only)
 # are encoded in one place instead of scattered across the Makefile.
 #
 # Usage:
@@ -13,7 +13,7 @@
 #   scripts/cluster/redeploy.sh identity
 #   scripts/cluster/redeploy.sh frontend
 #   scripts/cluster/redeploy.sh session-manager --tenant example
-#   scripts/cluster/redeploy.sh sandbox-exec --build-only   # build & push only
+#   scripts/cluster/redeploy.sh sandbox-base --build-only   # build & push only
 #
 # To add a new service, register it in the `service_spec` function below.
 # =============================================================================
@@ -265,14 +265,14 @@ restart=true
 tenant_default=example
 EOF
       ;;
-    sandbox-exec)
-      # No long-lived workload; sandbox-exec pods are created on demand by the
-      # session-manager. Push the new image and let the next run pick it up.
+    sandbox-base)
+      # Sandbox pods are created on demand and have no long-lived workload. The
+      # operator resolves the new digest and the next sandbox picks it up.
       cat <<'EOF'
 dockerfile=backend/Dockerfile.sandbox-exec
 context=backend
-build_arg=
-image=orbit-sandbox-exec
+build_arg=SANDBOX_BASE_VERSION={sha}
+image=kora-sandbox-base
 namespace=
 workload=on-demand
 restart=false
@@ -299,7 +299,7 @@ migrate             (hook Job; re-applies the orbit release so the schema migrat
 operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
-sandbox-exec        (build-only; picked up by next agent run)
+sandbox-base        (build-only; picked up by next sandbox)
 EOF
 }
 
@@ -501,7 +501,7 @@ if [ "$NO_BUILD" -eq 0 ]; then
   log "Building $IMAGE:$GIT_SHA from $DOCKERFILE (context=$CONTEXT)..."
   # The frontend shows the version it was built from.
   build_args=(--build-arg "ORBIT_VERSION=$GIT_SHA")
-  if [ -n "$BUILD_ARG" ]; then build_args+=(--build-arg "$BUILD_ARG"); fi
+  if [ -n "$BUILD_ARG" ]; then build_args+=(--build-arg "${BUILD_ARG//\{sha\}/$GIT_SHA}"); fi
   docker build "${build_args[@]+"${build_args[@]}"}" \
     -t "$IMAGE:latest" \
     -t "$IMAGE:$GIT_SHA" \

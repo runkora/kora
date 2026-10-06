@@ -2,7 +2,8 @@ import 'server-only';
 
 import { fetchAgentsFromBFF } from '../agents/_services/agents-server';
 import { fetchConnections } from '../connections/_services/connections-server';
-import { fetchEnvironments } from '../environments/_services/environments-server';
+import { listEnvironments } from '@orbit/server/environments-client';
+import { toEnvironmentRow } from '../environments/_types';
 import { fetchAnalyticsFromGateway } from '../model-gateway/_services/analytics-server';
 import { fetchBudgetPrincipalsFromGateway } from '../model-gateway/_services/budgets-server';
 import type { AgentTypeRow, RunRow } from '../agents/_types';
@@ -43,11 +44,13 @@ export async function fetchDashboardData(
   accessToken: string,
   tenantId: string,
 ): Promise<DashboardData> {
-  const [agentsResult, connectionsResult, environmentsResult, analyticsResult, budgetResult] =
+  const [agentsResult, connectionsResult, environments, analyticsResult, budgetResult] =
     await Promise.all([
       fetchAgentsFromBFF(accessToken, tenantId),
       fetchConnections(accessToken, tenantId),
-      fetchEnvironments(accessToken),
+      listEnvironments(accessToken)
+        .then((envs) => envs.map(toEnvironmentRow))
+        .catch(() => []),
       fetchAnalyticsFromGateway(accessToken, {
         days: ANALYTICS_WINDOW_DAYS,
         granularity: 'daily',
@@ -59,7 +62,7 @@ export async function fetchDashboardData(
     agentTypes: agentsResult.ok ? agentsResult.agentTypes : [],
     runs: agentsResult.ok ? agentsResult.runs : [],
     connections: connectionsResult.ok ? connectionsResult.rows : [],
-    environments: environmentsResult.ok ? environmentsResult.rows : [],
+    environments,
     analytics: analyticsResult.ok ? analyticsResult.data : null,
     tenantCap: budgetResult.ok ? (budgetResult.data.tenant_cap ?? null) : null,
   };

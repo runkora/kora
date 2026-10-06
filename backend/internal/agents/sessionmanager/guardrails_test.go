@@ -196,7 +196,7 @@ type failingNotifier struct {
 	stops     []string
 }
 
-func (n *failingNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool) (Sandbox, error) {
+func (n *failingNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, _ string, _ bool) (Sandbox, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.calls++
@@ -239,7 +239,7 @@ func TestProvisionSandbox_RetriesThenSucceeds(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if _, err := reg.ProvisionSandbox(ctx, "run-1", false); err != nil {
+	if _, err := reg.ProvisionSandbox(ctx, "run-1", false, "", false); err != nil {
 		t.Fatalf("ProvisionSandbox: %v", err)
 	}
 	if n.calls != 3 {
@@ -260,7 +260,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 		t.Fatal(err)
 	}
 
-	_, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
+	_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false)
 	if !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("err = %v, want ErrSandboxLost", err)
 	}
@@ -275,7 +275,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 	}
 
 	// Further requests fail without calling orbit-agents or recording again.
-	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false); !errors.Is(err, ErrSandboxLost) {
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("second err = %v, want ErrSandboxLost", err)
 	}
 	if n.calls != 3 || len(n.runErrors) != 1 {
@@ -286,7 +286,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 	if err := reg.Send(context.Background(), "run-1", "try again"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false); !errors.Is(err, ErrSandboxLost) {
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("third err = %v", err)
 	}
 	if n.calls != 6 {
@@ -450,7 +450,7 @@ func TestProvisionSandbox_RetriesStopWhenSessionCloses(t *testing.T) {
 
 	done := make(chan error)
 	go func() {
-		_, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
+		_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false)
 		done <- err
 	}()
 	for {
@@ -484,7 +484,7 @@ func TestHandleProvisionSandbox_LostSandboxIs503(t *testing.T) {
 	}
 
 	w := httptest.NewRecorder()
-	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-1/provision-sandbox", nil)
+	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-1/provision-sandbox", strings.NewReader("{}"))
 	r.SetPathValue("runID", "run-1")
 	r.Header.Set(runTokenHeader, tok)
 	c.handleProvisionSandbox(w, r)
@@ -528,7 +528,7 @@ func TestProvisionSandbox_RetriesStopWhenRunnerExits(t *testing.T) {
 
 	done := make(chan error)
 	go func() {
-		_, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
+		_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false)
 		done <- err
 	}()
 	for {

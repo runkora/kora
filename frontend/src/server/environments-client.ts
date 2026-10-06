@@ -1,7 +1,12 @@
 import 'server-only';
 import { config } from '@orbit/server/config';
 import { ApiError } from './client';
-import type { Environment, EnvironmentRequest } from '@orbit/shared/api';
+import type {
+  Environment,
+  EnvironmentRequest,
+  EnvironmentSizes,
+  SandboxImage,
+} from '@orbit/shared/api';
 
 // ---------------------------------------------------------------------------
 // Core fetch helper
@@ -10,11 +15,8 @@ import type { Environment, EnvironmentRequest } from '@orbit/shared/api';
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
- * Environments are a tenant-scoped, UI-managed bundle of egress hosts +
- * connectors served by orbit-agents — the same normal HTTP service the frontend
- * reaches over the mesh for agent-types and the connection catalog. We forward
- * the session token; the result is scoped to the caller's tenant from the token,
- * so no tenant param is needed.
+ * orbit-agents serves environments and sandbox images over the mesh. The session
+ * token is forwarded and orbit-agents scopes every result to the caller's tenant.
  */
 async function request<T>(
   path: string,
@@ -85,4 +87,18 @@ export async function updateEnvironment(
 /** Deletes an environment (204). */
 export async function deleteEnvironment(accessToken: string, id: string): Promise<void> {
   await request<void>(`/api/v1/environments/${id}`, accessToken, { method: 'DELETE' });
+}
+
+/** Lists the sandbox images registered in the caller's tenant, with their validity. */
+export async function listSandboxImages(accessToken: string): Promise<SandboxImage[]> {
+  const body = await request<{ sandbox_images?: SandboxImage[] }>(
+    '/api/v1/sandbox-images',
+    accessToken,
+  );
+  return body?.sandbox_images ?? [];
+}
+
+/** Reads the platform's default and maximum environment sizes. */
+export async function getEnvironmentSizes(accessToken: string): Promise<EnvironmentSizes | null> {
+  return (await request<EnvironmentSizes>('/api/v1/environment-sizes', accessToken)) ?? null;
 }

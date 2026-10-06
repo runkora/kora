@@ -139,13 +139,21 @@ priorityClassName: {{ . }}
 {{- end }}
 
 {{/*
+The sandbox base image. The operator registers it in every tenant namespace as
+the SandboxImage kora-base.
+*/}}
+{{- define "orbit.sandboxBaseImage" -}}
+{{- .Values.agents.config.sandboxImage | default (printf "%s/kora-sandbox-base:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) -}}
+{{- end }}
+
+{{/*
 The validated sandbox warming mode. A typo would otherwise render no warming at
 all and look like it worked.
 */}}
 {{- define "orbit.sandboxWarmingMode" -}}
 {{- $mode := .Values.agents.sandboxWarming.mode | default "none" -}}
-{{- if not (has $mode (list "none" "image" "capacity")) -}}
-{{- fail (printf "agents.sandboxWarming.mode is %q: expected none, image or capacity" $mode) -}}
+{{- if not (has $mode (list "none" "capacity")) -}}
+{{- fail (printf "agents.sandboxWarming.mode is %q: expected none or capacity" $mode) -}}
 {{- end -}}
 {{- $mode -}}
 {{- end }}

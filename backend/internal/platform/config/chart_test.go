@@ -72,9 +72,15 @@ func TestChartRenderedConfigDecodes(t *testing.T) {
 	if deps, _ := filepath.Glob(filepath.Join(chart, "charts", "*.tgz")); len(deps) == 0 {
 		t.Skip("chart dependencies not built")
 	}
+	// Values a user may write unquoted, such as a whole number of CPUs.
+	numeric := filepath.Join(t.TempDir(), "numeric.yaml")
+	if err := os.WriteFile(numeric, []byte("agents:\n  environments:\n    defaultSize: {cpu: 1, memory: 4Gi, disk: 10Gi}\n    maxSize: {cpu: 8.5, memory: 16Gi, disk: 50Gi}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	valueSets := map[string][]string{
-		"ci defaults": {filepath.Join(chart, "ci", "default-values.yaml")},
-		"local":       {filepath.Join(chart, "ci", "default-values.yaml"), filepath.Join(chart, "..", "..", "deploy", "reference", "values", "orbit.local.yaml")},
+		"ci defaults":    {filepath.Join(chart, "ci", "default-values.yaml")},
+		"numeric values": {filepath.Join(chart, "ci", "default-values.yaml"), numeric},
+		"local":          {filepath.Join(chart, "ci", "default-values.yaml"), filepath.Join(chart, "..", "..", "deploy", "reference", "values", "orbit.local.yaml")},
 	}
 	for name, files := range valueSets {
 		t.Run(name, func(t *testing.T) {

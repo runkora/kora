@@ -215,6 +215,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /session/{runID}/interrupt", c.handleInterruptSession)
 	mux.Handle("DELETE /session/{runID}", c.handleCloseSession)
 	mux.Handle("POST /internal/session/{runID}/provision-sandbox", c.handleProvisionSandbox)
+	mux.Handle("POST /internal/session/{runID}/replace-environment", c.handleReplaceEnvironment)
+	mux.Handle("GET /internal/session/{runID}/environments", c.handleListEnvironments)
 	mux.Handle("GET /internal/session/{runID}/sandbox", c.handleGetSandbox)
 }
 
@@ -412,7 +414,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 	bgCtx := context.WithoutCancel(ctx)
 	go func() {
-		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true); err != nil {
+		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true, "", false); err != nil {
 			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -456,9 +458,8 @@ func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req Crea
 // proves the caller is in this pod, which every run here satisfies.
 // orbit-shell is a child of the agent and inherits this environment.
 //
-// The install environment matches the sandbox's, so installs and caches land
-// under the run's home either way. Its PATH carries the sandbox toolchains
-// because Claude Code and Codex replay the agent's PATH in sandbox commands.
+// The install environment uses the sandbox's paths under the run's local dir.
+// Claude Code and Codex replay the agent's environment in sandbox commands.
 func (c *Controller) runEnv(runID, runToken string) []string {
 	workspace := filepath.Join(c.cfg.WorkspacesBasePath, runID)
 	env := []string{
@@ -470,7 +471,7 @@ func (c *Controller) runEnv(runID, runToken string) []string {
 	if c.cfg.NodeMaxOldSpaceMB > 0 {
 		env = append(env, fmt.Sprintf("NODE_OPTIONS=--max-old-space-size=%d", c.cfg.NodeMaxOldSpaceMB))
 	}
-	return append(env, runfs.InstallEnv(runfs.HomeDir(workspace), os.Getenv("PATH"))...)
+	return append(env, runfs.InstallEnv(runfs.LocalDir(workspace), os.Getenv("PATH"))...)
 }
 
 // requireRunToken binds the caller to the run in the path. Returns false and
@@ -610,37 +611,78 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
+// sandboxRequest is what orbit-runtime-mcp and orbit-shell send to provision
+// or replace a sandbox. Environment is empty for the current or default one.
+type sandboxRequest struct {
+	Environment string `json:"environment"`
+}
+
 // handleProvisionSandbox is called by orbit-runtime-mcp (running inside Claude)
 // to provision a sandbox pod. It delegates to orbit-agents then writes the
 // gRPC endpoint to disk so orbit-shell can route Bash commands to the sandbox.
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
+	c.serveSandbox(w, r, false)
+}
+
+// handleReplaceEnvironment replaces the run's sandbox with one in another environment.
+// orbit-agents checks the name and refuses a replacement without one.
+func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Request) {
+	c.serveSandbox(w, r, true)
+}
+
+// serveSandbox provisions the run's sandbox, or replaces it when replace is set.
+func (c *Controller) serveSandbox(w http.ResponseWriter, r *http.Request, replace bool) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
 	if !c.requireRunToken(w, r, runID) {
 		return
 	}
-
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false)
-	if err != nil {
-		// A run this pod does not host is a caller aimed at the wrong session,
-		// which a 500 would bury among ordinary Kubernetes failures.
-		if errors.Is(err, ErrSessionNotFound) {
-			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-			return
-		}
-		// Written for the model: orbit-runtime-mcp and orbit-shell relay it as the tool error.
-		if errors.Is(err, ErrSandboxLost) {
-			apiErr := api.ServiceUnavailableError(runErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
-			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
-			return
-		}
-		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	var req sandboxRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, replace)
+	if err != nil {
+		c.writeSandboxError(ctx, w, runID, err, "failed to provision sandbox")
+		return
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+}
+
+// handleListEnvironments lists the environments the run's agent may use.
+func (c *Controller) handleListEnvironments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := r.PathValue("runID")
+	if !c.requireRunToken(w, r, runID) {
+		return
+	}
+	envs, err := c.registry.ListEnvironments(ctx, runID)
+	if err != nil {
+		c.writeSandboxError(ctx, w, runID, err, "failed to list environments")
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, envs)
+}
+
+// writeSandboxError maps a sandbox failure to a response. failed is the message of an unexpected failure.
+// orbit-runtime-mcp and orbit-shell relay messages for the model as the tool error.
+func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWriter, runID string, err error, failed string) {
+	switch {
+	case errors.Is(err, ErrSessionNotFound):
+		// A run this pod does not host is a caller aimed at the wrong session,
+		// which a 500 would bury among ordinary Kubernetes failures.
+		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	case errors.Is(err, ErrSandboxLost):
+		apiErr := api.ServiceUnavailableError(runErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	case errors.Is(err, ErrEnvironmentRejected):
+		apiErr := api.ConflictError(api.ErrCodeConflict, strings.TrimPrefix(err.Error(), ErrEnvironmentRejected.Error()+": "), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	default:
+		apiErr := api.InternalError(api.ErrCodeInternalError, failed, nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	}
 }
 
 // handleGetSandbox reports this run's sandbox, or 404 if it has none.

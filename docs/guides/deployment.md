@@ -116,7 +116,54 @@ Placement of sandbox warmers follows `agents.workloads.sandbox`.
 
 `replicas` is how many warm nodes you need.
 
-`mode: image` instead runs a DaemonSet that caches the image on node pools that do not scale to zero.
+To keep an image pulled on a pool that does not scale to zero, set `warm` on its `SandboxImage`.
+
+### Sandbox images and environments
+
+A sandbox runs the image of its environment. kora publishes the base image `kora-sandbox-base` with the general command-line tools, Go and Python. Platform teams build their own images `FROM` it and register each one as a `SandboxImage` in the tenant namespace:
+
+```yaml
+apiVersion: orbit.io/v1alpha1
+kind: SandboxImage
+metadata:
+  name: acme-go
+  namespace: orbit-tenant-acme
+spec:
+  image: ghcr.io/acme/sandbox-go:1.4.0
+  description: Go with buf and golangci-lint.
+  warm: true
+  pullSecretRef:
+    name: acme-registry
+```
+
+*   **`image`:** The image reference, given as a tag or a digest such as `ghcr.io/acme/sandbox-go@sha256:...`.
+*   **`description`:** Shown to people who choose an image for an environment.
+*   **`warm`:** Keeps the image pulled on every node that runs sandboxes. The operator runs one DaemonSet per warm image in the tenant namespace, placed like the sandboxes.
+*   **`pullSecretRef`:** A `kubernetes.io/dockerconfigjson` Secret in the same namespace. The operator reads the registry with it and sandboxes pull with it. The Secrets in `global.imagePullSecrets` also apply.
+
+The operator reads the image config from the registry. It accepts an image that runs as uid 100 and carries the `io.orbit.sandbox.base` label. The base image sets both. The operator writes the resolved digest to `status.digest`, and sandboxes pull the image by that digest. Inspect an image with:
+
+```bash
+kubectl -n orbit-tenant-acme get sandboximages
+kubectl -n orbit-tenant-acme describe sandboximage acme-go
+```
+
+The `Valid` condition states why the operator rejected an image. An environment cannot select an image that is not valid. The operator re-reads each image every sync period, and new sandboxes pick up a moved tag after the next read.
+
+The operator keeps a `SandboxImage` named `kora-base` in every tenant namespace. It points at `agents.config.sandboxImage`, and `agents.sandboxImages.warmBase` sets its `warm` flag. Every tenant reconcile restores it.
+
+An environment combines a sandbox image with a size, egress hosts and connectors. Users with `agents:environments:write` create environments through the API or the Environments page and attach them to agents. An agent with no environment runs its sandboxes on `kora-base` at the default size. Helm values set the default size and the largest size an environment can request:
+
+```yaml
+agents:
+  environments:
+    defaultSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
+    maxSize: { cpu: "8", memory: 16Gi, disk: 50Gi }
+```
+
+`disk` sizes a node-local volume in each sandbox that holds the Go, npm and pip caches and user-level tool installs. The repository checkout stays on the shared workspace.
+
+The operator needs `agents.sandboxImages.registryPorts` for a registry on a port other than 443. `agents.sandboxImages.registryMirrors` maps a registry host in image references to the host the operator reads from, as the nodes' registry mirrors do. A mirror given as `http://host` is read over plain HTTP, such as the local k3d registry.
 
 ### Pod metadata and cloud identity for agents
 
