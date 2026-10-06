@@ -144,7 +144,7 @@ func (s *mcpServer) handleInitialize(req jsonRPCRequest) jsonRPCResponse {
 // environmentProperty is the optional or required environment argument.
 var environmentProperty = map[string]any{
 	"type":        "string",
-	"description": "Name of one of this agent's environments, from list_environments.",
+	"description": "An environment name from list_environments.",
 }
 
 func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
@@ -155,12 +155,12 @@ func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
 			"tools": []map[string]any{
 				{
 					"name":        "list_environments",
-					"description": "Lists the environments a sandbox can run in for this session: each one's name, description, image and size, which is the default, and which one the current sandbox runs in. Call it to pick an environment before provision_sandbox or replace_environment.",
+					"description": "Lists the environments this session can use with their name, description, image and size, and marks the default and the current sandbox's environment.",
 					"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "required": []string{}},
 				},
 				{
 					"name":        "provision_sandbox",
-					"description": "Provisions a sandbox execution environment for this session. Call this before making any outbound network call (git clone, curl, npm install, pip install, etc.) or running build commands, compiling code, or starting servers. After this tool returns successfully, all Bash commands will execute inside the sandbox and outbound connections will work. Only call this when you actually need those capabilities. Do not provision eagerly. Pass environment to choose one from list_environments; without it the sandbox uses the default environment. To switch a running sandbox to another environment, call replace_environment instead.\n\nIMPORTANT, working with git repositories after provisioning:\n- Never run `git init` if `git clone` fails. A locally initialized repo has no history in common with the remote and will produce an unmergeable orphan branch.\n- Retry `git clone` (with backoff) on transient failures such as connection reset by peer. These resolve once the sandbox egress path has fully settled.\n- Before branching, committing, or pushing, verify the clone is real: `git remote get-url origin` must succeed and the base branch must be fetchable. If it is not, retry the clone. Do not proceed on a broken working copy.",
+					"description": "Starts a sandbox with network access and the build toolchain for this session, and Bash commands then run in it. Provision only when a command needs network access or a build. `environment` selects one from list_environments, and the agent's default applies when it is omitted.",
 					"inputSchema": map[string]any{
 						"type":       "object",
 						"properties": map[string]any{"environment": environmentProperty},
@@ -169,7 +169,7 @@ func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
 				},
 				{
 					"name":        "replace_environment",
-					"description": "Replaces this session's sandbox with a new one in another environment from list_environments. Commands running in the old sandbox end. Files in the workspace stay. Build caches and tools installed in the old sandbox are lost.",
+					"description": "Replaces the running sandbox with one in another environment. Files in the workspace stay, and running commands, build caches and installed tools are lost.",
 					"inputSchema": map[string]any{
 						"type":       "object",
 						"properties": map[string]any{"environment": environmentProperty},
