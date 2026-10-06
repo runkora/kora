@@ -13,24 +13,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// clientSecretsEnvVar is the environment variable that holds the path to the
-// aggregated client secrets YAML file. The file is mounted from the
-// orbit-tenant-oidc-secrets Secret (managed by the orbit-operator) and
-// contains a flat YAML map of tenantID → clientSecret.
-//
-// When this env var is unset (e.g. local dev with all-public OIDC clients),
-// loadClientSecrets returns an empty map and no client_secret parameter is
-// sent in token requests.
-//
-// See docs/adr/2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md
-const clientSecretsEnvVar = "ORBIT_TENANT_SECRETS_CONFIG"
-
-// clientSecretsPath returns the path to the aggregated client secrets file
-// from the ORBIT_TENANT_SECRETS_CONFIG environment variable.
-func clientSecretsPath() string {
-	return os.Getenv(clientSecretsEnvVar)
-}
-
 // loadClientSecrets reads the aggregated client secrets YAML file written by
 // the orbit-operator to orbit-tenant-oidc-secrets. The file format is a flat
 // YAML map:
@@ -38,8 +20,8 @@ func clientSecretsPath() string {
 //	acme-corp: s3cr3t
 //	example-tenant: another-secret
 //
-// An empty or unset ORBIT_TENANT_SECRETS_CONFIG is not an error — it returns
-// an empty map, meaning all tenants are treated as public OIDC clients.
+// An empty path is not an error: it returns an empty map, meaning all tenants
+// are treated as public OIDC clients.
 func loadClientSecrets(path string) (map[string]string, error) {
 	if path == "" {
 		return map[string]string{}, nil
@@ -70,7 +52,7 @@ func loadClientSecrets(path string) (map[string]string, error) {
 // initTenantOIDCProviders so that confidential-tenant client secrets are
 // available during the initial OIDC discovery pass.
 func (s *Service) initClientSecrets(ctx context.Context) error {
-	path := clientSecretsPath()
+	path := s.cfg.Registry.ClientSecretsPath
 	secrets, err := loadClientSecrets(path)
 	if err != nil {
 		return fmt.Errorf("load client secrets: %w", err)
@@ -92,7 +74,7 @@ func (s *Service) initClientSecrets(ctx context.Context) error {
 // full tenant OIDC provider reload so that rotated secrets are picked up by
 // in-flight device-auth and token-poll requests without a pod restart.
 func (s *Service) reloadClientSecrets(ctx context.Context) {
-	path := clientSecretsPath()
+	path := s.cfg.Registry.ClientSecretsPath
 	secrets, err := loadClientSecrets(path)
 	if err != nil {
 		s.logger.Error(ctx, "client secrets reload failed — keeping current secrets",

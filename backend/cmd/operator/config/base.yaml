@@ -9,3 +9,23 @@ operator:
 
 observability:
   serviceName: orbit-operator
+
+# Defaults for a binary run outside the chart. The chart renders every key per install.
+install:
+  systemNamespace: orbit-system
+  istioNamespace: istio-system
+  spireClassName: spire-system-spire
+  injection:
+    identityProxyImage: ghcr.io/clear-route/orbit-identity-proxy:latest
+    identityProxyPullPolicy: IfNotPresent
+    opaImage: docker.io/openpolicyagent/opa:1.21.0-envoy-static
+    opaPullPolicy: IfNotPresent
+    opaLogLevel: info
+    bundlePollingMinDelay: 30
+    bundlePollingMaxDelay: 60
+  podSecurity:
+    enforce: restricted
+    warn: restricted
+    audit: restricted
+  preflight:
+    intervalSeconds: 300

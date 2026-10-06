@@ -494,12 +494,6 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 	// This ensures tests don't depend on the local dev signing key file.
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
-	// Clear tenant registry so the service starts with no OIDC providers —
-	// tests that need OIDC use newTestServiceWithOIDC instead.
-	t.Setenv("ORBIT_TENANTS_CONFIG", "")
-	// No static OAuth clients mounted by default — OAuth tests seed the client
-	// repo directly. Keeps the static-client source empty and hermetic.
-	t.Setenv("ORBIT_OAUTH_CLIENTS_CONFIG", "")
 	cfg := &Config{
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
@@ -534,8 +528,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 
 // newTestServiceWithOIDC builds a *Service pointed at a live OIDC test server.
 // It writes a temporary tenant registry file with a single tenant "tenant-1"
-// configured to use the given issuerURL and sets ORBIT_TENANTS_CONFIG to point
-// at it for the duration of the test.
+// configured to use the given issuerURL and points cfg.Registry.TenantsPath at it.
 func newTestServiceWithOIDC(
 	t *testing.T,
 	issuerURL string,
@@ -579,9 +572,8 @@ tenants:
 		t.Fatalf("newTestServiceWithOIDC: write temp registry: %v", err)
 	}
 	f.Close()
-	t.Setenv("ORBIT_TENANTS_CONFIG", f.Name())
-
 	cfg := &Config{
+		Registry: RegistryConfig{TenantsPath: f.Name()},
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
 			RefreshTokenTTLDays:   30,
@@ -643,7 +635,6 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
-	t.Setenv("ORBIT_TENANTS_CONFIG", "")
 	sessions = newMockSessionRepo()
 	refreshTokens = newMockRefreshTokenRepo()
 	blocklist = newMockBlocklistRepo()
@@ -1013,7 +1004,6 @@ func newTestControllerWithProfiles(t *testing.T) (
 	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
-	t.Setenv("ORBIT_TENANTS_CONFIG", "")
 	pats = newMockPATRepo()
 	profiles = newMockProfileRepo()
 	cfg := &Config{
@@ -1079,9 +1069,8 @@ tenants:
 		t.Fatalf("newTestServiceWithDomains: write temp registry: %v", err)
 	}
 	f.Close()
-	t.Setenv("ORBIT_TENANTS_CONFIG", f.Name())
-
 	cfg := &Config{
+		Registry: RegistryConfig{TenantsPath: f.Name()},
 		Token: TokenConfig{
 			AccessTokenTTLMinutes: 60,
 			RefreshTokenTTLDays:   30,
@@ -1172,7 +1161,6 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
-	t.Setenv("ORBIT_TENANTS_CONFIG", "")
 	prefsRepo := newMockPrefsRepo()
 	cfg := &Config{
 		Token: TokenConfig{

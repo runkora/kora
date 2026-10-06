@@ -162,14 +162,14 @@ linters:
     #   Rationale: ADR-0006 mandates that all configuration is loaded through
     #   the typed config.Load[T] / config.MustLoadService[T] generic loaders.
     #   Importing viper directly in feature or service packages bypasses the
-    #   two-layer YAML merge, exact-key validation (UnmarshalExact), and the
+    #   layered YAML merge, exact-key validation, and the
     #   yaml:"-" secret field protection. All config must go through platform/config/.
     #   See docs/adr/0006-yaml-file-based-configuration.md
     #
     # Rule: no-raw-yaml
     #   Scope: all packages except platform/config/
     #   Rationale: ADR-0006 mandates all YAML parsing goes through platform/config/
-    #   so that the two-layer merge, UnmarshalExact validation, and yaml:"-" secret
+    #   so that the layered merge, strict key validation, and yaml:"-" secret
     #   field protection are always applied. Importing gopkg.in/yaml.v2 or
     #   gopkg.in/yaml.v3 directly in feature or service packages means raw YAML is
     #   parsed without those guarantees, and secret fields may be silently loaded
@@ -252,7 +252,7 @@ linters:
           # Ban github.com/spf13/viper everywhere outside platform/config/.
           # All configuration loading must go through the typed generic loaders
           # (config.Load[T], config.MustLoadService[T]) which enforce the
-          # two-layer YAML merge, unknown-key validation, and yaml:"-" secret
+          # layered YAML merge, unknown-key validation, and yaml:"-" secret
           # field protection. Importing viper directly bypasses all of these.
           files:
             - "!**/platform/config/**"
@@ -261,15 +261,15 @@ linters:
               desc: >
                 ADR-0006: use config.Load[T] or config.MustLoadService[T] instead
                 of importing viper directly. Direct viper usage bypasses the
-                two-layer YAML merge, UnmarshalExact key validation, and yaml:"-"
+                layered YAML merge, strict key validation, and yaml:"-"
                 secret field protection enforced by platform/config/.
                 See docs/adr/0006-yaml-file-based-configuration.md
 
         no-raw-yaml:
-          # Ban gopkg.in/yaml.v2 and gopkg.in/yaml.v3 everywhere outside
+          # Ban gopkg.in/yaml.v2, gopkg.in/yaml.v3 and go.yaml.in/yaml/v3 everywhere outside
           # platform/config/. All YAML parsing must go through the typed generic
           # loaders (config.Load[T], config.MustLoadService[T]) which own the
-          # two-layer merge, UnmarshalExact validation, and yaml:"-" secret field
+          # layered merge, strict key validation, and yaml:"-" secret field
           # protection. Importing yaml directly means raw documents are decoded
           # without any of those guarantees.
           files:
@@ -278,15 +278,22 @@ linters:
             - pkg: "gopkg.in/yaml.v2"
               desc: >
                 ADR-0006: use config.Load[T] or config.MustLoadService[T] instead
-                of importing yaml directly. Direct yaml usage bypasses the two-layer
-                YAML merge, UnmarshalExact key validation, and yaml:"-" secret field
+                of importing yaml directly. Direct yaml usage bypasses the layered
+                YAML merge, strict key validation, and yaml:"-" secret field
                 protection enforced by platform/config/.
                 See docs/adr/0006-yaml-file-based-configuration.md
             - pkg: "gopkg.in/yaml.v3"
               desc: >
                 ADR-0006: use config.Load[T] or config.MustLoadService[T] instead
-                of importing yaml directly. Direct yaml usage bypasses the two-layer
-                YAML merge, UnmarshalExact key validation, and yaml:"-" secret field
+                of importing yaml directly. Direct yaml usage bypasses the layered
+                YAML merge, strict key validation, and yaml:"-" secret field
+                protection enforced by platform/config/.
+                See docs/adr/0006-yaml-file-based-configuration.md
+            - pkg: "go.yaml.in/yaml/v3"
+              desc: >
+                ADR-0006: use config.Load[T] or config.MustLoadService[T] instead
+                of importing yaml directly. Direct yaml usage bypasses the layered
+                YAML merge, strict key validation, and yaml:"-" secret field
                 protection enforced by platform/config/.
                 See docs/adr/0006-yaml-file-based-configuration.md
 

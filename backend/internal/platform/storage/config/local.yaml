@@ -1,7 +1,11 @@
 # Local development storage configuration
 
 postgres:
+  # The compose Postgres and Redis that make dev-up starts.
+  host: localhost
   port: 5432
+  database: orbit
+  user: orbit
   sslMode: disable  # No TLS for local development
 
   # Connection pool
@@ -14,6 +18,7 @@ postgres:
   captureQueryText: true  # Capture SQL in traces for local debugging
 
 redis:
+  host: localhost
   port: 6379
   db: 0
 

@@ -1,0 +1,39 @@
+{{- /*
+orbit-operator config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+The preflight helm test mounts the same ConfigMap.
+*/}}
+{{- define "orbit.operator.configModules" -}}
+cmd/operator:
+  operator:
+    leaderElection: {{ .Values.operator.leaderElection }}
+  install:
+    trustDomain: {{ include "orbit.trustDomain" . | toJson }}
+    systemNamespace: {{ include "orbit.systemNamespace" . | toJson }}
+    istioNamespace: {{ .Values.istio.namespace | toJson }}
+    istioRevision: {{ .Values.istio.revision | toJson }}
+    spireClassName: {{ .Values.spire.className | toJson }}
+    imagePullSecrets: {{ include "orbit.imagePullSecretNames" . }}
+    {{- /* The collector agent pods may export to: its in-cluster namespace, or the networkPolicy.externalServices ranges serving its port. */}}
+    collectorNamespace: {{ .Values.global.observability.collectorNamespace | toJson }}
+    collectorCIDRs: {{ splitList "," (include "orbit.collectorCIDRs" .) | compact | toJson }}
+    {{- /* The tenant-pod sidecars: identityProxy.image and opaGateway.image. */}}
+    injection:
+      identityProxyImage: {{ include "orbit.imageRef" (dict "root" $ "image" .Values.identityProxy.image) | toJson }}
+      identityProxyPullPolicy: {{ .Values.identityProxy.image.pullPolicy | default .Values.global.imagePullPolicy | toJson }}
+      identityProxyResources: {{ .Values.identityProxy.resources | toJson }}
+      opaImage: {{ include "orbit.imageRef" (dict "root" $ "image" .Values.opaGateway.image) | toJson }}
+      opaPullPolicy: {{ .Values.opaGateway.image.pullPolicy | default .Values.global.imagePullPolicy | toJson }}
+      opaLogLevel: {{ .Values.operator.injection.opa.logLevel | toJson }}
+      bundlePollingMinDelay: {{ .Values.operator.injection.opa.bundlePolling.minDelaySeconds | int }}
+      bundlePollingMaxDelay: {{ .Values.operator.injection.opa.bundlePolling.maxDelaySeconds | int }}
+      opaResources: {{ .Values.operator.injection.opa.resources | toJson }}
+    podSecurity:
+      enforce: {{ .Values.operator.tenantPodSecurity.enforce | toJson }}
+      warn: {{ .Values.operator.tenantPodSecurity.warn | toJson }}
+      audit: {{ .Values.operator.tenantPodSecurity.audit | toJson }}
+    preflight:
+      supportedIstioMinors: {{ .Values.operator.preflight.supportedIstioMinors | toJson }}
+      intervalSeconds: {{ .Values.operator.preflight.intervalSeconds | int }}
+{{ include "orbit.observabilityConfigModule" . }}
+{{- end }}
+{{- include "orbit.configMap" (dict "root" $ "name" "operator" "configMap" "orbit-operator-config" "modules" (include "orbit.operator.configModules" . | fromYaml)) }}

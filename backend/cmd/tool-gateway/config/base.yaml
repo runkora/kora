@@ -2,7 +2,8 @@ app:
   version: "0.1.0"
 
 # publisher (replicas=1 — introspection + scope publishing + catalog) or
-# proxy (scaled — request-path PEP + MCP proxy). Set per-deployment.
+# proxy (scaled — request-path PEP + MCP proxy). The chart renders it per
+# Deployment, with publicHosts and the service URLs.
 mode: "publisher"
 
 server:
@@ -12,14 +13,7 @@ server:
   basePath: "/v1"
   shutdownTimeoutSecs: 30
 
-identity:
-  # SVID exchange for this service's own platform token. The mesh's mTLS peer
-  # identity authenticates the call, so no credential is configured here.
-  internalURL: "http://orbit-identity.orbit-system.svc"
-
 policy:
-  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc"
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
 
 registry:

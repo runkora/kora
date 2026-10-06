@@ -15,15 +15,9 @@ server:
   basePath: "/api/v1"
   shutdownTimeoutSecs: 30
 
-identity:
-  # SVID exchange for this service's own platform token. The mesh's mTLS peer
-  # identity authenticates the call, so no credential is configured here.
-  internalURL: "http://orbit-identity.orbit-system.svc"
-
+# The chart renders the identity and policy service URLs.
 policy:
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
-  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc"
 
 secrets:
   tenantCARoot: "/var/run/orbit/tenant-ca"

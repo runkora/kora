@@ -1,9 +1,5 @@
-# Inference Gateway -- build-time defaults.
-#
-# This file is embedded in the Docker image. Operators never edit it directly.
-# All deployment-time configuration is supplied via environment variables,
-# which loadEnvOverrides() applies on top of these defaults at startup.
-# Helm chart values map to env vars -- see the inference-gateway chart values.yaml.
+# Inference Gateway build-time defaults. The chart renders the per-install
+# service URLs and providers.namespace.
 
 app:
   version: "0.1.0"
@@ -24,16 +20,5 @@ pricing:
   # Upstream URL for LiteLLM's community-maintained pricing JSON.
   sourceURL: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
 
-identity:
-  # SVID exchange for this service's own platform token. The mesh's mTLS peer
-  # identity authenticates the call, so no credential is configured here.
-  internalURL: "http://orbit-identity.orbit-system.svc"
-
 policy:
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
-  policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
-
-providers:
-  # The namespace the gateway watches for InferenceProvider resources.
-  namespace: orbit-system
