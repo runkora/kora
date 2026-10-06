@@ -1,5 +1,6 @@
 'use client';
 
+/** @tier 3 — dashboard-shell-scoped. Promote to src/components/ if a second feature needs this. */
 import { usePathname } from 'next/navigation';
 import { Stack } from '@orbit/terra';
 import { APP_ROUTES } from '@orbit/lib/routing/routes';
