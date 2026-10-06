@@ -1,12 +1,14 @@
 package agents
 
 import (
+	"context"
 	"errors"
 	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
+	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 )
@@ -110,5 +112,30 @@ func TestSandboxPod_InvalidSizeIsAnError(t *testing.T) {
 		if _, err := podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", spec, "token"); !errors.Is(err, errSandboxSize) {
 			t.Errorf("size %+v: err = %v, want errSandboxSize", size, err)
 		}
+	}
+}
+
+// A live sandbox in one environment is reused for that environment and refused
+// for another, so only replace_environment switches it.
+func TestProvisionSandbox_LivePodInOtherEnvironment(t *testing.T) {
+	node := SandboxSpec{EnvironmentID: "env-node", Environment: "node", Image: "ghcr.io/acme/node@sha256:abc", Size: testSizes.Default}
+	goSpec := SandboxSpec{EnvironmentID: "env-go", Environment: "go", Image: "ghcr.io/acme/go@sha256:abc", Size: testSizes.Default}
+	run := Run{ID: "run-1"}
+
+	live := buildTestSandboxPod(podSecurityProvisioner(), run, "coder", "ns", node, "live-token")
+	live.Status = corev1.PodStatus{
+		Phase:      corev1.PodRunning,
+		PodIP:      "10.0.0.7",
+		Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+	}
+	p := podSecurityProvisioner()
+	p.client = fake.NewSimpleClientset(live)
+
+	if _, err := p.ProvisionSandbox(context.Background(), run, "coder", "ns", goSpec); !errors.Is(err, ErrEnvironmentSwitch) {
+		t.Errorf("provision into go = %v, want ErrEnvironmentSwitch", err)
+	}
+	sb, err := p.ProvisionSandbox(context.Background(), run, "coder", "ns", node)
+	if err != nil || sb.ExecToken != "live-token" || sb.Created {
+		t.Errorf("provision into node = %+v, %v; want the live pod reused", sb, err)
 	}
 }
