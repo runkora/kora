@@ -2,6 +2,14 @@
 orbit-mcp config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 */}}
 {{- define "orbit.orbitMcp.configModules" -}}
+cmd/orbit-mcp:
+  backends:
+    agents: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-agents") | toJson }}
+    policy: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    inference: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-inference-gateway") | toJson }}
+    identity: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    triggers: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-triggers") | toJson }}
+    toolGateway: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-tool-gateway") | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "orbitMcp" "configMap" "orbit-mcp-config" "modules" (include "orbit.orbitMcp.configModules" . | fromYaml)) }}

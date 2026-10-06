@@ -14,14 +14,12 @@ kubernetes:
   tenantNamespacePrefix: orbit-tenant-
   systemNamespace: orbit-system
 
+# The chart renders the trust domain and the identity and policy service URLs.
 platform:
-  # No default: the chart renders it and local.yaml sets orbit.test.
+  # No default: local.yaml sets orbit.test.
   trustDomain: ""
-  identityServiceURL: "http://orbit-identity.orbit-system.svc"
-  policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
 
 policy:
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   # Shorter than the platform default (30s): triggers.createScheduledTrigger /
   # createManualTrigger mint a brand-new SERVICE principal and its grant, then
   # immediately resolve the agent type through this bundle in the same

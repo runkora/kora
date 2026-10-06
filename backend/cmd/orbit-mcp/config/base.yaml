@@ -6,13 +6,7 @@ server:
   basePath: ""
   shutdownTimeoutSecs: 30
 
-backends:
-  agents: "http://orbit-agents.orbit-system.svc"
-  policy: "http://orbit-policy-service.orbit-system.svc"
-  inference: "http://orbit-inference-gateway.orbit-system.svc"
-  identity: "http://orbit-identity.orbit-system.svc"
-  triggers: "http://orbit-triggers.orbit-system.svc"
-  toolGateway: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
+# The chart renders the backends' service URLs.
 
 observability:
   serviceName: "orbit-mcp"

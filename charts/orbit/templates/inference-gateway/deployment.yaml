@@ -44,8 +44,6 @@ spec:
           env:
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            - name: ORBIT_SYSTEM_NAMESPACE
-              value: {{ include "orbit.systemNamespace" . | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:

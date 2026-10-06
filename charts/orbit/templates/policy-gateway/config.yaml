@@ -2,6 +2,12 @@
 policy-gateway config files (docs/adr/2026-10-06-rendered-service-config-files.md).
 */}}
 {{- define "orbit.policyGateway.configModules" -}}
+cmd/policy-gateway:
+  policy:
+    bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
+    {{- /* The policy service's gRPC route-registration port. */}}
+    policyServiceInternalURL: {{ printf "%s:9091" (include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service")) | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.tokenConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "policyGateway" "configMap" "orbit-policy-gateway-config" "modules" (include "orbit.policyGateway.configModules" . | fromYaml)) }}

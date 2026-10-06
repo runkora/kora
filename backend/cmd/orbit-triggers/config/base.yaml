@@ -10,17 +10,8 @@ server:
   basePath: /api/v1
   shutdownTimeoutSecs: 30
 
-identity:
-  # Token minting. Authenticated by the mesh's mTLS peer identity (SPIRE SVID
-  # presented as XFCC), so no credential is configured here.
-  internalURL: "http://orbit-identity.orbit-system.svc"
-
-agents:
-  internalURL: "http://orbit-agents.orbit-system.svc"
-
+# The chart renders the identity, agents and policy service URLs.
 policy:
-  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc"
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   # Short: a trigger's run grant is created moments before its first delivery,
   # so a long poll interval shows up as a spurious first-fire denial.
   bundlePollIntervalSecs: 3

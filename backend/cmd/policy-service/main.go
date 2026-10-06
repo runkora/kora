@@ -75,7 +75,7 @@ func realMain() error {
 		TelemetryCollector: observability.CollectorAuthority(),
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
-	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, bundle.NewTenantRegistry(), logger)
+	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, bundle.NewTenantRegistry(psc.Current.Bundle.TenantsPath), logger)
 
 	// Pre-compile bundles for every known tenant: registered, with grants, or
 	// with routes.

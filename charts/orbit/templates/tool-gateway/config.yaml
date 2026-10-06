@@ -3,8 +3,19 @@ tool-gateway config files (docs/adr/2026-10-06-rendered-service-config-files.md)
 one ConfigMap per Deployment. Takes (dict "root" $ "mode" "publisher"|"proxy").
 */}}
 {{- define "orbit.toolGateway.configModules" -}}
-{{ include "orbit.observabilityConfigModule" .root }}
-{{ include "orbit.storageConfigModule" .root }}
+{{- with .root }}
+cmd/tool-gateway:
+  mode: {{ $.mode | toJson }}
+  publicHosts: {{ splitList "," (include "orbit.publicHosts" .) | compact | toJson }}
+  identity:
+    internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+  policy:
+    policyServiceInternalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
+{{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.tokenConfigModule" . }}
+{{- end }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "toolGateway" "configMap" "orbit-tool-gateway-publisher-config" "modules" (include "orbit.toolGateway.configModules" (dict "root" $ "mode" "publisher") | fromYaml)) }}
 ---

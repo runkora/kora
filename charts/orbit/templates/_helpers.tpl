@@ -335,6 +335,18 @@ internal/platform/storage:
     port: {{ .Values.config.redis.port | int }}
 {{- end }}
 
+{{- define "orbit.tokenConfigModule" -}}
+internal/platform/token:
+  jwksURL: {{ printf "%s/api/v1/identity/.well-known/jwks.json" (include "orbit.serviceURL" (dict "root" . "name" "orbit-identity")) | toJson }}
+{{- end }}
+
+{{/*
+The policy-service bundle endpoint the in-process evaluators poll.
+*/}}
+{{- define "orbit.bundleEndpoint" -}}
+{{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") }}/api/v1/policy/bundles
+{{- end }}
+
 {{/*
 The names of global.imagePullSecrets, as a JSON list.
 */}}

@@ -48,7 +48,7 @@ type tenantEntry struct {
 
 // tenantOIDCEntry holds per-tenant OIDC config from the registry file.
 // Client secrets are NOT stored here — they are injected from the aggregated
-// Secret mounted at ORBIT_TENANT_SECRETS_CONFIG.
+// Secret mounted at Registry.ClientSecretsPath.
 type tenantOIDCEntry struct {
 	IssuerURL string   `json:"issuerURL"`
 	ClientID  string   `json:"clientID"`
@@ -72,16 +72,15 @@ type TenantOIDCConfig struct {
 	EmailDomains []string
 }
 
-// loadTenantRegistry reads the tenant registry from the path specified by
-// ORBIT_TENANTS_CONFIG and returns a map keyed by tenant ID. Client secrets
+// loadTenantRegistry reads the tenant registry at path and returns a map keyed
+// by tenant ID. Client secrets
 // are resolved from clientSecrets (keyed by tenant ID), which is populated
 // from the aggregated Secret orbit-tenant-oidc-secrets.
 //
-// An empty ORBIT_TENANTS_CONFIG is not an error — it returns an empty map,
+// An empty path is not an error — it returns an empty map,
 // which causes tenantOIDC to return ErrOIDCNotConfigured for any tenant,
 // consistent with the service running without OIDC.
-func loadTenantRegistry(clientSecrets map[string]string) (map[string]TenantOIDCConfig, error) {
-	path := os.Getenv("ORBIT_TENANTS_CONFIG")
+func loadTenantRegistry(path string, clientSecrets map[string]string) (map[string]TenantOIDCConfig, error) {
 	if path == "" {
 		return map[string]TenantOIDCConfig{}, nil
 	}

@@ -12,6 +12,10 @@ cmd/orbit-agents:
     systemNamespace: {{ include "orbit.systemNamespace" . | toJson }}
   platform:
     trustDomain: {{ include "orbit.trustDomain" . | toJson }}
+    identityServiceURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    policyServiceURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+  policy:
+    bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
   agents:
     sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry $tag) | toJson }}
     sandboxImage: {{ .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry $tag) | toJson }}
@@ -27,5 +31,6 @@ cmd/orbit-agents:
       nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
 {{ include "orbit.observabilityConfigModule" . }}
 {{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.tokenConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "agents" "configMap" "orbit-agents-config" "modules" (include "orbit.agents.configModules" . | fromYaml)) }}

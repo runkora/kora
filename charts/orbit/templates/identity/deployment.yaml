@@ -58,21 +58,8 @@ spec:
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
-            - name: ORBIT_ACCESS_TOKEN_TTL_MINUTES
-              value: {{ .Values.identity.config.accessTokenTtlMinutes | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
-            - name: ORBIT_TENANTS_CONFIG
-              value: "/etc/orbit/tenants.yaml"
-            - name: ORBIT_TENANT_SECRETS_CONFIG
-              value: "/etc/orbit/tenant-secrets/client-secrets.yaml"
-            - name: ORBIT_OAUTH_CLIENTS_CONFIG
-              value: "/etc/orbit/oauth-clients/oauth-clients.json"
-            {{- $publicHosts := include "orbit.publicHosts" . }}
-            {{- if $publicHosts }}
-            - name: ORBIT_PUBLIC_HOSTS
-              value: {{ $publicHosts | quote }}
-            {{- end }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "identity") | nindent 12 }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:

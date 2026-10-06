@@ -46,15 +46,10 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "toolGateway") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          {{- with .Values.toolGateway.extraEnv }}
           env:
-            - name: ORBIT_TOOL_GATEWAY_MODE
-              value: publisher
-            {{- $publicHosts := include "orbit.publicHosts" . }}
-            {{- if $publicHosts }}
-            - name: ORBIT_PUBLIC_HOSTS
-              value: {{ $publicHosts | quote }}
-            {{- end }}
-            {{- include "orbit.extraEnv" (dict "root" $ "name" "toolGateway") | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http

@@ -6,10 +6,9 @@ server:
   basePath: "/v1"
   shutdownTimeoutSecs: 30
 
+# The chart renders the policy service URLs.
 policy:
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
-  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc:9091"
 
 observability:
   serviceName: "policy-gateway"

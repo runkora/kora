@@ -11,16 +11,16 @@ import (
 )
 
 // TenantRegistry lists the tenants the operator has registered, read from the
-// orbit-tenants ConfigMap mounted at ORBIT_TENANTS_CONFIG. It is read on every
+// orbit-tenants ConfigMap mounted at its path. It is read on every
 // call so a recompile sees the current file. An unset path or an absent file
 // (the mount is optional) lists nothing.
 type TenantRegistry struct {
 	path string
 }
 
-// NewTenantRegistry returns the registry at ORBIT_TENANTS_CONFIG.
-func NewTenantRegistry() *TenantRegistry {
-	return &TenantRegistry{path: os.Getenv("ORBIT_TENANTS_CONFIG")}
+// NewTenantRegistry returns the registry at path.
+func NewTenantRegistry(path string) *TenantRegistry {
+	return &TenantRegistry{path: path}
 }
 
 type registryTenant struct {

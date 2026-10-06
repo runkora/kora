@@ -46,12 +46,10 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "policyService") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          {{- with .Values.policyService.extraEnv }}
           env:
-            - name: ORBIT_TENANTS_CONFIG
-              value: "/etc/orbit/tenants.yaml"
-            - name: POLICY_SERVICE_BUNDLE_FRONTEND_HOST
-              value: {{ include "orbit.frontendHost" . | quote }}
-            {{- include "orbit.extraEnv" (dict "root" $ "name" "policyService") | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http

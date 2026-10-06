@@ -10,17 +10,41 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
+	egressConfig "github.com/clear-route/orbit/cmd/egress-gateway/config"
+	identityConfig "github.com/clear-route/orbit/cmd/identity/config"
+	inferenceConfig "github.com/clear-route/orbit/cmd/inference-gateway/config"
 	operatorConfig "github.com/clear-route/orbit/cmd/operator/config"
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
+	mcpConfig "github.com/clear-route/orbit/cmd/orbit-mcp/config"
+	triggersConfig "github.com/clear-route/orbit/cmd/orbit-triggers/config"
+	policyGatewayConfig "github.com/clear-route/orbit/cmd/policy-gateway/config"
+	policyServiceConfig "github.com/clear-route/orbit/cmd/policy-service/config"
+	toolGatewayConfig "github.com/clear-route/orbit/cmd/tool-gateway/config"
+	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/platform/token"
 )
 
 // moduleLoaders loads each config module the chart renders, the way its binary does.
 var moduleLoaders = map[string]func() error{
-	"cmd/orbit-agents": loadService[agentsConfig.Config]("cmd/orbit-agents"),
-	"cmd/operator":     loadService[operatorConfig.Config]("cmd/operator"),
+	"cmd/egress-gateway":    loadService[egressConfig.Config]("cmd/egress-gateway"),
+	"cmd/identity":          loadService[identityConfig.Config]("cmd/identity"),
+	"cmd/inference-gateway": loadService[inferenceConfig.Config]("cmd/inference-gateway"),
+	"cmd/operator":          loadService[operatorConfig.Config]("cmd/operator"),
+	"cmd/orbit-agents":      loadService[agentsConfig.Config]("cmd/orbit-agents"),
+	"cmd/orbit-mcp":         loadService[mcpConfig.Config]("cmd/orbit-mcp"),
+	"cmd/orbit-triggers":    loadService[triggersConfig.Config]("cmd/orbit-triggers"),
+	"cmd/policy-gateway":    loadService[policyGatewayConfig.Config]("cmd/policy-gateway"),
+	"cmd/policy-service":    loadService[policyServiceConfig.Config]("cmd/policy-service"),
+	"cmd/tool-gateway":      loadService[toolGatewayConfig.Config]("cmd/tool-gateway"),
+
+	"internal/identity": func() error {
+		_, err := identity.LoadConfig()
+		return err
+	},
+	"internal/platform/token": loadService[token.Config]("internal/platform/token"),
 
 	"internal/platform/observability": loadService[observability.ObservabilityConfig]("internal/platform/observability"),
 	"internal/platform/storage": func() error {
