@@ -400,37 +400,16 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
 	sandbox, err := reg.provision(ctx, s, ahead, environment, replace)
 	if err != nil {
-		reg.sandboxFailed(ctx, runID, started, err)
+		// The error names in-cluster addresses, and anyone who can read the run reads the event.
+		// A refused environment choice keeps its message for the agent.
+		msg := "sandbox provisioning failed"
+		if errors.Is(err, ErrEnvironmentRejected) {
+			msg = err.Error()
+		}
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg)
 		return "", err
 	}
-	return reg.handOver(ctx, runID, sandbox, started)
-}
 
-// ListEnvironments returns orbit-agents' list of the environments the run's agent may use.
-func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
-	reg.mu.RLock()
-	_, ok := reg.sessions[runID]
-	reg.mu.RUnlock()
-	if !ok {
-		return nil, ErrSessionNotFound
-	}
-	return reg.notifier.ListEnvironments(ctx, runID)
-}
-
-// sandboxFailed records a failed provision with a fixed message. The error
-// names in-cluster addresses and anyone who can read the run can read the event.
-// A refused environment choice keeps its message for the agent.
-func (reg *Registry) sandboxFailed(ctx context.Context, runID string, started time.Time, err error) {
-	msg := "sandbox provisioning failed"
-	if errors.Is(err, ErrEnvironmentRejected) {
-		msg = err.Error()
-	}
-	reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg)
-}
-
-// handOver gates a new sandbox on egress readiness, then writes its descriptor
-// for orbit-shell and records it on the session.
-func (reg *Registry) handOver(ctx context.Context, runID string, sandbox Sandbox, started time.Time) (string, error) {
 	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
 	if !pathsOK {
 		return "", fmt.Errorf("run id %q is not a single path segment", runID)
@@ -468,6 +447,17 @@ func (reg *Registry) handOver(ctx context.Context, runID string, sandbox Sandbox
 	reg.sandboxStatus(ctx, runID, egressPhase, started, egressNote)
 	reg.rememberSandbox(runID, sandbox)
 	return sandbox.Endpoint, nil
+}
+
+// ListEnvironments returns orbit-agents' list of the environments the run's agent may use.
+func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
+	reg.mu.RLock()
+	_, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return nil, ErrSessionNotFound
+	}
+	return reg.notifier.ListEnvironments(ctx, runID)
 }
 
 // writeSandboxDescriptor writes the exec token, then the endpoint: orbit-shell

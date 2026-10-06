@@ -621,25 +621,17 @@ type sandboxRequest struct {
 // to provision a sandbox pod. It delegates to orbit-agents then writes the
 // gRPC endpoint to disk so orbit-shell can route Bash commands to the sandbox.
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	runID := r.PathValue("runID")
-	if !c.requireRunToken(w, r, runID) {
-		return
-	}
-	var req sandboxRequest
-	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
-		return
-	}
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, false)
-	if err != nil {
-		c.writeSandboxError(ctx, w, runID, err, "failed to provision sandbox")
-		return
-	}
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+	c.serveSandbox(w, r, false)
 }
 
 // handleReplaceEnvironment replaces the run's sandbox with one in another environment.
+// orbit-agents checks the name and refuses a replacement without one.
 func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Request) {
+	c.serveSandbox(w, r, true)
+}
+
+// serveSandbox provisions the run's sandbox, or replaces it when replace is set.
+func (c *Controller) serveSandbox(w http.ResponseWriter, r *http.Request, replace bool) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
 	if !c.requireRunToken(w, r, runID) {
@@ -649,10 +641,9 @@ func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Req
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	// orbit-agents checks the name and refuses a replacement without one.
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, true)
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, replace)
 	if err != nil {
-		c.writeSandboxError(ctx, w, runID, err, "failed to replace the sandbox")
+		c.writeSandboxError(ctx, w, runID, err, "failed to provision sandbox")
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})

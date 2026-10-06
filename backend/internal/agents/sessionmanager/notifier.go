@@ -188,27 +188,20 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead
 	if ahead {
 		target += "?ahead=true"
 	}
-	return n.sandboxCall(ctx, "sessionmanager.Notifier.ProvisionSandbox", target, environment, replace)
-}
-
-// sandboxCall posts the environment choice to a route that answers with a
-// sandbox. A 409 is a refused choice. It returns ErrEnvironmentRejected with
-// orbit-agents' message.
-func (n *HTTPNotifier) sandboxCall(ctx context.Context, name, target, environment string, replace bool) (Sandbox, error) {
 	body, _ := json.Marshal(map[string]any{"environment": environment, "replace": replace})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	_, span, resp, err := n.sandboxClient.Do(ctx, name, req)
+	_, span, resp, err := n.sandboxClient.Do(ctx, "sessionmanager.Notifier.ProvisionSandbox", req)
 	defer span.End()
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("call orbit-agents: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// The body is read once. A 409 carries the refusal for the agent.
+		// The body is read once. A 409 is a refused environment choice whose message the agent reads.
 		body := n.sandboxClient.ReadErrorBody(span, resp)
 		var apiErr api.APIError
 		if resp.StatusCode == http.StatusConflict && json.Unmarshal([]byte(body), &apiErr) == nil && apiErr.Message != "" {
