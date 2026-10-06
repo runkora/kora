@@ -576,7 +576,7 @@ The following failures were observed:
 
 *   Cloning a public repository of another owner is refused (F61). The git smart-HTTP owner check returns `ErrUnsupportedAction`, and the broker denies the request as unclassified.
 *   A production Coder run received a 403 when it downloaded a GitHub release asset and then built `buf` from source. The download path `github.com/<owner>/<repo>/releases/download/...` falls to the catch-all as unqualified `repo:read`. Policy denies it for an agent whose grant is narrowed to repositories.
-*   A production Code Reviewer run failed on `gh api --paginate`. GitHub pagination links use `api.github.com/repositories/<id>/...` paths. The adapter cannot map a repository ID to an owner and classifies the path as unqualified `repo:read`. Policy denies it for an agent whose grant is narrowed to repositories.
+*   A production Code Reviewer run failed on `gh api --paginate`. GitHub pagination links use `api.github.com/repositories/<id>/...` paths. The adapter cannot map a repository ID to an owner and classifies the path as unqualified `repo:read`. Policy denies it for an agent whose grant is narrowed to repositories. This amendment addresses the failure for public repositories only.
 
 ### Considered Options
 
@@ -590,6 +590,7 @@ The following failures were observed:
 *   **Repository allowlist (rejected):** A per-agent list of repositories limits what the fallback may read. Connection grants already scope writes.
 *   **Separate scope for connector egress (chosen):** Connector-derived egress hosts compile to their own scope in the policy bundle. The broker reads the agent's own posture from the same bundle it already evaluates.
 *   **Posture in platform token claims (rejected):** The platform token carries the agent's own egress posture as claims for the broker to read. This puts authorization data in the identity token, and a posture change would apply only when the token is refreshed.
+*   **Resolve repository IDs for paginated links (rejected):** The GitHub adapter maps `api.github.com/repositories/<id>/...` paths to their owner and repository. Resolution needs a GitHub call for each unknown ID. That adds lookup state and an abuse surface for limited value. Page URLs addressed by owner and repository keep the credential.
 
 ### Decision
 
@@ -600,10 +601,9 @@ The broker and the GitHub adapter will change as follows:
 3.  Connector-derived egress hosts will compile to `egress:<host>:connector`, a scope separate from the agent's own egress scopes. The agent's own egress scopes are `egress:connect` for open mode and `egress:<host>:connect` for whitelist and environment egress hosts. The sidecar will allow a `CONNECT` under either scope. The broker's fallback will check only the agent's own egress scopes.
 4.  Writes and any request beyond a public read will need a connection grant through the existing connector resources and actions. There is no separate repository allowlist.
 5.  The GitHub adapter will classify `github.com/<owner>/<repo>/releases/download/...` as `contents:read` qualified by that repository. Release assets redirect to signed `*.githubusercontent.com` URLs.
-6.  The GitHub adapter will classify `api.github.com/repositories/<id>/...` paths by resolving the repository ID to its owner and repository.
-7.  Granted repositories will keep the connection's credential for release-asset downloads and paginated links.
-8.  Anonymous reads will share GitHub's unauthenticated rate limit of 60 requests an hour per gateway IP. This limit is accepted.
-9.  The audit log will record each fallback decision as an anonymous read.
+6.  Granted repositories will keep the connection's credential for release-asset downloads.
+7.  Anonymous reads will share GitHub's unauthenticated rate limit of 60 requests an hour per gateway IP. This limit is accepted.
+8.  The audit log will record each fallback decision as an anonymous read.
 
 ### Consequences
 
@@ -616,6 +616,7 @@ The broker and the GitHub adapter will change as follows:
 *   All agents behind one gateway IP draw on the same unauthenticated rate limit and can exhaust it for each other.
 *   An agent in mode `none` with a GitHub connector cannot read public repositories outside its grant.
 *   An agent in mode `none` with a GitHub connector cannot download release assets of a granted repository. The signed `*.githubusercontent.com` redirect target is not owner-addressed, and only the anonymous fallback serves it for a grant narrowed to repositories.
+*   `gh api --paginate` on a private granted repository fails after the first page. Fetching each page by its owner and repository path works.
 
 #### Neutral
 
