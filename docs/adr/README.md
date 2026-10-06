@@ -15,13 +15,14 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Repository Pattern and Code Organization](2026-02-17-repository-pattern-and-code-organization.md) — `Accepted` · 2026-02-17
 - [OTEL-Compatible Dependency-Injected Logging](2026-02-17-dependency-injected-logging.md) — `Accepted` · 2026-02-17
 - [Controller-Based HTTP Routing with Stdlib ServeMux](2026-02-17-controller-based-http-routing.md) — `Accepted` · 2026-02-17
-- [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) — `Accepted` · 2026-02-18
+- [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) — `Accepted (Amended 2026-10-06)` · 2026-02-18
 - [Database Infrastructure Layer](2026-03-03-database-infrastructure-layer.md) — `Accepted` · 2026-03-03
 - [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) — `Accepted` · 2026-03-19
 - [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) — `Accepted` · 2026-03-21
 - [Local Development Environment](2026-03-10-local-development-environment.md) — `Superseded` · 2026-03-10
 - [Kubernetes-Only Local Development](2026-07-10-kubernetes-only-local-development.md) — `Accepted` · 2026-07-10
 - [CI Pipeline and Local Build Parallelisation](2026-07-21-ci-pipeline-and-local-build-parallelisation.md) — `Proposed` · 2026-07-21
+- [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) — `Proposed` · 2026-10-06
 
 ### Identity, Auth & Tokens
 
@@ -167,7 +168,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-02-17 | [Controller-Based HTTP Routing with Stdlib ServeMux](2026-02-17-controller-based-http-routing.md) | Accepted | 0005 |
 | 2026-02-17 | [OTEL-Compatible Dependency-Injected Logging](2026-02-17-dependency-injected-logging.md) | Accepted | 0004 |
 | 2026-02-17 | [Repository Pattern and Code Organization](2026-02-17-repository-pattern-and-code-organization.md) | Accepted | 0003 |
-| 2026-02-18 | [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) | Accepted | 0006 |
+| 2026-02-18 | [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md) | Accepted (Amended 2026-10-06) | 0006 |
 | 2026-03-03 | [Database Infrastructure Layer](2026-03-03-database-infrastructure-layer.md) | Accepted | 0007 |
 | 2026-03-05 | [Agent Execution Flow Patterns & Delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) | Accepted | 0009 |
 | 2026-03-05 | [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) | Superseded | 0012 |
@@ -285,4 +286,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-29 | [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) | Accepted (Amended 2026-09-30) | — |
 | 2026-09-30 | [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md) | Accepted | — |
 | 2026-10-01 | [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) | Accepted (Amended 2026-10-02) | — |
+| 2026-10-06 | [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
