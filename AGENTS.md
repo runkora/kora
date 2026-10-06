@@ -114,7 +114,7 @@ An agent **must** follow these conventions when modifying this codebase. Each co
 ### Configuration
 
 - **No secrets in YAML**: Secrets load via `os.Getenv` only; YAML configs use `yaml:"-"` for secret fields.
-- **Config uses `config.LoadService[T]` / `config.Load[T]`**: Binaries load a typed config from `backend/cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`) via `MustLoadService[T]`; `APP_ENV` selects the environment. No raw viper, no raw yaml library imports outside `platform/config/`.
+- **Config uses `config.LoadService[T]` / `config.Load[T]`**: Binaries load a typed config from `backend/cmd/{service}/config/base.yaml` (+ optional `{env}.yaml`, then the chart-rendered `/etc/orbit/config/{module}.yaml`) via `MustLoadService[T]`; `APP_ENV` selects the environment. No raw viper, no raw yaml library imports outside `platform/config/`.
 
 ### Errors & Observability
 
@@ -153,7 +153,7 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 | `no-otel-span-mgmt-in-service-clients` | `otel/codes`, `otel/trace` inside typed clients |
 | `no-database-sql`                      | `database/sql`                                  |
 | `no-raw-viper`                         | `github.com/spf13/viper`                        |
-| `no-raw-yaml`                          | `gopkg.in/yaml.v2`, `gopkg.in/yaml.v3`          |
+| `no-raw-yaml`                          | `gopkg.in/yaml.v2`, `gopkg.in/yaml.v3`, `go.yaml.in/yaml/v3` |
 | `no-third-party-routers`               | `gin`, `chi`, `echo`, `gorilla/mux`             |
 
 See `rules/README.md` for full rationale and exception policy.
