@@ -3,18 +3,24 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	sc "github.com/clear-route/orbit/cmd/skills-service/config"
 	"github.com/clear-route/orbit/internal/platform/api"
+	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
+	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/skills"
 )
 
@@ -53,9 +59,16 @@ func main() {
 	watchCtx, watchCancel := context.WithCancel(ctx)
 	go registry.Watch(watchCtx)
 
-	server := initServer(ctx, logger)
+	server, register, err := initServer(ctx, logger, redis, registry)
+	if err != nil {
+		logger.Error(ctx, "failed to initialize server", logging.Field{Key: "error", Value: err.Error()})
+		watchCancel()
+		_ = redis.Close()
+		shutdownObservability()
+		os.Exit(1)
+	}
 
-	exitCode := run(ctx, logger, server)
+	exitCode := run(ctx, logger, server, register)
 	watchCancel()
 
 	if err := redis.Close(); err != nil {
@@ -111,10 +124,54 @@ func initRegistry(_ context.Context, logger logging.Logger) (*skills.Registry, e
 	return skills.NewRegistry(sc.Current.Marketplace.SourcesConfigPath, logger)
 }
 
-func initServer(ctx context.Context, logger logging.Logger) *http.Server {
+func initControllers(ctx context.Context, logger logging.Logger, redis *storage.RedisClient, registry *skills.Registry) ([]api.Controller, error) {
+	installationID, err := strconv.ParseInt(sc.Current.GitHub.InstallationID, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid GITHUB_APP_INSTALLATION_ID: %w", err)
+	}
+
+	gh := ghclient.NewClient(sc.Current.GitHub.APIBaseURL, logger)
+	tokens := skills.NewTokenProvider(gh, sc.Current.GitHub.AppID, installationID, sc.Current.GitHub.PrivateKeyPath)
+	crawler := skills.NewCrawler(gh, tokens, logger)
+	cache := skills.NewCache(redis, sc.Current.CacheTTL())
+
+	pol := policy.NewEvaluator(sc.Current.Policy.BundleEndpoint, sc.Current.Policy.BundlePollInterval(), logger)
+	pol.Start(ctx)
+
+	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
+	svc := skills.NewService(registry, cache, crawler, logger)
+	controller := skills.NewController(logger, svc, registry, verifier, pol, sc.Current.Server.BasePath)
+
+	return []api.Controller{controller}, nil
+}
+
+// initScopeRegistration returns a function that registers the marketplace
+// route/scope vocabulary with the policy service. The caller passes it to
+// routescopes.KeepRegistered, which owns the initial registration and the
+// periodic self-heal loop.
+func initScopeRegistration(logger logging.Logger) func(context.Context) error {
+	client := routescopes.NewClient(sc.Current.Policy.PolicyServiceURL, logger)
+
+	return func(registerCtx context.Context) error {
+		scopedRoutes := routescopes.FilterScopedRoutes(skills.MarketplaceRoutes(sc.Current.Server.BasePath))
+		if err := client.Register(registerCtx, "skills-service", scopedRoutes, skills.MarketplaceScopes()); err != nil {
+			return fmt.Errorf("register routes: %w", err)
+		}
+		return nil
+	}
+}
+
+func initServer(ctx context.Context, logger logging.Logger, redis *storage.RedisClient, registry *skills.Registry) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	return apiServer.Server(
+	controllers, err := initControllers(ctx, logger, redis, registry)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	register := initScopeRegistration(logger)
+
+	server := apiServer.Server(
 		ctx,
 		sc.Current.Server.Port,
 		sc.Current.Server.BasePath,
@@ -122,11 +179,13 @@ func initServer(ctx context.Context, logger logging.Logger) *http.Server {
 			mw.TracingMiddleware(sc.Current.Observability.ServiceName),
 			mw.LoggingMiddleware(logger),
 		),
-		// Feature controllers wired in later tickets.
+		controllers...,
 	)
+
+	return server, register, nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) int {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, register func(context.Context) error) int {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -139,6 +198,9 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) int {
 		}
 		serverErr <- nil
 	}()
+
+	// Register now and keep the vocabulary alive across policy-service restarts.
+	go routescopes.KeepRegistered(ctx, logger, "skills-service", register)
 
 	select {
 	case err := <-serverErr:

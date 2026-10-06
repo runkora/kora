@@ -10,6 +10,27 @@ import (
 	"github.com/clear-route/orbit/internal/platform/config"
 )
 
+// PolicyConfig configures the in-process OPA policy evaluator and the
+// policy-service client used for route/scope registration.
+type PolicyConfig struct {
+	// BundleEndpoint is the base URL for the policy-service bundle API.
+	// e.g. http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles
+	BundleEndpoint         string `yaml:"bundleEndpoint"`
+	BundlePollIntervalSecs int    `yaml:"bundlePollIntervalSecs"`
+	// PolicyServiceURL is the base URL of the policy service.
+	// Used for route registration at startup.
+	// e.g. http://orbit-policy-service.orbit-system.svc
+	PolicyServiceURL string `yaml:"policyServiceURL"`
+}
+
+// BundlePollInterval returns the configured poll interval, defaulting to 30s.
+func (c *PolicyConfig) BundlePollInterval() time.Duration {
+	if c.BundlePollIntervalSecs <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(c.BundlePollIntervalSecs) * time.Second
+}
+
 // Config holds the skills-service configuration.
 //
 // Secrets and deployment-specific paths are loaded from env vars only, never
@@ -32,6 +53,8 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	Policy PolicyConfig `yaml:"policy"`
 
 	Marketplace struct {
 		// SourcesConfigPath is the path to the mounted marketplace-sources.json.
