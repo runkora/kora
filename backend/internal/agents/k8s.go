@@ -133,11 +133,8 @@ type K8sProvisioner struct {
 	scopeResolver *ScopeResolver
 }
 
-// SetScopeResolver installs the resolver that compiles an agent type's full
-// effective grant scopes; its own scopes plus the egress and connectors
-// contributed by its referenced environment, plus connector auto-egress. When
-// unset, grant reconciliation falls back to the agent's own configured scopes
-// (AgentType.EffectiveGrantScopes), so a partially-wired deployment still works.
+// SetScopeResolver installs the resolver that adds the attached environments' egress and connectors to an agent's grant.
+// Without it, grant reconciliation uses the agent's own scopes.
 func (p *K8sProvisioner) SetScopeResolver(r *ScopeResolver) { p.scopeResolver = r }
 
 // NewK8sProvisioner builds a provisioner using in-cluster config when inCluster

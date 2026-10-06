@@ -75,8 +75,7 @@ func (s *AgentTypeService) SetEnvironmentLookup(envs environmentLookup) { s.envs
 // posture (no environment or connector resolution).
 func (s *AgentTypeService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 
-// GetEffectiveAccess returns the resolved access view for an agent type — its
-// egress posture, referenced environment, and connector auto-egress combined.
+// GetEffectiveAccess returns an agent type's egress posture, attached environments and connector auto-egress combined.
 // Tenant-scoped and authz-read-checked like GetAgentType.
 func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*EffectiveAccess, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.GetEffectiveAccess",

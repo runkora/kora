@@ -259,10 +259,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	catalog := agents.NewConnectionCatalog(cfg.Agents.ConnectionRegistryPath, logger)
 	catalogController := agents.NewConnectionCatalogController(catalog, verifier, logger)
 
-	// Wire the grant scope resolver: it folds a referenced environment's egress +
-	// connectors and each connector's adapter-declared auto-egress into the agent's
-	// effective grant (env store + connection catalog back it). The agent type
-	// service uses the same env store to validate references at config time.
+	// The scope resolver adds the attached environments' egress, connectors and connector auto-egress to each agent's grant.
+	// The agent type service validates attachments against the same environment store.
 	resolver := agents.NewScopeResolver(repo, catalog)
 	k8s.SetScopeResolver(resolver)
 	atSvc.SetEnvironmentLookup(repo)

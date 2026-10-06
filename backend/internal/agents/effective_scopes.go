@@ -61,11 +61,8 @@ func NewScopeResolver(envs environmentLookup, conns connectionResolver) *ScopeRe
 	return &ScopeResolver{envs: envs, conns: conns}
 }
 
-// EffectiveScopes returns the deduplicated scope set to reconcile onto at's
-// policy grant. A missing referenced environment (deleted, or a stale reference)
-// is tolerated: the agent loses that contribution rather than failing
-// reconciliation. A connection not present in the registry yields no auto-egress
-// (its connection scope is still granted) — again, no hard failure.
+// EffectiveScopes returns the deduplicated scope set to reconcile onto at's policy grant.
+// A missing attached environment or unregistered connection drops its contribution and does not fail reconciliation.
 func (r *ScopeResolver) EffectiveScopes(ctx context.Context, at AgentType) ([]string, error) {
 	// Start from the agent's own compiled scopes (capability + own egress posture
 	// + own connector scopes).
