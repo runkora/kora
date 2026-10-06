@@ -110,25 +110,22 @@ type Adapter struct {
 	mu             sync.Mutex
 	cache          map[string]credentials.Credential
 	instPermsCache map[int64]cachedInstPerms
-	// repoNames maps "<installation>/<repository ID>" to "owner/name".
-	repoNames       map[string]cachedRepoName
-	repoLookups     *rate.Limiter
-	repoLookupSlots chan struct{}
+	// repoResolvers holds one bounded repository-ID resolver per tenant and
+	// connection, so one connection's lookups never throttle another's.
+	repoResolvers map[string]*repoResolver
 }
 
 // New constructs an Adapter backed by the given GitHub client and secret
 // resolver.
 func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Adapter {
 	return &Adapter{
-		api:             api,
-		secrets:         secrets,
-		logger:          logger,
-		now:             time.Now,
-		cache:           make(map[string]credentials.Credential),
-		instPermsCache:  make(map[int64]cachedInstPerms),
-		repoNames:       make(map[string]cachedRepoName),
-		repoLookups:     rate.NewLimiter(rate.Every(repoLookupEvery), repoLookupBurst),
-		repoLookupSlots: make(chan struct{}, repoLookupsInFlight),
+		api:            api,
+		secrets:        secrets,
+		logger:         logger,
+		now:            time.Now,
+		cache:          make(map[string]credentials.Credential),
+		instPermsCache: make(map[int64]cachedInstPerms),
+		repoResolvers:  make(map[string]*repoResolver),
 	}
 }
 
@@ -521,7 +518,7 @@ func (c *connector) resolveRepositoryID(ctx context.Context, path string, allowe
 	return "/repos/" + strings.Join(append([]string{fullName}, segs[2:]...), "/"), nil
 }
 
-// Repository-ID lookups are bounded per adapter: cached names expire after
+// Repository-ID lookups are bounded per tenant and connection: cached names expire after
 // repoNameTTL, and a cache miss needs a rate token and a free lookup slot.
 const (
 	repoNameTTL         = time.Hour
@@ -539,24 +536,54 @@ type cachedRepoName struct {
 	expiresAt time.Time
 }
 
+// repoResolver bounds repository-ID lookups for one tenant's connection:
+// its own name cache, rate limit, and in-flight cap.
+type repoResolver struct {
+	names   map[string]cachedRepoName // guarded by Adapter.mu
+	limiter *rate.Limiter
+	slots   chan struct{}
+}
+
+// maxRepoResolvers caps the per-connection resolvers held at once. Keys come
+// from registered connections, never from callers.
+const maxRepoResolvers = 256
+
+// resolverFor returns the connection's resolver, creating it on first use.
+// Called with a.mu held.
+func (a *Adapter) resolverFor(key string) *repoResolver {
+	r, ok := a.repoResolvers[key]
+	if !ok {
+		if len(a.repoResolvers) >= maxRepoResolvers {
+			clear(a.repoResolvers)
+		}
+		r = &repoResolver{
+			names:   make(map[string]cachedRepoName),
+			limiter: rate.NewLimiter(rate.Every(repoLookupEvery), repoLookupBurst),
+			slots:   make(chan struct{}, repoLookupsInFlight),
+		}
+		a.repoResolvers[key] = r
+	}
+	return r
+}
+
 // repositoryFullName looks up a repository ID with the metadata-scoped
 // installation token the caller's metadata:read grant already covers.
 func (c *connector) repositoryFullName(ctx context.Context, id string) (string, error) {
 	a := c.adapter
-	key := strconv.FormatInt(c.cfg.InstallationID, 10) + "/" + id
 	a.mu.Lock()
-	cached, ok := a.repoNames[key]
+	r := a.resolverFor(c.conn.TenantID + "/" + c.conn.ID)
+	cached, ok := r.names[id]
 	a.mu.Unlock()
 	if ok && a.now().Before(cached.expiresAt) {
 		return cached.name, nil
 	}
 
-	if !a.repoLookups.Allow() {
+	if !r.limiter.Allow() {
 		return "", errLookupThrottled
 	}
 	select {
-	case a.repoLookupSlots <- struct{}{}:
-		defer func() { <-a.repoLookupSlots }()
+	case r.slots <- struct{}{}:
+		defer func() { <-r.slots }()
 	default:
 		return "", errLookupThrottled
 	}
@@ -571,10 +598,10 @@ func (c *connector) repositoryFullName(ctx context.Context, id string) (string, 
 	}
 
 	a.mu.Lock()
-	if len(a.repoNames) >= cacheEvictThreshold {
-		clear(a.repoNames)
+	if len(r.names) >= cacheEvictThreshold {
+		clear(r.names)
 	}
-	a.repoNames[key] = cachedRepoName{name: name, expiresAt: a.now().Add(repoNameTTL)}
+	r.names[id] = cachedRepoName{name: name, expiresAt: a.now().Add(repoNameTTL)}
 	a.mu.Unlock()
 	return name, nil
 }

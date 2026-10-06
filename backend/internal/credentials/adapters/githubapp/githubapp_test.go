@@ -864,8 +864,8 @@ func TestConnector_RepositoryID_LookupsBounded(t *testing.T) {
 	if hits["/app/installations/1/access_tokens"] != 1 {
 		t.Errorf("token mints = %d, want 1 (cached metadata token)", hits["/app/installations/1/access_tokens"])
 	}
-	if len(a.repoNames) > cacheEvictThreshold {
-		t.Errorf("cache holds %d names, want at most %d", len(a.repoNames), cacheEvictThreshold)
+	if n := len(a.repoResolvers["/conn-1"].names); n > cacheEvictThreshold {
+		t.Errorf("cache holds %d names, want at most %d", n, cacheEvictThreshold)
 	}
 }
 
@@ -881,5 +881,29 @@ func TestConnector_RepositoryID_CacheExpires(t *testing.T) {
 	_, _ = classifyGated(t, c, url, true)
 	if hits["/repositories/123"] != 2 {
 		t.Errorf("lookups = %d, want 2 (one per TTL)", hits["/repositories/123"])
+	}
+}
+
+// One tenant exhausting its lookups leaves another tenant's untouched.
+func TestConnector_RepositoryID_IsolatedPerTenant(t *testing.T) {
+	hits := map[string]int{}
+	a, _ := repositoryIDAdapter(t, hits)
+	connFor := func(tenant string) credentials.Connector {
+		return open(t, a, credentials.Connection{
+			ID: "conn-" + tenant, TenantID: tenant, SecretRef: "ref", Adapter: credentials.AdapterGitHubApp,
+			Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
+		})
+	}
+	noisy, quiet := connFor("noisy"), connFor("quiet")
+	for i := range 100 {
+		_, _ = classifyGated(t, noisy, "https://api.github.com/repositories/9"+strconv.Itoa(i)+"/commits", true)
+	}
+	got, err := classifyGated(t, quiet, "https://api.github.com/repositories/123/commits", true)
+	if err != nil || got.Qualifier != "orbit" {
+		t.Errorf("quiet tenant lookup = %+v, %v, want contents:read on orbit", got, err)
+	}
+	if len(a.repoResolvers["noisy/conn-noisy"].names) > cacheEvictThreshold || len(a.repoResolvers["quiet/conn-quiet"].names) != 1 {
+		t.Errorf("per-tenant caches not isolated: %d noisy, %d quiet",
+			len(a.repoResolvers["noisy/conn-noisy"].names), len(a.repoResolvers["quiet/conn-quiet"].names))
 	}
 }
