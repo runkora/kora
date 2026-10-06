@@ -20,7 +20,7 @@ import { GET } from './route';
 import { getSession } from '@orbit/server/session';
 
 const INSIGHTS = { period: '30d', usage: [], total_cost_usd: 0, trend: [], models: [] };
-const RUN_STATS = { period: '30d', total: 3, triggered: 1, manual: 2, completed: 2, failed: 1 };
+const RUN_STATS = { total: 3, triggered: 1, completed: 2, failed: 1 };
 
 const call = (query = '?period=30d', slug = 'token-probe') =>
   GET(new NextRequest(`http://localhost/api/agents/types/overview/${slug}${query}`), {
@@ -58,33 +58,15 @@ describe('GET /api/agents/types/overview/[slug]', () => {
     });
   });
 
-  it('leaves out the part a caller may not read', async () => {
+  it('leaves out a part the caller may not read, a 403 or a 404, and still returns the other', async () => {
     server.use(
       http.get('http://test-gw/usage/agent-type/:slug', () =>
         HttpResponse.json({}, { status: 403 }),
       ),
       http.get('http://test-agents/api/v1/run-stats/:slug', () => HttpResponse.json(RUN_STATS)),
     );
-    const res = await call();
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ period: '30d', runStats: RUN_STATS });
-  });
+    expect(await (await call()).json()).toEqual({ period: '30d', runStats: RUN_STATS });
 
-  it('names a part that errored, and not one that was refused', async () => {
-    server.use(
-      http.get('http://test-gw/usage/agent-type/:slug', () => HttpResponse.json(INSIGHTS)),
-      http.get('http://test-agents/api/v1/run-stats/:slug', () =>
-        HttpResponse.json({}, { status: 500 }),
-      ),
-    );
-    expect(await (await call()).json()).toEqual({
-      period: '30d',
-      insights: INSIGHTS,
-      failed: ['runStats'],
-    });
-  });
-
-  it('leaves out run stats for a caller without the per-agent runs scope', async () => {
     server.use(
       http.get('http://test-gw/usage/agent-type/:slug', () => HttpResponse.json(INSIGHTS)),
       http.get('http://test-agents/api/v1/run-stats/:slug', () =>
@@ -94,15 +76,18 @@ describe('GET /api/agents/types/overview/[slug]', () => {
     expect(await (await call()).json()).toEqual({ period: '30d', insights: INSIGHTS });
   });
 
-  it('names the gateway part when it errors and leaves out run stats that were refused', async () => {
+  it('names a part that errored instead of leaving it out silently', async () => {
     server.use(
       http.get('http://test-gw/usage/agent-type/:slug', () =>
         HttpResponse.json({}, { status: 503 }),
       ),
       http.get('http://test-agents/api/v1/run-stats/:slug', () =>
-        HttpResponse.json({}, { status: 403 }),
+        HttpResponse.json({}, { status: 500 }),
       ),
     );
-    expect(await (await call()).json()).toEqual({ period: '30d', failed: ['insights'] });
+    expect(await (await call()).json()).toEqual({
+      period: '30d',
+      failed: ['insights', 'runStats'],
+    });
   });
 });

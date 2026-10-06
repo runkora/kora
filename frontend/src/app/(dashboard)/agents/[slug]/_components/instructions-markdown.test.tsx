@@ -26,22 +26,6 @@ describe('InstructionsMarkdown', () => {
     expect(blocks.map((b) => b.textContent)).toEqual(['a\n  b', 'c\n  d']);
   });
 
-  it('highlights variables in text but not in code spans or fences', () => {
-    const { container } = render('Hi {{author}} and `{{kept}}`\n\n~~~\n{{fenced}}\n~~~');
-    const highlighted = (text: string) => screen.getByText(text).classList.contains('text-accent');
-    expect(highlighted('{{author}}')).toBe(true);
-    expect(highlighted('{{kept}}')).toBe(false);
-    expect(highlighted('{{fenced}}')).toBe(false);
-    expect(container.textContent).not.toContain('`');
-  });
-
-  it('renders a link with its destination and title', () => {
-    render('[Runbook](https://example.com/runbook "Open the runbook")');
-    const link = screen.getByRole('link', { name: 'Runbook' });
-    expect(link.getAttribute('href')).toBe('https://example.com/runbook');
-    expect(link.getAttribute('title')).toBe('Open the runbook');
-  });
-
   it('puts a fenced block and a quote inside a list item beside its text, not inside a paragraph', () => {
     const { container } = render('- item\n\n  > quoted\n\n  ```\n  code\n  ```');
     expect(container.querySelector('p div')).toBeNull();

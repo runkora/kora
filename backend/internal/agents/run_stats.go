@@ -24,7 +24,6 @@ const (
 // RunDurationStats summarizes the durations of the runs that finished in a window.
 // Durations are milliseconds from start (creation, if the run never started) to completion.
 type RunDurationStats struct {
-	Finished  int64 `json:"finished"`
 	MedianMs  int64 `json:"median_ms"`
 	P95Ms     int64 `json:"p95_ms"`
 	P99Ms     int64 `json:"p99_ms"`
@@ -39,7 +38,6 @@ type RunDurationStats struct {
 
 // RunStats is one agent's run counts and durations for a window.
 type RunStats struct {
-	Period string `json:"period"`
 	// Total counts runs created in the window; Triggered those a trigger started, the rest are manual.
 	Total     int64 `json:"total"`
 	Triggered int64 `json:"triggered"`
@@ -99,28 +97,9 @@ func (s *RunService) agentRunStats(ctx context.Context, tenantID, slug string, p
 	}
 
 	w := usagewindow.For(period, now)
-	total, triggered, err := s.repo.CountAgentRuns(ctx, tenantID, at.ID, vis, w.Start, w.End)
+	out, err := s.repo.AgentRunStats(ctx, tenantID, at.ID, vis, w.Start, w.End)
 	if err != nil {
-		return RunStats{}, fmt.Errorf("count agent runs: %w", err)
+		return RunStats{}, fmt.Errorf("agent run stats: %w", err)
 	}
-	fin, err := s.repo.FinishedRunDurations(ctx, tenantID, at.ID, vis, w.Start, w.End)
-	if err != nil {
-		return RunStats{}, fmt.Errorf("finished run durations: %w", err)
-	}
-	finished := fin.Completed + fin.Failed
-	d := RunDurationStats{
-		Finished: finished, MedianMs: fin.MedianMs, P95Ms: fin.P95Ms, P99Ms: fin.P99Ms,
-		LongestMs: fin.LongestMs, Buckets: make([]int64, histogramBuckets),
-	}
-	var rangeMs int64
-	rangeMs, d.Capped = histogramRange(finished, fin.P99Ms, fin.LongestMs)
-	if finished > 0 {
-		if d.Buckets, d.Overflow, err = s.repo.FinishedRunBuckets(ctx, tenantID, at.ID, vis, w.Start, w.End, rangeMs); err != nil {
-			return RunStats{}, fmt.Errorf("finished run buckets: %w", err)
-		}
-	}
-	return RunStats{
-		Period: string(period), Total: total, Triggered: triggered,
-		Completed: fin.Completed, Failed: fin.Failed, Durations: d,
-	}, nil
+	return out, nil
 }

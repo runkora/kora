@@ -1,15 +1,15 @@
 'use client';
 
-// Holds the agent Overview's figures: the server-rendered window, then each other period once selected.
+// Holds the agent Overview's figures for the selected period.
 
-import { useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { AgentOverviewResponse } from '@orbit/shared/api';
 import { fetchAgentOverview } from '../_services/agent-detail-api';
 import { toAgentOverview } from '../../_lib/overview';
 import type { AgentOverview } from '../../_lib/overview';
 import type { Period } from '../../_lib/spend';
-
-export type OverviewStatus = 'loading' | 'ready' | 'failed';
+import { usePeriodCache } from '../../_hooks/use-period-cache';
+import type { WindowStatus } from '../../_hooks/use-period-cache';
 
 export function useAgentOverview(
   slug: string | undefined,
@@ -21,34 +21,20 @@ export function useAgentOverview(
    * view; once it fails there are none. Each carries the period it covers.
    */
   overview: AgentOverview | undefined;
-  status: OverviewStatus;
+  status: WindowStatus;
 } {
-  // The period the server rendered, which stays in view while another loads.
-  const [seedPeriod] = useState(initial?.period);
-  // A period is its figures, or 'failed' once it was asked for and could not be had.
-  const [periods, setPeriods] = useState<Partial<Record<Period, AgentOverview | 'failed'>>>(() =>
-    initial ? { [initial.period]: toAgentOverview(initial) } : {},
+  const load = useCallback(
+    (p: Period) =>
+      slug
+        ? fetchAgentOverview(slug, p).then(({ data }) => data && toAgentOverview(data))
+        : Promise.resolve(null),
+    [slug],
   );
+  const [seed] = useState(() =>
+    initial ? { period: initial.period, value: toAgentOverview(initial) } : undefined,
+  );
+  const { periods, status } = usePeriodCache(period, slug ? load : undefined, seed);
 
-  // A failed period is asked again when selected again.
-  const current = periods[period];
-  const asked = current !== undefined && current !== 'failed';
-  useEffect(() => {
-    if (asked || !slug) return;
-    let cancelled = false;
-    void fetchAgentOverview(slug, period).then(({ data }) => {
-      if (cancelled) return;
-      setPeriods((p) => ({ ...p, [period]: data ? toAgentOverview(data) : 'failed' }));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, period, asked]);
-
-  const seed = seedPeriod ? periods[seedPeriod] : undefined;
-  const shown = current === undefined ? seed : current;
-  return {
-    overview: shown === 'failed' ? undefined : shown,
-    status: current === 'failed' ? 'failed' : current ? 'ready' : 'loading',
-  };
+  const shown = periods[period] ?? (seed && periods[seed.period]);
+  return { overview: shown === 'failed' ? undefined : shown, status };
 }

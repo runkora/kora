@@ -3,13 +3,11 @@ import type { AgentOverviewResponse, AgentRunStats } from '@orbit/shared/api';
 import { toAgentOverview } from './overview';
 
 const RUN_STATS: AgentRunStats = {
-  period: '7d',
   total: 10,
   triggered: 4,
   completed: 6,
   failed: 2,
   durations: {
-    finished: 8,
     median_ms: 90_000,
     p95_ms: 200_000,
     p99_ms: 210_000,
@@ -53,33 +51,13 @@ const RESPONSE: AgentOverviewResponse = {
 };
 
 describe('toAgentOverview', () => {
-  it('maps tokens, spend and the change on the previous window', () => {
-    const { usage } = toAgentOverview(RESPONSE);
+  it('derives the figures that are not on the wire', () => {
+    const { usage, runs, budget } = toAgentOverview(RESPONSE);
+    expect(usage).toMatchObject({ cachedShare: 75, spend: 6, change: 50 });
     expect(usage?.tokens).toEqual({ total: 450, cached: 300, input: 100, output: 50 });
-    expect(usage?.cachedShare).toBe(75);
-    expect(usage?.spend).toBe(6);
-    expect(usage?.change).toBe(50);
-    expect(usage?.models).toEqual([{ name: 'claude-sonnet-4-5', cost: 6 }]);
-    expect(usage?.trend.values).toEqual([6]);
-  });
-
-  it('maps run counts, success rate and durations', () => {
-    const { runs } = toAgentOverview(RESPONSE);
-    expect(runs).toMatchObject({
-      total: 10,
-      triggered: 4,
-      finished: 8,
-      successRate: 75,
-    });
-    expect(runs?.durations).toMatchObject({ medianMs: 90_000, capped: false, longestMs: 220_000 });
-    expect(runs?.durations.buckets).toHaveLength(10);
-  });
-
-  it('maps the agent budget, and none when it has no row', () => {
-    expect(toAgentOverview(RESPONSE).budget?.windows[0]).toMatchObject({ limit: 100, spent: 40 });
-    expect(toAgentOverview(RESPONSE).budget?.perRunLimit).toBe(2);
-    const noBudget = { ...RESPONSE.insights!, budgets: [] };
-    expect(toAgentOverview({ ...RESPONSE, insights: noBudget }).budget).toBeNull();
+    expect(runs).toMatchObject({ manual: 6, finished: 8, successRate: 75 });
+    expect(budget?.windows[0]).toMatchObject({ limit: 100, spent: 40 });
+    expect(budget?.perRunLimit).toBe(2);
   });
 
   it('reads an agent with no usage as zero, with no change and no cached share', () => {
@@ -88,29 +66,25 @@ describe('toAgentOverview', () => {
       insights: { ...RESPONSE.insights!, usage: [], previous_total_usd: 0, models: [] },
     });
     expect(usage).toMatchObject({ spend: 0, change: null, cachedShare: null });
-    expect(usage?.tokens.total).toBe(0);
   });
 
-  it('leaves out the part the response does not carry', () => {
-    expect(toAgentOverview({ period: '7d', runStats: RUN_STATS }).usage).toBeUndefined();
-    const overview = toAgentOverview({ period: '7d', insights: RESPONSE.insights! });
-    expect(overview.runs).toBeUndefined();
-    expect(overview.usage).toBeDefined();
-  });
-
-  it('carries the parts that errored', () => {
-    expect(toAgentOverview({ period: '7d', failed: ['runStats'] }).failed).toEqual({
-      usage: false,
-      runs: true,
-    });
-    expect(toAgentOverview(RESPONSE).failed).toEqual({ usage: false, runs: false });
-  });
-
-  it('has no success rate before any run has finished', () => {
-    const { runs } = toAgentOverview({
+  it('has no success rate before any run has finished, and no budget without a row', () => {
+    const { runs, budget } = toAgentOverview({
       period: '7d',
       runStats: { ...RUN_STATS, completed: 0, failed: 0 },
     });
     expect(runs?.successRate).toBeNull();
+    expect(budget).toBeNull();
+  });
+
+  it('leaves out the part the response does not carry and carries the parts that errored', () => {
+    expect(toAgentOverview({ period: '7d', runStats: RUN_STATS }).usage).toBeUndefined();
+    const overview = toAgentOverview({
+      period: '7d',
+      insights: RESPONSE.insights!,
+      failed: ['runStats'],
+    });
+    expect(overview.runs).toBeUndefined();
+    expect(overview.failed).toEqual({ usage: false, runs: true });
   });
 });

@@ -38,14 +38,10 @@ type RunRepository interface {
 	// CountRunOutcomes counts the completed and failed runs that finished in
 	// [from, to), under the same delegated-run visibility rule as ListRuns.
 	CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error)
-	// CountAgentRuns counts the agent type's runs created in [from, to) and the
-	// part of them a trigger started.
-	CountAgentRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (total, triggered int64, err error)
-	// FinishedRunDurations summarizes the runs of the agent type that finished in [from, to).
-	FinishedRunDurations(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (FinishedRuns, error)
-	// FinishedRunBuckets counts those runs per equal-width bucket of [0, rangeMs],
-	// with the runs above rangeMs as overflow.
-	FinishedRunBuckets(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time, rangeMs int64) (buckets []int64, overflow int64, err error)
+	// AgentRunStats returns the agent type's run counts and durations for [from, to)
+	// under the delegated-run visibility rule: runs created in the window are counted by
+	// trigger, and runs finished in it by outcome and duration.
+	AgentRunStats(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (RunStats, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.

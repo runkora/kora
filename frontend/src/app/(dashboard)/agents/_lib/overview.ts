@@ -1,19 +1,7 @@
-import type { AgentOverviewResponse } from '@orbit/shared/api';
-import { trendLabel, toBudgetRows } from './insights';
+import type { AgentOverviewResponse, AgentRunStats } from '@orbit/shared/api';
+import { toBudgetRows, toPeriodData } from './insights';
 import { spendChange } from './spend';
 import type { BudgetRow, Period, SpendRow } from './spend';
-
-/** Durations of the runs that finished in the window, in milliseconds. */
-export interface RunDurations {
-  medianMs: number;
-  p95Ms: number;
-  p99Ms: number;
-  longestMs: number;
-  /** True when `buckets` stop at p99 and `overflow` counts the slower runs. */
-  capped: boolean;
-  buckets: number[];
-  overflow: number;
-}
 
 /** What the Overview shows for one window. A part that could not be read is absent. */
 export interface AgentOverview {
@@ -26,22 +14,18 @@ export interface AgentOverview {
     cachedShare: number | null;
     spend: number;
     previousSpend: number;
-    /** Change on the previous window, as a percentage; null when that window had no spend. */
+    /** Change on the previous window as a percentage; null when that window had no spend. */
     change: number | null;
     /** Spend by model, largest first. */
     models: SpendRow[];
     trend: { labels: string[]; values: number[] };
   };
-  runs?: {
-    total: number;
-    triggered: number;
+  /** The run stats as received, with the figures that are not on the wire. */
+  runs?: AgentRunStats & {
     manual: number;
-    completed: number;
-    failed: number;
     finished: number;
     /** Completed share of the finished runs, as a percentage; null with none. */
     successRate: number | null;
-    durations: RunDurations;
   };
   /** The agent's own budget; null when it has none. */
   budget: BudgetRow | null;
@@ -54,15 +38,14 @@ const share = (part: number, whole: number) =>
 
 export function toAgentOverview(resp: AgentOverviewResponse): AgentOverview {
   const { insights, runStats } = resp;
+  const data = insights && toPeriodData(resp.period, insights);
   const u = insights?.usage[0];
-  const spend = u?.estimated_cost_usd ?? 0;
   const cached = (u?.cache_read_tokens ?? 0) + (u?.cache_creation_tokens ?? 0);
   const input = u?.prompt_tokens ?? 0;
-  const previousSpend = insights?.previous_total_usd ?? 0;
   const finished = runStats ? runStats.completed + runStats.failed : 0;
   return {
     period: resp.period,
-    ...(insights
+    ...(data
       ? {
           usage: {
             tokens: {
@@ -72,36 +55,21 @@ export function toAgentOverview(resp: AgentOverviewResponse): AgentOverview {
               output: u?.completion_tokens ?? 0,
             },
             cachedShare: share(cached, cached + input),
-            spend,
-            previousSpend,
-            change: spendChange(spend, previousSpend),
-            models: insights.models.map((m) => ({ name: m.model_id, cost: m.estimated_cost_usd })),
-            trend: {
-              labels: insights.trend.map((p) => trendLabel(resp.period, p.start)),
-              values: insights.trend.map((p) => p.cost_usd),
-            },
+            spend: u?.estimated_cost_usd ?? 0,
+            previousSpend: data.previousTotal ?? 0,
+            change: spendChange(u?.estimated_cost_usd ?? 0, data.previousTotal),
+            models: data.models ?? [],
+            trend: data.trend ?? { labels: [], values: [] },
           },
         }
       : {}),
     ...(runStats
       ? {
           runs: {
-            total: runStats.total,
-            triggered: runStats.triggered,
+            ...runStats,
             manual: runStats.total - runStats.triggered,
-            completed: runStats.completed,
-            failed: runStats.failed,
             finished,
             successRate: share(runStats.completed, finished),
-            durations: {
-              medianMs: runStats.durations.median_ms,
-              p95Ms: runStats.durations.p95_ms,
-              p99Ms: runStats.durations.p99_ms,
-              longestMs: runStats.durations.longest_ms,
-              capped: runStats.durations.capped,
-              buckets: runStats.durations.buckets,
-              overflow: runStats.durations.overflow,
-            },
           },
         }
       : {}),

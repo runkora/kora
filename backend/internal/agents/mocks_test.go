@@ -55,15 +55,11 @@ type mockRepository struct {
 
 	outcomesVis RunVisibility
 
-	// Run stats: canned reads and the arguments the service passed.
-	statsTotal, statsTriggered int64
-	statsFinished              FinishedRuns
-	statsBuckets               []int64
-	statsOverflow              int64
-	statsVis                   RunVisibility
-	statsAgentTypeID           string
-	statsBucketRange           int64
-	getBySlugErr               error
+	// Run stats: the canned result and the arguments the service passed.
+	statsResult      RunStats
+	statsVis         RunVisibility
+	statsAgentTypeID string
+	getBySlugErr     error
 }
 
 func newMockRepository() *mockRepository {
@@ -249,18 +245,9 @@ func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVi
 	return RunOutcomes{}, nil
 }
 
-func (m *mockRepository) CountAgentRuns(_ context.Context, _, agentTypeID string, vis RunVisibility, _, _ time.Time) (int64, int64, error) {
+func (m *mockRepository) AgentRunStats(_ context.Context, _, agentTypeID string, vis RunVisibility, _, _ time.Time) (RunStats, error) {
 	m.statsVis, m.statsAgentTypeID = vis, agentTypeID
-	return m.statsTotal, m.statsTriggered, nil
-}
-
-func (m *mockRepository) FinishedRunDurations(context.Context, string, string, RunVisibility, time.Time, time.Time) (FinishedRuns, error) {
-	return m.statsFinished, nil
-}
-
-func (m *mockRepository) FinishedRunBuckets(_ context.Context, _, _ string, _ RunVisibility, _, _ time.Time, rangeMs int64) ([]int64, int64, error) {
-	m.statsBucketRange = rangeMs
-	return m.statsBuckets, m.statsOverflow, nil
+	return m.statsResult, nil
 }
 
 func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {

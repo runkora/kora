@@ -8,13 +8,11 @@ import { useAgentOverview } from './use-agent-overview';
 const overview = (period: AgentInsightsPeriod): AgentOverviewResponse => ({
   period,
   runStats: {
-    period,
     total: 5,
     triggered: 2,
     completed: 4,
     failed: 1,
     durations: {
-      finished: 5,
       median_ms: 1000,
       p95_ms: 1000,
       p99_ms: 1000,

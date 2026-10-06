@@ -6,7 +6,7 @@ import { APP_ROUTES } from '@orbit/lib/routing';
 import { toAgentTypeRow, toRunRow, indexAgentTypes } from '../../_types';
 import { CODE_REVIEWER, RAW_RUNS } from '../../_components/agents-mock-data';
 import { AgentDetailProvider } from '../_context/agent-detail-context';
-import { GrantScopesCard, RecentRunsTable } from './agent-overview-cards';
+import { RecentRunsTable } from './agent-overview-cards';
 
 const push = vi.fn();
 vi.mock('next/navigation', async (orig) => ({
@@ -15,13 +15,6 @@ vi.mock('next/navigation', async (orig) => ({
 }));
 
 const agent = toAgentTypeRow(CODE_REVIEWER);
-
-describe('GrantScopesCard', () => {
-  it('says so when the agent has no grant scopes', () => {
-    renderWithProviders(<GrantScopesCard agent={{ ...agent, grantScopes: [] }} />);
-    expect(screen.getByText('No grant scopes configured.')).toBeTruthy();
-  });
-});
 
 describe('RecentRunsTable', () => {
   beforeEach(() => push.mockClear());

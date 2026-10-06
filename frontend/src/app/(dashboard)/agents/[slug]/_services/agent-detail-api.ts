@@ -12,6 +12,7 @@ import type {
 } from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
+import { fetchPeriodRead } from '../../_services/agents-api';
 
 // ── fetchAgentDetail ──────────────────────────────────────────────────────────
 
@@ -171,25 +172,6 @@ export async function updateAgentType(
 }
 
 // ── fetchAgentOverview ────────────────────────────────────────────────────────
-// One agent's usage, spend, budget and run stats for one window. Never throws;
-// on error `data` is null.
 
-export async function fetchAgentOverview(
-  slug: string,
-  period: AgentInsightsPeriod,
-): Promise<{ data: AgentOverviewResponse | null; error: string | null }> {
-  let res: Response;
-  try {
-    res = await fetch(ApiRoute.agentTypes.overview(slug, period), { cache: 'no-store' });
-  } catch {
-    return { data: null, error: 'Network error: could not reach the server.' };
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      data: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
-  }
-  return { data: (await res.json()) as AgentOverviewResponse, error: null };
-}
+export const fetchAgentOverview = (slug: string, period: AgentInsightsPeriod) =>
+  fetchPeriodRead<AgentOverviewResponse>(ApiRoute.agentTypes.overview(slug, period));

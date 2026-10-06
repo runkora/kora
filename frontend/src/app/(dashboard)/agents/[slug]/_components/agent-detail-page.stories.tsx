@@ -61,18 +61,6 @@ const overviewStory = (
 // Decorators stack across meta and story, so each story installs its own frame once.
 export const Overview: Story = overviewStory(mockOverview);
 
-export const Overview24h: Story = overviewStory(mockOverview, CODE_REVIEWER, {
-  play: openPeriod('24h'),
-});
-
-export const Overview30d: Story = overviewStory(mockOverview, CODE_REVIEWER, {
-  play: openPeriod('30d'),
-});
-
-export const Overview90d: Story = overviewStory(mockOverview, CODE_REVIEWER, {
-  play: openPeriod('90d'),
-});
-
 /** The 90 day window with one 2h 10m runaway run: the histogram stops at p99 and the run is the overflow bar. */
 export const Overview90dOutlier: Story = overviewStory(
   (slug, period) => mockOverview(slug, period, { outlierMs: 130 * 60_000 }),

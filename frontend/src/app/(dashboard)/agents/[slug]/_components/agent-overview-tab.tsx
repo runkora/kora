@@ -10,7 +10,7 @@ import { DEFAULT_PERIOD, PERIOD_DAYS, PERIOD_TEXT, changeText } from '../../_lib
 import type { AgentOverview } from '../../_lib/overview';
 import { formatDuration } from '../../_types';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
-import type { OverviewStatus } from '../_hooks/use-agent-overview';
+import type { WindowStatus } from '../../_hooks/use-period-cache';
 import { AgentInstructionsCard } from './agent-instructions-card';
 import { GrantScopesCard, MetadataCard, RecentRunsTable } from './agent-overview-cards';
 import { AgentSpendCard, shortModel } from './agent-spend-card';
@@ -20,7 +20,7 @@ interface AgentOverviewTabProps {
   /** Absent until a period has loaded, or when the caller may read neither part. */
   overview: AgentOverview | undefined;
   /** The selected period's load state; the figures on screen dim while it loads. */
-  status: OverviewStatus;
+  status: WindowStatus;
   /** Opens the Configuration tab at the Behaviour step. */
   onEditInstructions: () => void;
 }
@@ -106,7 +106,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
               <StatTile
                 label="Median duration"
                 icon="clock"
-                value={runs.finished > 0 ? formatDuration(runs.durations.medianMs) : '–'}
+                value={runs.finished > 0 ? formatDuration(runs.durations.median_ms) : '–'}
                 period={periodText}
                 trailing={runs.finished > 0 ? `${runs.finished} finished` : 'No runs yet'}
               >

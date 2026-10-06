@@ -26,42 +26,6 @@ export const CODE_LINE_HEIGHT = 1.6;
 // The position of the list item being drawn inside an ordered list, 0 outside one.
 const ItemNumber = createContext(0);
 
-interface MdNode {
-  type: string;
-  value?: string;
-  children?: MdNode[];
-  data?: { hName: string };
-}
-
-const VARIABLE = /\{\{?\s*[\w.-]+\s*\}?\}/g;
-
-/** Splits `{{name}}` and `{name}` in text nodes into `mark` nodes, leaving code and link destinations alone. */
-function markVariables(node: MdNode): void {
-  if (!node.children || node.type === 'code' || node.type === 'inlineCode') return;
-  node.children = node.children.flatMap((child) => {
-    if (child.type !== 'text' || !child.value) {
-      markVariables(child);
-      return [child];
-    }
-    const out: MdNode[] = [];
-    let last = 0;
-    for (const m of child.value.matchAll(VARIABLE)) {
-      if (m.index > last) out.push({ type: 'text', value: child.value.slice(last, m.index) });
-      out.push({
-        type: 'variable',
-        data: { hName: 'mark' },
-        children: [{ type: 'text', value: m[0] }],
-      });
-      last = m.index + m[0].length;
-    }
-    if (last === 0) return [child];
-    if (last < child.value.length) out.push({ type: 'text', value: child.value.slice(last) });
-    return out;
-  });
-}
-
-const remarkVariables = () => markVariables;
-
 /** The text of a rendered node, for a code block whose lines must keep their whitespace. */
 function textOf(node: ReactNode): string {
   if (typeof node === 'string') return node;
@@ -190,7 +154,6 @@ const COMPONENTS: Components = {
       {children}
     </Anchor>
   ),
-  mark: ({ children }) => <Code variant="highlight">{children}</Code>,
   code: ({ children }) => <Code variant="inline">{children}</Code>,
   pre: CodeBlock,
   ul: Ul,
@@ -203,7 +166,7 @@ const COMPONENTS: Components = {
 export function InstructionsMarkdown({ content }: { content: string }) {
   return (
     <Stack gap="snug" align="stretch">
-      <ReactMarkdown remarkPlugins={[remarkGfm, remarkVariables]} components={COMPONENTS}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
         {content}
       </ReactMarkdown>
     </Stack>

@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@orbit/test-utils';
-import type { RunDurations } from '../../_lib/overview';
+import type { AgentRunStats } from '@orbit/shared/api';
 import { DurationHistogram } from './duration-histogram';
 
-const NONE: RunDurations = {
-  medianMs: 0,
-  p95Ms: 0,
-  p99Ms: 0,
-  longestMs: 0,
+const NONE: AgentRunStats['durations'] = {
+  median_ms: 0,
+  p95_ms: 0,
+  p99_ms: 0,
+  longest_ms: 0,
   capped: false,
   buckets: Array<number>(10).fill(0),
   overflow: 0,
@@ -37,10 +37,10 @@ describe('DurationHistogram', () => {
   it('marks p95 and labels the overflow bar only when the range is capped', () => {
     const durations = {
       ...NONE,
-      medianMs: 60_000,
-      p95Ms: 200_000,
-      p99Ms: 240_000,
-      longestMs: 900_000,
+      median_ms: 60_000,
+      p95_ms: 200_000,
+      p99_ms: 240_000,
+      longest_ms: 900_000,
       buckets: [4, 6, 5, 3, 2, 1, 1, 0, 0, 1],
       overflow: 2,
     };

@@ -428,13 +428,22 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"runs": runs})
 }
 
-// handleRunOutcomes handles GET /api/v1/run-outcomes?period=24h|7d|30d|90d.
-func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// parsePeriod reads the period query, writing the 400 and reporting false when it is invalid.
+func (c *Controller) parsePeriod(w http.ResponseWriter, r *http.Request) (usagewindow.Period, bool) {
 	period, err := usagewindow.Parse(r.URL.Query().Get("period"))
 	if err != nil {
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		api.ErrorResponse(r.Context(), w, c.logger, apiErr, err)
+		return "", false
+	}
+	return period, true
+}
+
+// handleRunOutcomes handles GET /api/v1/run-outcomes?period=24h|7d|30d|90d.
+func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	period, ok := c.parsePeriod(w, r)
+	if !ok {
 		return
 	}
 	window := usagewindow.For(period, time.Now())
@@ -450,10 +459,8 @@ func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
 // handleRunStats handles GET /api/v1/run-stats/{slug}?period=24h|7d|30d|90d.
 func (c *Controller) handleRunStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	period, err := usagewindow.Parse(r.URL.Query().Get("period"))
-	if err != nil {
-		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	period, ok := c.parsePeriod(w, r)
+	if !ok {
 		return
 	}
 	out, err := c.runs.AgentRunStats(ctx, r.PathValue("slug"), period, time.Now().UTC())

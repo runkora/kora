@@ -149,9 +149,9 @@ func TestAgentInsightsHandlers(t *testing.T) {
 	}{
 		{"a token with no tenant", c.handleAgentInsights, "/usage/agent-insights", "", "", http.StatusUnauthorized},
 		{"a bad period", c.handleAgentInsights, "/usage/agent-insights?period=1y", "t1", "", http.StatusBadRequest},
-		{"a valid slug", c.handleAgentTypeInsights, "/usage/agent-type/x", "t1", "token-probe", http.StatusOK},
-		{"a slug with a symbol", c.handleAgentTypeInsights, "/usage/agent-type/x", "t1", "probe%", http.StatusBadRequest},
-		{"a slug with a path", c.handleAgentTypeInsights, "/usage/agent-type/x", "t1", "a/b", http.StatusBadRequest},
+		{"a valid slug", c.handleAgentInsights, "/usage/agent-type/x", "t1", "token-probe", http.StatusOK},
+		{"a slug with a symbol", c.handleAgentInsights, "/usage/agent-type/x", "t1", "probe%", http.StatusBadRequest},
+		{"a slug with a path", c.handleAgentInsights, "/usage/agent-type/x", "t1", "a/b", http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)

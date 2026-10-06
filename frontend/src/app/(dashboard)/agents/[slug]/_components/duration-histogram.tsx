@@ -5,7 +5,7 @@
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { ChartContainer, Stack, Text, donutSegmentColor } from '@orbit/terra';
 import { formatDuration } from '../../_types';
-import type { RunDurations } from '../../_lib/overview';
+import type { AgentRunStats } from '@orbit/shared/api';
 
 /** Sized so the tile, with its single axis line, is as tall as the tiles beside it. */
 const CHART_HEIGHT = 62;
@@ -33,10 +33,18 @@ export function DurationHistogram({
   durations,
   finished,
 }: {
-  durations: RunDurations;
+  durations: AgentRunStats['durations'];
   finished: number;
 }) {
-  const { medianMs, p95Ms, p99Ms, longestMs, capped, buckets, overflow } = durations;
+  const {
+    median_ms: medianMs,
+    p95_ms: p95Ms,
+    p99_ms: p99Ms,
+    longest_ms: longestMs,
+    capped,
+    buckets,
+    overflow,
+  } = durations;
   // The bars span 0 to p99, or to the longest run when there are too few runs for p99 to mean anything.
   const range = capped ? p99Ms : longestMs;
   const bucketOf = (ms: number) =>

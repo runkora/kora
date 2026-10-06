@@ -521,7 +521,6 @@ export interface AgentInsightsResponse {
  * One agent's run counts and durations for a window, from orbit-agents.
  */
 export interface AgentRunStats {
-  period: AgentInsightsPeriod;
   /** Runs created in the window, and the part a trigger started; the rest are manual. */
   total: number;
   triggered: number;
@@ -530,7 +529,6 @@ export interface AgentRunStats {
   failed: number;
   /** Durations of the finished runs, in milliseconds. */
   durations: {
-    finished: number;
     median_ms: number;
     p95_ms: number;
     p99_ms: number;
