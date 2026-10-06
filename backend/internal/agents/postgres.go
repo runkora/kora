@@ -726,8 +726,9 @@ func (r *PostgresRepository) FinishedRunDurations(ctx context.Context, tenantID,
 	if err != nil {
 		return FinishedRuns{}, fmt.Errorf("finished run durations: %w", err)
 	}
+	// p99 and the longest run round up: they are histogram edges, and a run must never fall above its own edge.
 	out.MedianMs, out.AverageMs, out.P95Ms, out.P99Ms, out.LongestMs =
-		int64(math.Round(median)), int64(math.Round(avg)), int64(math.Round(p95)), int64(math.Round(p99)), int64(math.Round(longest))
+		int64(math.Round(median)), int64(math.Round(avg)), int64(math.Round(p95)), int64(math.Ceil(p99)), int64(math.Ceil(longest))
 	return out, nil
 }
 
