@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime"
+	"strconv"
 	"strings"
 
 	"github.com/google/go-containerregistry/pkg/authn"
@@ -132,8 +133,8 @@ const (
 // the failure reason and message, or empty strings for a valid image.
 func validateImageConfig(cfg imageConfig) (reason, message string) {
 	uid, _, _ := strings.Cut(cfg.User, ":")
-	if uid != si.SandboxUID {
-		return reasonWrongUser, fmt.Sprintf("image runs as user %q; sandbox images run as uid %s", cfg.User, si.SandboxUID)
+	if uid != strconv.Itoa(si.SandboxUID) {
+		return reasonWrongUser, fmt.Sprintf("image runs as user %q; sandbox images run as uid %d", cfg.User, si.SandboxUID)
 	}
 	if cfg.Labels[si.BaseLabel] == "" {
 		return reasonMissingBaseLabel, fmt.Sprintf("image has no %s label; build it FROM kora-sandbox-base", si.BaseLabel)

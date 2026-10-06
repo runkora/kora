@@ -134,6 +134,9 @@ func TestSandboxImage_ValidAndWarm(t *testing.T) {
 	if ctr.Image != "ghcr.io/acme/go@sha256:good" || ctr.ImagePullPolicy != corev1.PullIfNotPresent {
 		t.Errorf("warmer pulls %s with %s, want the pinned digest with IfNotPresent", ctr.Image, ctr.ImagePullPolicy)
 	}
+	if *pod.SecurityContext.RunAsUser != si.SandboxUID || *ctr.SecurityContext.RunAsUser != si.SandboxUID {
+		t.Errorf("warmer runs as %d/%d, want the sandbox uid %d", *pod.SecurityContext.RunAsUser, *ctr.SecurityContext.RunAsUser, si.SandboxUID)
+	}
 	if pod.NodeSelector["pool"] != "sandbox" {
 		t.Errorf("warmer nodeSelector = %v, want the sandbox placement", pod.NodeSelector)
 	}

@@ -287,7 +287,7 @@ func (r *SandboxImageReconciler) warmerDaemonSet(img *si.SandboxImage) *appsv1.D
 	if ref := img.Spec.PullSecretRef; ref != nil {
 		pullSecrets = []corev1.LocalObjectReference{{Name: ref.Name}}
 	}
-	uid := int64(100)
+	uid := int64(si.SandboxUID)
 	return &appsv1.DaemonSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "DaemonSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: warmerName(img), Namespace: img.Namespace, Labels: labels},
@@ -316,7 +316,7 @@ func (r *SandboxImageReconciler) warmerDaemonSet(img *si.SandboxImage) *appsv1.D
 						Image:           img.PinnedRef(),
 						ImagePullPolicy: corev1.PullIfNotPresent,
 						Command:         []string{"sleep", "infinity"},
-						SecurityContext: restrictedContainerSecurityContext(100, true),
+						SecurityContext: restrictedContainerSecurityContext(si.SandboxUID, true),
 						Resources: corev1.ResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceCPU:    resource.MustParse("10m"),

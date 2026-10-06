@@ -27,7 +27,7 @@ const BaseLabel = "io.orbit.sandbox.base"
 const BaseName = "kora-base"
 
 // SandboxUID is the user every sandbox image runs as.
-const SandboxUID = "100"
+const SandboxUID = 100
 
 // Condition types on SandboxImage status.
 const (
