@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"strings"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -130,8 +132,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	cls, err := b.classify(ctx, connector, conn, req)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, ErrForbidden.Error())
-		return Decision{}, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err)
+		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
 	}
 	span.SetAttributes(
 		attribute.String("orbit.action", cls.Action),
@@ -147,6 +148,10 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		if perr != nil {
 			span.SetAttributes(attribute.Bool("orbit.allowed", false))
 			span.RecordError(perr)
+			var denial *Denial
+			if errors.As(perr, &denial) && denial.Reason != DenialPolicyUnavailable {
+				return b.anonymousReadOrDeny(ctx, span, claims, conn, req, denial)
+			}
 			span.SetStatus(codes.Error, ErrForbidden.Error())
 			return Decision{}, perr
 		}
@@ -201,6 +206,92 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	)
 
 	return Decision{Connection: conn, Action: action, Qualifier: cls.Qualifier, Credential: cred}, nil
+}
+
+// anonymousReadAction is the action recorded for a read served by the
+// anonymous fallback.
+const anonymousReadAction = "anonymous_read"
+
+// anonymousReadOrDeny serves a GitHub read the connection's grant does not
+// authorize as an anonymous passthrough, when the caller's own egress posture
+// reaches the host. Anything else returns denial. Connector-derived egress
+// (egress:<host>:connector) never qualifies. See
+// docs/adr/2026-06-06-jit-credential-brokering-egress-gateway.md, Amendment 5.
+func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, denial *Denial) (Decision, error) {
+	if conn.Adapter != credentials.AdapterGitHubApp || !isRead(req) || !b.ownEgressAllows(ctx, claims, req.Host) {
+		span.SetStatus(codes.Error, ErrForbidden.Error())
+		return Decision{}, denial
+	}
+
+	span.SetAttributes(
+		attribute.Bool("orbit.allowed", true),
+		attribute.String("orbit.action", anonymousReadAction),
+	)
+	b.logger.Info(ctx, "egress authorized: anonymous read",
+		logging.Field{Key: "decision", Value: anonymousReadAction},
+		logging.Field{Key: "connection", Value: conn.Name},
+		logging.Field{Key: "denial_reason", Value: string(denial.Reason)},
+		logging.Field{Key: "tenant_id", Value: claims.Orbit.TenantID},
+		logging.Field{Key: "principal_id", Value: claims.Subject},
+		logging.Field{Key: "run_id", Value: claims.Orbit.Claims["run_id"]},
+		logging.Field{Key: "host", Value: req.Host},
+		logging.Field{Key: "method", Value: req.Method},
+		logging.Field{Key: "path", Value: requestPath(req)},
+		logging.Field{Key: "credential", Value: false},
+	)
+	// The passthrough connection selects the default transport and injects
+	// nothing. The proxy strips the agent's Authorization header.
+	return Decision{
+		Connection: &credentials.Connection{
+			TenantID: conn.TenantID,
+			Name:     passthroughConnectionName,
+			Adapter:  credentials.AdapterPassthrough,
+			BaseHost: req.Host,
+		},
+		Action: anonymousReadAction,
+	}, nil
+}
+
+// ownEgressAllows asks policy whether the caller's own posture (open mode, or
+// the host in its whitelist or an environment) reaches host. An evaluation
+// error counts as no.
+func (b *Broker) ownEgressAllows(ctx context.Context, claims *token.PlatformClaims, host string) bool {
+	res, err := b.policy.Check(ctx, policy.CheckInput{
+		Claims:       claims,
+		ResourceType: "egress",
+		PathSegments: []string{hostWithoutPort(host)},
+		Action:       "connect",
+	})
+	if err != nil {
+		b.logger.Warn(ctx, "egress posture check failed",
+			logging.Field{Key: "host", Value: host},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return false
+	}
+	return res.Allow
+}
+
+// isRead reports whether the request only reads: GET, HEAD, or a git fetch
+// (git-upload-pack). Push discovery (service=git-receive-pack) is a write.
+func isRead(req EgressRequest) bool {
+	path := requestPath(req)
+	switch req.Method {
+	case http.MethodGet, http.MethodHead:
+		return req.URL == nil || req.URL.Query().Get("service") != "git-receive-pack"
+	case http.MethodPost:
+		return strings.HasSuffix(path, "/git-upload-pack")
+	default:
+		return false
+	}
+}
+
+// hostWithoutPort lowercases host and drops any port, the form egress scopes use.
+func hostWithoutPort(host string) string {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	return strings.ToLower(host)
 }
 
 // classify asks the connector to map the request to its policy action and the
