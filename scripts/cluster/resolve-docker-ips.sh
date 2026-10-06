@@ -57,6 +57,9 @@ ok "orbit-postgres: ${POSTGRES_IP}"
 REDIS_IP="$(container_ip orbit-redis)"
 ok "orbit-redis:    ${REDIS_IP}"
 
+REGISTRY_IP="$(container_ip orbit-registry)"
+ok "orbit-registry: ${REGISTRY_IP}"
+
 # ── Resolve subnet CIDR ─────────────────────────────────────────────────────
 SUBNET="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)"
@@ -67,28 +70,31 @@ fi
 ok "orbit-network:  ${SUBNET}"
 
 # ── Patch CoreDNS NodeHosts ─────────────────────────────────────────────────
-# orbit-postgres and orbit-redis are Docker containers on orbit-network.
+# orbit-postgres, orbit-redis and orbit-registry are Docker containers on orbit-network.
 # CoreDNS cannot resolve them via `forward . /etc/resolv.conf` because
 # 127.0.0.11 (Docker's embedded DNS) is unreachable from inside CoreDNS's
 # container. Injecting them into NodeHosts makes the hosts plugin resolve
-# them in-process without forwarding.
+# them in-process without forwarding. k3d adds orbit-registry when it creates
+# the cluster, but k3s rewrites NodeHosts on restart and drops it. The operator
+# reads sandbox images from the registry.
 step "Patching CoreDNS NodeHosts with Docker container IPs"
 
 kubectl get configmap coredns -n kube-system -o json \
   | jq --arg pg "${POSTGRES_IP} orbit-postgres" \
        --arg rd "${REDIS_IP} orbit-redis" \
+       --arg rg "${REGISTRY_IP} orbit-registry" \
        '.data.NodeHosts = (
          (.data.NodeHosts // "") |
          split("\n") |
-         map(select(length > 0 and (split(" ")[1] | . != "orbit-postgres" and . != "orbit-redis"))) |
-         . + [$pg, $rd] |
+         map(select(length > 0 and (split(" ")[1] | . != "orbit-postgres" and . != "orbit-redis" and . != "orbit-registry"))) |
+         . + [$pg, $rd, $rg] |
          join("\n") + "\n"
        )' \
   | kubectl apply -f -
 
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS NodeHosts patched: orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
+ok "CoreDNS NodeHosts patched: orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}, orbit-registry → ${REGISTRY_IP}"
 
 # ── Write the generated environment file ────────────────────────────────────
 # Preserves the image digest pins redeploy.sh writes.
