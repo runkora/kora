@@ -75,6 +75,7 @@ type ClaudeRunnerConfig struct {
 //
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
+//	       --settings <claudeAttributionSettings>
 //	       [--resume ID] [--bare] [--model M]
 //	       --disallowedTools <claudeExcludedTools> [--append-system-prompt P]
 //
@@ -109,7 +110,12 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 	}
 }
 
-// Start spawns the Claude Code subprocess. workDir is the run's workspace directory.
+// claudeAttributionSettings disables Claude Code's own commit trailer and
+// pull-request footer. Orbit is the control plane of record for who ran an
+// agent and under what authority; a second, unverifiable identity string
+// baked into the subprocess's default settings would contradict that.
+const claudeAttributionSettings = `{"attribution":{"commit":"","pr":""}}`
+
 // buildFlags returns the Claude Code CLI flags for this runner configuration.
 // Extracted to keep Start() cyclomatic complexity within bounds.
 func (r *ClaudeRunner) buildFlags() []string {
@@ -120,6 +126,7 @@ func (r *ClaudeRunner) buildFlags() []string {
 		"--verbose",
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
+		"--settings", claudeAttributionSettings,
 	}
 	if r.cfg.ResumeSessionID != "" {
 		args = append(args, "--resume", r.cfg.ResumeSessionID)
