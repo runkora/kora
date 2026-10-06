@@ -913,6 +913,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, errSandboxImagePending) {
+			// The operator has not read the image yet. The session-manager retries.
+			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil), nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

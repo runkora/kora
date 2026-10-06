@@ -290,3 +290,16 @@ func TestHandleProvisionSandbox_PendingImageIsRetryable(t *testing.T) {
 		t.Errorf("status %d, want a 5xx the session-manager retries", w.Code)
 	}
 }
+
+// An image the operator has not read yet answers 503, so the provision is retried as transient.
+func TestHandleProvisionSandbox_ImagePending(t *testing.T) {
+	c, repo, k8s, _ := newTestController(t)
+	seedEnvironments(t, repo, k8s)
+	k8s.sandboxImages["acme-go"].Spec.Image = "ghcr.io/acme/go:2"
+
+	w := httptest.NewRecorder()
+	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", `{"environment":"go"}`))
+	if w.Code != http.StatusServiceUnavailable {
+		t.Errorf("status %d body %s, want 503", w.Code, w.Body.String())
+	}
+}
