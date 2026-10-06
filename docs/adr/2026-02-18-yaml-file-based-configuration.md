@@ -348,6 +348,8 @@ As the number of environments grows, the current model requires duplicating all 
 
 [rendered-service-config-files](2026-10-06-rendered-service-config-files.md) adds a chart-rendered per-install config file that `config.LoadService` and `config.Load` merge as the last layer.
 
+The loader reads each layer with `go.yaml.in/yaml/v3`, deep-merges `base.yaml`, `{env}.yaml` and the rendered file, and decodes the result strictly with `go-viper/mapstructure`. `APP_ENV` defaults to `production` when it is unset.
+
 ---
 
 **Last Updated:** 2026-10-06 (Amendment 1: rendered service config files)

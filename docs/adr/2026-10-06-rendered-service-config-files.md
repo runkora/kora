@@ -45,7 +45,7 @@ Per-install settings travel as untyped env strings that each service parses by h
 
 ### Goals
 
-- Every non-secret per-install value reaches its service as typed YAML through the shared loader.
+- Every non-secret per-install value of a chart-rendered workload reaches its service as typed YAML through the shared loader.
 - An unknown key or a malformed value fails startup.
 - A config change rolls the pods that read it.
 
@@ -98,7 +98,7 @@ It exposes internal config as the public chart API against the product surface t
 
 ### 1. Rendered files
 
-The chart will render each service's per-install config as YAML into a ConfigMap, with one file per config module. The ConfigMap will mount at `/etc/orbit/config/`, and `items[].path` will place each module's file at `/etc/orbit/config/{module}.yaml`. The config files baked into the image will stay visible under `/app`. The chart will derive service URLs from the system namespace when it renders these files (clear-route/orbit#402).
+The chart will render each service's per-install config as YAML into a ConfigMap, with one file per config module. The ConfigMap will mount at `/etc/orbit/config/`, and `items[].path` will place each module's file at `/etc/orbit/config/{module}.yaml`. The config files baked into the image will stay visible under `/app`. The chart will derive service URLs from the system namespace when it renders these files (clear-route/orbit#402). The migrate Job's ConfigMap will be a `pre-install,pre-upgrade` hook with a lower hook weight than the Job.
 
 ### 2. Loader
 
@@ -110,7 +110,7 @@ Each workload will carry a `checksum/` annotation for its rendered config, and a
 
 ### 4. Env vars
 
-Env vars will carry only secrets and third-party conventions (e.g., `SPIFFE_ENDPOINT_SOCKET`, `HOME`). The old env names will be removed.
+Env vars on chart-rendered workloads will carry only secrets and third-party conventions (e.g., `SPIFFE_ENDPOINT_SOCKET`, `HOME`). The old env names will be removed.
 
 ### 5. Chart values
 
