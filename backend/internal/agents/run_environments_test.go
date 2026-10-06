@@ -279,27 +279,30 @@ func TestProvisionSandbox_PodEnvironmentWinsOverRecord(t *testing.T) {
 	}
 }
 
-// An image the operator has not validated yet is a retryable failure.
-func TestHandleProvisionSandbox_PendingImageIsRetryable(t *testing.T) {
-	c, repo, k8s, _ := newTestController(t)
-	seedEnvironments(t, repo, k8s)
-	k8s.sandboxImages["acme-go"].Spec.Image = "ghcr.io/acme/go:2"
-	w := httptest.NewRecorder()
-	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", "{}"))
-	if w.Code == http.StatusConflict || w.Code < 500 {
-		t.Errorf("status %d, want a 5xx the session-manager retries", w.Code)
-	}
-}
+// A pending image is transient and answers 503. A rejected image answers 409,
+// also while the operator cannot reach the registry.
+func TestHandleProvisionSandbox_ImageStatus(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(img *si.SandboxImage)
+		want  int
+	}{
+		{"pending", func(img *si.SandboxImage) { img.Spec.Image = "ghcr.io/acme/go:2" }, http.StatusServiceUnavailable},
+		{"rejected", func(img *si.SandboxImage) {
+			img.Status.Digest = ""
+			img.Status.Conditions = []metav1.Condition{{Type: si.ConditionValid, Status: metav1.ConditionFalse, Reason: si.ReasonWrongUser, Message: "runs as root"}}
+		}, http.StatusConflict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, repo, k8s, _ := newTestController(t)
+			seedEnvironments(t, repo, k8s)
+			tc.setup(k8s.sandboxImages["acme-go"])
 
-// An image the operator has not read yet answers 503, so the provision is retried as transient.
-func TestHandleProvisionSandbox_ImagePending(t *testing.T) {
-	c, repo, k8s, _ := newTestController(t)
-	seedEnvironments(t, repo, k8s)
-	k8s.sandboxImages["acme-go"].Spec.Image = "ghcr.io/acme/go:2"
-
-	w := httptest.NewRecorder()
-	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", `{"environment":"go"}`))
-	if w.Code != http.StatusServiceUnavailable {
-		t.Errorf("status %d body %s, want 503", w.Code, w.Body.String())
+			w := httptest.NewRecorder()
+			c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", `{"environment":"go"}`))
+			if w.Code != tc.want {
+				t.Errorf("status %d body %s, want %d", w.Code, w.Body.String(), tc.want)
+			}
+		})
 	}
 }

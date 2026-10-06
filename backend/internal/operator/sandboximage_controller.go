@@ -114,6 +114,9 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 			return ctrl.Result{}, warmErr
 		}
 		return ctrl.Result{RequeueAfter: registryRetry}, r.patchStatus(ctx, before, img)
+	case err != nil && img.Rejected():
+		// A registry outage keeps a rejection, so provisioning still refuses the image.
+		return ctrl.Result{RequeueAfter: registryRetry}, r.patchStatus(ctx, before, img)
 	case err != nil:
 		// The image the spec names has not been read. It stays unusable and is read again soon.
 		setCondition(img, si.ConditionValid, metav1.ConditionFalse, reason, err.Error())

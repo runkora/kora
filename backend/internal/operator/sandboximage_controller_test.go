@@ -362,3 +362,22 @@ func TestSandboxImage_ImageChangeWithRegistryDown(t *testing.T) {
 		t.Errorf("RequeueAfter = %v, want the registry retry", res.RequeueAfter)
 	}
 }
+
+// A registry outage keeps a rejected image rejected.
+func TestSandboxImage_RejectedWithRegistryDown(t *testing.T) {
+	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": {Digest: "sha256:x", User: "0", Labels: goodConfig.Labels}}}
+	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", true))
+	reconcileImage(t, r, c, "go")
+
+	reg.err = errors.New("registry unavailable")
+	got, res := reconcileImage(t, r, c, "go")
+	if !got.Rejected() || condition(got, si.ConditionValid).Reason != si.ReasonWrongUser {
+		t.Errorf("status = %+v, want the WrongUser rejection kept", got.Status)
+	}
+	if _, ok := warmer(t, c, "go"); ok {
+		t.Error("a rejected image got a DaemonSet")
+	}
+	if res.RequeueAfter != registryRetry {
+		t.Errorf("RequeueAfter = %v, want the registry retry", res.RequeueAfter)
+	}
+}
