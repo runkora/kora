@@ -2,6 +2,7 @@ package sessionmanager
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -34,6 +35,36 @@ func TestBuildFlags_BaseFlags(t *testing.T) {
 		if !containsFlag(flags, want) {
 			t.Errorf("buildFlags() missing required flag %q; got %v", want, flags)
 		}
+	}
+}
+
+// Every run must disable Claude Code's own commit trailer and PR footer:
+// Orbit, not the subprocess's default settings, is the record of who ran an
+// agent.
+func TestBuildFlags_DisablesOwnAttribution(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(io.Discard),
+		RunID:  "run-1",
+	})
+	flags := r.buildFlags()
+	i := slices.Index(flags, "--settings")
+	if i < 0 || i+1 >= len(flags) {
+		t.Fatalf("buildFlags() missing --settings value; got %v", flags)
+	}
+	var settings struct {
+		Attribution struct {
+			Commit *string `json:"commit"`
+			PR     *string `json:"pr"`
+		} `json:"attribution"`
+	}
+	if err := json.Unmarshal([]byte(flags[i+1]), &settings); err != nil {
+		t.Fatalf("--settings value is not valid JSON: %v (%q)", err, flags[i+1])
+	}
+	if settings.Attribution.Commit == nil || *settings.Attribution.Commit != "" {
+		t.Errorf("attribution.commit = %v, want empty string", settings.Attribution.Commit)
+	}
+	if settings.Attribution.PR == nil || *settings.Attribution.PR != "" {
+		t.Errorf("attribution.pr = %v, want empty string", settings.Attribution.PR)
 	}
 }
 
