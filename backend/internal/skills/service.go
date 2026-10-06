@@ -9,10 +9,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-const (
-	defaultLimit = 15
-	maxLimit     = 100
-)
+const serverCap = 200
 
 var marketplaceSeparators = regexp.MustCompile(`[^a-z0-9]+`)
 
@@ -52,15 +49,8 @@ type SkillSummary struct {
 	Description string `json:"description"`
 }
 
-type Pagination struct {
-	Offset     int `json:"offset"`
-	Limit      int `json:"limit"`
-	TotalItems int `json:"totalItems"`
-}
-
 type ListSkillsResponse struct {
-	Skills     []SkillSummary `json:"skills"`
-	Pagination Pagination     `json:"pagination"`
+	Skills []SkillSummary `json:"skills"`
 }
 
 func NewService(registry sourceRegistry, cache skillCache, crawler skillCrawler, logger logging.Logger) *Service {
@@ -123,17 +113,7 @@ func (s *Service) resolve(ctx context.Context, tenantID, marketplaceName string)
 	return skills, nil
 }
 
-func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceName, search string, offset, limit int) (ListSkillsResponse, error) {
-	if limit <= 0 {
-		limit = defaultLimit
-	}
-	if limit > maxLimit {
-		limit = maxLimit
-	}
-	if offset < 0 {
-		offset = 0
-	}
-
+func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceName, search string) (ListSkillsResponse, error) {
 	skills, err := s.resolve(ctx, tenantID, marketplaceName)
 	if err != nil {
 		return ListSkillsResponse{}, err
@@ -149,13 +129,8 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceName, sea
 		skills = filtered
 	}
 
-	total := len(skills)
-
-	if offset >= total {
-		skills = []Skill{}
-	} else {
-		end := min(offset+limit, total)
-		skills = skills[offset:end]
+	if len(skills) > serverCap {
+		skills = skills[:serverCap]
 	}
 
 	summaries := make([]SkillSummary, len(skills))
@@ -163,10 +138,7 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceName, sea
 		summaries[i] = SkillSummary{Name: sk.Name, Description: sk.Description}
 	}
 
-	return ListSkillsResponse{
-		Skills:     summaries,
-		Pagination: Pagination{Offset: offset, Limit: limit, TotalItems: total},
-	}, nil
+	return ListSkillsResponse{Skills: summaries}, nil
 }
 
 // GetSkill finds a skill by its folder name (the last segment of its slug).

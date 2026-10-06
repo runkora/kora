@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -30,15 +29,8 @@ var handlerSource = MarketplaceSource{
 	Name: "Clear Route Skills", Org: "internal-org", Repo: "internal-repo", Branch: "main",
 }
 
-type handlerPagination struct {
-	Offset     int `json:"offset"`
-	Limit      int `json:"limit"`
-	TotalItems int `json:"totalItems"`
-}
-
 type handlerListResponse struct {
-	Skills     []map[string]string `json:"skills"`
-	Pagination handlerPagination   `json:"pagination"`
+	Skills []map[string]string `json:"skills"`
 }
 
 type handlerDetailResponse struct {
@@ -200,22 +192,22 @@ func TestControllerMarketplaces(t *testing.T) {
 
 func TestControllerListSkills(t *testing.T) {
 	fix := newHandlerController(true)
-	rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills?search=REACT&offset=1&limit=1", "tenant-a")
+	rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills?search=REACT", "tenant-a")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
 	var body struct {
-		Skills     []map[string]any  `json:"skills"`
-		Pagination handlerPagination `json:"pagination"`
+		Skills []map[string]any `json:"skills"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
 	// List response exposes only name and description — no slug.
-	want := []map[string]any{{
-		"name": "React Testing", "description": "React tests",
-	}}
-	if !reflect.DeepEqual(body.Skills, want) || body.Pagination != (handlerPagination{Offset: 1, Limit: 1, TotalItems: 2}) {
+	want := []map[string]any{
+		{"name": "React Expert", "description": "React development"},
+		{"name": "React Testing", "description": "React tests"},
+	}
+	if !reflect.DeepEqual(body.Skills, want) {
 		t.Fatalf("unexpected list response: %s", rr.Body.String())
 	}
 	if fix.crawler.calls != 0 {
@@ -223,51 +215,20 @@ func TestControllerListSkills(t *testing.T) {
 	}
 }
 
-func TestControllerPagination(t *testing.T) {
-	for _, tc := range []struct {
-		query string
-		code  int
-		count int
-	}{
-		{"", http.StatusOK, 15},
-		{"?limit=100", http.StatusOK, 20},
-		{"?offset=20", http.StatusOK, 0},
-		{"?offset=" + strconv.Itoa(int(^uint(0)>>1)), http.StatusOK, 0},
-		{"?search=absent", http.StatusOK, 0},
-		{"?offset=-1", http.StatusBadRequest, 0},
-		{"?offset=no", http.StatusBadRequest, 0},
-		{"?offset=999999999999999999999999", http.StatusBadRequest, 0},
-		{"?limit=0", http.StatusBadRequest, 0},
-		{"?limit=101", http.StatusBadRequest, 0},
-		{"?limit=no", http.StatusBadRequest, 0},
-		{"?offset=", http.StatusBadRequest, 0},
-		{"?limit=", http.StatusBadRequest, 0},
-	} {
-		t.Run(tc.query, func(t *testing.T) {
-			fix := newHandlerController(true)
-			items := make([]Skill, 20)
-			fix.cache.values[CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo)] = items
-			rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills"+tc.query, "tenant-a")
-			if rr.Code != tc.code {
-				t.Fatalf("status %d, want %d: %s", rr.Code, tc.code, rr.Body.String())
-			}
-			if tc.code != http.StatusOK {
-				if len(fix.cache.getCalls) != 0 {
-					t.Fatal("invalid query reached the cache")
-				}
-				return
-			}
-			var body handlerListResponse
-			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-				t.Fatal(err)
-			}
-			if body.Skills == nil || len(body.Skills) != tc.count {
-				t.Fatalf("got %v skills, want non-nil slice of length %d", body.Skills, tc.count)
-			}
-			if tc.query == "" && (body.Pagination.Offset != 0 || body.Pagination.Limit != 15 || body.Pagination.TotalItems != 20) {
-				t.Fatalf("wrong pagination defaults: %+v", body.Pagination)
-			}
-		})
+func TestControllerServerCap(t *testing.T) {
+	fix := newHandlerController(true)
+	items := make([]Skill, serverCap+10)
+	fix.cache.values[CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo)] = items
+	rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills", "tenant-a")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	var body handlerListResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Skills) != serverCap {
+		t.Fatalf("got %d skills, want serverCap %d", len(body.Skills), serverCap)
 	}
 }
 

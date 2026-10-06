@@ -102,15 +102,12 @@ func TestListSkills_CacheHit(t *testing.T) {
 	cache := &fakeCache{data: map[string][]Skill{"tenant-a:org:repo": skills}}
 	svc := newTestService(cache, &fakeCrawler{})
 
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "", 0, 15)
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Skills) != 2 {
 		t.Errorf("got %d skills, want 2", len(result.Skills))
-	}
-	if result.Pagination.TotalItems != 2 {
-		t.Errorf("TotalItems = %d, want 2", result.Pagination.TotalItems)
 	}
 }
 
@@ -120,7 +117,7 @@ func TestListSkills_CacheMiss_CrawlsAndCaches(t *testing.T) {
 	crawler := &fakeCrawler{skills: skills}
 	svc := newTestService(cache, crawler)
 
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "", 0, 15)
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -134,7 +131,7 @@ func TestListSkills_CacheMiss_CrawlsAndCaches(t *testing.T) {
 
 func TestListSkills_MarketplaceNotFound(t *testing.T) {
 	svc := newTestService(&fakeCache{}, &fakeCrawler{})
-	_, err := svc.ListSkills(context.Background(), "tenant-a", "nonexistent", "", 0, 15)
+	_, err := svc.ListSkills(context.Background(), "tenant-a", "nonexistent", "")
 	if !errors.Is(err, ErrMarketplaceNotFound) {
 		t.Errorf("got %v, want ErrMarketplaceNotFound", err)
 	}
@@ -143,7 +140,7 @@ func TestListSkills_MarketplaceNotFound(t *testing.T) {
 func TestListSkills_RedisUnavailable(t *testing.T) {
 	cache := &fakeCache{getErr: fmt.Errorf("connection refused: %w", ErrRedisUnavailable)}
 	svc := newTestService(cache, &fakeCrawler{})
-	_, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "", 0, 15)
+	_, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "")
 	if !errors.Is(err, ErrRedisUnavailable) {
 		t.Errorf("got %v, want ErrRedisUnavailable", err)
 	}
@@ -154,65 +151,29 @@ func TestListSkills_Search(t *testing.T) {
 	cache := &fakeCache{data: map[string][]Skill{"tenant-a:org:repo": skills}}
 	svc := newTestService(cache, &fakeCrawler{})
 
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "react", 0, 15)
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "react")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Skills) != 2 {
 		t.Errorf("got %d skills, want 2 (react matches)", len(result.Skills))
 	}
-	if result.Pagination.TotalItems != 2 {
-		t.Errorf("TotalItems = %d, want 2", result.Pagination.TotalItems)
-	}
 }
 
-func TestListSkills_Pagination(t *testing.T) {
-	skills := makeSkills("a", "b", "c", "d", "e")
-	cache := &fakeCache{data: map[string][]Skill{"tenant-a:org:repo": skills}}
+func TestListSkills_ServerCapApplied(t *testing.T) {
+	names := make([]string, serverCap+10)
+	for i := range names {
+		names[i] = fmt.Sprintf("s%03d", i)
+	}
+	cache := &fakeCache{data: map[string][]Skill{"tenant-a:org:repo": makeSkills(names...)}}
 	svc := newTestService(cache, &fakeCrawler{})
 
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "", 2, 2)
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(result.Skills) != 2 {
-		t.Errorf("got %d skills, want 2", len(result.Skills))
-	}
-	if result.Skills[0].Name != "c" {
-		t.Errorf("first skill = %q, want c", result.Skills[0].Name)
-	}
-	if result.Pagination.TotalItems != 5 {
-		t.Errorf("TotalItems = %d, want 5", result.Pagination.TotalItems)
-	}
-}
-
-func TestListSkills_OffsetBeyondTotal_ReturnsEmpty(t *testing.T) {
-	skills := makeSkills("a", "b")
-	cache := &fakeCache{data: map[string][]Skill{"tenant-a:org:repo": skills}}
-	svc := newTestService(cache, &fakeCrawler{})
-
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "", 99, 15)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if len(result.Skills) != 0 {
-		t.Errorf("got %d skills, want 0", len(result.Skills))
-	}
-	if result.Pagination.TotalItems != 2 {
-		t.Errorf("TotalItems = %d, want 2", result.Pagination.TotalItems)
-	}
-}
-
-func TestListSkills_DefaultLimitApplied(t *testing.T) {
-	cache := &fakeCache{data: map[string][]Skill{"tenant-a:org:repo": makeSkills()}}
-	svc := newTestService(cache, &fakeCrawler{})
-
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "test-marketplace", "", 0, 0)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Pagination.Limit != defaultLimit {
-		t.Errorf("Limit = %d, want %d", result.Pagination.Limit, defaultLimit)
+	if len(result.Skills) != serverCap {
+		t.Errorf("got %d skills, want serverCap %d", len(result.Skills), serverCap)
 	}
 }
 
