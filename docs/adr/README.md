@@ -79,7 +79,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [MCP Server Registration, Deployment, and Governance](2026-03-05-mcp-server-registration-deployment-and-governance.md) — `Accepted` · 2026-03-05
 - [Scope-Gated Tool Exposure via MCP](2026-03-05-scope-gated-tool-exposure-via-mcp.md) — `Accepted` · 2026-03-05
 - [Credential-Aware Outbound Gateway](2026-03-05-credential-aware-outbound-gateway.md) — `Superseded` · 2026-03-05
-- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed` · 2026-06-06
+- [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) — `Proposed (Amended 2026-10-07: Amendment 5 Accepted)` · 2026-06-06
 - [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) — `Proposed` · 2026-07-06
 - [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) — `Accepted` · 2026-07-22
 - [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted` · 2026-07-22
@@ -235,7 +235,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-04 | [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) | Accepted (Amended 2026-09-30) | — |
 | 2026-06-05 | [Inference Log Detail Modal and Failure Details Capture](2026-06-05-inference-log-details.md) | Accepted | 0050 |
 | 2026-06-05 | [LLM Cost Tracking: Pricing Pipeline, Budget Enforcement, and Quota Roles](2026-06-05-llm-cost-tracking.md) | Accepted (Decision 5 superseded 2026-06-10) | — |
-| 2026-06-06 | [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) | Proposed | 0065 |
+| 2026-06-06 | [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) | Proposed (Amended 2026-10-07: Amendment 5 Accepted) | 0065 |
 | 2026-06-10 | [Budget Model Redesign: Inline JSONB on Roles/Grants, MAX Resolution, Per-Category Spend](2026-06-10-budget-model-redesign.md) | Proposed | — |
 | 2026-06-10 | [Budget Enforcement Corrections: Canonical Spend Counter, Request-Time Role Enforcement, All Principal Types, and the Budgets Management Surface](2026-06-10-budget-enforcement-corrections-and-budgets-page.md) | Proposed | — |
 | 2026-06-10 | [Hierarchical Budget Enforcement: Windows, Pools, Tenant Caps, and Per-Run Limits](2026-06-10-hierarchical-budget-enforcement.md) | Proposed | — |
