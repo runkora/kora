@@ -162,7 +162,7 @@ func TestCreateEnvironment_BaseImageUnavailable(t *testing.T) {
 	}
 }
 
-// Deleting an attached environment is a 409; the frontend says to detach first.
+// Deleting an attached environment is a 409. The frontend tells the user to detach it first.
 func TestHandleDeleteEnvironment_InUse(t *testing.T) {
 	svc := newEnvironmentService(&fakeEnvStore{deleteErr: ErrEnvironmentInUse}, &mockK8s{})
 	c := NewController(nil, nil, svc, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))

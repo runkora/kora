@@ -889,7 +889,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// session-manager keeps the behavior it had.
 	ahead := r.URL.Query().Get("ahead") == "true"
 
-	// The body names the environment. Session-managers from before environments send none.
+	// The body names the environment. An older session-manager sends none.
 	var req sandboxEnvironmentRequest
 	if err := api.DecodeBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
 		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
@@ -963,7 +963,7 @@ type sandboxEnvironmentRequest struct {
 	Replace     bool   `json:"replace"`
 }
 
-// invalidAgentTypeField reports an agent-type write the request itself got wrong, answered with a 400.
+// invalidAgentTypeField reports an agent-type write the request itself got wrong. The handler answers it with a 400.
 func invalidAgentTypeField(err error) bool {
 	for _, target := range []error{ErrInvalidConnectivity, ErrInvalidConnector, ErrInvalidIdentityMode, ErrInvalidGuardrails, ErrInvalidEnvironment} {
 		if errors.Is(err, target) {

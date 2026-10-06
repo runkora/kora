@@ -144,7 +144,6 @@ func TestSandboxImage_ValidAndWarm(t *testing.T) {
 		t.Errorf("pull secrets = %v, want none: the pod webhook adds the install's", pod.ImagePullSecrets)
 	}
 
-	// The DaemonSet reports every node ready.
 	ds.Status = appsv1.DaemonSetStatus{DesiredNumberScheduled: 2, UpdatedNumberScheduled: 2, NumberReady: 2, ObservedGeneration: ds.Generation}
 	if err := c.Status().Update(context.Background(), ds); err != nil {
 		t.Fatal(err)
@@ -186,7 +185,7 @@ func TestSandboxImage_Invalid(t *testing.T) {
 	}
 }
 
-// A registry outage reports the error on a new image but leaves an accepted image in service.
+// A registry outage reports the error on a new image. An accepted image stays in service.
 func TestSandboxImage_RegistryError(t *testing.T) {
 	reg := &fakeRegistry{err: errors.New("registry unavailable")}
 	r, c := newImageReconciler(reg, sandboxImage("new", "ghcr.io/acme/new:1", false))
@@ -289,7 +288,7 @@ func TestSandboxImage_OutsideTenantNamespace(t *testing.T) {
 	}
 }
 
-// A placement field the operator applied before and no longer sets is removed from the warmer.
+// A placement field the operator drops from its apply is removed from the warmer.
 func TestSandboxImage_WarmerDropsRemovedPlacement(t *testing.T) {
 	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": goodConfig}}
 	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", true))
@@ -306,8 +305,8 @@ func TestSandboxImage_WarmerDropsRemovedPlacement(t *testing.T) {
 	}
 }
 
-// Toggling warm changes the generation, not the image. The image stays valid
-// even while the registry is down.
+// Toggling warm changes the generation and keeps the image. The image stays
+// valid while the registry is down.
 func TestSandboxImage_WarmToggleKeepsValid(t *testing.T) {
 	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": goodConfig}}
 	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", true))
@@ -334,7 +333,7 @@ func TestSandboxImage_WarmToggleKeepsValid(t *testing.T) {
 }
 
 // An upgrade that changes the image while the registry is down leaves the image
-// not valid but not rejected, with the old digest kept in status.
+// neither valid nor rejected. Status keeps the old digest.
 func TestSandboxImage_ImageChangeWithRegistryDown(t *testing.T) {
 	reg := &fakeRegistry{configs: map[string]imageConfig{"ghcr.io/acme/go:1": goodConfig}}
 	r, c := newImageReconciler(reg, sandboxImage("go", "ghcr.io/acme/go:1", false))

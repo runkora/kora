@@ -80,7 +80,7 @@ type SandboxImages struct {
 	// RegistryMirrors maps a registry host in an image reference to the host the
 	// operator reads it from. A target given as http://host is read over plain HTTP.
 	RegistryMirrors map[string]string
-	// WarmerPlacement is where image warmers run: the sandbox placement.
+	// WarmerPlacement is the sandbox placement that image warmers run in.
 	WarmerPlacement operator.WarmerPlacement
 }
 

@@ -35,7 +35,7 @@ var ErrEnvironmentInUse = errors.New("environment is attached to an agent")
 // DefaultEnvironmentName names the built-in environment of an agent with none attached.
 const DefaultEnvironmentName = "default"
 
-// EnvironmentSize is a sandbox's CPU, memory and local disk, as Kubernetes quantities.
+// EnvironmentSize is a sandbox's CPU, memory and local disk in Kubernetes quantities.
 type EnvironmentSize struct {
 	CPU    string `json:"cpu"`
 	Memory string `json:"memory"`
@@ -67,7 +67,7 @@ type Environment struct {
 	TenantID    string `json:"tenant_id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	// SandboxImage names a SandboxImage in the tenant namespace; kora-base is the base image.
+	// SandboxImage names a SandboxImage in the tenant namespace. kora-base is the base image.
 	SandboxImage string          `json:"sandbox_image"`
 	Size         EnvironmentSize `json:"size"`
 	EgressHosts  []string        `json:"egress_hosts"`
@@ -76,8 +76,8 @@ type Environment struct {
 	UpdatedAt    time.Time       `json:"updated_at"`
 }
 
-// DefaultEnvironment is the environment of an agent with none attached: the
-// base image at the default size, with no egress or connectors.
+// DefaultEnvironment is the environment of an agent with none attached. It runs
+// the base image at the default size with no egress or connectors.
 func DefaultEnvironment(size EnvironmentSize) Environment {
 	return Environment{
 		Name:         DefaultEnvironmentName,
@@ -160,8 +160,8 @@ func (e Environment) EgressScopes() []string {
 // ── Request types ──────────────────────────────────────────────────────────
 
 // EnvironmentRequest is the create and update payload. An update replaces
-// every field. TenantID comes from the verified claims, never the body. An
-// empty size dimension takes the install default.
+// every field. TenantID comes from the verified claims. An empty size dimension
+// takes the install default.
 type EnvironmentRequest struct {
 	ID           string          `json:"-"`
 	Name         string          `json:"name"`
@@ -347,7 +347,7 @@ func (s *EnvironmentService) fromRequest(tenantID, id string, req EnvironmentReq
 	}
 }
 
-// validate checks the fields, then that the named SandboxImage is valid.
+// validate checks the fields and that the named SandboxImage is valid.
 func (s *EnvironmentService) validate(ctx context.Context, env Environment) error {
 	if err := env.Validate(s.cfg.Sizes.Max); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidEnvironment, err)
@@ -388,7 +388,7 @@ func sandboxImageProblem(img *si.SandboxImage) string {
 	return "the operator has not validated the current image"
 }
 
-// reReconcileAgents recompiles each agent's grant in the background, so an
+// reReconcileAgents recompiles each agent's grant in the background. An
 // environment edit does not wait on policy-service round trips.
 func (s *EnvironmentService) reReconcileAgents(ctx context.Context, tenantID string, ats []AgentType) {
 	if len(ats) == 0 {

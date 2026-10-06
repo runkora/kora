@@ -45,10 +45,10 @@ type Notifier interface {
 	ExhaustRun(ctx context.Context, runID string, fromState string) error
 	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 	// given run and returns how to reach and authenticate to it.
-	// environment names one of the agent's environments; empty keeps the
+	// environment names one of the agent's environments. Empty keeps the
 	// current one. replace switches a live sandbox to it.
 	ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error)
-	// ListEnvironments returns orbit-agents' list of the run's environments as is.
+	// ListEnvironments returns orbit-agents' list of the run's environments unchanged.
 	ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error)
 	GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error)
 	// SetSummary reports the run's generated task summary to orbit-agents, which
@@ -192,7 +192,7 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead
 }
 
 // sandboxCall posts the environment choice to a route that answers with a
-// sandbox. A 409 is a refused choice, returned as ErrEnvironmentRejected with
+// sandbox. A 409 is a refused choice. It returns ErrEnvironmentRejected with
 // orbit-agents' message.
 func (n *HTTPNotifier) sandboxCall(ctx context.Context, name, target, environment string, replace bool) (Sandbox, error) {
 	body, _ := json.Marshal(map[string]any{"environment": environment, "replace": replace})
@@ -208,7 +208,7 @@ func (n *HTTPNotifier) sandboxCall(ctx context.Context, name, target, environmen
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		// The body is read once: a 409 carries the refusal for the agent, anything else is reported as is.
+		// The body is read once. A 409 carries the refusal for the agent.
 		body := n.sandboxClient.ReadErrorBody(span, resp)
 		var apiErr api.APIError
 		if resp.StatusCode == http.StatusConflict && json.Unmarshal([]byte(body), &apiErr) == nil && apiErr.Message != "" {

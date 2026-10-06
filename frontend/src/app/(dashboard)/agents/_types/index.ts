@@ -54,7 +54,7 @@ export interface AgentTypeRow {
   modelId: string;
   /** Budget on the agent's policy grant (present on detail reads when configured). */
   budget: AgentBudget | null;
-  /** Attached environments; one is the default. Empty means the kora base image. */
+  /** Attached environments. One is the default. Empty means the kora base image. */
   environments: AgentEnvironment[];
 }
 
@@ -254,8 +254,8 @@ export function loopGuardrailsPayload(v: LoopGuardrailValues): AgentTypeGuardrai
 }
 
 // ── Attached environments ─────────────────────────────────────────────────────
-// Exactly one attached environment is the default, which the API enforces.
-// These keep the draft list in that shape as the user edits it.
+// The API requires exactly one attached environment to be the default.
+// These helpers keep the draft list in that shape as the user edits it.
 
 /** Attaches or detaches an environment. The first attached becomes the default. */
 export function toggleEnvironment(list: AgentEnvironment[], id: string): AgentEnvironment[] {

@@ -93,7 +93,7 @@ func TestRunEnv(t *testing.T) {
 		"WORKSPACE=/workspaces/run-42",
 		// Replayed in the sandbox, so it reaches Go and user-level installs, after the system dirs.
 		"PATH=/usr/bin:/bin:/usr/local/go/bin:/usr/local/cargo/bin:/workspaces/.runlocal/run-42/.local/bin:/workspaces/.runlocal/run-42/go/bin:/workspaces/.runlocal/run-42/.cargo/bin",
-		// The sandbox mounts its local disk at the same path, so replayed values agree.
+		// The sandbox mounts its local disk at the same path.
 		"GOCACHE=/workspaces/.runlocal/run-42/.cache/go-build",
 		"ORBIT_SESSION_MANAGER_URL=http://localhost:8090",
 		"ORBIT_RUN_ID=run-42",

@@ -85,7 +85,7 @@ export interface BuilderFields extends LoopGuardrailValues {
   connectivityMode: ConnectivityMode;
   /** Textarea form — one host per line (connectivity-fields hostsToText). */
   connectivityHosts: string;
-  /** Attached environments; one is the default. Empty means the kora base image. */
+  /** Attached environments. One is the default. Empty means the kora base image. */
   environments: AgentEnvironment[];
   agentBudgetOn: boolean;
   agentBudgetUsd: string;

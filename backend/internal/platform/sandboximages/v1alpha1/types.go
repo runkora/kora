@@ -1,5 +1,5 @@
 // Package v1alpha1 holds the SandboxImage API types. The operator validates
-// and warms each image; orbit-agents reads its status when it starts a sandbox.
+// and warms each image. orbit-agents reads its status when it starts a sandbox.
 //
 // See docs/adr/2026-10-03-sandbox-environments.md.
 package v1alpha1
@@ -16,7 +16,7 @@ import (
 // GroupVersion is the API group and version of SandboxImage.
 var GroupVersion = schema.GroupVersion{Group: "orbit.io", Version: "v1alpha1"}
 
-// Resource is the plural resource name, for dynamic clients.
+// Resource is the plural resource name that dynamic clients use.
 var Resource = GroupVersion.WithResource("sandboximages")
 
 // BaseLabel marks an image built on kora-sandbox-base. Its value is the base version.
@@ -97,7 +97,7 @@ func pin(ref, digest string) string {
 	if i := strings.IndexByte(repo, '@'); i >= 0 {
 		repo = repo[:i]
 	}
-	// A colon after the last slash starts a tag; one before it is a registry port.
+	// A colon after the last slash starts a tag. A colon before it is a registry port.
 	if i, j := strings.LastIndexByte(repo, ':'), strings.LastIndexByte(repo, '/'); i > j {
 		repo = repo[:i]
 	}

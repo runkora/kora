@@ -331,8 +331,8 @@ spec:
 {{- end }}
 {{- with .Values.agents.sandboxImages.registryPorts }}
 ---
-# Registries on ports other than 443, which the operator reads to validate
-# sandbox images. 443 is open to it already for the API server.
+# The operator reads registries on ports other than 443 to validate sandbox
+# images. 443 is already open to it for the API server.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

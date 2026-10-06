@@ -54,7 +54,7 @@ type runEnvironmentStore interface {
 // eventSandboxEnvironment records which environment and image a sandbox started in.
 const eventSandboxEnvironment = "sandbox_environment"
 
-// RunEnvironment is one environment a run may use, as the agent sees it.
+// RunEnvironment is the agent's view of one environment a run may use.
 type RunEnvironment struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
@@ -80,8 +80,8 @@ func (s *RunService) agentEnvironments(ctx context.Context, at AgentType) ([]Env
 	return envs, nil
 }
 
-// pickEnvironment chooses the environment for a sandbox: the named one, else
-// the run's current one, else the agent's default.
+// pickEnvironment chooses the environment for a sandbox. The named one comes
+// first, then the run's current one, then the agent's default.
 func pickEnvironment(envs []Environment, name, current string) (Environment, error) {
 	if name != "" {
 		names := make([]string, 0, len(envs))
@@ -101,7 +101,7 @@ func pickEnvironment(envs []Environment, name, current string) (Environment, err
 	return envs[0], nil
 }
 
-// recordedEnvironment is the environment the run record names, "" for the built-in default.
+// recordedEnvironment is the environment the run record names. It is "" for the built-in default.
 func recordedEnvironment(run Run) string {
 	if run.EnvironmentID == nil {
 		return ""
@@ -109,9 +109,9 @@ func recordedEnvironment(run Run) string {
 	return *run.EnvironmentID
 }
 
-// currentEnvironment is the environment ID of the run's sandbox, "" for the
-// built-in default. A live pod's own annotation wins over the run record,
-// which a provision that timed out mid-start can leave behind.
+// currentEnvironment is the environment ID of the run's sandbox. It is "" for
+// the built-in default. A live pod's own annotation wins over the run record.
+// A provision that timed out mid-start can leave the record stale.
 func (s *RunService) currentEnvironment(ctx context.Context, run Run, namespace string) (id string, live bool, err error) {
 	podEnv, live, err := s.k8s.SandboxEnvironment(ctx, run.ID, namespace)
 	if err != nil || live {
@@ -206,7 +206,7 @@ func (s *RunService) runAndAgent(ctx context.Context, runID string) (*Run, *Agen
 	return run, at, nil
 }
 
-// environmentIDPtr stores the built-in default, which has no ID, as NULL.
+// environmentIDPtr stores the built-in default as NULL.
 func environmentIDPtr(id string) *string {
 	if id == "" {
 		return nil

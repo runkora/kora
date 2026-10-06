@@ -58,11 +58,11 @@ Kubernetes: `>=1.34.0-0`
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
-| agents.sandboxImages.registryMirrors | object | `{}` | Registry hosts the operator reads through another host, as the nodes' registry mirrors do. Keys are the host in image references. A value given as http://host is read over plain HTTP, for a local registry only. |
+| agents.sandboxImages.registryMirrors | object | `{}` | Registry hosts the operator reads through another host. Keys are the host in image references. A value given as http://host is read over plain HTTP. Use http:// for a local registry only. |
 | agents.sandboxImages.registryPorts | list | `[]` | Registry ports other than 443 the operator may dial to validate images. |
 | agents.sandboxImages.warmBase | bool | `false` | Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage sets its own with spec.warm. Each warm image runs one DaemonSet per tenant. |
 | agents.sandboxWarming.affinity | object | `{}` |  |
-| agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `capacity` runs a low-priority placeholder holding a node open with the base image already cached, the choice for a pool that scales to zero. |
+| agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `capacity` runs a low-priority placeholder that holds a node open with the base image cached. Use `capacity` for a pool that scales to zero. |
 | agents.sandboxWarming.nodeSelector | object | `{}` |  |
 | agents.sandboxWarming.podAnnotations | object | `{}` | Applied to the `capacity` placeholder. It already carries the Karpenter and Cluster Autoscaler annotations that keep a held node from being scaled away. Set them here to override. |
 | agents.sandboxWarming.podLabels | object | `{}` | Applied to the `capacity` placeholder. kora's own selector labels win on a collision. |

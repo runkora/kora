@@ -1,7 +1,7 @@
 'use client';
 
-/** @tier 3 — agents-scoped motif: attaches environments to an agent and marks the
- * default. Shared between the builder wizard and the detail Configuration tab. */
+/** @tier 3 — agents-scoped. Attaches environments to an agent and marks the
+ * default. Used by the builder wizard and the detail Configuration tab. */
 
 import { Alert, Badge, Button, Card, CardContent, Checkbox, Icon, Stack, Text } from '@orbit/terra';
 import type { Environment } from '@orbit/shared/api';
@@ -27,7 +27,7 @@ export function EnvironmentsCard({
   error?: string | null;
 }) {
   const attached = new Map(value.map((e) => [e.environment_id, e.is_default]));
-  // A restored draft can hold an environment deleted since; list it so it can be detached.
+  // A restored draft can hold a deleted environment. Listing it lets the user detach it.
   const missing = value.filter((v) => !environments.some((e) => e.id === v.environment_id));
   const summary =
     value.length === 0

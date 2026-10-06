@@ -458,9 +458,8 @@ func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req Crea
 // proves the caller is in this pod, which every run here satisfies.
 // orbit-shell is a child of the agent and inherits this environment.
 //
-// The install environment matches the sandbox's: the same paths under the run's
-// local dir, which is node-local disk in the sandbox. Claude Code and Codex
-// replay the agent's environment in sandbox commands, so the values must agree.
+// The install environment uses the sandbox's paths under the run's local dir.
+// Claude Code and Codex replay the agent's environment in sandbox commands.
 func (c *Controller) runEnv(runID, runToken string) []string {
 	workspace := filepath.Join(c.cfg.WorkspacesBasePath, runID)
 	env := []string{
@@ -674,8 +673,8 @@ func (c *Controller) handleListEnvironments(w http.ResponseWriter, r *http.Reque
 	api.JSON(ctx, w, c.logger, http.StatusOK, envs)
 }
 
-// writeSandboxError maps a sandbox failure to a response. failed is the message of an unexpected failure. Messages for the
-// model are relayed by orbit-runtime-mcp and orbit-shell as the tool error.
+// writeSandboxError maps a sandbox failure to a response. failed is the message of an unexpected failure.
+// orbit-runtime-mcp and orbit-shell relay messages for the model as the tool error.
 func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWriter, runID string, err error, failed string) {
 	switch {
 	case errors.Is(err, ErrSessionNotFound):

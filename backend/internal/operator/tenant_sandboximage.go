@@ -12,8 +12,8 @@ import (
 	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 )
 
-// SandboxBase is the install's base sandbox image, registered in every tenant
-// namespace as the SandboxImage kora-base.
+// SandboxBase is the install's base sandbox image. Every tenant namespace
+// registers it as the SandboxImage kora-base.
 type SandboxBase struct {
 	Image string
 	Warm  bool

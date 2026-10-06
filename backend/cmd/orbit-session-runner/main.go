@@ -67,8 +67,8 @@ func applyLandlock(workDir string) {
 	// Only paths that exist: RestrictPaths fails on a missing one, which would
 	// turn an image without /sbin into a failed run.
 	rules := []landlock.Rule{landlock.RWDirs(workDir)}
-	// /tmp is left out: the pod's /tmp is shared by every run on the pod, so the
-	// agent writes only to the shared volume: TMPDIR is runfs.TmpDir and caches are under runfs.LocalDir.
+	// /tmp is left out. Every run on the pod shares it.
+	// TMPDIR is runfs.TmpDir and caches sit under runfs.LocalDir.
 	if rw := existing(true, runfs.TmpDir(workDir), runfs.LocalDir(workDir), "/dev"); len(rw) > 0 {
 		rules = append(rules, landlock.RWDirs(rw...))
 	}

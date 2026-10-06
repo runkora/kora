@@ -20,8 +20,8 @@ func testSandboxSpec() SandboxSpec {
 	}
 }
 
-// The sandbox runs the environment's pinned image with sandbox-exec as its
-// command, sized from the environment, with its local disk at the run's local dir.
+// The sandbox runs the environment's pinned image and size with sandbox-exec as
+// its command. Its local disk sits at the run's local dir.
 func TestSandboxPod_FromEnvironment(t *testing.T) {
 	spec := SandboxSpec{
 		EnvironmentID: "env-go",
@@ -81,7 +81,7 @@ func buildTestSandboxPod(p *K8sProvisioner, run Run, slug, namespace string, spe
 	return pod
 }
 
-// Requests stay fixed but never above a small environment's limits.
+// Requests stay fixed and do not exceed a small environment's limits.
 func TestSandboxResources_RequestsWithinLimits(t *testing.T) {
 	rr, err := sandboxResources(EnvironmentSize{CPU: "50m", Memory: "128Mi", Disk: "1Gi"})
 	if err != nil {
@@ -99,7 +99,7 @@ func TestSandboxResources_RequestsWithinLimits(t *testing.T) {
 	}
 }
 
-// A size that is not a quantity is an error, not a missing limit.
+// A size that is not a quantity is an error.
 func TestSandboxPod_InvalidSizeIsAnError(t *testing.T) {
 	for _, size := range []EnvironmentSize{
 		{CPU: "lots", Memory: "1Gi", Disk: "1Gi"},

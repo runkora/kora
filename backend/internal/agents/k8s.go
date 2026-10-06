@@ -70,7 +70,7 @@ var authorizationPolicyGVR = schema.GroupVersionResource{
 // be derived from the agent type or run model.
 type K8sProvisionerConfig struct {
 	SessionManagerImage string
-	// SandboxImage is the base image reference. Rendered previews use it; a
+	// SandboxImage is the base image reference that rendered previews use. A
 	// live sandbox runs the digest the operator pinned on its SandboxImage.
 	SandboxImage string
 	// DefaultSandboxSize sizes rendered previews.
@@ -393,7 +393,7 @@ type Sandbox struct {
 	// CanaryHost is a host the agent may reach, which the session-manager probes
 	// before handing the sandbox over. Empty skips the probe.
 	CanaryHost string `json:"canary_host,omitempty"`
-	// Created is true when this call started the pod, false when it reused a live one.
+	// Created reports that this call started the pod. It is false for a reused live pod.
 	Created bool `json:"-"`
 }
 
@@ -402,7 +402,7 @@ type SandboxSpec struct {
 	// EnvironmentID is empty for the built-in default environment.
 	EnvironmentID string
 	Environment   string
-	// Image is pinned by digest, so the node's cached copy is the right one.
+	// Image is pinned by digest. A node's cached copy always matches it.
 	Image        string
 	PullSecret   string
 	Size         EnvironmentSize
@@ -605,7 +605,7 @@ func sandboxExecTokenOf(pod *corev1.Pod) string {
 // buildSandboxPod renders the sandbox pod for a run before manifest patches
 // are applied.
 func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace string, spec SandboxSpec, execToken string) (*corev1.Pod, error) {
-	// Built first: it rejects a size that is not a quantity before the volumes parse the disk.
+	// The container is built first to reject a size that is not a quantity.
 	container, err := sandboxContainer(p.cfg, spec, run.ID, execToken)
 	if err != nil {
 		return nil, err
@@ -1060,7 +1060,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 		// Writable paths outside the workspace under a read-only root, for tools that ignore HOME and TMPDIR.
 		{Name: scratchVarTmpVolume, MountPath: "/var/tmp"},
 		{Name: scratchHomeVolume, MountPath: imageHomeDir},
-		// The local disk sits at the path the agent pod uses on the shared volume. Both resolve the same caches.
+		// The local disk sits at the agent pod's path on the shared volume. Both pods resolve the same caches.
 		{Name: localDiskVolume, MountPath: runfs.LocalDir(workspaceDir)},
 	}
 	if egressGatewayURL(cfg) != "" {
@@ -1086,9 +1086,9 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 	return corev1.Container{
 		Name:  sandboxContainerName,
 		Image: spec.Image,
-		// Set explicitly: a sandbox image built on the base image may change CMD.
+		// A sandbox image built on the base image may change CMD.
 		Command: []string{sandboxExecCommand},
-		// The image is pinned by digest, so a cached copy is the right one.
+		// The image is pinned by digest. A cached copy always matches it.
 		ImagePullPolicy: corev1.PullIfNotPresent,
 		Ports: []corev1.ContainerPort{
 			{Name: "grpc", ContainerPort: cfg.SandboxGRPCPort, Protocol: corev1.ProtocolTCP},
@@ -1118,8 +1118,8 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 }
 
 // sandboxResources limits the sandbox to its environment's size. The local disk
-// counts toward the pod's ephemeral storage, and its limit carries the disk too.
-// The fixed requests reserve no more than a small environment's limits.
+// counts toward the pod's ephemeral storage limit. The fixed requests reserve no
+// more than a small environment's limits.
 func sandboxResources(size EnvironmentSize) (corev1.ResourceRequirements, error) {
 	var cpu, memory, disk resource.Quantity
 	for _, d := range []struct {
@@ -2077,7 +2077,7 @@ func ignoreNotFound(err error) error {
 }
 
 // SandboxEnvironment reports the environment of the run's sandbox pod while it
-// is starting or running. live is false when there is no pod, or it is dead or terminating.
+// is starting or running. live is false when the pod is missing, dead or terminating.
 func (p *K8sProvisioner) SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error) {
 	pod, err := p.sandboxPod(ctx, runID, namespace)
 	if err != nil || pod == nil || !podLive(pod) {
@@ -2103,7 +2103,7 @@ func podLive(pod *corev1.Pod) bool {
 	return pod.DeletionTimestamp == nil && pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded
 }
 
-// SandboxImage reads a SandboxImage in a tenant namespace. ErrNotFound when there is none.
+// SandboxImage reads a SandboxImage in a tenant namespace. It returns ErrNotFound when there is none.
 func (p *K8sProvisioner) SandboxImage(ctx context.Context, namespace, name string) (*si.SandboxImage, error) {
 	u, err := p.dynamicClient.Resource(si.Resource).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {

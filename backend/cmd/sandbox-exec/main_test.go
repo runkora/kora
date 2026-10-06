@@ -90,7 +90,7 @@ func TestSetRunHome_ScopesHomeUnderWorkspace(t *testing.T) {
 	if got, want := os.Getenv("TMPDIR"), filepath.Join(filepath.Dir(workspace), ".tmp", filepath.Base(workspace)); got != want {
 		t.Errorf("TMPDIR = %q, want %q", got, want)
 	}
-	// Caches and installs go to the run's local dir, the sandbox's node-local volume.
+	// Caches and installs go to the run's local dir on the sandbox's node-local volume.
 	if got, want := os.Getenv("GOCACHE"), filepath.Join(filepath.Dir(workspace), ".runlocal", filepath.Base(workspace), ".cache", "go-build"); got != want {
 		t.Errorf("GOCACHE = %q, want %q", got, want)
 	}

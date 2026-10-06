@@ -25,7 +25,7 @@ export type EnvironmentsResult =
 /**
  * Loads the tenant's environments, the connection catalog, the registered
  * sandbox images and the platform's size limits from orbit-agents. Only a
- * failure to load environments fails the page; the form works without the rest.
+ * failure to load environments fails the page. The form works without the rest.
  */
 export async function fetchEnvironments(accessToken: string): Promise<EnvironmentsResult> {
   try {

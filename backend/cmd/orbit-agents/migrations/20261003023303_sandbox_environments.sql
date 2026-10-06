@@ -1,16 +1,16 @@
 -- +goose Up
 -- +goose StatementBegin
 -- Environments become prepackaged sandboxes (docs/adr/2026-10-03-sandbox-environments.md).
--- Expand only: agent_types.environment_id stays for the previous release and is no longer read.
--- sandbox_image names a SandboxImage in the tenant namespace; kora-base is the base image.
+-- Expand only. agent_types.environment_id stays for the previous release.
+-- sandbox_image names a SandboxImage in the tenant namespace. kora-base is the base image.
 -- cpu, memory and disk are Kubernetes quantities. The defaults match the chart's default size.
 ALTER TABLE environments ADD COLUMN sandbox_image TEXT DEFAULT 'kora-base' NOT NULL;
 ALTER TABLE environments ADD COLUMN cpu TEXT DEFAULT '2' NOT NULL;
 ALTER TABLE environments ADD COLUMN memory TEXT DEFAULT '4Gi' NOT NULL;
 ALTER TABLE environments ADD COLUMN disk TEXT DEFAULT '10Gi' NOT NULL;
 
--- An agent's environments; is_default marks the one a sandbox starts in. An
--- attached environment cannot be deleted. An agent with none uses kora-base.
+-- An agent's environments. is_default marks the one a sandbox starts in.
+-- An attached environment cannot be deleted. An agent with none uses kora-base.
 CREATE TABLE agent_environments (
     agent_type_id TEXT NOT NULL,
     environment_id TEXT NOT NULL,
@@ -24,7 +24,7 @@ CREATE UNIQUE INDEX idx_agent_environments_default ON agent_environments (agent_
 
 CREATE INDEX idx_agent_environments_environment_id ON agent_environments (environment_id);
 
--- The environment of the run's current sandbox, kept so a replacement after a sandbox loss uses it again.
+-- The environment of the run's current sandbox. A replacement after a sandbox loss uses it again.
 ALTER TABLE runs ADD COLUMN environment_id TEXT REFERENCES environments(id) ON DELETE SET NULL;
 -- +goose StatementEnd
 

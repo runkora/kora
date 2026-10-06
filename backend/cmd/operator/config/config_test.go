@@ -2,7 +2,7 @@ package operatorConfig
 
 import "testing"
 
-// Malformed JSON is a startup error; valid JSON parses and an empty variable is the zero value.
+// Malformed JSON is a startup error. Valid JSON parses and an empty variable is the zero value.
 func TestJSONEnv(t *testing.T) {
 	StartupErrors = nil
 	t.Setenv("TEST_MIRRORS", `{"orbit-registry:5001":"http://orbit-registry:5000"}`)

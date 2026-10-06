@@ -61,7 +61,7 @@ type Config struct {
 	Agents struct {
 		// SessionManagerImage is the container image for session-manager StatefulSet pods.
 		SessionManagerImage string `yaml:"sessionManagerImage"`
-		// SandboxImage is the base image reference, used by rendered previews.
+		// SandboxImage is the base image reference that rendered previews use.
 		// Live sandboxes run the digest pinned on the kora-base SandboxImage.
 		SandboxImage string `yaml:"sandboxImage"`
 		// Environments bounds environment sizes. Default also sizes the

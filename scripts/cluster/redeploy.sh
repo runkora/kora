@@ -266,8 +266,8 @@ tenant_default=example
 EOF
       ;;
     sandbox-base)
-      # No long-lived workload; sandbox pods are created on demand. The operator
-      # resolves the new digest and the next sandbox picks it up.
+      # Sandbox pods are created on demand and have no long-lived workload. The
+      # operator resolves the new digest and the next sandbox picks it up.
       cat <<'EOF'
 dockerfile=backend/Dockerfile.sandbox-exec
 context=backend

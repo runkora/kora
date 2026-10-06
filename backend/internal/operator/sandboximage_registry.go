@@ -29,8 +29,8 @@ type registryReader interface {
 }
 
 // remoteRegistry reads registries over HTTPS. Mirrors maps a registry host in
-// an image reference to the host the operator reads it from, as the nodes'
-// own registry mirrors do. A mirror given as http://host is read over plain HTTP.
+// an image reference to the host the operator reads it from. A mirror given as
+// http://host is read over plain HTTP.
 type remoteRegistry struct {
 	Mirrors map[string]string
 }
@@ -93,11 +93,11 @@ func parseDockerConfig(raw []byte) (dockerConfig, error) {
 	return c, nil
 }
 
-// dockerKeychain resolves a registry against pull secrets, first match wins.
+// dockerKeychain resolves a registry against pull secrets. The first match wins.
 type dockerKeychain []dockerConfig
 
-// Resolve implements authn.Keychain. Keys may carry a scheme or a path, as
-// `docker login` writes them.
+// Resolve implements authn.Keychain. Keys may carry the scheme or path that
+// `docker login` writes.
 func (k dockerKeychain) Resolve(res authn.Resource) (authn.Authenticator, error) {
 	want := res.RegistryStr()
 	for _, c := range k {

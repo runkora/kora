@@ -64,7 +64,7 @@ type CreateAgentTypeRequest struct {
 	Connectors   []Connector   `json:"connectors"`
 	// MCPTools are the governed MCP tools this agent may call (mcp:<server>:<tool>:use).
 	MCPTools []string `json:"mcp_tools"`
-	// Environments attaches environments; one is the default. Omitted means the
+	// Environments attaches environments. One is the default. Omitted means the
 	// built-in default environment.
 	Environments            []AgentEnvironment `json:"environments"`
 	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
@@ -95,8 +95,8 @@ type UpdateAgentTypeRequest struct {
 	// MCPTools replaces the governed MCP tool grants. nil = unchanged; an empty
 	// slice clears all MCP tool access.
 	MCPTools []string `json:"mcp_tools"`
-	// Environments replaces the attached environments. nil = unchanged; an
-	// empty list leaves the built-in default.
+	// Environments replaces the attached environments. nil leaves them unchanged.
+	// An empty list leaves the built-in default.
 	Environments *[]AgentEnvironment `json:"environments"`
 	// IdentityMode is accepted only to be validated: the identity model is
 	// immutable after creation, so any value other than the current one is

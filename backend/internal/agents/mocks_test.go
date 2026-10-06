@@ -519,7 +519,7 @@ type mockK8s struct {
 	// podEnv and podLive describe the run's sandbox pod for SandboxEnvironment.
 	podEnv  string
 	podLive bool
-	// sandboxImages overrides the SandboxImages; unset serves a valid kora-base.
+	// sandboxImages overrides the SandboxImages. Unset serves a valid kora-base.
 	sandboxImages         map[string]*si.SandboxImage
 	imageLookups          int
 	provisionSandboxErr   error

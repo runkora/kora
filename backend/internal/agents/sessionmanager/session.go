@@ -406,7 +406,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	return reg.handOver(ctx, runID, sandbox, started)
 }
 
-// ListEnvironments lists the environments the run's agent may use, as orbit-agents reports them.
+// ListEnvironments returns orbit-agents' list of the environments the run's agent may use.
 func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
 	reg.mu.RLock()
 	_, ok := reg.sessions[runID]
@@ -417,9 +417,9 @@ func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.R
 	return reg.notifier.ListEnvironments(ctx, runID)
 }
 
-// sandboxFailed records a failed provision. The error names in-cluster
-// addresses and the event is readable by anyone who can read the run, so the
-// event carries a fixed message. A refused environment choice is the agent's to read.
+// sandboxFailed records a failed provision with a fixed message. The error
+// names in-cluster addresses and anyone who can read the run can read the event.
+// A refused environment choice keeps its message for the agent.
 func (reg *Registry) sandboxFailed(ctx context.Context, runID string, started time.Time, err error) {
 	msg := "sandbox provisioning failed"
 	if errors.Is(err, ErrEnvironmentRejected) {
@@ -525,7 +525,7 @@ func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, envi
 	if err == nil {
 		return sandbox, nil
 	}
-	// A closed or replaced session is not evidence the sandbox is gone, and a
+	// A closed or replaced session is not evidence the sandbox is gone. A
 	// refused environment choice leaves the sandbox as it was.
 	if runCtx.Err() != nil || errors.Is(err, ErrEnvironmentRejected) {
 		return Sandbox{}, err

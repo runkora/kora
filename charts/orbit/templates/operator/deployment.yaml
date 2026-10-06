@@ -89,8 +89,8 @@ spec:
               value: {{ .Values.operator.tenantPodSecurity.warn | quote }}
             - name: ORBIT_TENANT_PSA_AUDIT
               value: {{ .Values.operator.tenantPodSecurity.audit | quote }}
-            # Sandbox images: the base image registered as kora-base in every
-            # tenant namespace, and where image warmers run.
+            # The base image registered as kora-base in every tenant namespace.
+            # The placement that image warmers run in.
             - name: ORBIT_SANDBOX_BASE_IMAGE
               value: {{ include "orbit.sandboxBaseImage" . | quote }}
             - name: ORBIT_SANDBOX_BASE_WARM

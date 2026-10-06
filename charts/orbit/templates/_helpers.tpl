@@ -162,8 +162,8 @@ the SandboxImage kora-base.
 {{- end }}
 
 {{/*
-Where sandbox image warmers run, as JSON for the operator: the warm-start
-scheduling and the sandbox priority class.
+The placement of sandbox image warmers in JSON for the operator. It carries the
+warm-start scheduling and the sandbox priority class.
 */}}
 {{- define "orbit.sandboxWarmerPlacement" -}}
 {{- $placement := include "orbit.sandboxWarmingScheduling" (dict "root" .) | fromYaml | default dict -}}

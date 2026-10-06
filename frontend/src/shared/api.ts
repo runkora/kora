@@ -335,7 +335,7 @@ export interface EnvironmentsListResponse {
 /**
  * Request body for POST/PUT /api/v1/environments. PUT is a full replace. An
  * empty sandbox image is stored as kora-base. An empty size dimension takes the
- * platform default; a size above the platform maximum is rejected with a 400.
+ * platform default. A size above the platform maximum is rejected with a 400.
  */
 export interface EnvironmentRequest {
   name: string;
@@ -539,7 +539,7 @@ export interface CreateAgentTypeRequest {
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
   budget?: AgentBudget;
-  /** Environments to attach; one is the default. Omit for none (the kora base image). */
+  /** Environments to attach. One is the default. Omit for none (the kora base image). */
   environments?: AgentEnvironment[];
 }
 
@@ -635,7 +635,7 @@ export interface UpdateAgentTypeRequest {
   connectors?: Connector[];
   /** Governed MCP tool grants; replaces the set. Omit = unchanged; [] clears. */
   mcp_tools?: string[];
-  /** Replaces the attached environments. Omit = unchanged; [] detaches all. */
+  /** Replaces the attached environments. Omit leaves them unchanged. [] detaches all. */
   environments?: AgentEnvironment[];
 }
 

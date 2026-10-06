@@ -242,7 +242,7 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 			ByObject: map[client.Object]cache.ByObject{
 				&ip.InferenceProvider{}:    {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
 				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
-				// Only the sandbox image warmers, not every DaemonSet in the cluster.
+				// The operator caches only the sandbox image warmer DaemonSets.
 				&appsv1.DaemonSet{}: {Label: operator.WarmerSelector()},
 			},
 		},

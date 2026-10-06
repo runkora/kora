@@ -208,8 +208,8 @@ func (s *mcpServer) handleToolsCall(req jsonRPCRequest) jsonRPCResponse {
 		return errResponse(req.ID, -32601, fmt.Sprintf("unknown tool: %s", params.Name))
 	}
 	if err != nil {
-		// A tool result with isError, not a JSON-RPC error: the model reads the
-		// text, which tells it what survived and what to do next.
+		// The failure is a tool result with isError. Its text tells the model
+		// what survived and what to do next.
 		return jsonRPCResponse{
 			JSONRPC: "2.0",
 			ID:      req.ID,
@@ -285,7 +285,7 @@ func (s *mcpServer) listEnvironments() (string, error) {
 }
 
 // call sends one request for this run to the session-manager and returns the
-// response body. A non-2xx answer becomes an error carrying its message.
+// response body. A non-2xx answer returns an error with its message.
 func (s *mcpServer) call(method, action string, body io.Reader) ([]byte, error) {
 	url := fmt.Sprintf("%s/internal/session/%s/%s", s.sessionManagerURL, s.runID, action)
 	req, err := http.NewRequestWithContext(context.Background(), method, url, body)

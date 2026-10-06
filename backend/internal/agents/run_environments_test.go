@@ -14,8 +14,8 @@ import (
 	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 )
 
-// seedEnvironments gives the agent "bot" two environments, go (default) and
-// node, each on its own valid SandboxImage, and seeds its run "run-1".
+// seedEnvironments gives the agent "bot" the environments go (default) and node
+// and seeds its run "run-1". Each environment has its own valid SandboxImage.
 func seedEnvironments(t *testing.T, repo *mockRepository, k8s *mockK8s) {
 	t.Helper()
 	repo.envs["env-go"] = &Environment{ID: "env-go", TenantID: "t-1", Name: "go", SandboxImage: "acme-go", Size: EnvironmentSize{CPU: "4", Memory: "8Gi", Disk: "20Gi"}}
@@ -127,7 +127,7 @@ func TestProvisionSandbox_ReusedPodRecordsNothing(t *testing.T) {
 }
 
 // A replacement deletes the sandbox, starts one in the new environment and
-// records it, and a later unnamed provision keeps that environment.
+// records it. A later unnamed provision keeps that environment.
 func TestReplaceEnvironment(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	seedEnvironments(t, repo, k8s)
@@ -153,7 +153,7 @@ func TestReplaceEnvironment(t *testing.T) {
 		t.Errorf("event = %v, want a replace into node", payload)
 	}
 
-	// The sandbox died; the next unnamed provision restarts it in node, not the default.
+	// The sandbox died. The next unnamed provision restarts it in node.
 	k8s.podEnv, k8s.podLive = "", false
 	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "", false); err != nil {
 		t.Fatal(err)
@@ -187,8 +187,7 @@ func TestReplaceEnvironment_RetryAfterHalfSuccess(t *testing.T) {
 	}
 }
 
-// A switch whose new pod fails to start leaves the run on the requested
-// environment, not the old one.
+// A switch whose new pod fails to start leaves the run on the requested environment.
 func TestReplaceEnvironment_FailedStartKeepsTarget(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	seedEnvironments(t, repo, k8s)
@@ -259,7 +258,7 @@ func TestHandleProvisionSandbox_EnvironmentRefusal(t *testing.T) {
 }
 
 // A provision that timed out while its pod started leaves the run record behind.
-// The pod's own environment decides, so the next call reuses it.
+// The pod's own environment decides and the next call reuses the pod.
 func TestProvisionSandbox_PodEnvironmentWinsOverRecord(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	seedEnvironments(t, repo, k8s)
@@ -280,7 +279,7 @@ func TestProvisionSandbox_PodEnvironmentWinsOverRecord(t *testing.T) {
 	}
 }
 
-// An image the operator has not validated yet is a retryable failure, not a refusal.
+// An image the operator has not validated yet is a retryable failure.
 func TestHandleProvisionSandbox_PendingImageIsRetryable(t *testing.T) {
 	c, repo, k8s, _ := newTestController(t)
 	seedEnvironments(t, repo, k8s)

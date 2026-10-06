@@ -17,7 +17,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// A 409 from orbit-agents is a refused environment choice, carrying its message.
+// A 409 from orbit-agents is a refused environment choice that carries its message.
 func TestHTTPNotifier_EnvironmentRejected(t *testing.T) {
 	var gotQuery, gotBody string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -122,8 +122,8 @@ func TestReplaceEnvironment_WritesDescriptor(t *testing.T) {
 	}
 }
 
-// The provision route takes the environment from the body, and an empty body
-// keeps the current one.
+// The provision route takes the environment from the body. An empty body keeps
+// the current one.
 func TestHandleProvisionSandbox_PassesEnvironment(t *testing.T) {
 	n := &envNotifier{}
 	c, ws := sandboxTestController(t)
@@ -171,7 +171,7 @@ func TestHTTPNotifier_SandboxCallErrorBody(t *testing.T) {
 	}
 }
 
-// A replacement outlives the agent's request, like a provision.
+// A replacement outlives the agent's request like a provision does.
 func TestReplaceEnvironment_OutlivesTheRequest(t *testing.T) {
 	n := &envNotifier{}
 	reg, _ := newTestRegistry(t, n)

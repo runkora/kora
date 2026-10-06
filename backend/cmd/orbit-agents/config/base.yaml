@@ -40,9 +40,8 @@ agents:
   # Overridden per install by ORBIT_SESSION_MANAGER_IMAGE / ORBIT_SANDBOX_IMAGE.
   sessionManagerImage: ghcr.io/clear-route/orbit-session-manager:latest
   sandboxImage: ghcr.io/clear-route/kora-sandbox-base:latest
-  # Environment sizes: the default for an environment without one and for the
-  # built-in default environment, and the largest one may ask for. Overridden by
-  # ORBIT_ENVIRONMENT_{DEFAULT,MAX}_{CPU,MEMORY,DISK}.
+  # Default and maximum environment sizes.
+  # ORBIT_ENVIRONMENT_{DEFAULT,MAX}_{CPU,MEMORY,DISK} override them.
   environments:
     defaultSize:
       cpu: "2"

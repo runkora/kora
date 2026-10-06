@@ -5,7 +5,7 @@ metadata:
   labels:
     {{- include "orbit-crds.labels" . | nindent 4 }}
   annotations:
-    # Never deleted by helm uninstall: image registrations outlive the product install.
+    # helm uninstall keeps this CRD. Image registrations outlive the product install.
     helm.sh/resource-policy: keep
 spec:
   group: orbit.io

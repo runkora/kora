@@ -267,10 +267,9 @@ func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r int
 	done <- nil
 }
 
-// setRunHome points HOME and TMPDIR at the run's directories on the shared
-// volume, at the same paths the agent pod uses, and sends user-level installs and
-// caches to the run's local dir, a node-local volume here. A no-op when
-// WORKSPACE is unset (local/dev invocation).
+// setRunHome points HOME and TMPDIR at the agent pod's paths on the shared volume.
+// User-level installs and caches go to the run's node-local dir.
+// It does nothing when WORKSPACE is unset (local/dev invocation).
 func setRunHome() error {
 	workspace := os.Getenv("WORKSPACE")
 	if workspace == "" {

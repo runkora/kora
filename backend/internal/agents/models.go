@@ -213,7 +213,7 @@ type AgentType struct {
 	// backend composes into EffectiveGrantScopes (like Connectors); the coarse
 	// mcp:invoke gate is derived there, not stored.
 	MCPTools []string `json:"mcp_tools,omitempty"`
-	// Environments are the sandboxes this agent may run in; one is the default.
+	// Environments are the sandboxes this agent may run in. One is the default.
 	// None means the built-in default environment. Their egress and connectors
 	// join the agent's grant. See docs/adr/2026-10-03-sandbox-environments.md.
 	Environments            []AgentEnvironment `json:"environments"`
@@ -548,8 +548,8 @@ type Run struct {
 	// answer "why did this happen?" at all. See the ADR on extended trigger
 	// types, US-004.
 	StartedBy *StartedByTrigger `json:"started_by,omitempty"`
-	// EnvironmentID is the environment of the run's current sandbox. Nil for the
-	// built-in default and before the first sandbox.
+	// EnvironmentID is the environment of the run's current sandbox. It is nil
+	// for the built-in default and before the first sandbox.
 	EnvironmentID *string `json:"environment_id,omitempty"`
 }
 

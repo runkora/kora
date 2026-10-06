@@ -66,9 +66,8 @@ func NewAgentTypeService(
 // re-registration — the hook should launch its own goroutine if needed.
 func (s *AgentTypeService) SetAgentTypeHook(fn func()) { s.hook = fn }
 
-// SetEnvironmentLookup installs the environment store used to validate that an
-// agent's environments exist within its tenant. When unset, they are not
-// validated here (the database FK still guards bare existence).
+// SetEnvironmentLookup installs the environment store that checks an agent's
+// environments exist within its tenant. When unset, only the database FK checks them.
 func (s *AgentTypeService) SetEnvironmentLookup(envs environmentLookup) { s.envs = envs }
 
 // SetScopeResolver installs the resolver used to compute the effective-access
@@ -250,8 +249,8 @@ func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req Crea
 		}
 	}
 
-	// Environments: none means the built-in default. The FK guards bare
-	// existence but not tenant ownership, so each is checked here.
+	// No environments means the built-in default. The FK checks only existence.
+	// Tenant ownership is checked here.
 	envs, err := s.validateEnvironments(ctx, req.TenantID, req.Environments)
 	if err != nil {
 		return out, err

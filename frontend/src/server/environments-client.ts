@@ -15,9 +15,8 @@ import type {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
- * Environments and sandbox images are served by orbit-agents over the mesh, like
- * agent types and the connection catalog. The session token is forwarded and
- * orbit-agents scopes every result to the caller's tenant.
+ * orbit-agents serves environments and sandbox images over the mesh. The session
+ * token is forwarded and orbit-agents scopes every result to the caller's tenant.
  */
 async function request<T>(
   path: string,

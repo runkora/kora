@@ -45,8 +45,7 @@ rules:
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants"]
     verbs: ["get"]
-  # The SandboxImage an environment names: its validation and pinned digest
-  # decide the image a sandbox runs.
+  # A SandboxImage's validation and pinned digest decide the image a sandbox runs.
   - apiGroups: ["orbit.io"]
     resources: ["sandboximages"]
     verbs: ["get", "list"]

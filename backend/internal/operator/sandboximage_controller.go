@@ -1,5 +1,5 @@
-// SandboxImage reconciler: validates each registered sandbox image from its
-// registry config, pins its digest and keeps a pre-pull DaemonSet for images
+// The SandboxImage reconciler validates each registered sandbox image from its
+// registry config. It pins the digest and keeps a pre-pull DaemonSet for images
 // marked warm. See docs/adr/2026-10-03-sandbox-environments.md.
 package operator
 
@@ -65,7 +65,7 @@ type sandboxImageClient interface {
 	Status() client.SubResourceWriter
 }
 
-// WarmerPlacement is where pre-pull pods run: the sandbox workload placement.
+// WarmerPlacement is the sandbox workload placement that pre-pull pods run in.
 type WarmerPlacement struct {
 	NodeSelector              map[string]string                 `json:"nodeSelector,omitempty"`
 	Tolerations               []corev1.Toleration               `json:"tolerations,omitempty"`
@@ -161,7 +161,7 @@ func (r *SandboxImageReconciler) inTenantNamespace(ctx context.Context, img *si.
 }
 
 // inspect reads the image config and judges it. The returned error is a
-// registry or pull secret failure; reason and message describe it for status.
+// registry or pull secret failure. reason and message describe it for status.
 func (r *SandboxImageReconciler) inspect(ctx context.Context, img *si.SandboxImage) (imageConfig, string, string, error) {
 	auth, err := r.dockerConfigs(ctx, img)
 	if err != nil {
@@ -180,7 +180,7 @@ func (r *SandboxImageReconciler) inspect(ctx context.Context, img *si.SandboxIma
 }
 
 // dockerConfigs reads the image's own pull secret and the install's. The
-// image's secret must exist; an install secret not yet replicated is skipped.
+// image's secret must exist. An install secret not yet replicated is skipped.
 func (r *SandboxImageReconciler) dockerConfigs(ctx context.Context, img *si.SandboxImage) ([]dockerConfig, error) {
 	var out []dockerConfig
 	read := func(name string, required bool) error {
@@ -247,7 +247,7 @@ func (r *SandboxImageReconciler) reconcileWarmer(ctx context.Context, img *si.Sa
 }
 
 // applyWarmer server-side applies the warmer as orbit-operator. A field the
-// operator applied before and leaves out now is removed.
+// operator applied before and omits from this apply is removed.
 func (r *SandboxImageReconciler) applyWarmer(ctx context.Context, ds *appsv1.DaemonSet) error {
 	u, err := runtime.DefaultUnstructuredConverter.ToUnstructured(ds)
 	if err != nil {

@@ -798,9 +798,9 @@ var ErrKubeconfigNotReady = errors.New("kubeconfig not resolved for sandbox pre-
 //
 // environment names one of the agent's environments. Empty keeps the run's
 // current environment, or the agent's default before the first sandbox.
-// replace switches a live sandbox to the named environment: the old pod goes
-// and its running commands end. A replacement whose pod already runs in that
-// environment, such as a retry after a timed-out attempt, reuses it.
+// replace switches a live sandbox to the named environment. The old pod and its
+// running commands end. A replacement whose pod already runs in that environment
+// reuses it (e.g., a retry after a timed-out attempt).
 //
 // ahead marks a pre-provision, which exists to spare the first command the
 // pod's cold start. It refuses while the connection registry is loading, since
@@ -847,7 +847,7 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		if err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
 			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("delete sandbox: %w", err))
 		}
-		// The old pod is gone. Record the target so a failed start does not fall back to the old environment.
+		// The target is recorded before the start to keep a failed start on the requested environment.
 		if err = s.envs.SetRunEnvironment(ctx, runID, environmentIDPtr(spec.EnvironmentID)); err != nil {
 			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("record environment: %w", err))
 		}

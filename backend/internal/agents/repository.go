@@ -16,7 +16,7 @@ type AgentTypeRepository interface {
 	// Used by scope registration to build the per-agent-type vocabulary.
 	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
 	// ListAgentTypesByEnvironment returns the agent types in a tenant that an
-	// environment is attached to, so an edit to it recompiles their grants.
+	// environment is attached to. An edit to the environment recompiles their grants.
 	ListAgentTypesByEnvironment(ctx context.Context, tenantID, environmentID string) ([]AgentType, error)
 	UpdateAgentType(ctx context.Context, at AgentType) error
 	// SetAgentTypeState does a compare-and-swap: only updates if current state matches from.
