@@ -15,6 +15,9 @@ import (
 func setRequiredEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("ORBIT_MARKETPLACE_SOURCES_CONFIG", "/tmp")
+	t.Setenv("GITHUB_APP_ID", "12345")
+	t.Setenv("GITHUB_APP_INSTALLATION_ID", "67890")
+	t.Setenv("GITHUB_APP_PRIVATE_KEY_PATH", "/tmp/key.pem")
 }
 
 func TestConfigLoadsFromBaseYAML(t *testing.T) {
@@ -36,6 +39,15 @@ func TestConfigLoadsFromBaseYAML(t *testing.T) {
 	}
 	if c.GitHub.APIBaseURL != "https://api.github.com" {
 		t.Errorf("expected github.apiBaseURL default, got %q", c.GitHub.APIBaseURL)
+	}
+	if c.Policy.BundleEndpoint != "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles" {
+		t.Errorf("expected policy.bundleEndpoint default, got %q", c.Policy.BundleEndpoint)
+	}
+	if c.Policy.BundlePollInterval() != 30*time.Second {
+		t.Errorf("expected bundle poll interval 30s, got %s", c.Policy.BundlePollInterval())
+	}
+	if c.Policy.PolicyServiceURL != "http://orbit-policy-service.orbit-system.svc" {
+		t.Errorf("expected policy.policyServiceURL default, got %q", c.Policy.PolicyServiceURL)
 	}
 }
 
@@ -95,6 +107,9 @@ func TestApplyEnvOverridesRequiredVars(t *testing.T) {
 		wantErr string
 	}{
 		{"missing sources config path", "ORBIT_MARKETPLACE_SOURCES_CONFIG", "ORBIT_MARKETPLACE_SOURCES_CONFIG"},
+		{"missing github app id", "GITHUB_APP_ID", "GITHUB_APP_ID"},
+		{"missing github installation id", "GITHUB_APP_INSTALLATION_ID", "GITHUB_APP_INSTALLATION_ID"},
+		{"missing github private key path", "GITHUB_APP_PRIVATE_KEY_PATH", "GITHUB_APP_PRIVATE_KEY_PATH"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

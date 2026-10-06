@@ -56,20 +56,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	watchCtx, watchCancel := context.WithCancel(ctx)
-	go registry.Watch(watchCtx)
+	// backgroundCtx ends after the HTTP server stops. The registry watch and
+	// the policy bundle poll stop with it.
+	backgroundCtx, stopBackground := context.WithCancel(ctx)
+	go registry.Watch(backgroundCtx)
 
-	server, register, err := initServer(ctx, logger, redis, registry)
+	server, register, err := initServer(backgroundCtx, logger, redis, registry)
 	if err != nil {
 		logger.Error(ctx, "failed to initialize server", logging.Field{Key: "error", Value: err.Error()})
-		watchCancel()
+		stopBackground()
 		_ = redis.Close()
 		shutdownObservability()
 		os.Exit(1)
 	}
 
 	exitCode := run(ctx, logger, server, register)
-	watchCancel()
+	stopBackground()
 
 	if err := redis.Close(); err != nil {
 		logger.Error(ctx, "failed to close redis", logging.Field{Key: "error", Value: err.Error()})

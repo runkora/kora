@@ -113,8 +113,19 @@ func (c *Config) ApplyEnvOverrides() error {
 	}
 
 	c.GitHub.AppID = os.Getenv("GITHUB_APP_ID")
+	if c.GitHub.AppID == "" {
+		return fmt.Errorf("GITHUB_APP_ID environment variable is required")
+	}
+
 	c.GitHub.InstallationID = os.Getenv("GITHUB_APP_INSTALLATION_ID")
+	if c.GitHub.InstallationID == "" {
+		return fmt.Errorf("GITHUB_APP_INSTALLATION_ID environment variable is required")
+	}
+
 	c.GitHub.PrivateKeyPath = os.Getenv("GITHUB_APP_PRIVATE_KEY_PATH")
+	if c.GitHub.PrivateKeyPath == "" {
+		return fmt.Errorf("GITHUB_APP_PRIVATE_KEY_PATH environment variable is required")
+	}
 
 	return nil
 }
