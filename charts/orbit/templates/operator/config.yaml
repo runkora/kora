@@ -39,7 +39,7 @@ cmd/operator:
     {{- /* The base image registered as kora-base in every tenant namespace, and the placement image warmers run in. */}}
     sandboxImages:
       baseImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
-      warmBase: {{ .Values.agents.sandboxImages.warmBase }}
+      warmBase: {{ .Values.agents.sandboxImages.warmBase | toJson }}
       registryMirrors: {{ .Values.agents.sandboxImages.registryMirrors | toJson }}
       warmerPlacement: {{ toJson $placement }}
     preflight:
