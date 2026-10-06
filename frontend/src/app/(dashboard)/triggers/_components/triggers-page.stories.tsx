@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, waitFor, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
 import type { MockRequest, MockRoutes } from '@orbit/storybook/mock-api';
-import TriggersLayout from '../layout';
 import { TriggersShell } from './triggers-shell';
 import {
   AGENTS,
@@ -49,7 +48,7 @@ export default meta;
 type Story = StoryObj<typeof TriggersShell>;
 
 // Decorators stack across meta and story, so each story installs its own frame once.
-const frame = [dashboardPage(catalogRoutes, TriggersLayout)];
+const frame = [dashboardPage(catalogRoutes)];
 
 /** A busy fleet: healthy, degraded and failing triggers of every kind, with a day of deliveries. */
 export const Default: Story = { decorators: frame };

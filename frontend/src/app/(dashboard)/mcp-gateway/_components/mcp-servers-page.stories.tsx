@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import McpGatewayLayout from '../layout';
 import { McpServersShell } from './mcp-servers-shell';
 import { MANY_SERVERS, MOCK_SERVERS } from './mcp-mock-data';
 
@@ -13,7 +12,7 @@ const meta: Meta<typeof McpServersShell> = {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/mcp-gateway' } },
   },
-  decorators: [dashboardPage({}, McpGatewayLayout)],
+  decorators: [dashboardPage()],
 };
 
 export default meta;

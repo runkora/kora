@@ -13,6 +13,7 @@ import {
   DashboardHeader,
   DashboardSidebar,
   MobileSidebarDrawer,
+  PageGutter,
   PermissionsProvider,
   SidebarBrandHeader,
   SidebarUserFooter,
@@ -44,7 +45,7 @@ export function sessionRoutes(scopes: string[] = ALL_NAV_SCOPES): MockRoutes {
   };
 }
 
-/** A route layout, such as `app/(dashboard)/agents/layout.tsx`, that adds the page padding. */
+/** A route layout, such as `policy/layout.tsx`, that adds a scope guard. */
 export type RouteLayout = React.ComponentType<{ children: React.ReactNode }>;
 
 export function DashboardFrame({
@@ -66,7 +67,9 @@ export function DashboardFrame({
               header={<DashboardHeader />}
               mobileDrawer={<MobileSidebarDrawer />}
             >
-              {RouteLayout ? <RouteLayout>{children}</RouteLayout> : children}
+              <PageGutter>
+                {RouteLayout ? <RouteLayout>{children}</RouteLayout> : children}
+              </PageGutter>
             </PageLayout>
           </PreferencesProvider>
         </SidebarStateProvider>
@@ -77,8 +80,8 @@ export function DashboardFrame({
 
 /**
  * Story decorator: wraps the story in the dashboard chrome and answers the
- * session call plus whatever page routes the story passes in. Pass the route's
- * own layout (for example `agents/layout.tsx`) so the page gets its padding.
+ * session call plus whatever page routes the story passes in. Pass a route
+ * layout only when it does more than pad, such as a scope guard.
  */
 export function dashboardPage(routes: MockRoutes = {}, routeLayout?: RouteLayout): Decorator {
   const withApi = mockApi({ ...sessionRoutes(), ...routes });
