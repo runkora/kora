@@ -613,12 +613,12 @@ agents:
   # Default and maximum environment sizes in Kubernetes quantities.
   # disk is the sandbox's local volume for build caches and tool installs.
   environments:
-    # Size for an environment that sets none, and for the built-in default.
+    # -- Size for an environment that sets none, and for the built-in default.
     defaultSize:
       cpu: "2"
       memory: 4Gi
       disk: 10Gi
-    # Largest size an environment may request.
+    # -- Largest size an environment may request.
     maxSize:
       cpu: "8"
       memory: 16Gi

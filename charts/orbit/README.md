@@ -32,12 +32,8 @@ Kubernetes: `>=1.34.0-0`
 | agents.config.sandboxImage | string | `""` |  |
 | agents.config.sessionManagerImage | string | `""` |  |
 | agents.configOverrides | object | `{}` | Raw config merged last over orbit-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}} |
-| agents.environments.defaultSize.cpu | string | `"2"` |  |
-| agents.environments.defaultSize.disk | string | `"10Gi"` |  |
-| agents.environments.defaultSize.memory | string | `"4Gi"` |  |
-| agents.environments.maxSize.cpu | string | `"8"` |  |
-| agents.environments.maxSize.disk | string | `"50Gi"` |  |
-| agents.environments.maxSize.memory | string | `"16Gi"` |  |
+| agents.environments.defaultSize | object | `{"cpu":"2","disk":"10Gi","memory":"4Gi"}` | Size for an environment that sets none, and for the built-in default. |
+| agents.environments.maxSize | object | `{"cpu":"8","disk":"50Gi","memory":"16Gi"}` | Largest size an environment may request. |
 | agents.extraEnv | list | `[]` |  |
 | agents.extraVolumeMounts | list | `[]` |  |
 | agents.extraVolumes | list | `[]` |  |

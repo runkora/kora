@@ -576,7 +576,7 @@ export interface ConnectorEgress {
 }
 
 /** The hosts one attached environment contributes. Mirrors Go: agents.EnvironmentAccess. */
-export interface EnvironmentAccess {
+interface EnvironmentAccess {
   id: string;
   name: string;
   hosts: string[];

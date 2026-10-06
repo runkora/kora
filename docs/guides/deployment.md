@@ -152,7 +152,7 @@ The `Valid` condition states why the operator rejected an image. An environment 
 
 The operator keeps a `SandboxImage` named `kora-base` in every tenant namespace. It points at `agents.config.sandboxImage`, and `agents.sandboxImages.warmBase` sets its `warm` flag. Every tenant reconcile restores it.
 
-An environment combines a sandbox image with a size, egress hosts and connectors. Users with `agents:environments:write` create environments through the API, and agents attach them. An agent with no environment runs its sandboxes on `kora-base` at the default size. Helm values set the default size and the largest size an environment can request:
+An environment combines a sandbox image with a size, egress hosts and connectors. Users with `agents:environments:write` create environments through the API or the Environments page and attach them to agents. An agent with no environment runs its sandboxes on `kora-base` at the default size. Helm values set the default size and the largest size an environment can request:
 
 ```yaml
 agents:
