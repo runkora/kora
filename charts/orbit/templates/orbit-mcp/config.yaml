@@ -1,0 +1,7 @@
+{{- /*
+orbit-mcp config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "orbit.orbitMcp.configModules" -}}
+{{ include "orbit.observabilityConfigModule" . }}
+{{- end }}
+{{- include "orbit.configMap" (dict "root" $ "name" "orbitMcp" "configMap" "orbit-mcp-config" "modules" (include "orbit.orbitMcp.configModules" . | fromYaml)) }}

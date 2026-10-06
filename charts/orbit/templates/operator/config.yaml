@@ -34,5 +34,6 @@ cmd/operator:
     preflight:
       supportedIstioMinors: {{ .Values.operator.preflight.supportedIstioMinors | toJson }}
       intervalSeconds: {{ .Values.operator.preflight.intervalSeconds | int }}
+{{ include "orbit.observabilityConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "operator" "configMap" "orbit-operator-config" "modules" (include "orbit.operator.configModules" . | fromYaml)) }}

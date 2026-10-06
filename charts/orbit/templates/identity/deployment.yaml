@@ -21,6 +21,7 @@ spec:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         # Postgres, Redis and the OIDC issuer are outside the mesh.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432,6379,5556"
+        checksum/config: {{ include (print $.Template.BasePath "/identity/config.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "identity") | nindent 8 }}
     spec:
       {{- with .Values.identity.hostAliases }}
@@ -34,6 +35,7 @@ spec:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
+        {{- include "orbit.configVolume" (dict "root" $ "name" "identity" "configMap" "orbit-identity-config" "modules" (include "orbit.identity.configModules" . | fromYaml)) | nindent 8 }}
         # Operator-owned tenant registries. All optional so identity starts before
         # any tenant exists; identity watches the files and reloads on change.
         - name: tenants-config
@@ -56,18 +58,6 @@ spec:
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
-            - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
-            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
-            - name: ORBIT_OTLP_ENDPOINT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
-            - name: ORBIT_SAMPLING_RATE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
-            - name: ORBIT_LOG_FORMAT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "identity" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
-            - name: ORBIT_REDIS_TLS_ENABLED
-              value: {{ .Values.identity.config.redisTLSEnabled | quote }}
             - name: ORBIT_ACCESS_TOKEN_TTL_MINUTES
               value: {{ .Values.identity.config.accessTokenTtlMinutes | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
@@ -109,6 +99,7 @@ spec:
             {{- toYaml .Values.identity.resources | nindent 12 }}
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}
             - name: tenants-config
               mountPath: /etc/orbit
               readOnly: true

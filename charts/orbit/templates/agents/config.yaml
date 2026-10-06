@@ -25,5 +25,7 @@ cmd/orbit-agents:
     sessionManager:
       authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
       nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
+{{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.storageConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "agents" "configMap" "orbit-agents-config" "modules" (include "orbit.agents.configModules" . | fromYaml)) }}

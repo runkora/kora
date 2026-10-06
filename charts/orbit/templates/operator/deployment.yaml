@@ -39,12 +39,6 @@ spec:
           env:
             - name: HOME
               value: /tmp
-            # The operator traces its own reconciles, and passes this to the
-            # identity-proxy it injects into tenant pods.
-            - name: ORBIT_OTLP_ENDPOINT
-              value: {{ .Values.global.observability.otlpEndpoint | quote }}
-            - name: ORBIT_SAMPLING_RATE
-              value: {{ .Values.global.observability.samplingRate | quote }}
             {{- include "orbit.extraEnv" (dict "root" $ "name" "operator") | nindent 12 }}
           ports:
             - name: health

@@ -74,21 +74,6 @@ gateway.create is true, otherwise gateway.name.
 Image reference for a component: <registry>/<repository>@<digest> when set
 (released charts), otherwise <registry>/<repository>:<tag|appVersion>.
 */}}
-{{/*
-Service config value: the component's own config.<field> when the key is present,
-otherwise the global default. Key presence is checked with hasKey so an explicit
-false is honoured; sprig default would treat false as unset and use the global.
-Takes (dict "root" $ "name" "<component>" "field" "<field>" "default" <global value>).
-*/}}
-{{- define "orbit.serviceConfig" -}}
-{{- $c := (index .root.Values .name).config | default dict -}}
-{{- if hasKey $c .field -}}
-{{- index $c .field -}}
-{{- else -}}
-{{- .default -}}
-{{- end -}}
-{{- end }}
-
 {{- define "orbit.image" -}}
 {{- $img := (index .root.Values .name).image -}}
 {{- $reg := $img.registry | default .root.Values.global.imageRegistry -}}
@@ -266,12 +251,10 @@ CSI socket lands at the path the proxy checks for an external SDS socket.
 {{- end }}
 
 {{/*
-envFrom for the platform ConfigMap and Secret every service reads.
+envFrom for the platform Secret every service reads.
 */}}
 {{- define "orbit.platformEnvFrom" -}}
 envFrom:
-  - configMapRef:
-      name: orbit-config
   - secretRef:
       name: {{ .Values.config.platformSecretName }}
 {{- end }}
@@ -296,6 +279,10 @@ metadata:
   namespace: {{ include "orbit.systemNamespace" .root }}
   labels:
     {{- include "orbit.labels" .root | nindent 4 }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 data:
   {{- range $module, $content := include "orbit.configModules" . | fromYaml }}
   {{ $module | replace "/" "." }}.yaml: |
@@ -318,6 +305,34 @@ data:
 - name: config-files
   mountPath: /etc/orbit/config
   readOnly: true
+{{- end }}
+
+{{/*
+Config modules of the shared platform packages. Take the root context.
+*/}}
+{{- define "orbit.observabilityConfigModule" -}}
+{{- $obs := .Values.global.observability -}}
+internal/platform/observability:
+  logFormat: {{ .Values.global.logFormat | toJson }}
+  otlpEndpoint: {{ $obs.otlpEndpoint | toJson }}
+  tenantOtlpEndpoint: {{ $obs.otlpEndpoint | toJson }}
+  {{- if ne (toString $obs.samplingRate) "" }}
+  samplingRate: {{ $obs.samplingRate | float64 }}
+  {{- end }}
+{{- end }}
+
+{{- define "orbit.storageConfigModule" -}}
+internal/platform/storage:
+  postgres:
+    host: {{ required "config.db.host must be set" .Values.config.db.host | toJson }}
+    port: {{ .Values.config.db.port | int }}
+    database: {{ .Values.config.db.name | toJson }}
+    user: {{ .Values.config.db.user | toJson }}
+    sslMode: {{ .Values.global.postgres.sslMode | toJson }}
+    captureQueryText: {{ eq (toString .Values.global.postgres.captureQueryText) "true" }}
+  redis:
+    host: {{ required "config.redis.host must be set" .Values.config.redis.host | toJson }}
+    port: {{ .Values.config.redis.port | int }}
 {{- end }}
 
 {{/*

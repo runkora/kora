@@ -21,7 +21,6 @@ config:
 
 identity:
   config:
-    redisTLSEnabled: "false"
     accessTokenTtlMinutes: 240
 
 frontend:

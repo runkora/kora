@@ -13,12 +13,20 @@ import (
 	operatorConfig "github.com/clear-route/orbit/cmd/operator/config"
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/clear-route/orbit/internal/platform/observability"
+	"github.com/clear-route/orbit/internal/platform/storage"
 )
 
 // moduleLoaders loads each config module the chart renders, the way its binary does.
 var moduleLoaders = map[string]func() error{
 	"cmd/orbit-agents": loadService[agentsConfig.Config]("cmd/orbit-agents"),
 	"cmd/operator":     loadService[operatorConfig.Config]("cmd/operator"),
+
+	"internal/platform/observability": loadService[observability.ObservabilityConfig]("internal/platform/observability"),
+	"internal/platform/storage": func() error {
+		_, err := config.Load[storage.StorageConfig]("internal/platform/storage", "production")
+		return err
+	},
 }
 
 func loadService[T any](module string) func() error {

@@ -8,7 +8,7 @@ global:
   trustDomain: orbit.example.com
   imageRegistry: ghcr.io/clear-route
   imagePullPolicy: IfNotPresent
-  # Shared service config; a component's own config block overrides it.
+  # Shared service config; a component's configOverrides overrides it.
   logFormat: json
   postgres:
     sslMode: require
@@ -59,7 +59,6 @@ operator:
 
 identity:
   config:
-    redisTLSEnabled: "true"
     accessTokenTtlMinutes: 15
 
 inferenceGateway:

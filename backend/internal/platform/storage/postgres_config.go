@@ -1,16 +1,18 @@
 package storage
 
 import (
+	"errors"
 	"fmt"
 	"os"
-	"strconv"
 )
 
-// PostgresConfig holds database connection and pool configuration.
-// Non-secret tunables (port, pool sizes, timeouts) are loaded from YAML.
-// Connection credentials (host, database, user, password) are loaded from environment variables.
+// PostgresConfig holds database connection and pool configuration. Everything
+// but the password loads from YAML; the password comes from DB_PASSWORD.
 type PostgresConfig struct {
+	Host                     string `yaml:"host"`
 	Port                     int    `yaml:"port"`
+	Database                 string `yaml:"database"`
+	User                     string `yaml:"user"`
 	SSLMode                  string `yaml:"sslMode"`
 	MaxConnections           int32  `yaml:"maxConnections"`
 	MinConnections           int32  `yaml:"minConnections"`
@@ -20,10 +22,7 @@ type PostgresConfig struct {
 	ConnectTimeoutSeconds    int    `yaml:"connectTimeoutSeconds"`
 	CaptureQueryText         bool   `yaml:"captureQueryText"`
 
-	// Loaded from environment variables — never from YAML.
-	Host     string `yaml:"-"`
-	Database string `yaml:"-"`
-	User     string `yaml:"-"`
+	// Loaded from DB_PASSWORD, never from YAML.
 	Password string `yaml:"-"`
 }
 
@@ -35,47 +34,20 @@ func (c *PostgresConfig) ConnectionString() string {
 	)
 }
 
-// loadPostgresConfig overlays environment-variable credentials and optional
-// per-field overrides onto a PostgresConfig that has already been populated
-// from YAML. It is called by LoadStorageConfig.
-//
-// Explicit env var overrides let local dev change individual settings (e.g.
-// ORBIT_POSTGRES_SSL_MODE=disable) without needing APP_ENV-based YAML branching.
+// loadPostgresConfig checks the YAML connection settings and reads the password
+// from the environment. It is called by LoadStorageConfig.
 func loadPostgresConfig(cfg *PostgresConfig) error {
-	cfg.Host = os.Getenv("DB_HOST")
-	if cfg.Host == "" {
-		return fmt.Errorf("DB_HOST environment variable is required")
+	switch {
+	case cfg.Host == "":
+		return errors.New("postgres.host must be set")
+	case cfg.Database == "":
+		return errors.New("postgres.database must be set")
+	case cfg.User == "":
+		return errors.New("postgres.user must be set")
 	}
-
-	cfg.Database = os.Getenv("DB_NAME")
-	if cfg.Database == "" {
-		return fmt.Errorf("DB_NAME environment variable is required")
-	}
-
-	cfg.User = os.Getenv("DB_USER")
-	if cfg.User == "" {
-		return fmt.Errorf("DB_USER environment variable is required")
-	}
-
 	cfg.Password = os.Getenv("DB_PASSWORD")
 	if cfg.Password == "" {
 		return fmt.Errorf("DB_PASSWORD environment variable is required")
 	}
-
-	if port := os.Getenv("DB_PORT"); port != "" {
-		if p, err := strconv.Atoi(port); err == nil {
-			cfg.Port = p
-		}
-	}
-
-	// Explicit overrides — take precedence over YAML when set.
-	// Used by local dev to disable SSL without an APP_ENV-specific YAML file.
-	if v := os.Getenv("ORBIT_POSTGRES_SSL_MODE"); v != "" {
-		cfg.SSLMode = v
-	}
-	if v := os.Getenv("ORBIT_POSTGRES_CAPTURE_QUERY_TEXT"); v != "" {
-		cfg.CaptureQueryText = v == "true" || v == "1"
-	}
-
 	return nil
 }

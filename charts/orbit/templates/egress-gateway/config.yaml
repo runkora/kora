@@ -1,0 +1,7 @@
+{{- /*
+egress-gateway config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "orbit.egressGateway.configModules" -}}
+{{ include "orbit.observabilityConfigModule" . }}
+{{- end }}
+{{- include "orbit.configMap" (dict "root" $ "name" "egressGateway" "configMap" "orbit-egress-gateway-config" "modules" (include "orbit.egressGateway.configModules" . | fromYaml)) }}

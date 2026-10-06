@@ -15,8 +15,8 @@ global:
   # development sets this to pin a pushed tag; a release stamps digests instead.
   imageTag: ""
 
-  # Service config shared by every component. A component overrides in its own
-  # config block; otherwise it inherits these.
+  # Service config shared by every component, rendered into each one's config
+  # files. A component's configOverrides overrides it.
   logFormat: json
   postgres:
     sslMode: require
@@ -59,8 +59,8 @@ frontendHost: ""
 # Canonical (api.) host first. Empty disables validation.
 publicHosts: []
 
-# Non-secret platform config rendered into the orbit-config ConfigMap, and the
-# name of the Secret every service reads.
+# Postgres and Redis endpoints rendered into each service's storage config
+# file, and the name of the Secret every service reads.
 config:
   db:
     host: ""
@@ -274,8 +274,12 @@ migrate:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 identity:
   image:
@@ -300,19 +304,23 @@ identity:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
   config:
-    redisTLSEnabled: "true"
     accessTokenTtlMinutes: 15
   # Operator-owned ConfigMaps and Secrets identity reads. Mounts are optional:
   # identity starts before any tenant exists.
   tenantsConfigMap: orbit-tenants
   clientSecretsSecret: orbit-tenant-oidc-secrets
   oauthClientsConfigMap: orbit-tenant-oauth-clients
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 inferenceGateway:
   image:
@@ -336,13 +344,17 @@ inferenceGateway:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     # e.g. eks.amazonaws.com/role-arn for Bedrock access via IRSA.
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 orbitMcp:
   image:
@@ -367,12 +379,16 @@ orbitMcp:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 toolGateway:
   image:
@@ -399,12 +415,16 @@ toolGateway:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 frontend:
   image:
@@ -476,6 +496,7 @@ agents:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
@@ -651,12 +672,16 @@ policyService:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 policyGateway:
   image:
@@ -680,12 +705,16 @@ policyGateway:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 triggers:
   image:
@@ -709,12 +738,16 @@ triggers:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
   authorizationPolicy:
     enabled: true
     systemPrincipals:
@@ -759,6 +792,7 @@ egressGateway:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
@@ -772,7 +806,10 @@ egressGateway:
   tenantCASecretName: orbit-tenant-cas
   connectionSecretName: orbit-tenant-connection-secrets
   tenantConnectionsConfigMapName: orbit-tenant-connections
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 # Gateway-level OPA (ADR 2026-04-27): ext_authz for every request entering
 # through the Istio gateway.
