@@ -17,11 +17,13 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/clear-route/orbit/internal/platform/token"
+	"go.opentelemetry.io/otel/metric"
 	kubeconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
@@ -37,23 +39,64 @@ func main() {
 	logger := initLogger()
 	logger.Info(ctx, "Inference gateway starting", logging.Field{Key: "version", Value: igc.Current.App.Version})
 
-	db, redis, err := initStorage(ctx, logger)
-	if err != nil {
-		logger.Error(ctx, "Failed to initialize storage", logging.Field{Key: "error", Value: err})
-		shutdownObservability()
-		os.Exit(1) //nolint:gocritic
-	}
-	defer db.Close()
-	defer redis.Close()
-
-	server, register, err := initServer(ctx, logger, db, redis)
-	if err != nil {
-		logger.Error(ctx, "Failed to initialize server", logging.Field{Key: "error", Value: err})
+	// fatal flushes observability (the deferred shutdown above won't run
+	// after os.Exit) and exits. Used for every startup failure past this
+	// point so each one isn't a repeated three-line block.
+	fatal := func(msg string, err error) {
+		logger.Error(ctx, msg, logging.Field{Key: "error", Value: err})
 		shutdownObservability()
 		os.Exit(1)
 	}
 
-	run(ctx, logger, server, register)
+	meter, metricsSrv, shutdownMeter, err := initMeter(ctx, logger)
+	if err != nil {
+		fatal("Failed to setup metrics", err)
+	}
+	defer shutdownMeter()
+
+	db, redis, err := initStorage(ctx, logger)
+	if err != nil {
+		fatal("Failed to initialize storage", err)
+	}
+	defer db.Close()
+	defer redis.Close()
+
+	server, register, err := initServer(ctx, logger, db, redis, meter)
+	if err != nil {
+		fatal("Failed to initialize server", err)
+	}
+
+	run(ctx, logger, server, metricsSrv, register)
+}
+
+// initMeter sets up the OTel metrics pipeline — an OTLP reader when a
+// collector is configured, and/or a Prometheus reader when metrics are
+// enabled — and returns the meter instruments are built on, this service's
+// dedicated metrics *http.Server (nil when disabled), and a cleanup func.
+func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, func(), error) {
+	promExporter, err := platformmetrics.New(igc.Current.Metrics)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
+	}
+
+	meter, shutdownOtelMetrics, err := observability.SetupMetrics(ctx, observability.Config{
+		ServiceName:    igc.Current.Observability.ServiceName,
+		ServiceVersion: igc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, promExporter.Reader())
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	metricsSrv := promExporter.Server(logger)
+	cleanup := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), igc.Current.ShutdownTimeout())
+		defer cancel()
+		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
+			log.Printf("Error shutting down metrics: %v", err)
+		}
+	}
+	return meter, metricsSrv, cleanup, nil
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -295,12 +338,17 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, func(context.Context) error, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, meter metric.Meter) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	controllers, register, err := initControllers(ctx, logger, db, redis)
 	if err != nil {
 		return nil, nil, err
+	}
+
+	metricsMW, err := mw.MetricsMiddleware(meter, igc.Current.Observability.ServiceName)
+	if err != nil {
+		return nil, nil, fmt.Errorf("create metrics middleware: %w", err)
 	}
 
 	server := apiServer.Server(
@@ -309,6 +357,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		igc.Current.Server.BasePath,
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(igc.Current.Observability.ServiceName),
+			metricsMW,
 			mw.LoggingMiddleware(logger),
 			// Rewrites /run/{run_id}/v1/... -> /v1/... with the run identity in
 			// context, ahead of all routing and enforcement. See
@@ -321,7 +370,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 	return server, register, nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, register func(context.Context) error) {
+func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Server, register func(context.Context) error) {
 	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -331,6 +380,14 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+	if metricsSrv != nil {
+		go func() {
+			logger.Info(runCtx, "Starting metrics server", logging.Field{Key: "addr", Value: metricsSrv.Addr})
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.Error(runCtx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
+			}
+		}()
+	}
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
@@ -344,6 +401,11 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
+	}
+	if metricsSrv != nil {
+		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
+		}
 	}
 
 	logger.Info(ctx, "Inference gateway shutdown complete")

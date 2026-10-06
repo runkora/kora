@@ -15,3 +15,12 @@ bundle:
 
 observability:
   serviceName: "policy-service"
+
+metrics:
+  enabled: true
+  port: 9464
+  path: /metrics
+  shutdownTimeoutSecs: 5
+  namespace: ""
+  collectGoRuntimeMetrics: true
+  collectProcessMetrics: true

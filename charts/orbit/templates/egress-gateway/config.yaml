@@ -3,6 +3,9 @@ egress-gateway config files (docs/adr/2026-10-06-rendered-service-config-files.m
 */}}
 {{- define "orbit.egressGateway.configModules" -}}
 cmd/egress-gateway:
+  metrics:
+    enabled: {{ .Values.global.metrics.enabled }}
+    port: {{ .Values.global.metrics.port | default 9464 }}
   identity:
     internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
   policy:

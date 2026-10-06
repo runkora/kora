@@ -35,3 +35,7 @@ spec:
       port: {{ .Values.egressGateway.adminPort }}
       targetPort: admin-http
       protocol: TCP
+    - name: http-metrics
+      port: {{ .Values.global.metrics.port | default 9464 }}
+      targetPort: http-metrics
+      protocol: TCP

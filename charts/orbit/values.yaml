@@ -37,6 +37,29 @@ global:
     # networkPolicy.externalServices instead.
     collectorNamespace: ""
 
+  # Prometheus /metrics scrape endpoint, shared by every instrumented
+  # component (see docs/adr/2026-10-06-prometheus-metrics-endpoints.md). A
+  # component overrides enabled/port in its own config block; otherwise it
+  # inherits these. Port 9464 is the OTel Prometheus-exporter convention, kept
+  # distinct from 9090, which allow-mesh-sidecar already uses for
+  # policy-gateway's ext_authz port.
+  metrics:
+    enabled: true
+    port: 9464
+    # The namespace running a scraper that reaches into orbit-system (e.g.
+    # Prometheus / Prometheus Operator / Grafana Alloy). Empty opens no
+    # ingress. Only takes effect while networkPolicy.enabled is true. This
+    # grants NetworkPolicy ingress only — it does not by itself satisfy this
+    # mesh's Istio mTLS; the scraper must run inside the mesh (sidecar
+    # injected) to actually complete a scrape. See the ADR's Consequences.
+    scraperNamespace: ""
+    # Opt-in Prometheus Operator ServiceMonitor per instrumented service.
+    # Renders nothing unless the monitoring.coreos.com/v1 CRD is present on
+    # the target cluster, so enabling this without the CRD installed is safe.
+    serviceMonitor:
+      enabled: false
+      interval: 30s
+
   # Pull secrets applied to kora and tenant workloads. Kubernetes convention:
   # a list of {name: <secret-name>} objects.
   imagePullSecrets: []

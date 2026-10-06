@@ -52,3 +52,12 @@ toolGateway:
 # callers are in-pod child processes that hold no token.
 session:
   idleTimeoutSecs: 1200 # 20 minutes
+
+metrics:
+  enabled: true
+  port: 9464
+  path: /metrics
+  shutdownTimeoutSecs: 5
+  namespace: ""
+  collectGoRuntimeMetrics: true
+  collectProcessMetrics: true

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 )
 
 // Config holds tool-gateway configuration values.
@@ -77,6 +78,8 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 }
 
 // ShutdownTimeout returns the configured graceful-shutdown timeout.

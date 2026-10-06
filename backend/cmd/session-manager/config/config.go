@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 )
 
 // Config holds session-manager configuration values.
@@ -105,6 +106,8 @@ type Config struct {
 		// followed by a new message) before it is automatically closed.
 		IdleTimeoutSecs int `yaml:"idleTimeoutSecs"`
 	} `yaml:"session"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.
@@ -133,6 +136,7 @@ var Current = func() *Config {
 	if err := applyEnvOverrides(cfg, os.Getenv); err != nil {
 		panic(err)
 	}
+	cfg.Metrics.ApplyEnvOverrides()
 	return cfg
 }()
 

@@ -7,6 +7,9 @@ one ConfigMap per Deployment. Takes (dict "root" $ "mode" "publisher"|"proxy").
 cmd/tool-gateway:
   mode: {{ $.mode | toJson }}
   publicHosts: {{ splitList "," (include "orbit.publicHosts" .) | compact | toJson }}
+  metrics:
+    enabled: {{ .Values.global.metrics.enabled }}
+    port: {{ .Values.global.metrics.port | default 9464 }}
   identity:
     internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
   policy:

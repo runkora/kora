@@ -29,6 +29,9 @@ spec:
         # (docs/adr/2026-09-16-first-class-workload-placement.md).
         checksum/workloads: {{ include (print $.Template.BasePath "/agents/workloads-configmap.yaml") . | sha256sum }}
         checksum/config: {{ include (print $.Template.BasePath "/agents/config.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.global.metrics.port | default 9464 }}"
+        prometheus.io/path: "/metrics"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
     spec:
       serviceAccountName: orbit-agents
@@ -69,6 +72,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+              protocol: TCP
+            - name: http-metrics
+              containerPort: {{ .Values.global.metrics.port | default 9464 }}
               protocol: TCP
           livenessProbe:
             httpGet:

@@ -25,6 +25,9 @@ spec:
       annotations:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/tool-gateway/config.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ .Values.global.metrics.port | default 9464 }}"
+        prometheus.io/path: "/metrics"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "toolGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-tool-gateway
@@ -51,6 +54,9 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.toolGateway.httpPort }}
+              protocol: TCP
+            - name: http-metrics
+              containerPort: {{ .Values.global.metrics.port | default 9464 }}
               protocol: TCP
           livenessProbe:
             httpGet:

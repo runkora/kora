@@ -12,6 +12,15 @@ server:
 observability:
   serviceName: orbit-inference-gateway
 
+metrics:
+  enabled: true
+  port: 9464
+  path: /metrics
+  shutdownTimeoutSecs: 5
+  namespace: ""
+  collectGoRuntimeMetrics: true
+  collectProcessMetrics: true
+
 pricing:
   # How often the pricing cache refreshes (seconds). 3600 = 1 hour.
   refreshIntervalSecs: 3600

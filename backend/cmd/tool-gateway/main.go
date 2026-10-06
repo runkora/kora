@@ -33,12 +33,14 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	platformtoken "github.com/clear-route/orbit/internal/platform/token"
 	"github.com/clear-route/orbit/internal/toolgateway"
+	"go.opentelemetry.io/otel/metric"
 )
 
 func main() {
@@ -59,6 +61,13 @@ func realMain() error {
 	defer shutdownObservability()
 
 	logger := initLogger()
+
+	_, metricsSrv, metricsMW, shutdownMeter, err := initMetrics(ctx, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer shutdownMeter()
+
 	// Trusted-host allowlist for the host-derived RFC 9728 protected-resource
 	// metadata and 401 challenge (ADR 2026-07-04).
 	platformapi.ConfigureTrustedHosts(tgc.Current.PublicHosts)
@@ -120,11 +129,11 @@ func realMain() error {
 			cycleMu.Lock()
 			defer cycleMu.Unlock()
 			introspector.Sync(ctx, registry.Servers(), force)
-			if err := publisher.Publish(ctx); err != nil {
-				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
+			if pubErr := publisher.Publish(ctx); pubErr != nil {
+				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: pubErr.Error()})
 			}
-			if err := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); err != nil {
-				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
+			if replaceErr := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); replaceErr != nil {
+				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: replaceErr.Error()})
 			}
 		}
 		registry.OnReload(func(ctx context.Context) { cycle(ctx, true) })
@@ -140,6 +149,7 @@ func realMain() error {
 		tgc.Current.Server.BasePath,
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(tgc.Current.Observability.ServiceName),
+			metricsMW,
 			mw.LoggingMiddleware(logger),
 			// Rewrites /run/{run_id}/v1/mcp/… → /v1/mcp/… with the run identity
 			// in context — the same mechanism the inference gateway mounts, so
@@ -155,6 +165,7 @@ func realMain() error {
 			logger.Error(ctx, "tool-gateway HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	startMetricsServer(ctx, logger, metricsSrv)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down tool gateway...")
@@ -164,9 +175,72 @@ func realMain() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "tool-gateway HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	shutdownMetricsServer(shutdownCtx, logger, metricsSrv)
 
 	logger.Info(ctx, "Tool gateway shutdown complete")
 	return nil
+}
+
+// initMetrics sets up the OTel metrics pipeline — an OTLP reader when a
+// collector is configured, and/or a Prometheus reader when metrics are
+// enabled — and returns this service's dedicated metrics *http.Server (nil
+// when disabled), the HTTP request middleware built on the same meter, and a
+// cleanup func. Bundling the middleware here, rather than returning the bare
+// meter, keeps realMain to a single error check for the whole pipeline.
+func initMetrics(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, mw.Middleware, func(), error) {
+	promExporter, err := platformmetrics.New(tgc.Current.Metrics)
+	if err != nil {
+		return nil, nil, mw.Middleware{}, nil, fmt.Errorf("create prometheus exporter: %w", err)
+	}
+
+	meter, shutdownOtelMetrics, err := observability.SetupMetrics(ctx, observability.Config{
+		ServiceName:    tgc.Current.Observability.ServiceName,
+		ServiceVersion: tgc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, promExporter.Reader())
+	if err != nil {
+		return nil, nil, mw.Middleware{}, nil, err
+	}
+
+	metricsMW, err := mw.MetricsMiddleware(meter, tgc.Current.Observability.ServiceName)
+	if err != nil {
+		return nil, nil, mw.Middleware{}, nil, fmt.Errorf("create metrics middleware: %w", err)
+	}
+
+	metricsSrv := promExporter.Server(logger)
+	cleanup := func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tgc.Current.ShutdownTimeout())
+		defer cancel()
+		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
+			fmt.Fprintf(os.Stderr, "Error shutting down metrics: %v\n", err)
+		}
+	}
+	return meter, metricsSrv, metricsMW, cleanup, nil
+}
+
+// startMetricsServer starts srv in its own goroutine, or does nothing when
+// metrics are disabled (srv is nil).
+func startMetricsServer(ctx context.Context, logger logging.Logger, srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	go func() {
+		logger.Info(ctx, "Starting metrics server", logging.Field{Key: "addr", Value: srv.Addr})
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			logger.Error(ctx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
+		}
+	}()
+}
+
+// shutdownMetricsServer gracefully stops srv, or does nothing when metrics
+// are disabled (srv is nil).
+func shutdownMetricsServer(ctx context.Context, logger logging.Logger, srv *http.Server) {
+	if srv == nil {
+		return
+	}
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
+	}
 }
 
 // runIntrospectionLoop runs the introspection cycle once (forced) at startup

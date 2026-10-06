@@ -9,6 +9,15 @@ server:
 observability:
   serviceName: orbit-agents
 
+metrics:
+  enabled: true
+  port: 9464
+  path: /metrics
+  shutdownTimeoutSecs: 5
+  namespace: ""
+  collectGoRuntimeMetrics: true
+  collectProcessMetrics: true
+
 kubernetes:
   inCluster: true
   tenantNamespacePrefix: orbit-tenant-

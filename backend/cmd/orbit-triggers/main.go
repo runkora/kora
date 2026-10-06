@@ -40,6 +40,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -65,15 +66,15 @@ func realMain() error {
 	}
 	defer shutdownObservability()
 
-	meter, shutdownMeter, err := initMeter(ctx)
+	logger := initLogger()
+	logger.Info(ctx, "Triggers service starting",
+		logging.Field{Key: "version", Value: tc.Current.App.Version})
+
+	meter, metricsSrv, shutdownMeter, err := initMeter(ctx, logger)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
 	defer shutdownMeter()
-
-	logger := initLogger()
-	logger.Info(ctx, "Triggers service starting",
-		logging.Field{Key: "version", Value: tc.Current.App.Version})
 
 	db, redis, err := initStorage(ctx, logger)
 	if err != nil {
@@ -95,7 +96,12 @@ func realMain() error {
 			return scopeClient.Register(ctx, "orbit-triggers", routeScopes(), scopeDeclarations())
 		})
 
-	run(ctx, logger, initServer(ctx, logger, controller))
+	server, err := initServer(ctx, logger, controller, meter)
+	if err != nil {
+		return fmt.Errorf("init server: %w", err)
+	}
+
+	run(ctx, logger, server, metricsSrv)
 	return nil
 }
 
@@ -295,26 +301,36 @@ func initObservability(ctx context.Context) (func(), error) {
 }
 
 // initMeter sets up the OpenTelemetry metrics pipeline for this binary and
-// returns the meter the Triggers instruments are built on. The pipeline is
-// the platform's: exporter selection lives in observability.SetupMetrics, so
-// metrics and traces are configured by the same two settings and cannot end
-// up pointing at different collectors.
-func initMeter(ctx context.Context) (metric.Meter, func(), error) {
+// returns the meter the Triggers instruments are built on, this service's
+// dedicated Prometheus metrics *http.Server (nil when disabled), and a
+// cleanup func. Exporter selection lives in observability.SetupMetrics, so
+// OTLP metrics and traces are configured by the same two settings and cannot
+// end up pointing at different collectors; the Prometheus reader is added on
+// top, independent of whether an OTLP collector is configured at all.
+func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, func(), error) {
+	promExporter, err := platformmetrics.New(tc.Current.Metrics)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
+	}
+
 	meter, shutdown, err := observability.SetupMetrics(ctx, observability.Config{
 		ServiceName:    tc.Current.Observability.ServiceName,
 		ServiceVersion: tc.Current.App.Version,
 		Environment:    config.Environment(),
-	})
+	}, promExporter.Reader())
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	return meter, func() {
+
+	metricsSrv := promExporter.Server(logger)
+	cleanup := func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), tc.Current.ShutdownTimeout())
 		defer cancel()
 		if err := shutdown(shutdownCtx); err != nil {
 			fmt.Fprintf(os.Stderr, "Error shutting down metrics: %v\n", err)
 		}
-	}, nil
+	}
+	return meter, metricsSrv, cleanup, nil
 }
 
 func initLogger() logging.Logger {
@@ -346,27 +362,42 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, controller platformapi.Controller) *http.Server {
+func initServer(ctx context.Context, logger logging.Logger, controller platformapi.Controller, meter metric.Meter) (*http.Server, error) {
 	apiServer := platformapi.NewAPI(ctx, logger)
+
+	metricsMW, err := mw.MetricsMiddleware(meter, tc.Current.Observability.ServiceName)
+	if err != nil {
+		return nil, fmt.Errorf("create metrics middleware: %w", err)
+	}
+
 	return apiServer.Server(
 		ctx,
 		tc.Current.Server.Port,
 		tc.Current.Server.BasePath,
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(tc.Current.Observability.ServiceName),
+			metricsMW,
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
-	)
+	), nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Server) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	if metricsSrv != nil {
+		go func() {
+			logger.Info(ctx, "Starting metrics server", logging.Field{Key: "addr", Value: metricsSrv.Addr})
+			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				logger.Error(ctx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
+			}
+		}()
+	}
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down triggers service...")
@@ -376,6 +407,11 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
+	}
+	if metricsSrv != nil {
+		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+			logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
+		}
 	}
 
 	logger.Info(ctx, "Triggers service shutdown complete")
