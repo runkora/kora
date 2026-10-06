@@ -26,7 +26,6 @@ type AgentTypeRepository interface {
 
 // RunRepository is the persistence interface for run operations, events, and messages.
 type RunRepository interface {
-	RunStatsRepository
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
 	// ListRuns returns a tenant's runs newest first, optionally narrowed to one
@@ -39,6 +38,14 @@ type RunRepository interface {
 	// CountRunOutcomes counts the completed and failed runs that finished in
 	// [from, to), under the same delegated-run visibility rule as ListRuns.
 	CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error)
+	// CountAgentRuns counts the agent type's runs created in [from, to) and the
+	// part of them a trigger started.
+	CountAgentRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (total, triggered int64, err error)
+	// FinishedRunDurations summarizes the runs of the agent type that finished in [from, to).
+	FinishedRunDurations(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (FinishedRuns, error)
+	// FinishedRunBuckets counts those runs per equal-width bucket of [0, rangeMs],
+	// with the runs above rangeMs as overflow.
+	FinishedRunBuckets(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time, rangeMs int64) (buckets []int64, overflow int64, err error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.

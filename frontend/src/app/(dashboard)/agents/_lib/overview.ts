@@ -45,6 +45,8 @@ export interface AgentOverview {
   };
   /** The agent's own budget; null when it has none. */
   budget: BudgetRow | null;
+  /** Parts that errored, as opposed to refused. */
+  failed: { usage: boolean; runs: boolean };
 }
 
 const share = (part: number, whole: number) =>
@@ -108,5 +110,9 @@ export function toAgentOverview(resp: AgentOverviewResponse): AgentOverview {
         }
       : {}),
     budget: toBudgetRows(insights?.budgets ?? [], [])[0] ?? null,
+    failed: {
+      usage: resp.failed?.includes('insights') ?? false,
+      runs: resp.failed?.includes('runStats') ?? false,
+    },
   };
 }

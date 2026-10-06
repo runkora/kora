@@ -63,6 +63,7 @@ type mockRepository struct {
 	statsVis                   RunVisibility
 	statsAgentTypeID           string
 	statsBucketRange           int64
+	getBySlugErr               error
 }
 
 func newMockRepository() *mockRepository {
@@ -106,6 +107,9 @@ func (m *mockRepository) GetAgentType(_ context.Context, id string) (*AgentType,
 }
 
 func (m *mockRepository) GetAgentTypeBySlug(_ context.Context, tenantID, slug string) (*AgentType, error) {
+	if m.getBySlugErr != nil {
+		return nil, m.getBySlugErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	at, ok := m.slugIndex[tenantID+":"+slug]

@@ -102,6 +102,14 @@ describe('toAgentOverview', () => {
     expect(overview.usage).toBeDefined();
   });
 
+  it('carries the parts that errored', () => {
+    expect(toAgentOverview({ period: '7d', failed: ['runStats'] }).failed).toEqual({
+      usage: false,
+      runs: true,
+    });
+    expect(toAgentOverview(RESPONSE).failed).toEqual({ usage: false, runs: false });
+  });
+
   it('has no success rate before any run has finished', () => {
     const { runs } = toAgentOverview({
       period: '7d',

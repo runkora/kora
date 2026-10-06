@@ -2,7 +2,7 @@
 
 /** @tier 3 · agents/[slug]-scoped. Overview tab: stat tiles, recent runs, instructions, spend, token usage, scopes and metadata. */
 
-import { Card, CardContent, CardHeader, Grid, Stack } from '@orbit/terra';
+import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@orbit/terra';
 import { fmtTokens, fmtUsd } from '@orbit/utils';
 import { StatTile } from '../../_components/agent-stat-tiles';
 import { Breakdown } from '../../_components/agents-spend-card';
@@ -10,6 +10,7 @@ import { PERIOD_DAYS, PERIOD_TEXT } from '../../_lib/spend';
 import type { AgentOverview } from '../../_lib/overview';
 import { formatDuration } from '../../_types';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
+import type { OverviewStatus } from '../_hooks/use-agent-overview';
 import { AgentInstructionsCard } from './agent-instructions-card';
 import { GrantScopesCard, MetadataCard, RecentRunsTable } from './agent-overview-cards';
 import { AgentSpendCard, shortModel } from './agent-spend-card';
@@ -18,8 +19,23 @@ import { DurationHistogram } from './duration-histogram';
 interface AgentOverviewTabProps {
   /** Absent until a period has loaded, or when the caller may read neither part. */
   overview: AgentOverview | undefined;
+  /** The selected period's load state; the figures on screen dim while it loads. */
+  status: OverviewStatus;
   /** Opens the Configuration tab at the Behaviour step. */
   onEditInstructions: () => void;
+}
+
+function CouldNotLoad({ title }: { title: string }) {
+  return (
+    <Card>
+      <CardHeader compact title={title} divider />
+      <CardContent padded>
+        <Text size="supporting" color="muted">
+          Could not load
+        </Text>
+      </CardContent>
+    </Card>
+  );
 }
 
 const perDay = (total: number, period: AgentOverview['period']) => {
@@ -38,7 +54,7 @@ function modelSegments(models: { name: string; cost: number }[]) {
   return other > 0 ? [...top, { label: 'other', value: other, text: fmtUsd(other) }] : top;
 }
 
-export function AgentOverviewTab({ overview, onEditInstructions }: AgentOverviewTabProps) {
+export function AgentOverviewTab({ overview, status, onEditInstructions }: AgentOverviewTabProps) {
   const { agent } = useAgentDetailContext();
   if (!agent) return null;
 
@@ -46,11 +62,21 @@ export function AgentOverviewTab({ overview, onEditInstructions }: AgentOverview
   const runs = overview?.runs;
   const period = overview?.period ?? '7d';
   const { text: periodText, previous: previousText } = PERIOD_TEXT[period];
+  // Without figures the period status says whether the load failed; with them each part does.
+  const runsFailed = overview ? overview.failed.runs : status === 'failed';
+  const usageFailed = overview ? overview.failed.usage : status === 'failed';
+  const loading = status === 'loading';
 
   return (
-    <Stack gap="comfortable">
-      {(usage || runs) && (
+    <Stack
+      gap="comfortable"
+      aria-busy={loading}
+      style={{ opacity: loading ? 0.6 : 1, transition: 'opacity 150ms' }}
+    >
+      {(usage || runs || runsFailed || usageFailed) && (
         <Grid cols={{ base: 2, md: 3, xl: 5 }} gap="comfortable">
+          {runsFailed && <CouldNotLoad title="Run stats" />}
+          {usageFailed && <CouldNotLoad title="Tokens and spend" />}
           {runs && (
             <>
               <StatTile
@@ -146,6 +172,7 @@ export function AgentOverviewTab({ overview, onEditInstructions }: AgentOverview
           maxWidth={{ base: 'full', xl: 'detail-panel' }}
           shrink={false}
         >
+          {usageFailed && <CouldNotLoad title="Spend" />}
           {usage && (
             <>
               <AgentSpendCard

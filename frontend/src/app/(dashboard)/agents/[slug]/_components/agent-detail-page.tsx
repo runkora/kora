@@ -36,7 +36,7 @@ import { StartRunModal } from '../../_components/start-run-modal';
 
 interface AgentDetailPageProps {
   /** The default window's overview, fetched by the server render so first paint has data. */
-  initialOverview?: AgentOverviewResponse | null;
+  initialOverview?: AgentOverviewResponse | null | undefined;
 }
 
 export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
@@ -48,7 +48,11 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
   // Set when another tab sends the reader to a Configuration step; any tab click clears it.
   const [configSection, setConfigSection] = useState<string | undefined>();
   const [period, setPeriod] = useState<Period>(DEFAULT_PERIOD);
-  const { overview } = useAgentOverview(agent?.slug, period, initialOverview);
+  const { overview, status: overviewStatus } = useAgentOverview(
+    agent?.slug,
+    period,
+    initialOverview,
+  );
 
   // ── Not found ──────────────────────────────────────────────────────────────
 
@@ -225,6 +229,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
         <TabsContent value="overview">
           <AgentOverviewTab
             overview={overview}
+            status={overviewStatus}
             onEditInstructions={() => {
               setConfigSection('behaviour');
               setTab('configuration');

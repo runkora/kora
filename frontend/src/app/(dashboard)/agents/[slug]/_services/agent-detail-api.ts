@@ -184,6 +184,12 @@ export async function fetchAgentOverview(
   } catch {
     return { data: null, error: 'Network error: could not reach the server.' };
   }
-  if (!res.ok) return { data: null, error: `Request failed (${res.status})` };
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      data: null,
+      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
   return { data: (await res.json()) as AgentOverviewResponse, error: null };
 }

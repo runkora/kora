@@ -17,7 +17,7 @@ func TestHistogramRange(t *testing.T) {
 		want     int64
 		capped   bool
 	}{
-		{"no runs", 0, 9000, false},
+		{"no runs", 0, 0, false},
 		{"one below the threshold", cappedMinFinished - 1, 9000, false},
 		{"exactly the threshold", cappedMinFinished, 4000, true},
 		{"many runs", 500, 4000, true},
@@ -28,6 +28,15 @@ func TestHistogramRange(t *testing.T) {
 				t.Errorf("range %d capped %v, want %d and %v", got, capped, tc.want, tc.capped)
 			}
 		})
+	}
+}
+
+func TestHistogramRange_ZeroEdgeIsOneMillisecond(t *testing.T) {
+	if got, capped := histogramRange(3, 0, 0); got != 1 || capped {
+		t.Errorf("uncapped zero range = %d, %v; want 1, false", got, capped)
+	}
+	if got, capped := histogramRange(cappedMinFinished, 0, 0); got != 1 || !capped {
+		t.Errorf("capped zero range = %d, %v; want 1, true", got, capped)
 	}
 }
 
@@ -106,5 +115,16 @@ func TestAgentRunStats_VisibilityAndUnknownAgent(t *testing.T) {
 	ctx := withRunCallerCtx(context.Background(), "t1", "alice")
 	if _, err := f.run.AgentRunStats(ctx, "missing", usagewindow.Period7d, time.Now()); !errors.Is(err, ErrNotFound) {
 		t.Errorf("an unknown agent gave %v, want ErrNotFound", err)
+	}
+}
+
+func TestAgentRunStats_LookupFailureIsNotNotFound(t *testing.T) {
+	f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
+	boom := errors.New("connection reset")
+	repo.getBySlugErr = boom
+	ctx := withRunCallerCtx(context.Background(), "t1", "alice")
+	_, err := f.run.AgentRunStats(ctx, "helper", usagewindow.Period7d, time.Now())
+	if !errors.Is(err, boom) || errors.Is(err, ErrNotFound) {
+		t.Errorf("err = %v, want the lookup error and not ErrNotFound", err)
 	}
 }

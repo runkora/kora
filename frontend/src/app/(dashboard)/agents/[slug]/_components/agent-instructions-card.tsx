@@ -25,18 +25,6 @@ interface AgentInstructionsCardProps {
 
 const FADE = 'linear-gradient(to bottom, black calc(100% - 4rem), transparent)';
 
-/** `{{name}}` and `{name}` outside code fences become inline code, which renders highlighted. */
-function withVariableChips(prompt: string): string {
-  let fenced = false;
-  return prompt
-    .split('\n')
-    .map((line) => {
-      if (line.trim().startsWith('```')) fenced = !fenced;
-      return fenced ? line : line.replace(/\{\{?\s*[\w.-]+\s*\}?\}/g, (m) => `\`${m}\``);
-    })
-    .join('\n');
-}
-
 function EditButton({ onEdit }: Pick<AgentInstructionsCardProps, 'onEdit'>) {
   return (
     <Button variant="ghost" size="sm" aria-label="Edit instructions" onClick={onEdit}>
@@ -51,10 +39,16 @@ export function AgentInstructionsCard({ prompt, onEdit }: AgentInstructionsCardP
   const [overflows, setOverflows] = useState(false);
   const box = useRef<HTMLDivElement>(null);
 
-  // The clamp only offers Expand when the text is taller than the clamp.
+  // The clamp only offers Expand when the text is taller than the clamp, at any width.
   useEffect(() => {
     const el = box.current;
-    if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight + 1);
+    if (!el || expanded) return;
+    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [prompt, view, expanded]);
 
   if (!prompt) {
@@ -107,7 +101,7 @@ export function AgentInstructionsCard({ prompt, onEdit }: AgentInstructionsCardP
             style={clamped ? { maskImage: FADE, WebkitMaskImage: FADE } : undefined}
           >
             {view === 'rendered' ? (
-              <InstructionsMarkdown content={withVariableChips(prompt)} />
+              <InstructionsMarkdown content={prompt} />
             ) : (
               <Text
                 mono

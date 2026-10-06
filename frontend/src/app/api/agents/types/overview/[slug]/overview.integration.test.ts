@@ -70,13 +70,29 @@ describe('GET /api/agents/types/overview/[slug]', () => {
     expect(await res.json()).toEqual({ period: '30d', runStats: RUN_STATS });
   });
 
-  it('leaves out run stats when orbit-agents cannot answer', async () => {
+  it('names a part that errored, and not one that was refused', async () => {
     server.use(
       http.get('http://test-gw/usage/agent-type/:slug', () => HttpResponse.json(INSIGHTS)),
       http.get('http://test-agents/api/v1/run-stats/:slug', () =>
         HttpResponse.json({}, { status: 500 }),
       ),
     );
-    expect(await (await call()).json()).toEqual({ period: '30d', insights: INSIGHTS });
+    expect(await (await call()).json()).toEqual({
+      period: '30d',
+      insights: INSIGHTS,
+      failed: ['runStats'],
+    });
+  });
+
+  it('names the gateway part when it errors and leaves out run stats that were refused', async () => {
+    server.use(
+      http.get('http://test-gw/usage/agent-type/:slug', () =>
+        HttpResponse.json({}, { status: 503 }),
+      ),
+      http.get('http://test-agents/api/v1/run-stats/:slug', () =>
+        HttpResponse.json({}, { status: 403 }),
+      ),
+    );
+    expect(await (await call()).json()).toEqual({ period: '30d', failed: ['insights'] });
   });
 });

@@ -736,7 +736,7 @@ func (r *PostgresRepository) FinishedRunDurations(ctx context.Context, tenantID,
 // slices of [0, rangeMs]; a run above rangeMs is overflow.
 func (r *PostgresRepository) FinishedRunBuckets(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time, rangeMs int64) ([]int64, int64, error) {
 	inner, args := appendVisibility(finishedRunsSQL, []any{tenantID, agentTypeID, from, to}, vis)
-	args = append(args, max(rangeMs, 1))
+	args = append(args, rangeMs)
 	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
 		SELECT CASE WHEN ms > $%[1]d THEN %[2]d ELSE LEAST(width_bucket(ms::numeric, 0, $%[1]d::numeric, %[3]d), %[3]d) END AS bucket, COUNT(*)
 		FROM (`+inner+`) f GROUP BY bucket`, len(args), histogramBuckets+1, histogramBuckets), args...)

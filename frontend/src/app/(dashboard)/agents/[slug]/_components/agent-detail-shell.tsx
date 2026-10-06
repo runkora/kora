@@ -31,7 +31,7 @@ export function AgentDetailShell({
       initialError={initialError}
       initialStatus={initialStatus}
     >
-      <AgentDetailPage {...(initialOverview ? { initialOverview } : {})} />
+      <AgentDetailPage initialOverview={initialOverview} />
     </AgentDetailProvider>
   );
 }

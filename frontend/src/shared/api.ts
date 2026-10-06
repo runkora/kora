@@ -550,13 +550,15 @@ export interface AgentRunStats {
  * GET /api/agents/types/overview/{slug}?period=24h|7d|30d|90d
  *
  * What the agent Overview reads for one window. A part the caller may not read
- * or that could not be loaded is absent.
+ * is absent; a part that failed is absent and named in `failed`.
  */
 export interface AgentOverviewResponse {
   period: AgentInsightsPeriod;
   /** The gateway insights of this one agent. Absent without agents:usage:read. */
   insights?: AgentInsightsResponse;
   runStats?: AgentRunStats;
+  /** Parts that errored or timed out, as opposed to refused with 403, which are only absent. */
+  failed?: ('insights' | 'runStats')[];
 }
 
 /** Request body for POST /api/agents/types. */

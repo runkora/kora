@@ -256,6 +256,10 @@ Amendment 1 left the usage reads on `agents:types:read` with a fixed 7-day windo
 
 Touches **What can it access?**: no new scope.
 
+### Context
+
+The agent detail Overview needs one agent's run counts, run durations, tokens, spend and budget for a selectable window.
+
 ### Decision
 
 - `GET /v1/usage/agent-type/{slug}?period=24h|7d|30d|90d` returns the `GET /v1/usage/agent-insights` shape for one slug: usage with the token breakdown, spend by model, trend buckets, the previous window's total, the agent's budget row and the period. The route scope stays `agents:usage:read` and the `AgentTypeUsage` response is removed.

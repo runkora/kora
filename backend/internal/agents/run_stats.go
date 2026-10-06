@@ -52,19 +52,6 @@ type RunStats struct {
 	Durations RunDurationStats `json:"durations"`
 }
 
-// RunStatsRepository reads the run aggregates behind RunStats. Every read applies
-// the delegated-run visibility rule in the query.
-type RunStatsRepository interface {
-	// CountAgentRuns counts the agent type's runs created in [from, to) and the
-	// part of them a trigger started.
-	CountAgentRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (total, triggered int64, err error)
-	// FinishedRunDurations summarizes the runs of the agent type that finished in [from, to).
-	FinishedRunDurations(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (FinishedRuns, error)
-	// FinishedRunBuckets counts those runs per equal-width bucket of [0, rangeMs],
-	// with the runs above rangeMs as overflow.
-	FinishedRunBuckets(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time, rangeMs int64) (buckets []int64, overflow int64, err error)
-}
-
 // FinishedRuns is the SQL summary of finished runs, in milliseconds.
 type FinishedRuns struct {
 	Completed, Failed                 int64
@@ -73,12 +60,17 @@ type FinishedRuns struct {
 }
 
 // histogramRange returns the upper edge of the histogram and whether it is capped:
-// from cappedMinFinished runs it is the p99, below that the longest run.
+// from cappedMinFinished runs it is the p99, below that the longest run. The edge is at
+// least 1 ms, the width the bucket query divides by.
 func histogramRange(finished, p99Ms, longestMs int64) (rangeMs int64, capped bool) {
-	if finished >= cappedMinFinished {
-		return p99Ms, true
+	switch {
+	case finished == 0:
+		return 0, false
+	case finished >= cappedMinFinished:
+		return max(p99Ms, 1), true
+	default:
+		return max(longestMs, 1), false
 	}
-	return longestMs, false
 }
 
 // AgentRunStats returns the run counts and durations of the agent type slug that
@@ -99,7 +91,13 @@ func (s *RunService) AgentRunStats(ctx context.Context, slug string, period usag
 
 func (s *RunService) agentRunStats(ctx context.Context, tenantID, slug string, period usagewindow.Period, now time.Time) (RunStats, error) {
 	at, err := s.atRepo.GetAgentTypeBySlug(ctx, tenantID, slug)
-	if err != nil || at == nil {
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return RunStats{}, ErrNotFound
+		}
+		return RunStats{}, fmt.Errorf("get agent type by slug: %w", err)
+	}
+	if at == nil {
 		return RunStats{}, ErrNotFound
 	}
 	if err = s.authz.checkRun(ctx, *at, "read"); err != nil {
