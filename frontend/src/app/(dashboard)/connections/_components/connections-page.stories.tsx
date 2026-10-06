@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import ConnectionsLayout from '../layout';
 import { ConnectionsPage } from './connections-page';
 import { MANY_CONNECTIONS, MOCK_CONNECTIONS } from './connections-mock-data';
 
@@ -13,7 +12,7 @@ const meta: Meta<typeof ConnectionsPage> = {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/connections' } },
   },
-  decorators: [dashboardPage({}, ConnectionsLayout)],
+  decorators: [dashboardPage()],
 };
 
 export default meta;

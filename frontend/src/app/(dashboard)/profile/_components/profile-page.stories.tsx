@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { Heading, Stack, Text } from '@orbit/terra';
 import type { ListPATsResult } from '@orbit/server/services/identity-server';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import ProfileLayout from '../layout';
 import { ApiKeysCard } from './api-keys-card';
 import { RolesPermissionsCard } from './roles-permissions-card';
 import { UserIdentityCard } from './user-identity-card';
@@ -49,7 +48,7 @@ function ProfileView({ profile, explain, tokens }: ProfileViewProps) {
 const meta: Meta<typeof ProfileView> = {
   title: 'Pages/Profile',
   component: ProfileView,
-  decorators: [dashboardPage({}, ProfileLayout)],
+  decorators: [dashboardPage()],
   parameters: {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/profile' } },

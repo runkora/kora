@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import ModelGatewayLayout from '../layout';
 import { SetupTab } from './setup-tab';
 
 /** Setup guide: provision a key, then point Claude Code, Codex, OpenCode or VS Code at the gateway. */
@@ -12,7 +11,7 @@ const meta: Meta<typeof SetupTab> = {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/model-gateway/setup' } },
   },
-  decorators: [dashboardPage({}, ModelGatewayLayout)],
+  decorators: [dashboardPage()],
 };
 
 export default meta;

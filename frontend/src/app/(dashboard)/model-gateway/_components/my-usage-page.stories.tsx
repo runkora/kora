@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
 import type { MockRoutes } from '@orbit/storybook/mock-api';
 import type { AnalyticsDays } from '../_types';
-import ModelGatewayLayout from '../layout';
 import { MyUsageShell } from '../my-usage/_components/my-usage-shell';
 import {
   BUDGET_STATUS,
@@ -35,8 +34,8 @@ const meta: Meta<typeof MyUsageShell> = {
 export default meta;
 type Story = StoryObj<typeof MyUsageShell>;
 
-const page = dashboardPage(routes(false), ModelGatewayLayout);
-const emptyPage = dashboardPage(routes(true), ModelGatewayLayout);
+const page = dashboardPage(routes(false));
+const emptyPage = dashboardPage(routes(true));
 
 const populated = {
   initialData: MY_USAGE_7D,
