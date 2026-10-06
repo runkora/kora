@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import ModelGatewayLayout from '../layout';
 import { OverviewTab } from './overview-tab';
 import {
   ANALYTICS_BUCKETS,
@@ -18,7 +17,7 @@ const meta: Meta<typeof OverviewTab> = {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/model-gateway/overview' } },
   },
-  decorators: [dashboardPage({}, ModelGatewayLayout)],
+  decorators: [dashboardPage()],
 };
 
 export default meta;

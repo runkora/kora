@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
 import type { MockRoutes } from '@orbit/storybook/mock-api';
-import ModelGatewayLayout from '../layout';
 import { LogsTabShell } from './logs-tab-shell';
 import {
   FAILED_LOG_RECORD,
@@ -29,7 +28,7 @@ const meta: Meta<typeof LogsTabShell> = {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/model-gateway/logs' } },
   },
-  decorators: [dashboardPage(usageRoutes, ModelGatewayLayout)],
+  decorators: [dashboardPage(usageRoutes)],
 };
 
 export default meta;

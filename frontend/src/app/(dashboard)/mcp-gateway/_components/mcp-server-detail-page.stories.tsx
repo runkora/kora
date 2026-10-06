@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import McpGatewayLayout from '../layout';
 import { McpServerDetailShell } from './mcp-server-detail-shell';
 import {
   GITHUB,
@@ -21,7 +20,7 @@ const meta: Meta<typeof McpServerDetailShell> = {
     layout: 'fullscreen',
     nextjs: { appDirectory: true, navigation: { pathname: '/mcp-gateway/github' } },
   },
-  decorators: [dashboardPage({}, McpGatewayLayout)],
+  decorators: [dashboardPage()],
 };
 
 export default meta;

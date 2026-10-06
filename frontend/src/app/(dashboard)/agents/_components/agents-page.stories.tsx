@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
 import type { MockRequest, MockRoutes } from '@orbit/storybook/mock-api';
-import AgentsLayout from '../layout';
 import { AgentsShell } from './agents-shell';
 import {
   AGENT_ROWS,
@@ -51,7 +50,7 @@ export default meta;
 type Story = StoryObj<typeof AgentsShell>;
 
 // Decorators stack across meta and story, so each story installs its own frame once.
-const withRoutes = (routes: MockRoutes) => [dashboardPage(routes, AgentsLayout)];
+const withRoutes = (routes: MockRoutes) => [dashboardPage(routes)];
 
 export const Default: Story = {
   decorators: withRoutes(listRoutes()),

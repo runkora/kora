@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import ModelGatewayLayout from '../layout';
 import { ModelsTabShell } from './models-tab-shell';
 import { MANY_MODEL_ROWS, MODEL_OBJECTS, MODEL_ROWS } from './model-mock-data';
 
@@ -14,13 +13,10 @@ const meta: Meta<typeof ModelsTabShell> = {
     nextjs: { appDirectory: true, navigation: { pathname: '/model-gateway/models' } },
   },
   decorators: [
-    dashboardPage(
-      {
-        'GET /api/models': { object: 'list', data: MODEL_OBJECTS },
-        'PUT /api/preferences': {},
-      },
-      ModelGatewayLayout,
-    ),
+    dashboardPage({
+      'GET /api/models': { object: 'list', data: MODEL_OBJECTS },
+      'PUT /api/preferences': {},
+    }),
   ],
 };
 
