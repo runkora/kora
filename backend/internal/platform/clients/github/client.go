@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -242,4 +243,41 @@ func (c *Client) GetInstallationPermissions(ctx context.Context, appJWT string, 
 		return nil, err
 	}
 	return body.Permissions, nil
+}
+
+// repositoryResponse is the wire shape of GET /repositories/{id}.
+type repositoryResponse struct {
+	FullName string `json:"full_name"`
+}
+
+// GetRepositoryFullName returns the "owner/name" of the repository with the
+// given numeric ID. installationToken must be a live installation access token.
+func (c *Client) GetRepositoryFullName(ctx context.Context, installationToken, id string) (string, error) {
+	endpoint := fmt.Sprintf("%s/repositories/%s", c.baseURL, url.PathEscape(id))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", fmt.Errorf("build get repository request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+installationToken)
+	req.Header.Set("Accept", acceptHeader)
+
+	_, span, resp, err := c.Do(ctx, "github.Client.GetRepositoryFullName", req)
+	defer span.End()
+	if err != nil {
+		return "", fmt.Errorf("get repository call: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+
+	var body repositoryResponse
+	if err = c.DecodeJSON(span, resp, &body); err != nil {
+		return "", err
+	}
+	if body.FullName == "" {
+		return "", c.RecordError(span, ErrUnexpectedStatus)
+	}
+	return body.FullName, nil
 }

@@ -320,6 +320,13 @@ func TestConnector_Classify(t *testing.T) {
 		{"objects_opaque", http.MethodGet, "https://objects.githubusercontent.com/blobs/deadbeef", "contents:read", "", false},
 		{"content_host_write", http.MethodPost, "https://codeload.github.com/orbital/orbit/tar.gz/main", "", "", true},
 
+		// Release asset downloads on the web host
+		{"release_download", http.MethodGet, "https://github.com/orbital/orbit/releases/download/v1.0/buf.tar.gz", "contents:read", "orbit", false},
+		{"release_download_head", http.MethodHead, "https://github.com/orbital/orbit/releases/download/v1.0/buf.tar.gz", "contents:read", "orbit", false},
+		{"release_latest_download", http.MethodGet, "https://github.com/orbital/orbit/releases/latest/download/buf.tar.gz", "contents:read", "orbit", false},
+		{"release_download_foreign_owner", http.MethodGet, "https://github.com/bufbuild/buf/releases/download/v1.0/buf.tar.gz", "", "", true},
+		{"release_page", http.MethodGet, "https://github.com/orbital/orbit/releases/tag/v1.0", "repo:read", "", false},
+
 		// Anything else: verb-classified catch-all, unqualified
 		{"web_page", http.MethodGet, "https://github.com/orbital", "repo:read", "", false},
 
@@ -721,5 +728,72 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	}
 	if _, ok := gotBody.Permissions["contents"]; ok {
 		t.Errorf("issues:write token must not carry contents, got %v", gotBody.Permissions)
+	}
+}
+
+// TestConnector_Classify_RepositoryID covers the ID-addressed links GitHub
+// paginates with: the ID resolves to owner/name once and classifies like the
+// /repos path it stands for.
+func TestConnector_Classify_RepositoryID(t *testing.T) {
+	lookups := map[string]int{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.URL.Path == "/app/installations/1/access_tokens":
+			w.WriteHeader(http.StatusCreated)
+			_ = json.NewEncoder(w).Encode(map[string]any{"token": "ghs_meta", "expires_at": "2026-06-06T13:00:00Z"})
+		case strings.HasPrefix(r.URL.Path, "/repositories/"):
+			id := strings.TrimPrefix(r.URL.Path, "/repositories/")
+			lookups[id]++
+			names := map[string]string{"123": "Orbital/Orbit", "456": "octocat/Hello-World"}
+			if names[id] == "" || r.Header.Get("Authorization") != "Bearer ghs_meta" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"full_name": names[id]})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
+	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
+	conn := credentials.Connection{
+		ID: "conn-1", SecretRef: "ref", Adapter: credentials.AdapterGitHubApp,
+		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
+	}
+
+	cases := []struct {
+		name, url, want, qualifier string
+		err                        bool
+	}{
+		{"pull_files_page", "https://api.github.com/repositories/123/pulls/5/files?page=2", "pulls:read", "orbit", false},
+		{"commits_page", "https://api.github.com/repositories/123/commits?page=3", "contents:read", "orbit", false},
+		{"bare_repository", "https://api.github.com/repositories/123", "metadata:read", "orbit", false},
+		{"foreign_owner", "https://api.github.com/repositories/456/commits", "", "", true},
+		{"unknown_id", "https://api.github.com/repositories/789/commits", "", "", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, _ := http.NewRequest(http.MethodGet, tc.url, nil)
+			got, err := open(t, a, conn).Classify(req)
+			if tc.err {
+				if !errors.Is(err, credentials.ErrUnsupportedAction) {
+					t.Fatalf("err = %v (got %+v), want ErrUnsupportedAction", err, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Classify: %v", err)
+			}
+			if got.Action != tc.want || got.Qualifier != tc.qualifier {
+				t.Errorf("Classify = %q/%q, want %q/%q", got.Action, got.Qualifier, tc.want, tc.qualifier)
+			}
+		})
+	}
+	if lookups["123"] != 1 {
+		t.Errorf("repository 123 looked up %d times, want 1 (cached)", lookups["123"])
 	}
 }

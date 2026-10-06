@@ -82,6 +82,7 @@ type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
+	GetRepositoryFullName(ctx context.Context, installationToken, id string) (string, error)
 }
 
 // instPermsCacheTTL is how long the installation's permission set is cached
@@ -108,6 +109,8 @@ type Adapter struct {
 	mu             sync.Mutex
 	cache          map[string]credentials.Credential
 	instPermsCache map[int64]cachedInstPerms
+	// repoNames maps "<installation>/<repository ID>" to "owner/name".
+	repoNames map[string]string
 }
 
 // New constructs an Adapter backed by the given GitHub client and secret
@@ -120,6 +123,7 @@ func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Ad
 		now:            time.Now,
 		cache:          make(map[string]credentials.Credential),
 		instPermsCache: make(map[int64]cachedInstPerms),
+		repoNames:      make(map[string]string),
 	}
 }
 
@@ -196,7 +200,11 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 	// /api/graphql on the shared host.
 	switch {
 	case host == "api.github.com":
-		return classifyAPI(req, path, owner)
+		apiPath, err := c.resolveRepositoryID(req.Context(), path)
+		if err != nil {
+			return credentials.Classification{}, err
+		}
+		return classifyAPI(req, apiPath, owner)
 	case path == "/api/v3" || strings.HasPrefix(path, "/api/v3/"):
 		return classifyAPI(req, strings.TrimPrefix(path, "/api/v3"), owner)
 	case path == "/api/graphql":
@@ -205,6 +213,10 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 
 	if host == "codeload.github.com" || strings.HasSuffix(host, ".githubusercontent.com") {
 		return classifyContentHost(req.Method, path, owner)
+	}
+
+	if cls, ok, err := classifyReleaseDownload(req.Method, path, owner); ok || err != nil {
+		return cls, err
 	}
 
 	// Catch-all: verb-classified and unqualified, the legacy behavior for
@@ -449,6 +461,76 @@ func classifyContentHost(method, path, owner string) (credentials.Classification
 		qualifier = normalizeName(segs[1])
 	}
 	return credentials.Classification{Action: ActionContentsRead, Qualifier: qualifier}, nil
+}
+
+// classifyReleaseDownload recognizes release asset downloads on the web host:
+//
+//	GET /{owner}/{repo}/releases/download/{tag}/{asset}
+//	GET /{owner}/{repo}/releases/latest/download/{asset}
+//
+// A download is contents:read on the repository. A foreign owner is denied
+// like a git path of another owner. ok=false means fall through.
+func classifyReleaseDownload(method, path, owner string) (credentials.Classification, bool, error) {
+	segs := pathSegments(path)
+	if len(segs) < 5 || segs[2] != "releases" || (segs[3] != "download" && (segs[3] != "latest" || segs[4] != "download")) {
+		return credentials.Classification{}, false, nil
+	}
+	if verb, err := verbClass(method); err != nil || verb != verbRead {
+		return credentials.Classification{}, false, nil
+	}
+	qualifier := ""
+	if owner != "" {
+		if normalizeName(segs[0]) != owner {
+			return credentials.Classification{}, true, credentials.ErrUnsupportedAction
+		}
+		qualifier = normalizeName(segs[1])
+	}
+	return credentials.Classification{Action: ActionContentsRead, Qualifier: qualifier}, true, nil
+}
+
+// resolveRepositoryID rewrites /repositories/{id}/… to /repos/{owner}/{repo}/…
+// so the ID-addressed links GitHub paginates with classify like the paths they
+// stand for. An ID that cannot be resolved is unclassifiable.
+func (c *connector) resolveRepositoryID(ctx context.Context, path string) (string, error) {
+	segs := pathSegments(path)
+	if len(segs) < 2 || segs[0] != "repositories" || !isNumeric(segs[1]) {
+		return path, nil
+	}
+	fullName, err := c.repositoryFullName(ctx, segs[1])
+	if err != nil {
+		return "", fmt.Errorf("%w: resolve repository id: %w", credentials.ErrUnsupportedAction, err)
+	}
+	return "/repos/" + strings.Join(append([]string{fullName}, segs[2:]...), "/"), nil
+}
+
+// repositoryFullName looks up a repository ID with a metadata-scoped
+// installation token. Results are cached for the life of the process.
+func (c *connector) repositoryFullName(ctx context.Context, id string) (string, error) {
+	a := c.adapter
+	key := strconv.FormatInt(c.cfg.InstallationID, 10) + "/" + id
+	a.mu.Lock()
+	name, ok := a.repoNames[key]
+	a.mu.Unlock()
+	if ok {
+		return name, nil
+	}
+
+	cred, err := c.Mint(ctx, credentials.CallerIdentity{TenantID: c.conn.TenantID, Action: ActionMetadataRead})
+	if err != nil {
+		return "", fmt.Errorf("resolve metadata token: %w", err)
+	}
+	name, err = a.api.GetRepositoryFullName(ctx, cred.Token, id)
+	if err != nil {
+		return "", fmt.Errorf("get repository: %w", err)
+	}
+
+	a.mu.Lock()
+	if len(a.repoNames) >= cacheEvictThreshold {
+		clear(a.repoNames)
+	}
+	a.repoNames[key] = name
+	a.mu.Unlock()
+	return name, nil
 }
 
 // verbClass maps an HTTP method to the read/write verb class.
