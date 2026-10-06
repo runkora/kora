@@ -316,7 +316,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 			Audit:   install.PodSecurity.Audit,
 		},
 		ImagePullSecrets: install.ImagePullSecrets,
-		SandboxBase:      operator.SandboxBase{Image: install.SandboxImages.BaseImage, Warm: install.SandboxImages.BaseWarm},
+		SandboxBase:      operator.SandboxBase{Image: install.SandboxImages.BaseImage, Warm: install.SandboxImages.WarmBase},
 		Collector:        agentCollector(install.CollectorNamespace, install.CollectorCIDRs),
 		Preflight:        preflightSource{checks},
 	}
@@ -340,7 +340,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		Registry:    operator.NewRemoteRegistry(install.SandboxImages.RegistryMirrors),
 		Logger:      logger,
 		PullSecrets: install.ImagePullSecrets,
-		Placement:   install.SandboxImages.WarmerPlacement,
+		Placement:   operator.WarmerPlacement(install.SandboxImages.WarmerPlacement),
 		Resync:      oc.Current.SyncPeriod(),
 	}
 	if err := sandboxImageReconciler.SetupWithManager(mgr); err != nil {

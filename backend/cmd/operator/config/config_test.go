@@ -18,7 +18,7 @@ func TestBaseDefaults(t *testing.T) {
 	if in.SystemNamespace != "orbit-system" || in.PodSecurity.Enforce != "restricted" || in.Injection.BundlePollingMaxDelay != 60 {
 		t.Errorf("install defaults = %+v", in)
 	}
-	if in.SandboxImages.BaseImage != "ghcr.io/clear-route/kora-sandbox-base:latest" || in.SandboxImages.BaseWarm {
+	if in.SandboxImages.BaseImage != "ghcr.io/clear-route/kora-sandbox-base:latest" || in.SandboxImages.WarmBase {
 		t.Errorf("sandboxImages defaults = %+v", in.SandboxImages)
 	}
 	if in.TrustDomain != "" {
@@ -52,7 +52,7 @@ func TestSandboxImages_DecodeFromYAML(t *testing.T) {
 install:
   sandboxImages:
     baseImage: orbit-registry:5001/kora-sandbox-base:latest
-    baseWarm: true
+    warmBase: true
     registryMirrors:
       orbit-registry:5001: http://orbit-registry:5000
     warmerPlacement:
@@ -79,7 +79,7 @@ install:
 		t.Fatalf("load: %v", err)
 	}
 	si := cfg.Install.SandboxImages
-	if !si.BaseWarm || si.RegistryMirrors["orbit-registry:5001"] != "http://orbit-registry:5000" {
+	if !si.WarmBase || si.RegistryMirrors["orbit-registry:5001"] != "http://orbit-registry:5000" {
 		t.Errorf("sandboxImages = %+v", si)
 	}
 	p := si.WarmerPlacement
