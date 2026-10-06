@@ -1,12 +1,10 @@
 # Observability Configuration
 
-## Environment Variables
+Shared observability tunables load from the `internal/platform/observability` config module: `config/base.yaml`, its `{APP_ENV}.yaml` overlay and, in a chart install, the rendered `/etc/orbit/config/internal/platform/observability.yaml`. *Reference: See `internal/platform/observability/config.go`.*
 
-Shared observability tunables load from `internal/platform/observability/config/base.yaml` and its `{APP_ENV}.yaml` overlay. A handful of environment variables override those YAML values per-process (they are the ones the code actually reads; see `internal/platform/observability/config.go`). Service identity (name and version) is **not** an environment variable; it comes from each binary's YAML config.
+## Service Identity
 
-### Service Identity
-
-Service name and version come from the binary's own config, not the environment:
+Service name and version come from each binary's own config:
 
 ```yaml
 # backend/cmd/<binary>/config/base.yaml
@@ -16,42 +14,34 @@ observability:
   serviceName: orbit-identity # → service.name resource attribute
 ```
 
-The deployment environment comes from `APP_ENV`:
+`APP_ENV` selects the config overlay and sets the `deployment.environment` resource attribute. It is `local` or `production`, and defaults to `production` when unset.
 
-```bash
-# Environment selector: picks the config overlay and sets the
-# deployment.environment resource attribute.
-APP_ENV=production
-# Values: "local" | "development" | "production"
-# Default: "production" (when APP_ENV is unset or empty)
+## Config Keys
+
+*   **`otlpEndpoint`:** The OTLP collector's gRPC URL. `http://` is plaintext and `https://` is TLS. An endpoint without a scheme fails startup, and an empty endpoint disables OTLP export.
+*   **`samplingRate`:** The fraction of root spans sampled, from 0.0 to 1.0. It is 0.1 in `production.yaml` and 1.0 in `local.yaml`.
+*   **`logFormat`:** `console` or `json`. It is `json` in `production.yaml` and `console` in `local.yaml`.
+
+The `orbit` chart renders these keys from `global.observability.otlpEndpoint`, `global.observability.samplingRate` and `global.logFormat`:
+
+```yaml
+global:
+  logFormat: json
+  observability:
+    otlpEndpoint: https://tempo.monitoring.svc.cluster.local:4317
+    samplingRate: "0.1"
 ```
 
-### Trace Export
+A single component overrides them through its `configOverrides`:
 
-```bash
-# OTLP collector URL (gRPC)
-ORBIT_OTLP_ENDPOINT=http://localhost:4317
-# http:// is plaintext, https:// is TLS. Without a scheme the service fails to start.
-# Empty = OTLP export disabled
-# Default: from YAML (empty in base — no export unless APP_ENV=local)
+```yaml
+policyService:
+  configOverrides:
+    internal/platform/observability:
+      samplingRate: 1.0
 ```
 
-### Sampling & Logging
-
-```bash
-# Trace sampling rate (0.0 to 1.0) — fraction of root spans sampled
-ORBIT_SAMPLING_RATE=0.1
-# Default: from YAML (0.1 in base, 1.0 in local); 0.1 as a code fallback
-# Values:
-#   1.0 = sample all traces (development/debugging)
-#   0.1 = sample 10% (recommended production)
-#   0.01 = sample 1% (high-traffic production)
-
-# Log output style
-ORBIT_LOG_FORMAT=console
-# Values: "console" | "json"
-# Default: from YAML ("json" in base, "console" in local)
-```
+The session-manager and the identity-proxy sidecar have no rendered file. orbit-agents and the operator pass them the endpoint and the sampling rate as `ORBIT_OTLP_ENDPOINT` and `ORBIT_SAMPLING_RATE`.
 
 ## Configuration Modes
 
@@ -65,11 +55,7 @@ The trace exporter is chosen at startup in priority order: an OTLP endpoint alwa
 - No external dependencies required
 - Best for local development and debugging
 
-**Configuration:**
-```bash
-APP_ENV=local
-ORBIT_SAMPLING_RATE=1.0  # Sample everything in dev (already the local default)
-```
+**Configuration:** `APP_ENV=local` with no `otlpEndpoint`.
 
 **Output Example:**
 ```json
@@ -91,17 +77,12 @@ ORBIT_SAMPLING_RATE=1.0  # Sample everything in dev (already the local default)
 
 **Characteristics:**
 - Exports to an OTLP collector (Jaeger, Tempo, etc.)
-- Triggered whenever `ORBIT_OTLP_ENDPOINT` is set, in any `APP_ENV`
+- Triggered whenever `otlpEndpoint` is set, in any `APP_ENV`
 - Configurable sampling rate
 - TLS when the endpoint is `https://`, plaintext when it is `http://`
 - Batched export for efficiency
 
-**Configuration:**
-```bash
-APP_ENV=production
-ORBIT_OTLP_ENDPOINT=http://tempo.monitoring.svc.cluster.local:4317
-ORBIT_SAMPLING_RATE=0.1
-```
+**Configuration:** Set `global.observability.otlpEndpoint` in the chart values.
 
 ### No-Op Mode
 
@@ -112,76 +93,19 @@ ORBIT_SAMPLING_RATE=0.1
 - Fallback when no collector is configured
 
 **Triggered when:**
-- `APP_ENV` is not `local` (e.g. `development` or `production`) AND
-- `ORBIT_OTLP_ENDPOINT` is not set
+- `APP_ENV` is not `local` AND
+- `otlpEndpoint` is empty
 
 ## Configuration Best Practices
 
-Service name and version live in each binary's YAML config, so the examples below only set the environment-driven overrides.
-
-### Development
-
-```bash
-# .env (local development)
-APP_ENV=local
-ORBIT_SAMPLING_RATE=1.0
-ORBIT_LOG_FORMAT=console
-```
-
-Use the stdout exporter to see traces directly in logs. This is perfect for understanding how tracing works and debugging trace propagation.
-
-### Staging
-
-```bash
-APP_ENV=production
-ORBIT_OTLP_ENDPOINT=http://jaeger-collector.staging:4317
-ORBIT_SAMPLING_RATE=0.5
-```
-
-Higher sampling rate (50%) to catch issues before production. `http://` keeps the hop plaintext, which is for a collector reached inside a trusted network or over a service mesh that encrypts it.
-
-### Production
-
-```bash
-APP_ENV=production
-ORBIT_OTLP_ENDPOINT=https://tempo.monitoring.svc.cluster.local:4317
-ORBIT_SAMPLING_RATE=0.1
-```
-
-Lower sampling rate (10%) to balance observability with cost. Use `https://` in production, unless a service mesh already encrypts the hop and the collector serves plaintext.
-
-### High-Traffic Production
-
-```bash
-# For very high request volumes
-ORBIT_SAMPLING_RATE=0.01  # 1% sampling
-```
-
-Consider tail-based sampling (future enhancement) for better trace selection.
+*   **Development:** The `local` overlay samples every trace and logs in the console format.
+*   **Staging:** A higher `global.observability.samplingRate` (e.g. `"0.5"`) catches issues before production. `http://` keeps the hop plaintext for a collector reached inside a trusted network or over a service mesh that encrypts it.
+*   **Production:** A `samplingRate` of `"0.1"` balances observability with cost. Use `https://` unless a service mesh already encrypts the hop and the collector serves plaintext.
+*   **High-traffic production:** A `samplingRate` of `"0.01"` samples 1% of traces.
 
 ## Validation
 
-### Verify Configuration
-
-```bash
-# Start a binary and check logs for observability setup
-APP_ENV=local go run ./cmd/identity
-
-# Expected output:
-# "Observability initialized" with tracer and exporter info
-```
-
-### Test Trace Export
-
-```bash
-# Local mode - check stdout for trace spans
-APP_ENV=local go run ./cmd/identity
-
-# OTLP mode - verify connection to collector
-APP_ENV=production \
-ORBIT_OTLP_ENDPOINT=http://localhost:4317 \
-go run ./cmd/identity
-```
+Check a workload's rendered values with `kubectl -n orbit-system get configmap orbit-identity-config -o yaml`, and its startup logs for "Observability initialized".
 
 ## Troubleshooting
 
@@ -189,9 +113,9 @@ go run ./cmd/identity
 
 **Check:**
 1. Is `APP_ENV` set correctly (stdout export requires `local`)?
-2. For OTLP export, is `ORBIT_OTLP_ENDPOINT` configured?
+2. For OTLP export, is `global.observability.otlpEndpoint` set?
 3. Is the OTLP collector reachable?
-4. Check sampling rate (`ORBIT_SAMPLING_RATE`): might be too low
+4. Check the sampling rate (`global.observability.samplingRate`): it might be too low
 
 ### TLS connection errors
 
@@ -203,8 +127,8 @@ go run ./cmd/identity
 ### High overhead
 
 **Solutions:**
-1. Reduce sampling rate: `ORBIT_SAMPLING_RATE=0.01`
-2. Verify batch processor settings (code-level, not env vars)
+1. Reduce the sampling rate: `global.observability.samplingRate: "0.01"`
+2. Verify batch processor settings (code-level)
 3. Consider tail-based sampling (future)
 
 ## Related Documentation

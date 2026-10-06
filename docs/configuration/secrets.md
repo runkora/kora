@@ -67,7 +67,7 @@ Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with passw
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `APP_ENV` | chart values / deployment env | Environment: `local`, `development`, `production`. Not a secret but controls config loading. In-cluster it is injected as an env var, not read from `.env`. |
+| `APP_ENV` | `.env` for host-run binaries | Environment: `local` or `production` (the default). Not a secret but selects the `{env}.yaml` config layer. The chart does not set it. |
 
 ### Database
 

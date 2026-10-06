@@ -10,10 +10,8 @@ import (
 
 // ─── Tenant Registry ──────────────────────────────────────────────────────────
 //
-// The tenant registry is a YAML file read from the path set by the
-// ORBIT_TENANTS_CONFIG environment variable. In local dev this points at
-// config/tenants.yaml; in cluster mode it is a ConfigMap-mounted file at
-// /etc/orbit/tenants.yaml (the orbit-tenants ConfigMap managed by the operator).
+// The tenant registry is a YAML file read from Config.Registry.TenantsPath: the
+// orbit-tenants ConfigMap, managed by the operator, mounted at /etc/orbit/tenants.yaml.
 //
 // Schema:
 //
