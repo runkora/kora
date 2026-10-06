@@ -456,7 +456,7 @@ func (c *Controller) handleRunStats(w http.ResponseWriter, r *http.Request) {
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
-	out, err := c.runs.AgentRunStats(ctx, r.PathValue("slug"), period, time.Now())
+	out, err := c.runs.AgentRunStats(ctx, r.PathValue("slug"), period, time.Now().UTC())
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)

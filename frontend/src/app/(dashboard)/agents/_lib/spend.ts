@@ -11,6 +11,19 @@ export const PERIOD_TEXT: Record<Period, { text: string; previous: string }> = {
   '90d': { text: 'last 90 days', previous: 'previous 90 days' },
 };
 
+/** A rise on the previous window above this percentage reads as a warning. */
+export const SPEND_ALERT_PCT = 25;
+
+/** Change on the previous window as a percentage; null when that window had no spend. */
+export function spendChange(spend: number, previous: number | undefined): number | null {
+  return previous !== undefined && previous > 0
+    ? Math.round(((spend - previous) / previous) * 100)
+    : null;
+}
+
+/** A change as it reads in a footer: the arrow and the size. */
+export const changeText = (change: number) => `${change >= 0 ? '▲' : '▼'} ${Math.abs(change)}%`;
+
 /** The length of each window in days. */
 export const PERIOD_DAYS: Record<Period, number> = { '24h': 1, '7d': 7, '30d': 30, '90d': 90 };
 

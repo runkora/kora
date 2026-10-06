@@ -6,12 +6,10 @@ import type {
   AgentTypeUsage,
 } from '@orbit/shared/api';
 import { SHAPES } from '../../_components/agents-insights-mock-data';
-import { USAGE, ahead } from '../../_components/agents-mock-data';
+import { DAY, USAGE, ahead } from '../../_components/agents-mock-data';
 import type { Period } from '../../_lib/spend';
 
 // Mock BFF overview for the agent detail stories: the 7-day mock usage scaled to each window.
-
-const DAY = 24 * 60 * 60 * 1000;
 
 /** A weekly and a monthly window plus a per-run limit. */
 const BUDGET: AgentBudgetStatus = {
@@ -27,7 +25,7 @@ interface Profile {
   /** Share of spend per model. */
   models: [string, number][];
   /** Runs in 7 days. */
-  runs: { completed: number; failed: number; triggered: number; manual: number };
+  runs: { completed: number; failed: number; triggered: number };
   /** Run duration in 7 days; the other periods vary around it. */
   p50Ms: number;
   p95Ms: number;
@@ -42,54 +40,24 @@ const PROFILES: Record<string, Profile> = {
       ['claude-opus-4-1', 0.27],
       ['claude-haiku-4-5', 0.11],
     ],
-    runs: { completed: 41, failed: 5, triggered: 38, manual: 8 },
+    runs: { completed: 41, failed: 5, triggered: 38 },
     p50Ms: 232_000,
     p95Ms: 662_000,
     previous: 0.84,
   },
-  coder: {
-    models: [
-      ['claude-opus-4-1', 0.58],
-      ['claude-sonnet-4-5', 0.42],
-    ],
-    runs: { completed: 64, failed: 11, triggered: 12, manual: 63 },
-    p50Ms: 1_050_000,
-    p95Ms: 3_400_000,
-    previous: 1.31,
-  },
-  'security-reviewer': {
-    models: [
-      ['claude-sonnet-4-5', 0.7],
-      ['gpt-5', 0.3],
-    ],
-    runs: { completed: 18, failed: 1, triggered: 17, manual: 2 },
-    p50Ms: 480_000,
-    p95Ms: 1_500_000,
-    previous: 0.97,
-  },
   'release-notes': {
     models: [['claude-haiku-4-5', 1]],
-    runs: { completed: 7, failed: 0, triggered: 7, manual: 0 },
+    runs: { completed: 7, failed: 0, triggered: 7 },
     p50Ms: 66_000,
     p95Ms: 130_000,
     previous: 1.6,
   },
   'single-run': {
     models: [['claude-haiku-4-5', 1]],
-    runs: { completed: 1, failed: 0, triggered: 0, manual: 1 },
+    runs: { completed: 1, failed: 0, triggered: 0 },
     p50Ms: 200_000,
     p95Ms: 200_000,
     previous: 0,
-  },
-  'triage-bot': {
-    models: [
-      ['claude-haiku-4-5', 0.8],
-      ['claude-sonnet-4-5', 0.2],
-    ],
-    runs: { completed: 133, failed: 9, triggered: 140, manual: 2 },
-    p50Ms: 31_000,
-    p95Ms: 96_000,
-    previous: 0.72,
   },
 };
 
@@ -138,12 +106,10 @@ function summarizeDurations(durations: number[]): AgentRunStats['durations'] {
     return {
       finished: 0,
       median_ms: 0,
-      average_ms: 0,
       p95_ms: 0,
       p99_ms: 0,
       longest_ms: 0,
       capped: false,
-      range_ms: 0,
       buckets,
       overflow: 0,
     };
@@ -162,12 +128,10 @@ function summarizeDurations(durations: number[]): AgentRunStats['durations'] {
   return {
     finished: n,
     median_ms: Math.round(mid),
-    average_ms: Math.round(sorted.reduce((sum, d) => sum + d, 0) / n),
     p95_ms: at(0.95),
     p99_ms: p99,
     longest_ms: longest,
     capped,
-    range_ms: range,
     buckets,
     overflow,
   };
@@ -177,7 +141,6 @@ const EMPTY: Profile['runs'] & Pick<Profile, 'p50Ms' | 'p95Ms'> = {
   completed: 0,
   failed: 0,
   triggered: 0,
-  manual: 0,
   p50Ms: 0,
   p95Ms: 0,
 };
@@ -220,7 +183,7 @@ export function mockOverview(
   const completed = scale(runs.completed);
   const failed = scale(runs.failed);
   const triggered = scale(runs.triggered);
-  const manual = Math.max(0, completed + failed - triggered);
+  const runTotal = Math.max(completed + failed, triggered);
 
   const insights: AgentInsightsResponse = {
     period,
@@ -242,9 +205,8 @@ export function mockOverview(
     insights,
     runStats: {
       period,
-      total: triggered + manual,
+      total: runTotal,
       triggered,
-      manual,
       completed,
       failed,
       durations: summarizeDurations([

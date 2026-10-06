@@ -28,9 +28,10 @@ describe('InstructionsMarkdown', () => {
 
   it('highlights variables in text but not in code spans or fences', () => {
     const { container } = render('Hi {{author}} and `{{kept}}`\n\n~~~\n{{fenced}}\n~~~');
-    expect(container.textContent).toContain('{{author}}');
-    expect(container.textContent).toContain('{{kept}}');
-    expect(container.textContent).toContain('{{fenced}}');
+    const highlighted = (text: string) => screen.getByText(text).classList.contains('text-accent');
+    expect(highlighted('{{author}}')).toBe(true);
+    expect(highlighted('{{kept}}')).toBe(false);
+    expect(highlighted('{{fenced}}')).toBe(false);
     expect(container.textContent).not.toContain('`');
   });
 

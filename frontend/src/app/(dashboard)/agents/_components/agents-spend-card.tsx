@@ -30,7 +30,15 @@ import {
 } from '@orbit/terra';
 import { AppLink } from '@orbit/components/links';
 import { fmtDate, fmtUsd } from '@orbit/utils';
-import { BUDGET_ROWS, budgetTone, groupTail, usedShare } from '../_lib/spend';
+import {
+  BUDGET_ROWS,
+  SPEND_ALERT_PCT,
+  budgetTone,
+  changeText,
+  groupTail,
+  spendChange,
+  usedShare,
+} from '../_lib/spend';
 import type { BudgetRow, SpendRow } from '../_lib/spend';
 
 const CHART_CONFIG = { cost: { label: 'Spend', color: 'var(--color-accent)' } };
@@ -271,10 +279,7 @@ export function AgentsSpendCard({
   const [chosen, setChosen] = useState('agent');
   const view = views.some((v) => v.value === chosen) ? chosen : 'agent';
 
-  const change =
-    previousTotal !== undefined && previousTotal > 0
-      ? Math.round(((total - previousTotal) / previousTotal) * 100)
-      : null;
+  const change = spendChange(total, previousTotal);
 
   return (
     <Card column>
@@ -319,9 +324,12 @@ export function AgentsSpendCard({
                 <Text size="caption" color="muted">
                   Versus {previousText}
                 </Text>
-                <Text mono size="caption" color={change > 25 ? 'status-degraded' : 'foreground'}>
-                  {change >= 0 ? '▲' : '▼'} {Math.abs(change)}% · {fmtUsd(previousTotal ?? 0)}{' '}
-                  before
+                <Text
+                  mono
+                  size="caption"
+                  color={change > SPEND_ALERT_PCT ? 'status-degraded' : 'foreground'}
+                >
+                  {changeText(change)} · {fmtUsd(previousTotal ?? 0)} before
                 </Text>
               </Stack>
             </>

@@ -16,6 +16,7 @@ import {
   MCP_SERVERS,
   MODELS_CATALOGUE,
   RAW_RUNS,
+  DAY,
   ago,
   runsForAgent,
 } from '../../_components/agents-mock-data';
@@ -25,8 +26,6 @@ import type { Period } from '../../_lib/spend';
 import { mockOverview } from './agent-overview-mock-data';
 
 // Mock data for the agent detail stories.
-
-export const DAY = 24 * 60 * 60 * 1000;
 
 // ── Mock data specific to the detail page ────────────────────────────────────
 
@@ -91,7 +90,7 @@ const TRIGGERS: Trigger[] = [
 
 const DELIVERIES: TriggerDelivery[] = [];
 
-export function effectiveAccess(agent: AgentType): EffectiveAccess {
+function effectiveAccess(agent: AgentType): EffectiveAccess {
   const envs = ENVIRONMENTS.filter((e) =>
     (agent.environments ?? []).some((a) => a.environment_id === e.id),
   );
@@ -117,7 +116,7 @@ export function effectiveAccess(agent: AgentType): EffectiveAccess {
  * Every route the detail page and its four tabs call. `overview` answers the
  * Overview's period requests by slug and period.
  */
-export function detailRoutes(
+function detailRoutes(
   agent: AgentType,
   overview: (slug: string, period: Period) => AgentOverviewResponse,
 ): MockRoutes {

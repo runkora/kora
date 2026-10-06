@@ -8,6 +8,7 @@ const BASE = {
   trend: { labels: ['Mon'], values: [10] },
   total: 10,
   previousTotal: 8,
+  change: 25,
   periodText: 'last 7 days',
   previousText: 'previous 7 days',
 };
@@ -33,7 +34,9 @@ describe('AgentSpendCard', () => {
   });
 
   it('says so when the window has no spend', () => {
-    renderWithProviders(<AgentSpendCard {...BASE} total={0} previousTotal={0} budget={null} />);
+    renderWithProviders(
+      <AgentSpendCard {...BASE} total={0} previousTotal={0} change={null} budget={null} />,
+    );
     expect(screen.getByText('No spend in this window yet.')).toBeTruthy();
   });
 });

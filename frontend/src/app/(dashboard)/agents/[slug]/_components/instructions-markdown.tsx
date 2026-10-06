@@ -3,7 +3,7 @@
 /** @tier 3 · agents/[slug]-scoped. Renders an agent's markdown instructions in Terra text, with the numbers of ordered lists drawn in React. */
 
 import { Children, createContext, isValidElement, useContext } from 'react';
-import type { ReactElement, ReactNode } from 'react';
+import type { ElementType, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
@@ -15,9 +15,13 @@ import {
   Heading,
   List,
   ListItem,
+  Separator,
   Stack,
   Text,
 } from '@orbit/terra';
+
+/** Line height of preformatted text, shared by the Raw view and code blocks. */
+export const CODE_LINE_HEIGHT = 1.6;
 
 // The position of the list item being drawn inside an ordered list, 0 outside one.
 const ItemNumber = createContext(0);
@@ -94,7 +98,7 @@ function CodeBlock({ children }: { children?: ReactNode }) {
   return (
     <Card subtle>
       <CardContent padded compact>
-        <Text mono size="caption" preserveWhitespace style={{ lineHeight: 1.6 }}>
+        <Text mono size="caption" preserveWhitespace style={{ lineHeight: CODE_LINE_HEIGHT }}>
           {textOf(children).replace(/\n$/, '')}
         </Text>
       </CardContent>
@@ -111,7 +115,7 @@ function Quote({ children }: { children?: ReactNode }) {
 }
 
 function Rule() {
-  return <Stack style={{ borderTop: '1px solid var(--color-border-subtle)' }} />;
+  return <Separator />;
 }
 
 function H1({ children }: { children?: ReactNode }) {
@@ -141,13 +145,13 @@ function H4({ children }: { children?: ReactNode }) {
 }
 
 // Block renderers: inside a list item they sit beside its text, never inside the Text paragraph.
-const BLOCKS: unknown[] = [Ul, Ol, P, CodeBlock, Quote, Rule, H1, H3, H4];
+const BLOCKS: ElementType[] = [Ul, Ol, P, CodeBlock, Quote, Rule, H1, H3, H4];
 
 /** A list item: a marker, its own text, and any nested block beneath. */
 function Li({ children }: { children?: ReactNode }) {
   const number = useContext(ItemNumber);
   const parts = Children.toArray(children);
-  const isBlock = (c: ReactNode) => isValidElement(c) && BLOCKS.includes((c as ReactElement).type);
+  const isBlock = (c: ReactNode) => isValidElement(c) && BLOCKS.includes(c.type as ElementType);
   const inline = parts.filter((c) => !isBlock(c));
   const blocks = parts.filter(isBlock);
   return (

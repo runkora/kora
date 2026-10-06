@@ -716,19 +716,19 @@ func (r *PostgresRepository) CountAgentRuns(ctx context.Context, tenantID, agent
 func (r *PostgresRepository) FinishedRunDurations(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (FinishedRuns, error) {
 	inner, args := appendVisibility(finishedRunsSQL, []any{tenantID, agentTypeID, from, to}, vis)
 	var out FinishedRuns
-	var median, avg, p95, p99, longest float64
+	var median, p95, p99, longest float64
 	err := r.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FILTER (WHERE state = 'completed'), COUNT(*) FILTER (WHERE state = 'failed'),
-		       COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY ms), 0), COALESCE(AVG(ms), 0),
+		       COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY ms), 0),
 		       COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms), 0),
 		       COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY ms), 0), COALESCE(MAX(ms), 0)
-		FROM (`+inner+`) f`, args...).Scan(&out.Completed, &out.Failed, &median, &avg, &p95, &p99, &longest)
+		FROM (`+inner+`) f`, args...).Scan(&out.Completed, &out.Failed, &median, &p95, &p99, &longest)
 	if err != nil {
 		return FinishedRuns{}, fmt.Errorf("finished run durations: %w", err)
 	}
 	// p99 and the longest run round up so no run falls above its own histogram edge.
-	out.MedianMs, out.AverageMs, out.P95Ms, out.P99Ms, out.LongestMs =
-		int64(math.Round(median)), int64(math.Round(avg)), int64(math.Round(p95)), int64(math.Ceil(p99)), int64(math.Ceil(longest))
+	out.MedianMs, out.P95Ms, out.P99Ms, out.LongestMs =
+		int64(math.Round(median)), int64(math.Round(p95)), int64(math.Ceil(p99)), int64(math.Ceil(longest))
 	return out, nil
 }
 
@@ -758,5 +758,8 @@ func (r *PostgresRepository) FinishedRunBuckets(ctx context.Context, tenantID, a
 			buckets[bucket-1] = n
 		}
 	}
-	return buckets, overflow, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("finished run buckets: %w", err)
+	}
+	return buckets, overflow, nil
 }

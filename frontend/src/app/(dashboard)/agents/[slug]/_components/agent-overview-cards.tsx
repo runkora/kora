@@ -13,7 +13,7 @@ import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 import { StartedByCell } from './started-by-cell';
-import { runStatusDot } from './run-status';
+import { RunStateDot } from '../../_components/running-now-card';
 
 /** The five most recent runs. */
 export function RecentRunsTable() {
@@ -52,7 +52,7 @@ export function RecentRunsTable() {
         gridWidth: '7rem',
         minWidth: '5.5rem',
         locked: true,
-        cell: runStatusDot,
+        cell: (row) => <RunStateDot state={row.state} />,
       },
       {
         id: 'duration',

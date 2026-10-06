@@ -3,10 +3,13 @@ package agents
 import (
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
@@ -50,11 +53,12 @@ func TestAgentRunStats_Composes(t *testing.T) {
 		name         string
 		finished     FinishedRuns
 		wantRange    int64
+		wantFinished int64
 		wantCapped   bool
 		wantOverflow int64
 	}{
-		{"uncapped uses the longest run", FinishedRuns{Completed: 3, Failed: 1, P99Ms: 800, LongestMs: 900}, 900, false, 0},
-		{"capped uses p99 and keeps the overflow", FinishedRuns{Completed: 25, Failed: 5, P99Ms: 800, LongestMs: 90000}, 800, true, 2},
+		{"uncapped uses the longest run", FinishedRuns{RunOutcomes: RunOutcomes{Completed: 3, Failed: 1}, P99Ms: 800, LongestMs: 900}, 900, 4, false, 0},
+		{"capped uses p99 and keeps the overflow", FinishedRuns{RunOutcomes: RunOutcomes{Completed: 25, Failed: 5}, P99Ms: 800, LongestMs: 90000}, 800, 30, true, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
@@ -68,11 +72,11 @@ func TestAgentRunStats_Composes(t *testing.T) {
 				t.Fatalf("AgentRunStats: %v", err)
 			}
 			d := got.Durations
-			if got.Period != "30d" || got.Total != 40 || got.Triggered != 15 || got.Manual != 25 {
-				t.Errorf("counts = %+v, want 40 runs, 15 triggered, 25 manual", got)
+			if got.Period != "30d" || got.Total != 40 || got.Triggered != 15 {
+				t.Errorf("counts = %+v, want 40 runs, 15 triggered", got)
 			}
-			if got.Completed+got.Failed != d.Finished || d.RangeMs != tc.wantRange || d.Capped != tc.wantCapped || d.Overflow != tc.wantOverflow {
-				t.Errorf("durations = %+v, want range %d capped %v overflow %d", d, tc.wantRange, tc.wantCapped, tc.wantOverflow)
+			if got.Completed+got.Failed != tc.wantFinished || d.Finished != tc.wantFinished || d.Capped != tc.wantCapped || d.Overflow != tc.wantOverflow {
+				t.Errorf("durations = %+v, want %d finished, capped %v, overflow %d", d, tc.wantFinished, tc.wantCapped, tc.wantOverflow)
 			}
 			if repo.statsBucketRange != tc.wantRange || len(d.Buckets) != histogramBuckets {
 				t.Errorf("buckets asked for range %d, got %d buckets", repo.statsBucketRange, len(d.Buckets))
@@ -126,5 +130,49 @@ func TestAgentRunStats_LookupFailureIsNotNotFound(t *testing.T) {
 	_, err := f.run.AgentRunStats(ctx, "helper", usagewindow.Period7d, time.Now())
 	if !errors.Is(err, boom) || errors.Is(err, ErrNotFound) {
 		t.Errorf("err = %v, want the lookup error and not ErrNotFound", err)
+	}
+}
+
+// denyRunsEval allows everything except reading the runs of one agent.
+type denyRunsEval struct{ allowAllEvaluator }
+
+func (denyRunsEval) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	denied := len(in.PathSegments) == 2 && in.PathSegments[0] == "runs" && in.PathSegments[1] == "helper"
+	return policy.Result{Allow: !denied}, nil
+}
+
+func TestAgentRunStats_DeniedCallerGetsNotFound(t *testing.T) {
+	f, repo, _, _ := newTestServiceWithEval(t, denyRunsEval{})
+	seedStatsAgent(t, repo)
+	ctx := withRunCallerCtx(context.Background(), "t1", "alice")
+	if _, err := f.run.AgentRunStats(ctx, "helper", usagewindow.Period7d, time.Now()); !errors.Is(err, ErrNotFound) || repo.statsAgentTypeID != "" {
+		t.Errorf("err = %v, read agent type %q; want ErrNotFound and no read", err, repo.statsAgentTypeID)
+	}
+}
+
+func TestHandleRunStats(t *testing.T) {
+	for _, tc := range []struct {
+		name, path, slug string
+		lookupErr        error
+		want             int
+	}{
+		{"a bad period", "/api/v1/run-stats/helper?period=1y", "helper", nil, http.StatusBadRequest},
+		{"an unknown agent", "/api/v1/run-stats/missing", "missing", nil, http.StatusNotFound},
+		{"a lookup failure", "/api/v1/run-stats/helper", "helper", errors.New("connection reset"), http.StatusInternalServerError},
+		{"a known agent", "/api/v1/run-stats/helper?period=24h", "helper", nil, http.StatusOK},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, repo, _, _ := newTestControllerWithEval(t, auditorEval)
+			seedStatsAgent(t, repo)
+			repo.getBySlugErr = tc.lookupErr
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			req = req.WithContext(withRunCallerCtx(req.Context(), "t1", "alice"))
+			req.SetPathValue("slug", tc.slug)
+			w := httptest.NewRecorder()
+			c.handleRunStats(w, req)
+			if w.Code != tc.want {
+				t.Errorf("status = %d, want %d (body: %s)", w.Code, tc.want, w.Body.String())
+			}
+		})
 	}
 }

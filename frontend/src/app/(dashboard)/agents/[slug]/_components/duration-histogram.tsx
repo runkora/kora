@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 · agents/[slug]-scoped. Run counts by duration, capped at p99 with an overflow bar, the median bar brighter and p95 marked when the range is capped. */
+/** @tier 3 · agents/[slug]-scoped. Run counts by duration, with an overflow bar and a p95 marker when capped. */
 
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { ChartContainer, Stack, Text, donutSegmentColor } from '@orbit/terra';
@@ -10,6 +10,17 @@ import type { RunDurations } from '../../_lib/overview';
 /** Sized so the tile, with its single axis line, is as tall as the tiles beside it. */
 const CHART_HEIGHT = 62;
 
+/** The histogram has this many bars; a bar after them holds the overflow. */
+const BUCKETS = 10;
+const OVERFLOW_BAR = BUCKETS;
+/** Bars from the left from which a marker label moves to the left of its line, so it stays inside the chart. */
+const MEDIAN_LABEL_FLIP_BAR = 8;
+const P95_LABEL_FLIP_BAR = 6;
+/** Bars needed between the median and p95 markers for both labels to fit. */
+const MIN_MARKER_GAP = 5;
+/** Headroom above the tallest bar, as a multiple of it. */
+const HEADROOM = 1.5;
+
 const CHART_CONFIG = { runs: { label: 'Runs', color: 'var(--color-accent)' } };
 
 /** Axis labels drop empty trailing units: 29m, not 29m 0s. */
@@ -18,11 +29,18 @@ const compact = (ms: number) => formatDuration(ms).replace(/ 0[ms]$/, '');
 /** Rounds the approximate cap label to whole minutes. */
 const capLabel = (ms: number) => (ms >= 60_000 ? `${Math.round(ms / 60_000)}m` : compact(ms));
 
-export function DurationHistogram({ durations }: { durations: RunDurations }) {
-  const { finished, medianMs, p95Ms, p99Ms, longestMs, capped, buckets, overflow } = durations;
+export function DurationHistogram({
+  durations,
+  finished,
+}: {
+  durations: RunDurations;
+  finished: number;
+}) {
+  const { medianMs, p95Ms, p99Ms, longestMs, capped, buckets, overflow } = durations;
   // The bars span 0 to p99, or to the longest run when there are too few runs for p99 to mean anything.
   const range = capped ? p99Ms : longestMs;
-  const bucketOf = (ms: number) => (range > 0 ? Math.min(9, Math.floor((ms / range) * 10)) : -1);
+  const bucketOf = (ms: number) =>
+    range > 0 ? Math.min(BUCKETS - 1, Math.floor((ms / range) * BUCKETS)) : -1;
   const medianBucket = bucketOf(medianMs);
   const p95Bucket = bucketOf(p95Ms);
   const data = [...buckets, ...(overflow > 0 ? [overflow] : [])].map((count, i) => ({
@@ -30,7 +48,7 @@ export function DurationHistogram({ durations }: { durations: RunDurations }) {
     count,
   }));
   // The p95 label sits left of its line in the right half, and needs room from the median caption.
-  const showMedian = finished > 0 && (!capped || p95Bucket - medianBucket >= 5);
+  const showMedian = finished > 0 && (!capped || p95Bucket - medianBucket >= MIN_MARKER_GAP);
 
   return (
     <Stack
@@ -46,7 +64,7 @@ export function DurationHistogram({ durations }: { durations: RunDurations }) {
         <BarChart data={data} margin={{ top: 0, right: 0, bottom: 0, left: 0 }} barCategoryGap={2}>
           <XAxis dataKey="bucket" hide />
           {/* Headroom above the tallest bar keeps the marker labels off the bars. */}
-          <YAxis hide domain={[0, (max: number) => Math.max(1, max * 1.5)]} />
+          <YAxis hide domain={[0, (max: number) => Math.max(1, max * HEADROOM)]} />
           <ReferenceLine y={0} stroke="var(--color-border)" />
           <Bar
             dataKey="count"
@@ -58,7 +76,9 @@ export function DurationHistogram({ durations }: { durations: RunDurations }) {
               <Cell
                 key={d.bucket}
                 fill={
-                  i === 10 ? 'var(--color-subtle)' : donutSegmentColor(i === medianBucket ? 0 : 1)
+                  i === OVERFLOW_BAR
+                    ? 'var(--color-subtle)'
+                    : donutSegmentColor(i === medianBucket ? 0 : 1)
                 }
               />
             ))}
@@ -69,7 +89,7 @@ export function DurationHistogram({ durations }: { durations: RunDurations }) {
               stroke="transparent"
               label={{
                 value: 'median',
-                position: medianBucket >= 8 ? 'insideTopRight' : 'insideTop',
+                position: medianBucket >= MEDIAN_LABEL_FLIP_BAR ? 'insideTopRight' : 'insideTop',
                 fill: 'var(--color-foreground)',
                 fontSize: 10,
               }}
@@ -82,7 +102,7 @@ export function DurationHistogram({ durations }: { durations: RunDurations }) {
               strokeDasharray="3 2"
               label={{
                 value: `p95 ${formatDuration(p95Ms)}`,
-                position: p95Bucket >= 6 ? 'insideTopRight' : 'insideTopLeft',
+                position: p95Bucket >= P95_LABEL_FLIP_BAR ? 'insideTopRight' : 'insideTopLeft',
                 fill: 'var(--color-muted)',
                 fontSize: 10,
               }}

@@ -1,12 +1,12 @@
 'use client';
 
-/** @tier 3 · agents/[slug]-scoped. Overview tab: stat tiles, recent runs, instructions, spend, token usage, scopes and metadata. */
+/** @tier 3 · agents/[slug]-scoped. The Overview tab. */
 
 import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@orbit/terra';
 import { fmtTokens, fmtUsd } from '@orbit/utils';
 import { StatTile } from '../../_components/agent-stat-tiles';
 import { Breakdown } from '../../_components/agents-spend-card';
-import { PERIOD_DAYS, PERIOD_TEXT } from '../../_lib/spend';
+import { DEFAULT_PERIOD, PERIOD_DAYS, PERIOD_TEXT, changeText } from '../../_lib/spend';
 import type { AgentOverview } from '../../_lib/overview';
 import { formatDuration } from '../../_types';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
@@ -60,7 +60,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
 
   const usage = overview?.usage;
   const runs = overview?.runs;
-  const period = overview?.period ?? '7d';
+  const period = overview?.period ?? DEFAULT_PERIOD;
   const { text: periodText, previous: previousText } = PERIOD_TEXT[period];
   // Without figures the period status says whether the load failed; with them each part does.
   const runsFailed = overview ? overview.failed.runs : status === 'failed';
@@ -110,7 +110,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
                 period={periodText}
                 trailing={runs.finished > 0 ? `${runs.finished} finished` : 'No runs yet'}
               >
-                <DurationHistogram durations={runs.durations} />
+                <DurationHistogram durations={runs.durations} finished={runs.finished} />
               </StatTile>
             </>
           )}
@@ -148,11 +148,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
                 value={fmtUsd(usage.spend)}
                 segments={modelSegments(usage.models)}
                 period={periodText}
-                trailing={
-                  usage.change === null
-                    ? 'No usage yet'
-                    : `${usage.change >= 0 ? '▲' : '▼'} ${Math.abs(usage.change)}%`
-                }
+                trailing={usage.change === null ? 'No usage yet' : changeText(usage.change)}
               />
             </>
           )}
@@ -172,7 +168,6 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
           maxWidth={{ base: 'full', xl: 'detail-panel' }}
           shrink={false}
         >
-          {usageFailed && <CouldNotLoad title="Spend" />}
           {usage && (
             <>
               <AgentSpendCard
@@ -180,6 +175,7 @@ export function AgentOverviewTab({ overview, status, onEditInstructions }: Agent
                 trend={usage.trend}
                 total={usage.spend}
                 previousTotal={usage.previousSpend}
+                change={usage.change}
                 periodText={periodText}
                 previousText={previousText}
                 budget={overview?.budget ?? null}

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchAgentOverview } from '../[slug]/_services/agent-detail-api';
+import { fetchAgentOverview } from './agent-detail-api';
 
 afterEach(() => {
   vi.unstubAllGlobals();

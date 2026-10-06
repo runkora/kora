@@ -10,9 +10,9 @@ import (
 	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
-// agentUsageRequest reads the tenant and period, writing the error and reporting
+// agentInsightsRequest reads the tenant and period, writing the error and reporting
 // false on failure. A token with no tenant has no usage to read.
-func (c *Controller) agentUsageRequest(w http.ResponseWriter, r *http.Request) (string, usagewindow.Period, bool) {
+func (c *Controller) agentInsightsRequest(w http.ResponseWriter, r *http.Request) (string, usagewindow.Period, bool) {
 	ctx := r.Context()
 	p, err := principalFromClaims(ctx)
 	if err != nil || p.TenantID == "" {
@@ -30,7 +30,7 @@ func (c *Controller) agentUsageRequest(w http.ResponseWriter, r *http.Request) (
 // handleAgentInsights handles GET /v1/usage/agent-insights?period=24h|7d|30d|90d.
 func (c *Controller) handleAgentInsights(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	tenantID, period, ok := c.agentUsageRequest(w, r)
+	tenantID, period, ok := c.agentInsightsRequest(w, r)
 	if !ok {
 		return
 	}
@@ -42,11 +42,11 @@ func (c *Controller) handleAgentInsights(w http.ResponseWriter, r *http.Request)
 	api.JSON(ctx, w, c.logger, http.StatusOK, out)
 }
 
-// handleAgentUsage handles GET /v1/usage/agent-type/{slug}?period=, the
+// handleAgentTypeInsights handles GET /v1/usage/agent-type/{slug}?period=, the
 // insights of one agent.
-func (c *Controller) handleAgentUsage(w http.ResponseWriter, r *http.Request) {
+func (c *Controller) handleAgentTypeInsights(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	tenantID, period, ok := c.agentUsageRequest(w, r)
+	tenantID, period, ok := c.agentInsightsRequest(w, r)
 	if !ok {
 		return
 	}

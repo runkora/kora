@@ -100,7 +100,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /usage/stats", c.handleUsageStats)
 	mux.Handle("GET /usage/budget", c.handleGetPersonalBudget)
 	mux.Handle("GET /usage/run/{runID}", c.handleGetRunUsage)
-	mux.Handle("GET /usage/agent-type/{slug}", c.handleAgentUsage)
+	mux.Handle("GET /usage/agent-type/{slug}", c.handleAgentTypeInsights)
 	mux.Handle("GET /usage/agent-insights", c.handleAgentInsights)
 	mux.Handle("GET /usage", c.handleListUsage)
 	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)

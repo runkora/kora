@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
-import type { AgentOverviewResponse } from '@orbit/shared/api';
+import type { AgentOverviewResponse, AgentType } from '@orbit/shared/api';
 import { AGENT_TYPES, CODE_REVIEWER } from '../../_components/agents-mock-data';
 import type { Period } from '../../_lib/spend';
 import { rowFor, runRowsFor, withRoutes } from './agent-detail-page-mock-data';
@@ -47,25 +47,36 @@ const openPeriod =
     await userEvent.click(await within(canvasElement).findByRole('button', { name: period }));
   };
 
-/** An Overview story whose seed and period requests both answer from `overview`. */
-const overviewStory = (overview: OverviewFor, extra: Partial<Story> = {}): Story => ({
-  decorators: withRoutes(CODE_REVIEWER, overview),
-  args: { initialOverview: overview(CODE_REVIEWER.slug, '7d') },
+/** An Overview story whose seed and period requests both answer from `overview`, for `agent`. */
+const overviewStory = (
+  overview: OverviewFor,
+  agent: AgentType = CODE_REVIEWER,
+  extra: Partial<Story> = {},
+): Story => ({
+  decorators: withRoutes(agent, overview),
+  args: { initialAgent: rowFor(agent), initialOverview: overview(agent.slug, '7d') },
   ...extra,
 });
 
 // Decorators stack across meta and story, so each story installs its own frame once.
 export const Overview: Story = overviewStory(mockOverview);
 
-export const Overview24h: Story = overviewStory(mockOverview, { play: openPeriod('24h') });
+export const Overview24h: Story = overviewStory(mockOverview, CODE_REVIEWER, {
+  play: openPeriod('24h'),
+});
 
-export const Overview30d: Story = overviewStory(mockOverview, { play: openPeriod('30d') });
+export const Overview30d: Story = overviewStory(mockOverview, CODE_REVIEWER, {
+  play: openPeriod('30d'),
+});
 
-export const Overview90d: Story = overviewStory(mockOverview, { play: openPeriod('90d') });
+export const Overview90d: Story = overviewStory(mockOverview, CODE_REVIEWER, {
+  play: openPeriod('90d'),
+});
 
 /** The 90 day window with one 2h 10m runaway run: the histogram stops at p99 and the run is the overflow bar. */
 export const Overview90dOutlier: Story = overviewStory(
   (slug, period) => mockOverview(slug, period, { outlierMs: 130 * 60_000 }),
+  CODE_REVIEWER,
   { play: openPeriod('90d') },
 );
 
@@ -74,16 +85,21 @@ export const OverviewNoBudget: Story = overviewStory((slug, period) =>
   mockOverview(slug, period, { noBudget: true }),
 );
 
+const NO_RUNS: AgentType = { ...CODE_REVIEWER, slug: 'no-runs', name: 'No Runs' };
+const SINGLE_RUN: AgentType = { ...CODE_REVIEWER, slug: 'single-run', name: 'Single Run' };
+
 /** An agent with no runs and no usage: a dash for the median and a flat axis. */
 export const OverviewNoRuns: Story = {
-  ...overviewStory((_, period) => mockOverview('no-runs', period)),
-  args: { initialOverview: mockOverview('no-runs', '7d'), initialRuns: [] },
+  ...overviewStory(mockOverview, NO_RUNS),
+  args: {
+    initialAgent: rowFor(NO_RUNS),
+    initialRuns: [],
+    initialOverview: mockOverview('no-runs', '7d'),
+  },
 };
 
 /** An agent with a single finished run. */
-export const OverviewSingleRun: Story = overviewStory((_, period) =>
-  mockOverview('single-run', period),
-);
+export const OverviewSingleRun: Story = overviewStory(mockOverview, SINGLE_RUN);
 
 /** A caller without agents:usage:read: the tokens, spend, budget and token usage cards are absent. */
 export const OverviewWithoutUsageScope: Story = overviewStory(mockRunStatsOnly);

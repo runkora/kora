@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 · agents/[slug]-scoped. Spend and budget as one card for one agent, with the Agents page views. */
+/** @tier 3 · agents/[slug]-scoped. Spend and budget for one agent. */
 
 import { useState } from 'react';
 import {
@@ -15,7 +15,7 @@ import {
 } from '@orbit/terra';
 import { fmtUsd } from '@orbit/utils';
 import { AgentBudgets, Breakdown, TrendChart } from '../../_components/agents-spend-card';
-import { usedShare } from '../../_lib/spend';
+import { SPEND_ALERT_PCT, changeText, usedShare } from '../../_lib/spend';
 import type { BudgetRow, SpendRow } from '../../_lib/spend';
 
 /** A model id without its vendor prefix, which would otherwise truncate in the narrow rail. */
@@ -26,6 +26,8 @@ export interface AgentSpendCardProps {
   trend: { labels: string[]; values: number[] };
   total: number;
   previousTotal: number;
+  /** Change on the previous window as a percentage; null when that window had no spend. */
+  change: number | null;
   /** The window the card covers, for example "last 7 days". */
   periodText: string;
   /** The window before it, for example "previous 7 days". */
@@ -39,6 +41,7 @@ export function AgentSpendCard({
   trend,
   total,
   previousTotal,
+  change,
   periodText,
   previousText,
   budget,
@@ -54,8 +57,6 @@ export function AgentSpendCard({
   const [chosen, setChosen] = useState('model');
   const view = views.some((v) => v.value === chosen) ? chosen : 'model';
 
-  const change =
-    previousTotal > 0 ? Math.round(((total - previousTotal) / previousTotal) * 100) : null;
   const reached = windows.some((w) => usedShare(w.spent, w.limit) >= 1);
   // One row per window so each bar is labelled by its cadence, not by the agent.
   const budgetRows: BudgetRow[] = windows.map((w) => ({
@@ -129,9 +130,9 @@ export function AgentSpendCard({
                     <Text
                       mono
                       size="caption"
-                      color={change > 25 ? 'status-degraded' : 'foreground'}
+                      color={change > SPEND_ALERT_PCT ? 'status-degraded' : 'foreground'}
                     >
-                      {change >= 0 ? '▲' : '▼'} {Math.abs(change)}% · {fmtUsd(previousTotal)}
+                      {changeText(change)} · {fmtUsd(previousTotal)}
                     </Text>
                   </Stack>
                 </>

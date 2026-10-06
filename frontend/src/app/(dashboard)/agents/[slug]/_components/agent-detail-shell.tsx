@@ -13,7 +13,7 @@ interface AgentDetailShellProps {
   initialRuns: RunRow[];
   initialError: string | null;
   initialStatus: DetailStatus;
-  /** The 7-day overview the server render fetched. */
+  /** The default window's overview, fetched by the server render. */
   initialOverview?: AgentOverviewResponse | null;
 }
 

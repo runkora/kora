@@ -6,18 +6,15 @@ const RUN_STATS: AgentRunStats = {
   period: '7d',
   total: 10,
   triggered: 4,
-  manual: 6,
   completed: 6,
   failed: 2,
   durations: {
     finished: 8,
     median_ms: 90_000,
-    average_ms: 100_000,
     p95_ms: 200_000,
     p99_ms: 210_000,
     longest_ms: 220_000,
     capped: false,
-    range_ms: 220_000,
     buckets: [1, 0, 0, 2, 0, 0, 3, 1, 0, 1],
     overflow: 0,
   },
@@ -71,7 +68,6 @@ describe('toAgentOverview', () => {
     expect(runs).toMatchObject({
       total: 10,
       triggered: 4,
-      manual: 6,
       finished: 8,
       successRate: 75,
     });

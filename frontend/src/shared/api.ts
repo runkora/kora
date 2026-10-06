@@ -522,10 +522,9 @@ export interface AgentInsightsResponse {
  */
 export interface AgentRunStats {
   period: AgentInsightsPeriod;
-  /** Runs created in the window, split by whether a trigger started them. */
+  /** Runs created in the window, and the part a trigger started; the rest are manual. */
   total: number;
   triggered: number;
-  manual: number;
   /** Runs that finished in the window. */
   completed: number;
   failed: number;
@@ -533,14 +532,12 @@ export interface AgentRunStats {
   durations: {
     finished: number;
     median_ms: number;
-    average_ms: number;
     p95_ms: number;
     p99_ms: number;
     longest_ms: number;
     /** True when `buckets` cover 0 to p99 and slower runs are in `overflow`; false when they cover 0 to the longest run. */
     capped: boolean;
-    range_ms: number;
-    /** Ten equal-width counts across 0 to `range_ms`. */
+    /** Ten equal-width counts from 0 to p99 when capped, otherwise to the longest run. */
     buckets: number[];
     overflow: number;
   };

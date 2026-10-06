@@ -1,4 +1,4 @@
-// RSC: fetches the agent type, its runs and its 7-day overview by slug.
+// RSC: fetches the agent type, its runs and its default-window overview by slug.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAgentDetailFromBFF } from './_services/agent-detail-server';

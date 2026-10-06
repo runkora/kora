@@ -19,7 +19,10 @@ async function fetchRunStats(
     );
     return stats ? { stats } : { failed: true };
   } catch (err) {
-    if (err instanceof ApiError && err.status === 403) return { refused: true };
+    // A caller without `agents:runs:{slug}:read` gets a 404, so neither status is a failure.
+    if (err instanceof ApiError && (err.status === 403 || err.status === 404)) {
+      return { refused: true };
+    }
     console.error('[loadAgentOverview] run stats request failed', err);
     return { failed: true };
   }
@@ -27,7 +30,7 @@ async function fetchRunStats(
 
 /**
  * One agent's gateway insights and run stats, each read under the caller's token.
- * A refused part (403) is left out; a part that errors is left out and named in `failed`.
+ * A refused part (403 or 404) is left out; a part that errors is left out and named in `failed`.
  */
 export async function loadAgentOverview(
   accessToken: string,

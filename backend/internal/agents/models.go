@@ -13,6 +13,13 @@ type RunOutcomes struct {
 	Failed    int64 `json:"failed"`
 }
 
+// FinishedRuns summarizes the runs that finished in a window: outcome counts and
+// duration percentiles in milliseconds.
+type FinishedRuns struct {
+	RunOutcomes
+	MedianMs, P95Ms, P99Ms, LongestMs int64
+}
+
 // ── Agent Types ───────────────────────────────────────────────────────────────
 
 type AgentTypeState string

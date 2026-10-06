@@ -18,7 +18,7 @@ import type { IconName } from '@orbit/terra';
 import { fmtTokens } from '@orbit/utils';
 import { formatDuration } from '../_types';
 
-export interface TileSegment {
+interface TileSegment {
   label: string;
   value: number;
   /** What the legend shows instead of the raw value, for example a formatted token count. */
@@ -86,7 +86,7 @@ export function StatTile({
   label,
   icon,
   value,
-  segments,
+  segments = [],
   children,
   period,
   trailing,
@@ -100,14 +100,12 @@ export function StatTile({
             <Icon name={icon} size="xs" />
           </Stack>
           <Heading variant="metric">{value}</Heading>
-          {children ? (
-            children
-          ) : (
+          {children ?? (
             <>
               <Stack justify="center" style={{ height: '1rem' }}>
-                <SegmentBar segments={segments ?? []} />
+                <SegmentBar segments={segments} />
               </Stack>
-              <SegmentLegend segments={segments ?? []} />
+              <SegmentLegend segments={segments} />
             </>
           )}
         </Stack>

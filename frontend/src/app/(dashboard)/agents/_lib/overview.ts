@@ -1,10 +1,10 @@
 import type { AgentOverviewResponse } from '@orbit/shared/api';
 import { trendLabel, toBudgetRows } from './insights';
+import { spendChange } from './spend';
 import type { BudgetRow, Period, SpendRow } from './spend';
 
 /** Durations of the runs that finished in the window, in milliseconds. */
 export interface RunDurations {
-  finished: number;
   medianMs: number;
   p95Ms: number;
   p99Ms: number;
@@ -74,10 +74,7 @@ export function toAgentOverview(resp: AgentOverviewResponse): AgentOverview {
             cachedShare: share(cached, cached + input),
             spend,
             previousSpend,
-            change:
-              previousSpend > 0
-                ? Math.round(((spend - previousSpend) / previousSpend) * 100)
-                : null,
+            change: spendChange(spend, previousSpend),
             models: insights.models.map((m) => ({ name: m.model_id, cost: m.estimated_cost_usd })),
             trend: {
               labels: insights.trend.map((p) => trendLabel(resp.period, p.start)),
@@ -91,13 +88,12 @@ export function toAgentOverview(resp: AgentOverviewResponse): AgentOverview {
           runs: {
             total: runStats.total,
             triggered: runStats.triggered,
-            manual: runStats.manual,
+            manual: runStats.total - runStats.triggered,
             completed: runStats.completed,
             failed: runStats.failed,
             finished,
             successRate: share(runStats.completed, finished),
             durations: {
-              finished: runStats.durations.finished,
               medianMs: runStats.durations.median_ms,
               p95Ms: runStats.durations.p95_ms,
               p99Ms: runStats.durations.p99_ms,

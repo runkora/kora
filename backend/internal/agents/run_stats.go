@@ -26,37 +26,27 @@ const (
 type RunDurationStats struct {
 	Finished  int64 `json:"finished"`
 	MedianMs  int64 `json:"median_ms"`
-	AverageMs int64 `json:"average_ms"`
 	P95Ms     int64 `json:"p95_ms"`
 	P99Ms     int64 `json:"p99_ms"`
 	LongestMs int64 `json:"longest_ms"`
 	// Capped is true when Buckets cover 0 to p99 and slower runs are in Overflow.
 	// Otherwise they cover 0 to the longest run and Overflow is 0.
 	Capped  bool    `json:"capped"`
-	RangeMs int64   `json:"range_ms"`
 	Buckets []int64 `json:"buckets"`
-	// Overflow counts finished runs above RangeMs.
+	// Overflow counts finished runs above the last bucket.
 	Overflow int64 `json:"overflow"`
 }
 
 // RunStats is one agent's run counts and durations for a window.
 type RunStats struct {
 	Period string `json:"period"`
-	// Total counts runs created in the window; Triggered those a trigger started.
+	// Total counts runs created in the window; Triggered those a trigger started, the rest are manual.
 	Total     int64 `json:"total"`
 	Triggered int64 `json:"triggered"`
-	Manual    int64 `json:"manual"`
 	// Completed and Failed count runs that finished in the window.
 	Completed int64            `json:"completed"`
 	Failed    int64            `json:"failed"`
 	Durations RunDurationStats `json:"durations"`
-}
-
-// FinishedRuns is the SQL summary of finished runs, in milliseconds.
-type FinishedRuns struct {
-	Completed, Failed                 int64
-	MedianMs, AverageMs, P95Ms, P99Ms int64
-	LongestMs                         int64
 }
 
 // histogramRange returns the upper edge of the histogram and whether it is capped:
@@ -97,9 +87,6 @@ func (s *RunService) agentRunStats(ctx context.Context, tenantID, slug string, p
 		}
 		return RunStats{}, fmt.Errorf("get agent type by slug: %w", err)
 	}
-	if at == nil {
-		return RunStats{}, ErrNotFound
-	}
 	if err = s.authz.checkRun(ctx, *at, "read"); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			return RunStats{}, ErrNotFound
@@ -122,18 +109,18 @@ func (s *RunService) agentRunStats(ctx context.Context, tenantID, slug string, p
 	}
 	finished := fin.Completed + fin.Failed
 	d := RunDurationStats{
-		Finished: finished, MedianMs: fin.MedianMs, AverageMs: fin.AverageMs,
-		P95Ms: fin.P95Ms, P99Ms: fin.P99Ms, LongestMs: fin.LongestMs,
-		Buckets: make([]int64, histogramBuckets),
+		Finished: finished, MedianMs: fin.MedianMs, P95Ms: fin.P95Ms, P99Ms: fin.P99Ms,
+		LongestMs: fin.LongestMs, Buckets: make([]int64, histogramBuckets),
 	}
-	d.RangeMs, d.Capped = histogramRange(finished, fin.P99Ms, fin.LongestMs)
+	var rangeMs int64
+	rangeMs, d.Capped = histogramRange(finished, fin.P99Ms, fin.LongestMs)
 	if finished > 0 {
-		if d.Buckets, d.Overflow, err = s.repo.FinishedRunBuckets(ctx, tenantID, at.ID, vis, w.Start, w.End, d.RangeMs); err != nil {
+		if d.Buckets, d.Overflow, err = s.repo.FinishedRunBuckets(ctx, tenantID, at.ID, vis, w.Start, w.End, rangeMs); err != nil {
 			return RunStats{}, fmt.Errorf("finished run buckets: %w", err)
 		}
 	}
 	return RunStats{
-		Period: string(period), Total: total, Triggered: triggered, Manual: total - triggered,
+		Period: string(period), Total: total, Triggered: triggered,
 		Completed: fin.Completed, Failed: fin.Failed, Durations: d,
 	}, nil
 }

@@ -13,7 +13,7 @@ import {
   Stack,
   Text,
 } from '@orbit/terra';
-import { InstructionsMarkdown } from './instructions-markdown';
+import { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown';
 
 type PromptView = 'rendered' | 'raw';
 
@@ -108,7 +108,7 @@ export function AgentInstructionsCard({ prompt, onEdit }: AgentInstructionsCardP
                 size="caption"
                 color="muted"
                 preserveWhitespace
-                style={{ lineHeight: 1.6 }}
+                style={{ lineHeight: CODE_LINE_HEIGHT }}
               >
                 {prompt}
               </Text>

@@ -84,6 +84,16 @@ describe('GET /api/agents/types/overview/[slug]', () => {
     });
   });
 
+  it('leaves out run stats for a caller without the per-agent runs scope', async () => {
+    server.use(
+      http.get('http://test-gw/usage/agent-type/:slug', () => HttpResponse.json(INSIGHTS)),
+      http.get('http://test-agents/api/v1/run-stats/:slug', () =>
+        HttpResponse.json({}, { status: 404 }),
+      ),
+    );
+    expect(await (await call()).json()).toEqual({ period: '30d', insights: INSIGHTS });
+  });
+
   it('names the gateway part when it errors and leaves out run stats that were refused', async () => {
     server.use(
       http.get('http://test-gw/usage/agent-type/:slug', () =>

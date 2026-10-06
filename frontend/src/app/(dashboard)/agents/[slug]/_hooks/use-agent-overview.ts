@@ -2,7 +2,7 @@
 
 // Holds the agent Overview's figures: the server-rendered window, then each other period once selected.
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { AgentOverviewResponse } from '@orbit/shared/api';
 import { fetchAgentOverview } from '../_services/agent-detail-api';
 import { toAgentOverview } from '../../_lib/overview';
@@ -17,14 +17,14 @@ export function useAgentOverview(
   initial?: AgentOverviewResponse | null,
 ): {
   /**
-   * The selected period's figures. While it loads, the last period that loaded stays
-   * in view; once it fails there are none. Each carries the period it covers.
+   * The selected period's figures. While it loads, the server-rendered period stays in
+   * view; once it fails there are none. Each carries the period it covers.
    */
   overview: AgentOverview | undefined;
-  /** The agent's budget, which no period changes: the one the page shows whatever is selected. */
-  budget: AgentOverview['budget'];
   status: OverviewStatus;
 } {
+  // The period the server rendered, which stays in view while another loads.
+  const [seedPeriod] = useState(initial?.period);
   // A period is its figures, or 'failed' once it was asked for and could not be had.
   const [periods, setPeriods] = useState<Partial<Record<Period, AgentOverview | 'failed'>>>(() =>
     initial ? { [initial.period]: toAgentOverview(initial) } : {},
@@ -45,13 +45,10 @@ export function useAgentOverview(
     };
   }, [slug, period, asked]);
 
-  return useMemo(() => {
-    const loaded = Object.values(periods).filter((v): v is AgentOverview => v !== 'failed' && !!v);
-    const status: OverviewStatus = current === 'failed' ? 'failed' : current ? 'ready' : 'loading';
-    return {
-      overview: current === undefined ? loaded[0] : current === 'failed' ? undefined : current,
-      budget: loaded[0]?.budget ?? null,
-      status,
-    };
-  }, [periods, current]);
+  const seed = seedPeriod ? periods[seedPeriod] : undefined;
+  const shown = current === undefined ? seed : current;
+  return {
+    overview: shown === 'failed' ? undefined : shown,
+    status: current === 'failed' ? 'failed' : current ? 'ready' : 'loading',
+  };
 }

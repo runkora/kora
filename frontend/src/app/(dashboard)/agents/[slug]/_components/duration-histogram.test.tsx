@@ -5,7 +5,6 @@ import type { RunDurations } from '../../_lib/overview';
 import { DurationHistogram } from './duration-histogram';
 
 const NONE: RunDurations = {
-  finished: 0,
   medianMs: 0,
   p95Ms: 0,
   p99Ms: 0,
@@ -15,9 +14,11 @@ const NONE: RunDurations = {
   overflow: 0,
 };
 
+const label = () => screen.getByRole('img').getAttribute('aria-label') ?? '';
+
 describe('DurationHistogram', () => {
   it('reads as no finished runs and shows a dash for the longest', () => {
-    renderWithProviders(<DurationHistogram durations={NONE} />);
+    renderWithProviders(<DurationHistogram durations={NONE} finished={0} />);
     expect(screen.getByRole('img', { name: 'Run durations, no finished runs.' })).toBeTruthy();
     expect(screen.getByText('–')).toBeTruthy();
   });
@@ -25,11 +26,35 @@ describe('DurationHistogram', () => {
   it('draws runs that all took no time without a p95 marker', () => {
     renderWithProviders(
       <DurationHistogram
-        durations={{ ...NONE, finished: 2, buckets: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0] }}
+        durations={{ ...NONE, buckets: [2, 0, 0, 0, 0, 0, 0, 0, 0, 0] }}
+        finished={2}
       />,
     );
-    const label = screen.getByRole('img').getAttribute('aria-label') ?? '';
-    expect(label).toContain('2 finished runs');
-    expect(label).not.toContain('p95');
+    expect(label()).toContain('2 finished runs');
+    expect(label()).not.toContain('p95');
+  });
+
+  it('marks p95 and labels the overflow bar only when the range is capped', () => {
+    const durations = {
+      ...NONE,
+      medianMs: 60_000,
+      p95Ms: 200_000,
+      p99Ms: 240_000,
+      longestMs: 900_000,
+      buckets: [4, 6, 5, 3, 2, 1, 1, 0, 0, 1],
+      overflow: 2,
+    };
+    const { unmount } = renderWithProviders(
+      <DurationHistogram durations={{ ...durations, capped: true }} finished={25} />,
+    );
+    expect(label()).toContain('p95 3m 20s');
+    expect(screen.getByText('>4m')).toBeTruthy();
+    unmount();
+
+    renderWithProviders(
+      <DurationHistogram durations={{ ...durations, overflow: 0 }} finished={25} />,
+    );
+    expect(label()).not.toContain('p95');
+    expect(screen.queryByText('>4m')).toBeNull();
   });
 });
