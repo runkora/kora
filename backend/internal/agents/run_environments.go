@@ -109,9 +109,8 @@ func recordedEnvironment(run Run) string {
 	return *run.EnvironmentID
 }
 
-// currentEnvironment is the environment ID of the run's sandbox. It is "" for
-// the built-in default. A live pod's own annotation wins over the run record.
-// A provision that timed out mid-start can leave the record stale.
+// currentEnvironment is the environment ID of the run's sandbox, "" for the built-in default.
+// A live pod's annotation wins because a provision that timed out mid-start can leave the record stale.
 func (s *RunService) currentEnvironment(ctx context.Context, run Run, namespace string) (id string, live bool, err error) {
 	podEnv, live, err := s.k8s.SandboxEnvironment(ctx, run.ID, namespace)
 	if err != nil || live {

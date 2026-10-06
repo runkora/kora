@@ -92,9 +92,8 @@ export async function updateEnvironment(
 
 // ── previewEnvironmentAccess ──────────────────────────────────────────────────
 
-// Resolves the effective-access view for a draft environment. Its hosts and
-// connectors grant what an agent's own would. The agent-types preview endpoint
-// resolves them with no environment folded in.
+// Resolves the effective-access view for a draft environment through the agent-types preview,
+// since an environment's hosts and connectors grant what an agent's own would.
 export async function previewEnvironmentAccess(body: {
   egressHosts: string[];
   connectors: Connector[];

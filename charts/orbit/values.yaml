@@ -503,10 +503,8 @@ agents:
   serviceAccount:
     annotations: {}
   config:
-    # Images orbit-agents runs in tenant namespaces. Empty resolves to
-    # <global.imageRegistry>/orbit-session-manager and kora-sandbox-base at
-    # global.imageTag, falling back to the chart appVersion when it is empty.
-    # The operator registers sandboxImage in every tenant as the base image kora-base.
+    # Images orbit-agents runs in tenant namespaces. Empty means <global.imageRegistry>/orbit-session-manager
+    # and kora-sandbox-base at global.imageTag or the appVersion. sandboxImage is registered per tenant as kora-base.
     sessionManagerImage: ""
     sandboxImage: ""
     # Git author name inside the sandbox. Empty means kora-agent.
@@ -623,9 +621,8 @@ agents:
       cpu: "8"
       memory: 16Gi
       disk: 50Gi
-  # Sandbox image settings. See docs/adr/2026-10-03-sandbox-environments.md.
-  # Platform teams register their own images as SandboxImage resources in tenant namespaces.
-  # The operator registers config.sandboxImage in each tenant namespace as kora-base.
+  # Sandbox image settings (docs/adr/2026-10-03-sandbox-environments.md). Platform teams
+  # register their own images as SandboxImage resources in tenant namespaces.
   sandboxImages:
     # -- Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage
     # sets its own with spec.warm. Each warm image runs one DaemonSet per tenant.
@@ -636,9 +633,8 @@ agents:
     # host in image references. A value given as http://host is read over plain
     # HTTP. Use http:// for a local registry only.
     registryMirrors: {}
-  # Warm-start keeps a run from waiting for a node to boot and the sandbox image
-  # to pull. Placement follows agents.workloads.sandbox and the keys below
-  # override it. Image warmers use the same placement.
+  # Warm-start spares a run the node boot and the sandbox image pull. Placement follows
+  # agents.workloads.sandbox, the keys below override it, and image warmers use it too.
   sandboxWarming:
     # -- Warm-start strategy. `none` accepts cold starts. `capacity` runs a
     # low-priority placeholder that holds a node open with the base image cached.

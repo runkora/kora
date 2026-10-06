@@ -70,13 +70,8 @@ fi
 ok "orbit-network:  ${SUBNET}"
 
 # ── Patch CoreDNS NodeHosts ─────────────────────────────────────────────────
-# orbit-postgres, orbit-redis and orbit-registry are Docker containers on orbit-network.
-# CoreDNS cannot resolve them via `forward . /etc/resolv.conf` because
-# 127.0.0.11 (Docker's embedded DNS) is unreachable from inside CoreDNS's
-# container. Injecting them into NodeHosts makes the hosts plugin resolve
-# them in-process without forwarding. k3d adds orbit-registry when it creates
-# the cluster, but k3s rewrites NodeHosts on restart and drops it. The operator
-# reads sandbox images from the registry.
+# CoreDNS cannot reach Docker's embedded DNS, so the orbit-network containers go into NodeHosts.
+# k3s drops k3d's orbit-registry entry on restart, and the operator reads sandbox images from it.
 step "Patching CoreDNS NodeHosts with Docker container IPs"
 
 kubectl get configmap coredns -n kube-system -o json \

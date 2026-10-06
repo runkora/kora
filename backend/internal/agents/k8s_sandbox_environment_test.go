@@ -115,8 +115,8 @@ func TestSandboxPod_InvalidSizeIsAnError(t *testing.T) {
 	}
 }
 
-// A live sandbox in one environment is reused for that environment and refused
-// for another, so only replace_environment switches it.
+// A live sandbox is reused for its own environment and refused for another.
+// Only replace_environment switches it.
 func TestProvisionSandbox_LivePodInOtherEnvironment(t *testing.T) {
 	node := SandboxSpec{EnvironmentID: "env-node", Environment: "node", Image: "ghcr.io/acme/node@sha256:abc", Size: testSizes.Default}
 	goSpec := SandboxSpec{EnvironmentID: "env-go", Environment: "go", Image: "ghcr.io/acme/go@sha256:abc", Size: testSizes.Default}

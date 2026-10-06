@@ -1114,9 +1114,8 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 	}, nil
 }
 
-// sandboxResources limits the sandbox to its environment's size. The local disk
-// counts toward the pod's ephemeral storage limit. The fixed requests reserve no
-// more than a small environment's limits.
+// sandboxResources limits the sandbox to its environment's size, local disk included in ephemeral storage.
+// The fixed requests stay within a small environment's limits.
 func sandboxResources(size EnvironmentSize) (corev1.ResourceRequirements, error) {
 	var cpu, memory, disk resource.Quantity
 	for _, d := range []struct {

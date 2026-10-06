@@ -213,9 +213,8 @@ type AgentType struct {
 	// backend composes into EffectiveGrantScopes (like Connectors); the coarse
 	// mcp:invoke gate is derived there, not stored.
 	MCPTools []string `json:"mcp_tools,omitempty"`
-	// Environments are the sandboxes this agent may run in. One is the default.
-	// None means the built-in default environment. Their egress and connectors
-	// join the agent's grant. See docs/adr/2026-10-03-sandbox-environments.md.
+	// Environments are the sandboxes this agent may run in, one of them the default; none means kora-base.
+	// Their egress and connectors join the agent's grant.
 	Environments            []AgentEnvironment `json:"environments"`
 	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
 	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.

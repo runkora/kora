@@ -59,8 +59,7 @@ func (s EnvironmentSizes) Validate() error {
 	return nil
 }
 
-// Environment is a prepackaged sandbox: a SandboxImage, a size, and the egress
-// hosts and connectors the agents it is attached to may use.
+// Environment is a prepackaged sandbox: a SandboxImage, a size, and the egress hosts and connectors its agents may use.
 // See docs/adr/2026-10-03-sandbox-environments.md.
 type Environment struct {
 	ID          string `json:"id"`
@@ -159,9 +158,8 @@ func (e Environment) EgressScopes() []string {
 
 // ── Request types ──────────────────────────────────────────────────────────
 
-// EnvironmentRequest is the create and update payload. An update replaces
-// every field. TenantID comes from the verified claims. An empty size dimension
-// takes the install default.
+// EnvironmentRequest is the create and update payload. An update replaces every field.
+// The tenant comes from the verified claims, and an empty size dimension takes the install default.
 type EnvironmentRequest struct {
 	ID           string          `json:"-"`
 	Name         string          `json:"name"`
@@ -356,9 +354,8 @@ func (s *EnvironmentService) validate(ctx context.Context, env Environment) erro
 	return err
 }
 
-// usableSandboxImage returns the named SandboxImage when it is registered and
-// valid. A missing or rejected image is reported with unusable. An image the
-// operator has not validated yet is reported with pending.
+// usableSandboxImage returns the named SandboxImage when it is registered and valid.
+// A missing or rejected image wraps unusable, and an image not validated yet wraps pending.
 func usableSandboxImage(ctx context.Context, images sandboxImageLookup, namespace, name string, unusable, pending error) (*si.SandboxImage, error) {
 	img, err := images.SandboxImage(ctx, namespace, name)
 	if errors.Is(err, ErrNotFound) {

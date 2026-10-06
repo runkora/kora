@@ -19,7 +19,7 @@ cmd/orbit-agents:
   agents:
     sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry $tag) | toJson }}
     sandboxImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
-    {{- /* Quantities render as strings, so cpu: 8 in values decodes into the string field. */}}
+    {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}
     environments:
       {{- range $name, $size := dict "defaultSize" .Values.agents.environments.defaultSize "maxSize" .Values.agents.environments.maxSize }}
       {{ $name }}:

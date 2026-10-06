@@ -1,10 +1,7 @@
 'use client';
 
 /** @tier 2 — Orbit-domain-aware: resolved effective access (hosts, connectors, environments). Used by: agents builder, agents configuration, environments.
- * Shows the union of hosts an agent can reach, colour-coded by provenance (own
- * egress posture, attached environments, connectors). The resolved output gets an
- * elevated accent treatment to set it apart from the editable layer cards.
- * Hovering a source section highlights that source's chips within the union. */
+ * Shows the hosts an agent can reach, colour-coded by source; hovering a source highlights its hosts. */
 
 import { useMemo, useState } from 'react';
 import {

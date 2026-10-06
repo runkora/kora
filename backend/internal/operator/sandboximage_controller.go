@@ -147,9 +147,8 @@ func (r *SandboxImageReconciler) Reconcile(ctx context.Context, req ctrl.Request
 	return ctrl.Result{RequeueAfter: r.Resync}, r.patchStatus(ctx, before, img)
 }
 
-// inTenantNamespace reports whether img sits in a tenant namespace. Images
-// register per tenant. Elsewhere a warmer would run without the tenant sidecars
-// and the operator would read that namespace's Secrets.
+// inTenantNamespace reports whether img sits in a tenant namespace. Elsewhere a warmer
+// would run without the tenant sidecars and the operator would read that namespace's Secrets.
 func (r *SandboxImageReconciler) inTenantNamespace(ctx context.Context, img *si.SandboxImage) (bool, error) {
 	ns := &corev1.Namespace{}
 	if err := r.Client.Get(ctx, types.NamespacedName{Name: img.Namespace}, ns); err != nil {

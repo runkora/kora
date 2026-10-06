@@ -21,9 +21,8 @@ func TmpDir(workspace string) string {
 	return filepath.Join(filepath.Dir(workspace), ".tmp", filepath.Base(workspace))
 }
 
-// LocalDir holds the run's build caches and tool installs. It sits beside the
-// workspace like TmpDir. The sandbox mounts a node-local volume there. In the
-// agent pod it is a directory on the shared volume.
+// LocalDir holds the run's build caches and tool installs, beside the workspace like TmpDir.
+// The sandbox mounts a node-local volume there; in the agent pod it is on the shared volume.
 func LocalDir(workspace string) string {
 	return filepath.Join(filepath.Dir(workspace), ".runlocal", filepath.Base(workspace))
 }
@@ -37,10 +36,8 @@ func ConfigDir(workspace string) string {
 // toolDirs are the sandbox image's toolchains that a non-login shell misses.
 var toolDirs = []string{"/usr/local/go/bin", "/usr/local/cargo/bin"}
 
-// InstallEnv points package managers, their caches and user-level installs at
-// dir to make installs work without root. The agent pod and the sandbox pass the
-// same LocalDir. PATH is basePath, then the sandbox toolchains, then dir's bin
-// directories. Installed tools come last to keep them from shadowing a system binary.
+// InstallEnv points package managers, caches and user-level installs at dir, so installs work without root.
+// Installed tools come last on PATH to keep them from shadowing a system binary.
 //
 // PIP_BREAK_SYSTEM_PACKAGES lets pip use the user site of Debian's managed
 // Python; PIP_USER stays unset because it breaks pip inside a virtualenv.

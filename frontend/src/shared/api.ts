@@ -332,11 +332,8 @@ export interface EnvironmentsListResponse {
   environments: Environment[];
 }
 
-/**
- * Request body for POST/PUT /api/v1/environments. PUT is a full replace. An
- * empty sandbox image is stored as kora-base. An empty size dimension takes the
- * platform default. A size above the platform maximum is rejected with a 400.
- */
+/** Request body for POST/PUT /api/v1/environments; PUT replaces in full. Empty image and size
+ * fields take kora-base and the platform default, and a size above the maximum gets a 400. */
 export interface EnvironmentRequest {
   name: string;
   description: string;

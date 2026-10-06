@@ -9,9 +9,8 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// registerEnvironmentTools wires the sandbox environment tools. Reads require
-// agents:environments:read and writes require agents:environments:write. The
-// agents service enforces the scope and recompiles the grants of attached agents.
+// registerEnvironmentTools wires the sandbox environment tools. The agents service enforces
+// agents:environments:read and :write and recompiles the grants of attached agents.
 func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 	base := b.Agents + "/api/v1/environments"
 

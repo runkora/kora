@@ -78,7 +78,7 @@ type SandboxImages struct {
 	WarmerPlacement WarmerPlacement `yaml:"warmerPlacement"`
 }
 
-// WarmerPlacement mirrors operator.WarmerPlacement with yaml tags. main converts it, so the fields must match.
+// WarmerPlacement mirrors operator.WarmerPlacement with yaml tags. main converts between them, which needs identical fields.
 type WarmerPlacement struct {
 	NodeSelector              map[string]string                 `yaml:"nodeSelector"`
 	Tolerations               []corev1.Toleration               `yaml:"tolerations"`

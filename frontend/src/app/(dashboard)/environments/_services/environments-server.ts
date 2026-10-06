@@ -22,11 +22,8 @@ export type EnvironmentsResult =
     }
   | { ok: false; message: string };
 
-/**
- * Loads the tenant's environments, the connection catalog, the registered
- * sandbox images and the platform's size limits from orbit-agents. Only a
- * failure to load environments fails the page. The form works without the rest.
- */
+/** Loads the Environments page: environments, connection catalog, sandbox images and size limits.
+ * Only the environments are required; the form works without the rest. */
 export async function fetchEnvironments(accessToken: string): Promise<EnvironmentsResult> {
   try {
     const [environments, connections, images, sizes] = await Promise.all([

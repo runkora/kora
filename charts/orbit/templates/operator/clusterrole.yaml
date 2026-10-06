@@ -74,9 +74,8 @@ rules:
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
     verbs: ["list", "watch"]
-  # Preflight reads SPIRE registrations. The DaemonSet rule above covers CNI presence.
-  # Preflight finds istiod through the injector ConfigMap. CSI driver and CRD
-  # presence need no RBAC. See preflight.go's SVID fetch and ClusterSPIFFEID checks.
+  # Preflight reads SPIRE registrations and finds istiod through the injector ConfigMap.
+  # The DaemonSet rule above covers CNI presence; the CSI driver and CRD checks need no RBAC.
   - apiGroups: ["spire.spiffe.io"]
     resources: ["clusterspiffeids"]
     verbs: ["list"]

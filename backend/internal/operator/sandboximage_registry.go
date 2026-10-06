@@ -29,9 +29,8 @@ type registryReader interface {
 	Read(ctx context.Context, ref string, auth []dockerConfig) (imageConfig, error)
 }
 
-// remoteRegistry reads registries over HTTPS. Mirrors maps a registry host in
-// an image reference to the host the operator reads it from. A mirror given as
-// http://host is read over plain HTTP.
+// remoteRegistry reads registries over HTTPS. Mirrors maps a registry host in an image
+// reference to the host the operator reads instead; an http://host mirror is read over plain HTTP.
 type remoteRegistry struct {
 	Mirrors map[string]string
 }
@@ -41,9 +40,8 @@ func NewRemoteRegistry(mirrors map[string]string) registryReader {
 	return remoteRegistry{Mirrors: mirrors}
 }
 
-// Read resolves ref to a digest and reads the config of the image for the
-// operator's own architecture. An index digest is returned as is. Each node
-// then pulls its own platform from it.
+// Read resolves ref to a digest and reads the image config for the operator's architecture.
+// An index digest is returned as is, and each node pulls its own platform from it.
 func (r remoteRegistry) Read(ctx context.Context, ref string, auth []dockerConfig) (imageConfig, error) {
 	var opts []name.Option
 	for from, to := range r.Mirrors {

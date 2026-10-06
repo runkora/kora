@@ -796,11 +796,8 @@ var ErrKubeconfigNotReady = errors.New("kubeconfig not resolved for sandbox pre-
 // request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
 // the exec token that sandbox requires.
 //
-// environment names one of the agent's environments. Empty keeps the run's
-// current environment, or the agent's default before the first sandbox.
-// replace switches a live sandbox to the named environment. The old pod and its
-// running commands end. A replacement whose pod already runs in that environment
-// reuses it (e.g., a retry after a timed-out attempt).
+// An empty environment keeps the run's current one, or the agent's default before the first sandbox.
+// replace switches a live sandbox to the named environment and ends its commands; a pod already in it is reused.
 //
 // ahead marks a pre-provision, which exists to spare the first command the
 // pod's cold start. It refuses while the connection registry is loading, since
@@ -877,9 +874,8 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	return sandbox, nil
 }
 
-// chooseSandbox resolves the environment of the run's next sandbox and its
-// spec. switching reports a live sandbox in another environment that a
-// replacement removes first. Errors are recorded on span.
+// chooseSandbox resolves the environment and spec of the run's next sandbox.
+// switching reports a live sandbox in another environment that a replacement removes first.
 func (s *RunService) chooseSandbox(ctx context.Context, span trace.Span, run Run, at AgentType, namespace, environment string, replace bool) (spec SandboxSpec, switching bool, err error) {
 	envs, err := s.agentEnvironments(ctx, at)
 	if err != nil {

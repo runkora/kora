@@ -12,8 +12,7 @@ import (
 )
 
 // environmentLookup loads a tenant's environments by ID, in the order given.
-// An ID the tenant has no environment for is left out. Implemented by the
-// environments repository.
+// An ID the tenant has no environment for is left out.
 type environmentLookup interface {
 	ListEnvironmentsByIDs(ctx context.Context, tenantID string, ids []string) ([]Environment, error)
 }
@@ -171,10 +170,8 @@ type EnvironmentAccess struct {
 	Hosts []string `json:"hosts"`
 }
 
-// EffectiveAccess is the resolved view of everything an agent type can reach:
-// its own egress posture, its environments, the egress each connector brings,
-// and the deduplicated union. The "Effective access" panel reads it. It uses
-// the same inputs as the grant resolver.
+// EffectiveAccess is everything an agent type can reach, per layer and as a union, for the "Effective access" panel.
+// It uses the same inputs as the grant resolver.
 type EffectiveAccess struct {
 	Open         bool                `json:"open"` // open egress: any host
 	OwnHosts     []string            `json:"own_hosts"`
@@ -186,9 +183,8 @@ type EffectiveAccess struct {
 	Hosts            []string          `json:"hosts"`      // deduplicated union (empty when Open)
 }
 
-// EffectiveAccess resolves the full access view for at. It follows EffectiveScopes'
-// merge logic and returns a breakdown per layer. A missing environment or
-// unregistered connection contributes nothing.
+// EffectiveAccess resolves at's access per layer with EffectiveScopes' merge logic.
+// A missing environment or unregistered connection contributes nothing.
 func (r *ScopeResolver) EffectiveAccess(ctx context.Context, at AgentType) (*EffectiveAccess, error) {
 	ea := &EffectiveAccess{
 		Open:             at.Connectivity.Mode == ConnectivityOpen,
