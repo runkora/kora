@@ -207,7 +207,7 @@ Option B.
 - `inference_usage` gains a nullable `agent_slug` column and the index `idx_inference_usage_agent_slug (tenant_id, agent_slug, created_at DESC) WHERE agent_slug IS NOT NULL`. The migration is additive.
 - When the gateway writes a usage row for an `AGENT` principal whose ID has the form `spiffe://{trust-domain}/tenant/{namespace}/agent/{slug}[/sandbox/{run-id}]`, it stores `{slug}`. Every other principal stores NULL.
 - The same migration backfills existing `AGENT` rows from the exact `/agent/{slug}` path segment. SERVICE, HUMAN and PAT rows stay NULL.
-- Superseded by Amendment 2 in part (scope, window): `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant and `agent_slug = {slug}` over the last 7 days. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
+- Superseded by Amendments 2 and 3 in part (scope, window, response): `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant and `agent_slug = {slug}` over the last 7 days. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
 - Superseded by Amendment 2 (removed): `GET /v1/usage/agent-types` groups the same rows by `agent_slug`.
 - Responses carry `agent_slug` in place of `agent_type_id`. The BFF route moves to `GET /api/agents/types/usage/{slug}`, and the frontend looks usage up by slug. Superseded by Amendment 3 (BFF route).
 - The run tables drop the "Tokens" column and the agents list drops the runs-based token fallback. Per-run tokens stay on the run page, which reads `GET /v1/usage/run/{runID}`.
@@ -262,17 +262,12 @@ The agent detail Overview needs one agent's run counts, run durations, tokens, s
 
 ### Decision
 
-- `GET /v1/usage/agent-type/{slug}?period=24h|7d|30d|90d` returns the `GET /v1/usage/agent-insights` shape for one slug: usage with the token breakdown, spend by model, trend buckets, the previous window's total, the agent's budget row and the period. The route scope stays `agents:usage:read` and the `AgentTypeUsage` response is removed.
-- Both routes share one query builder and one predicate: the verified tenant, `agent_slug IS NOT NULL`, the slug when one is set, and the window.
-- `GET /api/v1/run-stats/{slug}?period=24h|7d|30d|90d` in orbit-agents requires the route scope `agents:runs:read` and the caller's `agents:runs:{slug}:read`. A caller without `agents:delegated:read` sees autonomous runs and their own delegated runs.
-- The response carries the period, `total`, `triggered`, `manual`, `completed`, `failed` and `durations`. `total` counts runs created in the window and `triggered` counts runs with a trigger attribution. `completed` and `failed` count runs finished in the window by `completed_at`.
-- `durations` covers the finished runs and carries `finished`, `median_ms`, `average_ms`, `p95_ms`, `p99_ms`, `longest_ms`, `capped`, `range_ms`, ten `buckets` and `overflow`. Percentiles and buckets are computed in SQL.
-- From 20 finished runs the buckets span 0 to p99, runs above p99 count in `overflow` and `capped` is true. Below 20 the buckets span 0 to the longest run, `overflow` is 0 and `capped` is false. The client shows the p95 marker only when `capped` is true.
-- The route sits under `/api/v1/run-stats/`. The longer `/api/v1/agent-types/` prefix already binds `agents:types:read`.
-- The BFF composes both reads at `GET /api/agents/types/overview/{slug}?period=` under the caller's token. A part the caller may not read is left out of the response and its cards are absent.
-- The Total runs, Completed runs, Median duration, Tokens and Spend tiles, the token ring and the spend and budget views need no data beyond these two reads.
+- `GET /v1/usage/agent-type/{slug}?period=24h|7d|30d|90d` returns the `GET /v1/usage/agent-insights` shape for one slug. The route scope stays `agents:usage:read`. The flat `AgentTypeUsage` response gives way to the insights shape, where `AgentTypeUsage` is the element of `usage`.
+- `GET /api/v1/run-stats/{slug}?period=24h|7d|30d|90d` in orbit-agents requires `agents:runs:read` and the caller's `agents:runs:{slug}:read`. A caller without `agents:delegated:read` sees autonomous runs and their own delegated runs.
+- It returns `total`, `triggered`, `completed`, `failed` and `durations`. `total` counts runs created in the window and `triggered` those with a trigger attribution. `completed` and `failed` count runs finished in the window by `completed_at`. `durations` carries `median_ms`, `p95_ms`, `p99_ms`, `longest_ms`, `capped`, ten `buckets` and `overflow`, all computed in SQL.
+- From 20 finished runs the buckets span 0 to p99, runs above p99 count in `overflow` and `capped` is true. Below 20 they span 0 to the longest run, `overflow` is 0 and `capped` is false. The client shows the p95 marker only when `capped` is true.
+- The BFF composes both reads at `GET /api/agents/types/overview/{slug}?period=` under the caller's token. A part the caller may not read, a 403 or 404, is left out. A part that errors or times out is named in `failed` and its card reads Could not load.
 
 ### Consequences
 
 - A caller with `agents:runs:read` and without `agents:usage:read` sees the run tiles and no spend or token cards.
-- The finished-run reads use `idx_runs_tenant_completed` and filter the agent type after the index range.

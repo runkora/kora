@@ -91,7 +91,7 @@ Additionally, operators and team leads have no way to see total spend for an age
 
 ### High-Level Approach
 
-Add a new inference-gateway endpoint `GET /v1/usage/agent-type/{slug}` (tenant-scoped, 7-day window) that returns aggregated token breakdown and spend. The BFF composes it with the run stats at `GET /api/agents/types/overview/[slug]`. The agent overview tab fetches this on mount and renders the data.
+Add a new inference-gateway endpoint `GET /v1/usage/agent-type/{slug}` (tenant-scoped, window of 24h, 7d, 30d or 90d, default 7d) that returns the agent's token breakdown, spend by model, spend over time and budget. The BFF composes it with the run stats at `GET /api/agents/types/overview/[slug]`. The agent overview tab fetches this on mount and renders the data.
 
 The existing Tokens card is replaced by a card matching the breakdown style in `analytics-kpi-cards.tsx`. A new Spend card is added as the fifth card. The grid changes from `cols={4}` to `cols={5}` (or `{ base: 2, md: 5 }` for responsive layout).
 
@@ -147,7 +147,7 @@ The Tokens card expands to show sub-rows:
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] `GET /v1/usage/agent-type/{slug}` returns `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd` summed over the last 7 days, scoped to the caller's tenant
+- [ ] `GET /v1/usage/agent-type/{slug}` returns `prompt_tokens`, `completion_tokens`, `cache_read_tokens`, `cache_creation_tokens`, `estimated_cost_usd` summed over the requested window (default 7d), scoped to the caller's tenant
 - [ ] BFF route `/api/agents/types/overview/[slug]` returns the above with the run stats
 - [ ] Tokens card on overview tab shows breakdown (input, output, cache read, cache write)
 - [ ] New Spend card shows formatted USD value
