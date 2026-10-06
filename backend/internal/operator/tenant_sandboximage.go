@@ -49,7 +49,7 @@ func baseSandboxImage(ns, tenantName string, base SandboxBase) *si.SandboxImage 
 		ObjectMeta: metav1.ObjectMeta{Name: si.BaseName, Namespace: ns, Labels: tenantPolicyLabels(tenantName)},
 		Spec: si.Spec{
 			Image:       base.Image,
-			Description: "The kora base image: general command-line tools, Go and Python.",
+			Description: si.BaseDescription,
 			Warm:        base.Warm,
 		},
 	}

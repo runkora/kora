@@ -26,6 +26,9 @@ const BaseLabel = "io.orbit.sandbox.base"
 // the base image. An environment without an image uses it.
 const BaseName = "kora-base"
 
+// BaseDescription describes the base image wherever it is listed.
+const BaseDescription = "The kora base image: general command-line tools, Go and Python."
+
 // SandboxUID is the user every sandbox image runs as.
 const SandboxUID = 100
 

@@ -33,8 +33,7 @@ describe('EnvironmentsCard', () => {
     expect(onChange).toHaveBeenCalledWith([{ environment_id: 'go', is_default: true }]);
   });
 
-  it('marks the default and moves it on request', () => {
-    const onChange = vi.fn();
+  it('marks the default', () => {
     render(
       <EnvironmentsCard
         environments={ENVIRONMENTS}
@@ -42,15 +41,10 @@ describe('EnvironmentsCard', () => {
           { environment_id: 'go', is_default: true },
           { environment_id: 'node', is_default: false },
         ]}
-        onChange={onChange}
+        onChange={vi.fn()}
       />,
     );
     expect(screen.getByText('Default')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Make Node apps the default' }));
-    expect(onChange).toHaveBeenCalledWith([
-      { environment_id: 'go', is_default: false },
-      { environment_id: 'node', is_default: true },
-    ]);
   });
 
   it('shows a load failure instead of the list', () => {

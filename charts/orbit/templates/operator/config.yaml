@@ -3,6 +3,11 @@ orbit-operator config files (docs/adr/2026-10-06-rendered-service-config-files.m
 The preflight helm test mounts the same ConfigMap.
 */}}
 {{- define "orbit.operator.configModules" -}}
+{{- /* Image warmers run in the warm-start scheduling with the sandbox priority class. */}}
+{{- $placement := include "orbit.sandboxWarmingScheduling" (dict "root" .) | fromYaml | default dict }}
+{{- with (.Values.agents.workloads.sandbox.priorityClassName | default .Values.agents.priorityClassName | default .Values.global.priorityClassName) }}
+{{- $_ := set $placement "priorityClassName" . }}
+{{- end }}
 cmd/operator:
   operator:
     leaderElection: {{ .Values.operator.leaderElection }}
@@ -36,7 +41,7 @@ cmd/operator:
       baseImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
       warmBase: {{ .Values.agents.sandboxImages.warmBase }}
       registryMirrors: {{ .Values.agents.sandboxImages.registryMirrors | toJson }}
-      warmerPlacement: {{ include "orbit.sandboxWarmerPlacement" . }}
+      warmerPlacement: {{ toJson $placement }}
     preflight:
       supportedIstioMinors: {{ .Values.operator.preflight.supportedIstioMinors | toJson }}
       intervalSeconds: {{ .Values.operator.preflight.intervalSeconds | int }}

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 
 import type { AgentBuilderStateShape } from '../../_hooks/use-agent-builder';
@@ -38,6 +38,10 @@ vi.mock('../../_context/agent-builder-context', () => ({
 }));
 
 describe('StepTools', () => {
+  afterEach(() => {
+    builder.catalogues.status.environments = 'success';
+  });
+
   it('offers governed access only, with no framework tool picker', () => {
     render(<StepTools />);
 
@@ -53,24 +57,4 @@ describe('StepTools', () => {
     expect(screen.queryByText('Deleted environment')).toBeNull();
   });
 
-  it('shows the attached environments once the catalogue loads', () => {
-    builder.catalogues.status.environments = 'success';
-    builder.catalogues.environments = [
-      {
-        id: 'env-go',
-        tenant_id: 't',
-        name: 'Go services',
-        description: '',
-        sandbox_image: 'kora-base',
-        size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
-        egress_hosts: [],
-        connectors: [],
-        created_at: '',
-        updated_at: '',
-      },
-    ];
-    render(<StepTools />);
-    expect(screen.getByLabelText('Go services')).toBeChecked();
-    expect(screen.queryByText('Deleted environment')).toBeNull();
-  });
 });

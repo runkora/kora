@@ -81,7 +81,7 @@ type Environment struct {
 func DefaultEnvironment(size EnvironmentSize) Environment {
 	return Environment{
 		Name:         DefaultEnvironmentName,
-		Description:  "The kora base image: general command-line tools, Go and Python.",
+		Description:  si.BaseDescription,
 		SandboxImage: si.BaseName,
 		Size:         size,
 		EgressHosts:  []string{},

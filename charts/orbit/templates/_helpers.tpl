@@ -147,18 +147,6 @@ the SandboxImage kora-base.
 {{- end }}
 
 {{/*
-The placement of sandbox image warmers for the operator's config file. It
-carries the warm-start scheduling and the sandbox priority class.
-*/}}
-{{- define "orbit.sandboxWarmerPlacement" -}}
-{{- $placement := include "orbit.sandboxWarmingScheduling" (dict "root" .) | fromYaml | default dict -}}
-{{- with (.Values.agents.workloads.sandbox.priorityClassName | default .Values.agents.priorityClassName | default .Values.global.priorityClassName) -}}
-{{- $_ := set $placement "priorityClassName" . -}}
-{{- end -}}
-{{- toJson $placement -}}
-{{- end }}
-
-{{/*
 The validated sandbox warming mode. A typo would otherwise render no warming at
 all and look like it worked.
 */}}
