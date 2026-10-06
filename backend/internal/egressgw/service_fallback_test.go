@@ -108,3 +108,40 @@ func TestAnonymousReadOrDeny_OnlyGitHub(t *testing.T) {
 		t.Errorf("err = %v with %d posture checks, want the denial and no fallback", err, len(eval.egressChecks))
 	}
 }
+
+// gatedConnector records what the broker's gate answered for metadata:read.
+type gatedConnector struct{ allowed *bool }
+
+func (g gatedConnector) Classify(*http.Request) (credentials.Classification, error) {
+	return credentials.Classification{}, errors.New("broker must call ClassifyGated")
+}
+
+func (g gatedConnector) ClassifyGated(_ *http.Request, allowed func(string) bool) (credentials.Classification, error) {
+	*g.allowed = allowed("metadata:read")
+	return credentials.Classification{Action: "use"}, nil
+}
+
+func (gatedConnector) Mint(context.Context, credentials.CallerIdentity) (credentials.Credential, error) {
+	return credentials.Credential{}, nil
+}
+
+// The broker answers a connector's lookup gate from the caller's unqualified
+// grant on that connection.
+func TestClassify_GateAnswersFromGrant(t *testing.T) {
+	conn := &credentials.Connection{Name: "github", Adapter: credentials.AdapterGitHubApp}
+	req, _ := http.NewRequest(http.MethodGet, "https://api.github.com/repositories/1", nil)
+	for _, held := range []bool{true, false} {
+		var scopes heldScopes
+		if held {
+			scopes = heldScopes{"github:metadata:read"}
+		}
+		b := NewBroker(scopes, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+		var got bool
+		if _, err := b.classify(context.Background(), claimsFor("acme", "agent", "run"), gatedConnector{allowed: &got}, conn, FromHTTP(req)); err != nil {
+			t.Fatalf("classify: %v", err)
+		}
+		if got != held {
+			t.Errorf("gate with metadata:read held=%v answered %v", held, got)
+		}
+	}
+}

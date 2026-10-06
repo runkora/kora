@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/time/rate"
 
 	"github.com/clear-route/orbit/internal/credentials"
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
@@ -110,20 +111,24 @@ type Adapter struct {
 	cache          map[string]credentials.Credential
 	instPermsCache map[int64]cachedInstPerms
 	// repoNames maps "<installation>/<repository ID>" to "owner/name".
-	repoNames map[string]string
+	repoNames       map[string]cachedRepoName
+	repoLookups     *rate.Limiter
+	repoLookupSlots chan struct{}
 }
 
 // New constructs an Adapter backed by the given GitHub client and secret
 // resolver.
 func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Adapter {
 	return &Adapter{
-		api:            api,
-		secrets:        secrets,
-		logger:         logger,
-		now:            time.Now,
-		cache:          make(map[string]credentials.Credential),
-		instPermsCache: make(map[int64]cachedInstPerms),
-		repoNames:      make(map[string]string),
+		api:             api,
+		secrets:         secrets,
+		logger:          logger,
+		now:             time.Now,
+		cache:           make(map[string]credentials.Credential),
+		instPermsCache:  make(map[int64]cachedInstPerms),
+		repoNames:       make(map[string]cachedRepoName),
+		repoLookups:     rate.NewLimiter(rate.Every(repoLookupEvery), repoLookupBurst),
+		repoLookupSlots: make(chan struct{}, repoLookupsInFlight),
 	}
 }
 
@@ -181,7 +186,16 @@ type connector struct {
 // collision widen a repository-scoped grant. Content-host paths are the
 // exception: their shapes are not always owner-addressed, so one that does not
 // match classifies unqualified instead.
+//
+// Classify never looks anything up upstream: an ID-addressed API path is
+// unclassifiable here. ClassifyGated resolves it for a caller the gate allows.
 func (c *connector) Classify(req *http.Request) (credentials.Classification, error) {
+	return c.ClassifyGated(req, nil)
+}
+
+// ClassifyGated is Classify with ID-addressed API paths resolved when allowed
+// reports that the caller holds the connection's metadata:read baseline.
+func (c *connector) ClassifyGated(req *http.Request, allowed func(action string) bool) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
@@ -200,7 +214,7 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 	// /api/graphql on the shared host.
 	switch {
 	case host == "api.github.com":
-		apiPath, err := c.resolveRepositoryID(req.Context(), path)
+		apiPath, err := c.resolveRepositoryID(req.Context(), path, allowed)
 		if err != nil {
 			return credentials.Classification{}, err
 		}
@@ -490,11 +504,15 @@ func classifyReleaseDownload(method, path, owner string) (credentials.Classifica
 
 // resolveRepositoryID rewrites /repositories/{id}/… to /repos/{owner}/{repo}/…
 // so the ID-addressed links GitHub paginates with classify like the paths they
-// stand for. An ID that cannot be resolved is unclassifiable.
-func (c *connector) resolveRepositoryID(ctx context.Context, path string) (string, error) {
+// stand for. The lookup runs only for a caller allowed holds metadata:read for.
+// An ID that is not looked up or cannot be resolved is unclassifiable.
+func (c *connector) resolveRepositoryID(ctx context.Context, path string, allowed func(action string) bool) (string, error) {
 	segs := pathSegments(path)
 	if len(segs) < 2 || segs[0] != "repositories" || !isNumeric(segs[1]) {
 		return path, nil
+	}
+	if allowed == nil || !allowed(ActionMetadataRead) {
+		return "", fmt.Errorf("%w: repository id lookup not permitted", credentials.ErrUnsupportedAction)
 	}
 	fullName, err := c.repositoryFullName(ctx, segs[1])
 	if err != nil {
@@ -503,23 +521,51 @@ func (c *connector) resolveRepositoryID(ctx context.Context, path string) (strin
 	return "/repos/" + strings.Join(append([]string{fullName}, segs[2:]...), "/"), nil
 }
 
-// repositoryFullName looks up a repository ID with a metadata-scoped
-// installation token. Results are cached for the life of the process.
+// Repository-ID lookups are bounded per adapter: cached names expire after
+// repoNameTTL, and a cache miss needs a rate token and a free lookup slot.
+const (
+	repoNameTTL         = time.Hour
+	repoLookupEvery     = 6 * time.Second
+	repoLookupBurst     = 20
+	repoLookupsInFlight = 4
+)
+
+// errLookupThrottled is returned when a repository-ID lookup is over its bounds.
+var errLookupThrottled = errors.New("repository lookup throttled")
+
+// cachedRepoName is a resolved "owner/name" and its expiry.
+type cachedRepoName struct {
+	name      string
+	expiresAt time.Time
+}
+
+// repositoryFullName looks up a repository ID with the metadata-scoped
+// installation token the caller's metadata:read grant already covers.
 func (c *connector) repositoryFullName(ctx context.Context, id string) (string, error) {
 	a := c.adapter
 	key := strconv.FormatInt(c.cfg.InstallationID, 10) + "/" + id
 	a.mu.Lock()
-	name, ok := a.repoNames[key]
+	cached, ok := a.repoNames[key]
 	a.mu.Unlock()
-	if ok {
-		return name, nil
+	if ok && a.now().Before(cached.expiresAt) {
+		return cached.name, nil
+	}
+
+	if !a.repoLookups.Allow() {
+		return "", errLookupThrottled
+	}
+	select {
+	case a.repoLookupSlots <- struct{}{}:
+		defer func() { <-a.repoLookupSlots }()
+	default:
+		return "", errLookupThrottled
 	}
 
 	cred, err := c.Mint(ctx, credentials.CallerIdentity{TenantID: c.conn.TenantID, Action: ActionMetadataRead})
 	if err != nil {
 		return "", fmt.Errorf("resolve metadata token: %w", err)
 	}
-	name, err = a.api.GetRepositoryFullName(ctx, cred.Token, id)
+	name, err := a.api.GetRepositoryFullName(ctx, cred.Token, id)
 	if err != nil {
 		return "", fmt.Errorf("get repository: %w", err)
 	}
@@ -528,7 +574,7 @@ func (c *connector) repositoryFullName(ctx context.Context, id string) (string, 
 	if len(a.repoNames) >= cacheEvictThreshold {
 		clear(a.repoNames)
 	}
-	a.repoNames[key] = name
+	a.repoNames[key] = cachedRepoName{name: name, expiresAt: a.now().Add(repoNameTTL)}
 	a.mu.Unlock()
 	return name, nil
 }

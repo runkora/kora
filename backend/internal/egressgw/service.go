@@ -129,7 +129,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return Decision{}, err
 	}
 
-	cls, err := b.classify(ctx, connector, conn, req)
+	cls, err := b.classify(ctx, claims, connector, conn, req)
 	if err != nil {
 		span.RecordError(err)
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
@@ -146,14 +146,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	if registered {
 		authorized, perr := b.evaluatePolicy(ctx, claims, conn, cls, req, tenantID)
 		if perr != nil {
-			span.SetAttributes(attribute.Bool("orbit.allowed", false))
-			span.RecordError(perr)
-			var denial *Denial
-			if errors.As(perr, &denial) && denial.Reason != DenialPolicyUnavailable {
-				return b.anonymousReadOrDeny(ctx, span, claims, conn, req, denial)
-			}
-			span.SetStatus(codes.Error, ErrForbidden.Error())
-			return Decision{}, perr
+			return b.policyDenied(ctx, span, claims, conn, req, perr)
 		}
 		action, also = authorized[0], authorized[1:]
 	}
@@ -206,6 +199,19 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	)
 
 	return Decision{Connection: conn, Action: action, Qualifier: cls.Qualifier, Credential: cred}, nil
+}
+
+// policyDenied handles a policy refusal. A denial the grant could explain may
+// still be served by the anonymous fallback; a failed evaluation never is.
+func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, perr error) (Decision, error) {
+	span.SetAttributes(attribute.Bool("orbit.allowed", false))
+	span.RecordError(perr)
+	var denial *Denial
+	if errors.As(perr, &denial) && denial.Reason != DenialPolicyUnavailable {
+		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, denial)
+	}
+	span.SetStatus(codes.Error, ErrForbidden.Error())
+	return Decision{}, perr
 }
 
 // anonymousReadAction is the action recorded for a read served by the
@@ -299,8 +305,21 @@ func hostWithoutPort(host string) string {
 // grant: an attachment narrowed to a repository compiles to a qualified scope,
 // and policy evaluation below rejects anything the grant does not cover. See
 // docs/adr/2026-07-22-connection-scope-qualifiers.md.
-func (b *Broker) classify(ctx context.Context, connector credentials.Connector, conn *credentials.Connection, req EgressRequest) (credentials.Classification, error) {
-	cls, err := connector.Classify(req.HTTPRequest)
+//
+// A connector that needs an upstream lookup to classify gets a gate that
+// answers from the caller's grant, so only a caller holding an unqualified
+// action on the connection can make it look anything up.
+func (b *Broker) classify(ctx context.Context, claims *token.PlatformClaims, connector credentials.Connector, conn *credentials.Connection, req EgressRequest) (credentials.Classification, error) {
+	var cls credentials.Classification
+	var err error
+	if gated, ok := connector.(credentials.GatedClassifier); ok {
+		cls, err = gated.ClassifyGated(req.HTTPRequest, func(action string) bool {
+			res, cerr := b.checkAction(ctx, claims, conn, action, "")
+			return cerr == nil && res.Allow
+		})
+	} else {
+		cls, err = connector.Classify(req.HTTPRequest)
+	}
 	if err != nil {
 		// An adapter that cannot classify the request shape is a deny.
 		// The deny is recorded with the unsupported reason so audit captures it.

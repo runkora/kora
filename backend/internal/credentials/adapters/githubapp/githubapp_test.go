@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -731,12 +732,11 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	}
 }
 
-// TestConnector_Classify_RepositoryID covers the ID-addressed links GitHub
-// paginates with: the ID resolves to owner/name once and classifies like the
-// /repos path it stands for.
-func TestConnector_Classify_RepositoryID(t *testing.T) {
-	lookups := map[string]int{}
+// repositoryAPI stubs the token and repository endpoints and counts every hit.
+func repositoryAPI(t *testing.T, hits map[string]int) *httptest.Server {
+	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits[r.URL.Path]++
 		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.URL.Path == "/app/installations/1/access_tokens":
@@ -744,26 +744,50 @@ func TestConnector_Classify_RepositoryID(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(map[string]any{"token": "ghs_meta", "expires_at": "2026-06-06T13:00:00Z"})
 		case strings.HasPrefix(r.URL.Path, "/repositories/"):
 			id := strings.TrimPrefix(r.URL.Path, "/repositories/")
-			lookups[id]++
 			names := map[string]string{"123": "Orbital/Orbit", "456": "octocat/Hello-World"}
-			if names[id] == "" || r.Header.Get("Authorization") != "Bearer ghs_meta" {
+			name := names[id]
+			if name == "" && strings.HasPrefix(id, "9") {
+				name = "orbital/repo-" + id
+			}
+			if name == "" || r.Header.Get("Authorization") != "Bearer ghs_meta" {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"full_name": names[id]})
+			_ = json.NewEncoder(w).Encode(map[string]any{"full_name": name})
 		default:
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-	defer srv.Close()
+	t.Cleanup(srv.Close)
+	return srv
+}
 
+func repositoryIDAdapter(t *testing.T, hits map[string]int) (*Adapter, credentials.Connector) {
+	t.Helper()
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
+	a := New(ghclient.NewClient(repositoryAPI(t, hits).URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 	conn := credentials.Connection{
 		ID: "conn-1", SecretRef: "ref", Adapter: credentials.AdapterGitHubApp,
 		Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: "orbital"}),
 	}
+	return a, open(t, a, conn)
+}
+
+func classifyGated(t *testing.T, c credentials.Connector, url string, allow bool) (credentials.Classification, error) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, url, nil)
+	return c.(credentials.GatedClassifier).ClassifyGated(req, func(action string) bool {
+		return allow && action == ActionMetadataRead
+	})
+}
+
+// TestConnector_Classify_RepositoryID covers the ID-addressed links GitHub
+// paginates with: the ID resolves to owner/name once and classifies like the
+// /repos path it stands for.
+func TestConnector_Classify_RepositoryID(t *testing.T) {
+	hits := map[string]int{}
+	_, c := repositoryIDAdapter(t, hits)
 
 	cases := []struct {
 		name, url, want, qualifier string
@@ -777,8 +801,7 @@ func TestConnector_Classify_RepositoryID(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req, _ := http.NewRequest(http.MethodGet, tc.url, nil)
-			got, err := open(t, a, conn).Classify(req)
+			got, err := classifyGated(t, c, tc.url, true)
 			if tc.err {
 				if !errors.Is(err, credentials.ErrUnsupportedAction) {
 					t.Fatalf("err = %v (got %+v), want ErrUnsupportedAction", err, got)
@@ -793,7 +816,70 @@ func TestConnector_Classify_RepositoryID(t *testing.T) {
 			}
 		})
 	}
-	if lookups["123"] != 1 {
-		t.Errorf("repository 123 looked up %d times, want 1 (cached)", lookups["123"])
+	if hits["/repositories/123"] != 1 {
+		t.Errorf("repository 123 looked up %d times, want 1 (cached)", hits["/repositories/123"])
+	}
+}
+
+// A caller the gate refuses, or a plain Classify, never reaches GitHub: no
+// token mint and no lookup, however many distinct IDs it sends.
+func TestConnector_RepositoryID_UnauthorizedNoUpstreamCalls(t *testing.T) {
+	hits := map[string]int{}
+	_, c := repositoryIDAdapter(t, hits)
+	for i := range 100 {
+		url := "https://api.github.com/repositories/9" + strconv.Itoa(i) + "/commits"
+		if _, err := classifyGated(t, c, url, false); !errors.Is(err, credentials.ErrUnsupportedAction) {
+			t.Fatalf("gated-out lookup: err = %v, want ErrUnsupportedAction", err)
+		}
+		req, _ := http.NewRequest(http.MethodGet, url, nil)
+		if _, err := c.Classify(req); !errors.Is(err, credentials.ErrUnsupportedAction) {
+			t.Fatalf("ungated lookup: err = %v, want ErrUnsupportedAction", err)
+		}
+	}
+	if len(hits) != 0 {
+		t.Errorf("unauthorized callers reached GitHub: %v", hits)
+	}
+}
+
+// An allowed caller sending many distinct IDs is rate limited and the cache
+// stays bounded.
+func TestConnector_RepositoryID_LookupsBounded(t *testing.T) {
+	defer func(prev int) { cacheEvictThreshold = prev }(cacheEvictThreshold)
+	cacheEvictThreshold = 8
+
+	hits := map[string]int{}
+	a, c := repositoryIDAdapter(t, hits)
+	for i := range 100 {
+		_, _ = classifyGated(t, c, "https://api.github.com/repositories/9"+strconv.Itoa(i)+"/commits", true)
+	}
+	lookups := 0
+	for path, n := range hits {
+		if strings.HasPrefix(path, "/repositories/") {
+			lookups += n
+		}
+	}
+	if lookups > repoLookupBurst {
+		t.Errorf("lookups = %d, want at most the burst %d", lookups, repoLookupBurst)
+	}
+	if hits["/app/installations/1/access_tokens"] != 1 {
+		t.Errorf("token mints = %d, want 1 (cached metadata token)", hits["/app/installations/1/access_tokens"])
+	}
+	if len(a.repoNames) > cacheEvictThreshold {
+		t.Errorf("cache holds %d names, want at most %d", len(a.repoNames), cacheEvictThreshold)
+	}
+}
+
+// A cached name expires after repoNameTTL.
+func TestConnector_RepositoryID_CacheExpires(t *testing.T) {
+	hits := map[string]int{}
+	a, c := repositoryIDAdapter(t, hits)
+	url := "https://api.github.com/repositories/123/commits"
+	_, _ = classifyGated(t, c, url, true)
+	_, _ = classifyGated(t, c, url, true)
+	now := a.now()
+	a.now = func() time.Time { return now.Add(repoNameTTL + time.Second) }
+	_, _ = classifyGated(t, c, url, true)
+	if hits["/repositories/123"] != 2 {
+		t.Errorf("lookups = %d, want 2 (one per TTL)", hits["/repositories/123"])
 	}
 }
