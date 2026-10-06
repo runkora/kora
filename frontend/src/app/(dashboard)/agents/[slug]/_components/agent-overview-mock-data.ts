@@ -13,7 +13,7 @@ import type { Period } from '../../_lib/spend';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-/** A weekly and a monthly window plus a per-run limit, so the Budget view shows all three. */
+/** A weekly and a monthly window plus a per-run limit. */
 const BUDGET: AgentBudgetStatus = {
   agent_slug: 'code-reviewer',
   per_run_limit_usd: 4,
@@ -106,7 +106,7 @@ function normalCdf(z: number): number {
   return 0.5 * (1 + (z >= 0 ? erf : -erf));
 }
 
-/** The z whose CDF is q, by bisection; the mock does not need more precision. */
+/** The z whose CDF is q, by bisection. */
 function normalQuantile(q: number): number {
   let lo = -6;
   let hi = 6;
@@ -209,7 +209,7 @@ export function mockOverview(
     estimated_cost_usd: (base?.estimated_cost_usd ?? 0) * factor,
   };
   const total = usage.estimated_cost_usd;
-  // A gentle wave per agent, normalised so the buckets add up to the window's spend.
+  // A gentle wave per agent, normalized so the buckets add up to the window's spend.
   const phase = slug.length % 5;
   const wave = Array.from({ length: buckets }, (_, i) => 1 + 0.45 * Math.sin(i * 0.9 + phase));
   const waveSum = wave.reduce((n, w) => n + w, 0);

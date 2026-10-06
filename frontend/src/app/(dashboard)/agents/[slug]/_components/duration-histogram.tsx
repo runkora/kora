@@ -15,7 +15,7 @@ const CHART_CONFIG = { runs: { label: 'Runs', color: 'var(--color-accent)' } };
 /** Axis labels drop empty trailing units: 29m, not 29m 0s. */
 const compact = (ms: number) => formatDuration(ms).replace(/ 0[ms]$/, '');
 
-/** The cap label is approximate, so it rounds to whole minutes and stays short. */
+/** Rounds the approximate cap label to whole minutes. */
 const capLabel = (ms: number) => (ms >= 60_000 ? `${Math.round(ms / 60_000)}m` : compact(ms));
 
 export function DurationHistogram({ durations }: { durations: RunDurations }) {

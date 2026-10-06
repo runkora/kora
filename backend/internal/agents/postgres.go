@@ -690,8 +690,8 @@ func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID stri
 	return out, nil
 }
 
-// finishedRunsSQL selects the agent type's runs that finished in [$3, $4) with
-// their duration in ms (creation stands in for a start that never happened), served by idx_runs_tenant_completed.
+// finishedRunsSQL selects the agent type's runs finished in [$3, $4) with their duration in ms.
+// A run that never started counts from its creation.
 const finishedRunsSQL = `
 	SELECT r.state, GREATEST(EXTRACT(EPOCH FROM (r.completed_at - COALESCE(r.started_at, r.created_at))) * 1000, 0) AS ms
 	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
@@ -726,7 +726,7 @@ func (r *PostgresRepository) FinishedRunDurations(ctx context.Context, tenantID,
 	if err != nil {
 		return FinishedRuns{}, fmt.Errorf("finished run durations: %w", err)
 	}
-	// p99 and the longest run round up: they are histogram edges, and a run must never fall above its own edge.
+	// p99 and the longest run round up so no run falls above its own histogram edge.
 	out.MedianMs, out.AverageMs, out.P95Ms, out.P99Ms, out.LongestMs =
 		int64(math.Round(median)), int64(math.Round(avg)), int64(math.Round(p95)), int64(math.Ceil(p99)), int64(math.Ceil(longest))
 	return out, nil

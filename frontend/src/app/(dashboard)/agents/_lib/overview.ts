@@ -9,7 +9,7 @@ export interface RunDurations {
   p95Ms: number;
   p99Ms: number;
   longestMs: number;
-  /** True when `buckets` stop at p99 and `overflow` counts the slower runs, so the p95 marker is meaningful. */
+  /** True when `buckets` stop at p99 and `overflow` counts the slower runs. */
   capped: boolean;
   buckets: number[];
   overflow: number;

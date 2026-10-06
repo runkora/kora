@@ -46,6 +46,7 @@ This table is the registration as it stands today, not as this ADR first propose
 | `POST` | `/api/v1/runs` | *(authenticated only)* |
 | `GET` | `/api/v1/runs` | `agents:runs:read` |
 | `GET` | `/api/v1/run-outcomes` | `agents:runs:read` |
+| `GET` | `/api/v1/run-stats/` | `agents:runs:read` |
 | `GET` | `/api/v1/runs/` | `agents:runs:read` |
 | `DELETE` | `/api/v1/runs/` | `agents:runs:write` |
 | `POST` | `/api/v1/runs/` | `agents:runs:write` |
@@ -71,7 +72,7 @@ The route is registered with an empty required scope and excluded from policy-se
 | `agents:usage:read` | `agents` | `read` | View every agent's usage, spend and budgets (prefix-covers the per-agent usage scopes) |
 | `agents:delegated:read` | `agents` | `read` | View the runs of delegated agents that other people started, with their messages, events and outputs |
 
-The `agents:usage:read` scope is required by the inference gateway's `/v1/usage/agent-insights` and `/v1/usage/agent-type/{slug}` routes. The `agents:delegated:read` scope is checked by the service layer, not by a route. Together with the four scopes above they form the permission surface for the agent management API. Platform administrators can compose them into roles (e.g. an `agent-operator` role with all four, or a read-only `agent-viewer` role with only the two read scopes) and grant them to human principals or PATs via the policy portal.
+The `agents:usage:read` scope is required by the inference gateway's `/v1/usage/agent-insights` and `/v1/usage/agent-type/{slug}` routes. The `agents:runs:read` scope is required by `/api/v1/run-outcomes` and `/api/v1/run-stats/{slug}`. The `agents:delegated:read` scope is checked by the service layer, not by a route. Together with the four scopes above they form the permission surface for the agent management API. Platform administrators can compose them into roles (e.g. an `agent-operator` role with all four, or a read-only `agent-viewer` role with only the two read scopes) and grant them to human principals or PATs via the policy portal.
 
 ### Per-Agent-Type Scope Vocabulary
 

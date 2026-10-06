@@ -20,7 +20,7 @@ The gateway holds each provider's credentials and speaks its native wire format:
 
 Each call writes an `inference_usage` row to Postgres (tokens, estimated cost, latency, and full principal attribution) and increments the Redis spend counters that back budgets.
 
-The Agents page reads agent-only rollups over 24-hour, 7-day, 30-day and 90-day windows: usage per agent, spend by model, spend over time, the previous window's total, and each agent's budget windows. The reads require `agents:usage:read` and cover every agent in the tenant, delegated agents included. Spend of deleted agents counts. The agent overview's per-agent usage read requires the same scope.
+The Agents page reads agent-only rollups over 24-hour, 7-day, 30-day and 90-day windows: usage per agent, spend by model, spend over time, the previous window's total, and each agent's budget windows. The reads require `agents:usage:read` and cover every agent in the tenant, delegated agents included. Spend of deleted agents counts. The agent overview's per-agent read returns the same rollups for one agent and requires the same scope.
 
 ## ADRs
 

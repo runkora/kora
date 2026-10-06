@@ -7,7 +7,7 @@ import type { Period } from '../../_lib/spend';
 
 /**
  * One agent's gateway insights and run stats, each read under the caller's token.
- * A part that fails or is not permitted is left out, so its cards are absent.
+ * A part that fails or is not permitted is left out.
  */
 export async function loadAgentOverview(
   accessToken: string,

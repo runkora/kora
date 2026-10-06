@@ -1,7 +1,7 @@
 # Agent Token Breakdown and Spend Card
 
 **Date:** 2026-06-23  
-**Status:** Accepted (Amended 2026-10-03)  
+**Status:** Accepted (Amended 2026-10-06)  
 **Deciders:** Engineering  
 **PRD:** [agent-token-breakdown-and-spend-card](../prd/agent-token-breakdown-and-spend-card.md)
 
@@ -209,7 +209,7 @@ Option B.
 - The same migration backfills existing `AGENT` rows from the exact `/agent/{slug}` path segment. SERVICE, HUMAN and PAT rows stay NULL.
 - Superseded by Amendment 2 in part (scope, window): `GET /v1/usage/agent-type/{slug}` sums rows where `tenant_id` is the caller's tenant and `agent_slug = {slug}` over the last 7 days. The handler rejects with 400 a slug that is not a valid Kubernetes label value, the format the `spiffe.io/agent` pod label that SPIRE reads already requires.
 - Superseded by Amendment 2 (removed): `GET /v1/usage/agent-types` groups the same rows by `agent_slug`.
-- Responses carry `agent_slug` in place of `agent_type_id`. The BFF route moves to `GET /api/agents/types/usage/{slug}`, and the frontend looks usage up by slug.
+- Responses carry `agent_slug` in place of `agent_type_id`. The BFF route moves to `GET /api/agents/types/usage/{slug}`, and the frontend looks usage up by slug. Superseded by Amendment 3 (BFF route).
 - The run tables drop the "Tokens" column and the agents list drops the runs-based token fallback. Per-run tokens stay on the run page, which reads `GET /v1/usage/run/{runID}`.
 
 ### Consequences
@@ -249,3 +249,26 @@ Amendment 1 left the usage reads on `agents:types:read` with a fixed 7-day windo
 - A platform admin holds `agents:usage:read` through the derived admin scopes.
 - A holder of `agents:usage:read` sees every delegator's spend on a delegated agent.
 - Budget spend is counted by agent slug and can differ slightly from the per-principal spend the limit check counts.
+
+---
+
+## Amendment 3 (2026-10-06): Agent detail Overview reads
+
+Touches **What can it access?**: no new scope.
+
+### Decision
+
+- `GET /v1/usage/agent-type/{slug}?period=24h|7d|30d|90d` returns the `GET /v1/usage/agent-insights` shape for one slug: usage with the token breakdown, spend by model, trend buckets, the previous window's total, the agent's budget row and the period. The route scope stays `agents:usage:read` and the `AgentTypeUsage` response is removed.
+- Both routes share one query builder and one predicate: the verified tenant, `agent_slug IS NOT NULL`, the slug when one is set, and the window.
+- `GET /api/v1/run-stats/{slug}?period=24h|7d|30d|90d` in orbit-agents requires the route scope `agents:runs:read` and the caller's `agents:runs:{slug}:read`. A caller without `agents:delegated:read` sees autonomous runs and their own delegated runs.
+- The response carries the period, `total`, `triggered`, `manual`, `completed`, `failed` and `durations`. `total` counts runs created in the window and `triggered` counts runs with a trigger attribution. `completed` and `failed` count runs finished in the window by `completed_at`.
+- `durations` covers the finished runs and carries `finished`, `median_ms`, `average_ms`, `p95_ms`, `p99_ms`, `longest_ms`, `capped`, `range_ms`, ten `buckets` and `overflow`. Percentiles and buckets are computed in SQL.
+- From 20 finished runs the buckets span 0 to p99, runs above p99 count in `overflow` and `capped` is true. Below 20 the buckets span 0 to the longest run, `overflow` is 0 and `capped` is false. The client shows the p95 marker only when `capped` is true.
+- The route sits under `/api/v1/run-stats/`. The longer `/api/v1/agent-types/` prefix already binds `agents:types:read`.
+- The BFF composes both reads at `GET /api/agents/types/overview/{slug}?period=` under the caller's token. A part the caller may not read is left out of the response and its cards are absent.
+- The Total runs, Completed runs, Median duration, Tokens and Spend tiles, the token ring and the spend and budget views need no data beyond these two reads.
+
+### Consequences
+
+- A caller with `agents:runs:read` and without `agents:usage:read` sees the run tiles and no spend or token cards.
+- The finished-run reads use `idx_runs_tenant_completed` and filter the agent type after the index range.

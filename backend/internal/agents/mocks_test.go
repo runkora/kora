@@ -55,7 +55,7 @@ type mockRepository struct {
 
 	outcomesVis RunVisibility
 
-	// Run stats: the canned reads and what the service asked for.
+	// Run stats: canned reads and the arguments the service passed.
 	statsTotal, statsTriggered int64
 	statsFinished              FinishedRuns
 	statsBuckets               []int64
