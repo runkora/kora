@@ -137,7 +137,7 @@ Infrastructure shared by all features. Platform packages **never import feature 
 |---------|---------|
 | `api` | HTTP `Mux`, `Controller` interface, `DecodeJSON`/`JSON`/`ErrorResponse` helpers, typed `APIError` |
 | `clients` | Typed service-to-service HTTP clients; `httpclient.Base` owns OTel spans + W3C trace propagation + structured logging |
-| `config` | Generic YAML loaders: `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV` |
+| `config` | Generic YAML loaders: `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV`, with the chart-rendered file merged last |
 | `logging` | `Logger` interface + implementation; injected via constructors, never global |
 | `middleware` | Request logging, OTel trace injection, platform scope enforcement |
 | `observability` | OTel `TracerProvider` + `MeterProvider` + OTLP exporter setup |
@@ -234,11 +234,11 @@ All outbound HTTP to other kora services goes through a typed client in `interna
 
 ### 6. Configuration via `config.LoadService[T]` + `base.yaml`
 
-Each binary has a typed config struct loaded at startup from `backend/cmd/{binary}/config/base.yaml`, keyed by `APP_ENV` (defaults to `local`) with optional `{env}.yaml` overlays:
+Each binary has a typed config struct loaded at startup from `backend/cmd/{binary}/config/base.yaml`, an optional `{APP_ENV}.yaml` overlay (`APP_ENV` defaults to `production`) and the file the chart renders at `/etc/orbit/config/cmd/{binary}.yaml`:
 
 ```go
 // Per-service config loader (most binaries)
-cfg := config.MustLoadService[AppConfig]("identity", config.Environment())
+cfg := config.MustLoadService[AppConfig]("cmd/identity", config.Environment())
 // Generic loader (module-relative) is also available: config.Load[T](module, env)
 ```
 

@@ -48,9 +48,8 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Identity service starting", logging.Field{Key: "version", Value: ic.Current.App.Version})
 
-	// Trusted-host allowlist for host-derived OAuth discovery metadata (ADR
-	// 2026-07-04). No-op unless ORBIT_PUBLIC_HOSTS is set (i.e. public exposure).
-	api.ConfigureTrustedHostsFromEnv()
+	// Trusted-host allowlist for host-derived OAuth discovery metadata (ADR 2026-07-04).
+	api.ConfigureTrustedHosts(ic.Current.PublicHosts)
 
 	// Initialize storage backends (Postgres + Redis) from a single config load.
 	db, redis, err := initStorage(ctx, logger)
@@ -144,10 +143,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	delegationRepo := identity.NewPostgresDelegationRepository(db.Pool())
 
 	// Policy service integration for PAT grant management and scope validation.
-	policySvcURL := os.Getenv("ORBIT_POLICY_SERVICE_URL")
-	if policySvcURL == "" {
-		policySvcURL = "http://orbit-policy-service.orbit-system.svc"
-	}
+	policySvcURL := ic.Current.PolicyServiceURL
 
 	// The policy client needs a token func, but the token func needs the identity
 	// service (to call SystemToken). Break the circular dependency with a lazy

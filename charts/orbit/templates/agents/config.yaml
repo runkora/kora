@@ -1,0 +1,36 @@
+{{- /*
+orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "orbit.agents.configModules" -}}
+{{- $guardrails := .Values.agents.guardrails }}
+{{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 320) }}
+  {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 320" }}
+{{- end }}
+{{- $tag := .Values.global.imageTag | default .Chart.AppVersion }}
+cmd/orbit-agents:
+  kubernetes:
+    systemNamespace: {{ include "orbit.systemNamespace" . | toJson }}
+  platform:
+    trustDomain: {{ include "orbit.trustDomain" . | toJson }}
+    identityServiceURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    policyServiceURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+  policy:
+    bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
+  agents:
+    sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry $tag) | toJson }}
+    sandboxImage: {{ .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry $tag) | toJson }}
+    sandboxGitAuthorName: {{ .Values.agents.config.sandboxGitAuthorName | default "kora-agent" | toJson }}
+    sandboxGitAuthorEmail: {{ .Values.agents.config.sandboxGitAuthorEmail | toJson }}
+    imagePullSecrets: {{ include "orbit.imagePullSecretNames" . }}
+    guardrails:
+      sandboxProvisionAttempts: {{ $guardrails.sandboxProvisionAttempts | int }}
+      sandboxProvisionBackoffSecs: {{ $guardrails.sandboxProvisionBackoffSecs | int }}
+      sandboxProvisionBudgetSecs: {{ $guardrails.sandboxProvisionBudgetSecs | int }}
+    sessionManager:
+      authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
+      nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
+{{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.tokenConfigModule" . }}
+{{- end }}
+{{- include "orbit.configMap" (dict "root" $ "name" "agents" "configMap" "orbit-agents-config" "modules" (include "orbit.agents.configModules" . | fromYaml)) }}

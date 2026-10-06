@@ -47,11 +47,6 @@ func main() {
 
 	logger := initLogger()
 
-	for _, parseErr := range oc.ResourceParseErrors {
-		logger.Warn(ctx, "malformed resource requirements env var; using empty requirements",
-			logging.Field{Key: "error", Value: parseErr.Error()})
-	}
-
 	operator.Apply(operator.Settings{
 		SystemNamespace: oc.Current.Install.SystemNamespace,
 		IstioNamespace:  oc.Current.Install.IstioNamespace,
@@ -126,7 +121,7 @@ func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error
 	}
 
 	checks := &preflight.Runner{Client: mgr.GetAPIReader(), Logger: logger, Config: preflightConfig()}
-	if err := mgr.Add(&preflight.Loop{Runner: checks, Interval: install.Preflight.Interval}); err != nil {
+	if err := mgr.Add(&preflight.Loop{Runner: checks, Interval: install.Preflight.Interval()}); err != nil {
 		return err
 	}
 

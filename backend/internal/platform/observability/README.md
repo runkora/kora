@@ -40,14 +40,13 @@ func main() {
 
 ## Configuration
 
-The package uses environment variables for configuration:
+The package loads the `internal/platform/observability` config module: `config/base.yaml`, the `{APP_ENV}.yaml` overlay and the file the chart renders at `/etc/orbit/config/internal/platform/observability.yaml`. `APP_ENV` defaults to `production` and also sets the `deployment.environment` attribute.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `APP_ENV` | `production` | Selects the config overlay and sets the `deployment.environment` attribute |
-| `ORBIT_OTLP_ENDPOINT` | (none) | OTLP collector URL (e.g., `http://localhost:4317`); the scheme sets plaintext or TLS |
-| `ORBIT_SAMPLING_RATE` | from YAML | Fraction of root spans sampled (0.0–1.0) |
-| `ORBIT_LOG_FORMAT` | from YAML | `console` or `json` |
+*   **`otlpEndpoint`:** The OTLP collector URL (e.g., `http://localhost:4317`). The scheme sets plaintext or TLS.
+*   **`samplingRate`:** The fraction of root spans sampled (0.0 to 1.0).
+*   **`logFormat`:** `console` or `json`.
+
+`ORBIT_OTLP_ENDPOINT` and `ORBIT_SAMPLING_RATE` override the first two for the session-manager and identity-proxy containers that orbit-agents and the operator build.
 
 Service name and version are not environment variables: each binary passes them in its `Config`.
 
@@ -80,9 +79,9 @@ go run ./cmd/identity/main.go
 ## Example: Production with OTLP Collector
 
 ```bash
-# Export to local OTEL collector
+# Export to a local OTEL collector: set otlpEndpoint: http://localhost:4317
+# in /etc/orbit/config/internal/platform/observability.yaml
 export APP_ENV=production
-export ORBIT_OTLP_ENDPOINT=http://localhost:4317
 go run ./cmd/identity/main.go
 
 # Traces sent to collector via gRPC

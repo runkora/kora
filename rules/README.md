@@ -70,7 +70,7 @@ Some call sites are legitimately exempt. Rather than scattering `//nolint` direc
 | `no-otel-span-mgmt-in-service-clients` | `go.opentelemetry.io/otel/codes`, `.../otel/trace` | `httpclient/base.go` only | [[opentelemetry-observability-discipline](../docs/adr/2026-03-21-opentelemetry-observability-discipline.md)] |
 | `no-database-sql` | `database/sql` | `platform/storage/` only | [[database-infrastructure-layer](../docs/adr/2026-03-03-database-infrastructure-layer.md)] |
 | `no-raw-viper` | `github.com/spf13/viper` | `platform/config/` only | [[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md)] |
-| `no-raw-yaml` | `gopkg.in/yaml.v2`, `gopkg.in/yaml.v3` | `platform/config/` only | [[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md)] |
+| `no-raw-yaml` | `gopkg.in/yaml.v2`, `gopkg.in/yaml.v3`, `go.yaml.in/yaml/v3` | `platform/config/` only | [[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md)] |
 | `no-third-party-routers` | `gin`, `chi`, `echo`, `gorilla/mux` | nowhere | [[controller-based-http-routing](../docs/adr/2026-02-17-controller-based-http-routing.md)] |
 
 ### Why depguard instead of ruleguard for these?
@@ -91,7 +91,7 @@ Stdlib `log` and `log/slog` produce unstructured output and have no access to th
 
 ### `no-raw-viper` and `no-raw-yaml`
 
-[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md) requires all YAML loading to go through `config.Load[T]` or `config.MustLoadService[T]`. These loaders enforce a two-layer base/environment YAML merge, `UnmarshalExact` (unknown keys fail fast), and `yaml:"-"` secret field protection. Importing viper or yaml directly bypasses every one of those guarantees.
+[yaml-file-based-configuration](../docs/adr/2026-02-18-yaml-file-based-configuration.md) requires all YAML loading to go through `config.Load[T]` or `config.MustLoadService[T]`. These loaders merge the base, environment and chart-rendered YAML layers, decode strictly (unknown keys fail fast), and enforce `yaml:"-"` secret field protection. Importing viper or yaml directly bypasses every one of those guarantees.
 
 ### `no-third-party-routers`
 

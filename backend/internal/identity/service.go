@@ -118,11 +118,10 @@ type Service struct {
 
 // NewService constructs and initializes the identity Service.
 //
-// cfg must be the value returned by LoadConfig — env-var overrides and secret
-// fields (ClientID, ClientSecret) are resolved there.
+// cfg must be the value returned by LoadConfig.
 //
 // OIDC provider discovery is performed eagerly at construction time for
-// every active tenant found in the tenant registry (ORBIT_TENANTS_CONFIG).
+// every active tenant found in the tenant registry (cfg.Registry.TenantsPath).
 // Tenants without a configured OIDC issuer URL are skipped.
 //
 // The RSA signing key is read from the ORBIT_TOKEN_SIGNING_KEY_FILE or
@@ -181,7 +180,7 @@ func NewService(
 	// OAuthClient CRs) and layer them ahead of the dynamic DCR store. Admin-
 	// declared via GitOps; hot-reloaded on change, so applying/removing an
 	// OAuthClient CR takes effect without a pod restart.
-	staticClients, staticErr := LoadStaticClientSource(ctx, oauthClientsPath(), logger)
+	staticClients, staticErr := LoadStaticClientSource(ctx, cfg.Registry.OAuthClientsPath, logger)
 	if staticErr != nil {
 		return nil, fmt.Errorf("identity service: load static oauth clients: %w", staticErr)
 	}
@@ -201,11 +200,8 @@ func NewService(
 
 	// Start live-reload watchers. Both goroutines exit when ctx is canceled
 	// (SIGTERM), so the caller must pass a context tied to the process lifetime.
-	registryPath := os.Getenv("ORBIT_TENANTS_CONFIG")
-	go svc.watchTenantRegistry(ctx, registryPath)
-
-	secretsPath := clientSecretsPath()
-	go svc.watchClientSecrets(ctx, secretsPath)
+	go svc.watchTenantRegistry(ctx, cfg.Registry.TenantsPath)
+	go svc.watchClientSecrets(ctx, cfg.Registry.ClientSecretsPath)
 
 	// Load or generate the RSA signing key.
 	if err := svc.initSigningKey(ctx); err != nil {
@@ -1333,7 +1329,7 @@ func (s *Service) discoverTenantOIDC(ctx context.Context, tenantID string, cfg T
 // tenant). A discovery failure for any tenant is fatal — misconfigured
 // providers should be caught at startup, not at first login.
 func (s *Service) initTenantOIDCProviders(ctx context.Context) error {
-	tenants, err := loadTenantRegistry(s.clientSecrets)
+	tenants, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, s.clientSecrets)
 	if err != nil {
 		return fmt.Errorf("load tenant registry: %w", err)
 	}
@@ -1377,7 +1373,7 @@ func (s *Service) reloadTenantOIDCProviders(ctx context.Context) {
 	clientSecrets := s.clientSecrets
 	s.mu.RUnlock()
 
-	tenants, err := loadTenantRegistry(clientSecrets)
+	tenants, err := loadTenantRegistry(s.cfg.Registry.TenantsPath, clientSecrets)
 	if err != nil {
 		s.logger.Error(ctx, "tenant registry reload failed — keeping current config",
 			logging.Field{Key: "error", Value: err.Error()},

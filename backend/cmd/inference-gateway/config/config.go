@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -9,9 +8,8 @@ import (
 
 // Config is the root configuration for the inference-gateway service.
 //
-// Values are loaded from cmd/inference-gateway/config/{APP_ENV}.yaml at
-// startup. The YAML provides build-time defaults that are baked into the
-// binary via embed and can be overridden by environment variables at runtime.
+// Values are loaded from cmd/inference-gateway/config/base.yaml, its
+// {APP_ENV}.yaml overlay and the file the chart renders.
 type Config struct {
 	App           config.AppConfig    `yaml:"app"`
 	Server        config.ServerConfig `yaml:"server"`
@@ -29,7 +27,6 @@ type Config struct {
 }
 
 // ProvidersConfig is where the gateway watches InferenceProvider resources.
-// ORBIT_SYSTEM_NAMESPACE overrides Namespace.
 type ProvidersConfig struct {
 	Namespace string `yaml:"namespace"`
 }
@@ -86,11 +83,4 @@ func (c *Config) ShutdownTimeout() time.Duration {
 }
 
 // Current is the loaded configuration singleton, populated at init time.
-var Current *Config
-
-func init() {
-	Current = config.MustLoadService[Config]("cmd/inference-gateway", config.Environment())
-	if ns := os.Getenv("ORBIT_SYSTEM_NAMESPACE"); ns != "" {
-		Current.Providers.Namespace = ns
-	}
-}
+var Current = config.MustLoadService[Config]("cmd/inference-gateway", config.Environment())

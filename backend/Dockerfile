@@ -40,11 +40,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 #                                               those that do not.
 #   4. internal/identity/config       — only consumed by the identity binary
 #                                       today, small enough to copy universally.
+#   5. internal/platform/token/config — imported by binaries that verify
+#                                       platform tokens.
 RUN mkdir -p /configs && \
     find /app/cmd/${SERVICE}/config \
          /app/internal/platform/observability/config \
          /app/internal/platform/storage/config \
          /app/internal/identity/config \
+         /app/internal/platform/token/config \
          -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \

@@ -338,8 +338,9 @@ db-shell: ## Open a psql shell to the database
 
 # cmd/migrate embeds every service's migrations and is what the chart runs as a
 # pre-upgrade hook (docs/adr/2026-09-10-database-migrations.md). Locally it
-# runs through `go run` against the compose Postgres.
-MIGRATE_ENV = APP_ENV=local DB_HOST=$(DB_HOST) DB_PORT=$(DB_PORT) DB_NAME=$(DB_NAME) DB_USER=$(DB_USER) DB_PASSWORD=$(DB_PASSWORD) ORBIT_POSTGRES_SSL_MODE=disable ORBIT_LOG_FORMAT=console
+# runs through `go run` against the compose Postgres, whose address is in
+# backend/internal/platform/storage/config/local.yaml.
+MIGRATE_ENV = APP_ENV=local DB_PASSWORD=$(DB_PASSWORD)
 MIGRATE = cd $(BACKEND_DIR) && $(MIGRATE_ENV) $(GOCMD) run ./cmd/migrate
 
 .PHONY: migrate-status

@@ -1,3 +1,0 @@
-# In-cluster development (k3d). Loaded when APP_ENV=development.
-operator:
-  leaderElection: false

@@ -13,6 +13,7 @@ import (
 //
 //  1. cmd/tool-gateway/config/base.yaml      — service defaults
 //  2. cmd/tool-gateway/config/{env}.yaml     — env overrides (optional)
+//  3. /etc/orbit/config/cmd/tool-gateway.yaml — rendered by the chart per Deployment
 //
 // The tool-gateway runs in two modes from one binary: the publisher (this
 // phase — mounts the registry, introspects, publishes scopes) and the
@@ -26,6 +27,10 @@ type Config struct {
 	// scope publishing + catalog write) or "proxy" (horizontally scaled —
 	// the request-path PEP + MCP proxy). One binary, two deployments.
 	Mode string `yaml:"mode"`
+
+	// PublicHosts is the trusted-host allowlist for the protected-resource
+	// metadata and 401 challenge, canonical host first (ADR 2026-07-04).
+	PublicHosts []string `yaml:"publicHosts"`
 
 	Server struct {
 		// HTTPPort serves health (and, in Phase 4, the MCP request path).

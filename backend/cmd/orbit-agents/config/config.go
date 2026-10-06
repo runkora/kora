@@ -3,9 +3,6 @@ package agentsConfig
 
 import (
 	"errors"
-	"os"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -17,6 +14,7 @@ import (
 //
 //  1. cmd/orbit-agents/config/base.yaml  — service defaults
 //  2. cmd/orbit-agents/config/{env}.yaml — env overrides (optional)
+//  3. /etc/orbit/config/cmd/orbit-agents.yaml — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -74,8 +72,7 @@ type Config struct {
 		// MaxConcurrentRunsPerPod is the default ceiling applied to new agent types.
 		MaxConcurrentRunsPerPod int `yaml:"maxConcurrentRunsPerPod"`
 		// Guardrails are the install's sandbox provisioning settings, sent with
-		// every run (docs/adr/2026-09-29-agent-run-guardrails.md). Overridden by
-		// ORBIT_GUARDRAILS_SANDBOX_PROVISION_{ATTEMPTS,BACKOFF_SECS,BUDGET_SECS}.
+		// every run (docs/adr/2026-09-29-agent-run-guardrails.md).
 		Guardrails struct {
 			SandboxProvisionAttempts    int `yaml:"sandboxProvisionAttempts"`
 			SandboxProvisionBackoffSecs int `yaml:"sandboxProvisionBackoffSecs"`
@@ -96,7 +93,7 @@ type Config struct {
 		// orbit-agents provisions. A missing file means no customization.
 		// See docs/adr/2026-09-16-first-class-workload-placement.md.
 		WorkloadsFile string `yaml:"workloadsFile"`
-		// SessionManager holds env var overrides injected into session-manager pods.
+		// SessionManager holds settings for the session-manager pods orbit-agents provisions.
 		SessionManager struct {
 			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
 			// beside each agent StatefulSet restricting its session-manager
@@ -167,82 +164,17 @@ func (c *Config) TenantNamespace(tenantID string) string {
 
 // Current holds all non-secret configuration for orbit-agents.
 // Secrets (Postgres DSN) must be supplied via environment variables.
-var Current = func() *Config {
-	cfg := config.MustLoadService[Config]("cmd/orbit-agents", config.Environment())
-	applyEnvOverrides(cfg, os.Getenv)
-	return cfg
-}()
+var Current = config.MustLoadService[Config]("cmd/orbit-agents", config.Environment())
 
 // Validate rejects an in-cluster config that would mint identities in an
 // empty trust domain ("spiffe:///tenant/..."). main calls it at startup; the
 // base YAML carries no trust domain on purpose, so it cannot run at load.
 func Validate(cfg *Config) error {
 	if cfg.Kubernetes.InCluster && cfg.Platform.TrustDomain == "" {
-		return errors.New("ORBIT_TRUST_DOMAIN (platform.trustDomain) must be set when kubernetes.inCluster is true")
+		return errors.New("platform.trustDomain must be set when kubernetes.inCluster is true")
 	}
 	if cfg.Agents.SessionManager.NodeMaxOldSpaceMB < 0 {
-		return errors.New("ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB (agents.sessionManager.nodeMaxOldSpaceMB) must be a non-negative integer")
+		return errors.New("agents.sessionManager.nodeMaxOldSpaceMB must be a non-negative integer")
 	}
 	return nil
-}
-
-// applyEnvOverrides layers the per-install values the chart sets as env vars
-// over the YAML defaults. getenv is injected so tests can drive it.
-func applyEnvOverrides(cfg *Config, getenv func(string) string) {
-	overrides := []struct {
-		env string
-		dst *string
-	}{
-		{"ORBIT_SYSTEM_NAMESPACE", &cfg.Kubernetes.SystemNamespace},
-		{"ORBIT_TRUST_DOMAIN", &cfg.Platform.TrustDomain},
-		{"ORBIT_SESSION_MANAGER_IMAGE", &cfg.Agents.SessionManagerImage},
-		{"ORBIT_SANDBOX_IMAGE", &cfg.Agents.SandboxImage},
-		{"ORBIT_SANDBOX_GIT_AUTHOR_NAME", &cfg.Agents.SandboxGitAuthorName},
-		{"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL", &cfg.Agents.SandboxGitAuthorEmail},
-		{"ORBIT_MANIFEST_PATCH_DIR", &cfg.Agents.ManifestPatchDir},
-		{"ORBIT_WORKLOADS_FILE", &cfg.Agents.WorkloadsFile},
-	}
-	for _, o := range overrides {
-		if v := getenv(o.env); v != "" {
-			*o.dst = v
-		}
-	}
-	if v := getenv("ORBIT_AGENTS_IMAGE_PULL_SECRETS"); v != "" {
-		cfg.Agents.ImagePullSecrets = splitCommaList(v)
-	}
-	if v := getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
-		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
-	}
-	intOverrides := []struct {
-		env string
-		dst *int
-	}{
-		{"ORBIT_GUARDRAILS_SANDBOX_PROVISION_ATTEMPTS", &cfg.Agents.Guardrails.SandboxProvisionAttempts},
-		{"ORBIT_GUARDRAILS_SANDBOX_PROVISION_BACKOFF_SECS", &cfg.Agents.Guardrails.SandboxProvisionBackoffSecs},
-		{"ORBIT_GUARDRAILS_SANDBOX_PROVISION_BUDGET_SECS", &cfg.Agents.Guardrails.SandboxProvisionBudgetSecs},
-	}
-	for _, o := range intOverrides {
-		if n, err := strconv.Atoi(getenv(o.env)); err == nil {
-			*o.dst = n
-		}
-	}
-	if v := getenv("ORBIT_SESSION_MANAGER_NODE_MAX_OLD_SPACE_MB"); v != "" {
-		// An unparseable value becomes -1, which Validate rejects at startup.
-		mb, err := strconv.Atoi(v)
-		if err != nil {
-			mb = -1
-		}
-		cfg.Agents.SessionManager.NodeMaxOldSpaceMB = mb
-	}
-}
-
-// splitCommaList parses a comma-separated env value, dropping blanks and whitespace.
-func splitCommaList(v string) []string {
-	var out []string
-	for part := range strings.SplitSeq(v, ",") {
-		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }
