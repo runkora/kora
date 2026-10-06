@@ -3,6 +3,7 @@ package inferencegw
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -36,7 +37,8 @@ type AgentBudgetRow struct {
 	Windows        []BudgetWindow `json:"windows"`
 }
 
-// AgentInsights is what the Agents page reports for one window.
+// AgentInsights is what the Agents pages report for one window: every agent, or
+// the one agent a slug names.
 type AgentInsights struct {
 	Period           string                 `json:"period"`
 	Usage            []AgentTypeUsage       `json:"usage"`
@@ -60,8 +62,9 @@ type AgentBudgetSpend struct {
 	Month     float64
 }
 
-// Insights returns the window's usage, models, trend, previous total and budgets.
-func (s *Service) Insights(ctx context.Context, tenantID string, period usagewindow.Period, now time.Time) (AgentInsights, error) {
+// Insights returns the window's usage, models, trend, previous total and budgets,
+// for one agent when slug is set.
+func (s *Service) Insights(ctx context.Context, tenantID string, period usagewindow.Period, slug string, now time.Time) (AgentInsights, error) {
 	w := usagewindow.For(period, now)
 
 	var (
@@ -71,11 +74,14 @@ func (s *Service) Insights(ctx context.Context, tenantID string, period usagewin
 		budgets  []AgentBudgetRow
 	)
 	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() (err error) { rows, err = s.usage.AgentUsage(gctx, tenantID, w, ""); return err })
-	g.Go(func() (err error) { previous, buckets, err = s.usage.AgentSpendBuckets(gctx, tenantID, w); return err })
+	g.Go(func() (err error) { rows, err = s.usage.AgentUsage(gctx, tenantID, w, slug); return err })
+	g.Go(func() (err error) {
+		previous, buckets, err = s.usage.AgentSpendBuckets(gctx, tenantID, w, slug)
+		return err
+	})
 	g.Go(func() error {
 		// Budgets are an extra: a failure leaves them out and does not fail the page.
-		budgets = s.agentBudgets(gctx, tenantID, now)
+		budgets = s.agentBudgets(gctx, tenantID, slug, now)
 		return nil
 	})
 	if err := g.Wait(); err != nil {
@@ -132,29 +138,18 @@ func foldUsage(rows []AgentModelUsage) ([]AgentTypeUsage, []AnalyticsCostByModel
 	return usage, models
 }
 
-// AgentUsage returns one agent's tokens and spend for the window. An agent with
-// no rows reads as zero.
-func (s *Service) AgentUsage(ctx context.Context, tenantID string, period usagewindow.Period, slug string, now time.Time) (AgentTypeUsage, error) {
-	rows, err := s.usage.AgentUsage(ctx, tenantID, usagewindow.For(period, now), slug)
-	if err != nil {
-		return AgentTypeUsage{}, fmt.Errorf("agent usage: %w", err)
-	}
-	usage, _ := foldUsage(rows)
-	if len(usage) == 0 {
-		return AgentTypeUsage{AgentSlug: slug}, nil
-	}
-	return usage[0], nil
-}
-
 // agentBudgets builds a row per agent with a window limit from the policy bundle,
-// delegated agents included.
-func (s *Service) agentBudgets(ctx context.Context, tenantID string, now time.Time) []AgentBudgetRow {
+// delegated agents included, or only the row of slug when it is set.
+func (s *Service) agentBudgets(ctx context.Context, tenantID, slug string, now time.Time) []AgentBudgetRow {
 	principals, _, err := s.policy.ListBudgets(ctx, tenantID)
 	if err != nil {
 		s.logger.Warn(ctx, "agent budgets unavailable", logging.Field{Key: "error", Value: err.Error()})
 		return nil
 	}
 	rows := budgetRowsFromBundle(principals, now)
+	if slug != "" {
+		rows = slices.DeleteFunc(rows, func(r AgentBudgetRow) bool { return r.AgentSlug != slug })
+	}
 	if len(rows) == 0 {
 		return nil
 	}

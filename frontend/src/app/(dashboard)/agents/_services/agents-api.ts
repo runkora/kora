@@ -41,21 +41,31 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
 }
 
-// ── fetchAgentInsights ──
-// The page rollups for one window. Never throws; on error `data` is null.
+// ── fetchPeriodRead ──
+// A period-keyed BFF read: the Agents page rollups or one agent's overview. Never throws;
+// on error `data` is null.
 
-export async function fetchAgentInsights(
-  period: AgentInsightsPeriod,
-): Promise<{ data: AgentInsightsResponse | null; error: string | null }> {
+export async function fetchPeriodRead<T>(
+  url: string,
+): Promise<{ data: T | null; error: string | null }> {
   let res: Response;
   try {
-    res = await fetch(ApiRoute.agentInsights.window(period), { cache: 'no-store' });
+    res = await fetch(url, { cache: 'no-store' });
   } catch {
     return { data: null, error: 'Network error: could not reach the server.' };
   }
-  if (!res.ok) return { data: null, error: `Request failed (${res.status})` };
-  return { data: (await res.json()) as AgentInsightsResponse, error: null };
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}) as { message?: string });
+    return {
+      data: null,
+      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+    };
+  }
+  return { data: (await res.json()) as T, error: null };
 }
+
+export const fetchAgentInsights = (period: AgentInsightsPeriod) =>
+  fetchPeriodRead<AgentInsightsResponse>(ApiRoute.agentInsights.window(period));
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────
 

@@ -516,6 +516,46 @@ export interface AgentInsightsResponse {
   outcomes?: { completed: number; failed: number };
 }
 
+/**
+ * Mirrors Go: agents.RunStats.
+ * One agent's run counts and durations for a window, from orbit-agents.
+ */
+export interface AgentRunStats {
+  /** Runs created in the window, and the part a trigger started; the rest are manual. */
+  total: number;
+  triggered: number;
+  /** Runs that finished in the window. */
+  completed: number;
+  failed: number;
+  /** Durations of the finished runs, in milliseconds. */
+  durations: {
+    median_ms: number;
+    p95_ms: number;
+    p99_ms: number;
+    longest_ms: number;
+    /** True when `buckets` cover 0 to p99 and slower runs are in `overflow`; false when they cover 0 to the longest run. */
+    capped: boolean;
+    /** Ten equal-width counts from 0 to p99 when capped, otherwise to the longest run. */
+    buckets: number[];
+    overflow: number;
+  };
+}
+
+/**
+ * GET /api/agents/types/overview/{slug}?period=24h|7d|30d|90d
+ *
+ * What the agent Overview reads for one window. A part the caller may not read
+ * is absent; a part that failed is absent and named in `failed`.
+ */
+export interface AgentOverviewResponse {
+  period: AgentInsightsPeriod;
+  /** The gateway insights of this one agent. Absent without agents:usage:read. */
+  insights?: AgentInsightsResponse;
+  runStats?: AgentRunStats;
+  /** Parts that errored or timed out, as opposed to refused with 403, which are only absent. */
+  failed?: ('insights' | 'runStats')[];
+}
+
 /** Request body for POST /api/agents/types. */
 export interface CreateAgentTypeRequest {
   name: string;

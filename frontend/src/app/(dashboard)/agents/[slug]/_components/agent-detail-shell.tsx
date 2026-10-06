@@ -6,14 +6,15 @@ import { AgentDetailProvider } from '../_context/agent-detail-context';
 import { AgentDetailPage } from './agent-detail-page';
 import type { DetailStatus } from '../_hooks/use-agent-detail';
 import type { AgentTypeRow, RunRow } from '../../_types';
-import type { BudgetRow } from '../../_lib/spend';
+import type { AgentOverviewResponse } from '@orbit/shared/api';
 
 interface AgentDetailShellProps {
   initialAgent: AgentTypeRow | null;
   initialRuns: RunRow[];
   initialError: string | null;
   initialStatus: DetailStatus;
-  budget: BudgetRow | null;
+  /** The default window's overview, fetched by the server render. */
+  initialOverview?: AgentOverviewResponse | null;
 }
 
 export function AgentDetailShell({
@@ -21,7 +22,7 @@ export function AgentDetailShell({
   initialRuns,
   initialError,
   initialStatus,
-  budget,
+  initialOverview,
 }: AgentDetailShellProps) {
   return (
     <AgentDetailProvider
@@ -30,7 +31,7 @@ export function AgentDetailShell({
       initialError={initialError}
       initialStatus={initialStatus}
     >
-      <AgentDetailPage budget={budget} />
+      <AgentDetailPage initialOverview={initialOverview} />
     </AgentDetailProvider>
   );
 }

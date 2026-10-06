@@ -2,8 +2,9 @@
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
+  AgentInsightsPeriod,
+  AgentOverviewResponse,
   AgentType,
-  AgentTypeUsage,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   Run,
@@ -11,6 +12,7 @@ import type {
 } from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
+import { fetchPeriodRead } from '../../_services/agents-api';
 
 // ── fetchAgentDetail ──────────────────────────────────────────────────────────
 
@@ -169,24 +171,7 @@ export async function updateAgentType(
   return { agentType: toAgentTypeRow(body.data), error: null };
 }
 
-// ── fetchAgentTypeUsage ───────────────────────────────────────────────────────
+// ── fetchAgentOverview ────────────────────────────────────────────────────────
 
-export async function fetchAgentTypeUsage(
-  slug: string,
-): Promise<{ usage: AgentTypeUsage | null; error: string | null }> {
-  let res: Response;
-  try {
-    res = await fetch(ApiRoute.agentTypes.usage(slug), { cache: 'no-store' });
-  } catch {
-    return { usage: null, error: 'Network error: could not reach the server.' };
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      usage: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
-  }
-  const usageBody = (await res.json()) as AgentTypeUsage;
-  return { usage: usageBody, error: null };
-}
+export const fetchAgentOverview = (slug: string, period: AgentInsightsPeriod) =>
+  fetchPeriodRead<AgentOverviewResponse>(ApiRoute.agentTypes.overview(slug, period));

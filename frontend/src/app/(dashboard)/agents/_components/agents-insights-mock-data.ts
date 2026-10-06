@@ -6,7 +6,7 @@ import { RUN_ROWS, SCALE_AGENT_ROWS, SCALE_USAGE, USAGE, ahead } from './agents-
 // Mock BFF insights for the Agents stories: the 7-day mock usage scaled to each window.
 
 /** Scale applied to the 7-day figures, and the bucket width and count each window charts. */
-const SHAPES: Record<Period, { factor: number; bucketHours: number; buckets: number }> = {
+export const SHAPES: Record<Period, { factor: number; bucketHours: number; buckets: number }> = {
   '24h': { factor: 0.16, bucketHours: 3, buckets: 8 },
   '7d': { factor: 1, bucketHours: 24, buckets: 7 },
   '30d': { factor: 4.1, bucketHours: 72, buckets: 10 },

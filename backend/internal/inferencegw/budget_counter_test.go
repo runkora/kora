@@ -132,7 +132,7 @@ func (s *stubUsageRepo) AgentUsage(_ context.Context, _ string, _ usagewindow.Wi
 	return nil, nil
 }
 
-func (s *stubUsageRepo) AgentSpendBuckets(_ context.Context, _ string, _ usagewindow.Window) (float64, []float64, error) {
+func (s *stubUsageRepo) AgentSpendBuckets(_ context.Context, _ string, _ usagewindow.Window, _ string) (float64, []float64, error) {
 	return 0, nil, nil
 }
 

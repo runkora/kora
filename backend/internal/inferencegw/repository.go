@@ -103,8 +103,8 @@ type InferenceUsageRepository interface {
 	AgentUsage(ctx context.Context, tenantID string, w usagewindow.Window, slug string) ([]AgentModelUsage, error)
 
 	// AgentSpendBuckets returns the previous window's total agent spend and the
-	// spend in each bucket of the window.
-	AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window) (previous float64, buckets []float64, err error)
+	// spend in each bucket of the window, for one agent when slug is set.
+	AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window, slug string) (previous float64, buckets []float64, err error)
 
 	// AgentBudgetSpend returns each listed agent's spend since the start of the
 	// current week and month.

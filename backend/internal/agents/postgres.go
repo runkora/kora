@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -685,6 +686,77 @@ func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID stri
 	err := r.pool.QueryRow(ctx, query, args...).Scan(&out.Completed, &out.Failed)
 	if err != nil {
 		return RunOutcomes{}, fmt.Errorf("count run outcomes: %w", err)
+	}
+	return out, nil
+}
+
+// finishedRunsSQL selects the agent type's runs finished in [$3, $4) with their duration in ms.
+// A run that never started counts from its creation.
+const finishedRunsSQL = `
+	SELECT r.state, GREATEST(EXTRACT(EPOCH FROM (r.completed_at - COALESCE(r.started_at, r.created_at))) * 1000, 0) AS ms
+	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+	WHERE r.tenant_id = $1 AND r.agent_type_id = $2
+	  AND r.completed_at >= $3 AND r.completed_at < $4
+	  AND r.state IN ('completed', 'failed')`
+
+// AgentRunStats counts the agent type's runs created in [from, to) and those a trigger
+// started, then the runs finished in it by outcome, duration percentile and histogram bucket.
+func (r *PostgresRepository) AgentRunStats(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (RunStats, error) {
+	var out RunStats
+	query, args := appendVisibility(`
+		SELECT COUNT(*), COUNT(r.trigger_id)
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		WHERE r.tenant_id = $1 AND r.agent_type_id = $2 AND r.created_at >= $3 AND r.created_at < $4`,
+		[]any{tenantID, agentTypeID, from, to}, vis)
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&out.Total, &out.Triggered); err != nil {
+		return RunStats{}, fmt.Errorf("count agent runs: %w", err)
+	}
+
+	inner, args := appendVisibility(finishedRunsSQL, []any{tenantID, agentTypeID, from, to}, vis)
+	var median, p95, p99, longest float64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE state = 'completed'), COUNT(*) FILTER (WHERE state = 'failed'),
+		       COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY ms), 0),
+		       COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms), 0),
+		       COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY ms), 0), COALESCE(MAX(ms), 0)
+		FROM (`+inner+`) f`, args...).Scan(&out.Completed, &out.Failed, &median, &p95, &p99, &longest)
+	if err != nil {
+		return RunStats{}, fmt.Errorf("finished run durations: %w", err)
+	}
+	// p99 and the longest run round up so no run falls above its own histogram edge.
+	d := &out.Durations
+	d.MedianMs, d.P95Ms, d.P99Ms, d.LongestMs =
+		int64(math.Round(median)), int64(math.Round(p95)), int64(math.Ceil(p99)), int64(math.Ceil(longest))
+	d.Buckets = make([]int64, histogramBuckets)
+	finished := out.Completed + out.Failed
+	if finished == 0 {
+		return out, nil
+	}
+	var rangeMs int64
+	rangeMs, d.Capped = histogramRange(finished, d.P99Ms, d.LongestMs)
+
+	args = append(args, rangeMs)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT CASE WHEN ms > $%[1]d THEN %[2]d ELSE LEAST(width_bucket(ms::numeric, 0, $%[1]d::numeric, %[3]d), %[3]d) END AS bucket, COUNT(*)
+		FROM (`+inner+`) f GROUP BY bucket`, len(args), histogramBuckets+1, histogramBuckets), args...)
+	if err != nil {
+		return RunStats{}, fmt.Errorf("finished run buckets: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var bucket int
+		var n int64
+		if err := rows.Scan(&bucket, &n); err != nil {
+			return RunStats{}, fmt.Errorf("scan finished run buckets: %w", err)
+		}
+		if bucket > histogramBuckets {
+			d.Overflow = n
+		} else {
+			d.Buckets[bucket-1] = n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return RunStats{}, fmt.Errorf("finished run buckets: %w", err)
 	}
 	return out, nil
 }

@@ -22,7 +22,7 @@ import type { AgentTypeRow, RunRow } from '../_types';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
+export const DAY = 24 * HOUR;
 
 /** ISO timestamp for a moment `ms` before now. */
 export const ago = (ms: number): string => new Date(Date.now() - ms).toISOString();

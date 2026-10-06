@@ -10,12 +10,15 @@ import type { Period } from '../_lib/spend';
 export type InsightsResult =
   { ok: true; data: AgentInsightsResponse } | { ok: false; status: number };
 
+/** The tenant's agent insights, or the insights of one agent when `slug` is set. */
 export async function fetchGatewayInsights(
   accessToken: string,
   period: Period,
+  slug?: string,
 ): Promise<InsightsResult> {
+  const path = slug ? `agent-type/${encodeURIComponent(slug)}` : 'agent-insights';
   try {
-    const res = await fetch(`${config.inferenceGatewayUrl}/usage/agent-insights?period=${period}`, {
+    const res = await fetch(`${config.inferenceGatewayUrl}/usage/${path}?period=${period}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(10_000),

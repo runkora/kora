@@ -392,6 +392,9 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
 		// Run outcome counts: the same scope and delegated-run rule as GET /runs.
 		{PathPrefix: "/api/v1/run-outcomes", Method: "GET", RequiredScope: "agents:runs:read"},
+		// One agent's run counts and durations. A sibling prefix: under /api/v1/agent-types/ the
+		// longer match would conflict with the agents:types:read binding.
+		{PathPrefix: "/api/v1/run-stats/", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: "agents:runs:write"},

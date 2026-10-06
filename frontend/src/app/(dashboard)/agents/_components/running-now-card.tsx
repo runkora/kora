@@ -27,7 +27,7 @@ import { formatDuration, formatRelativeTime } from '../_types';
 import type { RunRow } from '../_types';
 
 /** How each live run state reads in the table. */
-export const LIVE_STATES: Record<
+const LIVE_STATES: Record<
   string,
   { status: NonNullable<StatusDotProps['status']>; label: string }
 > = {
@@ -36,6 +36,30 @@ export const LIVE_STATES: Record<
   starting: { status: 'pending', label: 'Starting' },
   pending: { status: 'pending', label: 'Queued' },
 };
+
+/** Every run state's dot and label: the live states above, then the finished ones. */
+const RUN_STATES: Record<string, { status: NonNullable<StatusDotProps['status']>; label: string }> =
+  {
+    ...LIVE_STATES,
+    idle: { status: 'degraded', label: 'Waiting' },
+    completed: { status: 'idle', label: 'Completed' },
+    failed: { status: 'error', label: 'Failed' },
+    budget_exhausted: { status: 'error', label: 'Budget exhausted' },
+  };
+
+export function RunStateDot({ state: name }: { state: string }) {
+  const state = RUN_STATES[name];
+  return (
+    <Stack direction="horizontal" align="center" gap="snug">
+      <StatusDot
+        status={state?.status ?? 'idle'}
+        glow={state?.status === 'healthy'}
+        pulse={state?.status === 'pending'}
+      />
+      <Text size="supporting">{state?.label ?? name}</Text>
+    </Stack>
+  );
+}
 
 export function isLiveRun(run: RunRow): boolean {
   return run.state in LIVE_STATES;
@@ -100,7 +124,6 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
               </TableHeader>
               <TableBody>
                 {runs.slice(0, RUNNING_ROWS).map((run) => {
-                  const state = LIVE_STATES[run.state];
                   return (
                     <TableRow key={run.id}>
                       <TableCell>
@@ -114,14 +137,7 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
                         </Text>
                       </TableCell>
                       <TableCell>
-                        <Stack direction="horizontal" align="center" gap="snug">
-                          <StatusDot
-                            status={state?.status ?? 'idle'}
-                            glow={state?.status === 'healthy'}
-                            pulse={state?.status === 'pending'}
-                          />
-                          <Text size="supporting">{state?.label}</Text>
-                        </Stack>
+                        <RunStateDot state={run.state} />
                       </TableCell>
                       <TableCell>
                         <Text size="supporting" color="muted">

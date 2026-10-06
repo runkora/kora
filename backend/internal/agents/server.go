@@ -135,6 +135,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
 	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)
+	mux.Handle("GET /api/v1/run-stats/{slug}", c.handleRunStats)
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
 	mux.Handle("DELETE /api/v1/runs/{id}", c.handleTerminateRun)
 	mux.Handle("POST /api/v1/runs/{id}/messages", c.handleSendMessage)
@@ -427,19 +428,49 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"runs": runs})
 }
 
-// handleRunOutcomes handles GET /api/v1/run-outcomes?period=24h|7d|30d|90d.
-func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
+// parsePeriod reads the period query, writing the 400 and reporting false when it is invalid.
+func (c *Controller) parsePeriod(w http.ResponseWriter, r *http.Request) (usagewindow.Period, bool) {
 	period, err := usagewindow.Parse(r.URL.Query().Get("period"))
 	if err != nil {
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		api.ErrorResponse(r.Context(), w, c.logger, apiErr, err)
+		return "", false
+	}
+	return period, true
+}
+
+// handleRunOutcomes handles GET /api/v1/run-outcomes?period=24h|7d|30d|90d.
+func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	period, ok := c.parsePeriod(w, r)
+	if !ok {
 		return
 	}
 	window := usagewindow.For(period, time.Now())
 	out, err := c.runs.RunOutcomes(ctx, window.Start, window.End)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to count run outcomes", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, out)
+}
+
+// handleRunStats handles GET /api/v1/run-stats/{slug}?period=24h|7d|30d|90d.
+func (c *Controller) handleRunStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	period, ok := c.parsePeriod(w, r)
+	if !ok {
+		return
+	}
+	out, err := c.runs.AgentRunStats(ctx, r.PathValue("slug"), period, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to get run stats", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}

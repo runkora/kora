@@ -1,169 +1,18 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
-import type {
-  AgentType,
-  AgentTypeUsage,
-  EffectiveAccess,
-  Trigger,
-  TriggerDelivery,
-  WebhookSource,
-} from '@orbit/shared/api';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import type { MockRoutes } from '@orbit/storybook/mock-api';
-import {
-  AGENT_TYPES,
-  CODE_REVIEWER,
-  CONNECTIONS,
-  ENVIRONMENTS,
-  MCP_CATALOG,
-  MCP_SERVERS,
-  MODELS_CATALOGUE,
-  RAW_RUNS,
-  USAGE,
-  ago,
-  ahead,
-  runsForAgent,
-} from '../../_components/agents-mock-data';
-import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
-import type { AgentTypeRow, RunRow } from '../../_types';
-import type { BudgetRow } from '../../_lib/spend';
+import type { AgentOverviewResponse, AgentType } from '@orbit/shared/api';
+import { AGENT_TYPES, CODE_REVIEWER } from '../../_components/agents-mock-data';
+import type { Period } from '../../_lib/spend';
+import { rowFor, runRowsFor, withRoutes } from './agent-detail-page-mock-data';
+import { LONG_INSTRUCTIONS, mockOverview, mockRunStatsOnly } from './agent-overview-mock-data';
 import { AgentDetailShell } from './agent-detail-shell';
 
-const DAY = 24 * 60 * 60 * 1000;
+type OverviewFor = (slug: string, period: Period) => AgentOverviewResponse;
 
-// ── Mock data specific to the detail page ────────────────────────────────────
-
-const BUDGET: BudgetRow = {
-  name: 'Code Reviewer',
-  perRunLimit: 4,
-  windows: [{ cadence: 'monthly', limit: 150, spent: 96.4, resetsAt: ahead(20 * DAY) }],
-};
-
-const SOURCES: WebhookSource[] = [
-  {
-    id: 'src_github',
-    tenant_id: 'ten_8f3a21',
-    name: 'kora/platform on GitHub',
-    provider: 'github',
-    enabled: true,
-    created_at: ago(30 * DAY),
-    updated_at: ago(30 * DAY),
-  },
-];
-
-const TRIGGERS: Trigger[] = [
-  {
-    id: 'trg_pr_opened',
-    tenant_id: 'ten_8f3a21',
-    kind: 'webhook',
-    source_id: 'src_github',
-    name: 'github pull_request.opened',
-    agent_type_id: CODE_REVIEWER.id,
-    agent_slug: CODE_REVIEWER.slug,
-    event_type: 'pull_request.opened',
-    match_condition: { 'repository.full_name': ['kora/platform'] },
-    prompt_template: 'Review pull request {{pull_request.number}} in {{repository.full_name}}.',
-    enabled: true,
-    created_at: ago(28 * DAY),
-    updated_at: ago(10 * DAY),
-    max_parallel: 4,
-    overflow: 'wait',
-    max_queue_depth: 32,
-    timeout_seconds: 30,
-    dedupe_enabled: true,
-    autopause_enabled: true,
-    consecutive_failures: 0,
-    pending_count: 0,
-  },
-  {
-    id: 'trg_weekly_digest',
-    tenant_id: 'ten_8f3a21',
-    kind: 'scheduled',
-    name: 'weekly review digest',
-    agent_type_id: CODE_REVIEWER.id,
-    agent_slug: CODE_REVIEWER.slug,
-    prompt_template: 'Summarise the pull requests reviewed this week.',
-    schedule_config: { cron_expression: '0 9 * * 1', timezone: 'Australia/Sydney' },
-    enabled: true,
-    created_at: ago(14 * DAY),
-    updated_at: ago(14 * DAY),
-    max_parallel: 1,
-    overflow: 'refuse',
-    max_queue_depth: 0,
-    timeout_seconds: 30,
-    dedupe_enabled: false,
-    autopause_enabled: true,
-    consecutive_failures: 0,
-    pending_count: 0,
-  },
-];
-
-const DELIVERIES: TriggerDelivery[] = [];
-
-function effectiveAccess(agent: AgentType): EffectiveAccess {
-  const envs = ENVIRONMENTS.filter((e) =>
-    (agent.environments ?? []).some((a) => a.environment_id === e.id),
-  );
-  const own = agent.connectivity.hosts ?? [];
-  const envHosts = [...new Set(envs.flatMap((e) => e.egress_hosts))].sort();
-  const connectorEgress = (agent.connectors ?? []).map((c) => ({
-    connection: c.connection,
-    adapter: c.connection,
-    hosts: c.connection === 'github' ? ['api.github.com'] : ['slack.com'],
-  }));
-  return {
-    open: agent.connectivity.mode === 'open',
-    own_hosts: own,
-    environments: envs.map((e) => ({ id: e.id, name: e.name, hosts: e.egress_hosts })),
-    environment_hosts: envHosts,
-    connector_egress: connectorEgress,
-    connectors: agent.connectors ?? [],
-    hosts: [...new Set([...own, ...envHosts, ...connectorEgress.flatMap((c) => c.hosts)])].sort(),
-  };
-}
-
-/** Usage for an agent that has not run yet. */
-const noUsage = (agent: AgentType): AgentTypeUsage => ({
-  agent_slug: agent.slug,
-  prompt_tokens: 0,
-  completion_tokens: 0,
-  cache_read_tokens: 0,
-  cache_creation_tokens: 0,
-  total_tokens: 0,
-  estimated_cost_usd: 0,
-});
-
-/** Every route the detail page and its four tabs call. */
-function detailRoutes(agent: AgentType): MockRoutes {
-  return {
-    'GET /api/agents/types/usage/:slug':
-      USAGE.find((u) => u.agent_slug === agent.slug) ?? noUsage(agent),
-    'GET /api/agents/types/:id/effective-access': { data: effectiveAccess(agent) },
-    'POST /api/agents/types/effective-access': { data: effectiveAccess(agent) },
-    'GET /api/agents/types/:id/runs': { data: runsForAgent(agent.id) },
-    'GET /api/agents/types/:id': { data: agent },
-    'GET /api/models': { data: MODELS_CATALOGUE },
-    'GET /api/agents/connectors': { data: CONNECTIONS },
-    'GET /api/agents/mcp-tools': { servers: MCP_SERVERS, catalog: MCP_CATALOG },
-    'GET /api/agents/environments': { data: ENVIRONMENTS },
-    'GET /api/triggers': { data: TRIGGERS.filter((t) => t.agent_type_id === agent.id) },
-    'GET /api/trigger-sources': { data: SOURCES },
-    'GET /api/trigger-deliveries': { data: DELIVERIES },
-  };
-}
-
-const withRoutes = (agent: AgentType) => [dashboardPage(detailRoutes(agent))];
-
-const rowFor = (agent: AgentType): AgentTypeRow => toAgentTypeRow(agent);
-
-const runRowsFor = (agent: AgentType): RunRow[] => {
-  const byId = indexAgentTypes([rowFor(agent)]);
-  return RAW_RUNS.filter((r) => r.agent_type_id === agent.id).map((r) => toRunRow(r, byId));
-};
-
-// ── Stories ──────────────────────────────────────────────────────────────────
-
-/** The agent detail page: identity header plus Overview, Runs, Configuration and Triggers. */
+/**
+ * The agent detail page: identity header plus Overview, Runs, Configuration and Triggers.
+ * The 7-day overview arrives as the server render's seed and the other periods through the mock API.
+ */
 const meta: Meta<typeof AgentDetailShell> = {
   title: 'Pages/Agents/Detail',
   component: AgentDetailShell,
@@ -176,7 +25,7 @@ const meta: Meta<typeof AgentDetailShell> = {
     initialRuns: runRowsFor(CODE_REVIEWER),
     initialError: null,
     initialStatus: 'success',
-    budget: BUDGET,
+    initialOverview: mockOverview(CODE_REVIEWER.slug, '7d'),
   },
 };
 
@@ -191,12 +40,86 @@ const openTab =
     await userEvent.click(tab);
   };
 
+/** Picks a period in the header control. */
+const openPeriod =
+  (period: Period): NonNullable<Story['play']> =>
+  async ({ canvasElement }) => {
+    await userEvent.click(await within(canvasElement).findByRole('button', { name: period }));
+  };
+
+/** An Overview story whose seed and period requests both answer from `overview`, for `agent`. */
+const overviewStory = (
+  overview: OverviewFor,
+  agent: AgentType = CODE_REVIEWER,
+  extra: Partial<Story> = {},
+): Story => ({
+  decorators: withRoutes(agent, overview),
+  args: { initialAgent: rowFor(agent), initialOverview: overview(agent.slug, '7d') },
+  ...extra,
+});
+
 // Decorators stack across meta and story, so each story installs its own frame once.
-export const Overview: Story = { decorators: withRoutes(CODE_REVIEWER) };
+export const Overview: Story = overviewStory(mockOverview);
+
+/** The 90 day window with one 2h 10m runaway run: the histogram stops at p99 and the run is the overflow bar. */
+export const Overview90dOutlier: Story = overviewStory(
+  (slug, period) => mockOverview(slug, period, { outlierMs: 130 * 60_000 }),
+  CODE_REVIEWER,
+  { play: openPeriod('90d') },
+);
+
+/** An agent with no budget: the Budget view is hidden. */
+export const OverviewNoBudget: Story = overviewStory((slug, period) =>
+  mockOverview(slug, period, { noBudget: true }),
+);
+
+const NO_RUNS: AgentType = { ...CODE_REVIEWER, slug: 'no-runs', name: 'No Runs' };
+const SINGLE_RUN: AgentType = { ...CODE_REVIEWER, slug: 'single-run', name: 'Single Run' };
+
+/** An agent with no runs and no usage: a dash for the median and a flat axis. */
+export const OverviewNoRuns: Story = {
+  ...overviewStory(mockOverview, NO_RUNS),
+  args: {
+    initialAgent: rowFor(NO_RUNS),
+    initialRuns: [],
+    initialOverview: mockOverview('no-runs', '7d'),
+  },
+};
+
+/** An agent with a single finished run. */
+export const OverviewSingleRun: Story = overviewStory(mockOverview, SINGLE_RUN);
+
+/** A caller without agents:usage:read: the tokens, spend, budget and token usage cards are absent. */
+export const OverviewWithoutUsageScope: Story = overviewStory(mockRunStatsOnly);
+
+/** A long markdown prompt: the Instructions card clamps it and offers Expand. */
+export const OverviewLongInstructions: Story = {
+  ...Overview,
+  args: {
+    ...Overview.args,
+    initialAgent: { ...rowFor(CODE_REVIEWER), systemPrompt: LONG_INSTRUCTIONS },
+  },
+};
+
+/** An agent with no instructions. */
+export const OverviewNoInstructions: Story = {
+  ...Overview,
+  args: { ...Overview.args, initialAgent: { ...rowFor(CODE_REVIEWER), systemPrompt: '' } },
+};
 
 export const Configuration: Story = {
   decorators: withRoutes(CODE_REVIEWER),
   play: openTab('Configuration'),
+};
+
+/** The Edit link on the Instructions card opens the Configuration tab at Behaviour. */
+export const EditInstructions: Story = {
+  ...Overview,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(
+      await within(canvasElement).findByRole('button', { name: 'Edit instructions' }),
+    );
+  },
 };
 
 export const Runs: Story = {
@@ -216,7 +139,7 @@ export const DelegatedAgent: Story = {
   args: {
     initialAgent: rowFor(RELEASE_NOTES),
     initialRuns: runRowsFor(RELEASE_NOTES),
-    budget: null,
+    initialOverview: mockOverview(RELEASE_NOTES.slug, '7d'),
   },
   decorators: withRoutes(RELEASE_NOTES),
   parameters: {
@@ -231,7 +154,7 @@ export const Provisioning: Story = {
   args: {
     initialAgent: rowFor(PROVISIONING),
     initialRuns: [],
-    budget: null,
+    initialOverview: mockOverview(PROVISIONING.slug, '7d'),
   },
   decorators: withRoutes(PROVISIONING),
   parameters: {
@@ -241,5 +164,5 @@ export const Provisioning: Story = {
 
 export const NotFound: Story = {
   decorators: withRoutes(CODE_REVIEWER),
-  args: { initialAgent: null, initialRuns: [], initialStatus: 'not_found', budget: null },
+  args: { initialAgent: null, initialRuns: [], initialStatus: 'not_found', initialOverview: null },
 };

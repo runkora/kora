@@ -50,7 +50,7 @@ func TestInsights_FoldsUsageAndBuckets(t *testing.T) {
 		agentBuckets:  buckets,
 	}
 
-	out, err := newInsights(repo, nil).Insights(context.Background(), "t1", usagewindow.Period7d, testEnd)
+	out, err := newInsights(repo, nil).Insights(context.Background(), "t1", usagewindow.Period7d, "", testEnd)
 	if err != nil {
 		t.Fatalf("Insights: %v", err)
 	}
@@ -71,7 +71,7 @@ func TestInsights_FoldsUsageAndBuckets(t *testing.T) {
 	}
 
 	// An empty window must encode arrays, which the page reads.
-	empty, _ := newInsights(&mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}, nil).Insights(context.Background(), "t1", usagewindow.Period7d, testEnd)
+	empty, _ := newInsights(&mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}, nil).Insights(context.Background(), "t1", usagewindow.Period7d, "", testEnd)
 	raw, _ := json.Marshal(empty)
 	if strings.Contains(string(raw), `"usage":null`) || strings.Contains(string(raw), `"models":null`) {
 		t.Errorf("empty usage and models must encode as arrays: %s", raw)
@@ -88,7 +88,7 @@ func TestAgentBudgets(t *testing.T) {
 	}}
 	repo := &mockInferenceUsageRepository{agentBuckets: make([]float64, 7), agentSpend: []AgentBudgetSpend{{AgentSlug: "coder", Week: 7, Month: 40}}}
 
-	out, err := newInsights(repo, bundle).Insights(context.Background(), "t1", usagewindow.Period7d, testEnd)
+	out, err := newInsights(repo, bundle).Insights(context.Background(), "t1", usagewindow.Period7d, "", testEnd)
 	if err != nil {
 		t.Fatalf("Insights: %v", err)
 	}
@@ -115,7 +115,23 @@ func TestAgentBudgets(t *testing.T) {
 	}
 }
 
-func TestAgentUsageHandlers(t *testing.T) {
+func TestInsights_OneAgentKeepsOnlyItsBudget(t *testing.T) {
+	bundle := fakeBundle{principals: map[string]policy.PrincipalBudget{
+		agentNS + "coder": {EffectiveLimits: map[string]float64{"monthly": 100}},
+		agentNS + "idle":  {EffectiveLimits: map[string]float64{"monthly": 50}},
+	}}
+	repo := &mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}
+
+	out, err := newInsights(repo, bundle).Insights(context.Background(), "t1", usagewindow.Period7d, "idle", testEnd)
+	if err != nil {
+		t.Fatalf("Insights: %v", err)
+	}
+	if len(out.Budgets) != 1 || out.Budgets[0].AgentSlug != "idle" || !slices.Equal(repo.agentSpendFor, []string{"idle"}) {
+		t.Errorf("budgets = %+v spend for %v, want idle only", out.Budgets, repo.agentSpendFor)
+	}
+}
+
+func TestAgentInsightsHandlers(t *testing.T) {
 	c := &Controller{
 		svc:    newInsights(&mockInferenceUsageRepository{agentBuckets: make([]float64, 7)}, nil),
 		logger: logging.NewLoggerWithOutput(io.Discard),
@@ -133,9 +149,9 @@ func TestAgentUsageHandlers(t *testing.T) {
 	}{
 		{"a token with no tenant", c.handleAgentInsights, "/usage/agent-insights", "", "", http.StatusUnauthorized},
 		{"a bad period", c.handleAgentInsights, "/usage/agent-insights?period=1y", "t1", "", http.StatusBadRequest},
-		{"a valid slug", c.handleAgentUsage, "/usage/agent-type/x", "t1", "token-probe", http.StatusOK},
-		{"a slug with a symbol", c.handleAgentUsage, "/usage/agent-type/x", "t1", "probe%", http.StatusBadRequest},
-		{"a slug with a path", c.handleAgentUsage, "/usage/agent-type/x", "t1", "a/b", http.StatusBadRequest},
+		{"a valid slug", c.handleAgentInsights, "/usage/agent-type/x", "t1", "token-probe", http.StatusOK},
+		{"a slug with a symbol", c.handleAgentInsights, "/usage/agent-type/x", "t1", "probe%", http.StatusBadRequest},
+		{"a slug with a path", c.handleAgentInsights, "/usage/agent-type/x", "t1", "a/b", http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)

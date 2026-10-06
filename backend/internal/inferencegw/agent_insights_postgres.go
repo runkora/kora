@@ -15,17 +15,22 @@ import (
 // rows that came from an agent. $1 is the tenant.
 const agentTraffic = "tenant_id = $1 AND agent_slug IS NOT NULL"
 
+// scopeToAgent narrows an agentTraffic query to one agent when slug is set.
+func scopeToAgent(where string, args []any, slug string) (string, []any) {
+	if slug == "" {
+		return where, args
+	}
+	args = append(args, slug)
+	return fmt.Sprintf("%s AND agent_slug = $%d", where, len(args)), args
+}
+
 // Rollups run in exec mode so Postgres plans them with the actual window: the
 // generic plan of a prepared statement reads most of the table through an index.
 func execMode(args ...any) []any { return append([]any{pgx.QueryExecModeExec}, args...) }
 
 // AgentUsage returns usage per agent and model over the window, or for one agent when slug is set.
 func (r *PostgresInferenceUsageRepository) AgentUsage(ctx context.Context, tenantID string, w usagewindow.Window, slug string) ([]AgentModelUsage, error) {
-	where, args := agentTraffic+" AND created_at >= $2 AND created_at < $3", []any{tenantID, w.Start, w.End}
-	if slug != "" {
-		where += " AND agent_slug = $4"
-		args = append(args, slug)
-	}
+	where, args := scopeToAgent(agentTraffic+" AND created_at >= $2 AND created_at < $3", []any{tenantID, w.Start, w.End}, slug)
 	rows, err := r.pool.Query(ctx, `
 		SELECT agent_slug, model_id,
 		       COALESCE(SUM(prompt_tokens), 0),
@@ -56,8 +61,9 @@ func (r *PostgresInferenceUsageRepository) AgentUsage(ctx context.Context, tenan
 }
 
 // AgentSpendBuckets returns the previous window's total and each bucket's spend
-// as FILTER sums over one scan, which measured faster than GROUP BY.
-func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window) (float64, []float64, error) {
+// as FILTER sums over one scan, which measured faster than GROUP BY. A slug
+// narrows it to one agent.
+func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context, tenantID string, w usagewindow.Window, slug string) (float64, []float64, error) {
 	n := int(w.End.Sub(w.Start) / w.Bucket)
 	previousStart := w.Start.Add(-w.End.Sub(w.Start))
 	args := []any{tenantID, previousStart, w.End, w.Start}
@@ -72,8 +78,8 @@ func (r *PostgresInferenceUsageRepository) AgentSpendBuckets(ctx context.Context
 	for i := range vals {
 		dest[i] = &vals[i]
 	}
-	row := r.pool.QueryRow(ctx, "SELECT "+strings.Join(cols, ", ")+
-		" FROM inference_usage WHERE "+agentTraffic+" AND created_at >= $2 AND created_at < $3", execMode(args...)...)
+	where, args := scopeToAgent(agentTraffic+" AND created_at >= $2 AND created_at < $3", args, slug)
+	row := r.pool.QueryRow(ctx, "SELECT "+strings.Join(cols, ", ")+" FROM inference_usage WHERE "+where, execMode(args...)...)
 	if err := row.Scan(dest...); err != nil {
 		return 0, nil, fmt.Errorf("agent spend buckets: %w", err)
 	}

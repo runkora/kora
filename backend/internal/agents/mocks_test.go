@@ -54,6 +54,12 @@ type mockRepository struct {
 	appendRunMessageErr    error
 
 	outcomesVis RunVisibility
+
+	// Run stats: the canned result and the arguments the service passed.
+	statsResult      RunStats
+	statsVis         RunVisibility
+	statsAgentTypeID string
+	getBySlugErr     error
 }
 
 func newMockRepository() *mockRepository {
@@ -97,6 +103,9 @@ func (m *mockRepository) GetAgentType(_ context.Context, id string) (*AgentType,
 }
 
 func (m *mockRepository) GetAgentTypeBySlug(_ context.Context, tenantID, slug string) (*AgentType, error) {
+	if m.getBySlugErr != nil {
+		return nil, m.getBySlugErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	at, ok := m.slugIndex[tenantID+":"+slug]
@@ -234,6 +243,11 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVisibility, _, _ time.Time) (RunOutcomes, error) {
 	m.outcomesVis = vis
 	return RunOutcomes{}, nil
+}
+
+func (m *mockRepository) AgentRunStats(_ context.Context, _, agentTypeID string, vis RunVisibility, _, _ time.Time) (RunStats, error) {
+	m.statsVis, m.statsAgentTypeID = vis, agentTypeID
+	return m.statsResult, nil
 }
 
 func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
