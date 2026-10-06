@@ -147,9 +147,11 @@ func TestAgentRoutesFilterDropsOnlyUnscopedRoutes(t *testing.T) {
 	}
 }
 
-func TestAgentRoutesRunOutcomesScope(t *testing.T) {
-	got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", "/api/v1/run-outcomes")
-	if !ok || got != "agents:runs:read" {
-		t.Errorf("scope %q (matched %v), want agents:runs:read", got, ok)
+func TestAgentRoutesRunReadScope(t *testing.T) {
+	for _, path := range []string{"/api/v1/run-outcomes", "/api/v1/run-stats/coder"} {
+		got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", path)
+		if !ok || got != "agents:runs:read" {
+			t.Errorf("%s: scope %q (matched %v), want agents:runs:read", path, got, ok)
+		}
 	}
 }

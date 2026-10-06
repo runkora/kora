@@ -51,9 +51,14 @@ function SectionLabel({ title, desc }: { title: string; desc: string }) {
   );
 }
 
-export function AgentConfigurationTab() {
+interface AgentConfigurationTabProps {
+  /** The rail step to open on, for a link from another tab. */
+  initialSection?: string | undefined;
+}
+
+export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConfigurationTabProps) {
   const cfg = useAgentConfiguration();
-  const [active, setActive] = useState('identity');
+  const [active, setActive] = useState(initialSection);
   // Capacity has a stored value on every live agent; "off" here means "leave
   // it as it is", so the row dims but nothing is unset on save.
   const [capacityOn, setCapacityOn] = useState(true);

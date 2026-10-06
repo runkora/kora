@@ -18,7 +18,7 @@ import type { IconName } from '@orbit/terra';
 import { fmtTokens } from '@orbit/utils';
 import { formatDuration } from '../_types';
 
-interface TileSegment {
+export interface TileSegment {
   label: string;
   value: number;
   /** What the legend shows instead of the raw value, for example a formatted token count. */
@@ -72,7 +72,9 @@ interface StatTileProps {
   label: string;
   icon: IconName;
   value: string;
-  segments: TileSegment[];
+  segments?: TileSegment[];
+  /** A custom body shown instead of the bar and legend, for a figure that is not a composition. */
+  children?: React.ReactNode;
   /** The period or scope the figure covers, bottom left. */
   period: string;
   /** One extra fact, bottom right. */
@@ -80,7 +82,15 @@ interface StatTileProps {
 }
 
 /** Every tile has the same four parts in the same places: figure, bar, legend, footer. */
-function StatTile({ label, icon, value, segments, period, trailing }: StatTileProps) {
+export function StatTile({
+  label,
+  icon,
+  value,
+  segments,
+  children,
+  period,
+  trailing,
+}: StatTileProps) {
   return (
     <Card column>
       <CardContent padded grow>
@@ -90,10 +100,16 @@ function StatTile({ label, icon, value, segments, period, trailing }: StatTilePr
             <Icon name={icon} size="xs" />
           </Stack>
           <Heading variant="metric">{value}</Heading>
-          <Stack justify="center" style={{ height: '1rem' }}>
-            <SegmentBar segments={segments} />
-          </Stack>
-          <SegmentLegend segments={segments} />
+          {children ? (
+            children
+          ) : (
+            <>
+              <Stack justify="center" style={{ height: '1rem' }}>
+                <SegmentBar segments={segments ?? []} />
+              </Stack>
+              <SegmentLegend segments={segments ?? []} />
+            </>
+          )}
         </Stack>
       </CardContent>
       <CardFooter compact justify="between">

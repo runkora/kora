@@ -54,6 +54,15 @@ type mockRepository struct {
 	appendRunMessageErr    error
 
 	outcomesVis RunVisibility
+
+	// Run stats: the canned reads and what the service asked for.
+	statsTotal, statsTriggered int64
+	statsFinished              FinishedRuns
+	statsBuckets               []int64
+	statsOverflow              int64
+	statsVis                   RunVisibility
+	statsAgentTypeID           string
+	statsBucketRange           int64
 }
 
 func newMockRepository() *mockRepository {
@@ -234,6 +243,20 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVisibility, _, _ time.Time) (RunOutcomes, error) {
 	m.outcomesVis = vis
 	return RunOutcomes{}, nil
+}
+
+func (m *mockRepository) CountAgentRuns(_ context.Context, _, agentTypeID string, vis RunVisibility, _, _ time.Time) (int64, int64, error) {
+	m.statsVis, m.statsAgentTypeID = vis, agentTypeID
+	return m.statsTotal, m.statsTriggered, nil
+}
+
+func (m *mockRepository) FinishedRunDurations(context.Context, string, string, RunVisibility, time.Time, time.Time) (FinishedRuns, error) {
+	return m.statsFinished, nil
+}
+
+func (m *mockRepository) FinishedRunBuckets(_ context.Context, _, _ string, _ RunVisibility, _, _ time.Time, rangeMs int64) ([]int64, int64, error) {
+	m.statsBucketRange = rangeMs
+	return m.statsBuckets, m.statsOverflow, nil
 }
 
 func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {

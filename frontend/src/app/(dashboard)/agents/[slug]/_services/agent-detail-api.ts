@@ -2,8 +2,9 @@
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
+  AgentInsightsPeriod,
+  AgentOverviewResponse,
   AgentType,
-  AgentTypeUsage,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   Run,
@@ -169,24 +170,20 @@ export async function updateAgentType(
   return { agentType: toAgentTypeRow(body.data), error: null };
 }
 
-// ── fetchAgentTypeUsage ───────────────────────────────────────────────────────
+// ── fetchAgentOverview ────────────────────────────────────────────────────────
+// One agent's usage, spend, budget and run stats for one window. Never throws;
+// on error `data` is null.
 
-export async function fetchAgentTypeUsage(
+export async function fetchAgentOverview(
   slug: string,
-): Promise<{ usage: AgentTypeUsage | null; error: string | null }> {
+  period: AgentInsightsPeriod,
+): Promise<{ data: AgentOverviewResponse | null; error: string | null }> {
   let res: Response;
   try {
-    res = await fetch(ApiRoute.agentTypes.usage(slug), { cache: 'no-store' });
+    res = await fetch(ApiRoute.agentTypes.overview(slug, period), { cache: 'no-store' });
   } catch {
-    return { usage: null, error: 'Network error: could not reach the server.' };
+    return { data: null, error: 'Network error: could not reach the server.' };
   }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      usage: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
-  }
-  const usageBody = (await res.json()) as AgentTypeUsage;
-  return { usage: usageBody, error: null };
+  if (!res.ok) return { data: null, error: `Request failed (${res.status})` };
+  return { data: (await res.json()) as AgentOverviewResponse, error: null };
 }

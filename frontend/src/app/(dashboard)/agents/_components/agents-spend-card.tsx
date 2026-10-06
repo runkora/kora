@@ -36,7 +36,7 @@ import type { BudgetRow, SpendRow } from '../_lib/spend';
 const CHART_CONFIG = { cost: { label: 'Spend', color: 'var(--color-accent)' } };
 
 /** Spend over time as a scaled area chart with a dollar axis, an average line and the peak marked. */
-function TrendChart({ labels, values }: { labels: string[]; values: number[] }) {
+export function TrendChart({ labels, values }: { labels: string[]; values: number[] }) {
   const data = values.map((cost, i) => ({ label: labels[i] ?? String(i + 1), cost }));
   const average = values.reduce((n, v) => n + v, 0) / Math.max(values.length, 1);
   const peak = data.reduce(
@@ -109,13 +109,16 @@ function TrendChart({ labels, values }: { labels: string[]; values: number[] }) 
 }
 
 /** A ring and a legend for one breakdown of the window's spend. */
-function Breakdown({
+export function Breakdown({
   rows: allRows,
   total,
   deleted = 0,
+  format = fmtUsd,
 }: {
   rows: SpendRow[];
   total: number;
+  /** How amounts read; dollars unless the rows are another unit, such as tokens. */
+  format?: (value: number) => string;
   /** Spend of agents that no longer exist: it is in the total, so it gets a row. */
   deleted?: number;
 }) {
@@ -131,10 +134,10 @@ function Breakdown({
         thickness={10}
       >
         <Text mono size="supporting" weight="emphasis">
-          {fmtUsd(total)}
+          {format(total)}
         </Text>
       </Donut>
-      <Stack grow gap="snug" align="stretch">
+      <Stack grow gap="snug" align="stretch" minWidth="none">
         {rows.map((row, i) => (
           <Stack key={row.name} direction="horizontal" align="center" gap="snug">
             <Stack
@@ -146,7 +149,7 @@ function Breakdown({
                 background: donutSegmentColor(i),
               }}
             />
-            <Stack grow>
+            <Stack grow minWidth="none">
               <Text size="caption" color="muted" truncate>
                 {row.name}
               </Text>
@@ -155,7 +158,7 @@ function Breakdown({
               {total > 0 ? Math.round((row.cost / total) * 100) : 0}%
             </Text>
             <Text mono size="caption">
-              {fmtUsd(row.cost)}
+              {format(row.cost)}
             </Text>
           </Stack>
         ))}
@@ -168,7 +171,7 @@ function Breakdown({
  * A bar per budget window of each agent. Rows arrive closest to a limit first, and
  * those past BUDGET_ROWS are counted.
  */
-function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
+export function AgentBudgets({ rows: allRows }: { rows: BudgetRow[] }) {
   const rows = allRows.slice(0, BUDGET_ROWS);
   const hidden = allRows.length - rows.length;
   return (

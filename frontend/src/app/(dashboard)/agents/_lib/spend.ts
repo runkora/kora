@@ -11,6 +11,9 @@ export const PERIOD_TEXT: Record<Period, { text: string; previous: string }> = {
   '90d': { text: 'last 90 days', previous: 'previous 90 days' },
 };
 
+/** The length of each window in days. */
+export const PERIOD_DAYS: Record<Period, number> = { '24h': 1, '7d': 7, '30d': 30, '90d': 90 };
+
 /** The window the page opens on. The server render fetches it, so first paint has data. */
 export const DEFAULT_PERIOD: Period = '7d';
 

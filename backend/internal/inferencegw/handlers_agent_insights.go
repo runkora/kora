@@ -34,7 +34,7 @@ func (c *Controller) handleAgentInsights(w http.ResponseWriter, r *http.Request)
 	if !ok {
 		return
 	}
-	out, err := c.svc.Insights(ctx, tenantID, period, time.Now().UTC())
+	out, err := c.svc.Insights(ctx, tenantID, period, "", time.Now().UTC())
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent insights", nil), err)
 		return
@@ -43,7 +43,7 @@ func (c *Controller) handleAgentInsights(w http.ResponseWriter, r *http.Request)
 }
 
 // handleAgentUsage handles GET /v1/usage/agent-type/{slug}?period=, the
-// one-agent form of handleAgentInsights.
+// insights of one agent.
 func (c *Controller) handleAgentUsage(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	tenantID, period, ok := c.agentUsageRequest(w, r)
@@ -56,9 +56,9 @@ func (c *Controller) handleAgentUsage(w http.ResponseWriter, r *http.Request) {
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, "a valid agent slug is required", nil), nil)
 		return
 	}
-	out, err := c.svc.AgentUsage(ctx, tenantID, period, slug, time.Now().UTC())
+	out, err := c.svc.Insights(ctx, tenantID, period, slug, time.Now().UTC())
 	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent usage", nil), err)
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent insights", nil), err)
 		return
 	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, out)

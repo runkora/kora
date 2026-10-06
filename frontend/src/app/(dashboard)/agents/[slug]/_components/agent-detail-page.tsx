@@ -1,9 +1,10 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. Detail page: identity header + four tabs
+/** @tier 3 · agents/[slug]-scoped. Detail page: identity header + four tabs
  * (docs/adr/2026-07-17-agent-detail-configuration.md §1). */
 
 import { useState } from 'react';
+import type { AgentOverviewResponse } from '@orbit/shared/api';
 import { useRouter } from 'next/navigation';
 import {
   Badge,
@@ -11,6 +12,7 @@ import {
   Callout,
   Heading,
   Icon,
+  SegmentedControl,
   Stack,
   Tabs,
   TabsContent,
@@ -24,21 +26,29 @@ import { StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
-import type { BudgetRow } from '../../_lib/spend';
+import { useAgentOverview } from '../_hooks/use-agent-overview';
+import { DEFAULT_PERIOD, PERIOD_OPTIONS, isPeriod } from '../../_lib/spend';
+import type { Period } from '../../_lib/spend';
 import { AgentRunsTab } from './agent-runs-tab';
 import { AgentConfigurationTab } from './agent-configuration-tab';
 import { AgentTriggersTab } from './agent-triggers-tab';
 import { StartRunModal } from '../../_components/start-run-modal';
 
 interface AgentDetailPageProps {
-  budget: BudgetRow | null;
+  /** The default window's overview, fetched by the server render so first paint has data. */
+  initialOverview?: AgentOverviewResponse | null;
 }
 
-export function AgentDetailPage({ budget }: AgentDetailPageProps) {
+export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
   const { agent, status, error } = useAgentDetailContext();
   const router = useRouter();
 
   const [startRunOpen, setStartRunOpen] = useState(false);
+  const [tab, setTab] = useState('overview');
+  // Set when another tab sends the reader to a Configuration step; any tab click clears it.
+  const [configSection, setConfigSection] = useState<string | undefined>();
+  const [period, setPeriod] = useState<Period>(DEFAULT_PERIOD);
+  const { overview } = useAgentOverview(agent?.slug, period, initialOverview);
 
   // ── Not found ──────────────────────────────────────────────────────────────
 
@@ -169,19 +179,35 @@ export function AgentDetailPage({ budget }: AgentDetailPageProps) {
             </Stack>
           </Stack>
         </Stack>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => setStartRunOpen(true)}
-          disabled={agent.state !== 'active'}
-        >
-          <Icon name="play" size="xs" />
-          Start Run
-        </Button>
+        <Stack direction="horizontal" align="center" gap="snug">
+          {tab === 'overview' && (
+            <SegmentedControl
+              aria-label="Period"
+              value={period}
+              onChange={(value) => isPeriod(value) && setPeriod(value)}
+              options={PERIOD_OPTIONS}
+            />
+          )}
+          <Button
+            variant="default"
+            size="sm"
+            onClick={() => setStartRunOpen(true)}
+            disabled={agent.state !== 'active'}
+          >
+            <Icon name="play" size="xs" />
+            Start Run
+          </Button>
+        </Stack>
       </Stack>
 
       {/* Tabs */}
-      <Tabs defaultValue="overview">
+      <Tabs
+        value={tab}
+        onValueChange={(value) => {
+          setTab(value);
+          setConfigSection(undefined);
+        }}
+      >
         <TabsList>
           <TabsTrigger value="overview" icon="activity">
             Overview
@@ -197,13 +223,19 @@ export function AgentDetailPage({ budget }: AgentDetailPageProps) {
           </TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
-          <AgentOverviewTab budget={budget} />
+          <AgentOverviewTab
+            overview={overview}
+            onEditInstructions={() => {
+              setConfigSection('behaviour');
+              setTab('configuration');
+            }}
+          />
         </TabsContent>
         <TabsContent value="runs">
           <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />
         </TabsContent>
         <TabsContent value="configuration">
-          <AgentConfigurationTab />
+          <AgentConfigurationTab initialSection={configSection} />
         </TabsContent>
         <TabsContent value="triggers">
           <AgentTriggersTab />

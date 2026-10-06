@@ -97,7 +97,7 @@ func TestPostgres_AgentRollups_Predicate(t *testing.T) {
 	for _, m := range models {
 		modelSum += m.EstimatedCostUSD
 	}
-	_, buckets, err := repo.AgentSpendBuckets(ctx, tenant, w)
+	_, buckets, err := repo.AgentSpendBuckets(ctx, tenant, w, "")
 	if err != nil {
 		t.Fatalf("AgentSpendBuckets: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestPostgres_AgentRollups_Buckets(t *testing.T) {
 		agentRow{slug: "coder", cost: 2, at: w.Start.Add(-7 * 24 * time.Hour)},
 		agentRow{slug: "coder", cost: 100, at: w.Start.Add(-7*24*time.Hour - time.Second)}, // before the previous window
 	)
-	previous, buckets, err := repo.AgentSpendBuckets(context.Background(), tenant, w)
+	previous, buckets, err := repo.AgentSpendBuckets(context.Background(), tenant, w, "")
 	if err != nil || len(buckets) != 7 || !near(buckets[2], 4) || !near(sum(buckets), 4) || !near(previous, 7) {
 		t.Errorf("previous %v buckets %v, %v; want previous 7 and 4 in bucket 2", previous, buckets, err)
 	}
@@ -188,7 +188,7 @@ func TestPostgres_AgentRollups_DoNotPrepareStatements(t *testing.T) {
 	now := time.Now()
 	tenant, w := "test-"+uuid.NewString(), usagewindow.For(usagewindow.Period7d, now)
 	_, usageErr := repo.AgentUsage(ctx, tenant, w, "")
-	_, _, bucketErr := repo.AgentSpendBuckets(ctx, tenant, w)
+	_, _, bucketErr := repo.AgentSpendBuckets(ctx, tenant, w, "")
 	_, spendErr := repo.AgentBudgetSpend(ctx, tenant, []string{"coder"}, now, now)
 	if usageErr != nil || bucketErr != nil || spendErr != nil {
 		t.Fatalf("rollups: %v %v %v", usageErr, bucketErr, spendErr)

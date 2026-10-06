@@ -1,385 +1,185 @@
 'use client';
 
-/** @tier 3 — agents/[slug]-scoped. Overview tab: stats, recent runs, system prompt, scopes, metadata. */
+/** @tier 3 · agents/[slug]-scoped. Overview tab: stat tiles, recent runs, instructions, spend, token usage, scopes and metadata. */
 
-import { useState, useMemo, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import {
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  CardHeader,
-  CodeBlock,
-  DataTable,
-  Grid,
-  Stack,
-  Text,
-} from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
-import { ScopeChip, StatusBadge } from '@orbit/components';
-import { fmtDate, fmtUsd, fmtTokens } from '@orbit/utils';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { Card, CardContent, CardHeader, Grid, Stack } from '@orbit/terra';
+import { fmtTokens, fmtUsd } from '@orbit/utils';
+import { StatTile } from '../../_components/agent-stat-tiles';
+import { Breakdown } from '../../_components/agents-spend-card';
+import { PERIOD_DAYS, PERIOD_TEXT } from '../../_lib/spend';
+import type { AgentOverview } from '../../_lib/overview';
+import { formatDuration } from '../../_types';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
-import { fetchAgentTypeUsage } from '../_services/agent-detail-api';
-import { formatDuration, formatRelativeTime } from '../../_types';
-import type { RunRow } from '../../_types';
-import type { BudgetRow } from '../../_lib/spend';
-import { AgentBudgetCard } from './agent-budget-card';
-import { StartedByCell } from './started-by-cell';
-import type { AgentTypeUsage } from '@orbit/shared/api';
-
-const PROMPT_PREVIEW_LENGTH = 300;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function runStatusBadge(row: RunRow) {
-  const statusMap: Record<string, 'idle' | 'degraded' | 'healthy' | 'error'> = {
-    pending: 'idle',
-    starting: 'degraded',
-    active: 'healthy',
-    completing: 'degraded',
-    completed: 'idle',
-    failed: 'error',
-    budget_exhausted: 'error',
-  };
-  const labelMap: Record<string, string> = {
-    pending: 'Pending',
-    starting: 'Starting',
-    active: 'Active',
-    completing: 'Completing',
-    completed: 'Completed',
-    failed: 'Failed',
-    budget_exhausted: 'Budget exhausted',
-  };
-  return (
-    <StatusBadge
-      status={statusMap[row.state] ?? 'unknown'}
-      label={labelMap[row.state] ?? row.state}
-    />
-  );
-}
-
-// ── Component ─────────────────────────────────────────────────────────────────
+import { AgentInstructionsCard } from './agent-instructions-card';
+import { GrantScopesCard, MetadataCard, RecentRunsTable } from './agent-overview-cards';
+import { AgentSpendCard, shortModel } from './agent-spend-card';
+import { DurationHistogram } from './duration-histogram';
 
 interface AgentOverviewTabProps {
-  budget: BudgetRow | null;
+  /** Absent until a period has loaded, or when the caller may read neither part. */
+  overview: AgentOverview | undefined;
+  /** Opens the Configuration tab at the Behaviour step. */
+  onEditInstructions: () => void;
 }
 
-export function AgentOverviewTab({ budget }: AgentOverviewTabProps) {
-  const { agent, runs } = useAgentDetailContext();
-  const router = useRouter();
-  const [promptExpanded, setPromptExpanded] = useState(false);
-  const [agentUsage, setAgentUsage] = useState<AgentTypeUsage | null>(null);
+const perDay = (total: number, period: AgentOverview['period']) => {
+  const n = total / PERIOD_DAYS[period];
+  return n < 10 ? n.toFixed(1) : String(Math.round(n));
+};
 
-  // Fetch 7-day token breakdown and spend from the inference gateway.
-  useEffect(() => {
-    if (!agent) return;
-    void fetchAgentTypeUsage(agent.slug).then(({ usage }) => {
-      if (usage) setAgentUsage(usage);
-    });
-  }, [agent]);
+/** The Spend tile names the two largest models and folds the rest together. */
+function modelSegments(models: { name: string; cost: number }[]) {
+  const top = models.slice(0, 2).map((m) => ({
+    label: shortModel(m.name),
+    value: m.cost,
+    text: fmtUsd(m.cost),
+  }));
+  const other = models.slice(2).reduce((n, m) => n + m.cost, 0);
+  return other > 0 ? [...top, { label: 'other', value: other, text: fmtUsd(other) }] : top;
+}
 
-  // Token-usage rows for the sidebar breakdown (under Budget). Precise counts,
-  // shown as a compact label → value definition list.
-  const usageRows = useMemo(() => {
-    if (!agentUsage) return null;
-    return [
-      { label: 'Input', value: agentUsage.prompt_tokens },
-      { label: 'Output', value: agentUsage.completion_tokens },
-      { label: 'Cache read', value: agentUsage.cache_read_tokens },
-      { label: 'Cache write', value: agentUsage.cache_creation_tokens },
-    ];
-  }, [agentUsage]);
-
-  // ── Stats computation ──────────────────────────────────────────────────────
-
-  const totalRuns = runs.length;
-
-  const completedRuns = useMemo(() => runs.filter((r) => r.state === 'completed').length, [runs]);
-
-  const successRate = useMemo(() => {
-    if (totalRuns === 0) return 'N/A';
-    return `${Math.round((completedRuns / totalRuns) * 100)}%`;
-  }, [completedRuns, totalRuns]);
-
-  const avgDuration = useMemo(() => {
-    const completed = runs.filter((r) => r.state === 'completed' && r.durationMs !== null);
-    if (completed.length === 0) return '—';
-    const avg = completed.reduce((sum, r) => sum + (r.durationMs ?? 0), 0) / completed.length;
-    return formatDuration(avg);
-  }, [runs]);
-
-  // ── Recent runs (5 most recent) ────────────────────────────────────────────
-
-  const recentRuns = useMemo(
-    () =>
-      [...runs]
-        .sort((a, b) => {
-          const aTime = a.startedAt ?? a.createdAt;
-          const bTime = b.startedAt ?? b.createdAt;
-          return bTime.localeCompare(aTime);
-        })
-        .slice(0, 5),
-    [runs],
-  );
-
-  const recentRunColumns = useMemo<DataTableColumn<RunRow>[]>(
-    () => [
-      {
-        id: 'id',
-        header: 'Run ID',
-        gridWidth: '6rem',
-        minWidth: '5rem',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {row.id.slice(0, 8)}
-          </Text>
-        ),
-      },
-      {
-        id: 'state',
-        header: 'Status',
-        gridWidth: '7rem',
-        minWidth: '5.5rem',
-        locked: true,
-        cell: (row) => runStatusBadge(row),
-      },
-      {
-        id: 'duration',
-        header: 'Duration',
-        gridWidth: '6rem',
-        minWidth: '5rem',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {formatDuration(row.durationMs)}
-          </Text>
-        ),
-      },
-      {
-        id: 'startedBy',
-        header: 'Started by',
-        gridWidth: 'minmax(0, 1fr)',
-        minWidth: '4rem',
-        locked: true,
-        cell: (row) => <StartedByCell row={row} />,
-      },
-      {
-        id: 'started',
-        header: 'Started',
-        gridWidth: '6.5rem',
-        minWidth: '5rem',
-        locked: true,
-        cell: (row) => (
-          <Text size="supporting" color="muted">
-            {row.startedAt ? formatRelativeTime(row.startedAt) : '—'}
-          </Text>
-        ),
-      },
-    ],
-    [],
-  );
-
+export function AgentOverviewTab({ overview, onEditInstructions }: AgentOverviewTabProps) {
+  const { agent } = useAgentDetailContext();
   if (!agent) return null;
 
-  const promptTruncated =
-    !promptExpanded && agent.systemPrompt.length > PROMPT_PREVIEW_LENGTH
-      ? agent.systemPrompt.slice(0, PROMPT_PREVIEW_LENGTH) + '…'
-      : agent.systemPrompt;
+  const usage = overview?.usage;
+  const runs = overview?.runs;
+  const period = overview?.period ?? '7d';
+  const { text: periodText, previous: previousText } = PERIOD_TEXT[period];
 
   return (
     <Stack gap="comfortable">
-      {/* No root paddingBlock: Terra's TabsContent provides the uniform gap
-          below the tab rail, matching the other tabs. */}
-      {/* ── Stat cards ────────────────────────────────────────────────────── */}
-      <Grid cols={{ base: 2, md: 3, lg: 5 }} gap="comfortable">
-        <Card>
-          <CardHeader compact title="Total Runs" />
-          <CardContent>
-            <Text size="body" weight="emphasis">
-              {totalRuns}
-            </Text>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader compact title="Success Rate" />
-          <CardContent>
-            <Text size="body" weight="emphasis">
-              {successRate}
-            </Text>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader compact title="Avg Duration" />
-          <CardContent>
-            <Text mono size="body" weight="emphasis">
-              {avgDuration}
-            </Text>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader compact title="Tokens (7d)" />
-          <CardContent>
-            <Text mono size="body" weight="emphasis">
-              {agentUsage ? fmtTokens(agentUsage.total_tokens) : '—'}
-            </Text>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader compact title="Spend (7d)" />
-          <CardContent>
-            <Text mono size="body" weight="emphasis">
-              {agentUsage ? fmtUsd(agentUsage.estimated_cost_usd) : '—'}
-            </Text>
-          </CardContent>
-        </Card>
-      </Grid>
+      {(usage || runs) && (
+        <Grid cols={{ base: 2, md: 3, xl: 5 }} gap="comfortable">
+          {runs && (
+            <>
+              <StatTile
+                label="Total runs"
+                icon="play"
+                value={String(runs.total)}
+                segments={[
+                  { label: 'triggered', value: runs.triggered },
+                  { label: 'manual', value: runs.manual },
+                ]}
+                period={periodText}
+                trailing={runs.total > 0 ? `${perDay(runs.total, period)} a day` : 'No runs yet'}
+              />
+              <StatTile
+                label="Completed runs"
+                icon="circle-check"
+                value={String(runs.completed)}
+                segments={[
+                  { label: 'completed', value: runs.completed },
+                  { label: 'failed', value: runs.failed },
+                ]}
+                period={periodText}
+                trailing={
+                  runs.successRate === null ? 'No runs yet' : `${runs.successRate}% success`
+                }
+              />
+              <StatTile
+                label="Median duration"
+                icon="clock"
+                value={runs.finished > 0 ? formatDuration(runs.durations.medianMs) : '–'}
+                period={periodText}
+                trailing={runs.finished > 0 ? `${runs.finished} finished` : 'No runs yet'}
+              >
+                <DurationHistogram durations={runs.durations} />
+              </StatTile>
+            </>
+          )}
+          {usage && (
+            <>
+              <StatTile
+                label="Tokens"
+                icon="zap"
+                value={fmtTokens(usage.tokens.total)}
+                segments={[
+                  {
+                    label: 'cached',
+                    value: usage.tokens.cached,
+                    text: fmtTokens(usage.tokens.cached),
+                  },
+                  {
+                    label: 'input',
+                    value: usage.tokens.input,
+                    text: fmtTokens(usage.tokens.input),
+                  },
+                  {
+                    label: 'output',
+                    value: usage.tokens.output,
+                    text: fmtTokens(usage.tokens.output),
+                  },
+                ]}
+                period={periodText}
+                trailing={
+                  usage.cachedShare === null ? 'No usage yet' : `${usage.cachedShare}% cached`
+                }
+              />
+              <StatTile
+                label="Spend"
+                icon="dollar-sign"
+                value={fmtUsd(usage.spend)}
+                segments={modelSegments(usage.models)}
+                period={periodText}
+                trailing={
+                  usage.change === null
+                    ? 'No usage yet'
+                    : `${usage.change >= 0 ? '▲' : '▼'} ${Math.abs(usage.change)}%`
+                }
+              />
+            </>
+          )}
+        </Grid>
+      )}
 
-      {/* ── Two-column layout ──────────────────────────────────────────────
-          Columns stretch to full width (default align-items: stretch). Do NOT
-          set align="start" here: on mobile the stack is vertical, where
-          align-items:flex-start makes the children size to their (wide) content
-          instead of the column width — which pushes the table and prompt past
-          the viewport. Stretch keeps them full-width so they wrap/scroll. */}
-      <Stack direction={{ base: 'vertical', lg: 'horizontal' }} gap="comfortable">
-        {/* Left column: recent runs + system prompt */}
-        <Stack gap="comfortable" grow>
-          {/* Recent runs */}
-          <DataTable
-            data={recentRuns}
-            columns={recentRunColumns}
-            getRowKey={(row) => row.id}
-            noun="runs"
-            emptyMessage="No runs yet."
-            defaultSortId="started"
-            defaultSortDir="desc"
-            toolbarTitle={
-              <Text size="supporting" weight="emphasis">
-                Recent Runs
-              </Text>
-            }
-            onRowClick={(row) => {
-              if (agent) {
-                router.push(APP_ROUTES.agents.run(agent.slug, row.id));
-              }
-            }}
-            rowLabel={(row) => `View run ${row.id}`}
-          />
-
-          {/* System prompt — wrapping CodeBlock so long lines wrap within the
-              column instead of forcing the page wider than the viewport. */}
-          <Card>
-            <CardHeader compact title="System Prompt" divider />
-            <CardContent padded>
-              <Stack gap="snug">
-                <CodeBlock text={promptTruncated} wrap />
-                {agent.systemPrompt.length > PROMPT_PREVIEW_LENGTH && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setPromptExpanded((prev) => !prev)}
-                  >
-                    {promptExpanded ? 'Show less' : 'Show full prompt'}
-                  </Button>
-                )}
-              </Stack>
-            </CardContent>
-          </Card>
+      {/* Columns stretch to full width; align="start" would size them to their content on mobile. */}
+      <Stack direction={{ base: 'vertical', xl: 'horizontal' }} gap="comfortable">
+        <Stack gap="comfortable" grow minWidth="none">
+          <RecentRunsTable />
+          <AgentInstructionsCard prompt={agent.systemPrompt} onEdit={onEditInstructions} />
         </Stack>
 
-        {/* Right column: budget + grant scopes + metadata */}
-        <Stack gap="comfortable" style={{ flexShrink: 0, flexBasis: '300px' }}>
-          <AgentBudgetCard budget={budget} />
-
-          {/* Token usage (7d) — sits with Budget; the spend total is in the
-              stat row above. Compact label → value list. */}
-          {usageRows && (
-            <Card>
-              <CardHeader compact title="Token Usage (7d)" divider />
-              <CardContent padded>
-                <Stack gap="snug">
-                  {usageRows.map((row) => (
-                    <Stack key={row.label} direction="horizontal" align="center" justify="between">
-                      <Text size="supporting" color="muted">
-                        {row.label}
-                      </Text>
-                      <Text mono tabular size="supporting">
-                        {fmtTokens(row.value)}
-                      </Text>
-                    </Stack>
-                  ))}
-                </Stack>
-              </CardContent>
-            </Card>
+        <Stack
+          gap="comfortable"
+          minWidth={{ base: 'none', xl: 'detail-panel' }}
+          maxWidth={{ base: 'full', xl: 'detail-panel' }}
+          shrink={false}
+        >
+          {usage && (
+            <>
+              <AgentSpendCard
+                models={usage.models}
+                trend={usage.trend}
+                total={usage.spend}
+                previousTotal={usage.previousSpend}
+                periodText={periodText}
+                previousText={previousText}
+                budget={overview?.budget ?? null}
+              />
+              <Card>
+                <CardHeader
+                  compact
+                  title="Token usage"
+                  description={`${periodText.charAt(0).toUpperCase()}${periodText.slice(1)}`}
+                  divider
+                />
+                <CardContent padded>
+                  <Breakdown
+                    rows={[
+                      { name: 'Cached', cost: usage.tokens.cached },
+                      { name: 'Input', cost: usage.tokens.input },
+                      { name: 'Output', cost: usage.tokens.output },
+                    ]}
+                    total={usage.tokens.total}
+                    format={fmtTokens}
+                  />
+                </CardContent>
+              </Card>
+            </>
           )}
-
-          {/* Grant scopes */}
-          <Card>
-            <CardHeader compact title="Grant Scopes" divider />
-            <CardContent padded>
-              {agent.grantScopes.length > 0 ? (
-                <Stack direction="horizontal" gap="snug" wrap>
-                  {agent.grantScopes.map((scope) => (
-                    <ScopeChip key={scope} scope={scope} />
-                  ))}
-                </Stack>
-              ) : (
-                <Text size="supporting" color="muted">
-                  No grant scopes configured.
-                </Text>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Metadata */}
-          <Card>
-            <CardHeader compact title="Metadata" divider />
-            <CardContent padded>
-              <Stack gap="snug">
-                <Stack direction="horizontal" align="center" justify="between">
-                  <Text size="supporting" color="muted">
-                    Created
-                  </Text>
-                  <Text size="supporting">{fmtDate(agent.createdAt)}</Text>
-                </Stack>
-                <Stack direction="horizontal" align="center" justify="between">
-                  <Text size="supporting" color="muted">
-                    Last updated
-                  </Text>
-                  <Text size="supporting">{fmtDate(agent.updatedAt)}</Text>
-                </Stack>
-                <Stack direction="horizontal" align="center" justify="between">
-                  <Text size="supporting" color="muted">
-                    Max concurrent / pod
-                  </Text>
-                  <Text mono size="supporting">
-                    {agent.maxConcurrentRunsPerPod}
-                  </Text>
-                </Stack>
-                <Stack direction="horizontal" align="center" justify="between">
-                  <Text size="supporting" color="muted">
-                    Model
-                  </Text>
-                  <Badge variant="secondary" size="sm">
-                    {agent.modelId}
-                  </Badge>
-                </Stack>
-                <Stack direction="horizontal" align="center" justify="between">
-                  <Text size="supporting" color="muted">
-                    Identity model
-                  </Text>
-                  <Badge
-                    variant={agent.identityMode === 'delegated' ? 'default' : 'secondary'}
-                    size="sm"
-                  >
-                    {agent.identityMode === 'delegated' ? 'Delegated' : 'Autonomous'}
-                  </Badge>
-                </Stack>
-              </Stack>
-            </CardContent>
-          </Card>
+          <GrantScopesCard agent={agent} />
+          <MetadataCard agent={agent} />
         </Stack>
       </Stack>
     </Stack>

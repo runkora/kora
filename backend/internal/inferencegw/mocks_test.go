@@ -54,7 +54,7 @@ func (m *mockInferenceUsageRepository) AgentUsage(_ context.Context, tenantID st
 	return m.agentRows, nil
 }
 
-func (m *mockInferenceUsageRepository) AgentSpendBuckets(context.Context, string, usagewindow.Window) (float64, []float64, error) {
+func (m *mockInferenceUsageRepository) AgentSpendBuckets(context.Context, string, usagewindow.Window, string) (float64, []float64, error) {
 	return m.agentPrevious, m.agentBuckets, nil
 }
 

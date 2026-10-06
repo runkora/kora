@@ -339,14 +339,16 @@ export const ApiRoute = {
     previewEffectiveAccess: (): `${typeof API_BASE}/agents/types/effective-access` =>
       `${API_BASE}/agents/types/effective-access`,
     /**
-     * `/api/agents/types/usage/[slug]`
+     * `/api/agents/types/overview/[slug]`
      *
-     * GET — returns the agent's 7-day token breakdown and spend by slug, sourced
-     *       from the inference gateway. Powers the token breakdown and spend
-     *       cards on the agent overview page.
+     * GET: one agent's usage, spend, budget and run stats for one window. Powers
+     *      the agent Overview.
      */
-    usage: (slug: string): `${typeof API_BASE}/agents/types/usage/${string}` =>
-      `${API_BASE}/agents/types/usage/${encodeURIComponent(slug)}`,
+    overview: (
+      slug: string,
+      period: AgentInsightsPeriod,
+    ): `${typeof API_BASE}/agents/types/overview/${string}?period=${AgentInsightsPeriod}` =>
+      `${API_BASE}/agents/types/overview/${encodeURIComponent(slug)}?period=${period}`,
     /**
      * `/api/agents/types/drafts`
      *
@@ -518,7 +520,7 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['agentTypes']['delete']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['effectiveAccess']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['previewEffectiveAccess']>
-  | ReturnType<(typeof ApiRoute)['agentTypes']['usage']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['overview']>
   | ReturnType<(typeof ApiRoute)['environments']['list']>
   | ReturnType<(typeof ApiRoute)['environments']['create']>
   | ReturnType<(typeof ApiRoute)['environments']['detail']>

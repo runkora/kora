@@ -1,0 +1,141 @@
+package agents
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"github.com/clear-route/orbit/internal/platform/usagewindow"
+)
+
+const (
+	// histogramBuckets is the number of equal-width duration buckets.
+	histogramBuckets = 10
+	// cappedMinFinished is the finished-run count from which the histogram stops
+	// at the 99th percentile; below it one outlier would flatten every bar.
+	cappedMinFinished = 20
+)
+
+// RunDurationStats summarizes the durations of the runs that finished in a window.
+// Durations are milliseconds from start (creation, if the run never started) to completion.
+type RunDurationStats struct {
+	Finished  int64 `json:"finished"`
+	MedianMs  int64 `json:"median_ms"`
+	AverageMs int64 `json:"average_ms"`
+	P95Ms     int64 `json:"p95_ms"`
+	P99Ms     int64 `json:"p99_ms"`
+	LongestMs int64 `json:"longest_ms"`
+	// Capped is true when Buckets cover 0 to p99 and slower runs are in Overflow.
+	// Otherwise they cover 0 to the longest run and Overflow is 0.
+	Capped  bool    `json:"capped"`
+	RangeMs int64   `json:"range_ms"`
+	Buckets []int64 `json:"buckets"`
+	// Overflow counts finished runs above RangeMs.
+	Overflow int64 `json:"overflow"`
+}
+
+// RunStats is one agent's run counts and durations for a window.
+type RunStats struct {
+	Period string `json:"period"`
+	// Total counts runs created in the window; Triggered those a trigger started.
+	Total     int64 `json:"total"`
+	Triggered int64 `json:"triggered"`
+	Manual    int64 `json:"manual"`
+	// Completed and Failed count runs that finished in the window.
+	Completed int64            `json:"completed"`
+	Failed    int64            `json:"failed"`
+	Durations RunDurationStats `json:"durations"`
+}
+
+// RunStatsRepository reads the run aggregates behind RunStats. Every read applies
+// the delegated-run visibility rule in the query.
+type RunStatsRepository interface {
+	// CountAgentRuns counts the agent type's runs created in [from, to) and the
+	// part of them a trigger started.
+	CountAgentRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (total, triggered int64, err error)
+	// FinishedRunDurations summarizes the runs of the agent type that finished in [from, to).
+	FinishedRunDurations(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (FinishedRuns, error)
+	// FinishedRunBuckets counts those runs per equal-width bucket of [0, rangeMs],
+	// with the runs above rangeMs as overflow.
+	FinishedRunBuckets(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time, rangeMs int64) (buckets []int64, overflow int64, err error)
+}
+
+// FinishedRuns is the SQL summary of finished runs, in milliseconds.
+type FinishedRuns struct {
+	Completed, Failed                 int64
+	MedianMs, AverageMs, P95Ms, P99Ms int64
+	LongestMs                         int64
+}
+
+// histogramRange returns the upper edge of the histogram and whether it is capped:
+// from cappedMinFinished runs it is the p99, below that the longest run.
+func histogramRange(finished, p99Ms, longestMs int64) (rangeMs int64, capped bool) {
+	if finished >= cappedMinFinished {
+		return p99Ms, true
+	}
+	return longestMs, false
+}
+
+// AgentRunStats returns the run counts and durations of the agent type slug that
+// the caller may see, for the period's window ending at now.
+func (s *RunService) AgentRunStats(ctx context.Context, slug string, period usagewindow.Period, now time.Time) (RunStats, error) {
+	tenantID := tenantFromContext(ctx)
+	ctx, span := agentsTracer.Start(ctx, "agents.AgentRunStats",
+		trace.WithAttributes(attribute.String("tenant_id", tenantID), attribute.String("agent_slug", slug)),
+	)
+	defer span.End()
+	out, err := s.agentRunStats(ctx, tenantID, slug, period, now)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "agent run stats")
+	}
+	return out, err
+}
+
+func (s *RunService) agentRunStats(ctx context.Context, tenantID, slug string, period usagewindow.Period, now time.Time) (RunStats, error) {
+	at, err := s.atRepo.GetAgentTypeBySlug(ctx, tenantID, slug)
+	if err != nil || at == nil {
+		return RunStats{}, ErrNotFound
+	}
+	if err = s.authz.checkRun(ctx, *at, "read"); err != nil {
+		if errors.Is(err, ErrForbidden) {
+			return RunStats{}, ErrNotFound
+		}
+		return RunStats{}, err
+	}
+	vis, err := s.runVisibility(ctx)
+	if err != nil {
+		return RunStats{}, err
+	}
+
+	w := usagewindow.For(period, now)
+	total, triggered, err := s.repo.CountAgentRuns(ctx, tenantID, at.ID, vis, w.Start, w.End)
+	if err != nil {
+		return RunStats{}, fmt.Errorf("count agent runs: %w", err)
+	}
+	fin, err := s.repo.FinishedRunDurations(ctx, tenantID, at.ID, vis, w.Start, w.End)
+	if err != nil {
+		return RunStats{}, fmt.Errorf("finished run durations: %w", err)
+	}
+	finished := fin.Completed + fin.Failed
+	d := RunDurationStats{
+		Finished: finished, MedianMs: fin.MedianMs, AverageMs: fin.AverageMs,
+		P95Ms: fin.P95Ms, P99Ms: fin.P99Ms, LongestMs: fin.LongestMs,
+		Buckets: make([]int64, histogramBuckets),
+	}
+	d.RangeMs, d.Capped = histogramRange(finished, fin.P99Ms, fin.LongestMs)
+	if finished > 0 {
+		if d.Buckets, d.Overflow, err = s.repo.FinishedRunBuckets(ctx, tenantID, at.ID, vis, w.Start, w.End, d.RangeMs); err != nil {
+			return RunStats{}, fmt.Errorf("finished run buckets: %w", err)
+		}
+	}
+	return RunStats{
+		Period: string(period), Total: total, Triggered: triggered, Manual: total - triggered,
+		Completed: fin.Completed, Failed: fin.Failed, Durations: d,
+	}, nil
+}

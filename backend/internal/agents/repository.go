@@ -26,6 +26,7 @@ type AgentTypeRepository interface {
 
 // RunRepository is the persistence interface for run operations, events, and messages.
 type RunRepository interface {
+	RunStatsRepository
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
 	// ListRuns returns a tenant's runs newest first, optionally narrowed to one
