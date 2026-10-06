@@ -56,5 +56,4 @@ describe('StepTools', () => {
     expect(screen.getByText('Loading environments.')).toBeInTheDocument();
     expect(screen.queryByText('Deleted environment')).toBeNull();
   });
-
 });
