@@ -190,7 +190,6 @@ None at this time.
 ### Internal Dependencies
 
 *   The operator validates and warms registered images.
-*   Issue #310 covers per-sandbox sizing.
 
 ### External Dependencies
 
