@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -112,28 +111,7 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	query := r.URL.Query()
-	offset, limit := 0, defaultLimit
-	if query.Has("offset") {
-		value, err := strconv.Atoi(query.Get("offset"))
-		if err != nil || value < 0 {
-			apiErr := api.ValidationError(api.ErrCodeInvalidField, "offset must be a non-negative integer", nil)
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-			return
-		}
-		offset = value
-	}
-	if query.Has("limit") {
-		value, err := strconv.Atoi(query.Get("limit"))
-		if err != nil || value < 1 || value > maxLimit {
-			apiErr := api.ValidationError(api.ErrCodeInvalidField, "limit must be an integer between 1 and 100", nil)
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-			return
-		}
-		limit = value
-	}
-
-	result, err := c.service.ListSkills(ctx, tenantID, r.PathValue("marketplaceName"), query.Get("search"), offset, limit)
+	result, err := c.service.ListSkills(ctx, tenantID, r.PathValue("marketplaceName"), r.URL.Query().Get("search"))
 	if err != nil {
 		c.respondError(w, r, err)
 		return
