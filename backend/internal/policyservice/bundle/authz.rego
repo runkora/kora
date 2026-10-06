@@ -569,17 +569,28 @@ _host_matches(pattern, host) if { # "*.suffix" — any subdomain depth
 	endswith(host, substring(pattern, 1, -1))
 }
 
-# Host pattern carried by an egress scope. Two accepted shapes:
+# Host pattern carried by the agent's own egress posture. Two accepted shapes:
 #   egress:connect            → "*" (open, no host segment)
 #   egress:<pattern>:connect  → <pattern>
 # Any non-egress scope (e.g. connection:*) yields undefined and is skipped.
-_egress_host_pattern(scope) := "*" if scope == "egress:connect"
+_own_egress_host_pattern(scope) := "*" if scope == "egress:connect"
+
+_own_egress_host_pattern(scope) := parts[1] if {
+	parts := split(scope, ":")
+	count(parts) == 3
+	parts[0] == "egress"
+	parts[2] == "connect"
+}
+
+# Host pattern of any egress scope the sidecar honours: the agent's own posture,
+# or egress:<host>:connector, the hosts a connector reaches (Amendment 5).
+_egress_host_pattern(scope) := _own_egress_host_pattern(scope)
 
 _egress_host_pattern(scope) := parts[1] if {
 	parts := split(scope, ":")
 	count(parts) == 3
 	parts[0] == "egress"
-	parts[2] == "connect"
+	parts[2] == "connector"
 }
 
 # The principal holds an egress grant whose host pattern covers the CONNECT host.
@@ -589,6 +600,31 @@ _principal_egress_allows if {
 	grant.principal_id == _principal_id
 	some scope in grant.scopes
 	_host_matches(_egress_host_pattern(scope), _connect_host)
+}
+
+# Layer 2 posture check: the egress gateway asks for egress:<host>:connect
+# before an anonymous fallback, and only the agent's own posture answers it.
+# Host globs need _host_matches; prefix covers alone would miss "*.suffix".
+_l2_egress_host := parts[1] if {
+	not _is_envoy
+	parts := split(_required_scope, ":")
+	count(parts) == 3
+	parts[0] == "egress"
+	parts[2] == "connect"
+}
+
+_principal_own_egress_allows if {
+	some grant in data.grants.grants
+	grant.principal_type == _principal_type
+	grant.principal_id == _principal_id
+	some scope in grant.scopes
+	_host_matches(_own_egress_host_pattern(scope), _l2_egress_host)
+}
+
+allow if {
+	not _is_delegated
+	not _principal_requires_delegation
+	_principal_own_egress_allows
 }
 
 # Egress posture allow. Connection-level authorization (connection:<name>:<action>)
@@ -652,6 +688,15 @@ reason := concat("", ["grant:", matched_grant_scope]) if {
 	not _is_delegated
 	not _principal_requires_delegation
 	principal_has_required_scope
+}
+
+# A host glob matched where prefix covers did not, so no grant: reason fired.
+reason := concat("", ["egress:", _l2_egress_host]) if {
+	not _is_delegated
+	not _principal_requires_delegation
+	not principal_has_required_scope
+	count(matched_roles) == 0
+	_principal_own_egress_allows
 }
 
 reason := concat("", ["delegation:", matched_grant_scope]) if {

@@ -42,6 +42,7 @@ func (e *ScopeVocabularyError) Error() string {
 //
 //	egress:connect              open — any host (no host segment)
 //	egress:<host>:connect       exact host, or wildcard "*" / "*.suffix"
+//	egress:<host>:connector     a host a connector reaches (Amendment 5)
 //
 // The host segment must be non-empty and free of whitespace, "/", and ":" — a
 // colon would denote an IPv6 literal (a v1 non-goal) or a malformed scope. The
@@ -56,6 +57,9 @@ func isStructurallyValidEgressScope(scope string) bool {
 		return false
 	}
 	host, ok := strings.CutSuffix(rest, ":connect")
+	if !ok {
+		host, ok = strings.CutSuffix(rest, ":connector")
+	}
 	if !ok {
 		return false
 	}

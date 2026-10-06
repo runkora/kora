@@ -89,11 +89,15 @@ func TestEffectiveScopes_BaselineActions(t *testing.T) {
 	for _, want := range []string{
 		"connection:github:issues:orbit:write",
 		"connection:github:metadata:read", // baseline, unqualified
-		"egress:github.com:connect",       // connector auto-egress
+		"egress:github.com:connector",     // connector auto-egress
 	} {
 		if !slices.Contains(scopes, want) {
 			t.Errorf("EffectiveScopes missing %q (got %v)", want, scopes)
 		}
+	}
+	// Connector egress must never read as the agent's own posture.
+	if slices.Contains(scopes, "egress:github.com:connect") {
+		t.Errorf("connector auto-egress compiled to an own-posture scope: %v", scopes)
 	}
 
 	// A connector granting nothing gets no baseline.

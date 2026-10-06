@@ -39,8 +39,8 @@ type connectionResolver interface {
 //     (egress:<host>:connect), and its connector scopes (connection:<name>:<action>);
 //   - the union of every attached environment's egress hosts and connectors;
 //   - connector auto-egress — for every connector (own and environment), the
-//     egress hosts the connection's adapter declares, so granting a connector
-//     auto-allows reaching exactly that connection's hosts.
+//     egress hosts the connection's adapter declares as egress:<host>:connector,
+//     so granting a connector auto-allows reaching exactly that connection's hosts.
 //
 // It exists because two of those expansions need data the pure
 // AgentType.EffectiveGrantScopes() method cannot reach: the environments store
@@ -102,8 +102,10 @@ func (r *ScopeResolver) EffectiveScopes(ctx context.Context, at AgentType) ([]st
 			if !ok {
 				continue // not registered (yet) — connection scope still granted, no egress derived
 			}
+			// Connector hosts get their own verb so the egress gateway can tell
+			// them from the agent's own posture (ADR 2026-06-06, Amendment 5).
 			for _, h := range platformconns.EgressHosts(adapter, baseHost) {
-				scopes = append(scopes, "egress:"+h+":connect")
+				scopes = append(scopes, "egress:"+h+":connector")
 			}
 			if hasAction(c) {
 				for _, baseline := range platformconns.BaselineActions(adapter) {

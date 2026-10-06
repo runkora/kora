@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/clear-route/orbit/internal/policyservice/bundle"
+	"github.com/clear-route/orbit/internal/policyservice/grants"
 	"github.com/clear-route/orbit/internal/policyservice/routes"
 	opabundle "github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
@@ -140,6 +141,7 @@ func TestEgress_HostPatternExtraction(t *testing.T) {
 		{"exact host", "egress:api.github.com:connect", "api.github.com", true},
 		{"wildcard host", "egress:*.github.com:connect", "*.github.com", true},
 		{"star host", "egress:*:connect", "*", true},
+		{"connector host", "egress:github.com:connector", "github.com", true},
 
 		// non-egress scopes must not yield a pattern
 		{"connection scope ignored", "connection:github:repo:write", "", false},
@@ -156,6 +158,35 @@ func TestEgress_HostPatternExtraction(t *testing.T) {
 			}
 			if tc.defined && got != tc.want {
 				t.Errorf("_egress_host_pattern(%q) = %q, want %q", tc.scope, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestEgress_OwnPostureLayer2 locks the gateway's fallback check: a Layer 2
+// request for egress:<host>:connect is answered by the agent's own posture,
+// with host globs, and never by a connector-derived egress:<host>:connector.
+func TestEgress_OwnPostureLayer2(t *testing.T) {
+	cases := []struct {
+		name   string
+		scopes []string
+		host   string
+		want   bool
+		reason string
+	}{
+		{"open", []string{"egress:connect"}, "github.com", true, "grant:egress:connect"},
+		{"exact whitelist", []string{"egress:github.com:connect"}, "github.com", true, "grant:egress:github.com:connect"},
+		{"wildcard whitelist", []string{"egress:*.githubusercontent.com:connect"}, "objects.githubusercontent.com", true, "egress:objects.githubusercontent.com"},
+		{"wildcard does not widen", []string{"egress:*.githubusercontent.com:connect"}, "github.com", false, "deny:no_matching_grant"},
+		{"connector only", []string{"egress:github.com:connector"}, "github.com", false, "deny:no_matching_grant"},
+		{"none", nil, "github.com", false, "deny:no_matching_grant"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pq := compileAndPrepare(t, bundleOpts{grants: []*grants.Grant{agentGrant(testAgentID, tc.scopes...)}})
+			allow, reason := evalLayer2(t, pq, agentClaims(testAgentID), nil, "egress", []string{tc.host}, "connect")
+			if allow != tc.want || reason != tc.reason {
+				t.Errorf("egress %s with %v = (%v, %q), want (%v, %q)", tc.host, tc.scopes, allow, reason, tc.want, tc.reason)
 			}
 		})
 	}
