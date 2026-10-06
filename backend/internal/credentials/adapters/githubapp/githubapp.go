@@ -80,7 +80,7 @@ type config struct {
 // an interface so the mint logic is unit-testable without a live API.
 type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
-	ListInstallationRepositories(ctx context.Context, installationToken string) ([]ghclient.Repository, error)
+	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
 }
 
@@ -108,8 +108,6 @@ type Adapter struct {
 	mu             sync.Mutex
 	cache          map[string]credentials.Credential
 	instPermsCache map[int64]cachedInstPerms
-	// repoIndexes holds one repository-ID index per tenant and connection.
-	repoIndexes map[string]*repoIndex
 }
 
 // New constructs an Adapter backed by the given GitHub client and secret
@@ -122,7 +120,6 @@ func New(api API, secrets credentials.SecretResolver, logger logging.Logger) *Ad
 		now:            time.Now,
 		cache:          make(map[string]credentials.Credential),
 		instPermsCache: make(map[int64]cachedInstPerms),
-		repoIndexes:    make(map[string]*repoIndex),
 	}
 }
 
@@ -180,16 +177,7 @@ type connector struct {
 // collision widen a repository-scoped grant. Content-host paths are the
 // exception: their shapes are not always owner-addressed, so one that does not
 // match classifies unqualified instead.
-//
-// Classify never looks anything up upstream: an ID-addressed API path is
-// unclassifiable here. ClassifyGated resolves it for a caller the gate allows.
 func (c *connector) Classify(req *http.Request) (credentials.Classification, error) {
-	return c.ClassifyGated(req, nil)
-}
-
-// ClassifyGated is Classify with ID-addressed API paths resolved when allowed
-// reports that the caller holds the connection's metadata:read baseline.
-func (c *connector) ClassifyGated(req *http.Request, allowed func(action string) bool) (credentials.Classification, error) {
 	if req == nil || req.URL == nil {
 		return credentials.Classification{}, credentials.ErrUnsupportedAction
 	}
@@ -208,11 +196,7 @@ func (c *connector) ClassifyGated(req *http.Request, allowed func(action string)
 	// /api/graphql on the shared host.
 	switch {
 	case host == "api.github.com":
-		apiPath, err := c.resolveRepositoryID(req.Context(), path, allowed)
-		if err != nil {
-			return credentials.Classification{}, err
-		}
-		return classifyAPI(req, apiPath, owner)
+		return classifyAPI(req, path, owner)
 	case path == "/api/v3" || strings.HasPrefix(path, "/api/v3/"):
 		return classifyAPI(req, strings.TrimPrefix(path, "/api/v3"), owner)
 	case path == "/api/graphql":
@@ -496,100 +480,6 @@ func classifyReleaseDownload(method, path, owner string) (credentials.Classifica
 	return credentials.Classification{Action: ActionContentsRead, Qualifier: qualifier}, true, nil
 }
 
-// resolveRepositoryID rewrites /repositories/{id}/… to /repos/{owner}/{repo}/…
-// so the ID-addressed links GitHub paginates with classify like the paths they
-// stand for. Only IDs of repositories the installation covers resolve, and the
-// index is consulted only for a caller allowed holds metadata:read for. Any
-// other ID is unclassifiable.
-func (c *connector) resolveRepositoryID(ctx context.Context, path string, allowed func(action string) bool) (string, error) {
-	segs := pathSegments(path)
-	if len(segs) < 2 || segs[0] != "repositories" || !isNumeric(segs[1]) {
-		return path, nil
-	}
-	if allowed == nil || !allowed(ActionMetadataRead) {
-		return "", fmt.Errorf("%w: repository id lookup not permitted", credentials.ErrUnsupportedAction)
-	}
-	fullName, ok := c.installationRepository(ctx, segs[1])
-	if !ok {
-		return "", fmt.Errorf("%w: repository id outside the installation", credentials.ErrUnsupportedAction)
-	}
-	return "/repos/" + strings.Join(append([]string{fullName}, segs[2:]...), "/"), nil
-}
-
-// repoIndexTTL is how long an installation's repository list is used before
-// it is fetched again.
-const repoIndexTTL = 10 * time.Minute
-
-// repoIndex maps the repository IDs one connection's installation covers to
-// "owner/name". Its size is bounded by the installation's repository list.
-type repoIndex struct {
-	mu             sync.Mutex
-	installationID int64
-	byID           map[string]string
-	fetchedAt      time.Time
-}
-
-// installationRepository returns the "owner/name" of id when the connection's
-// installation covers it. The index is built from the installation's own
-// repository list on first use and refreshed after repoIndexTTL or when the
-// connection's installation changes. A caller-supplied ID never causes a
-// lookup of its own.
-func (c *connector) installationRepository(ctx context.Context, id string) (string, bool) {
-	a := c.adapter
-	a.mu.Lock()
-	key := c.conn.TenantID + "/" + c.conn.ID
-	idx, ok := a.repoIndexes[key]
-	if !ok {
-		idx = &repoIndex{}
-		a.repoIndexes[key] = idx
-	}
-	a.mu.Unlock()
-
-	idx.mu.Lock()
-	defer idx.mu.Unlock()
-	if idx.installationID != c.cfg.InstallationID || a.now().Sub(idx.fetchedAt) >= repoIndexTTL {
-		c.refreshRepoIndex(ctx, idx)
-	}
-	name, ok := idx.byID[id]
-	return name, ok
-}
-
-// refreshRepoIndex replaces idx with the installation's repository list. A
-// failed fetch keeps the previous list until the next refresh.
-func (c *connector) refreshRepoIndex(ctx context.Context, idx *repoIndex) {
-	idx.fetchedAt = c.adapter.now()
-	if idx.installationID != c.cfg.InstallationID {
-		idx.installationID, idx.byID = c.cfg.InstallationID, nil
-	}
-	repos, err := c.installationRepositories(ctx)
-	if err != nil {
-		c.adapter.logger.Warn(ctx, "list installation repositories failed",
-			logging.Field{Key: "connection", Value: c.conn.Name},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return
-	}
-	byID := make(map[string]string, len(repos))
-	for _, r := range repos {
-		byID[strconv.FormatInt(r.ID, 10)] = r.FullName
-	}
-	idx.byID = byID
-}
-
-// installationRepositories lists the installation's repositories with a
-// metadata-scoped installation token.
-func (c *connector) installationRepositories(ctx context.Context) ([]ghclient.Repository, error) {
-	cred, err := c.Mint(ctx, credentials.CallerIdentity{TenantID: c.conn.TenantID, Action: ActionMetadataRead})
-	if err != nil {
-		return nil, fmt.Errorf("resolve metadata token for repository listing: %w", err)
-	}
-	repos, err := c.adapter.api.ListInstallationRepositories(ctx, cred.Token)
-	if err != nil {
-		return nil, fmt.Errorf("list installation repositories: %w", err)
-	}
-	return repos, nil
-}
-
 // verbClass maps an HTTP method to the read/write verb class.
 func verbClass(method string) (string, error) {
 	switch strings.ToUpper(method) {
@@ -860,7 +750,7 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 		}
 	}
 
-	cacheKey := a.cacheKey(conn.ID+"@"+strconv.FormatInt(cfg.InstallationID, 10), repos, perms)
+	cacheKey := a.cacheKey(conn.ID, repos, perms)
 	if cred, ok := a.cached(cacheKey); ok {
 		return cred, nil
 	}
@@ -915,17 +805,18 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 // QualifierEnumerator capability). It resolves a metadata-scoped installation
 // token, reusing the cache, and lists the installation's repositories.
 func (c *connector) ListQualifierValues(ctx context.Context) ([]string, error) {
-	repos, err := c.installationRepositories(ctx)
+	cred, err := c.Mint(ctx, credentials.CallerIdentity{
+		TenantID: c.conn.TenantID,
+		Action:   ActionMetadataRead,
+	})
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("resolve metadata token for repository listing: %w", err)
 	}
-	names := make([]string, 0, len(repos))
-	for _, r := range repos {
-		if r.Name != "" {
-			names = append(names, strings.ToLower(r.Name))
-		}
+	repos, err := c.adapter.api.ListInstallationRepositories(ctx, cred.Token)
+	if err != nil {
+		return nil, fmt.Errorf("list installation repositories: %w", err)
 	}
-	return names, nil
+	return repos, nil
 }
 
 func (a *Adapter) cached(key string) (credentials.Credential, bool) {
@@ -960,7 +851,7 @@ func (a *Adapter) store(key string, cred credentials.Credential) {
 	a.cache[key] = cred
 }
 
-// cacheKey scopes a cached token to the connection, its installation, and the exact derived
+// cacheKey scopes a cached token to the connection and the exact derived
 // repository/permission set minted, so a narrower request never reuses a
 // broader token.
 func (a *Adapter) cacheKey(connID string, repos []string, perms map[string]string) string {

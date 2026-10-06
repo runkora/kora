@@ -81,15 +81,6 @@ type Connector interface {
 	Mint(ctx context.Context, id CallerIdentity) (Credential, error)
 }
 
-// GatedClassifier is an optional Connector capability for requests that can
-// only be classified after an upstream lookup. allowed reports whether the
-// caller's grant covers an unqualified action on the connection. The connector
-// must not call the upstream or mint a credential for a lookup unless allowed
-// returns true, so a caller with no grant on the connection cannot spend it.
-type GatedClassifier interface {
-	ClassifyGated(req *http.Request, allowed func(action string) bool) (Classification, error)
-}
-
 // DecodeConfig reads a connection's adapter configuration into out. It is the
 // one place adapter config is decoded, so every adapter fails the same way. A
 // connection with no config leaves out at its zero value, which the adapter

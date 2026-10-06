@@ -12,9 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -328,6 +326,9 @@ func TestConnector_Classify(t *testing.T) {
 		{"release_latest_download", http.MethodGet, "https://github.com/orbital/orbit/releases/latest/download/buf.tar.gz", "contents:read", "orbit", false},
 		{"release_download_foreign_owner", http.MethodGet, "https://github.com/bufbuild/buf/releases/download/v1.0/buf.tar.gz", "", "", true},
 		{"release_page", http.MethodGet, "https://github.com/orbital/orbit/releases/tag/v1.0", "repo:read", "", false},
+
+		// ID-addressed pagination links stay on the unqualified catch-all
+		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "repo:read", "", false},
 
 		// Anything else: verb-classified catch-all, unqualified
 		{"web_page", http.MethodGet, "https://github.com/orbital", "repo:read", "", false},
@@ -730,182 +731,5 @@ func TestAdapter_Resolve_QualifierNarrowsMint(t *testing.T) {
 	}
 	if _, ok := gotBody.Permissions["contents"]; ok {
 		t.Errorf("issues:write token must not carry contents, got %v", gotBody.Permissions)
-	}
-}
-
-// installationAPI stubs the token and installation-repository endpoints for
-// installations 1 and 2, serving repos[installation], and counts every hit.
-type installationAPI struct {
-	mu    sync.Mutex
-	hits  map[string]int
-	repos map[string][]ghclient.Repository
-}
-
-func (f *installationAPI) count(path string) int {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	return f.hits[path]
-}
-
-func (f *installationAPI) server(t *testing.T) *httptest.Server {
-	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		f.hits[r.URL.Path]++
-		w.Header().Set("Content-Type", "application/json")
-		if inst, ok := strings.CutPrefix(r.URL.Path, "/app/installations/"); ok {
-			w.WriteHeader(http.StatusCreated)
-			_ = json.NewEncoder(w).Encode(map[string]any{"token": "ghs_" + strings.TrimSuffix(inst, "/access_tokens"), "expires_at": "2026-06-06T13:00:00Z"})
-			return
-		}
-		if r.URL.Path == "/installation/repositories" {
-			inst := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ghs_")
-			_ = json.NewEncoder(w).Encode(map[string]any{"repositories": f.repos[inst]})
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	t.Cleanup(srv.Close)
-	return srv
-}
-
-func newInstallationAPI() *installationAPI {
-	return &installationAPI{hits: map[string]int{}, repos: map[string][]ghclient.Repository{
-		"1": {{ID: 123, Name: "Orbit", FullName: "Orbital/Orbit"}},
-		"2": {{ID: 777, Name: "webapp", FullName: "acme/webapp"}},
-	}}
-}
-
-func repositoryIDAdapter(t *testing.T, f *installationAPI) *Adapter {
-	t.Helper()
-	logger := logging.NewLoggerWithOutput(io.Discard)
-	a := New(ghclient.NewClient(f.server(t).URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
-	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
-	return a
-}
-
-func installationConn(t *testing.T, a *Adapter, tenant string, installation int64, owner string) credentials.Connector {
-	t.Helper()
-	return open(t, a, credentials.Connection{
-		ID: "conn-" + tenant, TenantID: tenant, SecretRef: "ref", Adapter: credentials.AdapterGitHubApp,
-		Config: mustConfig(t, config{AppID: "1", InstallationID: installation, Owner: owner}),
-	})
-}
-
-func classifyGated(t *testing.T, c credentials.Connector, url string, allow bool) (credentials.Classification, error) {
-	t.Helper()
-	req, _ := http.NewRequest(http.MethodGet, url, nil)
-	return c.(credentials.GatedClassifier).ClassifyGated(req, func(action string) bool {
-		return allow && action == ActionMetadataRead
-	})
-}
-
-// TestConnector_Classify_RepositoryID covers the ID-addressed links GitHub
-// paginates with: an ID the installation covers classifies like the /repos
-// path it stands for, and any other ID is unclassifiable without a lookup.
-func TestConnector_Classify_RepositoryID(t *testing.T) {
-	f := newInstallationAPI()
-	c := installationConn(t, repositoryIDAdapter(t, f), "acme", 1, "orbital")
-
-	cases := []struct {
-		name, url, want, qualifier string
-		err                        bool
-	}{
-		{"pull_files_page", "https://api.github.com/repositories/123/pulls/5/files?page=2", "pulls:read", "orbit", false},
-		{"commits_page", "https://api.github.com/repositories/123/commits?page=3", "contents:read", "orbit", false},
-		{"bare_repository", "https://api.github.com/repositories/123", "metadata:read", "orbit", false},
-		{"unknown_id", "https://api.github.com/repositories/456/commits", "", "", true},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			got, err := classifyGated(t, c, tc.url, true)
-			if tc.err {
-				if !errors.Is(err, credentials.ErrUnsupportedAction) {
-					t.Fatalf("err = %v (got %+v), want ErrUnsupportedAction", err, got)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("Classify: %v", err)
-			}
-			if got.Action != tc.want || got.Qualifier != tc.qualifier {
-				t.Errorf("Classify = %q/%q, want %q/%q", got.Action, got.Qualifier, tc.want, tc.qualifier)
-			}
-		})
-	}
-	if n := f.count("/installation/repositories"); n != 1 {
-		t.Errorf("installation list fetched %d times, want 1", n)
-	}
-}
-
-// Caller-supplied IDs never reach GitHub: a refused or ungated caller causes
-// no call at all, and an allowed caller's unknown IDs reuse the one list.
-func TestConnector_RepositoryID_UnknownIDsNoGitHubCalls(t *testing.T) {
-	f := newInstallationAPI()
-	c := installationConn(t, repositoryIDAdapter(t, f), "acme", 1, "orbital")
-	for i := range 100 {
-		url := "https://api.github.com/repositories/9" + strconv.Itoa(i) + "/commits"
-		if _, err := classifyGated(t, c, url, false); !errors.Is(err, credentials.ErrUnsupportedAction) {
-			t.Fatalf("gated-out: err = %v, want ErrUnsupportedAction", err)
-		}
-		req, _ := http.NewRequest(http.MethodGet, url, nil)
-		if _, err := c.Classify(req); !errors.Is(err, credentials.ErrUnsupportedAction) {
-			t.Fatalf("ungated: err = %v, want ErrUnsupportedAction", err)
-		}
-	}
-	if len(f.hits) != 0 {
-		t.Fatalf("refused callers reached GitHub: %v", f.hits)
-	}
-	for i := range 100 {
-		_, _ = classifyGated(t, c, "https://api.github.com/repositories/9"+strconv.Itoa(i)+"/commits", true)
-	}
-	if n := f.count("/installation/repositories"); n != 1 || len(f.hits) != 2 {
-		t.Errorf("hits = %v, want one token mint and one installation list", f.hits)
-	}
-}
-
-// The index refreshes after repoIndexTTL and when the installation changes.
-func TestConnector_RepositoryID_Refresh(t *testing.T) {
-	f := newInstallationAPI()
-	a := repositoryIDAdapter(t, f)
-	c := installationConn(t, a, "acme", 1, "orbital")
-	url := "https://api.github.com/repositories/124/commits"
-	if _, err := classifyGated(t, c, url, true); err == nil {
-		t.Fatal("repository 124 resolved before it joined the installation")
-	}
-
-	f.mu.Lock()
-	f.repos["1"] = append(f.repos["1"], ghclient.Repository{ID: 124, Name: "new", FullName: "orbital/new"})
-	f.mu.Unlock()
-	now := a.now()
-	a.now = func() time.Time { return now.Add(repoIndexTTL) }
-	if got, err := classifyGated(t, c, url, true); err != nil || got.Qualifier != "new" {
-		t.Errorf("after refresh = %+v, %v, want contents:read on new", got, err)
-	}
-
-	moved := installationConn(t, a, "acme", 2, "acme")
-	if got, err := classifyGated(t, moved, "https://api.github.com/repositories/777/commits", true); err != nil || got.Qualifier != "webapp" {
-		t.Errorf("after installation change = %+v, %v, want contents:read on webapp", got, err)
-	}
-}
-
-// One tenant's traffic cannot change another tenant's index.
-func TestConnector_RepositoryID_IsolatedPerTenant(t *testing.T) {
-	f := newInstallationAPI()
-	a := repositoryIDAdapter(t, f)
-	noisy := installationConn(t, a, "noisy", 1, "orbital")
-	quiet := installationConn(t, a, "quiet", 2, "acme")
-	for i := range 100 {
-		_, _ = classifyGated(t, noisy, "https://api.github.com/repositories/9"+strconv.Itoa(i)+"/commits", true)
-	}
-	if _, err := classifyGated(t, noisy, "https://api.github.com/repositories/777/commits", true); err == nil {
-		t.Error("noisy tenant resolved another installation's repository")
-	}
-	if got, err := classifyGated(t, quiet, "https://api.github.com/repositories/777/commits", true); err != nil || got.Qualifier != "webapp" {
-		t.Errorf("quiet tenant lookup = %+v, %v, want contents:read on webapp", got, err)
-	}
-	if got := a.repoIndexes["quiet/conn-quiet"].byID; len(got) != 1 || got["777"] != "acme/webapp" {
-		t.Errorf("quiet index = %v, want only its own installation", got)
 	}
 }

@@ -149,25 +149,22 @@ const listRepositoriesPageSize = 100
 // manual entry beyond the enumerated set).
 const listRepositoriesMaxPages = 5
 
-// Repository is one repository an installation can reach.
-type Repository struct {
-	ID       int64  `json:"id"`
-	Name     string `json:"name"`
-	FullName string `json:"full_name"`
-}
-
 // installationRepositoriesResponse is the wire shape of
 // GET /installation/repositories.
 type installationRepositoriesResponse struct {
-	TotalCount   int          `json:"total_count"`
-	Repositories []Repository `json:"repositories"`
+	TotalCount   int `json:"total_count"`
+	Repositories []struct {
+		Name string `json:"name"`
+	} `json:"repositories"`
 }
 
-// ListInstallationRepositories enumerates the repositories the installation
-// token can reach. installationToken must be a live installation access token
-// (metadata read suffices). Results are truncated at listRepositoriesMaxPages pages.
-func (c *Client) ListInstallationRepositories(ctx context.Context, installationToken string) ([]Repository, error) {
-	repos := make([]Repository, 0, listRepositoriesPageSize)
+// ListInstallationRepositories enumerates the repository names the
+// installation token can reach, for the connector attachment picker.
+// installationToken must be a live installation access token (metadata read
+// suffices). Results are bare repository names — the installation fixes the
+// owner — truncated at listRepositoriesMaxPages pages.
+func (c *Client) ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error) {
+	names := make([]string, 0, listRepositoriesPageSize)
 	for page := 1; page <= listRepositoriesMaxPages; page++ {
 		endpoint := fmt.Sprintf("%s/installation/repositories?per_page=%d&page=%d", c.baseURL, listRepositoriesPageSize, page)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
@@ -197,12 +194,16 @@ func (c *Client) ListInstallationRepositories(ctx context.Context, installationT
 		if err != nil {
 			return nil, err
 		}
-		repos = append(repos, body.Repositories...)
+		for _, r := range body.Repositories {
+			if r.Name != "" {
+				names = append(names, strings.ToLower(r.Name))
+			}
+		}
 		if len(body.Repositories) < listRepositoriesPageSize {
 			break
 		}
 	}
-	return repos, nil
+	return names, nil
 }
 
 // installationResponse is the wire shape of GET /app/installations/{id}.
