@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-06-rendered-service-config-files.md  (decision date + slug; no sequential number) -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-06
 **Deciders:** Justin Wilkin
 **Technical Story:** Amends [YAML File-Based Configuration with Typed Generic Loader](2026-02-18-yaml-file-based-configuration.md). Related: clear-route/orbit#402, clear-route/orbit#403.

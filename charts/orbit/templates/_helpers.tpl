@@ -277,6 +277,59 @@ envFrom:
 {{- end }}
 
 {{/*
+Rendered service config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+A workload's modules map a config module (cmd/identity, internal/platform/storage)
+to the YAML the loader merges last; <values key>.configOverrides merges over them.
+These helpers take (dict "root" $ "name" "<values key>" "configMap" "<ConfigMap name>"
+"modules" <dict>).
+*/}}
+{{- define "orbit.configModules" -}}
+{{- $overrides := (index .root.Values .name).configOverrides | default dict -}}
+{{- mergeOverwrite (deepCopy .modules) (deepCopy $overrides) | toYaml -}}
+{{- end }}
+
+{{- define "orbit.configMap" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .configMap }}
+  namespace: {{ include "orbit.systemNamespace" .root }}
+  labels:
+    {{- include "orbit.labels" .root | nindent 4 }}
+data:
+  {{- range $module, $content := include "orbit.configModules" . | fromYaml }}
+  {{ $module | replace "/" "." }}.yaml: |
+    {{- toYaml $content | nindent 4 }}
+  {{- end }}
+{{- end }}
+
+{{- define "orbit.configVolume" -}}
+- name: config-files
+  configMap:
+    name: {{ .configMap }}
+    items:
+      {{- range $module, $_ := include "orbit.configModules" . | fromYaml }}
+      - key: {{ $module | replace "/" "." }}.yaml
+        path: {{ $module }}.yaml
+      {{- end }}
+{{- end }}
+
+{{- define "orbit.configVolumeMount" -}}
+- name: config-files
+  mountPath: /etc/orbit/config
+  readOnly: true
+{{- end }}
+
+{{/*
+The names of global.imagePullSecrets, as a JSON list.
+*/}}
+{{- define "orbit.imagePullSecretNames" -}}
+{{- $names := list -}}
+{{- range .Values.global.imagePullSecrets }}{{ $names = append $names .name }}{{ end -}}
+{{- $names | toJson -}}
+{{- end }}
+
+{{/*
 Optional pod annotations, labels, env, volumes and mounts for a component.
 Takes (dict "root" $ "name" "<values key>").
 */}}

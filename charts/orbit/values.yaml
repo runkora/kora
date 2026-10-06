@@ -197,7 +197,13 @@ operator:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
+  # -- Raw config merged last over the operator's rendered config file, keyed
+  # by config module (docs/adr/2026-10-06-rendered-service-config-files.md).
+  # Keys follow the Go config structs; an unknown key fails startup.
+  # e.g. {cmd/operator: {operator: {syncPeriodSecs: 120}}}
+  configOverrides: {}
   # Containers the webhook injects into every tenant pod. Images come from
   # identityProxy.image and opaGateway.image.
   injection:
@@ -489,6 +495,11 @@ agents:
     # heap OOM instead of taking every run with it. The agent harnesses and
     # sandbox commands are not capped. 0 disables the cap.
     nodeMaxOldSpaceMB: 512
+  # -- Raw config merged last over orbit-agents' rendered config files, keyed by
+  # config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys
+  # follow the Go config structs; an unknown key fails startup.
+  # e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}}
+  configOverrides: {}
   # Sandbox provisioning guardrails, applied to every run
   # (docs/adr/2026-09-29-agent-run-guardrails.md). After the last attempt the
   # run records sandbox_lost until the user replies. Loop-guard thresholds are
