@@ -196,3 +196,17 @@ func TestSandbox_UnknownRun(t *testing.T) {
 		t.Error("expected no sandbox for a run this pod does not host")
 	}
 }
+
+// A run ID that is not a single path segment fails before orbit-agents is asked for a sandbox.
+func TestProvisionSandbox_BadRunIDNeverProvisions(t *testing.T) {
+	n := &reprovisionNotifier{endpoint: "10.0.0.1:50051"}
+	reg, _ := newTestRegistry(t, n)
+	hostSession(reg, "../run-1")
+
+	if _, err := reg.ProvisionSandbox(context.Background(), "../run-1", false, "", false); err == nil {
+		t.Fatal("expected an error for a run ID with a path separator")
+	}
+	if n.calls != 0 {
+		t.Errorf("orbit-agents was called %d times, want none", n.calls)
+	}
+}

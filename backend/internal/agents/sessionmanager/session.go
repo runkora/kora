@@ -396,6 +396,11 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		)
 	}
 
+	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
+	if !pathsOK {
+		return "", fmt.Errorf("run id %q is not a single path segment", runID)
+	}
+
 	started := time.Now()
 	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
 	sandbox, err := reg.provision(ctx, s, ahead, environment, replace)
@@ -410,10 +415,6 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		return "", err
 	}
 
-	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
-	if !pathsOK {
-		return "", fmt.Errorf("run id %q is not a single path segment", runID)
-	}
 	reg.sandboxStatus(ctx, runID, SandboxPhasePodReady, started, "")
 
 	// Gate on egress readiness before handing the endpoint to the agent.
