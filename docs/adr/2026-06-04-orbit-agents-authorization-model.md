@@ -368,7 +368,11 @@ func (s *RunService) ListRuns(ctx context.Context, tenantID string, q RunListQue
     if err != nil {
         return nil, err
     }
-    q.Scope = RunScope{AgentTypeIDs: readable}
+    vis, err := s.runVisibility(ctx) // delegated runs: starter-only without agents:delegated:read
+    if err != nil {
+        return nil, err
+    }
+    q.Scope = RunScope{AgentTypeIDs: readable, Vis: vis}
     return s.repo.ListRuns(ctx, tenantID, q)
 }
 ```
