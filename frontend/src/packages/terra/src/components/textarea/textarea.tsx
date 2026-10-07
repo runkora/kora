@@ -197,8 +197,12 @@ const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
     const BORDER_PX = variant === 'bare' ? 0 : 2;
     const maxHeightPx = maxRows * LINE_HEIGHT_PX + PADDING_PX;
     const resizable = resize === 'vertical' && !autoResize;
-    const minHeightPx =
-      resizable && rows ? rows * LINE_HEIGHT_PX + PADDING_PX + BORDER_PX : undefined;
+    // rows sets the starting height and the floor. A native textarea defaults to 2
+    // rows, so a resizable field with no explicit rows still can't be dragged below it.
+    const effectiveRows = rows ?? 2;
+    const minHeightPx = resizable
+      ? effectiveRows * LINE_HEIGHT_PX + PADDING_PX + BORDER_PX
+      : undefined;
     const handleChange = React.useCallback(
       (e: React.ChangeEvent<HTMLTextAreaElement>) => {
         if (autoResize) {

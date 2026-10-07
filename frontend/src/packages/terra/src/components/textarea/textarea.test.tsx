@@ -17,4 +17,16 @@ describe('Textarea resize', () => {
     render(<Textarea aria-label="Prompt" autoResize resize="vertical" />);
     expect(screen.getByLabelText('Prompt')).toHaveClass('resize-none');
   });
+
+  it('floors minHeight at the starting rows when resizable', () => {
+    render(<Textarea aria-label="Prompt" resize="vertical" rows={5} />);
+    // 5 rows × 21px line-height + 16px padding + 2px border (default variant)
+    expect(screen.getByLabelText('Prompt')).toHaveStyle({ minHeight: '123px' });
+  });
+
+  it('floors minHeight at the native two rows when resizable without explicit rows', () => {
+    render(<Textarea aria-label="Prompt" resize="vertical" />);
+    // 2 rows × 21px + 16px padding + 2px border
+    expect(screen.getByLabelText('Prompt')).toHaveStyle({ minHeight: '60px' });
+  });
 });
