@@ -61,9 +61,10 @@ func NewMetrics(meter metric.Meter) (*Metrics, error) {
 // recordCheck records one Check call outcome: whether it was allowed, against
 // which resource type, and how long evaluation took.
 //
-// allow and resource_type are both safe as raw labels: allow is a boolean, and
-// resourceType is drawn from a small, code-defined set of resource kinds the
-// router dispatches on, not user-supplied free text.
+// allow is safe as a raw label: it is a boolean. resourceType must already be
+// coarsened by coarsenResourceType before it reaches here — it originates in
+// CheckRequest.Resource.Type, caller-supplied and forwarded by handleCheck
+// without catalog validation, so the raw value is not safe as a label.
 func (m *Metrics) recordCheck(ctx context.Context, allow bool, resourceType string, took time.Duration) {
 	if m == nil {
 		return
@@ -74,6 +75,52 @@ func (m *Metrics) recordCheck(ctx context.Context, allow bool, resourceType stri
 	)
 	m.checks.Add(ctx, 1, attrs)
 	m.checkDuration.Record(ctx, took.Seconds(), attrs)
+}
+
+// Known resource types in use across the platform today: the ResourceType
+// values declared in each service's ScopeDeclaration list (cmd/*/main.go —
+// inference-gateway, orbit-agents, orbit-triggers, policy-service),
+// internal/toolgateway's MCP scopes, and internal/egressgw's doc.go
+// resourceType constant. This is the closed, code-defined vocabulary — not
+// the request-supplied CheckRequest.Resource.Type, which any authenticated
+// caller controls.
+const (
+	ResourceTypeInference  = "inference"
+	ResourceTypePlatform   = "platform"
+	ResourceTypeAgents     = "agents"
+	ResourceTypeTriggers   = "triggers"
+	ResourceTypeTrigger    = "trigger"
+	ResourceTypeMCP        = "mcp"
+	ResourceTypeConnection = "connection"
+)
+
+// otherResourceType is the sentinel label for any resource type outside
+// knownResourceTypes.
+const otherResourceType = "other"
+
+var knownResourceTypes = map[string]struct{}{
+	ResourceTypeInference:  {},
+	ResourceTypePlatform:   {},
+	ResourceTypeAgents:     {},
+	ResourceTypeTriggers:   {},
+	ResourceTypeTrigger:    {},
+	ResourceTypeMCP:        {},
+	ResourceTypeConnection: {},
+}
+
+// coarsenResourceType bounds a resource type to the fixed, code-defined
+// vocabulary in knownResourceTypes before it is used as a Prometheus label.
+// CheckRequest.Resource.Type comes directly from the request body and
+// handleCheck forwards it to Check without catalog validation, so without
+// this an authenticated caller could mint unbounded series by varying it.
+//
+// This is a plain map lookup — no DB or cache call — so it stays cheap on
+// the hot auth-check path.
+func coarsenResourceType(resourceType string) string {
+	if _, ok := knownResourceTypes[resourceType]; ok {
+		return resourceType
+	}
+	return otherResourceType
 }
 
 // recordDeny records a denied check, classified down to a bounded-cardinality

@@ -236,6 +236,12 @@ func (s *Service) recordDuplicate(ctx context.Context, src WebhookSource, adapte
 		logging.Field{Key: "redelivery_of", Value: original.ID},
 	)
 
+	// A duplicate delivery is arrival-level and never reaches derive() (its
+	// status is set directly here, not computed from trigger_delivery_runs),
+	// so the only place its outcome is ever recorded is this successful
+	// insertion.
+	s.metrics.recordDeliveryOutcome(ctx, StatusDuplicate)
+
 	// Whether a repeat is suppressed or re-run is a per-trigger decision, and
 	// dedupe_enabled is where a tenant makes it. The unique index stays as the
 	// storage-level guarantee (one original per provider delivery id); it cannot

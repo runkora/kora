@@ -22,7 +22,7 @@ func newTestMetrics(t *testing.T, snapshots snapshotReader) (*Metrics, *sdkmetri
 	t.Helper()
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
-	m, err := NewMetrics(provider.Meter("test"), snapshots, testLogger())
+	m, err := NewMetrics(provider.Meter("test"), snapshots)
 	if err != nil {
 		t.Fatalf("NewMetrics: %v", err)
 	}
@@ -56,7 +56,7 @@ func collect(t *testing.T, reader *sdkmetric.ManualReader) map[string]metricdata
 func TestMetrics_NilIsSafe(t *testing.T) {
 	var m *Metrics
 	ctx := context.Background()
-	m.recordInvocation(ctx, "orbit", "read_file", "allow", time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "allow", time.Millisecond)
 	if err := m.Close(); err != nil {
 		t.Errorf("Close on nil = %v", err)
 	}
@@ -69,7 +69,7 @@ func TestMetrics_NilSnapshotReaderSkipsServerGauge(t *testing.T) {
 	m, reader := newTestMetrics(t, nil)
 	ctx := context.Background()
 
-	m.recordInvocation(ctx, "orbit", "read_file", "allow", 10*time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "allow", 10*time.Millisecond)
 
 	got := collect(t, reader)
 	if _, exported := got["orbit.tool_gateway.servers"]; exported {
@@ -80,17 +80,19 @@ func TestMetrics_NilSnapshotReaderSkipsServerGauge(t *testing.T) {
 	}
 }
 
-// The invocation counter and duration histogram both carry server, tool and
-// decision — the three dimensions an operator needs to tell "this tool keeps
-// getting denied" from "the gateway's policy check is slow for everyone".
-func TestMetrics_InvocationCarriesServerToolDecision(t *testing.T) {
+// The invocation counter and duration histogram both carry server and
+// decision — the two dimensions an operator needs to tell "this server keeps
+// getting denied" from "the gateway's policy check is slow for everyone" —
+// and deliberately no raw tool label (unbounded cardinality; see
+// recordInvocation).
+func TestMetrics_InvocationCarriesServerAndDecision(t *testing.T) {
 	m, reader := newTestMetrics(t, nil)
 	ctx := context.Background()
 
-	m.recordInvocation(ctx, "orbit", "read_file", "allow", 5*time.Millisecond)
-	m.recordInvocation(ctx, "orbit", "read_file", "allow", 5*time.Millisecond)
-	m.recordInvocation(ctx, "orbit", "write_file", "deny", 5*time.Millisecond)
-	m.recordInvocation(ctx, "github", "list_prs", "error", 5*time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "allow", 5*time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "allow", 5*time.Millisecond)
+	m.recordInvocation(ctx, "orbit", "deny", 5*time.Millisecond)
+	m.recordInvocation(ctx, "github", "error", 5*time.Millisecond)
 
 	metrics := collect(t, reader)
 
@@ -99,22 +101,22 @@ func TestMetrics_InvocationCarriesServerToolDecision(t *testing.T) {
 		t.Fatalf("invocations counter is %T, want a sum", metrics["orbit.tool_gateway.invocations"].Data)
 	}
 	if len(sum.DataPoints) != 3 {
-		t.Fatalf("data points = %d, want one per (server,tool,decision)", len(sum.DataPoints))
+		t.Fatalf("data points = %d, want one per (server,decision)", len(sum.DataPoints))
 	}
 	for _, dp := range sum.DataPoints {
+		if _, hasTool := dp.Attributes.Value("tool"); hasTool {
+			t.Errorf("invocations counter must not carry a raw tool label, got attrs %v", dp.Attributes)
+		}
 		server, _ := dp.Attributes.Value("server")
-		tool, _ := dp.Attributes.Value("tool")
 		decision, _ := dp.Attributes.Value("decision")
-		if server.AsString() == "orbit" && tool.AsString() == "read_file" {
-			if decision.AsString() != "allow" || dp.Value != 2 {
-				t.Errorf("orbit/read_file = (%s, %d), want (allow, 2)", decision.AsString(), dp.Value)
-			}
+		if server.AsString() == "orbit" && decision.AsString() == "allow" && dp.Value != 2 {
+			t.Errorf("orbit/allow = %d, want 2", dp.Value)
 		}
 	}
 
 	hist, ok := metrics["orbit.tool_gateway.invocation_duration"].Data.(metricdata.Histogram[float64])
 	if !ok || len(hist.DataPoints) != 3 {
-		t.Fatalf("invocation duration = %+v, want one series per (server,tool,decision)",
+		t.Fatalf("invocation duration = %+v, want one series per (server,decision)",
 			metrics["orbit.tool_gateway.invocation_duration"].Data)
 	}
 }

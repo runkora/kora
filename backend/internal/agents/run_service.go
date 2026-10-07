@@ -83,6 +83,15 @@ type RunService struct {
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
 	metrics       *Metrics // nil = no instruments installed; every record call is a no-op
+
+	// frameworkCache memoizes each in-flight run's agent framework, keyed by
+	// run ID. A run's framework never changes after creation (it comes from
+	// the agent type the run was started against), so Transition reads it
+	// from the database at most once per run's lifetime instead of once per
+	// transition — the idle↔active turn boundary fires far more often than a
+	// run reaches a terminal state. The entry is removed when the run
+	// terminates (see Transition), bounding the map's size to in-flight runs.
+	frameworkCache sync.Map // runID string -> AgentFramework
 }
 
 // missingProvisioner creates an agent type's missing k8s resources without changing existing ones.
@@ -546,26 +555,47 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "to", Value: string(to)},
 	)
 
-	// Best-effort: resolve the run (and, from it, its agent type's framework)
-	// once, for both the transition counter below and the terminal-state
+	isTerminal := to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted
+
+	// Best-effort: resolve the run's agent framework for the transition
+	// counter below, and (on a terminal transition) the run itself for the
 	// cleanup further down. A failure here is logged, not returned — the
 	// transition itself already committed via SetRunState above, and this is
 	// read-only context for it, the same pattern the agent-type lookups at
 	// lines 309/390/745 already use. See docs/adr/2026-10-07-domain-metrics-instrumentation.md.
-	run, runErr := s.repo.GetRun(ctx, runID)
+	//
+	// The framework never changes after a run starts, so it is cached by run
+	// ID after the first lookup rather than refetched on every call: the
+	// idle↔active turn boundary transitions far more often than a run reaches
+	// a terminal state, and refetching unconditionally put a GetRun +
+	// GetAgentType round trip on that hot path (PR #418 review). The cache
+	// entry is removed once the run goes terminal, bounding its size to
+	// in-flight runs.
+	var run *Run
 	var framework AgentFramework
-	if runErr != nil {
-		s.logger.Warn(ctx, "get run for transition metrics failed",
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "error", Value: runErr.Error()},
-		)
-	} else if agentType, atErr := s.atRepo.GetAgentType(ctx, run.AgentTypeID); atErr != nil {
-		s.logger.Warn(ctx, "get agent type for transition metrics failed",
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "error", Value: atErr.Error()},
-		)
-	} else {
-		framework = agentType.Framework
+	cached, cacheHit := s.frameworkCache.Load(runID)
+	if cacheHit {
+		framework = cached.(AgentFramework)
+	}
+	if !cacheHit || isTerminal {
+		var runErr error
+		run, runErr = s.repo.GetRun(ctx, runID)
+		if runErr != nil {
+			s.logger.Warn(ctx, "get run for transition metrics failed",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: runErr.Error()},
+			)
+		} else if !cacheHit {
+			if agentType, atErr := s.atRepo.GetAgentType(ctx, run.AgentTypeID); atErr != nil {
+				s.logger.Warn(ctx, "get agent type for transition metrics failed",
+					logging.Field{Key: "run_id", Value: runID},
+					logging.Field{Key: "error", Value: atErr.Error()},
+				)
+			} else {
+				framework = agentType.Framework
+				s.frameworkCache.Store(runID, framework)
+			}
+		}
 	}
 	s.metrics.recordTransition(ctx, from, to, framework)
 
@@ -584,7 +614,8 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		)
 	}
 
-	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
+	if isTerminal {
+		s.frameworkCache.Delete(runID)
 		if run == nil {
 			// Already logged above (the GetRun that would answer this failed).
 			return nil

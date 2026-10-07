@@ -503,6 +503,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
 	if !ok {
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, time.Now(), ErrSessionNotFound.Error())
 		return "", ErrSessionNotFound
 	}
 	// One provision per run at a time: parallel Bash calls that all find the
@@ -519,7 +520,9 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environ
 
 	runDir, pathsOK := reg.runDir(runID)
 	if !pathsOK {
-		return "", fmt.Errorf("run id %q is not a single path segment", runID)
+		err := fmt.Errorf("run id %q is not a single path segment", runID)
+		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, time.Now(), err.Error())
+		return "", err
 	}
 
 	started := time.Now()

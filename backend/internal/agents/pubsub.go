@@ -89,21 +89,29 @@ func (ps *PubSub) Subscribe(runID string) (<-chan PushedEvent, func()) {
 	ps.subs[runID] = append(ps.subs[runID], ch)
 	ps.mu.Unlock()
 
+	var once sync.Once
 	cancel := func() {
-		ps.mu.Lock()
-		defer ps.mu.Unlock()
-		subs := ps.subs[runID]
-		for i, c := range subs {
-			if c == ch {
-				ps.subs[runID] = append(subs[:i], subs[i+1:]...)
-				break
+		// A second call must be a no-op: closing ch twice panics, and recording
+		// the session duration twice would double-count it. Only one call site
+		// exists today (SSE client disconnect), but nothing stops a future
+		// caller from invoking the returned func again (e.g. once on context
+		// cancellation and once on handler return).
+		once.Do(func() {
+			ps.mu.Lock()
+			defer ps.mu.Unlock()
+			subs := ps.subs[runID]
+			for i, c := range subs {
+				if c == ch {
+					ps.subs[runID] = append(subs[:i], subs[i+1:]...)
+					break
+				}
 			}
-		}
-		if len(ps.subs[runID]) == 0 {
-			delete(ps.subs, runID)
-		}
-		close(ch)
-		ps.metrics.recordSessionDuration(context.Background(), time.Since(connectedAt))
+			if len(ps.subs[runID]) == 0 {
+				delete(ps.subs, runID)
+			}
+			close(ch)
+			ps.metrics.recordSessionDuration(context.Background(), time.Since(connectedAt))
+		})
 	}
 	return ch, cancel
 }

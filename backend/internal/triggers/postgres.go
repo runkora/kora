@@ -1007,30 +1007,40 @@ func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryI
 	// via its own match_condition worked exactly as configured, so a delivery
 	// whose only outcomes are filtered is 'skipped' — nothing was ever going to
 	// run — not 'failed'.
+	// computed is the status this delivery's outcomes resolve to today, worked
+	// out once in a CTE so the UPDATE below can both apply it and compare
+	// against it without repeating the CASE expression.
 	var status string
 	err := r.pool.QueryRow(ctx, `
+		WITH computed AS (
+			SELECT CASE
+					WHEN EXISTS (
+						SELECT 1 FROM trigger_delivery_runs
+						WHERE delivery_id = $1 AND status IN ('dispatched', 'joined')
+					) THEN 'dispatched'
+					WHEN EXISTS (
+						SELECT 1 FROM trigger_delivery_runs
+						WHERE delivery_id = $1
+						  AND status IN ('failed', 'denied', 'dropped')
+					) THEN 'failed'
+					ELSE 'skipped'
+				END AS status
+		)
 		UPDATE trigger_deliveries d
-		SET status = CASE
-				WHEN EXISTS (
-					SELECT 1 FROM trigger_delivery_runs
-					WHERE delivery_id = d.id AND status IN ('dispatched', 'joined')
-				) THEN 'dispatched'
-				WHEN EXISTS (
-					SELECT 1 FROM trigger_delivery_runs
-					WHERE delivery_id = d.id
-					  AND status IN ('failed', 'denied', 'dropped')
-				) THEN 'failed'
-				ELSE 'skipped'
-			END
+		SET status = computed.status
+		FROM computed
 		WHERE d.id = $1
 		  AND d.status NOT IN ('duplicate', 'missed')
+		  AND d.status IS DISTINCT FROM computed.status
 		RETURNING d.status
 	`, deliveryID).Scan(&status)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			// Nothing to derive: the delivery is already arrival-level
-			// ('duplicate'/'missed') or does not exist. Not an error — the
-			// caller's metric simply has nothing to attribute.
+			// ('duplicate'/'missed') or does not exist, or the computed status
+			// matches what is already stored — a repeat derive after an
+			// unchanged outcome must not recount the delivery. Not an error —
+			// the caller's metric simply has nothing to attribute.
 			return "", nil
 		}
 		return "", fmt.Errorf("derive delivery status: %w", err)
