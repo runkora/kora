@@ -50,6 +50,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Sandbox Environments](sandbox-environments.md) | Approved | [sandbox-environments](../adr/2026-10-03-sandbox-environments.md) |
 | [Bundled Sandbox Images](bundled-sandbox-images.md) | Approved | [bundled-sandbox-images](../adr/2026-10-07-bundled-sandbox-images.md) |
 | [Prometheus Metrics Endpoints](prometheus-metrics-endpoints.md) | Approved | [prometheus-metrics-endpoints](../adr/2026-10-06-prometheus-metrics-endpoints.md) |
+| [Domain Metrics Instrumentation](domain-metrics-instrumentation.md) | Approved | [domain-metrics-instrumentation](../adr/2026-10-07-domain-metrics-instrumentation.md) |
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
 | [White-labelling](white-labelling.md) | Approved | [white-labelling-theme](../adr/2026-10-12-white-labelling-theme.md) |
