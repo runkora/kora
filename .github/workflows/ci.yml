@@ -38,6 +38,7 @@ jobs:
               - 'rules/**'
               - '.golangci.yml'
               - 'Makefile'
+              - 'versions.hcl'
               - '.github/workflows/ci.yml'
               - '.github/workflows/backend-ci.yml'
             frontend:
@@ -65,8 +66,8 @@ jobs:
               - '.github/workflows/docs-ci.yml'
             imageworkflow:
               - 'docker-bake.hcl'
-              - '.github/actions/**'
               - 'versions.hcl'
+              - '.github/actions/**'
               - '.github/workflows/images.yml'
 
       # The every quantifier makes each negation exclude; the patterns mirror

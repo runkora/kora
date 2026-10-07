@@ -259,6 +259,15 @@ proto-gen: ## Generate Go code from proto files (requires buf — run make insta
 	@cd backend && buf generate
 	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
+.PHONY: check-versions
+check-versions: ## Verify GO_VERSION in versions.hcl matches the go directive in backend/go.mod
+	@GOMOD=$$(awk '$$1 == "go" { print $$2; exit }' backend/go.mod); \
+	if [ "$$GOMOD" != "$(GO_VERSION)" ]; then \
+		echo "$(COLOR_RED)✗ versions.hcl GO_VERSION=$(GO_VERSION) but backend/go.mod has go $$GOMOD$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_GREEN)✓ GO_VERSION $(GO_VERSION) matches backend/go.mod$(COLOR_RESET)"
+
 .PHONY: check-tool-versions
 check-tool-versions: ## Verify installed tool versions match pinned versions in versions.hcl
 	@echo "$(COLOR_YELLOW)Checking tool versions...$(COLOR_RESET)"
@@ -1227,7 +1236,7 @@ chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/orbit
 
 .PHONY: check
-check: tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
+check: check-versions tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
