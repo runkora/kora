@@ -17,7 +17,8 @@ import { AGENT_SLUG_RULE, SLUG_RE } from '../../_hooks/use-agent-builder';
 import { IdentityModeCards } from '../motif/identity-mode-cards';
 
 export function StepIdentity() {
-  const { fields, setName, setSlug, setField, identityModeAccess } = useAgentBuilderContext();
+  const { fields, setName, setSlug, normaliseSlug, setField, identityModeAccess } =
+    useAgentBuilderContext();
 
   // Mode-qualified create permissions (agents:types:{mode}:write, resolved
   // with prefix covers so agents:types:write enables both). Until the scope
@@ -55,6 +56,7 @@ export function StepIdentity() {
               hasError={slugInvalid}
               value={fields.slug}
               onChange={(e) => setSlug(e.target.value)}
+              onBlur={normaliseSlug}
               placeholder="deployment-assistant"
             />
           </FormField>
