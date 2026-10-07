@@ -506,6 +506,9 @@ agents:
     # Images orbit-agents runs in tenant namespaces. Empty means <global.imageRegistry>/orbit-session-manager
     # and kora-sandbox-base at global.imageTag or the appVersion. sandboxImage is registered per tenant as kora-base.
     sessionManagerImage: ""
+    # Digest of orbit-session-manager, set by the release. When set, the default image is
+    # <global.imageRegistry>/orbit-session-manager@<digest>, so a mirror keeps the pin.
+    sessionManagerDigest: ""
     sandboxImage: ""
     # Git author name inside the sandbox. Empty means kora-agent.
     sandboxGitAuthorName: ""
