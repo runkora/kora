@@ -11,7 +11,7 @@
 
 [local-development-environment](2026-03-10-local-development-environment.md) established two tiers: a host process for daily Go work (`make dev`), and a k3d cluster for anything touching SPIFFE, Istio, or Envoy. That split made sense when the platform was mostly an HTTP API with a database behind it.
 
-It no longer describes the platform. Orbit's behaviour now lives in the parts that Tier 1 cannot run:
+It no longer describes the platform. kora's behaviour now lives in the parts that Tier 1 cannot run:
 
 - **Identity.** SVID exchange and workload attestation come from SPIRE. There is no SPIRE on the host.
 - **Policy.** Enforcement happens at the edge, in Envoy with OPA, before a request reaches application code. On the host, that layer is absent, so a request takes a different path through the system than it takes anywhere else.
@@ -26,7 +26,7 @@ The two-tier model asks every engineer to hold two environments in their head, d
 
 ### Goals
 
-- One way to run Orbit locally.
+- One way to run kora locally.
 - A day-one path that is a short, ordered list of commands with no branching.
 - Composed recipes: the granular targets stay, and the common paths call them.
 - The environment an engineer develops against behaves like the one their code ships to.
@@ -78,7 +78,7 @@ The granular recipes stay. Three composed targets sit on top of them:
 | Target | What it does | When |
 |---|---|---|
 | `make setup` | Installs tooling, git hooks, local DNS, and mkcert TLS. Scaffolds `.env`. | Once per machine |
-| `make up` | Backing services, k3d cluster, operator (SPIRE, Istio, Orbit services), secrets, tenants, workloads. Idempotent. | Start of a session, and any time the cluster drifts |
+| `make up` | Backing services, k3d cluster, operator (SPIRE, Istio, kora services), secrets, tenants, workloads. Idempotent. | Start of a session, and any time the cluster drifts |
 | `make down` | Tears the cluster down. | End of a session |
 | `make redeploy` | Rebuilds and rolls every service. `SERVICE=<name>` narrows it to one. | Inner loop |
 | `make auth` | Device Authorization Grant against the cluster. Writes the token pair. | When the token expires |

@@ -1,5 +1,5 @@
 # =============================================================================
-# Dex — local OIDC provider for Orbit development
+# Dex — local OIDC provider for kora development
 # =============================================================================
 #
 # Dex runs as a real, standards-compliant OIDC provider so that the full
@@ -67,7 +67,7 @@ logger:
 
 staticClients:
   - id: orbit-local
-    name: "Orbit (local dev)"
+    name: "kora (local dev)"
     # public: true — no client secret required. Correct for Device Grant + CLI tooling.
     public: true
     redirectURIs:

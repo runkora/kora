@@ -1,35 +1,27 @@
-import { Badge, Icon, Stack, Text } from '@orbit/terra';
+import { KoraLogo, Stack } from '@orbit/terra';
 import type { ReactNode } from 'react';
 
 /**
- * Brand + version header shown in the sidebar header slot on desktop and reused
- * inside the mobile drawer. `action` renders an optional trailing control next
- * to the version badge — the mobile drawer passes its close button here so the
- * brand markup and version string live in exactly one place.
+ * Brand header shown in the sidebar header slot on desktop and reused inside
+ * the mobile drawer. `action` renders an optional trailing control. The mobile
+ * drawer passes its close button here so the brand markup lives in one place.
  */
 export function SidebarBrandHeader({ action }: { action?: ReactNode } = {}) {
+  const lockup = <KoraLogo size={30} title="kora" />;
+
+  // height="full" fills the h-14 sidebarHeader slot in PageLayout, which matches
+  // the page header height so both bottom borders align on the same pixel row.
+  // The desktop header centres the lockup; the drawer keeps it left beside the close button.
   return (
-    // height="full" fills the h-14 sidebarHeader slot in PageLayout, which matches
-    // the page header height so both bottom borders align on the same pixel row.
     <Stack
       direction="horizontal"
       align="center"
-      justify="between"
+      justify={action ? 'between' : 'center'}
       height="full"
       paddingInline="comfortable"
     >
-      <Stack direction="horizontal" align="center" gap="snug">
-        <Icon name="zap" size="sm" container containerVariant="accent" />
-        <Text size="supporting" weight="strong">
-          Orbit
-        </Text>
-      </Stack>
-      <Stack direction="horizontal" align="center" gap="snug">
-        <Badge variant="outline" size="sm">
-          v0.4.0
-        </Badge>
-        {action}
-      </Stack>
+      {lockup}
+      {action}
     </Stack>
   );
 }

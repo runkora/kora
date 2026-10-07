@@ -2,7 +2,7 @@
  * EmailSignInForm — two-step Home Realm Discovery sign-in form.
  *
  * Step 1 — Email input:
- *   The user types their work email address and presses "Continue".
+ *   The user types their email address and presses "Continue".
  *
  * Step 2 — Discover & redirect:
  *   The form calls the BFF discover endpoint (`GET /api/auth/discover?email=...`)
@@ -59,7 +59,7 @@ export function EmailSignInForm({ next = '/' }: EmailSignInFormProps) {
 
     const trimmed = email.trim();
     if (!trimmed) {
-      setFieldError('Please enter your work email address.');
+      setFieldError('Please enter your email address.');
       return;
     }
     if (!trimmed.includes('@')) {
@@ -128,12 +128,12 @@ export function EmailSignInForm({ next = '/' }: EmailSignInFormProps) {
     <Form onSubmit={handleSubmit} noValidate gap="comfortable">
       {bannerError && (
         <Alert variant="error">
-          <Text size="caption">{bannerError}</Text>
+          <Text size="supporting">{bannerError}</Text>
         </Alert>
       )}
 
       <Field>
-        <Label htmlFor="email">Work email</Label>
+        <Label htmlFor="email">Email</Label>
         <Input
           id="email"
           type="email"
@@ -149,7 +149,7 @@ export function EmailSignInForm({ next = '/' }: EmailSignInFormProps) {
         {fieldError && <FieldError id="email-error">{fieldError}</FieldError>}
       </Field>
 
-      <Button type="submit" shape="pill" fullWidth disabled={loading}>
+      <Button type="submit" fullWidth disabled={loading}>
         {loading ? 'Looking up your organisation…' : 'Continue'}
       </Button>
     </Form>

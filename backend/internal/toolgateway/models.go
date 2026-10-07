@@ -68,4 +68,6 @@ type ServerSnapshot struct {
 	State              ServerState
 	LastErr            string
 	LastIntrospectedAt time.Time
+	// Reached is true once any introspection of this server has succeeded.
+	Reached bool
 }

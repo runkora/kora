@@ -25,7 +25,7 @@ import type {
   ScopesExplainResponse,
 } from '../_types';
 import { fetchPolicyScopesExplain, simulatePolicyCheck } from '../_services/policy-client';
-import { ScopeChip } from '@orbit/components';
+import { PrincipalBadge, ScopeChip } from '@orbit/components';
 
 interface EvaluateTabProps {
   initialExplain: ScopesExplainResponse | null;
@@ -474,16 +474,5 @@ export function EvaluateTab({
         </CardContent>
       </Card>
     </Stack>
-  );
-}
-
-// ── PrincipalBadge ───────────────────────────────────────────────────────────
-
-function PrincipalBadge({ type }: { type: PrincipalType }) {
-  const variant = type === 'AGENT' ? 'default' : type === 'HUMAN' ? 'healthy' : 'degraded';
-  return (
-    <Badge variant={variant} size="sm">
-      {type}
-    </Badge>
   );
 }

@@ -128,26 +128,30 @@ func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
 	cfg := K8sProvisionerConfig{SandboxGRPCPort: 50051, SystemNamespace: "orbit-system"}
 	runID := "run-abc-123"
 
-	c := sandboxContainer(cfg, nil, runID, "test-exec-token")
-
-	var found bool
-	var gotMountPath, gotSubPath string
-	for _, m := range c.VolumeMounts {
-		if m.Name != "workspaces" {
-			continue
-		}
-		found = true
-		gotMountPath, gotSubPath = m.MountPath, m.SubPath
+	c, err := sandboxContainer(cfg, testSandboxSpec(), runID, "test-exec-token")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Fatal("no \"workspaces\" volume mount found on the sandbox container")
+
+	subPaths := map[string]string{}
+	for _, m := range c.VolumeMounts {
+		if m.Name == "workspaces" {
+			subPaths[m.MountPath] = m.SubPath
+		}
 	}
 	wantMountPath := "/workspaces/" + runID
-	if gotMountPath != wantMountPath {
-		t.Errorf("workspaces MountPath = %q, want %q", gotMountPath, wantMountPath)
+	// /tmp is the run's own .tmp/{runID}, outside the directory the agent can rename.
+	want := map[string]string{wantMountPath: runID, "/tmp": ".tmp/" + runID, "/workspaces/.tmp/" + runID: ".tmp/" + runID}
+	if len(subPaths) != len(want) {
+		t.Errorf("workspaces mounts = %v, want %v", subPaths, want)
 	}
-	if gotSubPath != runID {
-		t.Errorf("workspaces SubPath = %q, want %q (unscoped SubPath exposes every sibling run's directory)", gotSubPath, runID)
+	for mountPath, subPath := range want {
+		if got, ok := subPaths[mountPath]; !ok || got != subPath {
+			t.Errorf("workspaces mount at %q has SubPath %q, want %q (an unscoped SubPath exposes every sibling run's directory)", mountPath, got, subPath)
+		}
+	}
+	if c.WorkingDir != wantMountPath {
+		t.Errorf("WorkingDir = %q, want the run's workspace %q", c.WorkingDir, wantMountPath)
 	}
 
 	var gotWorkspace string

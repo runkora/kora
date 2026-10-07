@@ -2,24 +2,24 @@
 
 <!-- Filename: 2026-06-06-jit-credential-brokering-egress-gateway.md -->
 
-**Status:** Proposed
+**Status:** Proposed (Amended 2026-10-07: Amendment 5 Accepted)
 **Date:** 2026-06-06
 **Deciders:** Platform Engineering
-**Technical Story:** How an Orbit agent running in a sandbox makes governed, audited, credential-isolated calls to external services (GitHub, AWS, Kubernetes, OAuth2/OIDC apps, API-key SaaS) without any credential entering the agent. Implements the [credential-broker-and-outbound-connections PRD](../prd/credential-broker-and-outbound-connections.md).
+**Technical Story:** How a kora agent running in a sandbox makes governed, audited, credential-isolated calls to external services (GitHub, AWS, Kubernetes, OAuth2/OIDC apps, API-key SaaS) without any credential entering the agent. Implements the [credential-broker-and-outbound-connections PRD](../prd/credential-broker-and-outbound-connections.md).
 
 > **Amended 2026-06-07** — egress authorization is **two complementary layers**: the sandbox OPA enforces connectivity **posture** (`egress:<host>:connect`), and per-connection authorization (`connection:<name>:<action>`) is enforced at the **gateway**, not the sandbox OPA. The sandbox OPA cannot evaluate the connection scope (it sees only the CONNECT host, never the connection name or the inner-request action). See [Amendment — 2026-06-07](#amendment--2026-06-07-two-layer-egress-authorization), which supersedes the "sandbox OPA authorizes `connection:<name>:<action>`" statements below.
 
-> **Amended 2026-06-12** — connection registration is **GitOps**. A `Connection` is a tenant-namespaced CRD carrying credential-source identity only (`adapter`, `secretRef`, `config`); the secret is referenced and materialised by the deployer's secret pipeline, never handled by Orbit. The **operator aggregates** the CRs (and their referenced Secrets) into `orbit-system` config the gateway **mounts** — mirroring the tenant-CA aggregator — and the Postgres registry + `/api/v1/connections` admin CRUD API are **removed**. See [Amendment 3 — 2026-06-12](#amendment-3--2026-06-12-connections-are-gitops-crs-not-a-crud-registry), which supersedes the "connection-registration control plane / admin CRUD" statements below.
+> **Amended 2026-06-12** — connection registration is **GitOps**. A `Connection` is a tenant-namespaced CRD carrying credential-source identity only (`adapter`, `secretRef`, `config`); the secret is referenced and materialised by the deployer's secret pipeline, never handled by kora. The **operator aggregates** the CRs (and their referenced Secrets) into `orbit-system` config the gateway **mounts** — mirroring the tenant-CA aggregator — and the Postgres registry + `/api/v1/connections` admin CRUD API are **removed**. See [Amendment 3 — 2026-06-12](#amendment-3--2026-06-12-connections-are-gitops-crs-not-a-crud-registry), which supersedes the "connection-registration control plane / admin CRUD" statements below.
 
 ---
 
 ## Context
 
-Orbit agents execute shell commands and tools inside a per-run **sandbox pod** (`sandbox-{run-id}`, provisioned by orbit-agents — see [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)). To be useful, those tools — `git`, `gh`, `aws`, `kubectl`, language SDKs, `curl` — must reach external services. Today they cannot do so in any governed way, and there is no mechanism to inject third-party credentials without exposing them to the agent.
+kora agents execute shell commands and tools inside a per-run **sandbox pod** (`sandbox-{run-id}`, provisioned by orbit-agents — see [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)). To be useful, those tools — `git`, `gh`, `aws`, `kubectl`, language SDKs, `curl` — must reach external services. Today they cannot do so in any governed way, and there is no mechanism to inject third-party credentials without exposing them to the agent.
 
 This ADR supersedes [credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md). That ADR proposed an **explicit reverse proxy**: agents would rewrite their outbound calls to `/proxy/{service-name}/{path}` and the gateway would forward them with credentials injected. That model does not survive contact with real agents:
 
-- It requires every tool to address an Orbit-specific URL. `git push`, `aws s3 cp`, `gh`, and off-the-shelf SDKs with hard-coded hostnames will not do this. It breaks the platform's core promise that an unmodified Claude Code / Codex instance "drops in without modifying its auth handling."
+- It requires every tool to address a kora-specific URL. `git push`, `aws s3 cp`, `gh`, and off-the-shelf SDKs with hard-coded hostnames will not do this. It breaks the platform's core promise that an unmodified Claude Code / Codex instance "drops in without modifying its auth handling."
 - It makes the gateway a faithful reverse proxy for every external API shape (streaming, pagination, git's smart-HTTP pack protocol, websockets) — an unbounded, permanently leaky surface. Its own "credential issuance escape hatch" was the tell: the moment you hit `git`, the exception becomes the rule.
 
 The platform has since built the primitives that make a better design possible: transparent outbound interception and identity injection via the [Envoy ext_proc identity-proxy sidecar](2026-03-21-envoy-ext-proc-sidecar-token-injection.md); policy enforcement on the agent's own egress via an OPA `ext_authz` sidecar (the identity-proxy + OPA pair injected by the operator's pod webhook); the [gateway-level OPA enforcement](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) precedent of *centralizing* enforcement rather than per-pod sprawl; and SPIFFE/SPIRE attestation ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md), [dynamic-spiffe-identity-grants](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md)).
@@ -137,7 +137,7 @@ Sandbox pod (rejoined to mesh)
   → External service (GitHub / AWS / cluster / SaaS)
 ```
 
-The platform token identifies the caller on the sandbox→gateway hop and is **stripped at the gateway**; the real credential is injected only on the gateway→upstream leg. The agent never sees the upstream credential; the upstream never sees the Orbit token.
+The platform token identifies the caller on the sandbox→gateway hop and is **stripped at the gateway**; the real credential is injected only on the gateway→upstream leg. The agent never sees the upstream credential; the upstream never sees the kora token.
 
 ---
 
@@ -147,7 +147,7 @@ The gateway deals with each tool through one of **three injection patterns**, se
 
 ### Pattern A — header-swap with a minted token
 
-For services that accept a Bearer/Basic credential the gateway can mint on demand. The gateway terminates the upstream TLS, removes the Orbit platform token, injects the minted credential, and re-originates TLS.
+For services that accept a Bearer/Basic credential the gateway can mint on demand. The gateway terminates the upstream TLS, removes the kora platform token, injects the minted credential, and re-originates TLS.
 
 #### GitHub — `git` over HTTPS, `gh`, REST/GraphQL (GitHub App / bot authority)
 
@@ -164,7 +164,7 @@ The agent never produced a credential; the token lives only in the gateway, ≤1
 
 1. The sandbox kubeconfig names the cluster API server (cluster block + CA) with **no/placeholder credential**.
 2. Egress routed to the gateway; OPA authorizes `connection:k8s:<cluster>:<verb-class>`.
-3. Gateway resolves the cluster connection's credential (a ServiceAccount token / client cert Orbit holds), terminates the API-server TLS, injects `Authorization: Bearer <sa-token>`, re-originates to the API server.
+3. Gateway resolves the cluster connection's credential (a ServiceAccount token / client cert kora holds), terminates the API-server TLS, injects `Authorization: Bearer <sa-token>`, re-originates to the API server.
 4. Audit. Kubernetes' own RBAC enforces path-level authority on the injected identity.
 
 #### Generic OAuth2 service (client-credentials grant)
@@ -196,7 +196,7 @@ Some protocols **sign** the request with the credential rather than carrying it 
 2. On demand, the SDK fetches credentials from that endpoint. The endpoint authorizes `connection:aws:<conn>:use`, calls **STS `AssumeRole`** on the connection's role ARN (with the connection's permissions boundary) → **short-lived STS credentials (≤1 h)**, cached.
 3. The SDK signs locally and calls AWS. Egress is still forced through the gateway for allow-listing and audit (host-level allow/deny + record); the gateway does not re-sign.
 
-This is the one connection type where a credential — short-lived, role-scoped, JIT STS credentials — briefly lives in the sandbox (Option 2, bounded). The **long-lived** secret (Orbit's AWS principal) never leaves the platform. Future GCP support uses the same pattern via the metadata endpoint.
+This is the one connection type where a credential — short-lived, role-scoped, JIT STS credentials — briefly lives in the sandbox (Option 2, bounded). The **long-lived** secret (kora's AWS principal) never leaves the platform. Future GCP support uses the same pattern via the metadata endpoint.
 
 ### Summary
 
@@ -298,7 +298,7 @@ A new resource type `connection` enters the scope vocabulary: `connection:<name>
 ### Neutral
 
 - **The sandbox gains a second enforcement point** (its own OPA) in addition to the gateway — defense in depth, consistent with the platform's existing double-enforcement for agent pods.
-- **Agents are aware they call through Orbit** only insofar as egress is governed; the URLs they use are the real ones.
+- **Agents are aware they call through kora** only insofar as egress is governed; the URLs they use are the real ones.
 
 ---
 
@@ -454,9 +454,9 @@ The original design registered a connection by **admin CRUD against a per-gatewa
 
 Three things, taken together, make the CRUD registry the wrong shape:
 
-1. **Every other per-tenant concern in Orbit is already a reconciled CR** (`OrbitPlatform`, `OrbitTenant`, ClusterSPIFFEIDs, the per-tenant CA, NetworkPolicies). A connection is the same shape of object — tenant config that produces cluster resources — and should be declared the same way.
-2. **The deployment model is enterprise, self-hosted, bring-your-own-credentials.** There is no Orbit-operated app or central credential store; each deployer brings their own GitHub App (already installed) and their own secrets. There is therefore no interactive credential-acquisition flow to host — nothing to make imperative — so connections are pure declarative config.
-3. **GitOps dissolves the secret problem.** Secrets do not belong in Git or in the application layer. A CR that carries only a `secretRef` lets the deployer's existing secret pipeline (External Secrets Operator / sealed-secrets / SOPS) materialise the Secret; Orbit's control plane never receives the raw value. This also satisfies Decision 4's own constraint that the control plane "never handles a live credential" — now structurally, not by convention.
+1. **Every other per-tenant concern in kora is already a reconciled CR** (`OrbitPlatform`, `OrbitTenant`, ClusterSPIFFEIDs, the per-tenant CA, NetworkPolicies). A connection is the same shape of object — tenant config that produces cluster resources — and should be declared the same way.
+2. **The deployment model is enterprise, self-hosted, bring-your-own-credentials.** There is no kora-operated app or central credential store; each deployer brings their own GitHub App (already installed) and their own secrets. There is therefore no interactive credential-acquisition flow to host — nothing to make imperative — so connections are pure declarative config.
+3. **GitOps dissolves the secret problem.** Secrets do not belong in Git or in the application layer. A CR that carries only a `secretRef` lets the deployer's existing secret pipeline (External Secrets Operator / sealed-secrets / SOPS) materialise the Secret; kora's control plane never receives the raw value. This also satisfies Decision 4's own constraint that the control plane "never handles a live credential" — now structurally, not by convention.
 
 ### Decision: a `Connection` is a tenant-namespaced CRD; the secret is referenced, never handled
 
@@ -474,7 +474,7 @@ spec:
     installation_id: 139299720 # number
 ```
 
-The App private key lives only in the referenced Secret, materialised by the deployer's secret pipeline. The key is never in the CR, never in Git, never in Orbit's application layer.
+The App private key lives only in the referenced Secret, materialised by the deployer's secret pipeline. The key is never in the CR, never in Git, never in kora's application layer.
 
 ### The CR carries credential-source *identity* only
 
@@ -526,6 +526,102 @@ The adapters, the per-tenant CA / TLS termination, the mint/inject flows, the tw
 
 ---
 
+## Amendment 4 (2026-09-29): Denials name the host, the action, and what would allow it
+
+**Status:** Proposed
+
+Touches *What can it access?* Enforcement is unchanged; only the body of the broker's 403 changes.
+
+**Context.** The broker answered every policy denial with `403 {"code":"forbidden","message":"egress denied"}`. Agents could not tell a denial from a credential problem or a transient fault, and attributed denials to the wrong cause.
+
+**Decision.** The 403 body keeps `code: forbidden` and gains a message and `details` built from the broker's own decision:
+
+| `details.reason` | When | Message names |
+|---|---|---|
+| `not_granted` | No grant covers the classified action or an alternate (`deny:no_matching_grant`) | Host, action, qualifier, connection, and `details.required_scope`: the scope a grant must cover |
+| `grant_not_applied` | The primary or an alternate decision says a held grant did not apply (`deny:delegation_required`, `deny:no_delegation_scope`, `deny:no_delegator_grant`, `deny:no_agent_grant`) | Host, action, connection, and the policy decision label in `details.policy_reason`; no scope, since granting would not help |
+| `unclassified` | The adapter cannot map the request to an action | Host and connection; no grant can allow it |
+| `credential_refused` | The upstream refused to mint for an authorized action | Action and connection; the fix is the upstream permission (for GitHub, the App installation) |
+| `policy_unavailable` | Policy evaluation failed (fail-closed), or returned only an operational result such as no policy loaded for the tenant | Host; retry |
+
+The body carries only the caller's own request and its own tenant's connection name and scope vocabulary. It never carries the grants the caller holds, other connections, the underlying error text, or credential material. The only policy output it carries is the decision label on a `grant_not_applied` denial, which is our own bundle's vocabulary.
+
+A host outside the egress whitelist is refused by the sandbox OPA sidecar on the generated `CONNECT`, before any TLS is terminated (Amendment 2). The agent sees a reset TLS handshake; that path has no HTTP layer to carry a body and is unchanged.
+
+In allowlist mode, the capabilities brief tells the agent that a connection reset or TLS handshake failure to a host outside its list means egress policy blocked it, and that retrying will not help.
+
+`details.required_scope` is built from the action the adapter classified, with its qualifier: the narrowest scope that would allow the call. It never names an alternate or a covering umbrella, unless the umbrella is itself the classified action (a GraphQL call classifies as `repo:read` or `repo:write`).
+
+**Consequences.** Agents and operators can act on a denial from the response alone. The required scope in the body is information the caller could already derive from the published scope vocabulary. The hint can still steer an operator into over-granting: granting a broader covering scope such as `connection:github:repo:read`, or dropping the qualifier, satisfies the denial while widening access beyond the one call. The hint names the narrow scope so the least-privilege grant is the obvious one.
+
+---
+
+## Amendment 5 (2026-10-07): Public GitHub reads outside a grant fall back to anonymous passthrough
+
+**Status:** Accepted
+
+Touches *What can it access?* Identity and credential brokering for repositories in a connection are unchanged.
+
+### Context
+
+A registered `github_app` connection serves `github.com`, `api.github.com`, `codeload.github.com`, and `*.githubusercontent.com` (`backend/internal/platform/connections/adapters.go:207-210`). Every request to those hosts goes through the GitHub adapter. Hosts with no connection use the passthrough adapter (`backend/internal/egressgw/service.go:425-440`). The passthrough adapter classifies every request as `use` and returns an empty credential (`backend/internal/credentials/adapters/passthrough/passthrough.go:51-59`). The gateway removes the agent's `Authorization` header on every forwarded request (`backend/internal/egressgw/proxy.go:112`).
+
+The GitHub adapter refuses a git smart-HTTP request for a repository whose owner differs from the connection owner with `ErrUnsupportedAction` (`backend/internal/credentials/adapters/githubapp/githubapp.go:252-255`). The REST classifier refuses a `/repos/{owner}/{repo}` path of another owner the same way (`githubapp.go:310-311`). The broker turns a classification error into a `DenialUnclassified` deny (`backend/internal/egressgw/service.go:134`). A `github.com` path that matches no known shape falls to a catch-all that classifies it as unqualified `repo:read` or `repo:write` (`githubapp.go:210-217`). An API path under an unrecognized root classifies the same way (`githubapp.go:317-319`). Content hosts classify a read as `contents:read`, qualified by repository only when the path starts with the connection owner and a repository (`githubapp.go:442-452`). Any other content-host path classifies as unqualified `contents:read`. An unqualified action is covered only by an unqualified grant. A grant narrowed to repositories does not cover it.
+
+Consequently, once a tenant registers a GitHub connection, an agent cannot read a public repository outside its grant. Without the connection, the same request passes through anonymously.
+
+The agent's OPA sidecar enforces egress posture on the generated `CONNECT` before the gateway (`backend/internal/policyservice/bundle/authz.rego:586-591`). Open mode compiles to `egress:connect`, whitelist mode compiles each host to `egress:<host>:connect`, and mode `none` compiles to no egress scope (`backend/internal/agents/models.go:136-155`). Environment egress hosts compile as whitelist entries (`backend/internal/agents/environments.go:155-157`). The scope resolver merges the agent's own posture, environment egress hosts, and connector auto-egress hosts into one scope set on the agent grant (`backend/internal/agents/effective_scopes.go:64-104`). Connector auto-egress adds the connection's hosts independent of the agent's connectivity mode. An agent in mode `none` with a GitHub connector reaches only the connector-derived hosts.
+
+The following failures were observed:
+
+*   Cloning a public repository of another owner is refused (F61). The git smart-HTTP owner check returns `ErrUnsupportedAction`, and the broker denies the request as unclassified.
+*   A production Coder run received a 403 when it downloaded a GitHub release asset and then built `buf` from source. The download path `github.com/<owner>/<repo>/releases/download/...` falls to the catch-all as unqualified `repo:read`. Policy denies it for an agent whose grant is narrowed to repositories.
+*   A production Code Reviewer run failed on `gh api --paginate`. GitHub pagination links use `api.github.com/repositories/<id>/...` paths. The adapter cannot map a repository ID to an owner and classifies the path as unqualified `repo:read`. Policy denies it for an agent whose grant is narrowed to repositories. This amendment addresses the failure for public repositories only.
+
+### Considered Options
+
+*   **Fallback for reads the grant does not authorize (chosen):** The broker falls back to anonymous passthrough for a read that the adapter cannot classify or that policy denies.
+*   **Fallback only for requests the adapter cannot classify (rejected):** The broker falls back only on a classification error. Release-asset downloads and pagination for repositories outside the connection would stay denied.
+*   **Fallback for any unauthorized request (rejected):** The broker falls back for writes as well as reads. Writes would reach other owners' repositories anonymously or fail at GitHub with an error that does not explain the missing grant.
+*   **Anonymous reads (chosen):** The fallback request carries no credential.
+*   **Tenant App token for public reads (rejected):** The broker mints the tenant's GitHub App installation token for public reads. This uses a tenant credential outside its connection.
+*   **Posture-gated fallback (chosen):** The fallback applies only when the agent's own egress posture allows the host.
+*   **Fallback for any agent that reaches the host (rejected):** Every agent whose `CONNECT` reaches the host falls back. Agents with closed egress would gain reach they were not granted.
+*   **Repository allowlist (rejected):** A per-agent list of repositories limits what the fallback may read. Connection grants already scope writes.
+*   **Separate scope for connector egress (chosen):** Connector-derived egress hosts compile to their own scope in the policy bundle. The broker reads the agent's own posture from the same bundle it already evaluates.
+*   **Posture in platform token claims (rejected):** The platform token carries the agent's own egress posture as claims for the broker to read. This puts authorization data in the identity token, and a posture change would apply only when the token is refreshed.
+*   **Resolve repository IDs for paginated links (rejected):** The GitHub adapter maps `api.github.com/repositories/<id>/...` paths to their owner and repository. Resolution needs a GitHub call for each unknown ID. That adds lookup state and an abuse surface for limited value. Page URLs addressed by owner and repository keep the credential.
+*   **Classify release-download paths for granted repositories (rejected):** The GitHub adapter classifies `github.com/<owner>/<repo>/releases/download/...` as `contents:read` qualified by that repository. GitHub returns 404 for that URL with an installation token. Public release assets already work through the fallback.
+
+### Decision
+
+The broker and the GitHub adapter will change as follows:
+
+1.  The broker will fall back to an anonymous passthrough for any read on a GitHub connection host that the connection's grant does not authorize. A read qualifies when the adapter cannot classify it or when policy denies the classified action. Reads are `GET`, `HEAD`, and `git-upload-pack` for clones and fetches. The fallback attaches no credential and removes any `Authorization` header the agent sent.
+2.  The fallback will apply only when the agent's own egress posture allows the host: open mode, or the host in the agent's whitelist (including environment egress hosts). An agent with closed egress (mode `none`) will never fall back, even when a connector makes the host reachable.
+3.  Connector-derived egress hosts will compile to `egress:<host>:connector`, a scope separate from the agent's own egress scopes. The agent's own egress scopes are `egress:connect` for open mode and `egress:<host>:connect` for whitelist and environment egress hosts. The sidecar will allow a `CONNECT` under either scope. The broker's fallback will check only the agent's own egress scopes.
+4.  Writes and any request beyond a public read will need a connection grant through the existing connector resources and actions. There is no separate repository allowlist.
+5.  Anonymous reads will share GitHub's unauthenticated rate limit of 60 requests an hour per gateway IP. This limit is accepted.
+6.  The audit log will record each fallback decision as an anonymous read.
+
+### Consequences
+
+#### Positive
+
+*   Agents with open or whitelisted GitHub egress can clone, fetch, page through, and download release assets from public repositories outside their grant while a GitHub connection is registered.
+
+#### Negative
+
+*   All agents behind one gateway IP draw on the same unauthenticated rate limit and can exhaust it for each other.
+*   An agent in mode `none` with a GitHub connector cannot read public repositories outside its grant.
+*   An agent in mode `none` with a GitHub connector cannot download release assets of a granted repository. The signed `*.githubusercontent.com` redirect target is not owner-addressed, and only the anonymous fallback serves it for a grant narrowed to repositories.
+*   `gh api --paginate` on a private granted repository fails after the first page. Fetching each page by its owner and repository path works.
+
+#### Neutral
+
+*   A write the grant does not authorize, or a read from an agent whose own posture does not allow the host, still returns the Amendment 4 denial for its cause: `unclassified` or `not_granted`.
+*   A signed release-asset URL is not owner-addressed and classifies as unqualified `contents:read`. For an agent whose grant is narrowed to repositories, the redirect target is served by the anonymous fallback.
+
 ## Validation
 
 ### Success Metrics
@@ -564,6 +660,6 @@ The adapters, the per-tenant CA / TLS termination, the mint/inject flows, the tw
 
 ## Notes
 
-The credential broker completes Orbit's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
+The credential broker completes kora's traffic topology: inbound (edge OPA), east-west (sidecar mTLS + OPA), and now **outbound** (per-tenant egress gateway with credential injection). v1 lands GitHub bot authority; the design's load-bearing bet — TLS termination + platform-token auth + JIT mint at a per-tenant gateway — is provable in the milestone-0 spike before the rest is built. Delegated authority is the first follow-on and was deliberately scoped out without compromising the architecture: it arrives as an additional header on the same channel.
 
-**Last Updated:** 2026-06-12
+**Last Updated:** 2026-10-07

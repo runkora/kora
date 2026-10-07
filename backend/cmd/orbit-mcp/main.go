@@ -1,6 +1,6 @@
-// orbit-mcp is the Orbit platform MCP server: the first platform-global MCP
-// server. It exposes Orbit's own management surface (agents, policy, models, …)
-// as MCP tools over Streamable HTTP, forwarding the caller's token to each Orbit
+// orbit-mcp is the kora platform MCP server: the first platform-global MCP
+// server. It exposes kora's own management surface (agents, policy, models, …)
+// as MCP tools over Streamable HTTP, forwarding the caller's token to each kora
 // API (passthrough — the downstream service enforces the real scope; this server
 // holds no authority). It is intended to be registered as a global MCPServer and
 // fronted by the MCP/tool gateway, but serves standalone for testing.
@@ -44,7 +44,7 @@ func realMain() error {
 	defer shutdownObservability()
 
 	logger := initLogger()
-	logger.Info(ctx, "Orbit MCP starting", logging.Field{Key: "version", Value: omc.Current.App.Version})
+	logger.Info(ctx, "kora MCP starting", logging.Field{Key: "version", Value: omc.Current.App.Version})
 
 	jc := orbitjson.NewClient(logger)
 	srv := orbitmcp.NewServer(orbitmcp.Backends{
@@ -84,7 +84,7 @@ func realMain() error {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
-	logger.Info(ctx, "Orbit MCP shutdown complete")
+	logger.Info(ctx, "kora MCP shutdown complete")
 	return nil
 }
 

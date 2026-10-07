@@ -1,89 +1,87 @@
-import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { Button } from '../button/button';
-import { Stack } from '../layout/stack';
-import { Text } from '../typography/typography';
-import { SaveBar } from './save-bar';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
+import { SaveBar, type SaveBarProps } from './save-bar';
 
+/**
+ * A bar that tells the user they have unsaved changes and lets them save or
+ * discard. It sits at the bottom centre of the screen; here it is held inside
+ * a box so you can see it.
+ */
 const meta: Meta<typeof SaveBar> = {
   title: 'Terra/Molecules/SaveBar',
   component: SaveBar,
-  parameters: {
-    // The bar is position:fixed, so give the canvas room and let it pin itself.
-    layout: 'fullscreen',
-    backgrounds: { default: 'orbit' },
-  },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof SaveBar>;
 
-export const Dirty: Story = {
-  args: {
-    visible: true,
-    saving: false,
-    success: false,
-    error: null,
-    onSave: () => {},
-    onDiscard: () => {},
-  },
-};
+const noop = () => {};
 
-export const Saving: Story = {
-  args: { ...Dirty.args, saving: true },
-};
-
-export const Success: Story = {
-  args: { ...Dirty.args, visible: false, success: true },
-};
-
-export const WithError: Story = {
-  args: { ...Dirty.args, error: 'Provisioning failed — quota exceeded.' },
-};
-
-function LifecycleDemo() {
-  const [dirty, setDirty] = React.useState(false);
-  const [saving, setSaving] = React.useState(false);
-  const [success, setSuccess] = React.useState(false);
-
-  const save = () => {
-    setSaving(true);
-    setTimeout(() => {
-      setSaving(false);
-      setDirty(false);
-      setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
-    }, 1200);
-  };
-
+/** A transform makes the box the reference for the bar's fixed position. The bar keeps its natural width, so its text does not wrap. */
+function Stage({ children }: { children: React.ReactNode }) {
   return (
-    <Stack gap="cozy" padding="relaxed" align="start">
-      <Text size="supporting" color="muted">
-        Make a change to raise the bar, then save and watch it settle.
-      </Text>
-      <Button
-        variant="secondary"
-        size="sm"
-        onClick={() => {
-          setDirty(true);
-          setSuccess(false);
-        }}
-      >
-        Make a change
-      </Button>
-      <SaveBar
-        visible={dirty}
-        saving={saving}
-        success={success}
-        onSave={save}
-        onDiscard={() => setDirty(false)}
-      />
-    </Stack>
+    <div
+      className="relative h-24 overflow-hidden rounded-md border border-dashed border-border [&>*]:w-max"
+      style={{ transform: 'translate(0)' }}
+    >
+      {children}
+    </div>
   );
 }
 
-/** Full lifecycle: dirty → saving → saved → gone. */
-export const Lifecycle: Story = {
-  render: () => <LifecycleDemo />,
+function Sample(props: Partial<SaveBarProps>) {
+  return (
+    <Stage>
+      <SaveBar visible onSave={noop} onDiscard={noop} {...props} />
+    </Stage>
+  );
+}
+
+export const Overview: Story = {
+  render: () => (
+    <div className="max-w-xl">
+      <Example title="Unsaved changes">
+        <Sample />
+      </Example>
+    </div>
+  ),
+};
+
+export const Options: Story = {
+  render: () => (
+    <div className="max-w-5xl">
+      <OptionTable
+        title="Options"
+        note="The bar shows when visible or success is true. Otherwise it renders nothing."
+      >
+        <Option name="visible" use="The user has unsaved changes. Shows Save and Discard.">
+          <Sample />
+        </Option>
+        <Option name="saving" use="A save is running. Both buttons are disabled.">
+          <Sample saving />
+        </Option>
+        <Option
+          name="error"
+          use="The last save failed. The message shows in the bar and the buttons stay available."
+        >
+          <Sample error="Could not save. Try again." />
+        </Option>
+        <Option name="success" use="The last save worked. The buttons are hidden.">
+          <Sample visible={false} success />
+        </Option>
+        <Option
+          name="dirtyLabel, saveLabel, discardLabel"
+          use="Change the wording to match the page."
+        >
+          <Sample
+            dirtyLabel="Draft not published"
+            saveLabel="Publish"
+            discardLabel="Delete draft"
+          />
+        </Option>
+      </OptionTable>
+    </div>
+  ),
 };

@@ -60,7 +60,7 @@ func TestClientRegisterMakesOneAttemptPerCall(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(srv.URL, logging.NewLogger())
+	client := NewClient(srv.URL, func(context.Context) (string, error) { return "t", nil }, logging.NewLogger())
 
 	start := time.Now()
 	if err := client.Register(t.Context(), "test-service", testRoutes, testScopes); err == nil {
@@ -97,7 +97,7 @@ func TestKeepRegisteredRetriesThroughClient(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	client := NewClient(srv.URL, logging.NewLogger())
+	client := NewClient(srv.URL, func(context.Context) (string, error) { return "t", nil }, logging.NewLogger())
 	register := func(ctx context.Context) error {
 		return client.Register(ctx, "test-service", testRoutes, testScopes)
 	}

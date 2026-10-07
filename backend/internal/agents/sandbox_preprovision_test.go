@@ -38,7 +38,7 @@ func TestProvisionSandbox_AheadDefersWhileRegistryUnresolved(t *testing.T) {
 	seedKubeRun(t, repo, svc, false)
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	_, err := svc.run.ProvisionSandbox(context.Background(), "run-1", true)
+	_, err := svc.run.ProvisionSandbox(context.Background(), "run-1", true, "", false)
 	if !errors.Is(err, ErrKubeconfigNotReady) {
 		t.Fatalf("error = %v, want ErrKubeconfigNotReady", err)
 	}
@@ -55,7 +55,7 @@ func TestProvisionSandbox_OnDemandProceedsWhileRegistryUnresolved(t *testing.T) 
 	seedKubeRun(t, repo, svc, false)
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	sandbox, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false)
+	sandbox, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "", false)
 	if err != nil {
 		t.Fatalf("on-demand provisioning failed: %v", err)
 	}
@@ -70,7 +70,7 @@ func TestProvisionSandbox_AheadProvisionsOnceResolved(t *testing.T) {
 	seedKubeRun(t, repo, svc, true)
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	sandbox, err := svc.run.ProvisionSandbox(context.Background(), "run-1", true)
+	sandbox, err := svc.run.ProvisionSandbox(context.Background(), "run-1", true, "", false)
 	if err != nil {
 		t.Fatalf("pre-provision failed with a resolved registry: %v", err)
 	}
@@ -158,7 +158,7 @@ func TestProvisionSandbox_AheadDefersOnResolverError(t *testing.T) {
 	svc.run.SetScopeResolver(NewScopeResolver(nil, errConns{}))
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", true); !errors.Is(err, ErrKubeconfigNotReady) {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", true, "", false); !errors.Is(err, ErrKubeconfigNotReady) {
 		t.Fatalf("error = %v, want ErrKubeconfigNotReady", err)
 	}
 	if k8s.provisionSandboxCalls != 0 {
@@ -177,7 +177,7 @@ func TestProvisionSandbox_OnDemandProceedsOnResolverError(t *testing.T) {
 	svc.run.SetScopeResolver(NewScopeResolver(nil, errConns{}))
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false); err != nil {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "", false); err != nil {
 		t.Fatalf("on-demand provisioning failed: %v", err)
 	}
 	if k8s.provisionSandboxCalls != 1 {

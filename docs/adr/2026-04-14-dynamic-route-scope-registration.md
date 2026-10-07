@@ -1,6 +1,6 @@
 # Dynamic Route-Scope Registration
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-10-01)  
 **Date:** 2026-04-14
 **Deciders:** Engineering Team  
 **Technical Story:** Eliminate hardcoded route→scope mappings from the policy service so that any service — platform or tenant-published — can declare the scopes required to access its own routes without a policy-service code change or redeploy.
@@ -214,12 +214,34 @@ go registerScopes(router.CatalogScopes())  // initial registration
 
 ---
 
+## Amendment 1 (2026-10-01): Platform services register with their own in-process token
+
+**Status:** Accepted
+
+Touches *How does it connect?* and *Who is this agent?* A platform service's token now goes only to the platform calls that need it, and the policy service checks which service a registration is for. *What can it access?* is unchanged: registered routes and scopes compile into bundles as before.
+
+**Context.** The identity-proxy on a platform pod stamped the pod's platform token on every outbound plain-HTTP request, overwriting any `Authorization` header. Registration was the only call on those pods that relied on it. Every other plain-HTTP destination received the token as well: tenant MCP servers during tool-gateway introspection, upstreams the egress gateway relays to, plain-HTTP model upstreams and cloud metadata endpoints. The registration endpoint checked the caller only for SERVICE principals, so any SYSTEM token could register or prune any service's routes and scopes.
+
+**Decision.**
+
+- Platform services carry no identity-proxy. Each fetches its own platform token in-process with the identity client's `SelfTokenSource()`, which exchanges the pod's SVID at `POST /api/v1/identity/exchange` over the mesh and caches the token until shortly before expiry. Each service's config sets `identity.internalURL`.
+- `routescopes.NewClient` takes a token source and sets `Authorization: Bearer <token>` on the registration request only. `routescopes.KeepRegistered` retries until identity and the policy service are both reachable.
+- `routescopes.Client` is the one registration client. orbit-triggers uses it, and `policyclient.RegisterRoutes` is removed.
+- A SYSTEM caller may register, and so prune, only its own service. `service` must equal the token's `display_name`, the `<name>` in `spiffe://<trust-domain>/system/<name>`. A SERVICE caller's `service` must equal the token subject, as before. A mismatch returns 403.
+- Each platform service registers under its `spiffe.io/component` label: `orbit-agents`, `inference-gateway`, `egress-gateway`, `tool-gateway`, `orbit-triggers`. The policy service registers itself in-process.
+- Tool-gateway introspection sends no credential. Servers may be tenant-owned, and `tools/list` needs none.
+
+**Consequences.** The Design lines saying the identity-proxy injects the registration token, and the "Registration is global" line covering SERVICE principals, no longer describe the system. Registration depends on identity being reachable; a failed exchange fails that attempt and `KeepRegistered` retries it. A SYSTEM token can no longer overwrite or prune another service's routes and scopes. Plain-HTTP calls from platform services carry no platform token.
+
+---
+
 ## Related Decisions
 
 - [policy-gateway-and-authorisation-model](2026-04-14-policy-gateway-and-authorisation-model.md) — Policy gateway and authorisation model this extends
 - [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) — Envoy as the universal enforcement data plane
 - [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) — Cluster-internal identity; rationale for not requiring tokens on internal calls
+- [enforcement-sidecar-injection-and-preflight](2026-09-04-enforcement-sidecar-injection-and-preflight.md) — Amendment 1 removes the identity-proxy from platform pods
 
 ---
 
-**Last Updated:** 2026-04-10
+**Last Updated:** 2026-10-01 (Amendment 1: platform services register with their own in-process token)

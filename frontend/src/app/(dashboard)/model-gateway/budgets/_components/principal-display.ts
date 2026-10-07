@@ -1,5 +1,6 @@
 /** @tier 3 — budgets-page-scoped. Principal display-name resolution. */
 
+import { agentNameFromPrincipalId } from '@orbit/utils';
 import type { PrincipalIdentity } from '../../_types';
 
 export interface PrincipalDisplay {
@@ -21,9 +22,9 @@ export function principalDisplay(
   identity: PrincipalIdentity | null | undefined,
 ): PrincipalDisplay {
   if (principalType === 'AGENT') {
-    const m = principalId.match(/\/agent\/([^/]+)$/);
-    if (m) {
-      return { primary: m[1], secondary: principalId };
+    const name = agentNameFromPrincipalId(principalId);
+    if (name) {
+      return { primary: name, secondary: principalId };
     }
   }
   if (identity?.display_name || identity?.email) {

@@ -124,7 +124,7 @@ function ConsentCard(
           >
             It wants to connect to the{' '}
             <Strong>
-              {(p.server?.displayName ?? 'Orbit').replace(/\s*MCP\s*$/i, '') || 'Orbit'}
+              {(p.server?.displayName ?? 'kora').replace(/\s*MCP\s*$/i, '') || 'kora'}
             </Strong>{' '}
             MCP server and call its tools <Strong>as you</Strong>.
           </Text>
@@ -261,7 +261,7 @@ function ConsentCard(
             marginTop: 5,
           }}
         >
-          By authorising, Orbit issues a short-lived token that acts as you, bounded by your grants;
+          By authorising, kora issues a short-lived token that acts as you, bounded by your grants;
           {p.clientName} re-authorises when it expires. You can revoke it any time from{' '}
           <Text as="span" mono style={{ fontSize: 11 }}>
             Connections

@@ -46,7 +46,7 @@ function firesOn(t: TriggerRow): string {
     case 'manual':
       return 'on demand';
     default:
-      return t.eventType || 'any event';
+      return t.eventType || 'no event type (never fires)';
   }
 }
 
@@ -60,7 +60,8 @@ function makeColumns(
     {
       id: 'trigger',
       header: 'Trigger',
-      gridWidth: '1fr',
+      gridWidth: 'minmax(0, 1fr)',
+      minWidth: '10rem',
       locked: true,
       cell: (row) => (
         <Stack direction="horizontal" gap="cozy" align="center" minWidth="none">
@@ -68,8 +69,8 @@ function makeColumns(
             <Icon name={KIND_ICON[row.kind]} size="xs" />
           </IconTile>
           <Stack gap="tight" minWidth="none">
-            <Stack direction="horizontal" gap="snug" align="center">
-              <Text mono size="supporting" weight="emphasis">
+            <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
+              <Text mono size="supporting" weight="emphasis" truncate title={row.name}>
                 {row.name}
               </Text>
               {row.autoPausedAt !== null && (
@@ -98,6 +99,7 @@ function makeColumns(
       id: 'fires',
       header: 'Fires',
       gridWidth: '168px',
+      minWidth: '8rem',
       cell: (row) => (
         <Stack direction="horizontal" minWidth="none">
           <Badge variant="elevated" size="sm" mono>
@@ -110,6 +112,7 @@ function makeColumns(
       id: 'agent',
       header: 'Target agent',
       gridWidth: '148px',
+      minWidth: '8rem',
       cell: (row) => (
         <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
           <IconTile size="sm">
@@ -127,6 +130,7 @@ function makeColumns(
       id: 'activity',
       header: '24h',
       gridWidth: '96px',
+      minWidth: '5rem',
       cell: (row) =>
         row.hasActivity ? (
           <Sparkline
@@ -144,6 +148,7 @@ function makeColumns(
       id: 'lastFired',
       header: 'Last fired',
       gridWidth: '118px',
+      minWidth: '6rem',
       cell: (row) => (
         <Text size="supporting" color={row.failures > 0 ? 'status-error' : 'muted'}>
           {relativeTime(row.lastFiredAt)}
@@ -154,6 +159,7 @@ function makeColumns(
       id: 'enabled',
       header: 'Enabled',
       gridWidth: '74px',
+      minWidth: '4.5rem',
       align: 'right',
       locked: true,
       cell: (row) => (

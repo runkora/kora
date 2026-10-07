@@ -14,7 +14,7 @@
 
 [Decision 5 of the LLM Cost Tracking ADR](2026-06-05-llm-cost-tracking.md) chose Option B: three dedicated quota tables (`quota_roles`, `principal_quota_role_memberships`, `principal_quotas`) owned by the policy-service database, with a per-principal Redis counter (`quota:{principal_id}:{YYYY-MM}`) as the fast spend read layer.
 
-During early implementation, this design was reviewed against the existing Orbit data model. The conclusion: the three-table quota model introduces a third identity concept (quota role) that sits alongside the two mechanisms that already govern every principal — OIDC roles (coarse, external, IDP-managed) and individual grants (fine-grained, internal, Orbit-managed). This is redundant. The existing model already satisfies the stated requirements — budget policies can live inline on role mappings and grants, the same two primitives that already carry scope assignments.
+During early implementation, this design was reviewed against the existing kora data model. The conclusion: the three-table quota model introduces a third identity concept (quota role) that sits alongside the two mechanisms that already govern every principal — OIDC roles (coarse, external, IDP-managed) and individual grants (fine-grained, internal, kora-managed). This is redundant. The existing model already satisfies the stated requirements — budget policies can live inline on role mappings and grants, the same two primitives that already carry scope assignments.
 
 ### Problem with the prior decision
 
@@ -22,9 +22,9 @@ During early implementation, this design was reviewed against the existing Orbit
 
 2. **Requires a separate Quotas page.** Budget configuration sits in a different section from access control, even though both are properties of the same policy primitives (roles and grants). This splits the mental model for operators who must configure both.
 
-3. **SRP concern is organisational, not technical.** The argument for separation is that access control (scopes) and cost governance (budgets) are different concerns. In practice, Orbit is operated by a single platform team — provisioning a role or grant is a single action ("engineer role gets `inference:read` and $50/month"). There is no separate security team and FinOps team requiring independent write paths. The SRP concern is speculative; the complexity cost of three extra tables and a separate UI surface is immediate.
+3. **SRP concern is organisational, not technical.** The argument for separation is that access control (scopes) and cost governance (budgets) are different concerns. In practice, kora is operated by a single platform team — provisioning a role or grant is a single action ("engineer role gets `inference:read` and $50/month"). There is no separate security team and FinOps team requiring independent write paths. The SRP concern is speculative; the complexity cost of three extra tables and a separate UI surface is immediate.
 
-4. **Mid-tier group mechanics do not match the model.** Orbit's grant model is a permission model: grants only add capability, never restrict it. A `QuotaRole` with lower precedence than a `PrincipalQuota` is consistent, but a standalone mid-tier concept that can be neither an OIDC role nor an individual grant creates a new semantic that does not exist anywhere else in Orbit.
+4. **Mid-tier group mechanics do not match the model.** kora's grant model is a permission model: grants only add capability, never restrict it. A `QuotaRole` with lower precedence than a `PrincipalQuota` is consistent, but a standalone mid-tier concept that can be neither an OIDC role nor an individual grant creates a new semantic that does not exist anywhere else in kora.
 
 5. **Per-principal Redis counter loses per-source attribution.** A single `quota:{principal_id}:{YYYY-MM}` counter cannot tell you whether the spend came from a role-budget category or a grant-budget category. Per-category counters are required for independent reporting, alerting, and reset scheduling.
 

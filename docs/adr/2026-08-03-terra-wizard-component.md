@@ -21,7 +21,7 @@ The duplication is concrete:
 
 **Modal chrome** — The two-column layout (rail | `Separator orientation="vertical"` | content column with `overflowY="auto"` and `minWidth/maxWidth="document"`), the hairline `Progress` strip, and the sticky footer are structurally identical in both modal components. Both features also share an identical header structure — icon container + title + subtitle chip + grow spacer + optional actions + close button — where only the subtitle content and the actions slot content differ (the agent builder carries a draft-id chip and save-status controls; the trigger wizard carries the kind name and no actions).
 
-The motif-component-promotion ADR ([motif-component-promotion](2026-07-17-motif-component-promotion.md)) established the pattern: promote when a second confirmed consumer exists and the component has no Orbit domain knowledge. All three duplicated pieces — rail, review card, chrome — pass that test.
+The motif-component-promotion ADR ([motif-component-promotion](2026-07-17-motif-component-promotion.md)) established the pattern: promote when a second confirmed consumer exists and the component has no kora domain knowledge. All three duplicated pieces — rail, review card, chrome — pass that test.
 
 ---
 

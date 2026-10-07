@@ -131,6 +131,9 @@ export interface ModalHeaderProps {
   /** Required — rendered as a `Heading variant="section"` and satisfies the
    *  Radix DialogTitle accessibility requirement. */
   title: string;
+  /** Optional element rendered beside the title on the same line, such as a
+   *  status or type badge. */
+  titleAccessory?: React.ReactNode;
   /** Optional subtitle rendered below the title as muted supporting text. */
   description?: string;
   /** When `false`, the built-in close (×) button is hidden.
@@ -151,10 +154,12 @@ export interface ModalHeaderProps {
  *
  * ```tsx
  * <ModalHeader title="Create grant" description="Assign scopes to a principal." />
+ * <ModalHeader title="Dev" titleAccessory={<Badge>HUMAN</Badge>} />
  * ```
  */
 const ModalHeader = ({
   title,
+  titleAccessory,
   description,
   showClose = true,
   borderless = true,
@@ -163,10 +168,22 @@ const ModalHeader = ({
     data-slot="modal-header"
     className={cn('flex items-start justify-between p-5', !borderless && 'border-b border-border')}
   >
-    <div className="flex flex-col gap-0.5">
-      <DialogPrimitive.Title asChild>
-        <Heading variant="section">{title}</Heading>
-      </DialogPrimitive.Title>
+    <div className="flex min-w-0 flex-col gap-0.5">
+      {/* The title and its accessory share one inline flow, not a flex row: when
+          the title wraps, the accessory follows its last word instead of
+          centring against the whole block. */}
+      <div>
+        <DialogPrimitive.Title asChild>
+          <Heading variant="section" className="inline break-words">
+            {title}
+          </Heading>
+        </DialogPrimitive.Title>
+        {titleAccessory != null && (
+          <span className="relative -top-1 ml-2 inline-block whitespace-nowrap align-middle">
+            {titleAccessory}
+          </span>
+        )}
+      </div>
       {description && (
         <DialogPrimitive.Description asChild>
           <Text size="supporting" color="muted">

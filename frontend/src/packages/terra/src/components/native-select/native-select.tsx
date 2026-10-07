@@ -9,6 +9,11 @@ export interface NativeSelectProps extends React.SelectHTMLAttributes<HTMLSelect
   mono?: boolean;
 }
 
+// A neutral grey chevron (Fog, 3:1 or more on both light and dark surfaces). It is
+// drawn on the select itself so the markup and width behaviour stay the same.
+const CHEVRON =
+  "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%237f858b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")";
+
 /**
  * NativeSelect
  *
@@ -55,9 +60,9 @@ const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
         aria-required={ariaRequired ?? field?.required ?? undefined}
         className={cn(
           // Layout & typography — matches Input height and padding.
-          // pr-8 (32px) = pl-3 (12px) + ~20px for the native browser chevron,
-          // so the visible space to the right of the arrow matches the left margin.
-          'flex h-9 w-full rounded-md pl-3 pr-8 py-1',
+          // pr-8 (32px) leaves room for the 16px chevron drawn 12px from the edge.
+          'flex h-9 w-full appearance-none rounded-md pl-3 pr-8 py-1',
+          'bg-no-repeat bg-[position:right_0.75rem_center] bg-[size:1rem]',
           'text-sm text-foreground font-normal',
           'bg-surface-elevated border',
           // Border colour — normal vs error
@@ -71,6 +76,7 @@ const NativeSelect = React.forwardRef<HTMLSelectElement, NativeSelectProps>(
           className,
         )}
         {...props}
+        style={{ backgroundImage: CHEVRON, ...props.style }}
       >
         {children}
       </select>

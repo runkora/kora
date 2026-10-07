@@ -329,6 +329,33 @@ spec:
         - ipBlock:
             cidr: 0.0.0.0/0
 {{- end }}
+{{- with .Values.agents.sandboxImages.registryPorts }}
+---
+# The operator reads registries on ports other than 443 to validate sandbox
+# images. 443 is already open to it for the API server.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-operator-registry-ports
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: orbit-operator
+  policyTypes:
+    - Egress
+  egress:
+    - ports:
+      {{- range . }}
+        - port: {{ . }}
+          protocol: TCP
+      {{- end }}
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+{{- end }}
 {{- if .Values.networkPolicy.externalServices }}
 ---
 # Postgres, Redis or other out-of-cluster services, per environment.
@@ -378,7 +405,7 @@ spec:
             matchLabels:
               {{- include "orbit.gatewayWorkloadSelector" $ | nindent 14 }}
       ports:
-        # Allow gateway traffic to Orbit backends. Scoped to the ports the
+        # Allow gateway traffic to kora backends. Scoped to the ports the
         # VirtualService actually routes to; policy-service and
         # policy-gateway have no external route.
         - port: 3000

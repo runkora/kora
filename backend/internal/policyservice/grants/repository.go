@@ -1,6 +1,6 @@
 // Package grants provides the Postgres-backed grant store for the Policy Service.
 // A grant asserts that a named principal within a tenant holds a set of
-// OAuth-style permission scopes. It is the unit of policy in the Orbit platform.
+// OAuth-style permission scopes. It is the unit of policy in the kora platform.
 package grants
 
 import (

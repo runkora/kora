@@ -1,6 +1,7 @@
 package config
 
 import (
+	corev1 "k8s.io/api/core/v1"
 	"os"
 	"path/filepath"
 	"testing"
@@ -286,5 +287,154 @@ func TestResolvePath_ConstructsCorrectPath(t *testing.T) {
 	want := filepath.Join(realRoot, "internal", "identity", "config", "production.yaml")
 	if got != want {
 		t.Errorf("resolvePath() = %q, want %q", got, want)
+	}
+}
+
+// ---- rendered config overlay ------------------------------------------------
+
+// setOverlay points the loader at a temporary overlay root holding files, keyed by module.
+func setOverlay(t *testing.T, files map[string]string) {
+	t.Helper()
+	root := t.TempDir()
+	for module, content := range files {
+		path := filepath.Join(root, module+".yaml")
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	orig := overlayRoot
+	overlayRoot = root
+	t.Cleanup(func() { overlayRoot = orig })
+}
+
+// writeLayer writes {module}/config/{name}.yaml under root.
+func writeLayer(t *testing.T, root, module, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(root, module, "config", name+".yaml"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestLoadService_OverlayMergesLast(t *testing.T) {
+	root := makeTempProject(t, "cmd/svc", "base", "server:\n  port: 1\n  host: base\ndebug: true\n")
+	writeLayer(t, root, "cmd/svc", "production", "server:\n  port: 2\n")
+	chdirTo(t, root)
+	setOverlay(t, map[string]string{"cmd/svc": "server:\n  port: 3\n"})
+
+	cfg, err := LoadService[testConfig]("cmd/svc", "production")
+	if err != nil {
+		t.Fatalf("LoadService() error: %v", err)
+	}
+	if cfg.Server.Port != 3 || cfg.Server.Host != "base" || !cfg.Debug {
+		t.Errorf("got %+v, want port 3 from the overlay with host and debug kept from base", cfg)
+	}
+}
+
+func TestLoad_OverlayMergesLast(t *testing.T) {
+	root := makeTempProject(t, "internal/feat", "production", validYAML)
+	chdirTo(t, root)
+	setOverlay(t, map[string]string{"internal/feat": "server:\n  host: rendered\n"})
+
+	cfg, err := Load[testConfig]("internal/feat", "production")
+	if err != nil {
+		t.Fatalf("Load() error: %v", err)
+	}
+	if cfg.Server.Host != "rendered" || cfg.Server.Port != 8080 {
+		t.Errorf("got %+v, want host from the overlay and port from the file", cfg)
+	}
+}
+
+func TestLoadService_MissingOverlayIsNoOverlay(t *testing.T) {
+	root := makeTempProject(t, "cmd/svc", "base", validYAML)
+	chdirTo(t, root)
+	setOverlay(t, map[string]string{"cmd/other": "server:\n  port: 9\n"})
+
+	cfg, err := LoadService[testConfig]("cmd/svc", "production")
+	if err != nil {
+		t.Fatalf("LoadService() error: %v", err)
+	}
+	if cfg.Server.Port != 8080 {
+		t.Errorf("Port = %d, want 8080 from base", cfg.Server.Port)
+	}
+}
+
+func TestLoadService_OverlayErrors(t *testing.T) {
+	tests := map[string]string{
+		"unknown key":   "server:\n  prot: 3\n",
+		"wrong type":    "server:\n  port: three\n",
+		"malformed":     "server: [\n",
+		"not a mapping": "- a\n",
+	}
+	for name, overlay := range tests {
+		t.Run(name, func(t *testing.T) {
+			root := makeTempProject(t, "cmd/svc", "base", validYAML)
+			chdirTo(t, root)
+			setOverlay(t, map[string]string{"cmd/svc": overlay})
+
+			if _, err := LoadService[testConfig]("cmd/svc", "production"); err == nil {
+				t.Fatal("LoadService() expected an error, got nil")
+			}
+		})
+	}
+}
+
+type kubeConfig struct {
+	Resources   corev1.ResourceRequirements `yaml:"resources"`
+	Tolerations []corev1.Toleration         `yaml:"tolerations"`
+	Affinity    *corev1.Affinity            `yaml:"affinity"`
+	Labels      map[string]string           `yaml:"labels"`
+}
+
+func TestLoadService_DecodesKubernetesTypes(t *testing.T) {
+	root := makeTempProject(t, "cmd/svc", "base", "")
+	chdirTo(t, root)
+	setOverlay(t, map[string]string{"cmd/svc": `
+resources:
+  requests: {cpu: 50m, memory: 64Mi}
+  limits: {cpu: "1", nvidia.com/gpu: 1}
+tolerations:
+  - {key: dedicated, operator: Equal, value: agents, effect: NoSchedule, tolerationSeconds: 30}
+affinity:
+  nodeAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - {key: kubernetes.io/arch, operator: In, values: [arm64]}
+labels:
+  App.Example.com/Name: kora
+`})
+
+	cfg, err := LoadService[kubeConfig]("cmd/svc", "production")
+	if err != nil {
+		t.Fatalf("LoadService() error: %v", err)
+	}
+	if got := cfg.Resources.Requests.Cpu().String(); got != "50m" {
+		t.Errorf("requests.cpu = %s, want 50m", got)
+	}
+	if got := cfg.Resources.Limits[corev1.ResourceName("nvidia.com/gpu")]; got.Value() != 1 {
+		t.Errorf("limits[nvidia.com/gpu] = %s, want 1", got.String())
+	}
+	if tol := cfg.Tolerations[0]; tol.Key != "dedicated" || tol.TolerationSeconds == nil || *tol.TolerationSeconds != 30 {
+		t.Errorf("toleration = %+v", tol)
+	}
+	expr := cfg.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions[0]
+	if expr.Key != "kubernetes.io/arch" || expr.Values[0] != "arm64" {
+		t.Errorf("match expression = %+v", expr)
+	}
+	if cfg.Labels["App.Example.com/Name"] != "kora" {
+		t.Errorf("labels = %v, want the dotted, mixed-case key kept", cfg.Labels)
+	}
+}
+
+func TestLoadService_RejectsUnknownKubernetesField(t *testing.T) {
+	root := makeTempProject(t, "cmd/svc", "base", "")
+	chdirTo(t, root)
+	setOverlay(t, map[string]string{"cmd/svc": "resources:\n  limit: {cpu: 1}\n"})
+
+	if _, err := LoadService[kubeConfig]("cmd/svc", "production"); err == nil {
+		t.Fatal("LoadService() expected an error for resources.limit, got nil")
 	}
 }

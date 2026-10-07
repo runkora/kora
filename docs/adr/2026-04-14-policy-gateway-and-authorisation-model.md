@@ -3,7 +3,7 @@
 **Status:** Accepted (revised 2026-04-13)  
 **Date:** 2026-04-14
 **Deciders:** Engineering Team  
-**Technical Story:** Defining how authorisation policy is expressed, stored, distributed, and enforced across all principal-to-resource communication on the Orbit platform — and establishing the architectural model that governs what every principal is permitted to do.
+**Technical Story:** Defining how authorisation policy is expressed, stored, distributed, and enforced across all principal-to-resource communication on the kora platform — and establishing the architectural model that governs what every principal is permitted to do.
 
 ---
 
@@ -17,7 +17,7 @@ What none of those ADRs define is the authorisation model itself: how policy is 
 
 The platform currently has no enforcement layer. Any authenticated principal can reach any resource. The inference gateway explicitly defers model access control pending a policy engine. MCP servers apply no access control. The delegation model carries scope claims that are structurally defined but never evaluated.
 
-Orbit serves two classes of principal-to-resource communication that policy must govern:
+kora serves two classes of principal-to-resource communication that policy must govern:
 
 1. **North-south traffic** — agents, humans, and service accounts calling platform services from outside or at the platform boundary
 2. **East-west traffic** — service-to-service calls within the platform
@@ -63,7 +63,7 @@ We need to define:
 * **Runtime control:** Operational policy changes must not require deployments. Tenant administrators must be able to grant and revoke access through an API.
 * **Latency:** Policy evaluation must not add a synchronous network hop to every request. OPA must be co-located at every enforcement point — either as a process-embedded library or as a loopback sidecar — so that evaluation is a local operation with no cross-pod call.
 * **Consistency:** The same evaluation model applies to all resource types and at all enforcement points. No per-service policy implementations.
-* **Go-native:** The Layer 2 PDP is a standard Go library (`internal/platform/policy`) using existing Orbit platform packages. Evaluation logic is `go test`-able.
+* **Go-native:** The Layer 2 PDP is a standard Go library (`internal/platform/policy`) using existing kora platform packages. Evaluation logic is `go test`-able.
 * **Delegation correctness:** The scope intersection invariant from [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) is enforced in the platform layer, not left to individual service implementations.
 
 ---
@@ -72,7 +72,7 @@ We need to define:
 
 ### Option A: In-application policy enforcement per service
 
-**Description:** Each owned service implements its own authorisation logic using Orbit-provided middleware. Policy rules are either hardcoded or loaded from a shared configuration store per service.
+**Description:** Each owned service implements its own authorisation logic using kora-provided middleware. Policy rules are either hardcoded or loaded from a shared configuration store per service.
 
 **Pros:**
 - No additional infrastructure components
@@ -233,7 +233,7 @@ Where:
 
 All three are in the same OAuth scope format. The intersection is evaluated entirely in OPA — for a delegated request, the required scope must be covered by at least one scope from each of the three sets.
 
-**Delegation token scope mapping (relationship to [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)):** [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) defines the delegation token structure as: `sub` = the human who delegated, `act.sub` = the agent acting on their behalf, `scope` = space-separated scopes granted for this session (RFC 6749). The ext_authz service splits `scope` on spaces to produce `delegation_scopes[]` for the OPA input. The `sub` claim provides the `delegator_id` used to look up the human's grants in the bundle. `act.sub` is the agent — already identified as `principal.id` from the platform token. [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) should be updated to specify that delegation token scopes use the Orbit OAuth scope vocabulary format defined here.
+**Delegation token scope mapping (relationship to [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)):** [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) defines the delegation token structure as: `sub` = the human who delegated, `act.sub` = the agent acting on their behalf, `scope` = space-separated scopes granted for this session (RFC 6749). The ext_authz service splits `scope` on spaces to produce `delegation_scopes[]` for the OPA input. The `sub` claim provides the `delegator_id` used to look up the human's grants in the bundle. `act.sub` is the agent — already identified as `principal.id` from the platform token. [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md) should be updated to specify that delegation token scopes use the kora OAuth scope vocabulary format defined here.
 
 When no delegation token is present (autonomous agent), only the agent's own grants apply.
 
@@ -282,7 +282,7 @@ When no delegation token is present (autonomous agent), only the agent's own gra
 
 ### Policy Service (PAP)
 
-The Policy Service is a standard Orbit Go service (following [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md)) with:
+The Policy Service is a standard kora Go service (following [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md)) with:
 
 - A Postgres-backed grant store — grants are scoped by `tenant_id` and are never shared across tenants
 - A scope vocabulary registry — the finite set of valid OAuth scope strings and their hierarchy metadata
@@ -646,7 +646,7 @@ PATs currently inherit the issuing principal's full permission set. A follow-on 
 
 ### Audit Event Spine (Deferred)
 
-Every policy decision (allow and deny) should be published as a structured event to the Orbit event spine. The event contract — principal, resource, outcome, reason, timestamp, delegation context — should be defined alongside the spine infrastructure ADR.
+Every policy decision (allow and deny) should be published as a structured event to the kora event spine. The event contract — principal, resource, outcome, reason, timestamp, delegation context — should be defined alongside the spine infrastructure ADR.
 
 ---
 
@@ -661,7 +661,7 @@ Handles infrequent administrative writes and bundle compilation. Owns the databa
 An importable Go library, not a binary. Embedded directly in owned service processes (inference-gateway, MCP servers, etc.). Owns the OPA lifecycle for Layer 2: bundle polling, compilation, caching, and in-process evaluation. No network hop on the evaluation hot path.
 
 **OPA Envoy Plugin (sidecar injection) — Layer 1 PDP**  
-A purpose-built OPA image injected as a sidecar into agent pods via an Istio injection template. Not an Orbit-owned binary. Polls the policy-service bundle endpoint directly. Serves the ext_authz gRPC protocol on `localhost:9191`.
+A purpose-built OPA image injected as a sidecar into agent pods via an Istio injection template. Not a kora-owned binary. Polls the policy-service bundle endpoint directly. Serves the ext_authz gRPC protocol on `localhost:9191`.
 
 **Policy Gateway (`cmd/policy-gateway`) — utility HTTP API only**  
 A thin HTTP server wrapping `internal/platform/policy`. Provides `POST /v1/policy/check` and `POST /v1/policy/query` for non-Go consumers (frontend BFF, future non-Go services, operator tooling). Not a dependency of any Go platform service for enforcement. Not on any hot path.
@@ -711,7 +711,7 @@ charts/orbit-platform/templates/
 - `github.com/envoyproxy/go-control-plane/envoy v1.37.0` — already in `go.mod`; provides `envoy.service.auth.v3` proto types
 - `github.com/jackc/pgx/v5` — already in `go.mod`; Postgres grant store
 - `internal/platform/token` — `token.Verifier` and `PlatformClaims` for token validation and principal extraction
-- `internal/platform/logging`, `internal/platform/observability` — standard Orbit logging and OTel integration
+- `internal/platform/logging`, `internal/platform/observability` — standard kora logging and OTel integration
 
 ### Migration Path
 
@@ -782,7 +782,7 @@ The **Delegation Intersection** invariant above is a *runtime* check: when a del
 
 It says nothing about grant **administration**. Today `POST /policy/grants` (and `PUT /policy/roles`) validate the principal type, check each scope against the vocabulary, and tenant-scope the write — but they never compare the requested scopes against the **caller's own** scopes. So any principal holding the coarse `platform:grants:write` scope can mint a grant — for any principal in its tenant, including itself — carrying **any** vocabulary scope. That is a privilege-escalation primitive: `platform:grants:write` is effectively "grant yourself anything."
 
-This gap was flagged in [orbit-mcp](2026-06-30-orbit-mcp.md) ("the platform's **missing** anti-escalation rule … fix is a separate future platform ADR") and is the blocker for exposing grant/role **write** tools to agents through the Orbit MCP — an agent must not be able to escalate itself by writing a grant.
+This gap was flagged in [orbit-mcp](2026-06-30-orbit-mcp.md) ("the platform's **missing** anti-escalation rule … fix is a separate future platform ADR") and is the blocker for exposing grant/role **write** tools to agents through the kora MCP — an agent must not be able to escalate itself by writing a grant.
 
 ### Decision
 
@@ -797,14 +797,14 @@ Enforce a **creation-time scope ceiling** on grant and role administration, as a
 
 ### Consequences
 
-- **Closes the escalation primitive** and makes grant/role **write** tools safe to expose to agents (the Orbit MCP `grants.create` / `roles.upsert` surface). Enforced once in the PAP, not re-implemented per client.
+- **Closes the escalation primitive** and makes grant/role **write** tools safe to expose to agents (the kora MCP `grants.create` / `roles.upsert` surface). Enforced once in the PAP, not re-implemented per client.
 - **A caller can no longer hand out a scope it does not itself hold** — by design. Tenant bootstrapping is unaffected: the OIDC admin role / bootstrap path already grants the broad scopes an admin then distributes (see the bootstrapping rule in the OPA bundle).
 - **Cost:** one effective-scopes read added to the grant/role write path (already cheap; the data is in the bundle/DB).
 - **The SYSTEM carve-out is a trust boundary.** SYSTEM tokens are platform-minted (not tenant-issued) and must stay tightly controlled — they always have been; this amendment makes that property load-bearing for anti-escalation.
 
 ### Implementation pointer
 
-In `internal/policyservice/api/service.go`, before persisting in `CreateGrant` (and the role upsert), when the caller is non-SYSTEM: load the caller's effective scopes (`EffectiveScopes`) and verify each requested scope with `policy.AnyScopeCovers` (`internal/platform/policy/hierarchy.go`); return a `403` naming the rejected scopes. The caller's principal type/id/roles come from the validated claims already on the context. Once shipped, the Orbit MCP grant/role write tools can be exposed safely.
+In `internal/policyservice/api/service.go`, before persisting in `CreateGrant` (and the role upsert), when the caller is non-SYSTEM: load the caller's effective scopes (`EffectiveScopes`) and verify each requested scope with `policy.AnyScopeCovers` (`internal/platform/policy/hierarchy.go`); return a `403` naming the rejected scopes. The caller's principal type/id/roles come from the validated claims already on the context. Once shipped, the kora MCP grant/role write tools can be exposed safely.
 
 ---
 

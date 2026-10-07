@@ -431,8 +431,8 @@ func TestStartRun_HappyPath(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework:  AgentFrameworkClaudeCode,
-		ToolScopes: []string{"shell"}, SystemPrompt: "be helpful",
+		Framework:               AgentFrameworkClaudeCode,
+		SystemPrompt:            "be helpful",
 		MaxConcurrentRunsPerPod: 5,
 	})
 
@@ -1093,8 +1093,9 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz,
+		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s,
 		RunServiceConfig{
+			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 			StaleRunTimeout:         time.Minute, // shorter than UpdatedAt back-dating in tests

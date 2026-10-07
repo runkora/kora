@@ -4,6 +4,7 @@ import {
   DashboardHeader,
   DashboardSidebar,
   MobileSidebarDrawer,
+  PageGutter,
   PermissionsProvider,
   SidebarBrandHeader,
   SidebarUserFooter,
@@ -28,6 +29,9 @@ import { getSession, isSessionValid } from '@orbit/server/session';
  *
  * On mobile (< md / 768 px), the fixed sidebar is hidden and replaced by a
  * slide-in `MobileSidebarDrawer` opened by the hamburger in `DashboardHeader`.
+ *
+ * `PageGutter` pads every page once (16px, fluid); pages and feature layouts
+ * set no outer padding of their own.
  *
  * `PermissionsProvider` fetches the principal's scope set from the BFF session
  * and provides it to all client components via React context (docs/adr/2026-04-14-frontend-policy-projection.md).
@@ -60,7 +64,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
             header={<DashboardHeader />}
             mobileDrawer={<MobileSidebarDrawer />}
           >
-            {children}
+            <PageGutter>{children}</PageGutter>
             {/* The agent builder opens over any dashboard route via ?agent=
                 (docs/adr/2026-07-17-agent-builder.md §1). useSearchParams
                 requires the Suspense boundary. */}

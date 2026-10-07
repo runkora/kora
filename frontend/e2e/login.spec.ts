@@ -113,11 +113,11 @@ test.describe('/login', () => {
   test('renders the email sign-in form', async ({ page }) => {
     await page.goto('/login');
 
-    // Terra Card heading: "Orbit"
-    await expect(page.getByRole('heading', { name: 'Orbit' })).toBeVisible();
+    // Terra Card heading: "kora"
+    await expect(page.getByRole('heading', { name: 'kora' })).toBeVisible();
 
     // Email input and submit button
-    const emailInput = page.getByLabel('Work email');
+    const emailInput = page.getByLabel('Email');
     await expect(emailInput).toBeVisible();
     await expect(emailInput).toHaveAttribute('type', 'email');
 
@@ -129,13 +129,13 @@ test.describe('/login', () => {
 
     await page.getByRole('button', { name: 'Continue' }).click();
 
-    await expect(page.getByText('Please enter your work email address.')).toBeVisible();
+    await expect(page.getByText('Please enter your email address.')).toBeVisible();
   });
 
   test('shows a validation error for an invalid email (no @)', async ({ page }) => {
     await page.goto('/login');
 
-    await page.getByLabel('Work email').fill('notanemail');
+    await page.getByLabel('Email').fill('notanemail');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(page.getByText('Please enter a valid email address.')).toBeVisible();
@@ -145,7 +145,7 @@ test.describe('/login', () => {
     await mockDiscover(page, 404);
     await page.goto('/login');
 
-    await page.getByLabel('Work email').fill('unknown@unknown.example.com');
+    await page.getByLabel('Email').fill('unknown@unknown.example.com');
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(
@@ -163,7 +163,7 @@ test.describe('/login', () => {
     await page.route('**/api/auth/discover*', (route: Route) => void route.abort());
     await page.goto('/login');
 
-    await page.getByLabel('Work email').fill(WORK_EMAIL);
+    await page.getByLabel('Email').fill(WORK_EMAIL);
     await page.getByRole('button', { name: 'Continue' }).click();
 
     await expect(
@@ -186,12 +186,12 @@ test.describe('/login', () => {
     await mockOidcDiscovery(page);
 
     await page.goto('/login');
-    await page.getByLabel('Work email').fill(WORK_EMAIL);
+    await page.getByLabel('Email').fill(WORK_EMAIL);
     await page.getByRole('button', { name: 'Continue' }).click();
 
     // Wait for the full-page navigation to the mocked IdP.  Verifying the
     // exact OIDC query parameters is an oidc-client-ts implementation detail
-    // outside Orbit's responsibility.
+    // outside kora's responsibility.
     await page.waitForURL(/^https?:\/\/idp\.acme\.example\.com\//, { timeout: 10_000 });
     expect(page.url()).toContain('idp.acme.example.com');
   });

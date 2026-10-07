@@ -8,12 +8,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 func newTestOpenCodeRunner() *OpenCodeRunner {
 	return NewOpenCodeRunner(OpenCodeRunnerConfig{
 		InferenceGatewayURL: "http://inference-gateway.test",
+		Model:               "anthropic/claude-sonnet-5",
 		Logger:              logging.NewLoggerWithOutput(io.Discard),
 		RunID:               "test-run",
 	})
@@ -71,30 +73,38 @@ func TestOpenCodeHandleSessionUpdate_ThinkingDelta(t *testing.T) {
 	}
 }
 
-func TestOpenCodeHandleSessionUpdate_ToolCall_PendingEmitsToolUse(t *testing.T) {
+// The pending update names the tool but carries no arguments yet (bash sends
+// only {"cwd":...}), so tool_use waits for the first update with the real input.
+func TestOpenCodeHandleSessionUpdate_ToolCall_ToolUseCarriesTheRealInput(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
 	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
 		"sessionUpdate": "tool_call",
 		"toolCallId":    "tc-1",
-		"title":         "edit",
+		"title":         "bash",
 		"status":        "pending",
-		"rawInput":      map[string]string{"path": "foo.go"},
+		"rawInput":      map[string]string{"cwd": "/workspaces/run-1"},
+	}))
+	select {
+	case ev := <-r.events:
+		t.Fatalf("pending emitted %q, want nothing until the input is known", ev.Type)
+	default:
+	}
+	r.handleSessionUpdate(t.Context(), makeSessionUpdateParams(map[string]any{
+		"sessionUpdate": "tool_call_update",
+		"toolCallId":    "tc-1",
+		"title":         "echo a",
+		"status":        "in_progress",
+		"rawInput":      map[string]string{"command": "echo a", "cwd": "/workspaces/run-1"},
 	}))
 
 	evs := drainN(t, r.events, 1)
-	if evs[0].Type != EventTypeToolUse {
-		t.Errorf("event type = %q, want tool_use", evs[0].Type)
-	}
 	var payload ToolUsePayload
 	if err := json.Unmarshal(evs[0].Payload, &payload); err != nil {
 		t.Fatalf("unmarshal tool_use: %v", err)
 	}
-	if payload.ID != "tc-1" {
-		t.Errorf("ID = %q, want tc-1", payload.ID)
-	}
-	if payload.Name != "edit" {
-		t.Errorf("Name = %q, want edit", payload.Name)
+	if payload.ID != "tc-1" || payload.Name != "bash" || !strings.Contains(string(payload.Input), `"command":"echo a"`) {
+		t.Errorf("tool_use = %+v, want name bash and the command as input", payload)
 	}
 }
 
@@ -240,7 +250,7 @@ func TestOpenCodeDispatchResponse_PromptResponseEmitsMessageComplete(t *testing.
 
 	promptID := int64(7)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	r.dispatchResponse(t.Context(), openCodeMsg{
@@ -306,7 +316,7 @@ func TestOpenCodeReadLoop_SingleTurn(t *testing.T) {
 
 	promptID := int64(3)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -342,7 +352,7 @@ func TestOpenCodeReadLoop_ToolCallSequence(t *testing.T) {
 
 	promptID := int64(5)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -375,7 +385,7 @@ func TestOpenCodeReadLoop_ToolCallReplaySequence(t *testing.T) {
 
 	promptID := int64(5)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := strings.Join([]string{
@@ -433,13 +443,12 @@ func TestOpenCodeHandleSessionUpdate_ToolCall_CompletedMissingTitleAndInput(t *t
 	if usePayload.ID != "tc-no-meta" {
 		t.Errorf("tool_use ID = %q, want tc-no-meta", usePayload.ID)
 	}
-	// Name and Input are empty/null when the update omits title/rawInput — documented behaviour.
+	// Name is empty and Input an empty object when the update omits title/rawInput.
 	if usePayload.Name != "" {
 		t.Errorf("tool_use Name = %q, want empty (title absent in replay update)", usePayload.Name)
 	}
-	// rawInput absent → json.RawMessage zero value (nil) → marshals to JSON null.
-	if s := string(usePayload.Input); s != "" && s != "null" {
-		t.Errorf("tool_use Input = %s, want null/empty (rawInput absent in replay update)", usePayload.Input)
+	if s := string(usePayload.Input); s != "{}" {
+		t.Errorf("tool_use Input = %s, want {} (rawInput absent in replay update)", usePayload.Input)
 	}
 	if evs[1].Type != EventTypeToolResult {
 		t.Errorf("event[1] type = %q, want tool_result", evs[1].Type)
@@ -453,7 +462,7 @@ func TestOpenCodeReadLoop_MultiTurn(t *testing.T) {
 
 	turn1ID := int64(3)
 	r.pendingMu.Lock()
-	r.pendingPromptID = turn1ID
+	r.pendingPrompts[turn1ID] = true
 	r.pendingMu.Unlock()
 
 	go r.readLoop(t.Context(), pr)
@@ -490,7 +499,7 @@ func TestOpenCodeReadLoop_MultiTurn(t *testing.T) {
 	// The read loop is now blocked at pr.Read() so setting pendingPromptID is safe.
 	turn2ID := int64(4)
 	r.pendingMu.Lock()
-	r.pendingPromptID = turn2ID
+	r.pendingPrompts[turn2ID] = true
 	r.pendingMu.Unlock()
 
 	// Turn 2: delta + prompt response.
@@ -522,7 +531,7 @@ func TestOpenCodeReadLoop_MalformedLinesSkipped(t *testing.T) {
 
 	promptID := int64(1)
 	r.pendingMu.Lock()
-	r.pendingPromptID = promptID
+	r.pendingPrompts[promptID] = true
 	r.pendingMu.Unlock()
 
 	fixture := "not-json\n" +
@@ -538,37 +547,104 @@ func TestOpenCodeReadLoop_MalformedLinesSkipped(t *testing.T) {
 	}
 }
 
-// ── writeOpenCodeConfig ───────────────────────────────────────────────────────
+// ── openCodeConfig ───────────────────────────────────────────────────────
 
+// The agent type's model, through the gateway, must be the only model OpenCode
+// can pick: with none configured it chose its own hosted free model.
 func TestOpenCodeWriteConfig(t *testing.T) {
 	r := newTestOpenCodeRunner()
 
-	dir := t.TempDir()
-	if err := r.writeOpenCodeConfig(dir); err != nil {
-		t.Fatalf("writeOpenCodeConfig: %v", err)
-	}
-
-	data, err := os.ReadFile(filepath.Join(dir, "opencode.json"))
+	data, err := r.openCodeConfig(t.TempDir())
 	if err != nil {
-		t.Fatalf("read opencode.json: %v", err)
+		t.Fatalf("openCodeConfig: %v", err)
 	}
 
-	var cfg map[string]any
+	var cfg struct {
+		EnabledProviders []string          `json:"enabled_providers"`
+		Model            string            `json:"model"`
+		SmallModel       string            `json:"small_model"`
+		Share            string            `json:"share"`
+		Autoupdate       *bool             `json:"autoupdate"`
+		Permission       map[string]string `json:"permission"`
+		Provider         map[string]struct {
+			NPM     string            `json:"npm"`
+			Options map[string]string `json:"options"`
+			Models  map[string]any    `json:"models"`
+		} `json:"provider"`
+	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("unmarshal opencode.json: %v", err)
+		t.Fatalf("unmarshal config: %v", err)
 	}
 
-	provider, _ := cfg["provider"].(map[string]any)
-	anthropic, _ := provider["anthropic"].(map[string]any)
-	options, _ := anthropic["options"].(map[string]any)
-	if options["baseURL"] != "http://inference-gateway.test/run/test-run" {
-		t.Errorf("anthropic baseURL = %v, want http://inference-gateway.test/run/test-run", options["baseURL"])
+	if len(cfg.EnabledProviders) != 1 || cfg.EnabledProviders[0] != "orbit" {
+		t.Errorf("enabled_providers = %v, want [orbit]", cfg.EnabledProviders)
 	}
+	const want = "orbit/anthropic/claude-sonnet-5"
+	if cfg.Model != want || cfg.SmallModel != want {
+		t.Errorf("model, small_model = %q, %q; want %q for both", cfg.Model, cfg.SmallModel, want)
+	}
+	if len(cfg.Provider) != 1 {
+		t.Fatalf("providers = %v, want only orbit", cfg.Provider)
+	}
+	orbit := cfg.Provider["orbit"]
+	if orbit.NPM != "@ai-sdk/openai-compatible" {
+		t.Errorf("npm = %q, want @ai-sdk/openai-compatible", orbit.NPM)
+	}
+	if got := orbit.Options["baseURL"]; got != "http://inference-gateway.test/run/test-run/v1" {
+		t.Errorf("baseURL = %q, want http://inference-gateway.test/run/test-run/v1", got)
+	}
+	if _, ok := orbit.Models["anthropic/claude-sonnet-5"]; !ok || len(orbit.Models) != 1 {
+		t.Errorf("models = %v, want only anthropic/claude-sonnet-5", orbit.Models)
+	}
+	if cfg.Share != "disabled" || cfg.Autoupdate == nil || *cfg.Autoupdate {
+		t.Errorf("share, autoupdate = %q, %v; want disabled, false", cfg.Share, cfg.Autoupdate)
+	}
+	for _, tool := range []string{"webfetch", "websearch"} {
+		if cfg.Permission[tool] != "deny" {
+			t.Errorf("permission[%s] = %q, want deny", tool, cfg.Permission[tool])
+		}
+	}
+}
 
-	openai, _ := provider["openai"].(map[string]any)
-	openaiOptions, _ := openai["options"].(map[string]any)
-	if openaiOptions["baseURL"] != "http://inference-gateway.test/run/test-run" {
-		t.Errorf("openai baseURL = %v, want http://inference-gateway.test/run/test-run", openaiOptions["baseURL"])
+// OpenCode's ACP has no system prompt field, so the agent's prompt, which
+// carries the capabilities brief, reaches it as an instructions file.
+func TestOpenCodeWriteConfig_SystemPromptAsInstructions(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		prompt string
+	}{
+		{name: "with a prompt", prompt: "# Runtime environment (kora)\n## Workspace"},
+		{name: "without one"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newTestOpenCodeRunner()
+			r.cfg.SystemPrompt = tc.prompt
+			dir := t.TempDir()
+			data, err := r.openCodeConfig(dir)
+			if err != nil {
+				t.Fatalf("openCodeConfig: %v", err)
+			}
+			var cfg struct {
+				Instructions []string `json:"instructions"`
+			}
+			if err := json.Unmarshal(data, &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if tc.prompt == "" {
+				if len(cfg.Instructions) != 0 {
+					t.Errorf("instructions = %v, want none", cfg.Instructions)
+				}
+				return
+			}
+			// Outside the workspace, in the config dir the agent can read but not change.
+			if len(cfg.Instructions) != 1 || filepath.Dir(cfg.Instructions[0]) != runfs.ConfigDir(dir) {
+				t.Fatalf("instructions = %v, want one file in %s", cfg.Instructions, runfs.ConfigDir(dir))
+			}
+			got, err := os.ReadFile(cfg.Instructions[0])
+			if err != nil || string(got) != tc.prompt {
+				t.Errorf("instructions file = %q, %v; want the system prompt", got, err)
+			}
+		})
 	}
 }
 
@@ -587,6 +663,56 @@ func TestOpenCodeStartValidatesGatewayURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "InferenceGatewayURL") {
 		t.Errorf("error = %q, want mention of InferenceGatewayURL", err.Error())
+	}
+}
+
+// The config and offline switches travel in the environment, after anything
+// ExtraEnv sets, so a workspace file or a caller's value cannot override them.
+func TestOpenCodePrepareEnv(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.cfg.ExtraEnv = []string{"OPENCODE_DISABLE_MODELS_FETCH=0", "WORKSPACE=/w"}
+	workDir := t.TempDir()
+
+	env, err := r.prepare(workDir)
+	if err != nil {
+		t.Fatalf("prepare: %v", err)
+	}
+	got := map[string]string{}
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		got[k] = v
+	}
+	for _, e := range openCodeOfflineEnv {
+		k, v, _ := strings.Cut(e, "=")
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if got["WORKSPACE"] != "/w" {
+		t.Errorf("WORKSPACE = %q, want the ExtraEnv value", got["WORKSPACE"])
+	}
+	want, err := r.openCodeConfig(workDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["OPENCODE_CONFIG_CONTENT"] != string(want) {
+		t.Errorf("OPENCODE_CONFIG_CONTENT = %q, want the run config", got["OPENCODE_CONFIG_CONTENT"])
+	}
+	if got["HOME"] != runfs.HomeDir(workDir) {
+		t.Errorf("HOME = %q, want %q", got["HOME"], runfs.HomeDir(workDir))
+	}
+	if _, err := os.Stat(filepath.Join(workDir, "opencode.json")); !os.IsNotExist(err) {
+		t.Errorf("opencode.json in the workspace: %v; want none", err)
+	}
+}
+
+func TestOpenCodeStartRequiresModel(t *testing.T) {
+	r := newTestOpenCodeRunner()
+	r.cfg.Model = ""
+
+	err := r.Start(t.Context(), t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "model") {
+		t.Fatalf("Start error = %v, want one naming the model", err)
 	}
 }
 
@@ -639,33 +765,20 @@ func TestOpenCode_NewResumeRunner_CarriesSessionID(t *testing.T) {
 
 // ── Resume tool event ordering (session/load replay) ─────────────────────────
 
-// TestOpenCodeEmit_ReplayingFlagSuppressesEphemeralEvents verifies that setting
-// r.replaying suppresses text_delta and thinking_delta events (which could fill
-// the channel buffer before drain() starts) while allowing durable events
-// (tool_use, tool_result) through.
-func TestOpenCodeEmit_ReplayingFlagSuppressesEphemeralEvents(t *testing.T) {
+// session/load replays history that was recorded when it happened, so nothing
+// is emitted during replay; re-emitting it would duplicate every call.
+func TestOpenCodeEmit_ReplayEmitsNothing(t *testing.T) {
 	r := newTestOpenCodeRunner()
 	r.replaying.Store(true)
 
-	// Ephemeral — should be dropped.
 	r.emit(EventTypeTextDelta, TextDeltaPayload{Delta: "hello"})
-	r.emit(EventTypeThinkingDelta, ThinkingDeltaPayload{Delta: "thinking"})
 	r.emit(EventTypeMessageStop, nil)
-
-	// Durable — must pass through.
 	r.emit(EventTypeToolUse, ToolUsePayload{ID: "tc-1", Name: "shell"})
 	r.emit(EventTypeToolResult, ToolResultPayload{ToolUseID: "tc-1", Content: "ok"})
 
-	evs := drainN(t, r.events, 2)
-	if evs[0].Type != EventTypeToolUse {
-		t.Errorf("event[0] = %q, want tool_use", evs[0].Type)
-	}
-	if evs[1].Type != EventTypeToolResult {
-		t.Errorf("event[1] = %q, want tool_result", evs[1].Type)
-	}
 	select {
 	case ev := <-r.events:
-		t.Errorf("unexpected third event %q — ephemeral events should be suppressed during replay", ev.Type)
+		t.Errorf("replay emitted %q, want nothing", ev.Type)
 	default:
 	}
 }
@@ -792,7 +905,7 @@ func TestOpenCodeDispatchResponse_ErrorEmitsRunError(t *testing.T) {
 	r.stdin = nopWriteCloser{} // dispatchResponse calls r.stdin.Close() on error
 	id := int64(42)
 	r.pendingMu.Lock()
-	r.pendingPromptID = id
+	r.pendingPrompts[id] = true
 	r.pendingMu.Unlock()
 
 	r.dispatchResponse(t.Context(), openCodeMsg{
@@ -829,8 +942,6 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 		},
 	})
 	r.handleSessionUpdate(t.Context(), params)
-	// Drain the tool_use so we can inspect the tool_result below.
-	drainN(t, r.events, 1)
 
 	params = mustMarshal(map[string]any{
 		"update": map[string]any{
@@ -844,7 +955,7 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 	})
 	r.handleSessionUpdate(t.Context(), params)
 
-	ev := <-r.events
+	ev := drainN(t, r.events, 2)[1]
 	if ev.Type != EventTypeToolResult {
 		t.Fatalf("event type = %q, want tool_result", ev.Type)
 	}
@@ -854,5 +965,22 @@ func TestOpenCodeSessionUpdate_ToolCallCompletedUnquotesOutput(t *testing.T) {
 	}
 	if payload.Content != "file contents here" {
 		t.Errorf("content = %q, want 'file contents here' (no extra quotes)", payload.Content)
+	}
+}
+
+// A writable global config dir makes OpenCode install a package from npm at start.
+func TestLockOpenCodeGlobalConfig(t *testing.T) {
+	workDir := t.TempDir()
+	for range 2 { // a resumed run locks the same dir again
+		if err := lockOpenCodeGlobalConfig(workDir); err != nil {
+			t.Fatalf("lockOpenCodeGlobalConfig: %v", err)
+		}
+	}
+	info, err := os.Stat(filepath.Join(runfs.HomeDir(workDir), ".config", "opencode"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm&0o222 != 0 {
+		t.Errorf("global config dir mode = %v, want no write bits", perm)
 	}
 }

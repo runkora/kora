@@ -3,19 +3,19 @@
 **Status:** Accepted
 **Date:** 2026-03-25
 **Deciders:** Engineering Team
-**Technical Story:** [Design System PRD](../prd/design-system.md) — establishing a coherent visual foundation for the Orbit control plane UI.
+**Technical Story:** [Design System PRD](../prd/design-system.md) — establishing a coherent visual foundation for the kora control plane UI.
 
 ---
 
 ## Context
 
-Orbit's frontend is a bare Next.js scaffold. The only styling in `globals.css` is two hardcoded color variables (`--background`, `--foreground`) and a system font fallback. The single page (`page.tsx`) uses arbitrary Tailwind utility classes directly (`bg-gray-950`, `border-gray-800`, `text-green-400`) with no token abstraction, no reusable components, and no defined visual identity system.
+kora's frontend is a bare Next.js scaffold. The only styling in `globals.css` is two hardcoded color variables (`--background`, `--foreground`) and a system font fallback. The single page (`page.tsx`) uses arbitrary Tailwind utility classes directly (`bg-gray-950`, `border-gray-800`, `text-green-400`) with no token abstraction, no reusable components, and no defined visual identity system.
 
 Building product features on top of this state produces compounding problems: every new UI element requires designing from scratch, global visual changes require a full codebase search-and-replace, and AI-assisted generation (Forge, v0.dev) produces output that doesn't integrate cleanly because there is no token vocabulary or component API for the tools to reason about.
 
 ### Background
 
-Orbit positions itself as a production-grade control plane for autonomous agents — the nervous system that coordinates distributed AI agents through identity, policy, and event infrastructure. The UI must reflect that character: technical, signal-oriented, and authoritative. An ad-hoc, inconsistent interface works against that positioning and erodes operator trust.
+kora positions itself as a production-grade control plane for autonomous agents — the nervous system that coordinates distributed AI agents through identity, policy, and event infrastructure. The UI must reflect that character: technical, signal-oriented, and authoritative. An ad-hoc, inconsistent interface works against that positioning and erodes operator trust.
 
 The monorepo structure established in [monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) places the frontend at `frontend/` alongside the Go backend. The question is where a shared design system lives and how it is structured — whether inside the app, or as a separate workspace package.
 
@@ -32,7 +32,7 @@ We need a set of architectural decisions that establish:
 
 ### Goals
 
-- Establish a semantic design token system encoding Orbit's visual identity
+- Establish a semantic design token system encoding kora's visual identity
 - Deliver reusable, on-brand UI components importable as `import { Button } from "@orbit/terra"`
 - Enable isolated design system development with no dependency on the Next.js application
 - Provide a well-documented token and component vocabulary that AI tooling can reliably consume
@@ -75,7 +75,7 @@ We need a set of architectural decisions that establish:
 - No isolation: working on the design system requires the Next.js app to be running
 - Storybook requires significant extra configuration plumbing into the app's build, mixing concerns
 - Components are coupled to the application's development cycle and cannot be versioned or shared independently
-- If a second Orbit surface (admin panel, embedded dashboard) ever needs the same components, extraction is expensive after the fact
+- If a second kora surface (admin panel, embedded dashboard) ever needs the same components, extraction is expensive after the fact
 - No clean boundary between "design system code" and "application code" — the line blurs over time
 
 ### Option 2: Fully-managed component library (Material UI / Mantine)
@@ -90,7 +90,7 @@ We need a set of architectural decisions that establish:
 **Cons:**
 - Both MUI and Mantine ship CSS-in-JS or pre-built CSS that conflicts with Tailwind v4's utility-first model and produces bloated output
 - Components are opaque dependencies — customizing beyond theme tokens requires overriding a third-party theming system, not editing owned code
-- The visual defaults of both libraries are strongly consumer-app oriented; achieving Orbit's technical, dark, minimal aesthetic requires deep style overrides
+- The visual defaults of both libraries are strongly consumer-app oriented; achieving kora's technical, dark, minimal aesthetic requires deep style overrides
 - Lock-in: migrating away later is significantly more expensive than starting with owned components
 - AI tooling generates better Tailwind-native output for shadcn/Radix patterns than for MUI/Mantine
 
@@ -123,7 +123,7 @@ We need a set of architectural decisions that establish:
 - Token-based design means global visual changes are one-line edits to `tokens.css`
 - AI tooling (Forge, v0.dev) has strong knowledge of shadcn and Radix component patterns, producing reliable on-brand output when given the token vocabulary
 - Storybook in `frontend/src/packages/terra/` serves as a living design system documentation environment with zero app-code contamination
-- Path is open to sharing the package with additional future Orbit surfaces
+- Path is open to sharing the package with additional future kora surfaces
 
 **Cons:**
 - Upfront monorepo setup cost: `pnpm-workspace.yaml`, workspace-scoped `package.json`, TypeScript config for the package
@@ -167,7 +167,7 @@ Token categories:
 - **Typography**: `--font-sans`, `--font-mono`
 - **Border radius**: `--radius-sm`, `--radius-md`, `--radius-lg`, `--radius-full`
 
-**Why semantic names over generic role names:** Generic names (`--color-success`, `--color-warning`) are interchangeable with any product. Orbit has a specific operational model — agents are healthy, degraded, or errored; policies are enforced or blocked; executions are pending or idle. These are domain concepts, not generic states. Semantic status tokens encode that vocabulary directly into the design system, making component intent legible and making AI-generated code more accurately on-brand.
+**Why semantic names over generic role names:** Generic names (`--color-success`, `--color-warning`) are interchangeable with any product. kora has a specific operational model — agents are healthy, degraded, or errored; policies are enforced or blocked; executions are pending or idle. These are domain concepts, not generic states. Semantic status tokens encode that vocabulary directly into the design system, making component intent legible and making AI-generated code more accurately on-brand.
 
 **Cross-package Tailwind scanning:** The frontend's `globals.css` must include an `@source "../packages/terra/src"` directive so Tailwind v4 scans the package's component files for utility class usage when generating the CSS bundle. Without this, classes used in `frontend/src/packages/terra/` components that are not also used in `frontend/` source would be missing from the output.
 
@@ -233,10 +233,10 @@ All public component exports are re-exported from `frontend/src/packages/terra/s
 - **Complete design system isolation**: Components can be built, reviewed, and documented without the Next.js app. Design system work and application work can proceed independently.
 - **Immediate workspace feedback loop**: The `workspace:*` protocol means no publish cycle — editing a component in `frontend/src/packages/terra/` is reflected in the frontend on the next save.
 - **Owned component code**: All component logic is editable source under our control. Customizing a component is editing a file, not fighting a third-party theme override system.
-- **Token-driven maintainability**: Changing Orbit's accent color (currently orange/amber at `--terra-accent-hue: 26`) is a one-line change in `tokens/tokens.css`. No component file needs to be touched.
+- **Token-driven maintainability**: Changing kora's accent color (currently orange/amber at `--terra-accent-hue: 26`) is a one-line change in `tokens/tokens.css`. No component file needs to be touched.
 - **AI-friendly surface**: The combination of a documented token vocabulary, a known component API (shadcn/Radix conventions), and Storybook stories gives AI tools (Forge, v0.dev) the context needed to generate accurate, on-brand output.
 - **Accessibility by default**: Radix UI handles focus management, ARIA, keyboard navigation, and portal rendering — the hardest parts of accessible component development — without requiring implementation per component.
-- **Extensible to future Orbit surfaces**: If a second Orbit UI surface is built, it can consume `@orbit/terra` via the same workspace protocol with no additional infrastructure.
+- **Extensible to future kora surfaces**: If a second kora UI surface is built, it can consume `@orbit/terra` via the same workspace protocol with no additional infrastructure.
 
 ### Negative
 
@@ -389,7 +389,7 @@ See [Design System PRD — Timeline and Milestones](../prd/design-system.md#time
 
 ## Notes
 
-The name **Terra** (`@orbit/terra`) was chosen for its alignment with the Orbit metaphor: the destination of every orbital descent. Terra firma — solid ground — is what the design system provides: the stable, reliable visual foundation that every product surface lands on.
+The name **Terra** (`@orbit/terra`) was chosen for its alignment with the kora metaphor: the destination of every orbital descent. Terra firma — solid ground — is what the design system provides: the stable, reliable visual foundation that every product surface lands on.
 
 The key discipline this ADR enforces is the **token boundary**: no component should ever reference a literal color value or arbitrary Tailwind shade. That discipline is what makes the system maintainable at scale. A component library where individual components reference `gray-900` instead of `surface` is not a design system — it is a collection of styled components with no shared visual contract.
 

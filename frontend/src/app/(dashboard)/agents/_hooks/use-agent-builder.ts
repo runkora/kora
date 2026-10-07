@@ -11,8 +11,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { hasScopeCovering } from '@orbit/lib/permissions';
+import { deriveSlug, slugInput } from '@orbit/lib/slug';
 import { usePermissions } from '../../_components/permissions-provider';
 import type {
+  AgentEnvironment,
   AgentFramework,
   AgentIdentityMode,
   AgentTypeDraft,
@@ -24,7 +26,6 @@ import type {
   McpCatalogTool,
   McpServer,
   ModelObject,
-  ToolScopeDefinition,
 } from '@orbit/shared/api';
 import {
   createAgentType,
@@ -35,10 +36,15 @@ import {
   fetchEnvironments,
   fetchMcpCatalogue,
   fetchModels,
-  fetchToolScopes,
   updateDraft,
 } from '../_services/agents-api';
-import type { AgentTypeRow } from '../_types';
+import {
+  loopGuardrailErrors,
+  loopGuardrailsPayload,
+  loopGuardrailValues,
+  type AgentTypeRow,
+  type LoopGuardrailValues,
+} from '../_types';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -65,7 +71,7 @@ export const BUILDER_STEPS = [
   },
 ] as const;
 
-export interface BuilderFields {
+export interface BuilderFields extends LoopGuardrailValues {
   name: string;
   slug: string;
   slugEdited: boolean;
@@ -76,12 +82,12 @@ export interface BuilderFields {
   framework: AgentFramework;
   modelId: string;
   mcpTools: string[];
-  toolScopes: string[];
   connectors: Connector[];
   connectivityMode: ConnectivityMode;
   /** Textarea form — one host per line (connectivity-fields hostsToText). */
   connectivityHosts: string;
-  environmentId: string;
+  /** Attached environments. One is the default. Empty means the kora base image. */
+  environments: AgentEnvironment[];
   agentBudgetOn: boolean;
   agentBudgetUsd: string;
   agentBudgetCadence: 'weekly' | 'monthly';
@@ -93,13 +99,12 @@ export interface BuilderFields {
 
 export interface BuilderCatalogues {
   models: ModelObject[];
-  toolScopes: ToolScopeDefinition[];
   connections: ConnectionCatalogEntry[];
   mcpServers: McpServer[];
   mcpCatalog: McpCatalogTool[];
   environments: Environment[];
-  status: Record<'models' | 'toolScopes' | 'connections' | 'mcp' | 'environments', LoadStatus>;
-  errors: Partial<Record<'models' | 'toolScopes' | 'connections' | 'mcp' | 'environments', string>>;
+  status: Record<'models' | 'connections' | 'mcp' | 'environments', LoadStatus>;
+  errors: Partial<Record<'models' | 'connections' | 'mcp' | 'environments', string>>;
 }
 
 /**
@@ -133,6 +138,7 @@ export interface AgentBuilderStateShape {
   setField: <K extends keyof BuilderFields>(key: K, value: BuilderFields[K]) => void;
   setName: (name: string) => void;
   setSlug: (slug: string) => void;
+  normaliseSlug: () => void;
   goTo: (step: number) => void;
   next: () => void;
   back: () => void;
@@ -150,11 +156,10 @@ const EMPTY_FIELDS: BuilderFields = {
   framework: 'claude-code',
   modelId: '',
   mcpTools: [],
-  toolScopes: [],
   connectors: [],
   connectivityMode: 'none',
   connectivityHosts: '',
-  environmentId: '',
+  environments: [],
   agentBudgetOn: false,
   agentBudgetUsd: '500.00',
   agentBudgetCadence: 'monthly',
@@ -162,18 +167,25 @@ const EMPTY_FIELDS: BuilderFields = {
   runBudgetUsd: '5.00',
   capacityOn: false,
   capacity: '10',
+  ...loopGuardrailValues(undefined),
 };
 
 /** The draft payload: a partial create request plus builder-only resume state. */
 type DraftPayload = Partial<CreateAgentTypeRequest> & { _builder?: { step?: number } };
 
-const SLUG_RE = /^[a-z0-9-]+$/;
+/**
+ * The API's agent slug rule. The slug names the agent's Kubernetes Service, so
+ * it is a DNS-1035 label, and it stops at 52 characters so the StatefulSet's
+ * revision label fits in 63.
+ */
+export const AGENT_SLUG_RULE =
+  'Use lowercase letters, digits and hyphens. Start with a letter, end with a letter or digit, and keep it to 52 characters or fewer.';
+export const SLUG_RE = /^[a-z]([a-z0-9-]{0,50}[a-z0-9])?$/;
+export const AGENT_SLUG_MAX_LENGTH = 52;
 
-export function deriveSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
+/** The slug field's value as someone types it, cut to the agent limit. */
+export function agentSlugInput(value: string): string {
+  return slugInput(value).slice(0, AGENT_SLUG_MAX_LENGTH);
 }
 
 // ── Payload mapping ───────────────────────────────────────────────────────────
@@ -200,16 +212,17 @@ function toPayload(fields: BuilderFields, step: number): DraftPayload {
     framework: fields.framework,
     model_id: fields.modelId || undefined,
     mcp_tools: fields.mcpTools,
-    tool_scopes: fields.toolScopes,
     connectors: fields.connectors,
     connectivity: { mode: fields.connectivityMode, hosts },
-    environment_id: fields.environmentId || undefined,
+    environments: fields.environments,
     _builder: { step },
   };
   if (Object.keys(budget).length > 0) payload.budget = budget;
   if (fields.capacityOn && Number(fields.capacity) > 0) {
     payload.max_concurrent_runs_per_pod = Number(fields.capacity);
   }
+  const guardrails = loopGuardrailsPayload(fields);
+  if (Object.keys(guardrails).length > 0) payload.guardrails = guardrails;
   return payload;
 }
 
@@ -218,18 +231,17 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     ...EMPTY_FIELDS,
     name: payload.name ?? '',
     slug: payload.slug ?? '',
-    slugEdited: (payload.slug ?? '') !== deriveSlug(payload.name ?? ''),
+    slugEdited: (payload.slug ?? '') !== deriveSlug(payload.name ?? '', AGENT_SLUG_MAX_LENGTH),
     description: payload.description ?? '',
     identityMode: payload.identity_mode ?? 'autonomous',
     systemPrompt: payload.system_prompt ?? '',
     framework: payload.framework ?? 'claude-code',
     modelId: payload.model_id ?? '',
     mcpTools: payload.mcp_tools ?? [],
-    toolScopes: payload.tool_scopes ?? [],
     connectors: payload.connectors ?? [],
     connectivityMode: payload.connectivity?.mode ?? 'none',
     connectivityHosts: (payload.connectivity?.hosts ?? []).join('\n'),
-    environmentId: payload.environment_id ?? '',
+    environments: payload.environments ?? [],
     agentBudgetOn: (payload.budget?.limit_usd ?? 0) > 0,
     agentBudgetUsd: payload.budget?.limit_usd ? String(payload.budget.limit_usd) : '500.00',
     agentBudgetCadence: payload.budget?.reset_cadence === 'weekly' ? 'weekly' : 'monthly',
@@ -241,6 +253,7 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     capacity: payload.max_concurrent_runs_per_pod
       ? String(payload.max_concurrent_runs_per_pod)
       : '10',
+    ...loopGuardrailValues(payload.guardrails),
   };
   const step = Math.min(Math.max(payload._builder?.step ?? 0, 0), BUILDER_STEPS.length - 1);
   return { fields, step };
@@ -272,7 +285,6 @@ export function useAgentBuilder(params: {
   const [created, setCreated] = useState<AgentTypeRow | null>(null);
   const [catalogues, setCatalogues] = useState<BuilderCatalogues>({
     models: [],
-    toolScopes: [],
     connections: [],
     mcpServers: [],
     mcpCatalog: [],
@@ -281,7 +293,6 @@ export function useAgentBuilder(params: {
     // initial status is 'loading' rather than set from inside the effect.
     status: {
       models: 'loading',
-      toolScopes: 'loading',
       connections: 'loading',
       mcp: 'loading',
       environments: 'loading',
@@ -358,14 +369,6 @@ export function useAgentBuilder(params: {
         models: data,
         status: { ...c.status, models: error ? 'error' : 'success' },
         errors: { ...c.errors, models: error ?? undefined },
-      })),
-    );
-    void fetchToolScopes().then(({ data, error }) =>
-      setCatalogues((c) => ({
-        ...c,
-        toolScopes: data,
-        status: { ...c.status, toolScopes: error ? 'error' : 'success' },
-        errors: { ...c.errors, toolScopes: error ?? undefined },
       })),
     );
     void fetchConnections().then(({ data, error }) =>
@@ -501,7 +504,11 @@ export function useAgentBuilder(params: {
 
   const setName = useCallback(
     (name: string) => {
-      setFields((f) => ({ ...f, name, slug: f.slugEdited ? f.slug : deriveSlug(name) }));
+      setFields((f) => ({
+        ...f,
+        name,
+        slug: f.slugEdited ? f.slug : deriveSlug(name, AGENT_SLUG_MAX_LENGTH),
+      }));
       scheduleSave();
     },
     [scheduleSave],
@@ -509,11 +516,19 @@ export function useAgentBuilder(params: {
 
   const setSlug = useCallback(
     (slug: string) => {
-      setFields((f) => ({ ...f, slug: deriveSlug(slug) || slug.toLowerCase(), slugEdited: true }));
+      setFields((f) => ({ ...f, slug: agentSlugInput(slug), slugEdited: true }));
       scheduleSave();
     },
     [scheduleSave],
   );
+
+  // Typing keeps leading and trailing hyphens; leaving the field trims them.
+  const normaliseSlug = useCallback(() => {
+    const slug = deriveSlug(fields.slug, AGENT_SLUG_MAX_LENGTH);
+    if (slug === fields.slug) return;
+    setFields((f) => ({ ...f, slug }));
+    scheduleSave();
+  }, [fields.slug, scheduleSave]);
 
   // ── Navigation + validity ──────────────────────────────────────────────────
   const stepValid = useMemo(() => {
@@ -526,8 +541,7 @@ export function useAgentBuilder(params: {
   const stepHint = useMemo((): string | undefined => {
     if (step === 0) {
       if (fields.name.trim().length <= 1) return 'Enter a display name of at least two characters.';
-      if (!SLUG_RE.test(fields.slug))
-        return 'Slug must be lowercase letters, digits, and hyphens only.';
+      if (!SLUG_RE.test(fields.slug)) return AGENT_SLUG_RULE;
     }
     if (step === 1) {
       if (!fields.modelId) return 'Choose a model before continuing.';
@@ -542,8 +556,10 @@ export function useAgentBuilder(params: {
     if (!SLUG_RE.test(fields.slug)) blockers.push('Identity needs a valid slug.');
     if (!fields.modelId) blockers.push('Behaviour needs a model.');
     if (!fields.systemPrompt.trim()) blockers.push('Behaviour needs system instructions.');
+    if (Object.keys(loopGuardrailErrors(fields)).length > 0)
+      blockers.push('Guardrails need valid loop thresholds.');
     return blockers;
-  }, [fields.name, fields.slug, fields.modelId, fields.systemPrompt]);
+  }, [fields]);
 
   const goTo = useCallback(
     (target: number) => {
@@ -607,6 +623,7 @@ export function useAgentBuilder(params: {
     setField,
     setName,
     setSlug,
+    normaliseSlug,
     goTo,
     next,
     back,

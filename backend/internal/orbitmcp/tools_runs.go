@@ -18,11 +18,22 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 	base := b.Agents + "/api/v1/runs"
 
 	addTool(srv, "runs.list",
-		"List agent runs in the caller's tenant, optionally filtered to one agent type.",
+		"List agent runs in the caller's tenant, newest first, optionally filtered to one agent type or to run states. "+
+			"Paginated: it returns at most `limit` runs plus `next_cursor`. Fetch the next page by calling again with "+
+			"cursor = the previous next_cursor and the same filters; next_cursor is null on the last page.",
 		func(ctx context.Context, a listRunsArgs) (*sdk.CallToolResult, error) {
-			var q url.Values
+			q := url.Values{}
 			if a.AgentTypeID != "" {
-				q = url.Values{"agent_type_id": {a.AgentTypeID}}
+				q.Set("agent_type_id", a.AgentTypeID)
+			}
+			if a.State != "" {
+				q.Set("state", a.State)
+			}
+			if a.Cursor != "" {
+				q.Set("cursor", a.Cursor)
+			}
+			if a.Limit != 0 {
+				q.Set("limit", strconv.Itoa(a.Limit))
 			}
 			return jsonResult(jc.Get(ctx, callerToken(ctx), base, q))
 		})
@@ -101,6 +112,9 @@ type runIDArgs struct {
 
 type listRunsArgs struct {
 	AgentTypeID string `json:"agent_type_id,omitempty" jsonschema:"filter runs to this agent type id (optional) — call the agents.list tool for ids"`
+	State       string `json:"state,omitempty" jsonschema:"comma-separated run states to filter to (optional), e.g. pending,starting,active,completing"`
+	Cursor      string `json:"cursor,omitempty" jsonschema:"the previous response's next_cursor, to fetch the next page"`
+	Limit       int    `json:"limit,omitempty" jsonschema:"max runs to return (default 50, max 200)"`
 }
 
 type startRunArgs struct {

@@ -3,17 +3,17 @@
 **Status:** Superseded by [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md)
 **Date:** 2026-03-05
 **Deciders:** Engineering Team
-**Technical Story:** Defining how Orbit agents make governed, audited calls to external services (MSGraph, Salesforce, cloud provider APIs, and arbitrary SaaS) without credentials ever existing inside the agent process.
+**Technical Story:** Defining how kora agents make governed, audited calls to external services (MSGraph, Salesforce, cloud provider APIs, and arbitrary SaaS) without credentials ever existing inside the agent process.
 
-> **Superseded (2026-06-06).** The `/proxy/{service-name}/{path}` reverse-proxy model in this ADR required agents to rewrite their outbound calls to an Orbit URL — which unmodified tools (`git`, `gh`, `aws`, SDKs) will not do — and made the gateway a faithful reverse proxy for every external API shape. It is replaced by [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md), which uses transparent egress interception (the sandbox rejoins the mesh; identity-proxy + OPA on its `SIDECAR_OUTBOUND` path) routed through a per-tenant, TLS-terminating egress gateway that mints credentials just-in-time. The credential-isolation, scope-intersection, and audit *goals* below remain valid; the proxy *mechanism* does not.
+> **Superseded (2026-06-06).** The `/proxy/{service-name}/{path}` reverse-proxy model in this ADR required agents to rewrite their outbound calls to a kora URL — which unmodified tools (`git`, `gh`, `aws`, SDKs) will not do — and made the gateway a faithful reverse proxy for every external API shape. It is replaced by [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md), which uses transparent egress interception (the sandbox rejoins the mesh; identity-proxy + OPA on its `SIDECAR_OUTBOUND` path) routed through a per-tenant, TLS-terminating egress gateway that mints credentials just-in-time. The credential-isolation, scope-intersection, and audit *goals* below remain valid; the proxy *mechanism* does not.
 
 ---
 
 ## Context
 
-Orbit agents frequently need to interact with external services — Microsoft Graph, Salesforce, AWS APIs, third-party SaaS, and any other HTTP service that exists outside the Orbit platform boundary. These external services have their own identity models: OAuth2 bearer tokens, API keys, AWS SigV4 signatures, GCP service account tokens. None of them understand Orbit's principal model, SPIFFE SVIDs, or platform session tokens.
+kora agents frequently need to interact with external services — Microsoft Graph, Salesforce, AWS APIs, third-party SaaS, and any other HTTP service that exists outside the kora platform boundary. These external services have their own identity models: OAuth2 bearer tokens, API keys, AWS SigV4 signatures, GCP service account tokens. None of them understand kora's principal model, SPIFFE SVIDs, or platform session tokens.
 
-At the same time, Orbit's security model requires that:
+At the same time, kora's security model requires that:
 
 - Credentials must never exist inside agent processes — a compromised agent workload must not be able to exfiltrate live external credentials
 - Every external call an agent makes must be auditable at the request level, not just at the "credential was issued" level
@@ -26,7 +26,7 @@ At the same time, Orbit's security model requires that:
 
 These ADRs collectively define how identity and policy work inside the platform. What they do not address is how agents reach services outside the platform. This is the outbound leg of the platform — there is no existing component that owns the external call path.
 
-The platform already governs the inbound leg (Edge Envoy handling north-south ingress) and the east-west leg (Envoy sidecars handling internal service-to-service traffic). The outbound leg — agent to external service — requires a dedicated component that understands both Orbit's internal identity model and the credential models of external services.
+The platform already governs the inbound leg (Edge Envoy handling north-south ingress) and the east-west leg (Envoy sidecars handling internal service-to-service traffic). The outbound leg — agent to external service — requires a dedicated component that understands both kora's internal identity model and the credential models of external services.
 
 ### Problem Statement
 
@@ -45,14 +45,14 @@ We need to define:
 - **Request-level auditability**: Every external API call an agent makes must be recorded, not just credential issuance events
 - **Delegated credential derivation**: When an agent acts on behalf of a human, the credential used must be derived from the human's delegated authority via OAuth2 OBO, scoped to the intersection of delegation grant and human consent
 - **Adapter extensibility**: The gateway must support multiple external credential models (OAuth2 OBO, client credentials, API keys, cloud provider tokens) without requiring a new gateway deployment per credential type
-- **Multi-tenant isolation**: External service registrations and credentials are tenant-scoped — different tenants using the same Orbit instance have completely isolated credential stores
+- **Multi-tenant isolation**: External service registrations and credentials are tenant-scoped — different tenants using the same kora instance have completely isolated credential stores
 - **Consistency with platform architecture**: The outbound path must integrate cleanly with the existing Envoy-based policy enforcement model established in [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)
 
 ### Non-Goals
 
 - Implementing a full API management layer (rate limiting, response transformation, schema validation — out of scope for initial implementation)
 - Supporting non-HTTP protocols in the primary proxy model (gRPC, WebSocket — addressed as an escape hatch exception only)
-- Building a credential store — Orbit relies on an external secret manager (Vault or equivalent) for credential storage; the gateway is a consumer of stored credentials, not a vault itself
+- Building a credential store — kora relies on an external secret manager (Vault or equivalent) for credential storage; the gateway is a consumer of stored credentials, not a vault itself
 - Per-endpoint policy rules as the default model — path-based OPA rules are available but not the primary enforcement mechanism
 
 ---
@@ -60,10 +60,10 @@ We need to define:
 ## Decision Drivers
 
 * **Security isolation**: Credentials must not be extractable from agent processes — proxy model enforces this structurally, not by convention
-* **Auditability**: Orbit must be able to answer "what did this agent call on MSGraph at 14:32?" not just "was a credential issued to this agent?"
+* **Auditability**: kora must be able to answer "what did this agent call on MSGraph at 14:32?" not just "was a credential issued to this agent?"
 * **Delegated authority correctness**: OBO token scopes must be the strict intersection of delegation grant, human Entra session scopes, and service registration limits — no ambient authority
 * **Consistency with sidecar model**: Agents are plain HTTP clients; infrastructure handles credentials. This extends naturally to outbound calls.
-* **Multi-tenant correctness**: Tenants share an Orbit instance but must have fully isolated credential configurations — per-tenant registration is mandatory
+* **Multi-tenant correctness**: Tenants share a kora instance but must have fully isolated credential configurations — per-tenant registration is mandatory
 * **Operational simplicity**: Adding a new external service should require registering one service entry, not configuring per-endpoint rules
 
 ---
@@ -72,7 +72,7 @@ We need to define:
 
 ### Option 1: Credential Issuance (Agent Holds Credential Directly)
 
-**Description:** The agent requests a short-lived, scoped credential from Orbit before calling an external service. Orbit issues the token (an OBO token, API key, etc.). The agent holds it in memory and makes the external call directly, not through Orbit.
+**Description:** The agent requests a short-lived, scoped credential from kora before calling an external service. kora issues the token (an OBO token, API key, etc.). The agent holds it in memory and makes the external call directly, not through kora.
 
 **Pros:**
 - No proxy latency — agent calls the external service directly
@@ -82,23 +82,23 @@ We need to define:
 
 **Cons:**
 - Raw credentials exist inside the agent process — compromised agent process can exfiltrate them
-- Orbit loses request-level visibility — only "credential was issued" is auditable, not what the agent called with it
+- kora loses request-level visibility — only "credential was issued" is auditable, not what the agent called with it
 - Policy can only be applied at issuance time, not at call time — agent could call any path on the external service with an issued token
 - Delegation grant scope enforcement relies entirely on correct token scoping at issuance — no secondary enforcement point
 
 ### Option 2: Credential-Aware Outbound Proxy (Primary)
 
-**Description:** The agent calls Orbit's outbound gateway at `/proxy/{service-name}/{**path}`. The gateway resolves the target service, selects the appropriate credential adapter, constructs a correctly scoped external credential, injects it on the outbound leg, makes the real HTTP call to the external service, and streams the response back. The agent never holds or sees the external credential.
+**Description:** The agent calls kora's outbound gateway at `/proxy/{service-name}/{**path}`. The gateway resolves the target service, selects the appropriate credential adapter, constructs a correctly scoped external credential, injects it on the outbound leg, makes the real HTTP call to the external service, and streams the response back. The agent never holds or sees the external credential.
 
 **Pros:**
 - Credentials never exist in the agent process — structural isolation, not convention
-- Full request-level audit trail — Orbit sees every external API call including method, path, and response status
+- Full request-level audit trail — kora sees every external API call including method, path, and response status
 - Policy enforcement at call time via Envoy (can this agent call this service?) and credential-level (OBO token carries only permitted scopes)
 - Consistent with the platform's sidecar philosophy — agent is a plain HTTP client, infrastructure handles credentials
 - One service registration covers all endpoints on that service — operational overhead is per-service, not per-endpoint
 
 **Cons:**
-- Orbit becomes a dependency in the outbound call path — gateway availability affects agent ability to call external services
+- kora becomes a dependency in the outbound call path — gateway availability affects agent ability to call external services
 - Adds latency (one additional network hop through the gateway)
 - Streaming, binary, and WebSocket responses are harder to proxy faithfully
 
@@ -107,18 +107,18 @@ We need to define:
 **Description:** The agent pod is configured with `HTTP_PROXY=https://orbit-gateway`. All outbound HTTP calls transparently route through the credential gateway via the standard HTTP CONNECT tunnelling protocol. The agent calls `https://graph.microsoft.com` directly; the proxy intercepts and injects credentials.
 
 **Pros:**
-- Completely transparent to the agent — no Orbit-specific URLs required
+- Completely transparent to the agent — no kora-specific URLs required
 - Every HTTP client in every language respects `HTTP_PROXY` automatically
 - No SDK dependency
 
 **Cons:**
 - HTTPS CONNECT creates an opaque tunnel — the gateway sees only the destination hostname, not the request body or headers, unless TLS is terminated
-- TLS interception requires the agent to trust Orbit's CA for all intercepted destinations — adds certificate trust complexity to every agent pod
+- TLS interception requires the agent to trust kora's CA for all intercepted destinations — adds certificate trust complexity to every agent pod
 - Harder to enforce per-call policy without full TLS visibility
 
 ### Option 4: DNS Aliasing
 
-**Description:** Orbit overrides DNS for registered external services inside the pod (via CoreDNS or `/etc/hosts` injection). `graph.microsoft.com` resolves to the Orbit gateway's cluster IP. The agent calls the real URL; DNS silently redirects it.
+**Description:** kora overrides DNS for registered external services inside the pod (via CoreDNS or `/etc/hosts` injection). `graph.microsoft.com` resolves to the kora gateway's cluster IP. The agent calls the real URL; DNS silently redirects it.
 
 **Pros:**
 - Agent calls the real URL with no awareness of redirection
@@ -131,16 +131,16 @@ We need to define:
 
 ### Option 5: SDK / Client Library Wrapper
 
-**Description:** Orbit provides a thin language-specific client library (`orbit-go`, `orbit-py`). The agent calls `orbit.MSGraph().Get("/v1.0/me/messages")`. The library routes through the explicit proxy URL internally.
+**Description:** kora provides a thin language-specific client library (`orbit-go`, `orbit-py`). The agent calls `orbit.MSGraph().Get("/v1.0/me/messages")`. The library routes through the explicit proxy URL internally.
 
 **Pros:**
 - Best developer experience — feels like calling the service natively
-- Orbit controls routing and can evolve it without agent code changes
+- kora controls routing and can evolve it without agent code changes
 
 **Cons:**
 - Every supported language requires a maintained SDK
 - Agents running third-party tooling (off-the-shelf MCP servers, open-source tools) cannot use the SDK and gain no benefit
-- Ties agent code to Orbit's library versioning
+- Ties agent code to kora's library versioning
 
 ---
 
@@ -201,11 +201,11 @@ GET  /proxy/salesforce/services/data/v57.0/sobjects/Account
 GET  /proxy/s3/my-bucket/path/to/object
 ```
 
-Orbit registers services, not individual endpoints. Registering `msgraph` maps the prefix `/proxy/msgraph/` to `https://graph.microsoft.com`. All paths under that prefix are forwarded verbatim. Adding new MSGraph endpoints requires no changes to Orbit — the agent simply uses them via the existing prefix.
+kora registers services, not individual endpoints. Registering `msgraph` maps the prefix `/proxy/msgraph/` to `https://graph.microsoft.com`. All paths under that prefix are forwarded verbatim. Adding new MSGraph endpoints requires no changes to kora — the agent simply uses them via the existing prefix.
 
 ### External Service Registration
 
-Service registrations are **per-tenant**. Tenants in a multi-tenant Orbit instance have different Entra tenants, different OAuth app registrations, and different credential configurations. Sharing registrations across tenants would violate tenant isolation.
+Service registrations are **per-tenant**. Tenants in a multi-tenant kora instance have different Entra tenants, different OAuth app registrations, and different credential configurations. Sharing registrations across tenants would violate tenant isolation.
 
 Each service registration contains:
 
@@ -249,7 +249,7 @@ The adapter:
 
 **Adapter 2 — OAuth2 Client Credentials**
 
-For services where the agent acts as itself (not on behalf of a human). Orbit holds a client ID and secret, requests a token directly using the client credentials grant.
+For services where the agent acts as itself (not on behalf of a human). kora holds a client ID and secret, requests a token directly using the client credentials grant.
 
 **Adapter 3 — API Key Injection**
 
@@ -280,7 +280,7 @@ If the computed intersection is empty (e.g. the human's Entra session does not h
 
 ### Human Entra Token Retention
 
-For OBO flows to work, Orbit must retain the human's upstream Entra access token at login time. [unified-identity-model](2026-03-05-unified-identity-model.md)'s session model is extended: when a human authenticates via Entra, Orbit retains the Entra access token and refresh token in the session store alongside the platform session token. These are stored encrypted, referenced by principal ID, and are never returned in API responses — they are used exclusively by the credential gateway's OBO adapter.
+For OBO flows to work, kora must retain the human's upstream Entra access token at login time. [unified-identity-model](2026-03-05-unified-identity-model.md)'s session model is extended: when a human authenticates via Entra, kora retains the Entra access token and refresh token in the session store alongside the platform session token. These are stored encrypted, referenced by principal ID, and are never returned in API responses — they are used exclusively by the credential gateway's OBO adapter.
 
 Entra access tokens are short-lived. The gateway uses the retained refresh token to obtain a fresh Entra access token before performing the OBO exchange if the stored access token has expired.
 
@@ -303,9 +303,9 @@ Policy enforcement for outbound calls operates at two levels:
 
 **Level 1 — Gateway access (Envoy / OPA)**: Can this agent's principal call this registered external service at all? This is evaluated by OPA at the Edge Envoy layer before the request reaches the gateway. A 403 here prevents any credential construction.
 
-**Level 2 — Credential scope (default)**: The OBO token or client credential carries only the permitted scopes. The external service itself enforces path-level permissions using its own authorisation model. This is the default and preferred enforcement model — Orbit delegates path-level decisions to the external service's native authorisation.
+**Level 2 — Credential scope (default)**: The OBO token or client credential carries only the permitted scopes. The external service itself enforces path-level permissions using its own authorisation model. This is the default and preferred enforcement model — kora delegates path-level decisions to the external service's native authorisation.
 
-**Level 3 — Path-based OPA rules (exception)**: If a tenant requires Orbit to enforce specific path restrictions (e.g. allow `GET /proxy/msgraph/v1.0/me/messages` but deny `DELETE /proxy/msgraph/v1.0/me/messages/{id}`), this can be expressed as OPA policy rules evaluated at the Edge Envoy layer. This is an operational exception requiring explicit policy authoring and should not be the default approach.
+**Level 3 — Path-based OPA rules (exception)**: If a tenant requires kora to enforce specific path restrictions (e.g. allow `GET /proxy/msgraph/v1.0/me/messages` but deny `DELETE /proxy/msgraph/v1.0/me/messages/{id}`), this can be expressed as OPA policy rules evaluated at the Edge Envoy layer. This is an operational exception requiring explicit policy authoring and should not be the default approach.
 
 ---
 
@@ -314,7 +314,7 @@ Policy enforcement for outbound calls operates at two levels:
 ### Positive
 
 - **Structural credential isolation**: Agent processes never hold live external credentials. Compromise of an agent workload cannot yield extractable external service tokens.
-- **Request-level auditability**: Orbit has complete visibility into every external API call — method, service, path, response status, principal, and delegation chain — not just credential issuance events.
+- **Request-level auditability**: kora has complete visibility into every external API call — method, service, path, response status, principal, and delegation chain — not just credential issuance events.
 - **Delegated authority correctness**: The scope intersection enforcement at the OBO adapter layer means delegated authority is mathematically bounded. Over-privilege at the external service level is structurally prevented.
 - **Agent simplicity**: Agents remain plain HTTP clients. No credential management, no token refresh logic, no adapter-specific SDK required for governed external calls.
 - **Adapter reuse**: One OBO adapter implementation covers all Entra-backed services. Adding MSGraph, SharePoint, and Teams requires three service registrations, not three adapter implementations.
@@ -325,11 +325,11 @@ Policy enforcement for outbound calls operates at two levels:
 - **Gateway availability dependency**: The credential-aware outbound gateway is in the critical path for all agent-to-external-service calls. Gateway downtime or degradation directly impacts agent capability.
 - **Additional network hop**: Proxying through the gateway adds latency compared to direct external calls. The magnitude depends on gateway proximity and connection reuse.
 - **Streaming and binary complexity**: Proxying streaming responses faithfully requires the gateway to avoid buffering large payloads — this requires careful implementation and is the primary driver for the credential issuance escape hatch.
-- **Entra token custody**: Orbit now holds live external Entra access and refresh tokens on behalf of human users. This increases the value of the session store as a target and requires careful encryption and access controls.
+- **Entra token custody**: kora now holds live external Entra access and refresh tokens on behalf of human users. This increases the value of the session store as a target and requires careful encryption and access controls.
 
 ### Neutral
 
-- **Agents are aware they call through Orbit**: With explicit proxy URLs, agents know they are making governed calls through the platform. This is architecturally honest — the agent is making a governed, audited external call — but it is a different mental model from calling external services directly.
+- **Agents are aware they call through kora**: With explicit proxy URLs, agents know they are making governed calls through the platform. This is architecturally honest — the agent is making a governed, audited external call — but it is a different mental model from calling external services directly.
 - **Service registration is per-tenant operational overhead**: Each tenant must register the external services their agents use. This is intentional for tenant isolation but requires an operator workflow for service registration management.
 - **Path-based policy is available but not encouraged**: The OPA layer can enforce path-level restrictions on external calls, but credential-level enforcement is the preferred and default model. Teams that need path-level rules must author and maintain OPA policies explicitly.
 
@@ -339,7 +339,7 @@ Policy enforcement for outbound calls operates at two levels:
 
 ### Gateway Service
 
-The Credential-Aware Outbound Gateway is a standalone platform service deployed in the Orbit control plane. It is not a sidecar — it runs as a dedicated service that the Edge Envoy forwards to for routes matching `/proxy/{service-name}/`.
+The Credential-Aware Outbound Gateway is a standalone platform service deployed in the kora control plane. It is not a sidecar — it runs as a dedicated service that the Edge Envoy forwards to for routes matching `/proxy/{service-name}/`.
 
 The gateway exposes:
 - `{METHOD} /proxy/{service-name}/{**path}` — primary proxy endpoint (all HTTP methods)
@@ -408,11 +408,11 @@ The following traces a complete end-to-end request through the gateway using the
 
 ### Scenario
 
-Sarah is a user on an Orbit tenant. Her Entra account has consented to `Mail.Read` and `Calendars.Read` for Orbit's OAuth app registration. The tenant has `msgraph` registered as an external service. Sarah asks an email summarisation agent to "summarise my unread emails from this morning".
+Sarah is a user on a kora tenant. Her Entra account has consented to `Mail.Read` and `Calendars.Read` for kora's OAuth app registration. The tenant has `msgraph` registered as an external service. Sarah asks an email summarisation agent to "summarise my unread emails from this morning".
 
-### Step 1 — Sarah logs into Orbit
+### Step 1 — Sarah logs into kora
 
-Sarah authenticates via Entra ([unified-identity-model](2026-03-05-unified-identity-model.md)). Orbit performs two actions:
+Sarah authenticates via Entra ([unified-identity-model](2026-03-05-unified-identity-model.md)). kora performs two actions:
 
 1. Issues Sarah a platform session token — a short-lived JWT carrying her `Principal` (`type: HUMAN`, `id: principal-sarah-xyz`)
 2. Retains her Entra access token and refresh token in the session store, encrypted, keyed by her principal ID, alongside the scopes her Entra token carries (`Mail.Read`, `Calendars.Read`)
@@ -421,7 +421,7 @@ The Entra token is never returned to Sarah or any API caller — it is held excl
 
 ### Step 2 — Sarah delegates to the email agent
 
-Sarah's request triggers the email summarisation agent. Orbit creates a delegation grant ([agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)):
+Sarah's request triggers the email summarisation agent. kora creates a delegation grant ([agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)):
 
 ```
 delegator:  principal-sarah-xyz
@@ -501,7 +501,7 @@ grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer
 &requested_token_use=on_behalf_of
 ```
 
-Entra validates that Orbit's app registration is permitted to perform OBO, that Sarah consented to `Mail.Read`, and returns a new short-lived access token — issued for the Orbit app, on behalf of Sarah, scoped only to `Mail.Read`.
+Entra validates that kora's app registration is permitted to perform OBO, that Sarah consented to `Mail.Read`, and returns a new short-lived access token — issued for the kora app, on behalf of Sarah, scoped only to `Mail.Read`.
 
 ### Step 9 — Gateway injects credential and calls MSGraph
 
@@ -654,12 +654,12 @@ sequenceDiagram
 
 ## Notes
 
-The Credential-Aware Outbound Gateway completes the traffic topology for the Orbit platform:
+The Credential-Aware Outbound Gateway completes the traffic topology for the kora platform:
 
 - **Inbound (north-south)**: Edge Envoy handles ingress from external clients into the platform
 - **Internal (east-west)**: Envoy sidecars handle service-to-service traffic with mTLS and OPA policy enforcement
 - **Outbound**: The Credential-Aware Outbound Gateway handles agent-to-external-service calls with credential injection and full request-level auditability
 
-This component is the "motor function" of the platform nervous system — it is the mechanism by which agents take action in the world outside Orbit.
+This component is the "motor function" of the platform nervous system — it is the mechanism by which agents take action in the world outside kora.
 
 **Last Updated:** 2026-03-03

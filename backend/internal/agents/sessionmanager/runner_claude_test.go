@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -45,73 +44,6 @@ func drainN(t *testing.T, ch <-chan Event, n int) []Event {
 		evs = append(evs, ev)
 	}
 	return evs
-}
-
-// ── scopesToClaudeTools ───────────────────────────────────────────────────────
-
-// autoTools are always injected regardless of configured scopes.
-var autoTools = map[string]bool{
-	"LSP": true, "Monitor": true,
-	"CronCreate": true, "CronDelete": true, "CronList": true,
-	"ToolSearch": true, "Skill": true,
-}
-
-func TestScopesToClaudeTools_Empty(t *testing.T) {
-	got := scopesToClaudeTools(nil)
-	// Auto-scopes are always injected; empty selectable scopes still produce output.
-	if got == "default" {
-		t.Errorf("empty scopes = %q, want auto-scope tools (not default)", got)
-	}
-	for tool := range autoTools {
-		if !strings.Contains(got, tool) {
-			t.Errorf("auto tool %q missing from result %q", tool, got)
-		}
-	}
-}
-
-func TestScopesToClaudeTools_KnownScopes(t *testing.T) {
-	got := scopesToClaudeTools([]string{"shell", "filesystem"})
-	tools := strings.Split(got, ",")
-	// Expect selectable tools plus all auto tools.
-	wantTools := map[string]bool{
-		"Bash": true, "Read": true, "Write": true, "Edit": true,
-		"Glob": true, "Grep": true,
-	}
-	maps.Copy(wantTools, autoTools)
-	for _, tool := range tools {
-		if !wantTools[tool] {
-			t.Errorf("unexpected tool %q in result %q", tool, got)
-		}
-		delete(wantTools, tool)
-	}
-	for tool := range wantTools {
-		t.Errorf("missing expected tool %q in result %q", tool, got)
-	}
-}
-
-func TestScopesToClaudeTools_UnknownScopesIgnored(t *testing.T) {
-	got := scopesToClaudeTools([]string{"unknown-scope"})
-	// Unknown selectable scopes produce no extra tools; auto tools still present.
-	if got == "default" {
-		t.Errorf("unknown scope = %q, want auto-scope tools (not default)", got)
-	}
-	for tool := range autoTools {
-		if !strings.Contains(got, tool) {
-			t.Errorf("auto tool %q missing from result %q", tool, got)
-		}
-	}
-}
-
-func TestScopesToClaudeTools_NoDuplicates(t *testing.T) {
-	got := scopesToClaudeTools([]string{"shell", "shell"})
-	tools := strings.Split(got, ",")
-	seen := map[string]int{}
-	for _, tool := range tools {
-		seen[tool]++
-		if seen[tool] > 1 {
-			t.Errorf("duplicate tool %q in result %q", tool, got)
-		}
-	}
 }
 
 // ── handleStreamEvent ─────────────────────────────────────────────────────────
@@ -185,7 +117,7 @@ func TestHandleAssistant_ToolUse(t *testing.T) {
 			{Type: "tool_use", ID: "tu_1", Name: "Bash", Input: input},
 			{Type: "text", ID: "", Name: ""},
 		},
-	})
+	}, "")
 
 	evs := drainN(t, r.events, 1)
 	if evs[0].Type != EventTypeToolUse {
@@ -202,7 +134,7 @@ func TestHandleAssistant_ToolUse(t *testing.T) {
 
 func TestHandleAssistant_NilMessage(t *testing.T) {
 	r := newTestRunner()
-	r.handleAssistant(context.Background(), nil)
+	r.handleAssistant(context.Background(), nil, "")
 
 	select {
 	case <-r.events:
@@ -218,9 +150,9 @@ func TestHandleUser_ToolResult(t *testing.T) {
 
 	r.handleUser(&claudeMessage{
 		Content: []claudeContentItem{
-			{Type: "tool_result", ToolUseID: "tu_1", Content: "exit 0", IsError: false},
+			{Type: "tool_result", ToolUseID: "tu_1", Content: json.RawMessage(`"exit 0"`), IsError: false},
 		},
-	})
+	}, "")
 
 	evs := drainN(t, r.events, 1)
 	if evs[0].Type != EventTypeToolResult {
@@ -240,9 +172,9 @@ func TestHandleUser_ErrorResult(t *testing.T) {
 
 	r.handleUser(&claudeMessage{
 		Content: []claudeContentItem{
-			{Type: "tool_result", ToolUseID: "tu_2", Content: "permission denied", IsError: true},
+			{Type: "tool_result", ToolUseID: "tu_2", Content: json.RawMessage(`"permission denied"`), IsError: true},
 		},
-	})
+	}, "")
 
 	evs := drainN(t, r.events, 1)
 	var payload ToolResultPayload
@@ -256,7 +188,7 @@ func TestHandleUser_ErrorResult(t *testing.T) {
 
 func TestHandleUser_NilMessage(t *testing.T) {
 	r := newTestRunner()
-	r.handleUser(nil)
+	r.handleUser(nil, "")
 
 	select {
 	case <-r.events:
@@ -297,14 +229,15 @@ func TestDispatch_Result_EmitsMessageCompleteAndStop(t *testing.T) {
 	}
 }
 
-func TestDispatch_Result_EmptySuccessEmitsRunError(t *testing.T) {
+func TestDispatch_Result_EmptySuccessWithResultEmitsRunError(t *testing.T) {
 	r := newTestRunner()
-	// textBuf is empty — simulates Claude returning no text after inference errors.
+	// textBuf is empty and the result holds the API error Claude Code gave up on.
 
 	r.dispatch(context.Background(), claudeOutputWrapper{
 		Type:       "result",
 		Subtype:    "success",
 		StopReason: "stop_sequence",
+		Result:     "API Error: 502 bad gateway",
 	})
 
 	evs := drainN(t, r.events, 1)
@@ -317,6 +250,19 @@ func TestDispatch_Result_EmptySuccessEmitsRunError(t *testing.T) {
 	}
 	if payload.Code != "empty_response" {
 		t.Errorf("code = %q, want empty_response", payload.Code)
+	}
+}
+
+// An empty success with no result ends the turn normally, whatever the stop
+// reason. The session's empty-turn guard decides what follows.
+func TestDispatch_Result_EmptySuccessWithoutResultEndsTurn(t *testing.T) {
+	for _, stop := range []string{"end_turn", "stop_sequence"} {
+		r := newTestRunner()
+		r.dispatch(context.Background(), claudeOutputWrapper{Type: "result", Subtype: "success", StopReason: stop})
+		evs := drainN(t, r.events, 2)
+		if evs[0].Type != EventTypeMessageComplete || evs[1].Type != EventTypeMessageStop {
+			t.Errorf("stop_reason %q: events = %v, want message_complete then message_stop", stop, eventTypes(evs))
+		}
 	}
 }
 
@@ -755,5 +701,43 @@ func TestLogStderr_ScanError_IsLogged(t *testing.T) {
 	}
 	if !strings.Contains(log, "injected scan error") {
 		t.Errorf("expected error text in log; got: %s", log)
+	}
+}
+
+// Claude Code's background calls are off, OTLP export is left alone, and a
+// run's HOME still comes last.
+func TestClaudeBuildRunEnv_Offline(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{ExtraEnv: []string{"CLAUDE_CODE_ENABLE_TELEMETRY=1"}})
+	env := r.buildRunEnv([]string{"DISABLE_TELEMETRY=0", "HOME=/root"}, "/run/home", "/run/tmp")
+
+	got := map[string]string{}
+	for _, e := range env {
+		k, v, _ := strings.Cut(e, "=")
+		got[k] = v
+	}
+	for _, e := range claudeOfflineEnv {
+		k, v, _ := strings.Cut(e, "=")
+		if got[k] != v {
+			t.Errorf("%s = %q, want %q", k, got[k], v)
+		}
+	}
+	if _, ok := got["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"]; ok {
+		t.Error("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC is set; it would stop OTLP export")
+	}
+	if got["CLAUDE_CODE_ENABLE_TELEMETRY"] != "1" || got["HOME"] != "/run/home" {
+		t.Errorf("telemetry, HOME = %q, %q", got["CLAUDE_CODE_ENABLE_TELEMETRY"], got["HOME"])
+	}
+}
+
+// An interrupted empty turn emits nothing. The stop is recorded when the
+// process exits, and the empty-turn guard does not see a turn end.
+func TestDispatch_Result_InterruptedEmptyEndTurnEmitsNothing(t *testing.T) {
+	r := newTestRunner()
+	r.interrupted.Store(true)
+	r.dispatch(context.Background(), claudeOutputWrapper{Type: "result", Subtype: "success", StopReason: "end_turn"})
+	select {
+	case ev := <-r.events:
+		t.Errorf("unexpected event %q", ev.Type)
+	default:
 	}
 }

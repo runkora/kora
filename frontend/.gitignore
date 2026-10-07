@@ -38,3 +38,7 @@ next-env.d.ts
 # next.js app-router pages whose names collide with common ignore patterns
 # logs/ is a Next.js route, not a log-file directory
 !src/app/(dashboard)/model-gateway/logs/
+
+# next dev writes these when it detects an AI coding agent (AI_AGENT, CLAUDECODE and similar)
+/AGENTS.md
+/CLAUDE.md

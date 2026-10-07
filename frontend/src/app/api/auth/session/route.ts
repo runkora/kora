@@ -3,7 +3,7 @@
  *
  * POST — called by the OIDC callback page after `signinRedirectCallback()`.
  *        Accepts `{ id_token, tenant_id }`, forwards to the Go identity service
- *        with the `oidc_id_token` grant type, and seals the resulting Orbit
+ *        with the `oidc_id_token` grant type, and seals the resulting kora
  *        tokens into an HttpOnly iron-session cookie.
  *
  *        `tenant_id` is resolved upstream via Home Realm Discovery (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md)
@@ -40,7 +40,7 @@ import { getSession, isSessionValid } from '@orbit/server/session';
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
-/** Decoded Orbit JWT payload (unverified — trusted because it comes from our own backend). */
+/** Decoded kora JWT payload (unverified — trusted because it comes from our own backend). */
 interface OrbitJwtPayload {
   sub: string;
   exp: number;
@@ -121,7 +121,7 @@ async function fetchScopes(accessToken: string): Promise<string[]> {
   }
 }
 
-// ── POST — exchange id_token for Orbit session ────────────────────────────────
+// ── POST — exchange id_token for kora session ────────────────────────────────
 
 export async function POST(request: Request): Promise<Response> {
   let body: unknown;
@@ -195,7 +195,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ error: 'upstream_error' }, { status: 502 });
   }
 
-  // Decode the Orbit JWT to extract user identity claims.
+  // Decode the kora JWT to extract user identity claims.
   let claims: OrbitJwtPayload;
   try {
     claims = decodeJwtPayload(data.access_token);

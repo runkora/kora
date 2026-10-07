@@ -11,14 +11,13 @@ server:
   adminHTTPPort: 8086
   # Admin-API base path. Controller routes are registered RELATIVE to this
   # (e.g. "/connections"), so the absolute path is "/api/v1/connections",
-  # matching ReadRoutes() and the Orbit admin-API convention (cf. identity).
+  # matching ReadRoutes() and the kora admin-API convention (cf. identity).
   basePath: "/api/v1"
   shutdownTimeoutSecs: 30
 
+# The chart renders the identity and policy service URLs.
 policy:
-  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30
-  policyServiceInternalURL: "http://orbit-policy-service.orbit-system.svc"
 
 secrets:
   tenantCARoot: "/var/run/orbit/tenant-ca"

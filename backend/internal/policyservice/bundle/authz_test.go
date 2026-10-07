@@ -50,7 +50,7 @@ type bundleOpts struct {
 
 // compileAndPrepare compiles a real OPA bundle using the same compiler the
 // policy-service uses, then prepares it for in-process evaluation — identical
-// to how every Orbit service enforces policy at runtime.
+// to how every kora service enforces policy at runtime.
 func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 	t.Helper()
 

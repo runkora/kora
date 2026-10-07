@@ -48,15 +48,6 @@
  */
 @source "../packages/terra/src";
 
-/**
- * Wire the Geist fonts (injected by Next.js layout via CSS vars) into
- * the Terra font tokens so the design system picks them up automatically.
- */
-@theme inline {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-}
-
 [data-theme-switch='light'] {
   display: none;
 }
@@ -98,5 +89,23 @@ body {
   }
   50% {
     opacity: 0.4;
+  }
+}
+
+/**
+ * Account footer flyout — both panels fade in together, opacity only (no
+ * movement or scale). Closing is instant (no exit animation), so there is no
+ * corresponding "out" keyframe — the panels simply unmount. Applied via
+ * inline `style.animation` (see `sidebar-user-footer.tsx`), not a class —
+ * Terra components can't take a `className` outside the Terra package, and
+ * the reduced-motion check is done in JS there instead of a media query, so
+ * only the keyframe itself needs to live here.
+ */
+@keyframes account-flyout-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }

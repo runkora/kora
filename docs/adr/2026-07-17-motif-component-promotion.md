@@ -27,7 +27,7 @@ An audit of every other dashboard feature then found the demand that justifies p
 
 **Tier 2 (app-shared).** `EffectiveAccessPanel` and `ModelPicker` move from the agents feature to `src/components/`, with App/Shared stories.
 
-**Stays Tier 3.** `McpToolTree`, `ConnectionCards`, `PlatformToolsCard`, `EgressModeCards`, `EnvironmentCard`, `GuardrailsFields`, `FrameworkCards`, `PlannedLimits` speak agent vocabulary and keep their placement; they consume the promoted pieces. The tri-state collapsible picker anatomy is noted as a future Terra organism once a feature outside agents needs it. An `AvatarTile` (letter tile) is deferred; mcp-gateway's hand-rolled letter tile is the second vote for it.
+**Stays Tier 3.** `McpToolTree`, `ConnectionCards`, `EgressModeCards`, `EnvironmentCard`, `GuardrailsFields`, `FrameworkCards`, `PlannedLimits` speak agent vocabulary and keep their placement; they consume the promoted pieces. The tri-state collapsible picker anatomy is noted as a future Terra organism once a feature outside agents needs it. An `AvatarTile` (letter tile) is deferred; mcp-gateway's hand-rolled letter tile is the second vote for it.
 
 **Storybook** is part of the same change: new stories with autodocs for everything above, a `CodeBlock` story that was missing, and the preview backgrounds recomputed from the live tokens (`#060709` / `#101214`, derived from `--terra-bg-base: 13%`), replacing stale hexes in the config and 34 story files.
 

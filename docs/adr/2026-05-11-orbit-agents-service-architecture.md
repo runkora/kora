@@ -43,7 +43,7 @@ The agent control plane needs a home. The question is whether to extend an exist
 
 ## Considered Options
 
-### Option A: Extend the Orbit Operator with OrbitAgent CRDs
+### Option A: Extend the kora Operator with OrbitAgent CRDs
 
 **Description:** Add `OrbitAgent` and `OrbitAgentRun` CRDs to the existing operator. The operator controller manages StatefulSets, SPIRE entries, and run state.
 

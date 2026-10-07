@@ -1,4 +1,4 @@
-// Package inferencegw implements the Orbit Inference Gateway service.
+// Package inferencegw implements the kora Inference Gateway service.
 // It provides a provider-agnostic inference API, routing requests to
 // cloud AI providers (AWS Bedrock, Google Vertex AI, Azure AI Inference)
 // with per-principal usage attribution and policy enforcement hooks.
@@ -30,27 +30,44 @@ const (
 // ProviderName identifies a cloud AI provider.
 type ProviderName string
 
+// Provider types. A provider name is a type and an InferenceProvider resource
+// name joined by ":" ("bedrock:aus", "compatible:openrouter").
 const (
-	ProviderBedrock  ProviderName = "bedrock"
-	ProviderVertexAI ProviderName = "vertexai"
-	ProviderAzure    ProviderName = "azure"
+	ProviderBedrock    ProviderName = "bedrock"
+	ProviderVertexAI   ProviderName = "vertexai"
+	ProviderAzure      ProviderName = "azure"
+	ProviderCompatible ProviderName = "compatible"
 )
 
-// bedrockAliasRe mirrors the alias validation in the bedrock connector package.
-// Hyphens are excluded: the env var prefix BEDROCK_<UPPER_ALIAS>_ must be a
-// valid POSIX identifier, and we want IsBedrockFamily to reject any alias that
-// LoadMultiConfig would also reject.
-var bedrockAliasRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+// providerNameRe is the syntax of a provider name. Underscores stay valid for
+// names already stored in usage rows.
+var providerNameRe = regexp.MustCompile(`^[a-z]+:[a-z0-9][-a-z0-9_]*$`)
 
-// IsBedrockFamily reports whether p is the base "bedrock" provider or a
-// named multi-account variant of the form "bedrock:<alias>".
-// The alias must satisfy bedrockAliasRe; bare "bedrock:" is not valid.
-func (p ProviderName) IsBedrockFamily() bool {
-	if p == ProviderBedrock {
+// ProviderNameSyntax describes a valid provider name in error messages.
+const ProviderNameSyntax = "<type>:<resource-name>, where type is bedrock, vertexai, azure or compatible"
+
+// Type returns the provider type: the part before ":".
+func (p ProviderName) Type() ProviderName {
+	t, _, _ := strings.Cut(string(p), ":")
+	return ProviderName(t)
+}
+
+// Valid reports whether p names a provider: a known type and a resource name.
+func (p ProviderName) Valid() bool {
+	if !providerNameRe.MatchString(string(p)) {
+		return false
+	}
+	switch p.Type() {
+	case ProviderBedrock, ProviderVertexAI, ProviderAzure, ProviderCompatible:
 		return true
 	}
-	after, ok := strings.CutPrefix(string(p), "bedrock:")
-	return ok && bedrockAliasRe.MatchString(after)
+	return false
+}
+
+// IsBedrockFamily reports whether p is the bedrock type or a Bedrock provider
+// such as "bedrock:aus".
+func (p ProviderName) IsBedrockFamily() bool {
+	return p.Type() == ProviderBedrock
 }
 
 // ─── Routing ─────────────────────────────────────────────────────────────────
@@ -157,6 +174,9 @@ type InferenceUsageRecord struct {
 	CreatedAt                    time.Time        `json:"created_at"`
 	// RunID is the agent run this request belonged to ("" for non-run traffic).
 	RunID string `json:"run_id,omitempty"`
+	// AgentSlug is the agent segment of an AGENT principal's SPIFFE path ("" for
+	// other principals); per-agent usage aggregates key on it.
+	AgentSlug string `json:"agent_slug,omitempty"`
 	// PrincipalRoles are the caller's IDP-asserted OIDC roles at request time;
 	// the durable record behind role-pool counter rehydration.
 	PrincipalRoles []string `json:"principal_roles,omitempty"`
@@ -386,12 +406,10 @@ type RunUsage struct {
 	TotalTokens int64   `json:"total_tokens"`
 }
 
-// AgentTypeUsage is the spend and token breakdown recorded against an agent
-// type's SPIFFE principal over the last 7 days, returned by
-// GET /v1/usage/agent-type/{agentTypeID}. Powers the token breakdown and spend
-// cards on the agent overview page.
+// AgentTypeUsage is the spend and token breakdown of an agent over a reporting
+// window, keyed by agent slug. The agent usage routes return it.
 type AgentTypeUsage struct {
-	AgentTypeID         string  `json:"agent_type_id"`
+	AgentSlug           string  `json:"agent_slug"`
 	PromptTokens        int64   `json:"prompt_tokens"`
 	CompletionTokens    int64   `json:"completion_tokens"`
 	CacheReadTokens     int64   `json:"cache_read_tokens"`

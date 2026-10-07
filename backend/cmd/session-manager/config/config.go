@@ -2,7 +2,9 @@
 package smConfig
 
 import (
+	"fmt"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -45,16 +47,20 @@ type Config struct {
 	Runner struct {
 		// WrapperPath is the path to orbit-session-runner, used by every framework.
 		// When set, an agent is invoked as: WrapperPath <workDir> <binary> [args...]
-		// so Landlock and a PID namespace are applied first. Empty disables it,
-		// which is local dev on macOS.
+		// so Landlock is applied first. Empty disables it, which is local dev on macOS.
 		WrapperPath string `yaml:"wrapperPath"`
 
 		// ShellPath is the orbit-shell proxy each framework's shell resolves to, so
 		// tool commands run in the run's sandbox. Claude Code reads it from
 		// CLAUDE_CODE_SHELL, Codex from the runtime user's passwd entry, and
-		// OpenCode from the "shell" key written into opencode.json. Empty leaves
+		// OpenCode from the "shell" key in its config. Empty leaves
 		// OpenCode on the container's shell.
 		ShellPath string `yaml:"shellPath"`
+
+		// NodeMaxOldSpaceMB is the --max-old-space-size set in each run's
+		// NODE_OPTIONS. orbit-agents sets it per install through
+		// ORBIT_NODE_MAX_OLD_SPACE_MB; zero adds no NODE_OPTIONS.
+		NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 	} `yaml:"runner"`
 
 	Claude struct {
@@ -80,8 +86,8 @@ type Config struct {
 	} `yaml:"opencode"`
 
 	InferenceGateway struct {
-		// URL is the base URL of the Orbit inference gateway.
-		// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
+		// URL is the base URL of the kora inference gateway.
+		// Injected as OPENAI_BASE_URL for Codex; written into the OpenCode config for OpenCode.
 		URL string `yaml:"url"`
 	} `yaml:"inferenceGateway"`
 
@@ -109,8 +115,24 @@ func (c *Config) ShutdownTimeout() time.Duration {
 // what keeps database credentials out of the pod the agent runs in.
 var Current = func() *Config {
 	cfg := config.MustLoadService[Config]("cmd/session-manager", config.Environment())
-	if v := os.Getenv("ORBIT_AGENTS_URL"); v != "" {
-		cfg.OrbitAgents.URL = v
+	if err := applyEnvOverrides(cfg, os.Getenv); err != nil {
+		panic(err)
 	}
 	return cfg
 }()
+
+// applyEnvOverrides layers the values orbit-agents sets on the agent pod over
+// the YAML defaults. getenv is injected so tests can drive it.
+func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
+	if v := getenv("ORBIT_AGENTS_URL"); v != "" {
+		cfg.OrbitAgents.URL = v
+	}
+	if v := getenv("ORBIT_NODE_MAX_OLD_SPACE_MB"); v != "" {
+		mb, err := strconv.Atoi(v)
+		if err != nil || mb < 0 {
+			return fmt.Errorf("ORBIT_NODE_MAX_OLD_SPACE_MB must be a non-negative integer, got %q", v)
+		}
+		cfg.Runner.NodeMaxOldSpaceMB = mb
+	}
+	return nil
+}

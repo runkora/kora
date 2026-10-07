@@ -151,7 +151,7 @@ The split — "Layer 1 in middleware for platform services we control; Layer 1 i
 
 ### Neutral
 
-- The orbit-agents `Authz.checkAgentTypesAction` helper added on 2026-05-29 becomes redundant once the middleware is wired. It is removed in the same PR that introduces the middleware. Per-resource helpers (`checkRun`, `checkAgentType`, `filterAgentTypes`, `filterRuns`) remain — they enforce things the middleware cannot.
+- The orbit-agents `Authz.checkAgentTypesAction` helper added on 2026-05-29 becomes redundant once the middleware is wired. It is removed in the same PR that introduces the middleware. Per-resource helpers (`checkRun`, `checkAgentType`, `filterAgentTypes`, `readableRunAgentTypes`) remain — they enforce things the middleware cannot.
 - `routescopes.RouteScope` becomes the canonical source for route enforcement, both at registration time ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md)) and at request time (this ADR). This may invite future migration of the registration data into a shared package.
 
 ---

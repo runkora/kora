@@ -11,14 +11,14 @@ import (
 )
 
 // bffAuthorizePath is the browser-facing OAuth authorization endpoint, served by
-// the Next.js BFF (which owns the Orbit session) at the same public host as this
+// the Next.js BFF (which owns the kora session) at the same public host as this
 // service. It is a consent page: after the SSO session check it asks the human to
 // approve the client before a code is minted. The AS metadata advertises it as
 // authorization_endpoint.
 const bffAuthorizePath = "/mcp/authorize"
 
 // authorizationServerMetadata is the RFC 8414 OAuth 2.0 Authorization Server
-// Metadata document a spec-compliant MCP client fetches to discover Orbit's
+// Metadata document a spec-compliant MCP client fetches to discover kora's
 // authorization endpoints. It advertises the OAuth 2.1 profile the MCP
 // authorization spec requires: authorization-code + PKCE (S256), public clients.
 //

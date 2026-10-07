@@ -13,6 +13,7 @@ import (
 	"github.com/clear-route/orbit/internal/agents"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	mw "github.com/clear-route/orbit/internal/platform/middleware"
 )
 
 // stubSlugLister is the whole repository surface scope registration uses.
@@ -31,6 +32,9 @@ type registration struct {
 	Routes  []routescopes.RouteScope       `json:"routes"`
 	Scopes  []routescopes.ScopeDeclaration `json:"scopes"`
 }
+
+// testToken stands in for the identity client's self token source.
+func testToken(context.Context) (string, error) { return "self-token", nil }
 
 // capturingPolicyService stands in for the policy service's
 // POST /api/v1/policy/routes/register endpoint.
@@ -75,7 +79,7 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 	defer srv.Close()
 	withPolicyServiceURL(t, srv.URL)
 
-	register := initScopeRegistration(logging.NewLogger(), stubSlugLister{slugs: []string{"triage"}}, newAgentTypeService())
+	register := initScopeRegistration(logging.NewLogger(), testToken, stubSlugLister{slugs: []string{"triage"}}, newAgentTypeService())
 	if register == nil {
 		t.Fatal("expected a register function when a policy service URL is configured")
 	}
@@ -113,9 +117,14 @@ func TestInitScopeRegistrationPublishesScopedRoutesAndSlugScopes(t *testing.T) {
 			t.Errorf("route %s %s requires undeclared scope %q", r.Method, r.PathPrefix, r.RequiredScope)
 		}
 	}
-	for _, want := range []string{"agents:runs:triage:read", "agents:runs:triage:write"} {
+	for _, want := range []string{"agents:runs:triage:read", "agents:runs:triage:write", "agents:usage:triage:read"} {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("per-agent-type scope %q missing from the registration", want)
+		}
+	}
+	for _, want := range []string{"agents:usage:read", "agents:delegated:read"} {
+		if _, ok := declared[want]; !ok {
+			t.Errorf("scope %q missing from the registration", want)
 		}
 	}
 }
@@ -134,6 +143,15 @@ func TestAgentRoutesFilterDropsOnlyUnscopedRoutes(t *testing.T) {
 		kept := slices.Contains(scoped, r)
 		if want := r.RequiredScope != ""; kept != want {
 			t.Errorf("route %+v: kept=%v, want %v", r, kept, want)
+		}
+	}
+}
+
+func TestAgentRoutesRunReadScope(t *testing.T) {
+	for _, path := range []string{"/api/v1/run-outcomes", "/api/v1/run-stats/coder"} {
+		got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", path)
+		if !ok || got != "agents:runs:read" {
+			t.Errorf("%s: scope %q (matched %v), want agents:runs:read", path, got, ok)
 		}
 	}
 }

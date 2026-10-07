@@ -18,7 +18,7 @@ const iconTileVariants = cva(
         accent: 'bg-accent-muted border-accent-border text-accent',
       },
       size: {
-        sm: 'size-5 rounded-[5px]',
+        sm: 'size-5 rounded-sm',
         md: 'size-8 rounded-md',
         /** 36px — the identity tile in a panel header, where the tile is the
          *  subject's marker rather than a row's leading glyph. */

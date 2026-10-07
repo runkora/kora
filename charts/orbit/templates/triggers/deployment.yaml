@@ -18,9 +18,10 @@ spec:
         spiffe.io/component: orbit-triggers
         {{- include "orbit.podLabels" (dict "root" $ "name" "triggers") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
+        checksum/config: {{ include (print $.Template.BasePath "/triggers/config.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "triggers") | nindent 8 }}
     spec:
       serviceAccountName: orbit-triggers
@@ -29,7 +30,8 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
+        {{- include "orbit.configVolume" (dict "root" $ "name" "triggers" "configMap" "orbit-triggers-config" "modules" (include "orbit.triggers.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "triggers") | nindent 8 }}
       containers:
         - name: orbit-triggers
@@ -37,18 +39,10 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "triggers") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          {{- with .Values.triggers.extraEnv }}
           env:
-            - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
-            - name: ORBIT_POSTGRES_CAPTURE_QUERY_TEXT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "postgresCaptureQueryText" "default" .Values.global.postgres.captureQueryText) | quote }}
-            - name: ORBIT_OTLP_ENDPOINT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
-            - name: ORBIT_SAMPLING_RATE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
-            - name: ORBIT_LOG_FORMAT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "triggers" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
-            {{- include "orbit.extraEnv" (dict "root" $ "name" "triggers") | nindent 12 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: http
@@ -74,4 +68,5 @@ spec:
             {{- toYaml .Values.triggers.resources | nindent 12 }}
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "triggers") | nindent 12 }}

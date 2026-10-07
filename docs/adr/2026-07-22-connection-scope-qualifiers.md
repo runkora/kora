@@ -20,7 +20,7 @@ The GitHub connector work surfaced the fix — qualify the *grant*, not the conn
 Two platform invariants constrain the design:
 
 - **Hierarchy is `covers`, never `*`.** Scopes parse as `<resource_type>:<path…>:<action>`; breadth comes from the `scope_covers` prefix rule (same resource type and action, coverer's path is a prefix — `authz.rego`/`authz_gateway.rego`, mirrored in `policyservice/api/service.go`). There is no wildcard matching anywhere in the policy layer.
-- **The vocabulary is static.** Scope vocabulary is registered by services from adapter metadata (`internal/platform/connections`). Resources like repositories and namespaces are unbounded, tenant-private, and change upstream without any Orbit-side event — they can never be enumerated into the vocabulary.
+- **The vocabulary is static.** Scope vocabulary is registered by services from adapter metadata (`internal/platform/connections`). Resources like repositories and namespaces are unbounded, tenant-private, and change upstream without any kora-side event — they can never be enumerated into the vocabulary.
 
 **Which of the three questions this touches:** *What can it access?* — grants gain a resource dimension. Identity flow and connection mechanics are unchanged.
 
@@ -77,7 +77,7 @@ An admin attaching a connector to an agent can choose *which actions* but not *o
 
 #### Option 3: Enumerate resources into the published vocabulary
 
-**Why not chosen:** The vocabulary is static, gateway-published metadata; repositories and namespaces are unbounded and change without Orbit-side events. It would also still need the covering-parent form to express "all current and future resources" — at which point per-resource entries add registration churn and picker noise for nothing structural validation doesn't already give.
+**Why not chosen:** The vocabulary is static, gateway-published metadata; repositories and namespaces are unbounded and change without kora-side events. It would also still need the covering-parent form to express "all current and future resources" — at which point per-resource entries add registration churn and picker noise for nothing structural validation doesn't already give.
 
 ### Decision B — Segment ordering
 
@@ -137,7 +137,7 @@ Mint-time application stays adapter-private: GitHub narrows `InstallationTokenRe
 1. **Grant time** — policy service validates a qualified connection scope structurally: known scope shape plus one extra path segment (lowercase, no `:` or `/`), mirroring how `egress:<host>:connect` is validated without vocabulary enumeration. Qualified scopes never enter the vocabulary.
 2. **Attachment time** — the connector attachment compiles the admin's resource selection into qualified grant scopes ("all resources" → the unqualified category scopes), always adding the adapter's declared baseline actions unqualified. `requires` edges live on vocabulary entries only, so baselines must come from attachment compilation, not `requires` (a qualified grant neither covers nor is covered by the vocabulary leaf).
 3. **Request time** — the adapter classifies `(action, qualifier)`; the broker denies out-of-ceiling qualifiers, then evaluates policy with `PathSegments: [name, category, qualifier]`. Unqualified and parent grants cover by prefix; qualified grants must match. A request naming no resource produces an unqualified requirement, which a strictly qualified grant deliberately does **not** satisfy — fail closed. Extraction must be **canonical**: the extracted value must identify the same resource the upstream will serve under this connection's authority. A request naming a resource outside that authority (e.g. a foreign repository owner through a GitHub connection) is denied at classification, never qualified ambiguously — otherwise name collisions across authorities would let a qualified grant match resources it never meant (GitHub's public repos being the concrete case).
-4. **Mint time** (per-adapter, where the upstream supports it) — the credential is narrowed to the request's qualifier, so the token bounds the resource even outside Orbit's gate.
+4. **Mint time** (per-adapter, where the upstream supports it) — the credential is narrowed to the request's qualifier, so the token bounds the resource even outside kora's gate.
 
 ### Instances
 

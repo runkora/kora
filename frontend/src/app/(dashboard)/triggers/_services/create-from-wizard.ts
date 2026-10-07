@@ -57,6 +57,10 @@ export async function createFromWizardDraft(
     ...(sourceId !== undefined && { source_id: sourceId }),
     ...(draft.kind === 'webhook' && { event_type: draft.eventType ?? '' }),
     ...(draft.matchCondition !== undefined && { match_condition: draft.matchCondition }),
+    ...(draft.matchContains !== undefined && { match_contains: draft.matchContains }),
+    ...(draft.senderRestriction !== undefined && {
+      sender_restriction: draft.senderRestriction,
+    }),
     ...(draft.schedule !== undefined && {
       schedule_config: toScheduleConfigRequest(draft.schedule),
     }),

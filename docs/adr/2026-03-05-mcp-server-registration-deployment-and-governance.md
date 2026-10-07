@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-03-05
 **Deciders:** Platform Architecture Team
-**Technical Story:** Establishes how Model Context Protocol (MCP) servers are registered, deployed, discovered, and governed within the Orbit platform as first-class principal participants in the agent delegation chain.
+**Technical Story:** Establishes how Model Context Protocol (MCP) servers are registered, deployed, discovered, and governed within the kora platform as first-class principal participants in the agent delegation chain.
 
 ---
 
@@ -11,21 +11,21 @@
 
 The Model Context Protocol (MCP) defines a standard interface for exposing tools to AI agents. An MCP server declares a set of callable tools and communicates with agents over Server-Sent Events (SSE). Agents — particularly LLM-driven ones — discover these tools and reason over them to complete tasks.
 
-Orbit needs to treat MCP servers as governed platform components, not as arbitrary external services. An MCP server deployed into Orbit participates in the delegation chain ([agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)), carries a verified workload identity ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)), operates behind an Envoy sidecar ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)), and routes all outbound external calls through the Credential-Aware Outbound Gateway ([credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md)). This makes the MCP server a first-class `SERVICE` principal — not a sidecar decoration or a thin HTTP wrapper.
+kora needs to treat MCP servers as governed platform components, not as arbitrary external services. An MCP server deployed into kora participates in the delegation chain ([agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)), carries a verified workload identity ([spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md)), operates behind an Envoy sidecar ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)), and routes all outbound external calls through the Credential-Aware Outbound Gateway ([credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md)). This makes the MCP server a first-class `SERVICE` principal — not a sidecar decoration or a thin HTTP wrapper.
 
 Without a formal registration and governance model, MCP servers would be opaque to the platform: their identity would be unverifiable, their tool surfaces ungoverned, their outbound credential usage untraceable, and their availability to agents unpredictable.
 
 ### Background
 
-The MCP ecosystem includes both first-party servers (built and maintained by the Orbit platform team, e.g. an MSGraph MCP or a Jira MCP) and third-party servers (open-source images or custom servers built by tenant engineering teams). Orbit must support both without requiring code ownership or internal instrumentation.
+The MCP ecosystem includes both first-party servers (built and maintained by the kora platform team, e.g. an MSGraph MCP or a Jira MCP) and third-party servers (open-source images or custom servers built by tenant engineering teams). kora must support both without requiring code ownership or internal instrumentation.
 
-[universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) established that all Orbit services — including those whose code Orbit does not own — receive an Envoy sidecar that handles mTLS, token validation, and OPA policy enforcement at the network layer. MCP servers inherit this model entirely.
+[universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md) established that all kora services — including those whose code kora does not own — receive an Envoy sidecar that handles mTLS, token validation, and OPA policy enforcement at the network layer. MCP servers inherit this model entirely.
 
-Multiple teams sharing an Orbit instance (multi-tenancy) is a core platform requirement. Registration and discovery must be scoped to the correct tenancy boundary.
+Multiple teams sharing a kora instance (multi-tenancy) is a core platform requirement. Registration and discovery must be scoped to the correct tenancy boundary.
 
 ### Problem Statement
 
-Orbit needs a defined model for:
+kora needs a defined model for:
 - How MCP servers are registered and at what scope (platform vs tenant)
 - What identity and deployment infrastructure they receive
 - How agents discover MCP servers appropriate to their delegation context
@@ -43,9 +43,9 @@ Orbit needs a defined model for:
 
 ### Non-Goals
 
-- Orbit does not validate MCP tool manifests or verify that declared scope requirements are accurate
-- Orbit does not implement the MCP protocol itself — it governs servers that implement it
-- Orbit does not restrict which external APIs an MCP server may call, beyond the enforcement applied by the Outbound Gateway ([credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md))
+- kora does not validate MCP tool manifests or verify that declared scope requirements are accurate
+- kora does not implement the MCP protocol itself — it governs servers that implement it
+- kora does not restrict which external APIs an MCP server may call, beyond the enforcement applied by the Outbound Gateway ([credential-aware-outbound-gateway](2026-03-05-credential-aware-outbound-gateway.md))
 - Tool-level path enforcement is handled by the Outbound Gateway, not the registration layer
 
 ---
@@ -54,7 +54,7 @@ Orbit needs a defined model for:
 
 * **Identity integrity**: every component in the delegation chain must have a verifiable workload identity
 * **Multi-tenancy**: platform-level and tenant-level MCP servers must be appropriately scoped and isolated
-* **Agent framework compatibility**: many agent frameworks support MCP natively but cannot call Orbit-specific discovery APIs — the push model must accommodate these
+* **Agent framework compatibility**: many agent frameworks support MCP natively but cannot call kora-specific discovery APIs — the push model must accommodate these
 * **Third-party operability**: open-source MCP servers must be deployable into the platform without code changes
 * **Uniform enforcement**: enforcement posture must not differ based on who authored the MCP server
 * **Audit completeness**: the platform must have end-to-end traceability when an agent invokes a tool through an MCP server that calls an external API
@@ -65,7 +65,7 @@ Orbit needs a defined model for:
 
 ### Option 1: Platform-Managed Registry Only
 
-**Description:** All MCP servers are registered and managed by the Orbit platform team. Tenants cannot deploy their own MCP servers — they consume platform-provided ones.
+**Description:** All MCP servers are registered and managed by the kora platform team. Tenants cannot deploy their own MCP servers — they consume platform-provided ones.
 
 **Pros:**
 - Strong governance — every MCP server is reviewed and managed centrally
@@ -92,7 +92,7 @@ Orbit needs a defined model for:
 
 ### Option 3: Hierarchical Registry — Platform and Tenant Levels
 
-**Description:** MCP servers can be registered at two scopes. Platform-level registrations are managed by the Orbit platform team and are available across all tenants (subject to policy). Tenant-level registrations are private to a tenant, managed by tenant operators. Both levels use the same identity, deployment, and enforcement model.
+**Description:** MCP servers can be registered at two scopes. Platform-level registrations are managed by the kora platform team and are available across all tenants (subject to policy). Tenant-level registrations are private to a tenant, managed by tenant operators. Both levels use the same identity, deployment, and enforcement model.
 
 **Pros:**
 - Platform team can provide curated first-party MCP servers (MSGraph, Jira, GitHub)
@@ -116,13 +116,13 @@ The platform needs to provide first-party, curated MCP servers for common integr
 
 Critically, the enforcement posture is identical for both levels. Both receive a SPIFFE identity, both are deployed with an Envoy sidecar, both participate in the delegation chain, and both route outbound calls through the Outbound Gateway. The registration level (platform vs tenant) is a governance metadata attribute — it does not create a privileged trust tier.
 
-**Tool manifest responsibility:** Orbit does not attempt to validate that an MCP server's declared tool-to-scope mapping is accurate. This is the MCP author's responsibility. The Outbound Gateway provides the real enforcement gate — even if a tool manifest incorrectly declares a lower scope requirement than the underlying API call actually uses, the gateway's scope intersection computation (performed independently from the manifest) will enforce the correct ceiling. The manifest is a discovery and UX aid, not a security boundary.
+**Tool manifest responsibility:** kora does not attempt to validate that an MCP server's declared tool-to-scope mapping is accurate. This is the MCP author's responsibility. The Outbound Gateway provides the real enforcement gate — even if a tool manifest incorrectly declares a lower scope requirement than the underlying API call actually uses, the gateway's scope intersection computation (performed independently from the manifest) will enforce the correct ceiling. The manifest is a discovery and UX aid, not a security boundary.
 
 **Discovery model:** Two complementary models are supported:
 
 - **Pull model**: An agent queries `GET /mcp/services` to retrieve the list of MCP servers available under its current delegation context. The platform filters this list based on the agent's capability grants. This model suits long-running agents that acquire tasks with varying delegation scopes mid-session and need to refresh their tool surface dynamically.
 
-- **Push model**: When a task is dispatched to an agent, Orbit includes the relevant MCP server configuration in the task context alongside the delegation token. The agent framework receives a fully-configured MCP server list at instantiation time. This model is essential for agnostic agent frameworks (LangChain, AutoGen, CrewAI, etc.) that speak MCP natively but provide no hook to call an Orbit-specific discovery API. If Orbit pushes the configuration at task dispatch, those frameworks work without modification.
+- **Push model**: When a task is dispatched to an agent, kora includes the relevant MCP server configuration in the task context alongside the delegation token. The agent framework receives a fully-configured MCP server list at instantiation time. This model is essential for agnostic agent frameworks (LangChain, AutoGen, CrewAI, etc.) that speak MCP natively but provide no hook to call a kora-specific discovery API. If kora pushes the configuration at task dispatch, those frameworks work without modification.
 
 Both models produce the same result: the agent (or its framework) has a set of MCP server connection parameters scoped to what the delegation context permits.
 
@@ -135,14 +135,14 @@ Both models produce the same result: the agent (or its framework) has a set of M
 - MCP servers are fully traceable participants in the audit chain — from agent tool invocation through to external API call
 - Tenant teams can deploy open-source or custom MCP servers without platform team involvement
 - Platform team can provide curated first-party tool surfaces available across all tenants
-- Agnostic agent frameworks gain MCP server access via the push model without Orbit-specific code
+- Agnostic agent frameworks gain MCP server access via the push model without kora-specific code
 - Enforcement is uniform — no special-casing for platform vs tenant vs third-party servers
 
 ### Negative
 
-- Orbit must maintain a registration schema and API for MCP server onboarding at both levels
+- kora must maintain a registration schema and API for MCP server onboarding at both levels
 - Platform-level MCP server additions require a governance process to prevent unreviewed tool surfaces being exposed platform-wide
-- The push model requires Orbit to know at task-dispatch time which MCP servers are relevant to the task — this implies the task dispatch system must reason about MCP availability
+- The push model requires kora to know at task-dispatch time which MCP servers are relevant to the task — this implies the task dispatch system must reason about MCP availability
 
 ### Neutral
 
@@ -191,9 +191,9 @@ Every registered MCP server receives:
    - Inbound mTLS termination from agents
    - `X-Orbit-Delegation-Token` header validation via `ext_authz`
    - OPA policy evaluation for which agents may connect
-3. Registration in the Orbit service registry for discovery
+3. Registration in the kora service registry for discovery
 
-Open-source or third-party MCP servers that Orbit does not own require no code changes — the Envoy sidecar handles all platform integration at the network layer.
+Open-source or third-party MCP servers that kora does not own require no code changes — the Envoy sidecar handles all platform integration at the network layer.
 
 ### Pull Discovery Model
 
@@ -223,7 +223,7 @@ The platform filters the response to servers the agent is permitted to access. T
 
 ### Push Discovery Model
 
-At task dispatch, Orbit includes MCP server configuration in the task context:
+At task dispatch, kora includes MCP server configuration in the task context:
 
 ```json
 {
@@ -255,7 +255,7 @@ There is no existing MCP server registration model to migrate from. This is a gr
 
 ### Success Metrics
 
-- Agent frameworks without Orbit-specific code successfully connect to and invoke tools from MCP servers via the push model
+- Agent frameworks without kora-specific code successfully connect to and invoke tools from MCP servers via the push model
 - Audit logs capture complete delegation chains (agent → MCP server → external API) for all tool invocations
 - Tenant teams can register and deploy custom MCP servers without platform team involvement beyond initial access grants
 - MCP servers deployed from open-source images participate in the platform without code changes

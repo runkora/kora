@@ -11,7 +11,7 @@
 
 ### Background
 
-[agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md) established the agents portal architecture: Next.js RSC pages for initial data, client-side BFF routes for mutations, and an `EventSource` SSE connection for the run chat. [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) defines the Orbit standard event format emitted by the session-manager through `orbit-agents`. [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) established the BFF session pattern — the browser never holds a platform JWT; the BFF extracts it from the session cookie and forwards it to backend services.
+[agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md) established the agents portal architecture: Next.js RSC pages for initial data, client-side BFF routes for mutations, and an `EventSource` SSE connection for the run chat. [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) defines the kora standard event format emitted by the session-manager through `orbit-agents`. [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) established the BFF session pattern — the browser never holds a platform JWT; the BFF extracts it from the session cookie and forwards it to backend services.
 
 The portal implementation went through a UI-first build phase where all BFF routes (`/api/agents/**`) return static mock data. The run chat hook (`useRun`) is backed entirely by hardcoded turns. Nothing calls the real `orbit-agents` service.
 
@@ -238,7 +238,7 @@ Claude Code currently runs headless. The session-manager does not expose a stabl
 - [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — BFF session pattern; platform JWTs never exposed to browser
 - [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — `orbit-agents` REST API surface this ADR wires to
 - [run-and-session-lifecycle](2026-05-11-run-and-session-lifecycle.md) — Run and session lifecycle model
-- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format; event table ownership; replay semantics
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — kora standard event format; event table ownership; replay semantics
 - [agent-portal-and-chat-ui](2026-05-11-agent-portal-and-chat-ui.md) — Portal architecture this ADR implements
 
 ---

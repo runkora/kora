@@ -123,7 +123,6 @@ func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository
 	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
-	t.Setenv("ORBIT_TENANTS_CONFIG", "")
 
 	cfg := &Config{
 		Token: TokenConfig{
@@ -167,7 +166,6 @@ func newDelegationTestServiceWithPAT(t *testing.T) (*Service, *mockDelegationRep
 	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
-	t.Setenv("ORBIT_TENANTS_CONFIG", "")
 
 	cfg := &Config{
 		Token: TokenConfig{

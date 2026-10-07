@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-05-08
 **Deciders:** Engineering Team
-**Technical Story:** [Frontend Test Strategy PRD](../prd/frontend-test-strategy.md) -- establishing a layered, package-aware test architecture for the Orbit frontend.
+**Technical Story:** [Frontend Test Strategy PRD](../prd/frontend-test-strategy.md) -- establishing a layered, package-aware test architecture for the kora frontend.
 
 ---
 
 ## Context
 
-The Orbit frontend has zero test infrastructure. No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or test file exists anywhere in the frontend tree. No `test` script exists in any `package.json`. The CI pipeline has no test step.
+The kora frontend has zero test infrastructure. No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or test file exists anywhere in the frontend tree. No `test` script exists in any `package.json`. The CI pipeline has no test step.
 
 The codebase is not a blank slate -- it is a production-intended frontend with two distinct layers of complexity that any test strategy must accommodate.
 
@@ -38,7 +38,7 @@ Note: there is no `_core/` directory. Shared components live in `src/components/
 
 ### Background
 
-Orbit is structured as a pnpm workspace. `frontend/pnpm-workspace.yaml` declares `packages: ['src/packages/*']`, which means Terra is an independent installable package (`@orbit/terra`) consumed by the app via a workspace link. The monorepo's Go backend runs as a separate process; the only interface between the frontend and the backend is the BFF layer at `src/server/client.ts` (`orbitClient`) and the `/api/*` route handlers.
+kora is structured as a pnpm workspace. `frontend/pnpm-workspace.yaml` declares `packages: ['src/packages/*']`, which means Terra is an independent installable package (`@orbit/terra`) consumed by the app via a workspace link. The monorepo's Go backend runs as a separate process; the only interface between the frontend and the backend is the BFF layer at `src/server/client.ts` (`orbitClient`) and the `/api/*` route handlers.
 
 [frontend-scaffolding-and-toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) (frontend scaffolding) established the Next.js 16 App Router application structure. [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) (Terra design system) established the workspace package isolation model, the Tailwind v4 token architecture, and the Storybook-based development workflow. This ADR establishes the test layer that sits alongside those decisions.
 

@@ -1,12 +1,12 @@
 # syntax=docker/dockerfile:1
 #
-# Sandbox-exec image: gRPC exec server for isolated agent run environments.
-# Claude Code's Bash tool routes through orbit-shell → this gRPC server.
+# kora sandbox base image (kora-sandbox-base): the sandbox-exec gRPC server, the
+# general command-line tools, Go and Python. Platform teams build their sandbox
+# images FROM it. See docs/adr/2026-10-03-sandbox-environments.md.
 
 # =============================================================================
 # VERSION CONFIGURATION
 # =============================================================================
-ARG NODE_VERSION=24.0.0
 ARG BUN_VERSION=1.3.9
 ARG GO_VERSION=1.26.0
 ARG RUST_VERSION=1.83.0
@@ -15,7 +15,8 @@ ARG DOTNET_VERSION=8.0
 ARG RUBY_VERSION=3.3
 # kubectl only supports one minor version of skew from the API server, so pin
 # this to the minor of the cluster a `kubernetes` connection points at.
-ARG KUBECTL_VERSION=1.33.13
+ARG KUBECTL_VERSION=1.36.5
+ARG KUSTOMIZE_VERSION=5.8.1
 
 # =============================================================================
 # INSTALL FLAGS
@@ -28,6 +29,7 @@ ARG INSTALL_DOTNET=false
 ARG INSTALL_RUBY=false
 ARG INSTALL_BROWSERS=false
 ARG INSTALL_KUBECTL=true
+ARG INSTALL_KUSTOMIZE=true
 
 # ── Build sandbox-exec binary ─────────────────────────────────────────────────
 FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS builder
@@ -49,12 +51,16 @@ COPY . .
 ARG TARGETOS TARGETARCH
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /sandbox-exec ./cmd/sandbox-exec/main.go
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /sandbox-exec ./cmd/sandbox-exec
 
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 
-ARG NODE_VERSION
+# The operator accepts a sandbox image only when it carries this label. It names
+# the base version the image was built on.
+ARG SANDBOX_BASE_VERSION=dev
+LABEL io.orbit.sandbox.base=$SANDBOX_BASE_VERSION
+
 ARG BUN_VERSION
 ARG GO_VERSION
 ARG RUST_VERSION
@@ -62,6 +68,7 @@ ARG JAVA_VERSION
 ARG DOTNET_VERSION
 ARG RUBY_VERSION
 ARG KUBECTL_VERSION
+ARG KUSTOMIZE_VERSION
 ARG INSTALL_BUN
 ARG INSTALL_RUST
 ARG INSTALL_GO
@@ -70,6 +77,7 @@ ARG INSTALL_DOTNET
 ARG INSTALL_RUBY
 ARG INSTALL_BROWSERS
 ARG INSTALL_KUBECTL
+ARG INSTALL_KUSTOMIZE
 
 # Base dependencies + the universal developer CLIs an agent needs for real
 # engineering work (clone, search, build native deps, fetch, slice JSON). Heavier
@@ -89,25 +97,9 @@ RUN mkdir -p -m 755 /etc/apt/keyrings \
  && apt-get update && apt-get install -y gh \
  && rm -rf /var/lib/apt/lists/*
 
-# Node.js (always installed — many agent tasks use it)
-RUN set -eux; \
-    dpkgArch="$(dpkg --print-architecture)"; \
-    case "${dpkgArch##*-}" in \
-      amd64) ARCH='x64';; \
-      arm64) ARCH='arm64';; \
-    esac; \
-    curl --proto '=https' --tlsv1.2 -fsSLO --compressed "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-$ARCH.tar.xz" && \
-    tar -xJf node-v${NODE_VERSION}-linux-$ARCH.tar.xz -C /usr/local --strip-components=1 --no-same-owner && \
-    rm node-v${NODE_VERSION}-linux-$ARCH.tar.xz && \
-    ln -s /usr/local/bin/node /usr/local/bin/nodejs && \
-    npm install -g corepack && \
-    corepack enable && \
-    node --version && \
-    npm --version
-
-# Python (always installed)
+# Python (always installed), with PyYAML for the YAML scripting agents reach for.
 RUN apt-get update && apt-get install -y \
-      python3 python3-pip python3-venv && \
+      python3 python3-pip python3-venv python3-yaml && \
     ln -sf /usr/bin/python3 /usr/bin/python && \
     rm -rf /var/lib/apt/lists/* && \
     python --version
@@ -156,6 +148,10 @@ RUN if [ "$INSTALL_GO" = "true" ]; then \
       . /etc/profile.d/go.sh && \
       go version ; \
     fi
+# sandbox-exec runs commands in a non-login shell, which never reads profile.d.
+# Rust's paths are set here too so an INSTALL_RUST build works the same way.
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV PATH=/usr/local/go/bin:/usr/local/cargo/bin:$PATH
 
 # Java (Eclipse Temurin) + Maven + Gradle
 RUN if [ "$INSTALL_JAVA" = "true" ]; then \
@@ -251,9 +247,9 @@ RUN if [ "$INSTALL_BROWSERS" = "true" ]; then \
 # (one minor of API-server skew is all kubectl supports), then refresh both
 # digests from
 #   https://dl.k8s.io/release/v${KUBECTL_VERSION}/bin/linux/{amd64,arm64}/kubectl.sha256
-# Pinned 2026-07-09 for v1.33.13 against a v1.33 cluster.
-ARG KUBECTL_SHA256_AMD64=316d712726d857c20744c57cb36aa47cfc79bc0af7e82cebf3780244b654c073
-ARG KUBECTL_SHA256_ARM64=9fe8aadd5aab9421978c7ac95de6fad304a3c4c0ce9dbf4127579779e0699080
+# Pinned 2026-09-30 for v1.36.5 against a v1.36 cluster.
+ARG KUBECTL_SHA256_AMD64=33bc88a24c3b09cf55bfd59e6ca977881b61fc3f25ab65bc80c65b430248648e
+ARG KUBECTL_SHA256_ARM64=88fc1aca8fd0c1b44fe379f67c39bd6858bdfc50241dc55775f84d0f5b31da3a
 RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
       set -eux; \
       dpkgArch="$(dpkg --print-architecture)"; \
@@ -268,6 +264,26 @@ RUN if [ "$INSTALL_KUBECTL" = "true" ]; then \
       install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl && \
       rm -f kubectl && \
       kubectl version --client ; \
+    fi
+
+# kustomize. Digests pinned here for the same reason as kubectl's above; refresh
+# them from the release's checksums.txt when bumping KUSTOMIZE_VERSION.
+ARG KUSTOMIZE_SHA256_AMD64=029a7f0f4e1932c52a0476cf02a0fd855c0bb85694b82c338fc648dcb53a819d
+ARG KUSTOMIZE_SHA256_ARM64=0953ea3e476f66d6ddfcd911d750f5167b9365aa9491b2326398e289fef2c142
+RUN if [ "$INSTALL_KUSTOMIZE" = "true" ]; then \
+      set -eux; \
+      dpkgArch="$(dpkg --print-architecture)"; \
+      case "${dpkgArch##*-}" in \
+        amd64) ARCH='amd64'; SHA="${KUSTOMIZE_SHA256_AMD64}";; \
+        arm64) ARCH='arm64'; SHA="${KUSTOMIZE_SHA256_ARM64}";; \
+        *) echo "unsupported architecture for kustomize: ${dpkgArch}" >&2; exit 1;; \
+      esac; \
+      tarball="kustomize_v${KUSTOMIZE_VERSION}_linux_${ARCH}.tar.gz"; \
+      curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv${KUSTOMIZE_VERSION}/${tarball}" && \
+      echo "${SHA}  ${tarball}" | sha256sum --check && \
+      tar -xzf "${tarball}" -C /usr/local/bin kustomize && \
+      rm -f "${tarball}" && \
+      kustomize version ; \
     fi
 
 # sandbox-exec gRPC server
@@ -286,7 +302,10 @@ RUN mkdir -p /opt/orbit/shell && ln -sf /bin/bash /opt/orbit/shell/bash
 # Workspaces directory — mounted from the agent pod's PVC at runtime.
 RUN mkdir -p /workspaces && chown 100:100 /workspaces
 
-USER orbit
+# Strip setuid and setgid bits. no_new_privs already neutralises them; this keeps it true if that setting is ever dropped.
+RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
+
+USER 100:100
 
 EXPOSE 50051
 

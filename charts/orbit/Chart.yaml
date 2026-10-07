@@ -1,12 +1,14 @@
 apiVersion: v2
 name: orbit
 description: >
-  Orbit's control plane runs the operator, the cluster-scoped identity and
+  kora's control plane runs the operator, the cluster-scoped identity and
   gateway resources, and the platform services. Install orbit-crds first, and
   have Istio and SPIRE already running on the cluster.
 type: application
 version: 0.0.0
 appVersion: "0.0.0"
+# Oldest Kubernetes minor the release is tested on.
+kubeVersion: ">=1.34.0-0"
 
 keywords:
   - orbit
@@ -17,12 +19,12 @@ keywords:
 
 home: https://github.com/clear-route/orbit
 maintainers:
-  - name: Orbit Team
+  - name: kora Team
 
 dependencies:
-  # Orbit's ingress gateway pods. Off when an existing Istio Gateway fronts Orbit.
+  # kora's ingress gateway pods. Off when an existing Istio Gateway fronts kora.
   - name: gateway
     alias: ingressGateway
-    version: "1.29.1"
-    repository: https://istio-release.storage.googleapis.com/charts
+    version: "1.31.1"
+    repository: oci://ghcr.io/istio/release/charts
     condition: gateway.create

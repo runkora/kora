@@ -13,9 +13,9 @@
 
 ### Background
 
-Every agent run in Orbit is currently identified only by a UUID. The runs table on the agent detail page and the run topbar in the chat view both display this opaque identifier, giving operators and developers no immediate signal about *what a run was asked to do*.
+Every agent run in kora is currently identified only by a UUID. The runs table on the agent detail page and the run topbar in the chat view both display this opaque identifier, giving operators and developers no immediate signal about *what a run was asked to do*.
 
-Orbit already has the building blocks to solve this:
+kora already has the building blocks to solve this:
 
 1. **The initial message** — `StartRunRequest.InitialMessage` is the first user message sent at run creation time. It captures the user's intent.
 2. **An authorized inference path** — the agent already calls the inference gateway continuously from inside the session-manager pod, at `{ANTHROPIC_BASE_URL}/run/{runID}/v1/messages`. That path is the *only* context where all three of the following hold at once: the identity-proxy sidecar injects the agent's platform token, OPA authorizes the call under the agent's grant, and the gateway attributes cost to the run's budget.
@@ -33,7 +33,7 @@ These are not incidental — they are the platform working as designed (*the con
 
 ### Problem Statement
 
-How should Orbit generate and store a short, human-readable summary of each run's task intent, and how should it be surfaced in the UI?
+How should kora generate and store a short, human-readable summary of each run's task intent, and how should it be surfaced in the UI?
 
 ### Goals
 

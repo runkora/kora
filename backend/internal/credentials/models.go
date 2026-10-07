@@ -1,5 +1,5 @@
 // Package credentials is the connection registry and credential-minting core of
-// the Orbit credential broker. A Connection is a tenant-scoped registration of
+// the kora credential broker. A Connection is a tenant-scoped registration of
 // one external service; an Adapter opens a Connector that mints a short-lived,
 // Credential the egress gateway injects on the outbound leg. The agent never
 // holds the secret.
@@ -74,8 +74,8 @@ type CallerIdentity struct {
 	// credential narrowed to this resource.
 	Qualifier string
 	// AlsoAuthorized lists the classification's alternates that the caller's
-	// grant also holds. Adapters widen the credential by exactly these and no
-	// others.
+	// grant also holds, and its AlsoRequired actions. Adapters widen the
+	// credential by exactly these and no others.
 	AlsoAuthorized []string
 }
 
@@ -98,7 +98,7 @@ var (
 	ErrUnsupportedAction = errors.New("unsupported action for adapter")
 
 	// ErrCredentialScopeRejected is returned by Mint when the
-	// upstream refuses to issue a credential for the requested scope. Orbit's
+	// upstream refuses to issue a credential for the requested scope. kora's
 	// policy allowed the call, but the underlying credential (a GitHub App
 	// installation, say) does not itself hold that access. The broker maps this
 	// to a client-facing forbidden, distinct from an internal mint failure.

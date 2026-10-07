@@ -42,8 +42,8 @@ func otlpTarget(endpoint string) (addr string, insecure bool, err error) {
 	return addr, insecure, nil
 }
 
-// TenantOTLPEndpoint is the collector tenant pods export to. The chart sets it
-// from the global endpoint only, so a per-service override cannot split the
+// TenantOTLPEndpoint is the collector tenant pods export to. The chart renders
+// it from the global endpoint only, so a per-service override cannot split the
 // tenant export, the identity-proxy and the policy bundle across collectors.
 func TenantOTLPEndpoint() string {
 	if DefaultConfig.TenantOTLPEndpoint != "" {
@@ -66,7 +66,8 @@ func CollectorAuthority() string {
 
 // ObservabilityConfig holds the shared observability tunables that are identical
 // across every service binary. Loaded from
-// internal/platform/observability/config/base.yaml and its environment overrides.
+// internal/platform/observability/config/base.yaml, its environment overlay and
+// the file the chart renders.
 type ObservabilityConfig struct {
 	// OTLPEndpoint is the OpenTelemetry collector's gRPC URL, e.g.
 	// http://otel-collector.observability.svc:4317. The scheme decides whether
@@ -90,29 +91,28 @@ var DefaultConfig = mustLoadConfig()
 
 func mustLoadConfig() *ObservabilityConfig {
 	cfg, err := config.LoadService[ObservabilityConfig]("internal/platform/observability", config.Environment())
+	if err == nil {
+		err = applyGoSetEnv(cfg, os.Getenv)
+	}
 	if err != nil {
 		panic(fmt.Errorf("observability: load config: %w", err))
 	}
-	applyEnvOverrides(cfg)
 	return cfg
 }
 
-// applyEnvOverrides applies explicit environment variable overrides to the
-// observability config after YAML loading. These let local dev tooling tweak
-// individual settings (e.g. ORBIT_LOG_FORMAT=console) without APP_ENV branching.
-func applyEnvOverrides(cfg *ObservabilityConfig) {
-	if v := os.Getenv("ORBIT_OTLP_ENDPOINT"); v != "" {
+// applyGoSetEnv reads the collector settings orbit-agents and the operator set
+// on the session-manager and identity-proxy containers they build, which have
+// no rendered config file (docs/adr/2026-10-06-rendered-service-config-files.md).
+func applyGoSetEnv(cfg *ObservabilityConfig, getenv func(string) string) error {
+	if v := getenv("ORBIT_OTLP_ENDPOINT"); v != "" {
 		cfg.OTLPEndpoint = v
 	}
-	if v := os.Getenv("ORBIT_TENANT_OTLP_ENDPOINT"); v != "" {
-		cfg.TenantOTLPEndpoint = v
-	}
-	if v := os.Getenv("ORBIT_LOG_FORMAT"); v != "" {
-		cfg.LogFormat = v
-	}
-	if v := os.Getenv("ORBIT_SAMPLING_RATE"); v != "" {
-		if f, err := strconv.ParseFloat(v, 64); err == nil {
-			cfg.SamplingRate = &f
+	if v := getenv("ORBIT_SAMPLING_RATE"); v != "" {
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("ORBIT_SAMPLING_RATE %q is not a number: %w", v, err)
 		}
+		cfg.SamplingRate = &f
 	}
+	return nil
 }

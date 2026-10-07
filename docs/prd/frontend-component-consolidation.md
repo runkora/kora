@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-The Orbit control plane frontend has accumulated 22 recurring UI patterns — metric cards, modal dialogs, status badges, empty states, section headers, and more — that are implemented inline, independently, in each page or feature tab that needs them. There is no shared abstraction layer between the Terra design system and the product pages. This PRD defines the work to extract those patterns into reusable components placed at the correct level of the component hierarchy, eliminating duplication and establishing a stable, consistent UI vocabulary for all current and future dashboard features.
+The kora control plane frontend has accumulated 22 recurring UI patterns — metric cards, modal dialogs, status badges, empty states, section headers, and more — that are implemented inline, independently, in each page or feature tab that needs them. There is no shared abstraction layer between the Terra design system and the product pages. This PRD defines the work to extract those patterns into reusable components placed at the correct level of the component hierarchy, eliminating duplication and establishing a stable, consistent UI vocabulary for all current and future dashboard features.
 
 A Phase 0 of Terra primitive additions (Icon, ChatBubble, Show, Card `interactive`, Text enhancements) has been completed ([embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)). Phase 1 (`Modal`, `useDialog`, `FormField`) is complete. The remaining phases address the full suite of app-level shared components.
 
@@ -168,7 +168,7 @@ Extracted components must be:
 
 All 5 raw `<dialog>` implementations (create-token-modal, revoke-token-modal, token-created-modal, edit-scopes-modal, model-detail-modal) and all inline policy modals (DeleteGrantModal, CreateGrantModal, DeleteRoleModal, UpsertRoleModal) have been migrated to `Modal`.
 
-These three belong in Terra because they carry zero Orbit domain knowledge: `Modal` is a styled dialog shell, `FormField` is a label/input wrapper, `useDialog` is a DOM sync hook. Any Orbit UI surface — dashboard, embedded widget, admin panel — could use them.
+These three belong in Terra because they carry zero kora domain knowledge: `Modal` is a styled dialog shell, `FormField` is a label/input wrapper, `useDialog` is a DOM sync hook. Any kora UI surface — dashboard, embedded widget, admin panel — could use them.
 
 #### Tier 2 — App-level shared (`frontend/src/components/`)
 
@@ -182,7 +182,7 @@ These three belong in Terra because they carry zero Orbit domain knowledge: `Mod
 | `ConfirmDialog` | `DeleteGrantModal`; `DeleteRoleModal`; `RevokeTokenModal` | Policy (grants, roles), model-gateway (tokens) — and any future destructive action |
 | `EventFeedItem` | `dashboard/page.tsx` events list; `overview-tab.tsx` `RecentLogsCard`; `logs-tab.tsx` | Dashboard home, model-gateway overview, model-gateway logs |
 
-These belong in `frontend/src/components/` (not Terra) because they carry Orbit-specific domain knowledge — `StatusBadge` maps Orbit status tokens (`status-healthy`, `status-error`, `status-degraded`), `MetricCard` uses Orbit heading variants, and `ConfirmDialog` follows the Orbit destructive-action convention — but they are needed by two or more distinct feature areas of the dashboard.
+These belong in `frontend/src/components/` (not Terra) because they carry kora-specific domain knowledge — `StatusBadge` maps kora status tokens (`status-healthy`, `status-error`, `status-degraded`), `MetricCard` uses kora heading variants, and `ConfirmDialog` follows the kora destructive-action convention — but they are needed by two or more distinct feature areas of the dashboard.
 
 #### Tier 3 — Feature-scoped (`[feature]/_components/`)
 
@@ -244,7 +244,7 @@ All Tier 2 components are exported from a single `frontend/src/components/index.
 
 #### 2. Storybook extension — `App/Shared/` category (Phase 2)
 
-The Storybook instance already covers all Terra (Tier 1) components under `Terra/`. A new category `App/Shared/` is added to Storybook for Tier 2 components. Each component gets a minimal story — a `Default` showing canonical usage with Orbit-flavoured content, plus stories for each significant variant.
+The Storybook instance already covers all Terra (Tier 1) components under `Terra/`. A new category `App/Shared/` is added to Storybook for Tier 2 components. Each component gets a minimal story — a `Default` showing canonical usage with kora-flavoured content, plus stories for each significant variant.
 
 This creates a visual catalogue that product developers can browse at a glance — the same function the Terra component grid already serves for primitives, extended up the hierarchy.
 
@@ -389,7 +389,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 - `MessageContent`, `TypingIndicator`, and `ChatInputBar` should be promoted from Tier 3 to Tier 2 if AI-generated output rendering is needed outside the chat page (e.g., policy explain, agent scratchpad viewer).
 - `ViewToggle` and `FilterChip` should be promoted to Tier 2 if a second non-policy feature introduces a card/list toggle or a filter bar.
-- `MetricCard` may eventually be promoted to Terra (Tier 1) if a second Orbit surface (e.g., an embedded agent widget) needs a metric display outside the dashboard application.
+- `MetricCard` may eventually be promoted to Terra (Tier 1) if a second kora surface (e.g., an embedded agent widget) needs a metric display outside the dashboard application.
 
 ---
 
@@ -485,7 +485,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 **Description:** All 22 candidates land in `@orbit/terra`.
 
 **Why not chosen:**
-- Terra is domain-free. `MetricCard`, `StatusBadge`, `PrincipalBadge`, and `ConfirmDialog` carry Orbit domain knowledge (status token names, principal types, destructive-action semantics) that does not belong in a portable component library.
+- Terra is domain-free. `MetricCard`, `StatusBadge`, `PrincipalBadge`, and `ConfirmDialog` carry kora domain knowledge (status token names, principal types, destructive-action semantics) that does not belong in a portable component library.
 - Terra components require Storybook stories and strict ShadCN conventions — imposing that overhead on every intermediate component is not justified.
 
 ### Alternative 3: Single `(dashboard)/_components/` for all shared dashboard components
@@ -493,7 +493,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 **Description:** Skip the Terra and `src/components/` tiers; put everything under `(dashboard)/_components/`.
 
 **Why not chosen:**
-- `Modal` and `FormField` are genuinely generic and belong in Terra where they can be used by any Orbit surface.
+- `Modal` and `FormField` are genuinely generic and belong in Terra where they can be used by any kora surface.
 - A flat shared directory that mixes chart legends, policy badges, modal shells, and utility rows quickly becomes an undifferentiated dumping ground with no clear ownership.
 
 ---

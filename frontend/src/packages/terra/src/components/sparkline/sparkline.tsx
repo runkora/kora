@@ -11,7 +11,7 @@ import { cn } from '../../utils';
  * disabled row keeps its shape and its place in the column instead of going
  * blank and breaking the eye's ability to scan down the table.
  */
-const barVariants = cva(['flex-1', 'rounded-[1px]'], {
+const barVariants = cva(['flex-1', 'rounded-sm'], {
   variants: {
     tone: {
       accent: 'bg-accent',

@@ -6,7 +6,7 @@ Accepted
 
 ## Context
 
-orbit-agents exposes an HTTP management API for agent types and runs. Traffic reaching it from external clients flows through the Orbit policy gateway (Envoy + OPA), which enforces route-level scope checks compiled from the policy-service's OPA bundles.
+orbit-agents exposes an HTTP management API for agent types and runs. Traffic reaching it from external clients flows through the kora policy gateway (Envoy + OPA), which enforces route-level scope checks compiled from the policy-service's OPA bundles.
 
 Until orbit-agents registers its routes with the policy-service, the gateway has no bundle entries for those paths. Depending on the gateway's default posture this means requests are either silently passed through without scope enforcement or blanket-denied — neither is acceptable for a production control-plane API.
 
@@ -45,11 +45,13 @@ This table is the registration as it stands today, not as this ADR first propose
 | `DELETE` | `/api/v1/environments/` | `agents:environments:write` |
 | `POST` | `/api/v1/runs` | *(authenticated only)* |
 | `GET` | `/api/v1/runs` | `agents:runs:read` |
+| `GET` | `/api/v1/run-outcomes` | `agents:runs:read` |
+| `GET` | `/api/v1/run-stats/` | `agents:runs:read` |
 | `GET` | `/api/v1/runs/` | `agents:runs:read` |
 | `DELETE` | `/api/v1/runs/` | `agents:runs:write` |
 | `POST` | `/api/v1/runs/` | `agents:runs:write` |
 
-The `/api/v1/runs/` POST prefix covers both `POST /api/v1/runs/{id}/messages` and any future per-run write actions. The `/api/v1/runs/` GET prefix covers `GET /api/v1/runs/{id}`, `GET /api/v1/runs/{id}/events`, and future per-run read actions.
+The `/api/v1/runs/` POST prefix covers both `POST /api/v1/runs/{id}/messages` and any future per-run write actions. The `/api/v1/runs/` GET prefix covers `GET /api/v1/runs/{id}`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/stats`, and future per-run read actions.
 
 **Agent-type writes are authenticated-only for the same reason as run starts.** The governing scope is mode-qualified (`agents:types:{delegated,autonomous}:write`), and the mode is a property of the agent type being written, not of the path. `Authz.checkAgentTypeModeWrite` in `AgentTypeService` is the authoritative check. The same widening argument applies: a route-level `agents:types:write` would prefix-cover both modes and hand every author of one kind the authority to write the other.
 
@@ -67,8 +69,10 @@ The route is registered with an empty required scope and excluded from policy-se
 | `agents:types:write` | `agents` | `write` | Create and delete agent type definitions |
 | `agents:runs:read` | `agents` | `read` | View runs and stream agent events |
 | `agents:runs:write` | `agents` | `write` | Start, message, and terminate runs |
+| `agents:usage:read` | `agents` | `read` | View every agent's usage, spend and budgets (prefix-covers the per-agent usage scopes) |
+| `agents:delegated:read` | `agents` | `read` | View the runs of delegated agents that other people started, with their messages, events and outputs |
 
-These four scopes form the complete permission surface for the agent management API. Platform administrators can compose them into roles (e.g. an `agent-operator` role with all four, or a read-only `agent-viewer` role with only the two read scopes) and grant them to human principals or PATs via the policy portal.
+The `agents:usage:read` scope is required by the inference gateway's `/v1/usage/agent-insights` and `/v1/usage/agent-type/{slug}` routes. The `agents:runs:read` scope is required by `/api/v1/run-outcomes` and `/api/v1/run-stats/{slug}`. The `agents:delegated:read` scope is checked by the service layer, not by a route. Together with the four scopes above they form the permission surface for the agent management API. Platform administrators can compose them into roles (e.g. an `agent-operator` role with all four, or a read-only `agent-viewer` role with only the two read scopes) and grant them to human principals or PATs via the policy portal.
 
 ### Per-Agent-Type Scope Vocabulary
 
@@ -78,6 +82,7 @@ In addition to the four static scopes above, orbit-agents registers per-agent-ty
 |-------|--------------|---------------|--------|-------------|
 | `agents:runs:{slug}:read` | `agents` | `["runs", "{slug}"]` | `read` | View runs and events for a specific agent type |
 | `agents:runs:{slug}:write` | `agents` | `["runs", "{slug}"]` | `write` | Start, message, and terminate runs for a specific agent type |
+| `agents:usage:{slug}:read` | `agents` | `["usage", "{slug}"]` | `read` | View usage, spend and budget for a specific agent type |
 
 For example, a `coder` agent type produces:
 - `agents:runs:coder:read` — read access to coder runs

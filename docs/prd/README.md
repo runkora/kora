@@ -14,6 +14,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Agent Triggers](agent-webhook-triggers.md) | Draft | [agent-triggers-and-webhook-ingestion](../adr/2026-06-17-agent-triggers-and-webhook-ingestion.md) |
 | [Extended Trigger Types](extended-trigger-types.md) | Implemented | [extended-trigger-types](../adr/2026-06-20-extended-trigger-types.md) |
 | [Trigger Deliveries Filter and Event Detail](trigger-deliveries-filter.md) | Approved | [trigger-deliveries-filter](../adr/2026-06-20-trigger-deliveries-filter.md) |
+| [Trigger Payload Templating](trigger-payload-templating.md) | Implemented | [trigger-payload-templating](../adr/2026-09-28-trigger-payload-templating.md) |
 | [Agent Token Breakdown and Spend Card](agent-token-breakdown-and-spend-card.md) | Approved | [agent-token-breakdown-and-spend-card](../adr/2026-06-23-agent-token-breakdown-and-spend-card.md) |
 | [Credential Broker & Outbound Connections](credential-broker-and-outbound-connections.md) | Draft | [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |
 | [Kubernetes Connection](kubernetes-connection.md) | Draft | [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md) |
@@ -31,7 +32,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Hierarchical Budgets](hierarchical-budgets.md) | Draft | [hierarchical-budget-enforcement](../adr/2026-06-10-hierarchical-budget-enforcement.md) |
 | [Model Cost Visibility](model-cost-visibility.md) | Approved | [model-cost-visibility](../adr/2026-06-22-model-cost-visibility.md) |
 | [MCP / Tool Gateway](mcp-tool-gateway.md) | Approved | [mcp-server-registration-and-introspection](../adr/2026-06-29-mcp-server-registration-and-introspection.md), [mcp-tool-gateway](../adr/2026-06-29-mcp-tool-gateway.md), [mcp-oauth-authentication](../adr/2026-06-29-mcp-oauth-authentication.md) |
-| [Orbit MCP](orbit-mcp.md) | Approved | [orbit-mcp](../adr/2026-06-30-orbit-mcp.md) |
+| [kora MCP](orbit-mcp.md) | Approved | [orbit-mcp](../adr/2026-06-30-orbit-mcp.md) |
 | [Terra Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
 | [Terra Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |
 | [Terra Reusable Wizard Flow](terra-reusable-wizard-flow.md) | In Review | [terra-wizard-component](../adr/2026-08-03-terra-wizard-component.md) |
@@ -41,7 +42,9 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Nav Cleanup and Live Dashboard](nav-cleanup-and-live-dashboard.md) | Approved | [nav-cleanup-and-live-dashboard](../adr/2026-06-19-nav-cleanup-and-live-dashboard.md) |
 | [Mobile & Tablet Responsive Design](mobile-responsive-design.md) | Approved | [mobile-responsive-design](../adr/2026-06-19-mobile-responsive-design.md) |
 | [Multi-Account AWS Bedrock Support](multi-account-bedrock.md) | Approved | [multi-account-bedrock](../adr/2026-06-19-multi-account-bedrock.md) |
+| [CRD-Driven Inference Providers](crd-inference-providers.md) | Approved | [crd-inference-providers](../adr/2026-10-01-crd-inference-providers.md) |
 | [Non-Token Model Pricing](non-token-model-pricing.md) | Approved | [non-token-model-pricing](../adr/2026-07-24-non-token-model-pricing.md) |
+| [Sandbox Environments](sandbox-environments.md) | Approved | [sandbox-environments](../adr/2026-10-03-sandbox-environments.md) |
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
 

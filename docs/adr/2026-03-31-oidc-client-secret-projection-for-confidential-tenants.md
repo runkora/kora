@@ -11,7 +11,7 @@
 
 ### Background
 
-[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) established the tenant registry model: per-tenant OIDC configuration is stored in the `orbit-tenants` ConfigMap and the identity service reads it at startup, reloading automatically via an `fsnotify` file watcher when the ConfigMap volume is updated by the operator. [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) introduced the Orbit operator and `OrbitTenant` CRD, which includes a `spec.oidc.clientSecretRef` field pointing to a pre-existing `Secret` containing the OIDC client secret.
+[tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) established the tenant registry model: per-tenant OIDC configuration is stored in the `orbit-tenants` ConfigMap and the identity service reads it at startup, reloading automatically via an `fsnotify` file watcher when the ConfigMap volume is updated by the operator. [orbit-kubernetes-operator](2026-03-31-orbit-kubernetes-operator.md) introduced the kora operator and `OrbitTenant` CRD, which includes a `spec.oidc.clientSecretRef` field pointing to a pre-existing `Secret` containing the OIDC client secret.
 
 The tenant registry format (`orbit-tenants` ConfigMap) includes a `clientSecretEnv` field per tenant — a named environment variable the identity service will read to obtain the client secret at runtime:
 

@@ -3,7 +3,7 @@
 // ── SetupTab ────────────────────────────────────────────────────────────────
 //
 // Guides users through configuring a local LLM coding agent to route traffic
-// through the Orbit Model Gateway.
+// through the kora Model Gateway.
 //
 // Structure:
 //   1. Shared intro — how to self-service provision an API key
@@ -85,7 +85,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
       <Step number={2} title="Map model aliases to your virtual models" isLast>
         <Text size="supporting" color="muted">
           Claude Code uses <Code>ANTHROPIC_DEFAULT_*_MODEL</Code> environment variables to select
-          models by tier. Set each to the virtual model ID provisioned for you in Orbit.
+          models by tier. Set each to the virtual model ID provisioned for you in kora.
         </Text>
         <CodeBlock
           text={`export ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-4-6
@@ -107,7 +107,7 @@ function CodexGuide({ baseUrl }: { baseUrl: string }) {
     <Stack gap="none">
       <Step number={1} title="Set the active provider and model">
         <Text size="supporting" color="muted">
-          Tell Codex to use Orbit and select your default virtual model by adding the following to
+          Tell Codex to use kora and select your default virtual model by adding the following to
           your Codex config file.
         </Text>
         <CodeBlock
@@ -117,14 +117,14 @@ model = "anthropic/claude-sonnet-4-6"`}
         />
       </Step>
 
-      <Step number={2} title="Register the Orbit provider" isLast>
+      <Step number={2} title="Register the kora provider" isLast>
         <Text size="supporting" color="muted">
           Add the provider definition that Codex will look up when{' '}
           <Code>model_provider = &quot;orbit&quot;</Code> is set.
         </Text>
         <CodeBlock
           text={`[model_providers.orbit]
-name     = "Orbit"
+name     = "kora"
 base_url = "${baseUrl}/v1"
 env_key  = "ORBIT_API_KEY"
 wire_api = "responses"`}
@@ -137,7 +137,7 @@ wire_api = "responses"`}
             </Heading>
             <Text size="caption" color="muted">
               Codex reads the bearer token from the environment variable named by{' '}
-              <Code>env_key</Code>. Export your Orbit API key as <Code>ORBIT_API_KEY</Code> in your
+              <Code>env_key</Code>. Export your kora API key as <Code>ORBIT_API_KEY</Code> in your
               shell profile.
             </Text>
           </Stack>
@@ -161,10 +161,10 @@ wire_api = "responses"`}
 function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
   return (
     <Stack gap="none">
-      <Step number={1} title="Add Orbit as a provider" isLast>
+      <Step number={1} title="Add kora as a provider" isLast>
         <Text size="supporting" color="muted">
           OpenCode supports custom OpenAI-compatible providers via its config file. Add the
-          following to register Orbit and expose your virtual models.
+          following to register kora and expose your virtual models.
         </Text>
         <CodeBlock
           text={`{
@@ -172,7 +172,7 @@ function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
   "provider": {
     "orbit": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Orbit",
+      "name": "kora",
       "options": {
         "baseURL": "${baseUrl}/v1",
         "apiKey": "{env:ORBIT_API_KEY}"
@@ -258,7 +258,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
         </Callout>
       </Step>
 
-      <Step number={3} title="Or register Orbit as an OpenAI-compatible provider" isLast>
+      <Step number={3} title="Or register kora as an OpenAI-compatible provider" isLast>
         <Text size="supporting" color="muted">
           Extensions that accept a custom OpenAI-compatible endpoint (Continue, Cline, Roo Code and
           similar) take the gateway directly. Point them at the <Code>/v1</Code> base URL and your
@@ -268,7 +268,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
           text={`{
   "models": [
     {
-      "title": "Orbit — Claude Sonnet 4.6",
+      "title": "kora — Claude Sonnet 4.6",
       "provider": "openai",
       "model": "anthropic/claude-sonnet-4-6",
       "apiBase": "${baseUrl}/v1",
@@ -313,7 +313,7 @@ export function SetupTab() {
         <CardHeader>
           <CardTitle>Provision an API key</CardTitle>
           <CardDescription>
-            All agents authenticate to the Orbit Model Gateway using a personal API key. Create one
+            All agents authenticate to the kora Model Gateway using a personal API key. Create one
             now and export it to your environment before continuing.
           </CardDescription>
         </CardHeader>
@@ -391,7 +391,7 @@ export function SetupTab() {
         <CardHeader>
           <CardTitle>Configure your agent</CardTitle>
           <CardDescription>
-            Select your LLM coding agent below and follow the steps to point it at the Orbit Model
+            Select your LLM coding agent below and follow the steps to point it at the kora Model
             Gateway.
           </CardDescription>
         </CardHeader>

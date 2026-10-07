@@ -13,7 +13,29 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
+
+// ErrInvalidSlug is returned when an agent type slug cannot name the
+// Kubernetes resources provisioned for it.
+var ErrInvalidSlug = errors.New("invalid slug")
+
+// maxAgentSlugLength is the longest agent type slug. The slug names the agent's
+// StatefulSet, whose pods carry a controller-revision-hash label of the form
+// "<slug>-<hash>" with a hash of up to 10 characters, and label values stop at
+// 63 characters.
+const maxAgentSlugLength = 52
+
+// validateAgentSlug checks slug can name the agent's ServiceAccount,
+// StatefulSet and Service. A Service name is a DNS-1035 label, so the slug
+// must start with a letter.
+func validateAgentSlug(slug string) error {
+	if len(slug) > maxAgentSlugLength || len(validation.IsDNS1035Label(slug)) > 0 {
+		return fmt.Errorf("%w %q: slug must be lowercase letters, digits and hyphens, start with a letter, end with a letter or digit, and be at most %d characters",
+			ErrInvalidSlug, slug, maxAgentSlugLength)
+	}
+	return nil
+}
 
 // AgentTypeServiceConfig holds the runtime parameters used by AgentTypeService.
 type AgentTypeServiceConfig struct {
@@ -30,7 +52,7 @@ type AgentTypeService struct {
 	cfg      AgentTypeServiceConfig
 	logger   logging.Logger
 	hook     func()            // called after agent type create/delete; nil if unset
-	envs     environmentLookup // validates environment references; nil = skip validation
+	envs     environmentLookup // validates attached environments; nil = skip validation
 	resolver *ScopeResolver    // resolves effective access for the read endpoint; nil = degraded
 	// delegation revokes run delegations when agent-type deletion force-deletes
 	// runs (the delegation ends with the run); nil = skip (issuer not wired).
@@ -66,9 +88,8 @@ func NewAgentTypeService(
 // re-registration — the hook should launch its own goroutine if needed.
 func (s *AgentTypeService) SetAgentTypeHook(fn func()) { s.hook = fn }
 
-// SetEnvironmentLookup installs the environment store used to validate that an
-// agent's environment reference exists within its tenant. When unset, the
-// reference is not validated here (the database FK still guards bare existence).
+// SetEnvironmentLookup installs the environment store that checks an agent's
+// environments exist within its tenant. When unset, only the database FK checks them.
 func (s *AgentTypeService) SetEnvironmentLookup(envs environmentLookup) { s.envs = envs }
 
 // SetScopeResolver installs the resolver used to compute the effective-access
@@ -76,8 +97,7 @@ func (s *AgentTypeService) SetEnvironmentLookup(envs environmentLookup) { s.envs
 // posture (no environment or connector resolution).
 func (s *AgentTypeService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 
-// GetEffectiveAccess returns the resolved access view for an agent type — its
-// egress posture, referenced environment, and connector auto-egress combined.
+// GetEffectiveAccess returns an agent type's egress posture, attached environments and connector auto-egress combined.
 // Tenant-scoped and authz-read-checked like GetAgentType.
 func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*EffectiveAccess, error) {
 	ctx, span := agentsTracer.Start(ctx, "agents.GetEffectiveAccess",
@@ -114,10 +134,10 @@ func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*
 // for their own tenant.
 func (s *AgentTypeService) PreviewEffectiveAccess(ctx context.Context, req EffectiveAccessPreviewRequest) (*EffectiveAccess, error) {
 	draft := AgentType{
-		TenantID:      tenantFromContext(ctx),
-		Connectivity:  req.Connectivity,
-		Connectors:    req.Connectors,
-		EnvironmentID: req.EnvironmentID,
+		TenantID:     tenantFromContext(ctx),
+		Connectivity: req.Connectivity,
+		Connectors:   req.Connectors,
+		Environments: req.Environments,
 	}
 	resolver := s.resolver
 	if resolver == nil {
@@ -152,39 +172,64 @@ func (s *AgentTypeService) validateAgentTypeUpdate(ctx context.Context, at *Agen
 			return fmt.Errorf("%w: %w", ErrInvalidConnector, vErr)
 		}
 	}
-	if req.EnvironmentID != nil {
-		var envID *string
-		if strings.TrimSpace(*req.EnvironmentID) != "" {
-			envID = req.EnvironmentID
-		}
-		if vErr := s.validateEnvironmentRef(ctx, at.TenantID, envID); vErr != nil {
+	if req.Guardrails != nil {
+		if vErr := req.Guardrails.Validate(); vErr != nil {
 			return vErr
 		}
+	}
+	if req.Environments != nil {
+		envs, vErr := s.validateEnvironments(ctx, at.TenantID, *req.Environments)
+		if vErr != nil {
+			return vErr
+		}
+		*req.Environments = envs
 	}
 	return nil
 }
 
-// validateEnvironmentRef rejects an agent referencing a non-existent or
-// cross-tenant environment. A nil/blank ref or an unwired env lookup is a no-op.
-func (s *AgentTypeService) validateEnvironmentRef(ctx context.Context, tenantID string, envID *string) error {
-	if envID == nil || strings.TrimSpace(*envID) == "" || s.envs == nil {
-		return nil
-	}
-	if _, err := s.envs.GetEnvironment(ctx, tenantID, *envID); err != nil {
-		if errors.Is(err, ErrNotFound) {
-			return fmt.Errorf("%w: environment %q not found", ErrInvalidEnvironment, *envID)
+// validateEnvironments checks each environment exists in the tenant and that
+// exactly one is the default. A lone environment is the default.
+func (s *AgentTypeService) validateEnvironments(ctx context.Context, tenantID string, envs []AgentEnvironment) ([]AgentEnvironment, error) {
+	out := make([]AgentEnvironment, 0, len(envs))
+	defaults := 0
+	for _, e := range envs {
+		e.EnvironmentID = strings.TrimSpace(e.EnvironmentID)
+		if e.EnvironmentID == "" || slices.ContainsFunc(out, func(o AgentEnvironment) bool { return o.EnvironmentID == e.EnvironmentID }) {
+			return nil, fmt.Errorf("%w: environment ids must be set and unique", ErrInvalidEnvironment)
 		}
-		return fmt.Errorf("validate environment reference: %w", err)
+		if e.IsDefault {
+			defaults++
+		}
+		out = append(out, e)
 	}
-	return nil
+	if len(out) == 1 {
+		out[0].IsDefault = true
+		defaults = 1
+	}
+	if len(out) > 0 && defaults != 1 {
+		return nil, fmt.Errorf("%w: mark exactly one environment as the default", ErrInvalidEnvironment)
+	}
+	if s.envs == nil {
+		return out, nil
+	}
+	found, err := s.envs.ListEnvironmentsByIDs(ctx, tenantID, environmentIDs(out))
+	if err != nil {
+		return nil, fmt.Errorf("validate environments: %w", err)
+	}
+	for _, e := range out {
+		if !slices.ContainsFunc(found, func(f Environment) bool { return f.ID == e.EnvironmentID }) {
+			return nil, fmt.Errorf("%w: environment %q not found", ErrInvalidEnvironment, e.EnvironmentID)
+		}
+	}
+	return out, nil
 }
 
 // createValidated carries the validated + normalised create-request fields
 // out of validateAgentTypeCreate.
 type createValidated struct {
-	identityMode  IdentityMode
-	connectivity  Connectivity
-	environmentID *string
+	identityMode IdentityMode
+	connectivity Connectivity
+	environments []AgentEnvironment
 }
 
 // validateAgentTypeCreate runs the create-request field validations (identity
@@ -193,6 +238,10 @@ type createValidated struct {
 // cyclomatic complexity in check, mirroring validateAgentTypeUpdate.
 func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req CreateAgentTypeRequest) (createValidated, error) {
 	var out createValidated
+
+	if err := validateAgentSlug(req.Slug); err != nil {
+		return out, err
+	}
 
 	// Identity model: autonomous unless explicitly created delegated. Immutable
 	// after creation (delegated-agent-identity ADR, Decision 1).
@@ -219,15 +268,19 @@ func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req Crea
 	if err := ValidateConnectors(req.Connectors); err != nil {
 		return out, fmt.Errorf("%w: %w", ErrInvalidConnector, err)
 	}
-
-	// Environment reference: blank = none. Validate it exists in this tenant —
-	// the FK guards bare existence but not tenant ownership.
-	if req.EnvironmentID != nil && strings.TrimSpace(*req.EnvironmentID) != "" {
-		out.environmentID = req.EnvironmentID
+	if req.Guardrails != nil {
+		if err := req.Guardrails.Validate(); err != nil {
+			return out, err
+		}
 	}
-	if err := s.validateEnvironmentRef(ctx, req.TenantID, out.environmentID); err != nil {
+
+	// No environments means the built-in default. The FK checks only existence.
+	// Tenant ownership is checked here.
+	envs, err := s.validateEnvironments(ctx, req.TenantID, req.Environments)
+	if err != nil {
 		return out, err
 	}
+	out.environments = envs
 	return out, nil
 }
 
@@ -269,11 +322,6 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		return nil, err
 	}
 
-	toolScopes := req.ToolScopes
-	if !slices.Contains(toolScopes, "mcp") {
-		toolScopes = append(toolScopes, "mcp")
-	}
-
 	// grant_scopes is NOT NULL in the database; default a missing slice to an
 	// empty one so a request that omits the field still creates cleanly.
 	grantScopes := req.GrantScopes
@@ -303,12 +351,12 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		SystemPrompt:            req.SystemPrompt,
 		Framework:               framework,
 		IdentityMode:            validated.identityMode,
-		ToolScopes:              toolScopes,
 		GrantScopes:             grantScopes,
 		Connectivity:            validated.connectivity,
 		Connectors:              req.Connectors,
 		MCPTools:                mcpTools,
-		EnvironmentID:           validated.environmentID,
+		Environments:            validated.environments,
+		Guardrails:              guardrailsOrDefault(req.Guardrails),
 		MaxConcurrentRunsPerPod: maxRuns,
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
@@ -522,7 +570,7 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 // compiled into the grant via EffectiveGrantScopes). Runs in background so
 // the update response is not delayed by a policy-service round-trip.
 func (s *AgentTypeService) reconcileGrantIfNeeded(ctx context.Context, at *AgentType, req UpdateAgentTypeRequest, namespace string) {
-	if req.GrantScopes == nil && req.ModelID == nil && req.Budget == nil && req.Connectivity == nil && req.Connectors == nil && req.MCPTools == nil && req.EnvironmentID == nil {
+	if req.GrantScopes == nil && req.ModelID == nil && req.Budget == nil && req.Connectivity == nil && req.Connectors == nil && req.MCPTools == nil && req.Environments == nil {
 		return
 	}
 	detachedCtx := trace.ContextWithRemoteSpanContext(context.Background(), trace.SpanContextFromContext(ctx))
@@ -585,6 +633,9 @@ func (s *AgentTypeService) loadAgentTypeForWrite(ctx context.Context, id string,
 
 // applyAgentTypeUpdates copies non-nil fields from req onto at.
 func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
+	if req.Guardrails != nil {
+		at.Guardrails = *req.Guardrails
+	}
 	if req.Name != nil {
 		at.Name = *req.Name
 	}
@@ -603,9 +654,6 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	if req.ModelID != nil {
 		at.ModelID = req.ModelID
 	}
-	if req.ToolScopes != nil {
-		at.ToolScopes = req.ToolScopes
-	}
 	if req.GrantScopes != nil {
 		at.GrantScopes = req.GrantScopes
 	}
@@ -621,12 +669,8 @@ func applyAgentTypeUpdates(at *AgentType, req UpdateAgentTypeRequest) {
 	if req.Connectors != nil {
 		at.Connectors = req.Connectors
 	}
-	if req.EnvironmentID != nil {
-		if strings.TrimSpace(*req.EnvironmentID) == "" {
-			at.EnvironmentID = nil
-		} else {
-			at.EnvironmentID = req.EnvironmentID
-		}
+	if req.Environments != nil {
+		at.Environments = *req.Environments
 	}
 }
 

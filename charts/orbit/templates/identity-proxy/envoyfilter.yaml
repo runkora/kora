@@ -1,15 +1,16 @@
 # EnvoyFilter: identity-proxy ext_proc integration.
 #
-# The identity-proxy is the MANDATORY trust enforcement point for all Orbit
+# The identity-proxy is the MANDATORY trust enforcement point for all kora
 # platform agent workloads. It is not optional. Every agent pod on the platform
 # must carry the label `orbit.io/identity-proxy: "enabled"` and an identity-proxy
-# container sharing the /run/orbit socket with istio-proxy (added by the operator
-# webhook for tenant pods and by the chart for Orbit services).
+# container sharing the /run/orbit socket with istio-proxy, both added by the
+# operator webhook. kora's own services carry neither; they fetch their own
+# platform token in-process.
 #
 # This filter activates on all pods bearing that label and intercepts every
 # outbound HTTP request at the Envoy layer. It calls the identity-proxy sidecar
 # (Unix socket server) as an External Processing (ext_proc) filter, which:
-#   1. Exchanges the pod's live SPIFFE SVID for an Orbit platform Bearer token.
+#   1. Exchanges the pod's live SPIFFE SVID for a kora platform Bearer token.
 #   2. Caches the token and invalidates it on SVID rotation.
 #   3. Injects Authorization: Bearer <token> into the outbound request headers.
 #

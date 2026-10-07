@@ -13,7 +13,7 @@ import { cn } from '../../utils';
  *             Use when the Anchor sits inside a Text or Heading component.
  */
 const anchorVariants = cva(
-  'text-accent underline-offset-4 hover:underline transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-sm',
+  'text-accent underline underline-offset-4 hover:no-underline transition-colors duration-150 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent rounded-sm',
   {
     variants: {
       size: {

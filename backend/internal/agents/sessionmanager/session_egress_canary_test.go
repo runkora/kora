@@ -23,11 +23,13 @@ type stubExecServer struct {
 	callCount atomic.Int32 // total Execute calls
 	failUntil int32        // return exit 1 for the first failUntil calls
 	lastToken atomic.Value // string; the exec token presented on the most recent call
+	lastCmd   atomic.Value // string; the command run on the most recent call
 }
 
-func (s *stubExecServer) Execute(_ *execpb.ExecuteRequest, stream grpc.ServerStreamingServer[execpb.ExecuteResponse]) error {
+func (s *stubExecServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStreamingServer[execpb.ExecuteResponse]) error {
 	token, _ := execauth.TokenFrom(stream.Context())
 	s.lastToken.Store(token)
+	s.lastCmd.Store(req.GetCommand())
 	n := s.callCount.Add(1)
 	code := int32(0)
 	if n <= s.failUntil {
@@ -61,8 +63,11 @@ func startStubExecServer(t *testing.T, srv *stubExecServer) string {
 // testExecToken is the token the canary is expected to present.
 const testExecToken = "canary-exec-token"
 
+// testCanaryHost stands in for a host the agent is allowed to reach.
+const testCanaryHost = "pypi.org"
+
 func testSandbox(addr string) Sandbox {
-	return Sandbox{Endpoint: addr, ExecToken: testExecToken}
+	return Sandbox{Endpoint: addr, ExecToken: testExecToken, CanaryHost: testCanaryHost}
 }
 
 // ── awaitEgressReady tests ────────────────────────────────────────────────────
@@ -79,15 +84,40 @@ func TestAwaitEgressReady_PassesOnFirstSuccess(t *testing.T) {
 	addr := startStubExecServer(t, srv)
 
 	reg := newTestRegistryForCanary(t)
-	err := reg.awaitEgressReady(context.Background(), "run-1", testSandbox(addr))
-	if err != nil {
-		t.Fatalf("awaitEgressReady returned unexpected error: %v", err)
+	result, err := reg.awaitEgressReady(context.Background(), "run-1", testSandbox(addr))
+	if err != nil || result != egressCanaryPassed {
+		t.Fatalf("awaitEgressReady = %q, %v; want passed", result, err)
 	}
 	if got, _ := srv.lastToken.Load().(string); got != testExecToken {
 		t.Errorf("canary presented exec token %q, want %q", got, testExecToken)
 	}
 	if n := srv.callCount.Load(); n != 1 {
 		t.Errorf("expected 1 exec call, got %d", n)
+	}
+	if got, _ := srv.lastCmd.Load().(string); got != egressCanaryCommand(testCanaryHost) {
+		t.Errorf("canary ran %q, want a probe of the agent's own host %q", got, testCanaryHost)
+	}
+}
+
+// An agent with no host to probe, or a host that is not a plain hostname,
+// skips the canary instead of waiting out a probe that cannot pass.
+func TestAwaitEgressReady_SkipsWithoutProbeableHost(t *testing.T) {
+	for _, host := range []string{"", "*.example.com", "pypi.org; id", "pypi.org/simple"} {
+		t.Run(host, func(t *testing.T) {
+			srv := &stubExecServer{failUntil: 1000} // would never pass
+			addr := startStubExecServer(t, srv)
+			sandbox := testSandbox(addr)
+			sandbox.CanaryHost = host
+
+			reg := newTestRegistryForCanary(t)
+			result, err := reg.awaitEgressReadyWithInterval(context.Background(), "run-skip", sandbox, 10*time.Millisecond, 5*time.Second)
+			if err != nil || result != egressCanarySkipped {
+				t.Fatalf("awaitEgressReady = %q, %v; want skipped", result, err)
+			}
+			if n := srv.callCount.Load(); n != 0 {
+				t.Errorf("expected no exec calls, got %d", n)
+			}
+		})
 	}
 }
 
@@ -108,8 +138,8 @@ func TestAwaitEgressReady_RetriesUntilSuccess(t *testing.T) {
 	addr := startStubExecServer(t, srv)
 
 	reg := newTestRegistryForCanary(t)
-	err := reg.awaitEgressReadyWithInterval(context.Background(), "run-retry", testSandbox(addr), 10*time.Millisecond, 5*time.Second)
-	if err != nil {
+	result, err := reg.awaitEgressReadyWithInterval(context.Background(), "run-retry", testSandbox(addr), 10*time.Millisecond, 5*time.Second)
+	if err != nil || result != egressCanaryPassed {
 		t.Fatalf("awaitEgressReady returned unexpected error after retries: %v", err)
 	}
 	// failUntil: 2 means calls 1 and 2 fail and call 3 succeeds, so the canary
@@ -128,9 +158,9 @@ func TestAwaitEgressReady_TimesOut(t *testing.T) {
 	addr := startStubExecServer(t, srv)
 
 	reg := newTestRegistryForCanary(t)
-	err := reg.awaitEgressReadyWithInterval(context.Background(), "run-timeout", testSandbox(addr), 20*time.Millisecond, 80*time.Millisecond)
-	if err == nil {
-		t.Fatal("expected timeout error, got nil")
+	result, err := reg.awaitEgressReadyWithInterval(context.Background(), "run-timeout", testSandbox(addr), 20*time.Millisecond, 80*time.Millisecond)
+	if err == nil || result != egressCanaryTimedOut {
+		t.Fatalf("awaitEgressReady = %q, %v; want timed_out with an error", result, err)
 	}
 }
 
@@ -144,8 +174,8 @@ func TestAwaitEgressReady_ContextCanceled(t *testing.T) {
 	cancel() // pre-canceled
 
 	reg := newTestRegistryForCanary(t)
-	err := reg.awaitEgressReadyWithInterval(ctx, "run-cancel", testSandbox(addr), 20*time.Millisecond, 5*time.Second)
-	if err == nil {
+	result, err := reg.awaitEgressReadyWithInterval(ctx, "run-cancel", testSandbox(addr), 20*time.Millisecond, 5*time.Second)
+	if err == nil || result != egressCanaryTimedOut {
 		t.Fatal("expected error from canceled context, got nil")
 	}
 }

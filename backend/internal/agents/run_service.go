@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -22,13 +24,18 @@ import (
 // RunServiceConfig holds runtime parameters for RunService.
 type RunServiceConfig struct {
 	MaxConcurrentRunsPerPod int
-	TenantNamespaceFn       func(tenantID string) string // maps tenant ID → k8s namespace
+	// SandboxGuardrails are the install's sandbox provisioning settings, sent
+	// with every run (docs/adr/2026-09-29-agent-run-guardrails.md).
+	SandboxGuardrails SandboxGuardrails
+	TenantNamespaceFn func(tenantID string) string // maps tenant ID → k8s namespace
 	// StaleRunTimeout is how long a run may stay in active/starting without a state update
 	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
 	StaleRunTimeout time.Duration
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
+	// DefaultEnvironmentSize sizes the built-in default environment.
+	DefaultEnvironmentSize EnvironmentSize
 }
 
 // RunService is the single state machine authority for agent runs.
@@ -44,6 +51,8 @@ type RunService struct {
 	logger     logging.Logger
 	resolver   *ScopeResolver    // resolves the runtime-environment brief; nil = no brief
 	delegation *DelegationBroker // mints/revokes run delegations; nil = issuer not wired (delegated runs fail closed)
+	envs       runEnvironmentStore
+	images     sandboxImageLookup
 }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
@@ -76,7 +85,7 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 	if access == nil {
 		return at.SystemPrompt
 	}
-	return at.SystemPrompt + renderCapabilitiesBrief(access)
+	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID))
 }
 
 // NewRunService creates a RunService with the given dependencies.
@@ -87,6 +96,8 @@ func NewRunService(
 	k8s k8sProvisioner,
 	pubsub *PubSub,
 	authz *Authz,
+	envs runEnvironmentStore,
+	images sandboxImageLookup,
 	cfg RunServiceConfig,
 	logger logging.Logger,
 ) *RunService {
@@ -97,6 +108,8 @@ func NewRunService(
 		k8s:    k8s,
 		pubsub: pubsub,
 		authz:  authz,
+		envs:   envs,
+		images: images,
 		cfg:    cfg,
 		logger: logger,
 	}
@@ -237,11 +250,10 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 
 	podURL := sessionmanager.PodURL(at.Slug, podOrdinal, namespace)
 	smReq := sessionmanager.CreateSessionRequest{
-		RunID:        run.ID,
-		AgentTypeID:  run.AgentTypeID,
-		TenantID:     run.TenantID,
-		Framework:    string(at.Framework),
-		AllowedTools: at.ToolScopes,
+		RunID:       run.ID,
+		AgentTypeID: run.AgentTypeID,
+		TenantID:    run.TenantID,
+		Framework:   string(at.Framework),
 		// One governed MCP endpoint per server the agent has tool grants on.
 		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
@@ -249,6 +261,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// The session-manager pre-provisions, because it is the only component that
 		// writes the run's sandbox descriptor. A pod warmed without one sits idle.
 		ProvisionSandbox: req.ProvisionSandbox,
+		Guardrails:       runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails),
 	}
 	if at.ModelID != nil {
 		smReq.Model = *at.ModelID
@@ -300,17 +313,20 @@ func (s *RunService) loadRunForAction(ctx context.Context, runID, action string)
 		span.SetStatus(codes.Error, "get agent type")
 		return nil, nil, fmt.Errorf("get agent type: %w", err)
 	}
-	if err := s.authz.checkRun(ctx, *at, action); err != nil {
+	if err = s.authz.checkRun(ctx, *at, action); err != nil {
 		if errors.Is(err, ErrForbidden) {
 			return nil, nil, ErrNotFound
 		}
 		return nil, nil, err
 	}
-	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
-	// Decision 6): a delegated agent's run is private to its starter; only a
-	// tenant admin may additionally read (and terminate) it. Denies map to
-	// ErrNotFound so existence is not leaked. Autonomous runs are unaffected.
-	if err := checkDelegatedRunVisibility(ctx, at, run); err != nil {
+	// The delegated:read check runs only for a delegated run the caller did not start.
+	seeAll := false
+	if at.IdentityMode.OrDefault() == IdentityModeDelegated && !isRunStarter(ctx, run) {
+		if seeAll, err = s.authz.canReadDelegatedRuns(ctx); err != nil {
+			return nil, nil, err
+		}
+	}
+	if err = checkDelegatedRunVisibility(ctx, at, run, seeAll); err != nil {
 		return nil, nil, err
 	}
 	return run, at, nil
@@ -331,54 +347,87 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	return run, nil
 }
 
-// ListRuns returns the runs the principal in ctx may read, newest first,
-// optionally filtered by agent type. Tenant is derived from ctx claims (never
-// from a query string), and the result is filtered by per-agent-type grants via
-// authz.filterRuns.
-//
-// limit <= 0 returns every matching run. The UI presents this as a complete
-// activity history, so truncating server-side silently drops rows a caller
-// cannot tell are missing: filterRuns runs after the row cap, so the response
-// length never reveals whether more exist. A caller that wants a bound passes
-// one explicitly. See issue #209 for offset pagination with the visibility
-// filter pushed into the query, which is what makes a bound safe to default.
-func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int) ([]Run, error) {
+// ListRuns returns a page of the runs the caller may read, newest first, with both visibility rules applied in SQL.
+func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, p RunListQuery) (RunPage, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
 			attribute.String("tenant_id", tenantID),
 			attribute.String("agent_type_id", agentTypeID),
-			attribute.Int("limit", limit),
+			attribute.Int("limit", p.Limit),
 		),
 	)
 	defer span.End()
-	// Delegated identity model (Decision 6): non-admin callers see a delegated
-	// agent's runs only where created_by matches their verified subject. The
-	// filter is applied inside the repository query — never by trimming the
-	// result in memory — so counts stay correct. Autonomous runs are unfiltered.
-	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, runVisibilityFromContext(ctx), limit)
+	page, err := s.listRuns(ctx, tenantID, agentTypeID, p)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")
-		return nil, err
 	}
-	// Build a slug resolver scoped to this list — at most one lookup per distinct
-	// agent type, regardless of how many runs share it. Misses fail closed in
-	// filterRuns, so a deleted agent type does not leak runs.
-	slugCache := make(map[string]string)
-	resolveSlug := func(agentTypeID string) (string, bool) {
-		if slug, ok := slugCache[agentTypeID]; ok {
-			return slug, slug != ""
-		}
-		at, err := s.atRepo.GetAgentType(ctx, agentTypeID)
-		if err != nil || at == nil {
-			slugCache[agentTypeID] = ""
-			return "", false
-		}
-		slugCache[agentTypeID] = at.Slug
-		return at.Slug, true
+	return page, err
+}
+
+func (s *RunService) listRuns(ctx context.Context, tenantID, agentTypeID string, p RunListQuery) (RunPage, error) {
+	scope, err := s.readableRunScope(ctx, tenantID)
+	if err != nil {
+		return RunPage{}, err
 	}
-	return s.authz.filterRuns(ctx, runs, resolveSlug)
+	if agentTypeID != "" {
+		scope.AgentTypeIDs = slices.DeleteFunc(scope.AgentTypeIDs, func(id string) bool { return id != agentTypeID })
+	}
+	q := p
+	q.Scope = scope
+	// One row past the page says whether another page follows.
+	q.Limit = p.Limit + 1
+	runs, err := s.repo.ListRuns(ctx, tenantID, q)
+	if err != nil {
+		return RunPage{}, fmt.Errorf("list runs: %w", err)
+	}
+	page := RunPage{Runs: runs}
+	if len(runs) > p.Limit {
+		page.Runs = runs[:p.Limit]
+		last := page.Runs[len(page.Runs)-1]
+		page.NextCursor = runCursor{CreatedAt: last.CreatedAt, ID: last.ID}.encode()
+	}
+	return page, nil
+}
+
+// readableRunScope is every agent type in the tenant whose runs the caller may
+// read, under the caller's delegated-run visibility.
+func (s *RunService) readableRunScope(ctx context.Context, tenantID string) (RunScope, error) {
+	ats, err := s.atRepo.ListAgentTypes(ctx, tenantID)
+	if err != nil {
+		return RunScope{}, fmt.Errorf("list agent types: %w", err)
+	}
+	ids, err := s.authz.readableRunAgentTypes(ctx, ats)
+	if err != nil {
+		return RunScope{}, err
+	}
+	vis, err := s.runVisibility(ctx)
+	if err != nil {
+		return RunScope{}, err
+	}
+	return RunScope{AgentTypeIDs: ids, Vis: vis}, nil
+}
+
+// RunOutcomes counts the caller's visible completed and failed runs in [from, to).
+func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOutcomes, error) {
+	tenantID := tenantFromContext(ctx)
+	ctx, span := agentsTracer.Start(ctx, "agents.RunOutcomes",
+		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
+	)
+	defer span.End()
+	scope, err := s.readableRunScope(ctx, tenantID)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "run scope")
+		return RunOutcomes{}, err
+	}
+	out, err := s.repo.CountRunOutcomes(ctx, tenantID, scope, from, to)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "count run outcomes")
+	}
+	return out, err
 }
 
 // TerminateRun signals the session-manager to stop the subprocess and cleans up.
@@ -443,7 +492,8 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "to", Value: string(to)},
 	)
 	payload := []byte(`{"state":"` + string(to) + `"}`)
-	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	at := eventTime()
+	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
 	if err != nil {
 		// Log and continue — publishing as an ephemeral (seqNo=0) event so live
 		// subscribers still see the transition. The DB write failure is durable
@@ -459,7 +509,7 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		)
 		seqNo = 0
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
+	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
 
 	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
 		run, err := s.repo.GetRun(ctx, runID)
@@ -481,8 +531,18 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 // TransitionRunState applies a state transition signaled by the session-manager callback.
 // It delegates to Transition, which is the single state machine authority.
 // The name TransitionRunState is part of the session-manager HTTP callback contract.
+//
+// idle to active is idempotent: SendMessage already makes it for a user
+// message, and the session-manager, which cannot tell a message turn from a
+// turn the agent started itself, reports it again when the turn begins.
 func (s *RunService) TransitionRunState(ctx context.Context, runID string, from, to RunState) error {
-	return s.Transition(ctx, runID, from, to)
+	err := s.Transition(ctx, runID, from, to)
+	if errors.Is(err, ErrConflict) && from == RunStateIdle && to == RunStateActive {
+		if run, getErr := s.repo.GetRun(ctx, runID); getErr == nil && run.State == RunStateActive {
+			return nil
+		}
+	}
+	return err
 }
 
 // deprovisionSandbox deletes the sandbox pod for a run. Best-effort — logs on
@@ -510,8 +570,9 @@ func (s *RunService) deprovisionSandbox(ctx context.Context, run *Run) {
 // event was not recorded.
 func (s *RunService) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {
 	var writeErr error
+	ev.At = eventTime()
 	if durableEventType(ev.Type) {
-		seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: ev.Payload})
+		seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: ev.Type, Payload: ev.Payload, CreatedAt: ev.At})
 		if err != nil {
 			// Fan out anyway, unsequenced, and report the failure. Subscribers keep
 			// seeing the run while the database is down, and the pusher learns the
@@ -617,10 +678,12 @@ func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string
 	if err != nil {
 		return
 	}
+	at := eventTime()
 	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{
 		RunID:     runID,
 		EventType: "human_message",
 		Payload:   payload,
+		CreatedAt: at,
 	})
 	if err != nil {
 		s.logger.Warn(ctx, "Failed to persist human_message event",
@@ -629,7 +692,7 @@ func (s *RunService) emitHumanMessage(ctx context.Context, runID, content string
 		)
 		return
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "human_message", Payload: payload, SequenceNo: seqNo})
+	s.pubsub.Publish(runID, PushedEvent{Type: "human_message", Payload: payload, SequenceNo: seqNo, At: at})
 }
 
 // InterruptRun signals the session-manager to send SIGINT to the Claude subprocess.
@@ -645,8 +708,8 @@ func (s *RunService) InterruptRun(ctx context.Context, runID string) error {
 		return err
 	}
 	// Interrupt steers the run (it redirects the agent mid-turn), so it follows
-	// the same starter-only rule as SendMessage. Terminate does not: admins keep
-	// governance termination via loadRunForAction's visibility rule alone.
+	// the same starter-only rule as SendMessage. Terminate does not: it follows
+	// the visibility rule in loadRunForAction.
 	if err := checkDelegatedRunSteer(ctx, at, run); err != nil {
 		return err
 	}
@@ -744,31 +807,31 @@ var ErrKubeconfigNotReady = errors.New("kubeconfig not resolved for sandbox pre-
 // request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
 // the exec token that sandbox requires.
 //
+// An empty environment keeps the run's current one, or the agent's default before the first sandbox.
+// replace switches a live sandbox to the named environment and ends its commands; a pod already in it is reused.
+//
 // ahead marks a pre-provision, which exists to spare the first command the
 // pod's cold start. It refuses while the connection registry is loading, since
 // the pod would keep an empty kubeconfig for the rest of the run. An on-demand
 // request provisions either way: no kubeconfig beats no sandbox.
-func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
+func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error) {
+	environment = strings.TrimSpace(environment)
 	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
 		trace.WithAttributes(
 			attribute.String("run_id", runID),
 			attribute.Bool("ahead", ahead),
+			attribute.String("environment", environment),
+			attribute.Bool("replace", replace),
 		),
 	)
 	defer span.End()
 
-	run, err := s.repo.GetRun(ctx, runID)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get run")
-		return Sandbox{}, err
+	if replace && environment == "" {
+		return Sandbox{}, failSpan(span, errResolveEnvironment, ErrEnvironmentRequired)
 	}
-
-	at, err := s.atRepo.GetAgentType(ctx, run.AgentTypeID)
+	run, at, err := s.runAndAgent(ctx, runID)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "get agent type")
-		return Sandbox{}, fmt.Errorf("get agent type: %w", err)
+		return Sandbox{}, failSpan(span, errLoadRun, err)
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
@@ -782,21 +845,109 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		return Sandbox{}, ErrKubeconfigNotReady
 	}
 
-	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, kubeClusters)
+	spec, switching, err := s.chooseSandbox(ctx, span, *run, *at, namespace, environment, replace)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "provision sandbox pod")
-		return Sandbox{}, fmt.Errorf("provision sandbox pod: %w", err)
+		return Sandbox{}, err
 	}
+	spec.KubeClusters = kubeClusters
+
+	if switching {
+		if err = s.k8s.DeleteSandbox(ctx, runID, namespace); err != nil {
+			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("delete sandbox: %w", err))
+		}
+		// The target is recorded before the start to keep a failed start on the requested environment.
+		if err = s.envs.SetRunEnvironment(ctx, runID, environmentIDPtr(spec.EnvironmentID)); err != nil {
+			return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("record environment: %w", err))
+		}
+	}
+	sandbox, err := s.k8s.ProvisionSandbox(ctx, *run, at.Slug, namespace, spec)
+	if err != nil {
+		return Sandbox{}, failSpan(span, errProvisionPod, fmt.Errorf("provision sandbox pod: %w", err))
+	}
+	// A retry finds the pod an earlier attempt started but did not record.
+	if sandbox.Created || recordedEnvironment(*run) != spec.EnvironmentID {
+		action := "start"
+		if replace {
+			action = "replace"
+		}
+		s.recordSandboxEnvironment(ctx, runID, action, spec)
+	}
+
+	sandbox.CanaryHost = s.egressCanaryHost(ctx, *at)
 
 	span.SetAttributes(attribute.String("endpoint", sandbox.Endpoint))
 	s.logger.Info(ctx, "Sandbox provisioned",
 		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "tenant_id", Value: run.TenantID},
+		logging.Field{Key: "environment", Value: spec.Environment},
 		logging.Field{Key: "endpoint", Value: sandbox.Endpoint},
 	)
 	return sandbox, nil
 }
+
+// chooseSandbox resolves the environment and spec of the run's next sandbox.
+// switching reports a live sandbox in another environment that a replacement removes first.
+func (s *RunService) chooseSandbox(ctx context.Context, span trace.Span, run Run, at AgentType, namespace, environment string, replace bool) (spec SandboxSpec, switching bool, err error) {
+	envs, err := s.agentEnvironments(ctx, at)
+	if err != nil {
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, err)
+	}
+	current, live, err := s.currentEnvironment(ctx, run, namespace)
+	if err != nil {
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, err)
+	}
+	env, err := pickEnvironment(envs, environment, current)
+	if err != nil {
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, err)
+	}
+	switching = live && env.ID != current
+	if switching && !replace {
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Slug))
+	}
+	spec, err = s.sandboxSpec(ctx, namespace, env)
+	if err != nil {
+		return SandboxSpec{}, false, failSpan(span, errResolveSandboxImage, err)
+	}
+	return spec, switching, nil
+}
+
+// egressCanaryHost picks a host this agent may reach, so the egress probe tests
+// the agent's own path. Open egress with no named host probes a fixed host; no
+// egress returns empty, which skips the probe.
+func (s *RunService) egressCanaryHost(ctx context.Context, at AgentType) string {
+	if s.resolver == nil {
+		return ""
+	}
+	access, err := s.resolver.EffectiveAccess(ctx, at)
+	if err != nil || access == nil {
+		s.logger.Warn(ctx, "Resolving the egress canary host failed; the sandbox skips the probe",
+			logging.Field{Key: "agent_type", Value: at.Slug},
+			logging.Field{Key: "error", Value: fmt.Sprint(err)},
+		)
+		return ""
+	}
+	// Connector hosts first: adapters declare HTTPS APIs, while a whitelisted
+	// host may serve something other than HTTPS.
+	var hosts []string
+	for _, ce := range access.ConnectorEgress {
+		hosts = append(hosts, ce.Hosts...)
+	}
+	hosts = append(hosts, access.EnvironmentHosts...)
+	hosts = append(hosts, access.OwnHosts...)
+	for _, h := range hosts {
+		if !strings.Contains(h, "*") {
+			return h
+		}
+	}
+	if access.Open {
+		return openEgressCanaryHost
+	}
+	return ""
+}
+
+// openEgressCanaryHost is probed for open-egress agents that name no host: any
+// host is allowed, and this one reliably answers HTTPS.
+const openEgressCanaryHost = "api.github.com"
 
 // providePod ensures the agent type's k8s resources exist (idempotent, fast
 // no-op if already present — guards against cluster resets where the DB
@@ -923,7 +1074,8 @@ func (s *RunService) StartReaper(ctx context.Context) {
 // this only records the event (for SSE replay) and notifies live subscribers.
 func (s *RunService) publishReapedState(ctx context.Context, runID string, state RunState) {
 	payload := []byte(`{"state":"` + string(state) + `"}`)
-	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload})
+	at := eventTime()
+	seqNo, err := s.repo.AppendRunEvent(ctx, RunEvent{RunID: runID, EventType: "run_state", Payload: payload, CreatedAt: at})
 	if err != nil {
 		s.logger.Error(ctx, "reaper: failed to persist run_state event",
 			logging.Field{Key: "run_id", Value: runID},
@@ -932,7 +1084,7 @@ func (s *RunService) publishReapedState(ctx context.Context, runID string, state
 		)
 		seqNo = 0
 	}
-	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo})
+	s.pubsub.Publish(runID, PushedEvent{Type: "run_state", Payload: payload, SequenceNo: seqNo, At: at})
 }
 
 // SetRunSummary persists the LLM-generated task summary reported by a

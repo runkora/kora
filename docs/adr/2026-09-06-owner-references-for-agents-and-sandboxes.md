@@ -4,14 +4,14 @@
 
 **Status:** Proposed
 **Date:** 2026-09-06
-**Deciders:** Tom Morelly, Orbit control-plane engineers
+**Deciders:** Tom Morelly, kora control-plane engineers
 **Technical Story:** GitOps observability gap — the Kubernetes objects that `orbit-agents` provisions on behalf of a tenant (agent StatefulSets, sandbox Pods, associated Services/HPAs/PDBs, and Istio policy objects) carry no owner references, so an ArgoCD `Application` that ships an `OrbitTenant` CR cannot show them nested under it in the resource tree, and their lifecycle is not tied to the CR's lifecycle by Kubernetes garbage collection.
 
 ---
 
 ## Context
 
-Orbit ships as two versioned Helm charts (`charts/orbit-platform`, `charts/orbit`) plus per-tenant `OrbitTenant` custom resources, and is designed to be operated via GitOps ([Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md)). Operators typically manage `OrbitTenant` CRs through an ArgoCD `Application` or a Flux `HelmRelease`.
+kora ships as two versioned Helm charts (`charts/orbit-platform`, `charts/orbit`) plus per-tenant `OrbitTenant` custom resources, and is designed to be operated via GitOps ([Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md)). Operators typically manage `OrbitTenant` CRs through an ArgoCD `Application` or a Flux `HelmRelease`.
 
 `orbit-agents` (see [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md), [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md), [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)) provisions the Kubernetes objects that back each agent type and each sandbox run:
 
@@ -22,16 +22,16 @@ Today `backend/internal/agents/k8s.go` sets no `metadata.ownerReferences` on any
 
 ### Background
 
-The [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) already defines the `OrbitTenant` custom resource (`orbit.io/v1alpha1`, cluster-scoped, `metadata.name` = tenantID; type in `backend/internal/operator/models.go`). Every tenant that `orbit-agents` provisions for exists as an `OrbitTenant` in the cluster at the time of provisioning — the operator creates the namespace off the back of that CR. This makes it a natural, stable parent for the agent-owned objects that live in the tenant's namespace.
+The [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) already defines the `OrbitTenant` custom resource (`orbit.io/v1alpha1`, cluster-scoped, `metadata.name` = tenantID; type in `backend/internal/operator/models.go`). Every tenant that `orbit-agents` provisions for exists as an `OrbitTenant` in the cluster at the time of provisioning — the operator creates the namespace off the back of that CR. This makes it a natural, stable parent for the agent-owned objects that live in the tenant's namespace.
 
 ### Problem Statement
 
 Two concrete problems flow from the absence of owner references:
 
-1. **ArgoCD resource tree is flat.** An ArgoCD `Application` that syncs an `OrbitTenant` CR renders the CR as a leaf. Operators cannot see, from the Application UI, which agent StatefulSets, sandbox Pods, and Istio policy objects belong to which tenant. This defeats a primary reason to run Orbit under GitOps at all: single-pane-of-glass visibility of what a given manifest actually causes to exist in the cluster.
+1. **ArgoCD resource tree is flat.** An ArgoCD `Application` that syncs an `OrbitTenant` CR renders the CR as a leaf. Operators cannot see, from the Application UI, which agent StatefulSets, sandbox Pods, and Istio policy objects belong to which tenant. This defeats a primary reason to run kora under GitOps at all: single-pane-of-glass visibility of what a given manifest actually causes to exist in the cluster.
 2. **Kubernetes cascade delete is unavailable.** Deleting an `OrbitTenant` does not remove the agent objects orbit-agents created for it. `DeprovisionAgentType` (in `k8s.go`) has to walk each object explicitly; a partial failure leaves orphaned StatefulSets, Services, HPAs, PDBs, and Istio policy objects that only label queries can locate. Sandbox Pods created for a StatefulSet outlive that StatefulSet if it is deleted for any reason.
 
-This is a *how does it connect* question in the Orbit three-questions framing — it changes representation and lifecycle of objects in the cluster. It does not touch identity or policy.
+This is a *how does it connect* question in the kora three-questions framing — it changes representation and lifecycle of objects in the cluster. It does not touch identity or policy.
 
 ### Goals
 
@@ -51,7 +51,7 @@ This is a *how does it connect* question in the Orbit three-questions framing �
 
 ## Decision Drivers
 
-* **GitOps observability.** ArgoCD's tree view is the primary user of `ownerReferences` for operators running Orbit under GitOps.
+* **GitOps observability.** ArgoCD's tree view is the primary user of `ownerReferences` for operators running kora under GitOps.
 * **Kubernetes-native lifecycle.** GC by owner reference is well-understood, transactional, and does not require code paths in `orbit-agents` to remain correct under partial failure.
 * **No new coupling to Helm.** Owning objects off the tenant `Namespace` would tie us to whatever manages the namespace (Helm today, operator later). The tenant CR is stable and orbit-agents already needs the tenant to exist.
 * **Local development.** The operator, and therefore the `OrbitTenant` CRD, may be absent in stripped test environments. The system must degrade gracefully.
@@ -205,7 +205,7 @@ No explicit migration. Each `ensureX` follows a create-then-backfill pattern: on
 ## Related Decisions
 
 - [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) — the GitOps model this ADR serves.
-- [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — defines the `OrbitTenant` CR used as owner.
+- [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) — defines the `OrbitTenant` CR used as owner.
 - [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — override ordering interaction.
 - [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) — sandbox Pod lifecycle.
 - [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — agent-type StatefulSet lifecycle.

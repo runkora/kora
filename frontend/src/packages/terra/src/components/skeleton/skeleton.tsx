@@ -89,7 +89,7 @@ const Skeleton = React.forwardRef<HTMLDivElement, SkeletonProps>(
       // aspect-square + the size height token control the diameter cleanly.
       className={skeletonVariants({
         shape,
-        width: shape === 'circle' ? undefined : width,
+        width: shape === 'circle' ? null : width,
         size,
       })}
       {...props}

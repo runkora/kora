@@ -71,7 +71,7 @@ func DeriveRequiredScope(resourceType string, pathSegments []string, action stri
 	return resourceType + ":" + strings.Join(pathSegments, ":") + ":" + action
 }
 
-// ScopeCovers reports whether scope a covers scope b according to the Orbit
+// ScopeCovers reports whether scope a covers scope b according to the kora
 // OAuth scope hierarchy rule:
 //
 //	A covers B if and only if:

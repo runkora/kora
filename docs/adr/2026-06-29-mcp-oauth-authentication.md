@@ -4,7 +4,7 @@
 
 **Status:** Accepted
 **Date:** 2026-06-29
-**Deciders:** Justin Wilkin, Orbit Core Team
+**Deciders:** Justin Wilkin, kora Core Team
 **Technical Story:** [MCP / Tool Gateway PRD](../prd/mcp-tool-gateway.md)
 
 ---
@@ -13,11 +13,11 @@
 
 ### Background
 
-The [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) has two front doors. The agent door is solved: an agent connects with its platform token, injected by the identity-proxy sidecar. The **human** door is not. A human points a desktop/IDE MCP client (Claude Desktop, Cursor, VS Code) at the gateway, and that client authenticates using the **MCP authorization specification** — a profile of OAuth 2.1. This is a new authentication model for Orbit, with its own spec, which is why it is its own ADR rather than a paragraph in the gateway's.
+The [MCP / Tool Gateway](2026-06-29-mcp-tool-gateway.md) has two front doors. The agent door is solved: an agent connects with its platform token, injected by the identity-proxy sidecar. The **human** door is not. A human points a desktop/IDE MCP client (Claude Desktop, Cursor, VS Code) at the gateway, and that client authenticates using the **MCP authorization specification** — a profile of OAuth 2.1. This is a new authentication model for kora, with its own spec, which is why it is its own ADR rather than a paragraph in the gateway's.
 
 ### The gap
 
-Orbit today is an OIDC **client (relying party)**, not an authorization server. It exposes JWKS (for verifying Orbit-issued tokens), a Device Authorization endpoint, a `/session` endpoint (issues a platform token from an upstream OIDC id_token via the `oidc_id_token` grant), `/exchange` (SPIFFE SVID), and `/revoke`. It does **not** expose `/authorize`, OAuth/OIDC **server** metadata, dynamic client registration, or token introspection.
+kora today is an OIDC **client (relying party)**, not an authorization server. It exposes JWKS (for verifying kora-issued tokens), a Device Authorization endpoint, a `/session` endpoint (issues a platform token from an upstream OIDC id_token via the `oidc_id_token` grant), `/exchange` (SPIFFE SVID), and `/revoke`. It does **not** expose `/authorize`, OAuth/OIDC **server** metadata, dynamic client registration, or token introspection.
 
 The MCP authorization spec expects the opposite shape. A spec-compliant MCP client, on hitting a protected MCP server, does:
 
@@ -32,12 +32,12 @@ Real MCP clients implement this flow; they will not perform a bespoke "paste you
 
 ### Problem Statement
 
-Decide how Orbit satisfies the MCP authorization spec for human MCP clients, reusing as much of the existing token/identity machinery as possible, while keeping the resulting credential a first-class Orbit principal that the gateway's PEP authorises exactly like any other.
+Decide how kora satisfies the MCP authorization spec for human MCP clients, reusing as much of the existing token/identity machinery as possible, while keeping the resulting credential a first-class kora principal that the gateway's PEP authorises exactly like any other.
 
 ### Goals
 
-- A human MCP client authenticates to the gateway via the standard MCP OAuth flow, no Orbit-specific client code.
-- The issued access token is an Orbit platform token (or verifiable as one) carrying a HUMAN principal the PEP authorises on existing grants.
+- A human MCP client authenticates to the gateway via the standard MCP OAuth flow, no kora-specific client code.
+- The issued access token is a kora platform token (or verifiable as one) carrying a HUMAN principal the PEP authorises on existing grants.
 - Reuse token signing, JWKS, claims, JTI revocation, and per-tenant OIDC federation.
 - Tenant-correct: the human authenticates against *their* tenant's identity provider; the issued token carries that tenant.
 
@@ -45,7 +45,7 @@ Decide how Orbit satisfies the MCP authorization spec for human MCP clients, reu
 
 - The gateway, PEP, and proxy — the [gateway ADR](2026-06-29-mcp-tool-gateway.md).
 - Agent authentication (injected platform token) — already solved.
-- A general-purpose, externally-consumable Orbit OAuth provider beyond what the MCP spec requires. We build the MCP profile, not a public IdP.
+- A general-purpose, externally-consumable kora OAuth provider beyond what the MCP spec requires. We build the MCP profile, not a public IdP.
 
 ---
 
@@ -53,32 +53,32 @@ Decide how Orbit satisfies the MCP authorization spec for human MCP clients, reu
 
 - **Spec compliance is non-negotiable** — the value is that off-the-shelf MCP clients just work.
 - **Reuse the identity core.** Token signing (RS256), JWKS, `PlatformClaims`, JTI blocklist revocation, and the `oidc_id_token` handoff already exist and are tested.
-- **Don't reinvent IdP federation.** Orbit already does per-tenant OIDC discovery and id_token validation; the human's actual login should ride that, not a second user store.
-- **Consistency with the platform token model.** The human's token should be an ordinary Orbit platform token like every agent and PAT token — same signing, same verification, authorisation by scopes — not a new token shape.
+- **Don't reinvent IdP federation.** kora already does per-tenant OIDC discovery and id_token validation; the human's actual login should ride that, not a second user store.
+- **Consistency with the platform token model.** The human's token should be an ordinary kora platform token like every agent and PAT token — same signing, same verification, authorisation by scopes — not a new token shape.
 
 ---
 
 ## Considered Options
 
-### Option A — Orbit identity service becomes a minimal OAuth 2.1 authorization server, federating to the tenant IdP (chosen)
+### Option A — kora identity service becomes a minimal OAuth 2.1 authorization server, federating to the tenant IdP (chosen)
 
-Orbit's identity service grows the MCP-required authorization-server surface — `/authorize`, `/token`, AS metadata (RFC 8414), protected-resource metadata served by the gateway (RFC 9728), and dynamic client registration (RFC 7591) — but does **not** become a user directory. When a client hits `/authorize`, Orbit runs its existing OIDC relying-party flow against the **tenant's** configured identity provider (the same per-tenant OIDC it already uses for browser/device login), then issues its own **platform token** as the OAuth access token — an ordinary `aud=orbit-platform` token like every other Orbit token, `PrincipalType=HUMAN`, revocable via the existing JTI blocklist.
+kora's identity service grows the MCP-required authorization-server surface — `/authorize`, `/token`, AS metadata (RFC 8414), protected-resource metadata served by the gateway (RFC 9728), and dynamic client registration (RFC 7591) — but does **not** become a user directory. When a client hits `/authorize`, kora runs its existing OIDC relying-party flow against the **tenant's** configured identity provider (the same per-tenant OIDC it already uses for browser/device login), then issues its own **platform token** as the OAuth access token — an ordinary `aud=orbit-platform` token like every other kora token, `PrincipalType=HUMAN`, revocable via the existing JTI blocklist.
 
-- **Pros:** fully spec-compliant (real clients work); reuses token signing, JWKS, claims, JTI revocation, and per-tenant OIDC federation; the access token is already a first-class Orbit principal the PEP understands; one identity authority.
+- **Pros:** fully spec-compliant (real clients work); reuses token signing, JWKS, claims, JTI revocation, and per-tenant OIDC federation; the access token is already a first-class kora principal the PEP understands; one identity authority.
 - **Cons:** genuinely new endpoints (`/authorize`, `/token`, metadata, DCR) and the security surface of an authorization server (redirect-URI validation, PKCE enforcement, consent). This is the real cost the PRD flagged.
 
 ### Option B — Front Dex as the authorization server
 
 Point the gateway's protected-resource metadata at Dex; Dex is the AS and issues tokens; the gateway validates Dex tokens.
 
-- **Pros:** less net-new Orbit code.
-- **Cons:** Dex is the *local dev* IdP, not the per-tenant production IdP — Orbit's production identity is per-tenant OIDC federation that lives in the identity service, not Dex. Dex does not do dynamic client registration. The token would be a Dex token, not an Orbit principal, forcing a second exchange anyway. Rejected: it fragments the identity authority and still doesn't satisfy DCR.
+- **Pros:** less net-new kora code.
+- **Cons:** Dex is the *local dev* IdP, not the per-tenant production IdP — kora's production identity is per-tenant OIDC federation that lives in the identity service, not Dex. Dex does not do dynamic client registration. The token would be a Dex token, not a kora principal, forcing a second exchange anyway. Rejected: it fragments the identity authority and still doesn't satisfy DCR.
 
 ### Option C — Token handoff via a new `/session` grant (non-standard)
 
 The MCP client somehow obtains a tenant-IdP token and posts it to a new `mcp_oauth_token` grant on `/session`, reusing the `oidc_id_token` pattern.
 
-- **Pros:** smallest Orbit change; maximal reuse.
+- **Pros:** smallest kora change; maximal reuse.
 - **Cons:** **not the MCP authorization flow.** Real MCP clients do discovery + authorization-code + PKCE against an AS; they will not perform this bespoke handshake. It only works for a custom client we write — which defeats the goal. Rejected as MVP human auth; the `oidc_id_token` machinery is still reused *internally* by Option A's `/token` step.
 
 ### Sub-decision — Dynamic Client Registration
@@ -91,9 +91,9 @@ The MCP spec has moved DCR from required toward optional, allowing alternatives 
 
 | # | Decision |
 |---|----------|
-| 1 | Orbit's identity service becomes a **minimal OAuth 2.1 authorization server** for the MCP profile (Option A) — not a user directory. |
+| 1 | kora's identity service becomes a **minimal OAuth 2.1 authorization server** for the MCP profile (Option A) — not a user directory. |
 | 2 | `/authorize` federates to the **tenant's existing OIDC provider**; the human logs in where they already do. |
-| 3 | The issued **access token is an ordinary Orbit platform token** (`aud=orbit-platform`), `PrincipalType=HUMAN`, revocable via the existing JTI blocklist — no new token shape. |
+| 3 | The issued **access token is an ordinary kora platform token** (`aud=orbit-platform`), `PrincipalType=HUMAN`, revocable via the existing JTI blocklist — no new token shape. |
 | 4 | The **gateway** (resource server) serves protected-resource metadata (RFC 9728); the **identity service** serves AS metadata (RFC 8414) and DCR (RFC 7591). |
 | 5 | Reuse token signing, JWKS verification, `PlatformClaims`, and the `oidc_id_token` validation path internally. |
 
@@ -143,7 +143,7 @@ The access token is a `PlatformClaims` JWT, RS256-signed by the existing signing
 
 The gateway validates it with the existing `token.Verifier`, gets `*PlatformClaims` in context, and authorises with the unchanged PEP. No new principal *type* is strictly required — `HUMAN` is correct; the `mcp_client_id` claim records which registered client was used.
 
-The token is a standard `aud=orbit-platform` platform token — the same shape `signToken` already produces and the same audience every Orbit verifier already accepts. So both doors (agent and human) present the same audience and the gateway uses the existing verifier with **no signing or verification changes**. Authorisation is by the human's scopes, exactly as it is for agents and PATs. Per-resource audience binding (RFC 8707 resource indicators) is a possible future hardening, deferred — see *Future Work*.
+The token is a standard `aud=orbit-platform` platform token — the same shape `signToken` already produces and the same audience every kora verifier already accepts. So both doors (agent and human) present the same audience and the gateway uses the existing verifier with **no signing or verification changes**. Authorisation is by the human's scopes, exactly as it is for agents and PATs. Per-resource audience binding (RFC 8707 resource indicators) is a possible future hardening, deferred — see *Future Work*.
 
 ### New surface vs reuse
 
@@ -167,23 +167,23 @@ The token is a standard `aud=orbit-platform` platform token — the same shape `
 
 ## Amendment 2026-07-04 — SSO session reuse and the `/authorize` tier
 
-Clarifies **where** the browser-facing `/authorize` endpoint lives and how it avoids re-authenticating a human who is already signed into Orbit. This does not change the decision (Option A) — it pins down the tier split the original wrote loosely.
+Clarifies **where** the browser-facing `/authorize` endpoint lives and how it avoids re-authenticating a human who is already signed into kora. This does not change the decision (Option A) — it pins down the tier split the original wrote loosely.
 
 ### `/authorize` is a **BFF (frontend) route**, not the identity service
 
-The authorization step is browser-facing, and Orbit's browser session lives in the **Next.js BFF's sealed iron-session cookie** (holds `session.user` + the platform token; populated by `POST /api/auth/session`). A *backend* identity-service endpoint cannot read that cookie, so it could never reuse the human's existing Orbit session. Therefore:
+The authorization step is browser-facing, and kora's browser session lives in the **Next.js BFF's sealed iron-session cookie** (holds `session.user` + the platform token; populated by `POST /api/auth/session`). A *backend* identity-service endpoint cannot read that cookie, so it could never reuse the human's existing kora session. Therefore:
 
 - `/authorize` is served by the **BFF**, which reads the iron-session directly.
 - The AS metadata's `authorization_endpoint` (RFC 8414) points at the **BFF** `/authorize`, not the identity service.
 
-### SSO: reuse the existing Orbit session; federate only on cold start
+### SSO: reuse the existing kora session; federate only on cold start
 
 `/authorize` checks the iron-session (`isSessionValid`):
 
-- **Valid session** → the human is already authenticated to Orbit → the BFF has identity issue a short-lived authorization code bound to `{human identity, PKCE challenge, redirect_uri}` and redirects back to the client. **Silent — no IdP redirect.**
+- **Valid session** → the human is already authenticated to kora → the BFF has identity issue a short-lived authorization code bound to `{human identity, PKCE challenge, redirect_uri}` and redirects back to the client. **Silent — no IdP redirect.**
 - **No session** → drive the existing browser login flow (federate to the tenant's OIDC IdP), return to `/authorize`, then issue the code.
 
-Two layers of SSO therefore reduce prompts: the **tenant IdP's own** session already makes the cold-start redirect silent when the human has an active org session; the **Orbit-session** check additionally skips the redirect *entirely* once they have signed into Orbit. "Always redirect to the org IdP" is never "always re-login."
+Two layers of SSO therefore reduce prompts: the **tenant IdP's own** session already makes the cold-start redirect silent when the human has an active org session; the **kora-session** check additionally skips the redirect *entirely* once they have signed into kora. "Always redirect to the org IdP" is never "always re-login."
 
 ### `/token` and `/register` stay on the **identity service** (back-channel)
 
@@ -229,14 +229,14 @@ The refresh grant is **not bound to `client_id`**. A public client cannot authen
 
 ### Positive
 
-- Off-the-shelf MCP clients authenticate with no Orbit-specific code.
-- One identity authority; the human's token is an ordinary Orbit principal the PEP already understands.
+- Off-the-shelf MCP clients authenticate with no kora-specific code.
+- One identity authority; the human's token is an ordinary kora principal the PEP already understands.
 - Builds on signing/JWKS/JTI/OIDC-federation — additive, not a parallel identity stack.
 
 ### Negative
 
 - A real authorization-server surface (`/authorize`, `/token`, metadata, DCR) with its attendant security obligations: strict redirect-URI allow-listing, mandatory PKCE, consent handling, DCR abuse controls. This is the largest net-new build of the three ADRs.
-- Orbit crosses from "OIDC client only" to "also an OAuth AS (for the MCP profile)" — a deliberate but notable expansion of the identity service's role.
+- kora crosses from "OIDC client only" to "also an OAuth AS (for the MCP profile)" — a deliberate but notable expansion of the identity service's role.
 
 ### Neutral
 
@@ -248,28 +248,28 @@ The refresh grant is **not bound to `client_id`**. A public client cannot authen
 ## Implementation
 
 - **Phase 1 — Metadata + resource server.** ✅ **Done.** Gateway PRM endpoint (RFC 9728) and `401 + WWW-Authenticate`; identity AS metadata (RFC 8414). URLs derived from the request host (see the 2026-07-04 amendment); `no-store`. Wires discovery end-to-end.
-- **Phase 2 — Authorization-code + PKCE.** **`/authorize` is a BFF route** that reuses the existing Orbit session (iron-session) and issues the code silently, federating to the tenant IdP via the existing OIDC path only on cold start; **`/token` on the identity service** validates the code + PKCE and mints an ordinary platform token via the reused id_token→token path; JTI revocation. The AS metadata's `authorization_endpoint` points at the BFF. See the 2026-07-04 amendment.
+- **Phase 2 — Authorization-code + PKCE.** **`/authorize` is a BFF route** that reuses the existing kora session (iron-session) and issues the code silently, federating to the tenant IdP via the existing OIDC path only on cold start; **`/token` on the identity service** validates the code + PKCE and mints an ordinary platform token via the reused id_token→token path; JTI revocation. The AS metadata's `authorization_endpoint` points at the BFF. See the 2026-07-04 amendment.
 - **Phase 3 — Dynamic client registration.** `POST /register` for public PKCE clients, with redirect-URI allow-listing and the pre-registration flag.
 - **Phase 4 — Hardening.** ✅ **Consent screen done (2026-07-04):** `authorization_endpoint` is now an explicit approval page (`/mcp/authorize`, under the centered `(auth)` chrome). After the SSO session check it shows the requesting client (name via DCR metadata), the loopback destination, and an "acts as you — bounded by your permissions" disclosure, then requires an **Approve** before any code is minted; **Deny** returns `access_denied` to the client. No more silent issuance. **Deferred:** DCR abuse controls (rate-limiting `/register`) — explicitly parked; issuance audit events; and conformance testing against real MCP clients (Claude Desktop / Cursor), which is gated on the public-exposure ADR.
 
-Exit: a stock MCP client completes discovery → registration → authorization → token, and calls the gateway with an Orbit platform token that the PEP authorises on the human's grants.
+Exit: a stock MCP client completes discovery → registration → authorization → token, and calls the gateway with a kora platform token that the PEP authorises on the human's grants.
 
 ---
 
 ## Validation
 
-- **Success metrics:** a stock MCP client authenticates with zero Orbit-specific configuration beyond the gateway URL; issued tokens are JTI-revocable; no cross-tenant token issuance in tests.
+- **Success metrics:** a stock MCP client authenticates with zero kora-specific configuration beyond the gateway URL; issued tokens are JTI-revocable; no cross-tenant token issuance in tests.
 - **Monitoring:** `mcp_oauth_authorize_total{result}`, `mcp_oauth_token_issued_total`, DCR registrations, token revocations, conformance-suite pass rate.
 
 ---
 
 ## Future Work — per-resource audiences
 
-This ADR deliberately issues the human's MCP token as an ordinary `aud=orbit-platform` platform token, identical to agent and PAT tokens. That keeps one token model across the platform and means *no* signing or verification changes. The trade-off is that, like every Orbit token today, it is not bound to a single resource server — a leaked token is bounded by its *scopes*, not by its audience.
+This ADR deliberately issues the human's MCP token as an ordinary `aud=orbit-platform` platform token, identical to agent and PAT tokens. That keeps one token model across the platform and means *no* signing or verification changes. The trade-off is that, like every kora token today, it is not bound to a single resource server — a leaked token is bounded by its *scopes*, not by its audience.
 
-If Orbit later wants true per-resource token binding (OAuth 2.1 / RFC 8707 Resource Indicators) — so a token minted for the MCP gateway cannot be replayed against the inference gateway or the main API — that is a **platform-wide change to the token model**, not an MCP concern, and should be its **own ADR**. It would introduce a per-request audience in `signToken`, an audience registry, and multi-audience verifiers across every service, and would let each resource server (the MCP gateway included) require its own audience. Until that exists, MCP rides the existing uniform-audience model rather than inventing a one-off audience for itself.
+If kora later wants true per-resource token binding (OAuth 2.1 / RFC 8707 Resource Indicators) — so a token minted for the MCP gateway cannot be replayed against the inference gateway or the main API — that is a **platform-wide change to the token model**, not an MCP concern, and should be its **own ADR**. It would introduce a per-request audience in `signToken`, an audience registry, and multi-audience verifiers across every service, and would let each resource server (the MCP gateway included) require its own audience. Until that exists, MCP rides the existing uniform-audience model rather than inventing a one-off audience for itself.
 
-**This same work hardens the gateway→upstream caller-identity hop.** The [Gateway ADR](2026-06-29-mcp-tool-gateway.md) forwards the caller's full-power `aud=orbit-platform` token to `callerIdentity: forward` upstreams (e.g. the Orbit MCP) as raw passthrough in MVP. Per-resource audiences plus **RFC 8693 token exchange** would let the gateway swap that for a narrowed `aud=<server>` *delegated* token before forwarding — so even a trusted first-party upstream never holds a replayable full-Orbit credential. Passthrough-now / exchange-later is one coherent thread: the future audience ADR should cover this upstream-hop case alongside the resource-server case.
+**This same work hardens the gateway→upstream caller-identity hop.** The [Gateway ADR](2026-06-29-mcp-tool-gateway.md) forwards the caller's full-power `aud=orbit-platform` token to `callerIdentity: forward` upstreams (e.g. the kora MCP) as raw passthrough in MVP. Per-resource audiences plus **RFC 8693 token exchange** would let the gateway swap that for a narrowed `aud=<server>` *delegated* token before forwarding — so even a trusted first-party upstream never holds a replayable full-Orbit credential. Passthrough-now / exchange-later is one coherent thread: the future audience ADR should cover this upstream-hop case alongside the resource-server case.
 
 ---
 

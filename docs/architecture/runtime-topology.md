@@ -1,6 +1,6 @@
 # Runtime topology
 
-Orbit runs as a set of control-plane services in `orbit-system` and per-tenant workloads in tenant-isolated namespaces, on a shared substrate of Postgres, Redis, SPIRE, and an Istio mesh.
+kora runs as a set of control-plane services in `orbit-system` and per-tenant workloads in tenant-isolated namespaces, on a shared substrate of Postgres, Redis, SPIRE, and an Istio mesh.
 
 ![Runtime topology](../diagrams/runtime-topology.svg)
 

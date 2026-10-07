@@ -18,14 +18,14 @@ app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
 
 {{/*
-Namespace Orbit runs in: global.systemNamespace when set, else the release namespace.
+Namespace kora runs in: global.systemNamespace when set, else the release namespace.
 */}}
 {{- define "orbit.systemNamespace" -}}
 {{- .Values.global.systemNamespace | default .Release.Namespace }}
 {{- end }}
 
 {{- define "orbit.trustDomain" -}}
-{{- required "global.trustDomain must be set: the SPIFFE trust domain shared by SPIRE, Istio and Orbit" .Values.global.trustDomain }}
+{{- required "global.trustDomain must be set: the SPIFFE trust domain shared by SPIRE, Istio and kora" .Values.global.trustDomain }}
 {{- end }}
 
 {{/*
@@ -52,14 +52,14 @@ api.{{ include "orbit.frontendHost" . }}
 {{- end }}
 
 {{/*
-In-cluster URL of an Orbit service by its Service name.
+In-cluster URL of a kora service by its Service name.
 */}}
 {{- define "orbit.serviceURL" -}}
 http://{{ .name }}.{{ include "orbit.systemNamespace" .root }}.svc.cluster.local
 {{- end }}
 
 {{/*
-Istio Gateway reference every VirtualService binds to: Orbit's own gateway when
+Istio Gateway reference every VirtualService binds to: kora's own gateway when
 gateway.create is true, otherwise gateway.name.
 */}}
 {{- define "orbit.gatewayRef" -}}
@@ -74,21 +74,6 @@ gateway.create is true, otherwise gateway.name.
 Image reference for a component: <registry>/<repository>@<digest> when set
 (released charts), otherwise <registry>/<repository>:<tag|appVersion>.
 */}}
-{{/*
-Service config value: the component's own config.<field> when the key is present,
-otherwise the global default. Key presence is checked with hasKey so an explicit
-false is honoured; sprig default would treat false as unset and use the global.
-Takes (dict "root" $ "name" "<component>" "field" "<field>" "default" <global value>).
-*/}}
-{{- define "orbit.serviceConfig" -}}
-{{- $c := (index .root.Values .name).config | default dict -}}
-{{- if hasKey $c .field -}}
-{{- index $c .field -}}
-{{- else -}}
-{{- .default -}}
-{{- end -}}
-{{- end }}
-
 {{- define "orbit.image" -}}
 {{- $img := (index .root.Values .name).image -}}
 {{- $reg := $img.registry | default .root.Values.global.imageRegistry -}}
@@ -154,13 +139,21 @@ priorityClassName: {{ . }}
 {{- end }}
 
 {{/*
+The sandbox base image. The operator registers it in every tenant namespace as
+the SandboxImage kora-base.
+*/}}
+{{- define "orbit.sandboxBaseImage" -}}
+{{- .Values.agents.config.sandboxImage | default (printf "%s/kora-sandbox-base:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) -}}
+{{- end }}
+
+{{/*
 The validated sandbox warming mode. A typo would otherwise render no warming at
 all and look like it worked.
 */}}
 {{- define "orbit.sandboxWarmingMode" -}}
 {{- $mode := .Values.agents.sandboxWarming.mode | default "none" -}}
-{{- if not (has $mode (list "none" "image" "capacity")) -}}
-{{- fail (printf "agents.sandboxWarming.mode is %q: expected none, image or capacity" $mode) -}}
+{{- if not (has $mode (list "none" "capacity")) -}}
+{{- fail (printf "agents.sandboxWarming.mode is %q: expected none or capacity" $mode) -}}
 {{- end -}}
 {{- $mode -}}
 {{- end }}
@@ -231,9 +224,10 @@ capabilities:
 
 {{/*
 Pod annotations that route the Istio sidecar's certificate through SPIRE and
-mount the SPIFFE workload socket, plus the identity-proxy socket when that
-sidecar is present. Annotation-driven so it works on any conforming Istio,
-with no custom injection template. Takes (dict "root" $ "identityProxy" <bool>).
+mount the SPIFFE workload socket. Annotation-driven so it works on any
+conforming Istio, with no custom injection template. IN_MESH keeps Istio's
+peer-metadata headers off calls that leave the mesh, so they cannot expose pod
+details to third parties. Takes (dict "root" $).
 */}}
 {{- define "orbit.spireProxyAnnotations" -}}
 proxy.istio.io/config: |
@@ -241,14 +235,13 @@ proxy.istio.io/config: |
   proxyMetadata:
     PILOT_CERT_PROVIDER: spire
     SPIFFE_ENDPOINT_SOCKET: unix:///var/run/secrets/workload-spiffe-uds/socket
-{{- if .identityProxy }}
-sidecar.istio.io/userVolumeMount: '{"id-proxy-sock":{"mountPath":"/run/orbit"}}'
-{{- end }}
+  proxyHeaders:
+    metadataExchangeHeaders:
+      mode: IN_MESH
 {{- end }}
 
 {{/*
-Volumes for SPIRE (and the identity-proxy socket when requested).
-Takes (dict "identityProxy" <bool>). Named workload-socket to shadow Istio's
+The SPIRE volume. Named workload-socket to shadow Istio's
 own emptyDir of that name; the injector keeps the pod's definition, so the
 CSI socket lands at the path the proxy checks for an external SDS socket.
 */}}
@@ -257,10 +250,6 @@ CSI socket lands at the path the proxy checks for an external SDS socket.
   csi:
     driver: csi.spiffe.io
     readOnly: true
-{{- if .identityProxy }}
-- name: id-proxy-sock
-  emptyDir: {}
-{{- end }}
 {{- end }}
 
 {{- define "orbit.spireVolumeMount" -}}
@@ -270,50 +259,109 @@ CSI socket lands at the path the proxy checks for an external SDS socket.
 {{- end }}
 
 {{/*
-The identity-proxy sidecar: exchanges a service's SPIFFE identity for its own
-platform token when calling other Orbit services. Takes (dict "root" $).
-*/}}
-{{- define "orbit.identityProxyContainer" -}}
-{{- $ip := .root.Values.identityProxy -}}
-- name: identity-proxy
-  image: {{ include "orbit.imageRef" (dict "root" .root "image" $ip.image) | quote }}
-  imagePullPolicy: {{ $ip.image.pullPolicy | default .root.Values.global.imagePullPolicy | default "IfNotPresent" }}
-  env:
-    - name: ORBIT_IDENTITY_SERVICE_URL
-      value: {{ include "orbit.serviceURL" (dict "root" .root "name" "orbit-identity") | quote }}
-    - name: SPIFFE_ENDPOINT_SOCKET
-      value: "unix:///run/secrets/workload-spiffe-uds/socket"
-  ports:
-    - name: health
-      containerPort: 9090
-      protocol: TCP
-  securityContext:
-    {{- include "orbit.containerSecurityContext" (dict) | nindent 4 }}
-  readinessProbe:
-    httpGet:
-      path: /healthz
-      port: 9090
-    initialDelaySeconds: 5
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 10
-  resources:
-    {{- toYaml $ip.resources | nindent 4 }}
-  volumeMounts:
-    - name: id-proxy-sock
-      mountPath: /run/orbit
-    {{- include "orbit.spireVolumeMount" . | nindent 4 }}
-{{- end }}
-
-{{/*
-envFrom for the platform ConfigMap and Secret every service reads.
+envFrom for the platform Secret every service reads.
 */}}
 {{- define "orbit.platformEnvFrom" -}}
 envFrom:
-  - configMapRef:
-      name: orbit-config
   - secretRef:
       name: {{ .Values.config.platformSecretName }}
+{{- end }}
+
+{{/*
+Rendered service config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+A workload's modules map a config module (cmd/identity, internal/platform/storage)
+to the YAML the loader merges last; <values key>.configOverrides merges over them.
+These helpers take (dict "root" $ "name" "<values key>" "configMap" "<ConfigMap name>"
+"modules" <dict>).
+*/}}
+{{- define "orbit.configModules" -}}
+{{- $overrides := (index .root.Values .name).configOverrides | default dict -}}
+{{- mergeOverwrite (deepCopy .modules) (deepCopy $overrides) | toYaml -}}
+{{- end }}
+
+{{- define "orbit.configMap" -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .configMap }}
+  namespace: {{ include "orbit.systemNamespace" .root }}
+  labels:
+    {{- include "orbit.labels" .root | nindent 4 }}
+  {{- with .annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  {{- range $module, $content := include "orbit.configModules" . | fromYaml }}
+  {{ $module | replace "/" "." }}.yaml: |
+    {{- toYaml $content | nindent 4 }}
+  {{- end }}
+{{- end }}
+
+{{- define "orbit.configVolume" -}}
+- name: config-files
+  configMap:
+    name: {{ .configMap }}
+    items:
+      {{- range $module, $_ := include "orbit.configModules" . | fromYaml }}
+      - key: {{ $module | replace "/" "." }}.yaml
+        path: {{ $module }}.yaml
+      {{- end }}
+{{- end }}
+
+{{- define "orbit.configVolumeMount" -}}
+- name: config-files
+  mountPath: /etc/orbit/config
+  readOnly: true
+{{- end }}
+
+{{/*
+Config modules of the shared platform packages. Take the root context.
+*/}}
+{{- define "orbit.observabilityConfigModule" -}}
+{{- $obs := .Values.global.observability -}}
+internal/platform/observability:
+  logFormat: {{ .Values.global.logFormat | toJson }}
+  otlpEndpoint: {{ $obs.otlpEndpoint | toJson }}
+  tenantOtlpEndpoint: {{ $obs.otlpEndpoint | toJson }}
+  {{- if ne (toString $obs.samplingRate) "" }}
+  samplingRate: {{ $obs.samplingRate | float64 }}
+  {{- end }}
+{{- end }}
+
+{{- define "orbit.storageConfigModule" -}}
+internal/platform/storage:
+  postgres:
+    host: {{ required "config.db.host must be set" .Values.config.db.host | toJson }}
+    port: {{ .Values.config.db.port | int }}
+    database: {{ .Values.config.db.name | toJson }}
+    user: {{ .Values.config.db.user | toJson }}
+    sslMode: {{ .Values.global.postgres.sslMode | toJson }}
+    captureQueryText: {{ eq (toString .Values.global.postgres.captureQueryText) "true" }}
+  redis:
+    host: {{ required "config.redis.host must be set" .Values.config.redis.host | toJson }}
+    port: {{ .Values.config.redis.port | int }}
+{{- end }}
+
+{{- define "orbit.tokenConfigModule" -}}
+internal/platform/token:
+  jwksURL: {{ printf "%s/api/v1/identity/.well-known/jwks.json" (include "orbit.serviceURL" (dict "root" . "name" "orbit-identity")) | toJson }}
+{{- end }}
+
+{{/*
+The policy-service bundle endpoint the in-process evaluators poll.
+*/}}
+{{- define "orbit.bundleEndpoint" -}}
+{{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") }}/api/v1/policy/bundles
+{{- end }}
+
+{{/*
+The names of global.imagePullSecrets, as a JSON list.
+*/}}
+{{- define "orbit.imagePullSecretNames" -}}
+{{- $names := list -}}
+{{- range .Values.global.imagePullSecrets }}{{ $names = append $names .name }}{{ end -}}
+{{- $names | toJson -}}
 {{- end }}
 
 {{/*
@@ -322,6 +370,10 @@ Takes (dict "root" $ "name" "<values key>").
 */}}
 {{- define "orbit.podAnnotations" -}}
 {{- with (index .root.Values .name).podAnnotations }}
+{{- /* The chart owns the sidecar's proxy config: SPIRE certificates and IN_MESH peer metadata. */}}
+{{- if hasKey . "proxy.istio.io/config" }}
+{{- fail (printf "%s.podAnnotations cannot set proxy.istio.io/config: the chart owns the sidecar proxy config" $.name) }}
+{{- end }}
 {{- toYaml . }}
 {{- end }}
 {{- end }}
@@ -492,7 +544,7 @@ headers:
 {{- end }}
 
 {{/*
-Where the Istio ingress gateway pods run and how to select them: Orbit's own
+Where the Istio ingress gateway pods run and how to select them: kora's own
 (gateway.create) in the system namespace, or an existing one per gateway.byo.
 */}}
 {{- define "orbit.gatewayWorkloadNamespace" -}}
@@ -510,3 +562,25 @@ app: {{ .Values.ingressGateway.name }}
 {{ toYaml .Values.gateway.byo.selector }}
 {{- end -}}
 {{- end }}
+
+{{/*
+The networkPolicy.externalServices CIDRs serving an out-of-cluster collector's
+port, comma-separated. Empty when the collector runs in the cluster or no
+endpoint is set. The port parse matches the collector rule in netpols.yaml.
+*/}}
+{{- define "orbit.collectorCIDRs" -}}
+{{- $obs := .Values.global.observability -}}
+{{- if and $obs.otlpEndpoint (not $obs.collectorNamespace) -}}
+{{- $port := trimPrefix ":" (regexFind ":[0-9]+$" (trimSuffix "/" $obs.otlpEndpoint)) | default "4317" -}}
+{{- $cidrs := list -}}
+{{- range .Values.networkPolicy.externalServices -}}
+{{- $svc := . -}}
+{{- range .ports -}}
+{{- if eq (toString .) $port -}}
+{{- $cidrs = append $cidrs $svc.cidr -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $cidrs | uniq | join "," -}}
+{{- end -}}
+{{- end -}}

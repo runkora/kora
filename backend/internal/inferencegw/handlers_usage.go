@@ -73,8 +73,8 @@ var usageParamBinders = []usageParamBinder{
 	func(q url.Values, f *InferenceUsageFilter) (*api.APIError, error) {
 		if raw := q.Get("provider"); raw != "" {
 			p := ProviderName(raw)
-			if !isValidProvider(p) {
-				return api.BadRequestError("invalid_param", "'provider' must be a known provider (bedrock, bedrock:<alias>, vertexai, azure)", nil), nil
+			if !p.Valid() {
+				return api.BadRequestError("invalid_param", "'provider' must be "+ProviderNameSyntax, nil), nil
 			}
 			f.Provider = &p
 		}
@@ -260,62 +260,6 @@ func (c *Controller) handleGetRunUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
-}
-
-// handleGetAgentTypeUsage handles GET /v1/usage/agent-type/{agentTypeID}.
-// Returns the token breakdown and spend recorded against the agent type's
-// SPIFFE principal over the last 7 days, scoped to the caller's verified
-// tenant. Any authenticated tenant member may read it (the agent overview
-// page is already tenant-scoped); the query filters by tenant_id so no
-// cross-tenant leakage is possible.
-func (c *Controller) handleGetAgentTypeUsage(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
-		return
-	}
-
-	agentTypeID := r.PathValue("agentTypeID")
-	if agentTypeID == "" {
-		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_param", "agent type id is required", nil), nil)
-		return
-	}
-
-	usage, err := c.svc.GetAgentTypeUsage(ctx, claims.Orbit.TenantID, agentTypeID)
-	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to get agent type usage", nil), err)
-		return
-	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, usage)
-}
-
-// handleListAgentTypeUsage handles GET /v1/usage/agent-types. Returns the
-// 7-day token breakdown and spend per agent type for the caller's verified
-// tenant, powering the total + per-agent cost on the agents list page. Scoped
-// to the caller's tenant; the query filters by tenant_id so no cross-tenant
-// leakage is possible.
-func (c *Controller) handleListAgentTypeUsage(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-
-	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil {
-		api.ErrorResponse(ctx, w, c.logger, api.UnauthorizedError(api.ErrCodeUnauthorized, "invalid or missing platform token", nil), nil)
-		return
-	}
-
-	usages, err := c.svc.ListAgentTypeUsage(ctx, claims.Orbit.TenantID)
-	if err != nil {
-		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "failed to list agent type usage", nil), err)
-		return
-	}
-	if usages == nil {
-		usages = []AgentTypeUsage{}
-	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"data": usages})
 }
 
 // handleUsageStats handles GET /v1/usage/stats.

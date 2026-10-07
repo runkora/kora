@@ -1,7 +1,9 @@
 import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import { TemplateField } from './template-field';
+import { TemplateCatalogList } from './template-catalog-list';
 import type { TemplateCatalogEntry } from './template-model';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { CodeBlock } from '../code-block';
 import { Label } from '../label';
 import { SectionLabel } from '../section-label';
@@ -45,45 +47,128 @@ const GITHUB_CATALOG: TemplateCatalogEntry[] = [
   },
 ];
 
-const LONG_CATALOG: TemplateCatalogEntry[] = [
+/** A field that holds its own text, the way a form would. */
+function Editor({
+  id,
+  initial,
+  showValue = false,
+  ...props
+}: {
+  id: string;
+  initial: string;
+  showValue?: boolean;
+} & Omit<React.ComponentProps<typeof TemplateField>, 'id' | 'value' | 'onChange' | 'catalog'>) {
+  const [value, setValue] = React.useState(initial);
+  return (
+    <div className="flex w-full max-w-[34rem] flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
+        <Label htmlFor={id}>Prompt</Label>
+        <TemplateField
+          id={id}
+          aria-label="Prompt"
+          value={value}
+          onChange={setValue}
+          catalog={GITHUB_CATALOG}
+          {...props}
+        />
+      </div>
+      {showValue && (
+        <div className="flex flex-col gap-1.5">
+          <SectionLabel>Saved value</SectionLabel>
+          <CodeBlock text={value || '(empty)'} density="compact" wrap />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * TemplateField
+ *
+ * A text box for prompts that mix your own words with fields from an event, such as the pull request title. Fields show as pills and are picked from a list.
+ */
+const meta: Meta<typeof TemplateField> = {
+  title: 'Terra/Molecules/TemplateField',
+  component: TemplateField,
+  tags: ['autodocs'],
+  parameters: { layout: 'padded' },
+};
+
+export default meta;
+type Story = StoryObj<typeof TemplateField>;
+
+export const Overview: Story = {
+  render: () => (
+    <div className="space-y-8">
+      <Example title="A prompt with fields">
+        <Editor
+          id="overview-filled"
+          showValue
+          initial="Review {{ pr.title }} on {{ repo.full_name }} and comment on the riskiest change."
+        />
+      </Example>
+      <Example title="Empty">
+        <Editor
+          id="overview-empty"
+          initial=""
+          placeholder="Write a prompt, then insert fields from the event"
+        />
+      </Example>
+    </div>
+  ),
+};
+
+export const Options: Story = {
+  render: () => (
+    <div className="max-w-5xl">
+      <OptionTable
+        title="Options"
+        note='Use "Insert field" to pick from the list and "Preview" to see sample values.'
+      >
+        <Option name="default" use="Text with known fields shown as pills.">
+          <Editor id="opt-default" initial="Review {{ pr.title }} by {{ pr.author }}." />
+        </Option>
+        <Option
+          name="unknown field"
+          use="A field that is not in the list turns red and is left blank when used."
+        >
+          <Editor id="opt-unknown" initial="Review {{ pr.titel }} on {{ repo.full_name }}." />
+        </Option>
+        <Option name="placeholder" use="Text shown while the box is empty.">
+          <Editor id="opt-placeholder" initial="" placeholder="Write a prompt" />
+        </Option>
+        <Option name="catalogLabel" use="A line in the picker that says which fields are listed.">
+          <Editor
+            id="opt-label"
+            initial="Comment on {{ pr.title }}."
+            catalogLabel="Fields for pull request events"
+          />
+        </Option>
+        <Option name="minRows" use="Sets the minimum height, for longer prompts.">
+          <Editor
+            id="opt-rows"
+            minRows={8}
+            initial={
+              'You are reviewing {{ pr.title }} on {{ repo.full_name }}.\n\n' +
+              'Read the diff, then comment on the change most likely to break. If nothing stands out, say so and stop.'
+            }
+          />
+        </Option>
+        <Option name="disabled" use="Read-only and dimmed, including the footer buttons.">
+          <Editor
+            id="opt-disabled"
+            disabled
+            initial="Review {{ pr.title }} on {{ repo.full_name }}."
+          />
+        </Option>
+      </OptionTable>
+    </div>
+  ),
+};
+
+/** The list plus two pattern families, which need a name to complete them. */
+const CATALOG_WITH_PATTERNS: TemplateCatalogEntry[] = [
   ...GITHUB_CATALOG,
-  {
-    token: 'issue.title',
-    description: 'Title of the issue',
-    example: 'Login loops on expired token',
-    group: 'Issue',
-  },
-  { token: 'issue.number', description: 'Issue number', example: '87', group: 'Issue' },
-  {
-    token: 'issue.state',
-    description: 'Open or closed',
-    example: 'open',
-    group: 'Issue',
-  },
-  {
-    token: 'actor.login',
-    description: 'Who triggered the event',
-    example: 'some-user',
-    group: 'Actor',
-  },
-  {
-    token: 'actor.email',
-    description: 'Email of the triggering user, when known',
-    example: 'justin@example.com',
-    group: 'Actor',
-  },
-  {
-    token: 'run.id',
-    description: 'Identifier of this agent run',
-    example: 'run_01HQ9',
-    group: 'Run',
-  },
-  {
-    token: 'run.started_at',
-    description: 'When the run began, RFC 3339',
-    example: '2026-07-27T09:12:04Z',
-    group: 'Run',
-  },
   {
     token: 'group.labels.<name>',
     description: 'Any label on the event, by name',
@@ -98,149 +183,28 @@ const LONG_CATALOG: TemplateCatalogEntry[] = [
   },
 ];
 
-/** A story host that owns the template string, the way a form would. */
-function Editor({
-  initial,
-  catalog,
-  ...props
-}: {
-  initial: string;
-  catalog: TemplateCatalogEntry[];
-} & Omit<React.ComponentProps<typeof TemplateField>, 'value' | 'onChange' | 'catalog'>) {
-  const [value, setValue] = React.useState(initial);
+/** Shows the token `onSelect` receives. */
+function CatalogListDemo() {
+  const [chosen, setChosen] = React.useState('');
   return (
-    <div className="flex w-[34rem] flex-col gap-3">
-      <div className="flex flex-col gap-1.5">
-        <Label htmlFor="prompt-template">Prompt template</Label>
-        <TemplateField
-          id="prompt-template"
-          value={value}
-          onChange={setValue}
-          catalog={catalog}
-          {...props}
-        />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <SectionLabel>Value stored</SectionLabel>
-        <CodeBlock text={value || '(empty)'} density="compact" wrap />
-      </div>
+    <div className="flex flex-col gap-2">
+      <TemplateCatalogList
+        catalog={CATALOG_WITH_PATTERNS}
+        onSelect={(token) => setChosen(token)}
+        searchPlaceholder="Search events…"
+        selectablePatterns
+        autoFocusSearch={false}
+      />
+      <CodeBlock text={chosen || 'Nothing chosen yet'} />
     </div>
   );
 }
 
-const meta: Meta<typeof TemplateField> = {
-  title: 'Terra/Molecules/TemplateField',
-  component: TemplateField,
-  parameters: {
-    layout: 'centered',
-    backgrounds: { default: 'orbit' },
-  },
-  tags: ['autodocs'],
-};
-
-export default meta;
-type Story = StoryObj<typeof TemplateField>;
-
 /**
- * The everyday case: a prompt written against a GitHub pull request event. The
- * panel underneath shows the raw string the parent holds, which is always the
- * template with its braces intact.
+ * The picker on its own, as a standalone field or event chooser. With
+ * `selectablePatterns` the pattern families can be chosen; the caller asks for
+ * the `<name>` that completes them.
  */
-export const Default: Story = {
-  render: () => (
-    <Editor
-      initial="Review {{ pr.title }} on {{ repo.full_name }} and leave one comment on the riskiest change."
-      catalog={GITHUB_CATALOG}
-      placeholder="Write a prompt…"
-    />
-  ),
-};
-
-/** Empty, so the placeholder and the picker are the way in. */
-export const Empty: Story = {
-  render: () => (
-    <Editor
-      initial=""
-      catalog={GITHUB_CATALOG}
-      placeholder="Write a prompt, and insert fields from the event…"
-    />
-  ),
-};
-
-/**
- * A token the catalog does not know. It is not a blocking error: an unresolved
- * token renders as the empty string. It reads as wrong all the same, because it
- * is nearly always a typo for something real.
- */
-export const UnknownToken: Story = {
-  render: () => (
-    <Editor
-      initial="Review {{ pr.titel }} for {{ repo.full_name }}."
-      catalog={GITHUB_CATALOG}
-      placeholder="Write a prompt…"
-    />
-  ),
-};
-
-/**
- * A larger catalog with several groups. Open "Insert field" and type to filter:
- * the pattern families at the bottom are listed so their existence is
- * discoverable, but cannot be inserted verbatim.
- */
-export const LongCatalogWithGroups: Story = {
-  render: () => (
-    <Editor
-      initial="Triage {{ issue.title }} ({{ issue.state }}) raised by {{ actor.login }}."
-      catalog={LONG_CATALOG}
-      placeholder="Write a prompt…"
-    />
-  ),
-};
-
-/**
- * The preview panel, showing the template with every field replaced by its
- * sample value. `repo.default_branch` and the rest resolve; anything without a
- * sample renders empty.
- */
-export const PreviewOn: Story = {
-  render: () => (
-    <Editor
-      initial="Review {{ pr.title }} (#{{ pr.number }}) by {{ pr.author }} on {{ repo.full_name }}."
-      catalog={GITHUB_CATALOG}
-      placeholder="Write a prompt…"
-    />
-  ),
-  parameters: {
-    docs: {
-      description: {
-        story: 'Click "Preview" in the footer bar to substitute the sample values.',
-      },
-    },
-  },
-};
-
-/** Read-only: the whole frame dims, including the footer controls. */
-export const Disabled: Story = {
-  render: () => (
-    <Editor
-      initial="Review {{ pr.title }} on {{ repo.full_name }}."
-      catalog={GITHUB_CATALOG}
-      disabled
-    />
-  ),
-};
-
-/** A taller editor for prompts that run to a paragraph or more. */
-export const TallerEditor: Story = {
-  render: () => (
-    <Editor
-      initial={
-        'You are reviewing {{ pr.title }} on {{ repo.full_name }}.\n\n' +
-        'Read the diff, then leave a single comment on the change most likely to break in production. ' +
-        'If nothing stands out, say so and stop.'
-      }
-      catalog={GITHUB_CATALOG}
-      minRows={8}
-    />
-  ),
+export const CatalogListWithSelectablePatterns: Story = {
+  render: () => <CatalogListDemo />,
 };

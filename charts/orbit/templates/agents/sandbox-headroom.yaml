@@ -2,7 +2,7 @@
 # Low-priority placeholder holding one sandbox's worth of capacity on a warm
 # node. A real sandbox preempts it and starts without a cold node or image pull.
 {{- $warming := .Values.agents.sandboxWarming }}
-{{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) }}
+{{- $img := include "orbit.sandboxBaseImage" . }}
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
@@ -13,7 +13,7 @@ metadata:
 value: {{ $warming.priority | int }}
 globalDefault: false
 preemptionPolicy: Never
-description: Low-priority placeholder for Orbit sandbox warm capacity.
+description: Low-priority placeholder for kora sandbox warm capacity.
 ---
 apiVersion: apps/v1
 kind: Deployment

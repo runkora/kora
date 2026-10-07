@@ -2,7 +2,7 @@
 
 ![Version: 0.0.0](https://img.shields.io/badge/Version-0.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.0](https://img.shields.io/badge/AppVersion-0.0.0-informational?style=flat-square)
 
-Orbit's control plane runs the operator, the cluster-scoped identity and gateway resources, and the platform services. Install orbit-crds first, and have Istio and SPIRE already running on the cluster.
+kora's control plane runs the operator, the cluster-scoped identity and gateway resources, and the platform services. Install orbit-crds first, and have Istio and SPIRE already running on the cluster.
 
 **Homepage:** <https://github.com/clear-route/orbit>
 
@@ -10,13 +10,15 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 
 | Name | Email | Url |
 | ---- | ------ | --- |
-| Orbit Team |  |  |
+| kora Team |  |  |
 
 ## Requirements
 
+Kubernetes: `>=1.34.0-0`
+
 | Repository | Name | Version |
 |------------|------|---------|
-| https://istio-release.storage.googleapis.com/charts | ingressGateway(gateway) | 1.29.1 |
+| oci://ghcr.io/istio/release/charts | ingressGateway(gateway) | 1.31.1 |
 
 ## Values
 
@@ -24,13 +26,21 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 |-----|------|---------|-------------|
 | agents.affinity | object | `{}` |  |
 | agents.authorizationPolicy.enabled | bool | `true` |  |
+| agents.config.nodeMaxOldSpaceMB | int | `512` | Heap cap in MB for Node processes an agent run starts on its agent pod. The pod's runs share one memory limit, so a runaway Node tool fails with a heap OOM instead of taking every run with it. The agent harnesses and sandbox commands are not capped. 0 disables the cap. |
 | agents.config.sandboxGitAuthorEmail | string | `""` |  |
 | agents.config.sandboxGitAuthorName | string | `""` |  |
 | agents.config.sandboxImage | string | `""` |  |
+| agents.config.sessionManagerDigest | string | `""` |  |
 | agents.config.sessionManagerImage | string | `""` |  |
+| agents.configOverrides | object | `{}` | Raw config merged last over orbit-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}} |
+| agents.environments.defaultSize | object | `{"cpu":"2","disk":"10Gi","memory":"4Gi"}` | Size for an environment that sets none, and for the built-in default. |
+| agents.environments.maxSize | object | `{"cpu":"8","disk":"50Gi","memory":"16Gi"}` | Largest size an environment may request. |
 | agents.extraEnv | list | `[]` |  |
 | agents.extraVolumeMounts | list | `[]` |  |
 | agents.extraVolumes | list | `[]` |  |
+| agents.guardrails.sandboxProvisionAttempts | int | `3` | Re-provisioning attempts when a run's sandbox dies. |
+| agents.guardrails.sandboxProvisionBackoffSecs | int | `5` | Seconds before the second attempt; doubles for each attempt after. |
+| agents.guardrails.sandboxProvisionBudgetSecs | int | `300` | Seconds across all attempts. At most 320, so the agent's tools still hear the outcome. |
 | agents.image.digest | string | `""` |  |
 | agents.image.pullPolicy | string | `""` |  |
 | agents.image.registry | string | `""` |  |
@@ -46,11 +56,14 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
+| agents.sandboxImages.registryMirrors | object | `{}` | Registry hosts the operator reads through another host. Keys are the host in image references. A value given as http://host is read over plain HTTP. Use http:// for a local registry only. |
+| agents.sandboxImages.registryPorts | list | `[]` | Registry ports other than 443 the operator may dial to validate images. |
+| agents.sandboxImages.warmBase | bool | `false` | Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage sets its own with spec.warm. Each warm image runs one DaemonSet per tenant. |
 | agents.sandboxWarming.affinity | object | `{}` |  |
-| agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `image` runs a DaemonSet caching the sandbox image on the nodes it runs on, worth it only where those nodes outlive individual sandboxes. `capacity` runs a low-priority placeholder holding a node open with the image already cached, the choice for a pool that scales to zero. |
+| agents.sandboxWarming.mode | string | `"none"` | Warm-start strategy. `none` accepts cold starts. `capacity` runs a low-priority placeholder that holds a node open with the base image cached. Use `capacity` for a pool that scales to zero. |
 | agents.sandboxWarming.nodeSelector | object | `{}` |  |
-| agents.sandboxWarming.podAnnotations | object | `{}` | Applied to whichever workload the mode runs. `capacity` already carries the Karpenter and Cluster Autoscaler annotations that keep a held node from being scaled away; set them here to override. |
-| agents.sandboxWarming.podLabels | object | `{}` | Applied to whichever workload the mode runs. Orbit's own selector labels win on a collision. |
+| agents.sandboxWarming.podAnnotations | object | `{}` | Applied to the `capacity` placeholder. It already carries the Karpenter and Cluster Autoscaler annotations that keep a held node from being scaled away. Set them here to override. |
+| agents.sandboxWarming.podLabels | object | `{}` | Applied to the `capacity` placeholder. kora's own selector labels win on a collision. |
 | agents.sandboxWarming.priority | int | `-10` | The placeholder's PriorityClass value. Stays below real pods at 0, or it competes with the sandbox it exists for instead of yielding to it. |
 | agents.sandboxWarming.replicas | int | `1` | `capacity` mode. Nodes held warm. Above one, placeholders repel each other by hostname so they land on separate nodes; set `affinity` with your own podAntiAffinity to replace that. |
 | agents.sandboxWarming.resources | object | `{"limits":{"cpu":"1","memory":"4Gi"},"requests":{"cpu":"1","memory":"4Gi"}}` | Capacity each placeholder reserves, and the size a node is fitted to. At or above a sandbox pod's total requests, sidecars included, or the sandbox taking the capacity will not fit on the node that was holding it. |
@@ -89,7 +102,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | config.redis.port | int | `6379` |  |
 | egressGateway.adminPort | int | `8086` |  |
 | egressGateway.affinity | object | `{}` |  |
-| egressGateway.config | object | `{}` |  |
+| egressGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | egressGateway.connectPort | int | `8085` |  |
 | egressGateway.connectionSecretName | string | `"orbit-tenant-connection-secrets"` |  |
 | egressGateway.extraEnv | list | `[]` |  |
@@ -185,7 +198,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | identity.affinity | object | `{}` |  |
 | identity.clientSecretsSecret | string | `"orbit-tenant-oidc-secrets"` |  |
 | identity.config.accessTokenTtlMinutes | int | `15` |  |
-| identity.config.redisTLSEnabled | string | `"true"` |  |
+| identity.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | identity.extraEnv | list | `[]` |  |
 | identity.extraVolumeMounts | list | `[]` |  |
 | identity.extraVolumes | list | `[]` |  |
@@ -219,8 +232,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | identityProxy.resources.requests.cpu | string | `"50m"` |  |
 | identityProxy.resources.requests.memory | string | `"32Mi"` |  |
 | inferenceGateway.affinity | object | `{}` |  |
-| inferenceGateway.bedrock.accounts | list | `[]` |  |
-| inferenceGateway.config | object | `{}` |  |
+| inferenceGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | inferenceGateway.extraEnv | list | `[]` |  |
 | inferenceGateway.extraVolumeMounts | list | `[]` |  |
 | inferenceGateway.extraVolumes | list | `[]` |  |
@@ -267,7 +279,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | istio.revision | string | `""` |  |
 | migrate.activeDeadlineSeconds | int | `240` |  |
 | migrate.affinity | object | `{}` |  |
-| migrate.config | object | `{}` |  |
+| migrate.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | migrate.extraEnv | list | `[]` |  |
 | migrate.image.digest | string | `""` |  |
 | migrate.image.pullPolicy | string | `""` |  |
@@ -292,7 +304,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | opaGateway.image.pullPolicy | string | `""` |  |
 | opaGateway.image.registry | string | `"docker.io"` |  |
 | opaGateway.image.repository | string | `"openpolicyagent/opa"` |  |
-| opaGateway.image.tag | string | `"1.15.2-envoy-static"` |  |
+| opaGateway.image.tag | string | `"1.21.0-envoy-static"` |  |
 | opaGateway.nodeSelector | object | `{}` |  |
 | opaGateway.podAnnotations | object | `{}` |  |
 | opaGateway.podLabels | object | `{}` |  |
@@ -305,6 +317,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | opaGateway.tolerations | list | `[]` |  |
 | opaGateway.topologySpreadConstraints | list | `[]` |  |
 | operator.affinity | object | `{}` |  |
+| operator.configOverrides | object | `{}` | Raw config merged last over the operator's rendered config file, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/operator: {operator: {syncPeriodSecs: 120}}} |
 | operator.extraEnv | list | `[]` |  |
 | operator.image.digest | string | `""` |  |
 | operator.image.pullPolicy | string | `""` |  |
@@ -325,8 +338,8 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | operator.podDisruptionBudget.minAvailable | int | `1` |  |
 | operator.podLabels | object | `{}` |  |
 | operator.preflight.intervalSeconds | int | `300` |  |
-| operator.preflight.supportedIstioMinors[0] | string | `"1.29"` |  |
-| operator.preflight.supportedIstioMinors[1] | string | `"1.28"` |  |
+| operator.preflight.supportedIstioMinors[0] | string | `"1.31"` |  |
+| operator.preflight.supportedIstioMinors[1] | string | `"1.30"` |  |
 | operator.priorityClassName | string | `""` |  |
 | operator.replicas | int | `2` |  |
 | operator.resources.limits.cpu | string | `"500m"` |  |
@@ -339,7 +352,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | operator.tolerations | list | `[]` |  |
 | operator.topologySpreadConstraints | list | `[]` |  |
 | orbitMcp.affinity | object | `{}` |  |
-| orbitMcp.config | object | `{}` |  |
+| orbitMcp.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | orbitMcp.extraEnv | list | `[]` |  |
 | orbitMcp.extraVolumeMounts | list | `[]` |  |
 | orbitMcp.extraVolumes | list | `[]` |  |
@@ -363,7 +376,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | orbitMcp.topologySpreadConstraints | list | `[]` |  |
 | platform.spiffe.enabled | bool | `true` |  |
 | policyGateway.affinity | object | `{}` |  |
-| policyGateway.config | object | `{}` |  |
+| policyGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | policyGateway.extraEnv | list | `[]` |  |
 | policyGateway.extraVolumeMounts | list | `[]` |  |
 | policyGateway.extraVolumes | list | `[]` |  |
@@ -385,7 +398,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | policyGateway.tolerations | list | `[]` |  |
 | policyGateway.topologySpreadConstraints | list | `[]` |  |
 | policyService.affinity | object | `{}` |  |
-| policyService.config | object | `{}` |  |
+| policyService.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | policyService.extraEnv | list | `[]` |  |
 | policyService.extraVolumeMounts | list | `[]` |  |
 | policyService.extraVolumes | list | `[]` |  |
@@ -410,7 +423,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | publicHosts | list | `[]` |  |
 | spire.className | string | `"spire-system-spire"` |  |
 | toolGateway.affinity | object | `{}` |  |
-| toolGateway.config | object | `{}` |  |
+| toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | toolGateway.extraEnv | list | `[]` |  |
 | toolGateway.extraVolumeMounts | list | `[]` |  |
 | toolGateway.extraVolumes | list | `[]` |  |
@@ -439,7 +452,7 @@ Orbit's control plane runs the operator, the cluster-scoped identity and gateway
 | triggers.authorizationPolicy.systemPrincipals[0] | string | `"frontend"` |  |
 | triggers.authorizationPolicy.systemPrincipals[1] | string | `"orbit-mcp"` |  |
 | triggers.authorizationPolicy.systemPrincipals[2] | string | `"ingress-gateway"` |  |
-| triggers.config | object | `{}` |  |
+| triggers.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | triggers.extraEnv | list | `[]` |  |
 | triggers.extraVolumeMounts | list | `[]` |  |
 | triggers.extraVolumes | list | `[]` |  |

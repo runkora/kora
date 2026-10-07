@@ -1,22 +1,24 @@
 package agents
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/toolscopes"
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/clear-route/orbit/internal/platform/usagewindow"
 )
 
 // Controller implements the orbit-agents HTTP API.
@@ -107,12 +109,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public API
 	mux.Handle("GET /health", c.handleHealth)
-	mux.Handle("GET /api/v1/agent-types/tool-scopes", c.handleListToolScopes)
 	// Draft routes live on a SIBLING prefix, not under /agent-types: ServeMux
 	// rejects "GET /api/v1/agent-types/drafts/{id}" as ambiguous against the
 	// existing "GET /api/v1/agent-types/{id}/effective-access" (neither is more
 	// specific — both match ".../drafts/effective-access"), and panics at boot.
-	// The single-segment tool-scopes literal has no such two-segment collision.
 	mux.Handle("POST /api/v1/agent-type-drafts", c.handleCreateDraft)
 	mux.Handle("GET /api/v1/agent-type-drafts", c.handleListDrafts)
 	mux.Handle("GET /api/v1/agent-type-drafts/{id}", c.handleGetDraft)
@@ -130,8 +130,13 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /api/v1/environments/{id}", c.handleGetEnvironment)
 	mux.Handle("PUT /api/v1/environments/{id}", c.handleUpdateEnvironment)
 	mux.Handle("DELETE /api/v1/environments/{id}", c.handleDeleteEnvironment)
+	mux.Handle("GET /api/v1/sandbox-images", c.handleListSandboxImages)
+	mux.Handle("GET /api/v1/environment-sizes", c.handleEnvironmentSizes)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
+	mux.Handle("GET /api/v1/runs/stats", c.handleTenantRunStats)
+	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)
+	mux.Handle("GET /api/v1/run-stats/{slug}", c.handleRunStats)
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
 	mux.Handle("DELETE /api/v1/runs/{id}", c.handleTerminateRun)
 	mux.Handle("POST /api/v1/runs/{id}/messages", c.handleSendMessage)
@@ -144,6 +149,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /internal/runs/{id}/summary", c.handleSetRunSummary)
 	mux.Handle("POST /internal/runs/{id}/provision-sandbox", c.handleProvisionSandbox)
 	mux.Handle("GET /internal/runs/{id}/sandbox", c.handleGetRunSandbox)
+	mux.Handle("GET /internal/runs/{id}/environments", c.handleListRunEnvironments)
 }
 
 // handleHealth returns liveness status.
@@ -153,11 +159,6 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 // ── Agent Types ───────────────────────────────────────────────────────────────
-
-func (c *Controller) handleListToolScopes(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"tool_scopes": toolscopes.Selectable})
-}
 
 func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
@@ -181,7 +182,7 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidConnectivity) || errors.Is(err, ErrInvalidIdentityMode) {
+		if invalidAgentTypeField(err) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -295,7 +296,7 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrInvalidConnectivity) || errors.Is(err, ErrInvalidIdentityMode) || errors.Is(err, ErrIdentityModeImmutable) {
+		if invalidAgentTypeField(err) || errors.Is(err, ErrIdentityModeImmutable) {
 			apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -400,32 +401,115 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
+// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&limit=&cursor=, clamping limit to maxRunsLimit.
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	q := r.URL.Query()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
-	agentTypeID := r.URL.Query().Get("agent_type_id")
-	// limit <= 0 (including absent) means unbounded — see ListRuns. An
-	// unparseable value must 400, not silently fall through to unbounded: that
-	// would turn a caller's typo into the one response shape they didn't ask for.
-	limit := 0
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "limit must be an integer", nil)
+	p := RunListQuery{Limit: defaultRunsLimit}
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, "limit must be a positive integer", map[string]any{"field": "limit"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 			return
 		}
-		limit = parsed
+		p.Limit = min(n, maxRunsLimit)
+	}
+	var err error
+	if p.After, err = decodeRunCursor(q.Get("cursor")); err != nil {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", map[string]any{"field": "cursor"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	// Repeated state keys add to the list.
+	if p.States, err = parseRunStates(strings.Join(q["state"], ",")); err != nil {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "state must be a comma-separated list of run states", map[string]any{"field": "state"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
 	}
 
-	runs, err := c.runs.ListRuns(ctx, agentTypeID, limit)
+	page, err := c.runs.ListRuns(ctx, q.Get("agent_type_id"), p)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
+	runs := page.Runs
+	if runs == nil {
+		runs = []Run{}
+	}
+	var next *string
+	if page.NextCursor != "" {
+		next = &page.NextCursor
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"runs": runs, "next_cursor": next, "limit": p.Limit})
+}
 
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"runs": runs})
+// parsePeriod reads the period query, writing the 400 and reporting false when it is invalid.
+func (c *Controller) parsePeriod(w http.ResponseWriter, r *http.Request) (usagewindow.Period, bool) {
+	period, err := usagewindow.Parse(r.URL.Query().Get("period"))
+	if err != nil {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil)
+		api.ErrorResponse(r.Context(), w, c.logger, apiErr, err)
+		return "", false
+	}
+	return period, true
+}
+
+// handleRunOutcomes handles GET /api/v1/run-outcomes?period=24h|7d|30d|90d.
+func (c *Controller) handleRunOutcomes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	period, ok := c.parsePeriod(w, r)
+	if !ok {
+		return
+	}
+	window := usagewindow.For(period, time.Now())
+	out, err := c.runs.RunOutcomes(ctx, window.Start, window.End)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to count run outcomes", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, out)
+}
+
+// handleRunStats handles GET /api/v1/run-stats/{slug}?period=24h|7d|30d|90d.
+func (c *Controller) handleRunStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	period, ok := c.parsePeriod(w, r)
+	if !ok {
+		return
+	}
+	out, err := c.runs.AgentRunStats(ctx, r.PathValue("slug"), period, time.Now().UTC())
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to get run stats", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, out)
+}
+
+// handleTenantRunStats handles GET /api/v1/runs/stats?period=24h|7d|30d|90d: the
+// run stats of every agent type whose runs the caller may read.
+func (c *Controller) handleTenantRunStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	period, ok := c.parsePeriod(w, r)
+	if !ok {
+		return
+	}
+	out, err := c.runs.TenantRunStats(ctx, period, time.Now().UTC())
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to get run stats", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, out)
 }
 
 func (c *Controller) handleGetRun(w http.ResponseWriter, r *http.Request) {
@@ -612,7 +696,7 @@ type runEventDTO struct {
 
 // handleRunEvents serves a run's events as Server-Sent Events (the default, for the
 // live UI stream) or, when the caller asks for application/json, as a single
-// paginated JSON page. The JSON form backs non-streaming readers such as the Orbit
+// paginated JSON page. The JSON form backs non-streaming readers such as the kora
 // MCP runs.events tool; the SSE behavior is unchanged.
 func (c *Controller) handleRunEvents(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(r.Header.Get("Accept"), "application/json") {
@@ -684,8 +768,6 @@ func queryInt(r *http.Request, key string, def int) int {
 
 // replays persisted events from run_events (honoring Last-Event-ID), then
 // streams live pushed events until the client disconnects.
-//
-//nolint:gocyclo // SSE handler with replay + dedup + live fanout; splitting into helpers would obscure the protocol flow
 func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.PathValue("id")
@@ -738,7 +820,7 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 	}
 	var lastReplayedSeqNo int64
 	for _, ev := range events {
-		fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.SequenceNo, ev.EventType, ev.Payload)
+		writeSSE(w, ev.SequenceNo, ev.EventType, ev.CreatedAt, ev.Payload)
 		if ev.SequenceNo > lastReplayedSeqNo {
 			lastReplayedSeqNo = ev.SequenceNo
 		}
@@ -758,20 +840,25 @@ func (c *Controller) handleStreamEvents(w http.ResponseWriter, r *http.Request) 
 			if ev.SequenceNo > 0 && ev.SequenceNo <= lastReplayedSeqNo {
 				continue
 			}
-			payload := ev.Payload
-			if payload == nil {
-				payload = []byte("{}")
-			}
-			if ev.SequenceNo > 0 {
-				fmt.Fprintf(w, "id: %d\nevent: %s\ndata: %s\n\n", ev.SequenceNo, ev.Type, payload)
-			} else {
-				fmt.Fprintf(w, "event: %s\ndata: %s\n\n", ev.Type, payload)
-			}
+			writeSSE(w, ev.SequenceNo, ev.Type, ev.At, ev.Payload)
 			flusher.Flush()
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+// writeSSE writes one event. data is an envelope: "at" is when orbit-agents
+// recorded the event (or received it, for streaming-only types) and "payload"
+// is the event as stored, so clients never stamp events with their own clock.
+func writeSSE(w io.Writer, seqNo int64, eventType string, at time.Time, payload json.RawMessage) {
+	if len(bytes.TrimSpace(payload)) == 0 {
+		payload = json.RawMessage("{}")
+	}
+	if seqNo > 0 {
+		fmt.Fprintf(w, "id: %d\n", seqNo)
+	}
+	fmt.Fprintf(w, "event: %s\ndata: {\"at\":%q,\"payload\":%s}\n\n", eventType, at.UTC().Format(time.RFC3339Nano), payload)
 }
 
 // handlePushEvent receives an event pushed by a session-manager pod, records the
@@ -868,8 +955,17 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// session-manager keeps the behavior it had.
 	ahead := r.URL.Query().Get("ahead") == "true"
 
-	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead)
+	// The body names the environment. An older session-manager sends none.
+	var req sandboxEnvironmentRequest
+	if err := api.DecodeBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
+		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
+		return
+	}
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead, req.Environment, req.Replace)
 	if err != nil {
+		if c.writeEnvironmentChoiceError(ctx, w, err) {
+			return
+		}
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "run not found", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -883,6 +979,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, errSandboxImagePending) {
+			// The operator has not read the image yet. The session-manager retries.
+			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil), nil)
+			return
+		}
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
@@ -892,7 +993,53 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// restricted to the agent pod by AuthorizationPolicy, and authorizeCallback
 	// has already bound the caller to this run.
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
-		"endpoint":   sandbox.Endpoint,
-		"exec_token": sandbox.ExecToken,
+		"endpoint":    sandbox.Endpoint,
+		"exec_token":  sandbox.ExecToken,
+		"canary_host": sandbox.CanaryHost,
 	})
+}
+
+// writeEnvironmentChoiceError answers a refused environment choice with a 409
+// whose message the agent reads. It reports whether err was one.
+func (c *Controller) writeEnvironmentChoiceError(ctx context.Context, w http.ResponseWriter, err error) bool {
+	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrEnvironmentRequired, ErrSandboxImageUnavailable} {
+		if errors.Is(err, target) {
+			api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
+			return true
+		}
+	}
+	return false
+}
+
+// handleListRunEnvironments lists the environments the run's agent may use.
+func (c *Controller) handleListRunEnvironments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id := r.PathValue("id")
+	if !c.authorizeCallback(ctx, w, id) {
+		return
+	}
+	envs, err := c.runs.ListRunEnvironments(ctx, id)
+	if err != nil {
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list environments", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"environments": envs})
+}
+
+// sandboxEnvironmentRequest names the environment of a sandbox. Replace
+// switches a live sandbox to it.
+type sandboxEnvironmentRequest struct {
+	Environment string `json:"environment"`
+	Replace     bool   `json:"replace"`
+}
+
+// invalidAgentTypeField reports an agent-type write the request itself got wrong. The handler answers it with a 400.
+func invalidAgentTypeField(err error) bool {
+	for _, target := range []error{ErrInvalidConnectivity, ErrInvalidConnector, ErrInvalidIdentityMode, ErrInvalidGuardrails, ErrInvalidEnvironment, ErrInvalidSlug} {
+		if errors.Is(err, target) {
+			return true
+		}
+	}
+	return false
 }

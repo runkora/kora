@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Orbit Device Authorization Grant — CLI Authentication Script
+# kora Device Authorization Grant — CLI Authentication Script
 # =============================================================================
 #
 # Usage: ./scripts/auth-device.sh [OPTIONS]
 #
-# Authenticates against the Orbit identity service using the OAuth 2.0 Device
+# Authenticates against the kora identity service using the OAuth 2.0 Device
 # Authorization Grant (RFC 8628). No browser on this machine is required — you
 # just need to visit a URL and enter a short code on any device.
 #
@@ -50,8 +50,8 @@
 #
 # ─── Environment variables ────────────────────────────────────────────────────
 #
-#   ORBIT_API_BASE    — Orbit API base URL  (default: http://localhost:8080/api/v1)
-#   ORBIT_TENANT_ID   — Orbit tenant ID     (overridden by --tenant-id flag)
+#   ORBIT_API_BASE    — kora API base URL  (default: http://localhost:8080/api/v1)
+#   ORBIT_TENANT_ID   — kora tenant ID     (overridden by --tenant-id flag)
 #
 # Prerequisites: curl, jq
 # =============================================================================
@@ -111,7 +111,7 @@ done
 # ─── Step 1: Initiate device flow ─────────────────────────────────────────────
 
 echo ""
-echo -e "${BOLD}Orbit Device Authentication${RESET}"
+echo -e "${BOLD}kora Device Authentication${RESET}"
 echo -e "API: ${BLUE}${API_BASE}${RESET}  Tenant: ${BLUE}${TENANT_ID}${RESET}"
 echo ""
 info "Initiating device authorization flow..."
@@ -125,7 +125,7 @@ DEVICE_RESP=$(curl -s \
 
 # Check if curl itself failed (network/DNS error)
 if [ $? -ne 0 ]; then
-  error "Failed to reach Orbit API at ${API_BASE}"
+  error "Failed to reach kora API at ${API_BASE}"
   echo ""
   echo "  Is the stack running?  make up"
   echo ""
@@ -140,7 +140,7 @@ if echo "$DEVICE_RESP" | jq -e '.code' >/dev/null 2>&1; then
   ERR_CODE=$(echo "$DEVICE_RESP" | jq -r '.code')
   ERR_MSG=$(echo "$DEVICE_RESP" | jq -r '.message // "unknown error"')
   echo ""
-  error "Orbit returned an error: ${ERR_CODE}"
+  error "kora returned an error: ${ERR_CODE}"
   echo "  ${ERR_MSG}"
   echo ""
   if [[ "$ERR_CODE" == "oidc_not_configured" ]]; then

@@ -225,7 +225,7 @@ const TabsContent = React.forwardRef<
         // Compact rails live inside a padded container (e.g. SidePanelBody),
         // which already supplies the spacing below the rail; adding more here
         // would double it.
-        size === 'compact' ? 'pt-0' : 'pt-6',
+        size === 'compact' ? 'pt-0' : 'pt-4',
         fill && 'flex-1 min-h-0 overflow-y-auto',
         'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent',
         className,

@@ -1,13 +1,12 @@
 # Configuration
 
-Orbit uses YAML files for non-secret configuration, one file per environment. The active environment is selected by the `APP_ENV` environment variable (default: `local`).
+Each kora config module (e.g. `cmd/identity`, `internal/platform/storage`) loads its non-secret configuration from YAML files in this order:
 
-```
-APP_ENV=production  →  loads {module}/config/production.yaml
-APP_ENV=local       →  loads {module}/config/local.yaml  (default)
-```
+1.  `{module}/config/base.yaml` when the binary loads it with `LoadService`.
+2.  `{module}/config/{APP_ENV}.yaml`. `APP_ENV` defaults to `production`, and binaries run on the host set `APP_ENV=local`.
+3.  `/etc/orbit/config/{module}.yaml`, the file the chart renders for the install.
 
-Supported values: `local`, `development`, `production`.
+Decoding is strict. An unknown key or a value of the wrong type fails startup.
 
 > **Secrets do not go in YAML files.** Passwords, API keys, and certificates belong in environment variables or a secret manager. If rotating a value would trigger a security incident, it's a secret.
 
@@ -19,7 +18,7 @@ There are two places config is loaded, each with a slightly different pattern.
 
 ### Binary entry point (`cmd/{service}`)
 
-Each service binary under `backend/cmd/` (for example the main API binary `cmd/identity`) has a dedicated `config/` sub-package with a `config.go` that exposes a package-level variable initialised at startup. Binaries use the **per-service loader** `config.MustLoadService[T]` (or `config.LoadService[T]` for the error-returning variant), which reads `backend/cmd/{service}/config/base.yaml` plus an optional `{env}.yaml` overlay:
+Each service binary under `backend/cmd/` (for example the main API binary `cmd/identity`) has a dedicated `config/` sub-package with a `config.go` that exposes a package-level variable initialised at startup. Binaries use the **per-service loader** `config.MustLoadService[T]` (or `config.LoadService[T]` for the error-returning variant), which reads `backend/cmd/{service}/config/base.yaml`, an optional `{env}.yaml` overlay and the rendered file:
 
 ```go
 // cmd/identity/config/config.go
@@ -103,6 +102,31 @@ func LoadConfig() (*Config, error) {
 
 ---
 
+## Rendered Config Files
+
+The `orbit` chart renders each workload's per-install config into a ConfigMap and mounts it at `/etc/orbit/config`. Each config module the workload loads is one file, `{module}.yaml`, and a change to it rolls the workload through its `checksum/config` annotation. Env vars carry only secrets and third-party conventions such as `SPIFFE_ENDPOINT_SOCKET`.
+
+*   **Curated values:** Chart keys such as `global.logFormat`, `config.db` and `identity.config.accessTokenTtlMinutes` render into the files.
+*   **Overrides:** `<component>.configOverrides` merges last, keyed by config module. Its keys follow the Go config structs.
+
+```yaml
+identity:
+  configOverrides:
+    internal/platform/observability:
+      logFormat: console
+    internal/identity:
+      token:
+        refreshTokenTtlDays: 1
+```
+
+Read a workload's effective config from its ConfigMap, e.g. `kubectl -n orbit-system get configmap orbit-identity-config -o yaml`.
+
+The session-manager and the identity-proxy sidecar have no rendered file. orbit-agents and the operator set their env vars in Go.
+
+*Reference: See [rendered-service-config-files](../adr/2026-10-06-rendered-service-config-files.md).*
+
+---
+
 ## Adding a value to an existing config
 
 1. Add the field to the config struct:
@@ -129,7 +153,7 @@ server:
   readTimeoutSecs: 30  # ← new
 ```
 
-The loader uses `dec.KnownFields(true)`, so unknown keys in YAML are rejected at startup: typos surface immediately.
+The loader rejects unknown keys at startup.
 
 ---
 
@@ -140,7 +164,6 @@ The loader uses `dec.KnownFields(true)`, so unknown keys in YAML are rejected at
 ```
 backend/internal/{feature}/config/
 ├── local.yaml
-├── development.yaml
 └── production.yaml
 ```
 
@@ -186,6 +209,7 @@ svc := feature.NewService(db, redis, logger, featureCfg)
 ## Reference
 
 - `internal/platform/config/config.go`: the loader package (`Load`, `MustLoad`, `LoadService`, `MustLoadService`, `Environment`)
+- `charts/orbit/templates/*/config.yaml`: the config files the chart renders for each workload
 - `internal/identity/service.go`: canonical example of feature-level `LoadConfig()` with secret overlays
 - `cmd/identity/config/config.go`: canonical example of binary-level `MustLoadService` package var
 - [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md): decision record and rationale

@@ -15,7 +15,7 @@ The pricing pipeline established in [LLM Cost Tracking](2026-06-05-llm-cost-trac
 
 LiteLLM publishes eight additional cost fields covering per-image, per-request, per-second, and per-audio-token billing. The `liteLLMEntry` struct does not parse them — Go's `json.Unmarshal` silently ignores unrecognised fields — so every non-token-priced model is synced with all four `synced_*_cost_per_1m` columns at `0`.
 
-169 models across Orbit's supported providers carry concurrent token and non-token cost dimensions. These are not competing pricing schemes — they are additive billing for different input types within the same request. `gemini-2.5-flash`, for example, bills text input per token and audio input per audio token simultaneously. There is no single "primary" cost unit for these models; all active dimensions apply.
+169 models across kora's supported providers carry concurrent token and non-token cost dimensions. These are not competing pricing schemes — they are additive billing for different input types within the same request. `gemini-2.5-flash`, for example, bills text input per token and audio input per audio token simultaneously. There is no single "primary" cost unit for these models; all active dimensions apply.
 
 Two additional dimensions — cache read and cache write pricing — are already stored and used for cost attribution on Anthropic-compatible models but are never surfaced in the UI.
 

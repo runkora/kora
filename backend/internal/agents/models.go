@@ -7,6 +7,12 @@ import (
 	"time"
 )
 
+// RunOutcomes counts the runs that finished in a window.
+type RunOutcomes struct {
+	Completed int64 `json:"completed"`
+	Failed    int64 `json:"failed"`
+}
+
 // ── Agent Types ───────────────────────────────────────────────────────────────
 
 type AgentTypeState string
@@ -180,6 +186,12 @@ type AgentBudget struct {
 	PerRunLimitUSD float64 `json:"per_run_limit_usd,omitempty"`
 }
 
+// AgentEnvironment attaches an environment to an agent.
+type AgentEnvironment struct {
+	EnvironmentID string `json:"environment_id"`
+	IsDefault     bool   `json:"is_default"`
+}
+
 // AgentType defines a category of managed agent within a tenant.
 // Each active AgentType has a corresponding StatefulSet in the tenant namespace.
 type AgentType struct {
@@ -193,7 +205,6 @@ type AgentType struct {
 	// IdentityMode is the agent's identity model (autonomous or delegated).
 	// Immutable after creation — see docs/adr/2026-07-23-delegated-agent-identity.md.
 	IdentityMode IdentityMode `json:"identity_mode"`
-	ToolScopes   []string     `json:"tool_scopes"`
 	GrantScopes  []string     `json:"grant_scopes"`
 	Connectivity Connectivity `json:"connectivity"`
 	Connectors   []Connector  `json:"connectors,omitempty"`
@@ -202,15 +213,16 @@ type AgentType struct {
 	// backend composes into EffectiveGrantScopes (like Connectors); the coarse
 	// mcp:invoke gate is derived there, not stored.
 	MCPTools []string `json:"mcp_tools,omitempty"`
-	// EnvironmentID references a tenant Environment whose egress hosts and
-	// connectors are merged into this agent's effective grant. nil = no
-	// environment. See docs/adr/2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md.
-	EnvironmentID           *string        `json:"environment_id,omitempty"`
-	MaxConcurrentRunsPerPod int            `json:"max_concurrent_runs_per_pod"`
-	State                   AgentTypeState `json:"state"`
-	CreatedAt               time.Time      `json:"created_at"`
-	UpdatedAt               time.Time      `json:"updated_at"`
-	ModelID                 *string        `json:"model_id,omitempty"`
+	// Environments are the sandboxes this agent may run in, one of them the default; none means kora-base.
+	// Their egress and connectors join the agent's grant.
+	Environments            []AgentEnvironment `json:"environments"`
+	MaxConcurrentRunsPerPod int                `json:"max_concurrent_runs_per_pod"`
+	// Guardrails are the loop-guard thresholds; unset fields take the platform defaults.
+	Guardrails Guardrails     `json:"guardrails"`
+	State      AgentTypeState `json:"state"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	ModelID    *string        `json:"model_id,omitempty"`
 	// Budget mirrors the budget on the agent's policy grant. Transient: never
 	// written to the agent_types table; populated on detail reads and carried
 	// as the desired state during grant reconciliation.
@@ -535,6 +547,9 @@ type Run struct {
 	// answer "why did this happen?" at all. See the ADR on extended trigger
 	// types, US-004.
 	StartedBy *StartedByTrigger `json:"started_by,omitempty"`
+	// EnvironmentID is the environment of the run's current sandbox. It is nil
+	// for the built-in default and before the first sandbox.
+	EnvironmentID *string `json:"environment_id,omitempty"`
 }
 
 // StartedByTrigger is the run's backlink to the trigger and delivery that

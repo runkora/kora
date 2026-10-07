@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for your interest in contributing to Orbit!
+Thanks for your interest in contributing to kora!
 
 ## Ways to contribute
 
@@ -12,18 +12,18 @@ If you are unsure, open a GitHub issue.
 
 ## Getting set up
 
-Get Orbit running locally with the [local development guide](docs/guides/local-development.md). You do not need a running cluster to contribute documentation.
+Get kora running locally with the [local development guide](docs/guides/local-development.md). You do not need a running cluster to contribute documentation.
 
 Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ### Tips to get started
 
-- Review the [architecture documentation](ARCHITECTURE.md) to understand how Orbit works.
+- Review the [architecture documentation](ARCHITECTURE.md) to understand how kora works.
 - Look through closed issues and PRs for examples of changes similar to yours.
 
 ## Filing an issue
 
-To file a bug or feature request for Orbit:
+To file a bug or feature request for kora:
 
 1. Search existing issues for duplication.
 2. If no existing issue covers your case, create a new one.
@@ -31,7 +31,7 @@ To file a bug or feature request for Orbit:
 
 ## Finding something to work on
 
-Orbit uses [GitHub Issues](https://github.com/clear-route/orbit/issues) to track bugs and feature requests. Issues labelled with [good first issue](https://github.com/clear-route/orbit/issues?q=state%3Aopen%20label%3A%22good%20first%20issue%22) are a good place to start. If an issue has not been assigned, you can request to work on it by leaving a comment.
+kora uses [GitHub Issues](https://github.com/clear-route/orbit/issues) to track bugs and feature requests. Issues labelled with [good first issue](https://github.com/clear-route/orbit/issues?q=state%3Aopen%20label%3A%22good%20first%20issue%22) are a good place to start. If an issue has not been assigned, you can request to work on it by leaving a comment.
 
 ## Contributing a change
 

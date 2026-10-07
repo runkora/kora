@@ -13,7 +13,7 @@
 
 ### Background
 
-The `github_app` adapter (`internal/credentials/adapters/githubapp/`) was the credential broker's first connection type and shipped with the simplest possible action taxonomy: every git smart-HTTP or REST call classifies into exactly `repo:read` or `repo:write`, derived from the git service name or the HTTP verb alone (`ClassifyAction` → `classifyGitSmartHTTP` / `classifyREST`). The request **path** is never inspected. A `connection:<name>:repo:write` grant therefore authorizes *every* mutating call GitHub accepts with the connection's installation token — pushing commits, commenting on issues, deleting webhooks, editing branch protection, and writing Actions secrets are all the same action to Orbit's policy layer.
+The `github_app` adapter (`internal/credentials/adapters/githubapp/`) was the credential broker's first connection type and shipped with the simplest possible action taxonomy: every git smart-HTTP or REST call classifies into exactly `repo:read` or `repo:write`, derived from the git service name or the HTTP verb alone (`ClassifyAction` → `classifyGitSmartHTTP` / `classifyREST`). The request **path** is never inspected. A `connection:<name>:repo:write` grant therefore authorizes *every* mutating call GitHub accepts with the connection's installation token — pushing commits, commenting on issues, deleting webhooks, editing branch protection, and writing Actions secrets are all the same action to kora's policy layer.
 
 The Kubernetes adapter started from the same coarse pair (`cluster:read`/`cluster:write`) and corrected it in [Amendment 1](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md#amendment-1--2026-07-06-resource-category-verb-taxonomy): `ClassifyAction` now parses the API request path into a **resource category** combined with a read/write verb class, with Secrets deliberately split from ConfigMaps so an admin can grant the routine without the sensitive. GitHub has exactly the same shape of problem — "can open pull requests" and "can rewrite branch protection" are different trust levels — and now has a proven in-house pattern to follow.
 
@@ -23,7 +23,7 @@ GitHub also offers something Kubernetes does not: the credential itself is scope
 
 ### Problem Statement
 
-An Orbit admin cannot express any GitHub authorization narrower than "all reads" / "all writes". Concretely:
+A kora admin cannot express any GitHub authorization narrower than "all reads" / "all writes". Concretely:
 
 1. A triage agent that should only read and comment on issues must be granted `repo:write`, which also lets it push code and delete webhooks.
 2. A CI-status agent that should only read check runs must be granted `repo:read`, which also lets it read the entire repository's contents.
@@ -54,7 +54,7 @@ An Orbit admin cannot express any GitHub authorization narrower than "all reads"
 - **Least privilege at the credential, not only at the gate.** GitHub is the rare upstream that lets the broker mint a credential matching the authorized action. A policy deny at the gateway is necessary; a token that *couldn't* have done more is strictly better.
 - **No breaking migration.** Connections and grants are GitOps/admin-managed state in the field; an upgrade must not strand a single working agent.
 - **Registration, not code.** The vocabulary, the connector picker, auto-egress derivation, and grant UI must all pick the new actions up from the one metadata table, exactly as they did for Kubernetes.
-- **Hierarchy is `covers`, never `*`.** Orbit scopes parse as `<resource_type>:<path…>:<action>`, and breadth is expressed by the `scope_covers` prefix rule (`authz.rego` / `authz_gateway.rego`, mirrored in `policyservice/api/service.go`): a shorter path covers every longer path beneath it, for the same resource type and action. There is no wildcard matching in the policy layer at all — the `connection:<name>:*` entry the egress gateway publishes today matches nothing under `scope_covers` (its action segment `*` never equals `read`/`write`) and is dead vocabulary. Scope shapes in this ADR must therefore put dimensions in the path so that omitting a segment *is* the broad grant.
+- **Hierarchy is `covers`, never `*`.** kora scopes parse as `<resource_type>:<path…>:<action>`, and breadth is expressed by the `scope_covers` prefix rule (`authz.rego` / `authz_gateway.rego`, mirrored in `policyservice/api/service.go`): a shorter path covers every longer path beneath it, for the same resource type and action. There is no wildcard matching in the policy layer at all — the `connection:<name>:*` entry the egress gateway publishes today matches nothing under `scope_covers` (its action segment `*` never equals `read`/`write`) and is dead vocabulary. Scope shapes in this ADR must therefore put dimensions in the path so that omitting a segment *is* the broad grant.
 
 ---
 
@@ -76,7 +76,7 @@ An Orbit admin cannot express any GitHub authorization narrower than "all reads"
 
 #### Option 2: Full mirror of GitHub's fine-grained App permissions
 
-**Description:** One Orbit action per GitHub App permission (`administration`, `checks`, `contents`, `deployments`, `issues`, `metadata`, `packages`, `pages`, `pull_requests`, `repository_hooks`, `secrets`, `statuses`, `workflows`, …), each with GitHub's own read/write/admin levels.
+**Description:** One kora action per GitHub App permission (`administration`, `checks`, `contents`, `deployments`, `issues`, `metadata`, `packages`, `pages`, `pull_requests`, `repository_hooks`, `secrets`, `statuses`, `workflows`, …), each with GitHub's own read/write/admin levels.
 
 **Why not chosen:** ~40 grantable scopes per connection swamps the picker and the grants UI for no demonstrated need; GitHub's own permission taxonomy shifts (new permissions appear regularly), turning the mirror into a treadmill; and several permissions have no classifiable REST route family of their own (e.g. `single_file`). The user-facing requirement is explicitly "a decent level of control", not parity.
 
@@ -153,7 +153,7 @@ Repository scoping moves from connection config to a **grant-time qualifier**, p
 - **The qualifier is the bare repository name, not `owner/repo`.** A GitHub App installation is bound to exactly one account, so the owner is a property of the connection — and the bare name is precisely what `InstallationTokenRequest.Repositories` takes at mint time. Names are lowercased (GitHub treats them case-insensitively). Two accounts are two installations and therefore two connections, so the connection segment — not the qualifier — is the owner disambiguator (`connection:github-orbital:issues:orbit:read` vs `connection:github-clearroute:issues:orbit:read`).
 - **The owner is verified, never dropped.** The connection declares its account (`owner` in config, cross-checked against the installation), and the classifier denies any path whose owner segment does not match (`ErrUnsupportedAction`) instead of extracting the bare name. Without this, a request for a *same-named repository under a foreign owner* would match the qualifier and pass the gate — and while GitHub's token rejects foreign writes and private reads, it happily serves foreign **public** repos, so name collision would quietly widen a repo-scoped read grant. Fail closed, same treatment as `kubectl exec` in the Kubernetes adapter.
 - **Attachment selections compile to qualified category scopes**; "all repositories" compiles to the unqualified category scope, which covers every qualified form by prefix — including repositories created after the grant.
-- **Mint-time narrowing is real for GitHub** (unlike the Kubernetes instance): the token carries the request's repository, so the credential bounds the resource even outside Orbit's gate.
+- **Mint-time narrowing is real for GitHub** (unlike the Kubernetes instance): the token carries the request's repository, so the credential bounds the resource even outside kora's gate.
 - **Repo-less endpoints** (`/graphql`, `/search/*`, `/user`, `/rate_limit`) follow the pattern's rule — they classify unqualified and are covered only by unqualified grants; handling per endpoint family is in the Decision section below.
 - The connection's existing `repositories` config is demoted from the primary scoping knob to the pattern's optional **ceiling** (broker-enforced, reflected in the picker).
 
@@ -234,7 +234,7 @@ The `workflows: write` App permission (required by GitHub for any push touching 
 
 - Admins can finally express the real agent role shapes — issue triage, PR review, CI status, code-only — as grants, with the audit log attributing every brokered call to a per-surface action **and repository** instead of a binary read/write over everything.
 - Repository reach is per-agent: one connection (the installation) serves an all-repos agent and a two-repos agent simultaneously, each with its own slice, and "all repositories" is a single covering scope that keeps covering repositories created tomorrow.
-- The minted credential matches the authorization on both axes: a leaked or replayed token is bounded by GitHub itself to the category's permissions and the request's repository, not just by Orbit's gate. This is the first adapter to exercise mint-time down-scoping, proving that half of the broker design.
+- The minted credential matches the authorization on both axes: a leaked or replayed token is bounded by GitHub itself to the category's permissions and the request's repository, not just by kora's gate. This is the first adapter to exercise mint-time down-scoping, proving that half of the broker design.
 - Zero stored-grant migration and zero CRD change — the delta lives in the metadata table, the adapter, the scope publisher, one `CheckInput`/structural-validation touch in the policy path, and the attachment flow's grant compilation.
 
 ### Negative

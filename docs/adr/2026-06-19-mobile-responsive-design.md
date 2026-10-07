@@ -11,7 +11,7 @@
 
 ## Context
 
-Orbit's control plane dashboard is built on Next.js 16 with the Terra design system (Tailwind v4 + Radix UI). The current shell assumes a desktop viewport: the `PageLayout` Terra component renders a fixed 240 px sidebar unconditionally, page grids assume ≥ 1 024 px, and data tables have no horizontal scroll container. The result is an unusable experience on phones and tablets.
+kora's control plane dashboard is built on Next.js 16 with the Terra design system (Tailwind v4 + Radix UI). The current shell assumes a desktop viewport: the `PageLayout` Terra component renders a fixed 240 px sidebar unconditionally, page grids assume ≥ 1 024 px, and data tables have no horizontal scroll container. The result is an unusable experience on phones and tablets.
 
 ### Background
 
@@ -151,7 +151,7 @@ Option 2 threads the needle between all constraints:
 
 ### Breakpoint convention
 
-Orbit uses Tailwind's default breakpoints:
+kora uses Tailwind's default breakpoints:
 
 | Token | Viewport |
 |-------|----------|

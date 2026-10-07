@@ -18,7 +18,8 @@ spec:
         spiffe.io/component: orbit-mcp
         {{- include "orbit.podLabels" (dict "root" $ "name" "orbitMcp") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        checksum/config: {{ include (print $.Template.BasePath "/orbit-mcp/config.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "orbitMcp") | nindent 8 }}
     spec:
       serviceAccountName: orbit-mcp
@@ -27,7 +28,8 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
+        {{- include "orbit.configVolume" (dict "root" $ "name" "orbitMcp" "configMap" "orbit-mcp-config" "modules" (include "orbit.orbitMcp.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "orbitMcp") | nindent 8 }}
       containers:
         - name: orbit-mcp
@@ -36,12 +38,6 @@ spec:
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
-            - name: ORBIT_OTLP_ENDPOINT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "orbitMcp" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
-            - name: ORBIT_SAMPLING_RATE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "orbitMcp" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
-            - name: ORBIT_LOG_FORMAT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "orbitMcp" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
             - name: SPIFFE_ENDPOINT_SOCKET
               value: "unix:///run/secrets/workload-spiffe-uds/socket"
             {{- include "orbit.extraEnv" (dict "root" $ "name" "orbitMcp") | nindent 12 }}
@@ -69,4 +65,5 @@ spec:
             {{- toYaml .Values.orbitMcp.resources | nindent 12 }}
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "orbitMcp") | nindent 12 }}

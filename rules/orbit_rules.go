@@ -1,6 +1,6 @@
 //go:build ignore
 
-// Package gorules defines custom static-analysis rules for Orbit, enforced by
+// Package gorules defines custom static-analysis rules for kora, enforced by
 // golangci-lint's gocritic/ruleguard integration.
 //
 // # docs/adr/2026-03-21-opentelemetry-observability-discipline.md: OpenTelemetry observability discipline
@@ -24,7 +24,7 @@
 //
 // # Pattern-matching strategy (minimising false positives)
 //
-// Package-level sentinel errors follow the Orbit naming convention:
+// Package-level sentinel errors follow the kora naming convention:
 //
 //	var errSomethingSpecific = errors.New("...")  // unexported sentinel
 //	var ErrSomethingSpecific = errors.New("...")  // exported sentinel

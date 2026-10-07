@@ -8,10 +8,12 @@
 // Classify is category-scoped: it parses the request's host family and
 // path into a route-family category (contents, issues, pulls, actions, checks,
 // admin, metadata) combined with a read/write verb class, plus the repository
-// qualifier when the path names one. Resolve then mints the installation token
-// narrowed to exactly the classified category's permissions and the request's
-// repository. See docs/adr/2026-07-22-github-connection-category-scoped-actions.md
-// and docs/adr/2026-07-22-connection-scope-qualifiers.md.
+// qualifier when the path names one. GraphQL requests are classified by the
+// fields they select (graphql.go). Resolve then mints the installation token
+// narrowed to exactly the classified categories' permissions and the request's
+// repository. See docs/adr/2026-07-22-github-connection-category-scoped-actions.md,
+// docs/adr/2026-07-22-connection-scope-qualifiers.md and
+// docs/adr/2026-09-29-github-graphql-field-classification.md.
 //
 // Each connection-type lives in its own subpackage so adding a new external
 // service (AWS STS, OAuth2 client-credentials, API-key SaaS) is a new directory
@@ -20,16 +22,12 @@
 package githubapp
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"net/http"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -49,7 +47,7 @@ import (
 const appJWTTTL = 10 * time.Minute
 
 // appJWTSkew backdates the App JWT's issued-at to tolerate clock skew between
-// Orbit and GitHub.
+// kora and GitHub.
 const appJWTSkew = 60 * time.Second
 
 // cacheSafetyMargin is how long before true expiry a cached installation token
@@ -275,224 +273,6 @@ const (
 	catAdmin    = "admin"
 	catRepo     = "repo" // catch-all + legacy umbrella
 )
-
-// graphqlBodySizeLimit caps how much of a GraphQL request body is read for
-// classification. Queries larger than this are treated as unparseable and fall
-// back to the conservative repo:write default. 512 KiB covers any realistic
-// query; requests larger than this are almost certainly bulk data, not queries.
-const graphqlBodySizeLimit = 512 * 1024
-
-// graphqlRequest is the JSON envelope GitHub accepts for GraphQL.
-type graphqlRequest struct {
-	Query     string         `json:"query"`
-	Variables map[string]any `json:"variables"`
-}
-
-// classifyGraphQL parses the request body of a GraphQL call to distinguish
-// queries (reads) from mutations (writes), and attempts best-effort repository
-// qualifier extraction when the query or variables name an owner+repository.
-//
-// The body is always restored so the egress gateway can forward the original
-// request byte-for-byte. If the body is absent, unreadable, too large, or
-// unparseable the function fails closed: unqualified repo:write is returned,
-// identical to the pre-fix behavior.
-func classifyGraphQL(req *http.Request, owner string) (credentials.Classification, error) {
-	fallback := credentials.Classification{Action: ActionRepoWrite}
-
-	if req.Body == nil || req.Body == http.NoBody {
-		return fallback, nil
-	}
-
-	original := req.Body
-	limited := io.LimitReader(original, graphqlBodySizeLimit+1)
-	buf, err := io.ReadAll(limited)
-
-	if err != nil || int64(len(buf)) > graphqlBodySizeLimit {
-		// Unreadable or oversized body: fail closed on classification, but still
-		// forward the body without truncation. The bytes already read (buf)
-		// followed by whatever remains unread in the original stream. The wrapper
-		// closes the original once forwarding is done, so nothing leaks. Leave
-		// req.GetBody untouched: we must not install one that replays only buf.
-		req.Body = &chainedBody{r: io.MultiReader(bytes.NewReader(buf), original), c: original}
-		return fallback, nil
-	}
-
-	// Whole body is buffered (<= limit): the original stream is fully drained,
-	// so close it (no leak) and serve byte-identical copies for forwarding and
-	// any resend.
-	_ = original.Close()
-	req.Body = io.NopCloser(bytes.NewReader(buf))
-	req.GetBody = func() (io.ReadCloser, error) {
-		return io.NopCloser(bytes.NewReader(buf)), nil
-	}
-
-	var gql graphqlRequest
-	if jsonErr := json.Unmarshal(buf, &gql); jsonErr != nil || gql.Query == "" {
-		return fallback, nil
-	}
-
-	verb := graphqlVerb(gql.Query)
-	action := catRepo + ":" + verb
-
-	qualifier := ""
-	if owner != "" {
-		q, deny := graphqlRepoQualifier(gql.Query, gql.Variables, owner)
-		if deny {
-			return credentials.Classification{}, credentials.ErrUnsupportedAction
-		}
-		qualifier = q
-	}
-
-	return credentials.Classification{Action: action, Qualifier: qualifier}, nil
-}
-
-// graphqlVerb inspects the leading operation keyword of a GraphQL document and
-// returns verbRead for queries (including the anonymous shorthand { … } and
-// introspection) or verbWrite for mutations. All other documents (subscriptions,
-// anything unrecognized) default to verbWrite so classification never downgrades
-// a real write to a read.
-func graphqlVerb(query string) string {
-	t := strings.TrimSpace(query)
-	// Anonymous shorthand: a document starting with { is a query.
-	if strings.HasPrefix(t, "{") {
-		return verbRead
-	}
-	// Named operation: first token is the operation type keyword.
-	word := firstWord(t)
-	switch strings.ToLower(word) {
-	case "query":
-		return verbRead
-	case "fragment":
-		// Leading fragment definition(s): the operation type appears later in
-		// the document. Only downgrade to read when there is no mutation
-		// anywhere. Never downgrade a real write to a read.
-		if graphqlMutationRe.MatchString(t) {
-			return verbWrite
-		}
-		return verbRead
-	default:
-		// "mutation", "subscription", or anything else → conservative write.
-		return verbWrite
-	}
-}
-
-// graphqlMutationRe matches a `mutation` operation keyword as a whole word.
-// GraphQL keywords are case-sensitive (lowercase), so it does not fold case. A
-// stray match (e.g. a field literally named "mutation") only over-classifies a
-// read as a write, which fails closed and never downgrades a write.
-var graphqlMutationRe = regexp.MustCompile(`\bmutation\b`)
-
-// chainedBody adapts a chained io.Reader to an io.ReadCloser that closes the
-// underlying request body on Close. It lets an oversized GraphQL request be
-// forwarded intact (already-read bytes followed by the unread remainder)
-// without leaking the original body reader.
-type chainedBody struct {
-	r io.Reader
-	c io.Closer
-}
-
-func (b *chainedBody) Read(p []byte) (int, error) { return b.r.Read(p) }
-func (b *chainedBody) Close() error               { return b.c.Close() }
-
-// firstWord returns the first whitespace-delimited token of s.
-func firstWord(s string) string {
-	end := strings.IndexAny(s, " \t\n\r(")
-	if end < 0 {
-		return s
-	}
-	return s[:end]
-}
-
-// graphqlRepoQualifier attempts to extract owner+repository from a GraphQL
-// query string and variables. It returns (qualifier, false) on success,
-// ("", false) when no repository can be determined (safe unqualified read),
-// and ("", true) when a repository is found but names a foreign owner (deny).
-//
-// Extraction is best-effort: it searches for the literal patterns that the
-// GitHub CLI and most GitHub GraphQL clients use. It does not parse the query
-// as a proper AST; a query that successfully hides its repository from this
-// scanner is left unqualified. It must be satisfied by an unqualified
-// grant, which is still correct and safe.
-func graphqlRepoQualifier(query string, variables map[string]any, connOwner string) (qualifier string, deny bool) {
-	repoOwner, repoName := "", ""
-
-	// Try variables first: GitHub CLI passes { owner, name } (or { owner, repo }).
-	if variables != nil {
-		repoOwner = stringVar(variables, "owner")
-		if n := stringVar(variables, "name"); n != "" {
-			repoName = n
-		} else {
-			repoName = stringVar(variables, "repo")
-		}
-	}
-
-	// Fall back to inline literal in the query text:
-	// repository(owner: "x", name: "y") or repository(owner:"x",name:"y").
-	if repoOwner == "" || repoName == "" {
-		o, n := extractInlineOwnerName(query)
-		if repoOwner == "" {
-			repoOwner = o
-		}
-		if repoName == "" {
-			repoName = n
-		}
-	}
-
-	if repoOwner == "" || repoName == "" {
-		// Repository cannot be determined, so unqualified rather than denied.
-		return "", false
-	}
-
-	if normalizeName(repoOwner) != connOwner {
-		return "", true
-	}
-	return normalizeName(repoName), false
-}
-
-// stringVar retrieves a string value from the variables map, returning "" when
-// the key is absent or the value is not a string.
-func stringVar(vars map[string]any, key string) string {
-	v, ok := vars[key]
-	if !ok {
-		return ""
-	}
-	s, _ := v.(string)
-	return s
-}
-
-// repositoryCallRe captures the argument list of a GitHub GraphQL
-// repository(...) call. graphqlOwnerArgRe and graphqlNameArgRe pull the quoted
-// values out of it.
-//
-// These match case-insensitively on one string rather than taking offsets from
-// a lowercased copy and slicing the original. Lowercasing can change a string's
-// byte length, so mixed offsets shift the extraction and drop the owner, which
-// on this path means an owner-mismatch deny silently becomes an allow.
-var (
-	repositoryCallRe  = regexp.MustCompile(`(?i)repository\s*\(([^)]*)\)`)
-	graphqlOwnerArgRe = regexp.MustCompile(`(?i)\bowner\s*:\s*"([^"]*)"`)
-	graphqlNameArgRe  = regexp.MustCompile(`(?i)\bname\s*:\s*"([^"]*)"`)
-)
-
-// extractInlineOwnerName returns the owner and name of an inline GitHub GraphQL
-// repository(owner:"x", name:"y") call, or empty strings when the query names
-// neither. Whitespace around the punctuation is optional.
-func extractInlineOwnerName(query string) (owner, name string) {
-	call := repositoryCallRe.FindStringSubmatch(query)
-	if call == nil {
-		return "", ""
-	}
-	args := call[1]
-	return firstSubmatch(graphqlOwnerArgRe, args), firstSubmatch(graphqlNameArgRe, args)
-}
-
-// firstSubmatch returns re's first capture group in s, or the empty string.
-func firstSubmatch(re *regexp.Regexp, s string) string {
-	if m := re.FindStringSubmatch(s); m != nil {
-		return m[1]
-	}
-	return ""
-}
 
 // classifyAPI maps a REST/GraphQL API path (host prefix already stripped) to a
 // category action plus repository qualifier.
@@ -961,7 +741,7 @@ func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (cr
 	})
 	if err != nil {
 		// A 422 permissions rejection is the App installation's own ceiling.
-		// Orbit authorized the action, but the App is not granted this
+		// kora authorized the action, but the App is not granted this
 		// permission level. Translate to the adapter-agnostic sentinel so the
 		// broker returns a forbidden, not a 500.
 		if errors.Is(err, ghclient.ErrInstallationPermissions) {

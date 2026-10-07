@@ -15,8 +15,8 @@ import {
   Input,
   Stack,
   Text,
+  EmptyState,
 } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope, statusColor } from '../_types';
@@ -69,7 +69,7 @@ function Chip({
       as="span"
       size="micro"
       weight={mono ? 'emphasis' : 'regular'}
-      color={mono ? 'subtle' : 'muted'}
+      color="muted"
       mono={mono}
       style={{
         display: 'inline-flex',
@@ -113,7 +113,7 @@ function CapabilityTags({ domains, max = 3 }: { domains: string[]; max?: number 
         <Text
           as="span"
           size="micro"
-          color="subtle"
+          color="muted"
           style={{
             height: 22,
             padding: '0 6px',
@@ -436,7 +436,7 @@ function ServerCard({
               mono
               size="caption"
               weight="emphasis"
-              color="subtle"
+              color="muted"
               style={{ marginTop: 1, lineHeight: 1.5 }}
             >
               {serverRollupScope(server.name)}
@@ -470,8 +470,8 @@ function ServerCard({
         justify="between"
         style={{ padding: '10px 16px', borderTop: '1px solid var(--color-border-subtle)' }}
       >
-        <Text as="span" size="caption" color="subtle">
-          <Text as="span" size="caption" color="muted" weight="strong">
+        <Text as="span" size="caption" color="muted">
+          <Text as="span" size="caption" weight="strong">
             {server.tool_count}
           </Text>{' '}
           tools · synced {relativeTime(server.last_synced)}

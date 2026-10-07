@@ -57,6 +57,9 @@ ok "orbit-postgres: ${POSTGRES_IP}"
 REDIS_IP="$(container_ip orbit-redis)"
 ok "orbit-redis:    ${REDIS_IP}"
 
+REGISTRY_IP="$(container_ip orbit-registry)"
+ok "orbit-registry: ${REGISTRY_IP}"
+
 # ── Resolve subnet CIDR ─────────────────────────────────────────────────────
 SUBNET="$(docker network inspect orbit-network \
   --format '{{(index .IPAM.Config 0).Subnet}}' 2>/dev/null || true)"
@@ -67,28 +70,26 @@ fi
 ok "orbit-network:  ${SUBNET}"
 
 # ── Patch CoreDNS NodeHosts ─────────────────────────────────────────────────
-# orbit-postgres and orbit-redis are Docker containers on orbit-network.
-# CoreDNS cannot resolve them via `forward . /etc/resolv.conf` because
-# 127.0.0.11 (Docker's embedded DNS) is unreachable from inside CoreDNS's
-# container. Injecting them into NodeHosts makes the hosts plugin resolve
-# them in-process without forwarding.
+# CoreDNS cannot reach Docker's embedded DNS, so the orbit-network containers go into NodeHosts.
+# k3s drops k3d's orbit-registry entry on restart, and the operator reads sandbox images from it.
 step "Patching CoreDNS NodeHosts with Docker container IPs"
 
 kubectl get configmap coredns -n kube-system -o json \
   | jq --arg pg "${POSTGRES_IP} orbit-postgres" \
        --arg rd "${REDIS_IP} orbit-redis" \
+       --arg rg "${REGISTRY_IP} orbit-registry" \
        '.data.NodeHosts = (
          (.data.NodeHosts // "") |
          split("\n") |
-         map(select(length > 0 and (split(" ")[1] | . != "orbit-postgres" and . != "orbit-redis"))) |
-         . + [$pg, $rd] |
+         map(select(length > 0 and (split(" ")[1] | . != "orbit-postgres" and . != "orbit-redis" and . != "orbit-registry"))) |
+         . + [$pg, $rd, $rg] |
          join("\n") + "\n"
        )' \
   | kubectl apply -f -
 
 kubectl rollout restart deployment/coredns -n kube-system
 kubectl rollout status deployment/coredns -n kube-system --timeout=60s
-ok "CoreDNS NodeHosts patched: orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}"
+ok "CoreDNS NodeHosts patched: orbit-postgres → ${POSTGRES_IP}, orbit-redis → ${REDIS_IP}, orbit-registry → ${REGISTRY_IP}"
 
 # ── Write the generated environment file ────────────────────────────────────
 # Preserves the image digest pins redeploy.sh writes.
@@ -101,10 +102,18 @@ yq -i "
   .networkPolicy.externalServices = [{\"cidr\": \"${SUBNET}\", \"ports\": [5432, 6379, 5556]}]
 " "${GENERATED}"
 
+# Ollama on the host, for a local compatible InferenceProvider at
+# http://host.k3d.internal:11434/v1.
+HOST_IP=$(kubectl get configmap coredns -n kube-system -o jsonpath='{.data.NodeHosts}' 2>/dev/null | awk '/host.k3d.internal/ {print $1; exit}' || true)
+if [[ -n "${HOST_IP}" ]]; then
+  yq -i ".networkPolicy.externalServices += [{\"cidr\": \"${HOST_IP}/32\", \"ports\": [11434]}]" "${GENERATED}"
+fi
+
 ok "local.generated.yaml written"
 echo ""
 echo "  Dex hostAlias:     ${DEX_IP}"
 echo "  Postgres:          ${POSTGRES_IP}"
 echo "  Redis:             ${REDIS_IP}"
 echo "  NetworkPolicy CIDR: ${SUBNET}"
+echo "  Host (Ollama):     ${HOST_IP:-not found}"
 echo ""

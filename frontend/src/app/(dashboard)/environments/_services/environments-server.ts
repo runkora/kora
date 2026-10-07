@@ -1,28 +1,38 @@
 import 'server-only';
 
-import { listEnvironments } from '@orbit/server/environments-client';
+import {
+  getEnvironmentSizes,
+  listEnvironments,
+  listSandboxImages,
+} from '@orbit/server/environments-client';
 import { listConnections } from '@orbit/server/connections-client';
 import { toEnvironmentRow } from '../_types';
 import type { EnvironmentRow } from '../_types';
-import type { ConnectionCatalogEntry } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 
 export type EnvironmentsResult =
-  | { ok: true; rows: EnvironmentRow[]; connections: ConnectionCatalogEntry[] }
+  | {
+      ok: true;
+      rows: EnvironmentRow[];
+      connections: ConnectionCatalogEntry[];
+      /** Registered sandbox images, or null when the list did not load. */
+      images: SandboxImage[] | null;
+      /** The platform's default and maximum sizes, or null when they did not load. */
+      sizes: EnvironmentSizes | null;
+    }
   | { ok: false; message: string };
 
-/**
- * Loads the tenant's environments and the connection catalog (for the
- * connectors picker in the create/edit form) directly from orbit-agents.
- *
- * The connection catalog degrades to an empty list when the gateway is
- * unreachable (mirroring the picker route, which tolerates the same gateway
- * being down). Only a failure to load environments surfaces `ok: false`.
- */
+/** Loads the Environments page: environments, connection catalog, sandbox images and size limits.
+ * Only the environments are required; the form works without the rest. */
 export async function fetchEnvironments(accessToken: string): Promise<EnvironmentsResult> {
   try {
-    const environments = await listEnvironments(accessToken);
-    const connections = await loadCatalog(accessToken);
-    return { ok: true, rows: environments.map(toEnvironmentRow), connections };
+    const [environments, connections, images, sizes] = await Promise.all([
+      listEnvironments(accessToken),
+      loadCatalog(accessToken),
+      listSandboxImages(accessToken).catch(() => null),
+      getEnvironmentSizes(accessToken).catch(() => null),
+    ]);
+    return { ok: true, rows: environments.map(toEnvironmentRow), connections, images, sizes };
   } catch {
     return { ok: false, message: 'Failed to load environments' };
   }

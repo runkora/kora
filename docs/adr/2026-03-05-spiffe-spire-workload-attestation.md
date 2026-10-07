@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-03-05
 **Deciders:** Engineering Team
-**Technical Story:** Defining how non-human workloads (agents and services) establish cryptographic identity in the Orbit platform, implementing the ATTESTED identity source specified in [unified-identity-model](2026-03-05-unified-identity-model.md).
+**Technical Story:** Defining how non-human workloads (agents and services) establish cryptographic identity in the kora platform, implementing the ATTESTED identity source specified in [unified-identity-model](2026-03-05-unified-identity-model.md).
 
 ---
 
 ## Context
 
-[unified-identity-model](2026-03-05-unified-identity-model.md) established that Orbit supports two identity sources: `FEDERATED` (OIDC/SAML for human principals) and `ATTESTED` (workload attestation for agent and service principals). This ADR covers the implementation of the `ATTESTED` source — how agents and other non-human workloads prove their identity to Orbit without pre-shared secrets.
+[unified-identity-model](2026-03-05-unified-identity-model.md) established that kora supports two identity sources: `FEDERATED` (OIDC/SAML for human principals) and `ATTESTED` (workload attestation for agent and service principals). This ADR covers the implementation of the `ATTESTED` source — how agents and other non-human workloads prove their identity to kora without pre-shared secrets.
 
 ### Background
 
@@ -17,24 +17,24 @@ Non-human workload identity is a hard problem. The naive approach — issuing AP
 
 SPIFFE (Secure Production Identity Framework For Everyone) and its reference implementation SPIRE (SPIFFE Runtime Environment) solve this correctly. SPIFFE defines a standard for workload identity based on cryptographic attestation — a workload proves its identity by virtue of where it's running and what it is, not by knowing a secret. SPIRE automates the issuance and rotation of short-lived identity documents (SVIDs) to attested workloads with no human or application involvement in the rotation cycle.
 
-SPIFFE/SPIRE is a CNCF graduated project and is production-proven at scale (Uber, Square, GitHub, and others run it at significant scale). It is the correct foundation for agent identity in Orbit rather than a problem to solve from scratch.
+SPIFFE/SPIRE is a CNCF graduated project and is production-proven at scale (Uber, Square, GitHub, and others run it at significant scale). It is the correct foundation for agent identity in kora rather than a problem to solve from scratch.
 
 ### Problem Statement
 
 We need to define:
-1. The SPIFFE trust domain topology for a multi-tenant Orbit instance
+1. The SPIFFE trust domain topology for a multi-tenant kora instance
 2. The SPIFFE ID naming convention for agents and services
-3. How SPIRE Server and SPIRE Agent are deployed relative to Orbit
-4. How agent registration in Orbit maps to SPIRE registration entries
-5. How agents exchange SVIDs for Orbit platform session tokens
+3. How SPIRE Server and SPIRE Agent are deployed relative to kora
+4. How agent registration in kora maps to SPIRE registration entries
+5. How agents exchange SVIDs for kora platform session tokens
 6. How deregistration and revocation are handled
 
 ### Goals
 
 - **No pre-shared secrets**: Agent workloads receive cryptographic identity automatically, without secrets being provisioned at deployment time
-- **Automatic rotation**: SVIDs rotate on short TTLs without any action from the agent workload or Orbit operators
+- **Automatic rotation**: SVIDs rotate on short TTLs without any action from the agent workload or kora operators
 - **Tenant isolation**: Agent identity is unambiguously scoped to a tenant within the SPIFFE ID itself
-- **Tight coupling with agent registry**: A SPIRE registration entry must exist if and only if a corresponding agent principal is registered in Orbit
+- **Tight coupling with agent registry**: A SPIRE registration entry must exist if and only if a corresponding agent principal is registered in kora
 - **Platform token integration**: SVID exchange produces the standard platform session token from [unified-identity-model](2026-03-05-unified-identity-model.md) — the agent's experience downstream is identical to any other authenticated principal
 
 ### Non-Goals
@@ -50,7 +50,7 @@ We need to define:
 ## Decision Drivers
 
 * **Security**: No long-lived secrets. Identity tied to workload runtime characteristics, not possession of a credential
-* **Operational automation**: SVID rotation must be fully automatic — zero-touch for the agent workload and for Orbit operators
+* **Operational automation**: SVID rotation must be fully automatic — zero-touch for the agent workload and for kora operators
 * **Multi-tenancy**: Tenant scope must be unambiguous in the SPIFFE ID — policy cannot rely solely on the platform layer to enforce it
 * **Operational simplicity**: The SPIRE deployment topology must be manageable by a small platform team, not require per-tenant infrastructure
 * **Integration fidelity**: The SVID-to-platform-token exchange must produce a token structurally identical to a human session token (per [unified-identity-model](2026-03-05-unified-identity-model.md))
@@ -62,7 +62,7 @@ We need to define:
 
 ### Option A: Pre-shared API keys for agent identity
 
-**Description:** Issue a long-lived API key to each registered agent at registration time. The agent presents the key on each request. Orbit validates the key against its registry.
+**Description:** Issue a long-lived API key to each registered agent at registration time. The agent presents the key on each request. kora validates the key against its registry.
 
 **Pros:**
 - Simple to implement — no new infrastructure
@@ -75,12 +75,12 @@ We need to define:
 - Does not scale to dynamic agent workloads that are created and destroyed frequently
 - Directly contradicts the security principle of not relying on pre-shared secrets for workload identity
 
-### Option B: SPIFFE/SPIRE with a single trust domain per Orbit instance, tenant-scoped by path
+### Option B: SPIFFE/SPIRE with a single trust domain per kora instance, tenant-scoped by path
 
-**Description:** Deploy one SPIRE Server per Orbit instance. All tenants share the same SPIFFE trust domain (`spiffe://orbit.{instance}`). Tenant scope is encoded in the SPIFFE ID path. SPIRE Agents run on every compute node where agent workloads execute. Orbit's identity service validates SVIDs against the shared trust bundle.
+**Description:** Deploy one SPIRE Server per kora instance. All tenants share the same SPIFFE trust domain (`spiffe://orbit.{instance}`). Tenant scope is encoded in the SPIFFE ID path. SPIRE Agents run on every compute node where agent workloads execute. kora's identity service validates SVIDs against the shared trust bundle.
 
 **Pros:**
-- One SPIRE Server to operate per Orbit instance — manageable by a small platform team
+- One SPIRE Server to operate per kora instance — manageable by a small platform team
 - Tenant isolation is expressed unambiguously in the SPIFFE ID path — no ambiguity about which tenant an agent belongs to
 - All tenants share the same cryptographic root of trust — cross-tenant verification (if ever explicitly permitted by policy) is straightforward
 - Operationally, adding a new tenant requires only new registration entries, not new infrastructure
@@ -108,7 +108,7 @@ We need to define:
 
 ## Decision
 
-**Chosen Option:** Option B — SPIFFE/SPIRE with a single trust domain per Orbit instance, tenant-scoped by SPIFFE ID path.
+**Chosen Option:** Option B — SPIFFE/SPIRE with a single trust domain per kora instance, tenant-scoped by SPIFFE ID path.
 
 ### Rationale
 
@@ -126,7 +126,7 @@ Option B is preferred over Option C on operational grounds. Running per-tenant S
 spiffe://orbit.{instance-id}
 ```
 
-`{instance-id}` is configured at Orbit deployment time. It should be a stable, human-readable identifier for the Orbit installation — typically a short slug derived from the organisation or environment (e.g. `orbit.acme`, `orbit.acme-prod`).
+`{instance-id}` is configured at kora deployment time. It should be a stable, human-readable identifier for the kora installation — typically a short slug derived from the organisation or environment (e.g. `orbit.acme`, `orbit.acme-prod`).
 
 ### SPIFFE ID Naming Convention
 
@@ -152,9 +152,9 @@ spiffe://orbit.acme/system/credential-broker
 ```
 
 **Conventions:**
-- `{tenant-id}` matches the `tenant_id` field on the Orbit Principal — it is the stable identifier for the team/organisation unit, not a display name
-- `{agent-id}` matches the agent's entry in Orbit's agent registry — it is Orbit's own assigned identifier, not a name that varies between environments
-- `{component-name}` for system entries uses kebab-case matching the Orbit service name
+- `{tenant-id}` matches the `tenant_id` field on the kora Principal — it is the stable identifier for the team/organisation unit, not a display name
+- `{agent-id}` matches the agent's entry in kora's agent registry — it is kora's own assigned identifier, not a name that varies between environments
+- `{component-name}` for system entries uses kebab-case matching the kora service name
 - SPIFFE IDs are permanent for the lifetime of the registration — they do not change when an agent is redeployed, scaled, or updated
 
 ---
@@ -164,11 +164,11 @@ spiffe://orbit.acme/system/credential-broker
 ### Components
 
 **SPIRE Server**
-- Deployed as a stateful workload adjacent to the Orbit control plane
+- Deployed as a stateful workload adjacent to the kora control plane
 - Manages the registration entry database (which SPIFFE IDs exist, which selectors qualify a workload for each)
 - Operates as the certificate authority for the `spiffe://orbit.{instance-id}` trust domain
 - Issues SVIDs to SPIRE Agents for distribution to attested workloads
-- Exposes a gRPC API consumed by Orbit's identity service for registration entry management
+- Exposes a gRPC API consumed by kora's identity service for registration entry management
 
 **SPIRE Agent**
 - Runs as a DaemonSet (Kubernetes) or system process on every compute node hosting agent workloads
@@ -183,7 +183,7 @@ spiffe://orbit.acme/system/credential-broker
 - The Istio-injected `istio-proxy` (Envoy) sidecar reads the socket directly via the `SPIFFE_ENDPOINT_SOCKET` environment variable — it has native SPIRE integration and obtains SVIDs this way without any intermediary sidecar
 - The agent workload itself does not interact with the Workload API — SVID management is entirely below the application layer
 
-> **Note — actual pod composition per agent pod:** An agent workload in Orbit's Kubernetes deployment has two running containers and one node-level component managing SPIFFE identity:
+> **Note — actual pod composition per agent pod:** An agent workload in kora's Kubernetes deployment has two running containers and one node-level component managing SPIFFE identity:
 >
 > 1. **SPIRE CSI driver** (node-level DaemonSet, not a pod sidecar) — mounts the SPIRE Agent's Workload API socket into pods as a volume (`spire-workload-socket`, read-only at `/run/secrets/workload-spiffe-uds/socket`). This is the mechanism by which pods access their SVID without a per-pod SPIFFE Helper container. The CSI driver runs once per node; all pods on that node share access to their node's SPIRE Agent socket through it.
 >
@@ -197,31 +197,31 @@ spiffe://orbit.acme/system/credential-broker
 
 ## Registration Entry Lifecycle
 
-SPIRE registration entries are the link between Orbit's agent registry and SPIRE's identity model. A registration entry specifies:
+SPIRE registration entries are the link between kora's agent registry and SPIRE's identity model. A registration entry specifies:
 - The **SPIFFE ID** to be issued to the matching workload
 - The **parent ID** — which SPIRE Agent node is authorised to issue this (i.e. on which node the workload is expected to run)
 - The **selectors** — workload attributes that must match for the SPIFFE ID to be issued (e.g. Kubernetes namespace + service account name, container image digest, or Linux process UID)
 
 ### Agent Registration (Two-Phase Write)
 
-When an operator registers a new agent in Orbit:
+When an operator registers a new agent in kora:
 
-1. Orbit creates the agent principal record in its own registry (tenant-scoped, with type `AGENT` and source `ATTESTED`)
-2. Orbit calls the SPIRE Server gRPC API to create a corresponding registration entry:
+1. kora creates the agent principal record in its own registry (tenant-scoped, with type `AGENT` and source `ATTESTED`)
+2. kora calls the SPIRE Server gRPC API to create a corresponding registration entry:
    - SPIFFE ID: `spiffe://orbit.{instance-id}/tenant/{tenant-id}/agent/{agent-id}`
    - Parent ID: the SPIRE Agent node(s) authorised for this workload
    - Selectors: derived from the agent's deployment specification (namespace + service account for Kubernetes, or equivalent)
-3. Both writes must succeed for registration to complete. If the SPIRE write fails, the Orbit agent record is rolled back.
+3. Both writes must succeed for registration to complete. If the SPIRE write fails, the kora agent record is rolled back.
 
-**The SPIRE Server is a hard dependency of the agent registration path.** This is an intentional coupling — an agent with no SPIRE registration entry cannot receive a valid SVID and therefore cannot authenticate to Orbit. The two registries must stay in sync.
+**The SPIRE Server is a hard dependency of the agent registration path.** This is an intentional coupling — an agent with no SPIRE registration entry cannot receive a valid SVID and therefore cannot authenticate to kora. The two registries must stay in sync.
 
 ### Agent Deregistration and Revocation
 
 When an agent is deregistered or administratively revoked:
 
-1. Orbit deletes the SPIRE registration entry via the SPIRE Server API — SPIRE immediately stops issuing or renewing SVIDs for that SPIFFE ID
-2. Orbit adds the agent's active platform token JTIs to the JTI blocklist ([unified-identity-model](2026-03-05-unified-identity-model.md) revocation model)
-3. Orbit marks the agent principal record as revoked in its registry
+1. kora deletes the SPIRE registration entry via the SPIRE Server API — SPIRE immediately stops issuing or renewing SVIDs for that SPIFFE ID
+2. kora adds the agent's active platform token JTIs to the JTI blocklist ([unified-identity-model](2026-03-05-unified-identity-model.md) revocation model)
+3. kora marks the agent principal record as revoked in its registry
 
 Effective revocation is near-immediate:
 - Any in-flight request using a blocklisted platform token JTI is rejected at the next API call
@@ -238,7 +238,7 @@ For immediate forced revocation (e.g. a compromised agent), the blocklist ensure
 
 SPIFFE SVIDs are workload identity certificates. An X.509 SVID carries exactly three things: the SPIFFE ID URI, the validity window, and the CA chain. **SVIDs cannot carry scope-bound principal claims** — no tenant policy, no registered permissions, no principal type, no display name. This is by design: SVIDs are an identity proof mechanism, not a capability token format.
 
-Policy evaluation requires a richer, scope-bound credential. The OPA execution context ([agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)) needs the full Principal with tenant scope, claims, and identity source. Assembling that from a raw SPIFFE ID requires a lookup against Orbit's agent registry — something only Orbit's identity service can perform.
+Policy evaluation requires a richer, scope-bound credential. The OPA execution context ([agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)) needs the full Principal with tenant scope, claims, and identity source. Assembling that from a raw SPIFFE ID requires a lookup against kora's agent registry — something only kora's identity service can perform.
 
 The platform session token is the output of that enrichment: a short-lived, signed JWT carrying the normalised Principal that all downstream enforcement points evaluate. The `/identity/exchange` endpoint is the bridge between the two identity worlds. It cannot be eliminated — but it is made completely invisible to the agent workload.
 
@@ -341,7 +341,7 @@ SPIRE Agents must prove to the SPIRE Server that they are running on a legitimat
 | Azure | Azure MSI — managed identity attestation |
 | Bare metal / local dev | Join token (acceptable for dev/test; not for production) |
 
-The initial Orbit deployment targets Kubernetes, so **PSAT attestation** is the default. This means SPIRE Agents run with a Kubernetes service account and SPIRE Server verifies their identity via the Kubernetes token review API.
+The initial kora deployment targets Kubernetes, so **PSAT attestation** is the default. This means SPIRE Agents run with a Kubernetes service account and SPIRE Server verifies their identity via the Kubernetes token review API.
 
 ---
 
@@ -354,7 +354,7 @@ k8s:ns:{namespace}           — Kubernetes namespace the workload runs in
 k8s:sa:{service-account}     — Kubernetes service account assigned to the pod
 ```
 
-These two selectors together provide strong workload identity — a workload must be running in the correct namespace with the correct service account to receive the SPIFFE ID. This maps naturally to Orbit's tenant model: each tenant's agents run in a dedicated namespace.
+These two selectors together provide strong workload identity — a workload must be running in the correct namespace with the correct service account to receive the SPIFFE ID. This maps naturally to kora's tenant model: each tenant's agents run in a dedicated namespace.
 
 Optionally, for higher assurance environments:
 
@@ -371,7 +371,7 @@ This ensures that only a specific known image can receive the SPIFFE ID — usef
 ### Positive
 
 - Agents receive cryptographic identity with no pre-shared secrets — eliminates an entire category of credential management risk
-- SVID rotation is fully automated by the SPIRE sidecar and the downstream platform token refresh is triggered automatically by Envoy — neither the agent workload nor Orbit operators are involved in any part of the credential rotation lifecycle
+- SVID rotation is fully automated by the SPIRE sidecar and the downstream platform token refresh is triggered automatically by Envoy — neither the agent workload nor kora operators are involved in any part of the credential rotation lifecycle
 - The SPIFFE ID path encodes tenant scope directly — tenant isolation is machine-readable without additional context
 - The SVID-to-platform-token exchange produces a standard platform session token — agents are indistinguishable from human principals to downstream platform components
 - Short SVID TTLs (≤1 hour) mean the blast radius of a compromised credential is inherently bounded
@@ -386,8 +386,8 @@ This ensures that only a specific known image can receive the SPIFFE ID — usef
 
 ### Neutral
 
-- The SVID exchange endpoint (`POST /identity/exchange`) is a new Orbit API with no equivalent in the human identity flow — it is additive, not a change to existing interfaces. The caller is the Envoy sidecar, not the agent workload itself
-- SPIRE's trust bundle (the CA certificate set) must be distributed to all Orbit identity service instances for SVID validation — this is handled automatically by SPIRE's bundle API
+- The SVID exchange endpoint (`POST /identity/exchange`) is a new kora API with no equivalent in the human identity flow — it is additive, not a change to existing interfaces. The caller is the Envoy sidecar, not the agent workload itself
+- SPIRE's trust bundle (the CA certificate set) must be distributed to all kora identity service instances for SVID validation — this is handled automatically by SPIRE's bundle API
 
 ---
 
@@ -395,7 +395,7 @@ This ensures that only a specific known image can receive the SPIFFE ID — usef
 
 ### SPIRE Server Integration
 
-Orbit's identity service interacts with SPIRE Server via its gRPC API (`github.com/spiffe/spire-api-sdk`). The key API surfaces used:
+kora's identity service interacts with SPIRE Server via its gRPC API (`github.com/spiffe/spire-api-sdk`). The key API surfaces used:
 
 - `Entry` service (`spire.api.server.entry.v1`) — create, list, delete registration entries (called during agent register/deregister)
 - `Bundle` service — fetch the current trust bundle for SVID validation
@@ -412,7 +412,7 @@ X.509 SVID validation in Go uses the `github.com/spiffe/go-spiffe/v2` library, w
 
 ### SPIRE CSI Driver — Workload API Socket Delivery
 
-There is no SPIFFE Helper sidecar container in Orbit pods. Instead, the **SPIRE CSI driver** (`spiffe/spiffe-csi-driver`) runs as a node-level DaemonSet (`spire-spiffe-csi-driver`) and mounts the SPIRE Agent's Workload API socket into each pod as a read-only CSI volume:
+There is no SPIFFE Helper sidecar container in kora pods. Instead, the **SPIRE CSI driver** (`spiffe/spiffe-csi-driver`) runs as a node-level DaemonSet (`spire-spiffe-csi-driver`) and mounts the SPIRE Agent's Workload API socket into each pod as a read-only CSI volume:
 
 - **Volume name**: `spire-workload-socket`
 - **Mount path**: `/run/secrets/workload-spiffe-uds/socket` (read-only)
@@ -420,11 +420,11 @@ There is no SPIFFE Helper sidecar container in Orbit pods. Instead, the **SPIRE 
 
 The Istio-injected `istio-proxy` (Envoy) sidecar reads the mounted socket directly — Istio has native SPIRE/SPIFFE integration and obtains SVIDs without an intermediary SDS container. The `identity-proxy` sidecar ([envoy-ext-proc-sidecar-token-injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md)) also mounts the same volume to obtain its own SVID source for the platform token exchange.
 
-The agent workload never consumes the SVID directly. SVID management is entirely below the application layer — handled by `istio-proxy` reading the CSI-mounted socket. Orbit provides a reference pod specification that wires the CSI volume mount, `istio-proxy`, and `identity-proxy` together correctly. Agent workload authors do not configure any of these components.
+The agent workload never consumes the SVID directly. SVID management is entirely below the application layer — handled by `istio-proxy` reading the CSI-mounted socket. kora provides a reference pod specification that wires the CSI volume mount, `istio-proxy`, and `identity-proxy` together correctly. Agent workload authors do not configure any of these components.
 
 ### Migration Path
 
-For the initial implementation, node attestation uses Kubernetes PSAT. If Orbit is later deployed on non-Kubernetes infrastructure, the node attestation method is swappable without changing the SPIFFE ID structure or the SVID exchange flow — only the SPIRE Agent configuration changes.
+For the initial implementation, node attestation uses Kubernetes PSAT. If kora is later deployed on non-Kubernetes infrastructure, the node attestation method is swappable without changing the SPIFFE ID structure or the SVID exchange flow — only the SPIRE Agent configuration changes.
 
 If a future compliance requirement mandates per-tenant cryptographic isolation, the migration path is:
 1. Introduce SPIRE nested server per tenant with a per-tenant intermediate CA

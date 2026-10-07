@@ -2,7 +2,7 @@
 
 Secrets are values that, if leaked, would require a security incident response: passwords, API keys, tokens, certificates, private keys. These never go in YAML config files or version control.
 
-Orbit reads secrets from environment variables at runtime.
+kora reads secrets from environment variables at runtime.
 
 ---
 
@@ -67,7 +67,7 @@ Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with passw
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `APP_ENV` | chart values / deployment env | Environment: `local`, `development`, `production`. Not a secret but controls config loading. In-cluster it is injected as an env var, not read from `.env`. |
+| `APP_ENV` | `.env` for host-run binaries | Environment: `local` or `production` (the default). Not a secret but selects the `{env}.yaml` config layer. The chart does not set it. |
 
 ### Database
 

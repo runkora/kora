@@ -13,7 +13,7 @@
 
 ### Problem Statement
 
-Certain Kubernetes attributes — storage class names, resource limits, replica bounds, metadata annotations — vary between clusters and environments. Hardcoding them forces operators running Orbit on custom infrastructure (e.g. a cluster with a non-default storage provisioner) to either fork the codebase or raise a PR for every environment-specific value.
+Certain Kubernetes attributes — storage class names, resource limits, replica bounds, metadata annotations — vary between clusters and environments. Hardcoding them forces operators running kora on custom infrastructure (e.g. a cluster with a non-default storage provisioner) to either fork the codebase or raise a PR for every environment-specific value.
 
 ### Goals
 
@@ -135,7 +135,7 @@ ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>
 > - `spec.scaleTargetRef.name` (HPA) — must match the StatefulSet name.
 > - `spec.selector.matchLabels` / `spec.selector` — must be consistent between StatefulSet and Service.
 >
-> Orbit does not validate cross-resource consistency of overrides. Operators overriding these fields are responsible for updating all related resources in the same deployment.
+> kora does not validate cross-resource consistency of overrides. Operators overriding these fields are responsible for updating all related resources in the same deployment.
 
 ---
 
@@ -143,7 +143,7 @@ ORBIT_MANIFEST__<Kind>__<name>__<path>=<value>
 
 ### Positive
 
-- Operators can adapt Orbit to cluster-specific infrastructure constraints without code changes.
+- Operators can adapt kora to cluster-specific infrastructure constraints without code changes.
 - Any future K8s field is immediately overridable without a new release.
 - Malformed keys surface at startup rather than silently failing later.
 

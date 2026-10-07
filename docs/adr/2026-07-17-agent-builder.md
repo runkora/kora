@@ -61,7 +61,7 @@ A modal launched from anywhere in the dashboard, backed by a draft record, with 
 
 The builder opens over whatever the user was doing and returns them to it on close. That is the point of the flow: creating an agent is something you do *from* your context, not somewhere you navigate away to. The mockup draws it exactly this way, launched from the global "New agent" action in the top bar.
 
-This is a new pattern for Orbit. Every existing full-page flow is a route. The builder is the first surface that is a substantial multi-step task rendered over the dashboard, and it is intended to be the template for others.
+This is a new pattern for kora. Every existing full-page flow is a route. The builder is the first surface that is a substantial multi-step task rendered over the dashboard, and it is intended to be the template for others.
 
 **Addressability comes from a search param, not a route.** The builder opens on any dashboard route via `?agent=new` or `?agent={draftId}`. This keeps the modal linkable, refresh-safe, and back-button correct while never taking the user off the page they were on. Once a draft record exists, the builder replaces `?agent=new` with `?agent={draftId}`, so a refresh resumes rather than starting over.
 
@@ -119,7 +119,7 @@ The golden path is an RSC prefetch feeding a hook plus context. A modal mounted 
 
 Catalogues therefore load when the builder first opens:
 
-- `agent-builder-modal.tsx` (`'use client'`) loads models, tool scopes, connectors, MCP tools, and environments on open, through the existing `_services/agents-api.ts` client, which never throws and returns `{ data, error }`.
+- `agent-builder-modal.tsx` (`'use client'`) loads models, connectors, MCP tools, and environments on open (the tool-scope catalogue is removed: [agent-registry-and-definition-model](2026-05-11-agent-registry-and-definition-model.md), Amendment 1), through the existing `_services/agents-api.ts` client, which never throws and returns `{ data, error }`.
 - `_hooks/use-agent-builder.ts` owns the draft, the current step, per-step validity, per-catalogue `LoadStatus`, and submission, satisfying an `AgentBuilderStateShape` in line with the upgrade contract commented at `use-agents.ts:8-9`.
 - `AgentBuilderProvider` exposes it. Step components consume the context and never fetch.
 - Draft writes are debounced and go through the draft update path.
@@ -153,7 +153,7 @@ No `Slider`, which existed only for the cut creativity control. Building it woul
 
 ### 6. Feature-scoped compositions stay Tier 3
 
-The step rail, tool tree, guardrail rows, planned block, and review summary live under `agents/_components/builder/`. Each composes Terra primitives and needs no raw elements, so none forces a Terra change. All are single-consumer and Orbit-domain-aware, which is Tier 3 by the decision tree in `component-placement.md`.
+The step rail, tool tree, guardrail rows, planned block, and review summary live under `agents/_components/builder/`. Each composes Terra primitives and needs no raw elements, so none forces a Terra change. All are single-consumer and kora-domain-aware, which is Tier 3 by the decision tree in `component-placement.md`.
 
 ### 7. Environment moves to Tools and access
 
@@ -173,7 +173,7 @@ New migration under `backend/cmd/orbit-agents/migrations/` creating `agent_type_
 
 `internal/agents/` gains the draft stack alongside the existing one, per the standard feature structure: a `DraftRepository` interface, its Postgres implementation, service methods, and handlers. It does not become its own feature package, because drafts are part of the agents feature and feature packages must not import each other.
 
-Routes live on a **sibling prefix**, not nested under `/api/v1/agent-types`. Nesting was the first design, and the live cluster refuted it at boot: Go's ServeMux rejects `GET /api/v1/agent-types/drafts/{id}` as ambiguous against the existing `GET /api/v1/agent-types/{id}/effective-access`, because both match `.../drafts/effective-access` and neither is more specific, so registration panics. The `tool-scopes` precedent holds only for single-segment literals.
+Routes live on a **sibling prefix**, not nested under `/api/v1/agent-types`. Nesting was the first design, and the live cluster refuted it at boot: Go's ServeMux rejects `GET /api/v1/agent-types/drafts/{id}` as ambiguous against the existing `GET /api/v1/agent-types/{id}/effective-access`, because both match `.../drafts/effective-access` and neither is more specific, so registration panics. The former single-segment `tool-scopes` literal did not collide, because the ambiguity needs two segments.
 
 | Route | Scope |
 |---|---|

@@ -3,26 +3,26 @@
 **Status:** Accepted
 **Date:** 2026-03-05
 **Deciders:** Engineering Team
-**Technical Story:** Establishing the foundational identity abstraction that supports both human and non-human principals across the Orbit platform.
+**Technical Story:** Establishing the foundational identity abstraction that supports both human and non-human principals across the kora platform.
 
 ---
 
 ## Context
 
-Orbit is a control plane for autonomous agents. It must serve two fundamentally different categories of actor: **human operators** (engineers, administrators, and end-users who configure, monitor, and interact with agents) and **non-human principals** (agents, services, and system components that execute autonomously).
+kora is a control plane for autonomous agents. It must serve two fundamentally different categories of actor: **human operators** (engineers, administrators, and end-users who configure, monitor, and interact with agents) and **non-human principals** (agents, services, and system components that execute autonomously).
 
 ### Background
 
-Most identity systems are designed primarily around human users, with non-human identities bolted on as service accounts or API keys. This approach breaks down in a platform like Orbit where non-human actors are first-class participants — they must be auditable, policy-governed, and revocable with the same rigour as human actors.
+Most identity systems are designed primarily around human users, with non-human identities bolted on as service accounts or API keys. This approach breaks down in a platform like kora where non-human actors are first-class participants — they must be auditable, policy-governed, and revocable with the same rigour as human actors.
 
-The two identity worlds Orbit must bridge are structurally incompatible:
+The two identity worlds kora must bridge are structurally incompatible:
 
 - **Human identity** is established via federated SSO — OIDC or SAML against an external provider (Entra ID, Okta, etc.). This model is session-oriented, user-initiated, and assumes an interactive login flow.
 - **Non-human / agent identity** must be established via workload attestation — cryptographically proving that a process is who it claims to be based on its runtime characteristics, without requiring pre-shared secrets or human involvement. SPIFFE/SPIRE is the leading open standard for this.
 
 These two sources produce fundamentally different credential formats (OIDC ID tokens / SAML assertions vs SPIFFE SVIDs) and have different lifecycle properties. Downstream platform components — the policy engine, credential broker, event spine, audit log — should not need to understand this distinction. They need a single, consistent identity interface.
 
-Orbit also supports multiple teams sharing a single instance (multi-tenancy). Identity must be tenant-scoped from the ground up.
+kora also supports multiple teams sharing a single instance (multi-tenancy). Identity must be tenant-scoped from the ground up.
 
 ### Problem Statement
 
@@ -92,7 +92,7 @@ We need an identity model that:
 
 **Cons:**
 - Some fields are only meaningful for certain types (mitigated by the `claims` map carrying type-specific detail rather than top-level fields)
-- Requires Orbit to take on the normalisation responsibility — it must understand both OIDC and SPIFFE credential validation
+- Requires kora to take on the normalisation responsibility — it must understand both OIDC and SPIFFE credential validation
 
 ### Option 3: Adopt an existing standard (e.g. OAuth 2.0 identity model wholesale)
 
@@ -116,7 +116,7 @@ We need an identity model that:
 
 ### Rationale
 
-The unified model is the correct choice because Orbit's value proposition is precisely that it provides a consistent governance layer over heterogeneous actors. If the identity model bifurcates, that heterogeneity leaks into every component that consumes identity. The normalisation cost is paid once — in Orbit's identity service — and the benefit is realised everywhere else.
+The unified model is the correct choice because kora's value proposition is precisely that it provides a consistent governance layer over heterogeneous actors. If the identity model bifurcates, that heterogeneity leaks into every component that consumes identity. The normalisation cost is paid once — in kora's identity service — and the benefit is realised everywhere else.
 
 Option 3 was rejected because pre-shared secrets are an anti-pattern for dynamic, short-lived agent workloads. SPIFFE/SPIRE solves the workload identity bootstrapping problem correctly; we should not discard that by forcing agents through a client-credentials flow.
 
@@ -181,9 +181,9 @@ Storing autonomy on the Principal would require updating the identity record whe
 
 ---
 
-## Orbit as Identity Attestor and Normaliser
+## kora as Identity Attestor and Normaliser
 
-Orbit sits between two identity worlds and normalises both into a single platform token:
+kora sits between two identity worlds and normalises both into a single platform token:
 
 ```
 Entra / Okta ──→ OIDC / SAML ──┐
@@ -191,9 +191,9 @@ Entra / Okta ──→ OIDC / SAML ──┐
 SPIFFE / SPIRE ──→ SVID ────────┘
 ```
 
-The **platform session token** is a short-lived, signed JWT issued by Orbit. It carries the normalised `Principal` as its subject claims. All downstream platform components — policy engine, credential broker, event spine, API handlers — validate the platform token and operate against the Principal it contains. They do not receive raw OIDC tokens, SAML assertions, or SVIDs.
+The **platform session token** is a short-lived, signed JWT issued by kora. It carries the normalised `Principal` as its subject claims. All downstream platform components — policy engine, credential broker, event spine, API handlers — validate the platform token and operate against the Principal it contains. They do not receive raw OIDC tokens, SAML assertions, or SVIDs.
 
-This is the abstraction boundary that makes unified policy evaluation possible. Downstream components are written once against the Principal model, regardless of how many identity sources Orbit supports.
+This is the abstraction boundary that makes unified policy evaluation possible. Downstream components are written once against the Principal model, regardless of how many identity sources kora supports.
 
 ### Platform Session Token Claims
 
@@ -225,12 +225,12 @@ Human and agent principals have meaningfully different session lifecycle require
 
 ### Human Session (FEDERATED)
 
-Human sessions are initiated via an interactive OIDC/SAML login flow against the tenant's configured upstream provider. Orbit validates the inbound credential, creates the Principal, and issues:
+Human sessions are initiated via an interactive OIDC/SAML login flow against the tenant's configured upstream provider. kora validates the inbound credential, creates the Principal, and issues:
 
 - A **short-lived platform session token** (15–30 minute TTL)
 - A **refresh token** (longer-lived, opaque, stored server-side with the session record)
 
-When the platform token expires, the client presents the refresh token. Orbit re-validates the upstream session (checking the upstream IdP has not revoked the user's session) before issuing a new platform token. This means Orbit's session is bounded by the upstream IdP's session — if a user is deprovisioned in Entra, the next refresh attempt fails.
+When the platform token expires, the client presents the refresh token. kora re-validates the upstream session (checking the upstream IdP has not revoked the user's session) before issuing a new platform token. This means kora's session is bounded by the upstream IdP's session — if a user is deprovisioned in Entra, the next refresh attempt fails.
 
 ### Agent Session (ATTESTED)
 
@@ -238,14 +238,14 @@ Agent sessions are not initiated interactively. The full exchange flow is handle
 
 1. The SPIRE Agent on the agent's host attests the workload and issues an SVID (X.509 certificate, ≤1 hour TTL)
 2. The SPIRE sidecar holds the current SVID and exposes it to the Envoy sidecar via the SPIFFE SDS API
-3. The Envoy sidecar presents the SVID to Orbit's `/identity/exchange` endpoint on behalf of the agent (see [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) for the full flow)
-4. Orbit validates the SVID against the SPIRE trust bundle and extracts the SPIFFE ID
-5. Orbit looks up the corresponding agent principal in its registry
-6. Orbit issues a short-lived platform session token (≤ SVID TTL, typically 15 minutes) and returns it to the Envoy sidecar
+3. The Envoy sidecar presents the SVID to kora's `/identity/exchange` endpoint on behalf of the agent (see [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) for the full flow)
+4. kora validates the SVID against the SPIRE trust bundle and extracts the SPIFFE ID
+5. kora looks up the corresponding agent principal in its registry
+6. kora issues a short-lived platform session token (≤ SVID TTL, typically 15 minutes) and returns it to the Envoy sidecar
 7. Envoy caches the token and injects it as `Authorization: Bearer` on all outbound requests from the agent workload. The token is never exposed to the agent.
 8. When the SVID rotates (handled automatically by the SPIRE sidecar), Envoy detects the new SVID via SDS and re-exchanges it for a new platform token — again transparently
 
-Agents do **not** use a refresh token mechanism. The SPIRE and Envoy sidecar pair handles the full credential rotation lifecycle. The agent workload makes plain HTTP calls with no knowledge of the underlying identity infrastructure. This keeps agent session lifecycle firmly in the SPIRE-managed rotation model and avoids coupling Orbit's session management to agent-specific refresh logic.
+Agents do **not** use a refresh token mechanism. The SPIRE and Envoy sidecar pair handles the full credential rotation lifecycle. The agent workload makes plain HTTP calls with no knowledge of the underlying identity infrastructure. This keeps agent session lifecycle firmly in the SPIRE-managed rotation model and avoids coupling kora's session management to agent-specific refresh logic.
 
 | Property | Human | Agent |
 |---|---|---|
@@ -259,10 +259,10 @@ Agents do **not** use a refresh token mechanism. The SPIRE and Envoy sidecar pai
 
 ## Multi-Tenancy
 
-Multiple teams may share a single Orbit instance. Tenant isolation is a first-class constraint in the identity model:
+Multiple teams may share a single kora instance. Tenant isolation is a first-class constraint in the identity model:
 
 - Every Principal carries a `tenant_id`. It is non-nullable and set at authentication time.
-- Each tenant may have its own OIDC/SAML federation configuration. Orbit supports multiple upstream IdP registrations, each scoped to a tenant.
+- Each tenant may have its own OIDC/SAML federation configuration. kora supports multiple upstream IdP registrations, each scoped to a tenant.
 - The SPIFFE trust domain for agent principals is structured to make tenant scope unambiguous: `spiffe://orbit.{instance-id}/tenant/{tenant-id}/...` (see [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) for full topology).
 - Cross-tenant operations are prohibited by default. The policy engine may permit explicit cross-tenant grants, but these require intentional configuration.
 - Escalation paths and delegation chains are tenant-scoped. A principal in one tenant cannot be a delegation target or escalation target for a principal in another tenant unless explicitly permitted.
@@ -271,16 +271,16 @@ Multiple teams may share a single Orbit instance. Tenant isolation is a first-cl
 
 ## Revocation
 
-Orbit uses a standard JWT revocation approach:
+kora uses a standard JWT revocation approach:
 
 - Every issued platform session token carries a unique `jti` (JWT ID) claim.
 - A **JTI blocklist** (backed by Redis with TTL matching the token's remaining lifetime) holds revoked token IDs.
-- JTI validation is performed at the **Layer 1 enforcement boundary** — the Orbit Gateway (north-south) and Envoy sidecars (east-west) validate the `jti` against the blocklist before a request reaches any service (see [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)). Individual service endpoints do not need to perform this check themselves.
+- JTI validation is performed at the **Layer 1 enforcement boundary** — the kora Gateway (north-south) and Envoy sidecars (east-west) validate the `jti` against the blocklist before a request reaches any service (see [universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)). Individual service endpoints do not need to perform this check themselves.
 - For delegated tokens (RFC 8693 exchanges, see [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md)), the same blocklist is used.
 - For agent principals, revocation of the SPIRE registration entry stops new SVIDs from being issued. The blocklist covers the gap between entry deletion and SVID natural expiry.
 - For human principals, blocklisting the current JTI plus the refresh token record ensures the session cannot be renewed.
 
-This is intentionally simple. Orbit does not implement a custom revocation protocol — the JTI blocklist pattern is well-understood, operationally straightforward, and correct for short-lived tokens.
+This is intentionally simple. kora does not implement a custom revocation protocol — the JTI blocklist pattern is well-understood, operationally straightforward, and correct for short-lived tokens.
 
 ---
 
@@ -295,7 +295,7 @@ This is intentionally simple. Orbit does not implement a custom revocation proto
 
 ### Negative
 
-- Orbit takes on the responsibility of validating both OIDC tokens and SPIFFE SVIDs — it becomes a critical dependency in the authentication path
+- kora takes on the responsibility of validating both OIDC tokens and SPIFFE SVIDs — it becomes a critical dependency in the authentication path
 - The identity service must be highly available; it is now in the critical path for every platform operation
 - Supporting multiple upstream OIDC/SAML configurations per tenant adds operational complexity to the federation layer
 
@@ -316,7 +316,7 @@ The identity service should expose:
 
 The platform token signing key should be rotated regularly. The public key(s) should be discoverable via a standard JWKS endpoint (`GET /.well-known/jwks.json`) so enforcement points (gateway, sidecars) can validate tokens locally without calling the identity service on every request.
 
-**Bootstrap exception — `/identity/exchange`:** This endpoint is called by the Envoy sidecar on behalf of the agent workload before any platform session token exists. It must be treated as a gateway-exempt bootstrap endpoint: the Orbit Gateway passes requests to this path directly to the identity service without requiring a platform token in the `Authorization` header. The SVID presented via mTLS is the authentication mechanism — it is the only Orbit API where the SVID substitutes for a platform token. All other identity service endpoints require a valid platform session token and are subject to full gateway enforcement ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)).
+**Bootstrap exception — `/identity/exchange`:** This endpoint is called by the Envoy sidecar on behalf of the agent workload before any platform session token exists. It must be treated as a gateway-exempt bootstrap endpoint: the kora Gateway passes requests to this path directly to the identity service without requiring a platform token in the `Authorization` header. The SVID presented via mTLS is the authentication mechanism — it is the only kora API where the SVID substitutes for a platform token. All other identity service endpoints require a valid platform session token and are subject to full gateway enforcement ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)).
 
 ### Migration Path
 

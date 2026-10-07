@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# dev-cluster-down.sh — Tear down the Orbit local k3d development cluster
+# dev-cluster-down.sh — Tear down the kora local k3d development cluster
 #
 # ┌─────────────────────────────────────────────────────────────────────────┐
 # │  IMPORTANT: This script only tears down the k3d cluster.               │

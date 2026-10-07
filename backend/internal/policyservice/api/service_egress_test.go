@@ -17,6 +17,8 @@ func TestIsStructurallyValidEgressScope(t *testing.T) {
 		{"egress:api.github.com:connect", true},
 		{"egress:*.github.com:connect", true},
 		{"egress:10.0.0.5:connect", true}, // IPv4 literal
+		{"egress:github.com:connector", true},
+		{"egress::connector", false},
 
 		// rejected — not egress / wrong action / malformed
 		{"connection:github:repo:write", false},

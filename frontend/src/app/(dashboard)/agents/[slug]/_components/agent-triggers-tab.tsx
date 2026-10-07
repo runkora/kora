@@ -7,8 +7,19 @@
  * drift. */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Heading, Icon, Stack, Text } from '@orbit/terra';
-import { ConfirmDialog, EmptyState } from '@orbit/components';
+import {
+  Alert,
+  Button,
+  Card,
+  CardContent,
+  Heading,
+  Icon,
+  Skeleton,
+  Stack,
+  Text,
+  ConfirmDialog,
+  EmptyState,
+} from '@orbit/terra';
 import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
 import type {
   TriggerCreateResult,
@@ -174,7 +185,9 @@ export function AgentTriggersTab() {
       {loadError && <Alert variant="error">{loadError}</Alert>}
       {notice && <Alert variant={notice.ok ? 'info' : 'error'}>{notice.message}</Alert>}
 
-      {!loading && triggers.length === 0 ? (
+      {loading ? (
+        <TriggerListSkeleton />
+      ) : triggers.length === 0 ? (
         <EmptyState
           icon="zap"
           title="No triggers for this agent"
@@ -187,16 +200,14 @@ export function AgentTriggersTab() {
           }
         />
       ) : (
-        triggers.length > 0 && (
-          <TriggerList
-            triggers={triggers}
-            deliveries={agentDeliveries}
-            sourceName={sourceName}
-            onOpen={setDrawerTrigger}
-            onToggle={(t) => void toggleTrigger(t)}
-            emptyMessage="No triggers for this agent."
-          />
-        )
+        <TriggerList
+          triggers={triggers}
+          deliveries={agentDeliveries}
+          sourceName={sourceName}
+          onOpen={setDrawerTrigger}
+          onToggle={(t) => void toggleTrigger(t)}
+          emptyMessage="No triggers for this agent."
+        />
       )}
 
       {agentDeliveries.length > 0 && (
@@ -284,5 +295,27 @@ export function AgentTriggersTab() {
         onClose={closeDeleteDialog}
       />
     </Stack>
+  );
+}
+
+/**
+ * Stands in for the trigger list during the first load only, so the tab never
+ * sits blank under its header. Later reloads keep the lists on screen.
+ */
+function TriggerListSkeleton() {
+  return (
+    <Card column aria-busy="true">
+      <CardContent padded>
+        <Stack gap="snug" role="status" aria-label="Loading triggers">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Stack key={i} direction="horizontal" align="center" gap="comfortable">
+              <Skeleton shape="line" width="quarter" size="sm" />
+              <Skeleton shape="line" width="half" size="sm" />
+              <Skeleton shape="line" width="quarter" size="sm" />
+            </Stack>
+          ))}
+        </Stack>
+      </CardContent>
+    </Card>
   );
 }

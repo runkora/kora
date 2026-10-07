@@ -54,7 +54,7 @@ type PricingSource interface {
 
 // LiteLLMPricingSource fetches pricing from LiteLLM's community-maintained
 // model_prices_and_context_window.json file. It converts per-token costs to
-// per-million-token costs and maps LiteLLM provider names to Orbit ProviderNames.
+// per-million-token costs and maps LiteLLM provider names to kora ProviderNames.
 type LiteLLMPricingSource struct {
 	url    string
 	client *http.Client
@@ -86,7 +86,7 @@ type liteLLMEntry struct {
 	OutputCostPerAudioToken     *float64 `json:"output_cost_per_audio_token"`
 }
 
-// liteLLMProviderToOrbit maps LiteLLM litellm_provider field values to Orbit ProviderNames.
+// liteLLMProviderToOrbit maps LiteLLM litellm_provider field values to kora ProviderNames.
 var liteLLMProviderToOrbit = map[string]ProviderName{
 	"bedrock":                    ProviderBedrock,
 	"bedrock_converse":           ProviderBedrock,
@@ -100,8 +100,8 @@ var liteLLMProviderToOrbit = map[string]ProviderName{
 	"azure_ai":                   ProviderAzure,
 }
 
-// resolveProvider maps a LiteLLM provider field value to an Orbit ProviderName.
-// Returns ("", false) for providers not supported by Orbit.
+// resolveProvider maps a LiteLLM provider field value to a kora ProviderName.
+// Returns ("", false) for providers not supported by kora.
 func resolveProvider(liteLLMProvider string) (ProviderName, bool) {
 	p, ok := liteLLMProviderToOrbit[liteLLMProvider]
 	return p, ok
@@ -137,19 +137,15 @@ func normalisePricingModelID(provider ProviderName, modelID string) string {
 	return bedrockLookupSuffix.ReplaceAllString(modelID, "")
 }
 
-// normalisePricingProvider collapses a multi-account Bedrock alias
-// ("bedrock:aus", "bedrock:us", …) to the base "bedrock" provider.
-//
-// Bedrock pricing is account- and region-agnostic: the catalog is keyed on the
-// base provider, while virtual-model routes and usage records carry per-account
-// aliases. Without collapsing the alias, a lookup for "bedrock:aus/…" can never
-// match a catalog entry stored under "bedrock/…". Non-Bedrock providers are
-// returned unchanged.
+// normalisePricingProvider returns the provider key of a pricing row. Bedrock,
+// Vertex AI and Azure prices sync per type and are shared by every resource of
+// that type. A compatible provider is priced on its own: two compatible
+// endpoints serve unrelated catalogs.
 func normalisePricingProvider(provider ProviderName) ProviderName {
-	if provider.IsBedrockFamily() {
-		return ProviderBedrock
+	if provider.Type() == ProviderCompatible {
+		return provider
 	}
-	return provider
+	return provider.Type()
 }
 
 // pricingKey is the canonical key for the pricing catalog: the normalised
@@ -278,7 +274,7 @@ func bedrockBareAlias(modelID string) string {
 }
 
 // stripProviderPrefix removes a leading "provider/" prefix from a LiteLLM model key,
-// returning the bare model ID that matches what Orbit stores in virtual_model_routes.
+// returning the bare model ID that matches what kora stores in virtual_model_routes.
 func stripProviderPrefix(key string) string {
 	prefixes := []string{
 		"bedrock/",
@@ -321,7 +317,7 @@ func applyNonTokenCosts(e *ModelPriceEntry, src liteLLMEntry) {
 	e.AudioOutputCostPer1M = derefFloat64(src.OutputCostPerAudioToken) * scale
 }
 
-// Fetch retrieves the LiteLLM price file and returns entries for Orbit's
+// Fetch retrieves the LiteLLM price file and returns entries for kora's
 // supported providers (bedrock, vertexai, azure) only.
 func (s *LiteLLMPricingSource) Fetch(ctx context.Context) ([]ModelPriceEntry, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.url, nil)

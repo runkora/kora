@@ -79,7 +79,7 @@ The inference-gateway uses this stack in two characteristic ways:
 - `service.go:541-568 checkModelPolicy` — single-resource check before a chat completion.
 - `service.go:576-628 filterTargetsByPolicy` — batch filter of routing candidates against the principal's grants.
 
-Orbit-agents needs the same two shapes: single-resource decisions for `GET/PATCH/DELETE /agent-types/{id}` and friends, batch filtering for `GET /agent-types` and `GET /runs`.
+kora-agents needs the same two shapes: single-resource decisions for `GET/PATCH/DELETE /agent-types/{id}` and friends, batch filtering for `GET /agent-types` and `GET /runs`.
 
 ### Problem Statement
 
@@ -158,7 +158,7 @@ The PostgreSQL repository reads `claims.Orbit.TenantID` from context and silentl
 
 ### Option 3: Service-layer `authz` helper backed by `policy.Evaluator` (Chosen)
 
-A thin `authz` type lives inside `internal/agents/`, wrapping `platform/policy.Evaluator`. It exposes a small surface (`checkAgentType`, `filterAgentTypes`, `checkRun`, `filterRuns`) that hides the `CheckInput`/`QueryInput` plumbing. Service methods call into it before returning data; handlers stay handler-shaped.
+A thin `authz` type lives inside `internal/agents/`, wrapping `platform/policy.Evaluator`. It exposes a small surface (`checkAgentType`, `filterAgentTypes`, `checkRun`, `readableRunAgentTypes`) that hides the `CheckInput`/`QueryInput` plumbing. Service methods call into it before returning data; handlers stay handler-shaped.
 
 **Pros:**
 - One pattern matches inference-gateway exactly — no new abstraction to learn.
@@ -308,7 +308,7 @@ func (a *authz) filterAgentTypes(ctx context.Context, ats []AgentType) ([]AgentT
     return out, nil
 }
 
-// Equivalent checkRun / filterRuns operate on path segments ["runs", agentSlug].
+// Equivalent checkRun / readableRunAgentTypes operate on path segments ["runs", agentSlug].
 // Tenant is implicit in the per-tenant policy bundle; cross-tenant isolation
 // is provided by bundle scoping, not by encoding tenantID in path segments.
 
@@ -358,15 +358,22 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
     return run, nil
 }
 
-func (s *RunService) ListRuns(ctx context.Context, agentTypeID string) ([]Run, error) {
-    // Repository returns the full candidate set the caller could potentially see
-    // (scoped only by agentTypeID if present). The authz layer filters.
-    runs, err := s.repo.ListCandidateRuns(ctx, agentTypeID)
+func (s *RunService) ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error) {
+    ats, err := s.atRepo.ListAgentTypes(ctx, tenantID)
     if err != nil {
         return nil, err
     }
-    // Need agent-type slugs for path segments; fetch once.
-    return s.authz.filterRuns(ctx, runs, s.atRepo)
+    // One policy query over the agent types; the repository filters on the result in SQL.
+    readable, err := s.authz.readableRunAgentTypes(ctx, ats)
+    if err != nil {
+        return nil, err
+    }
+    vis, err := s.runVisibility(ctx) // delegated runs: starter-only without agents:delegated:read
+    if err != nil {
+        return nil, err
+    }
+    q.Scope = RunScope{AgentTypeIDs: readable, Vis: vis}
+    return s.repo.ListRuns(ctx, tenantID, q)
 }
 ```
 

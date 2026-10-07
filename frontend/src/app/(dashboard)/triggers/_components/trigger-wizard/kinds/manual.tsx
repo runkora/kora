@@ -4,6 +4,7 @@
  * renders the console form and validates the API call. */
 
 import {
+  CopyButton,
   Button,
   Card,
   CardContent,
@@ -18,7 +19,6 @@ import {
   Text,
   ToggleRow,
 } from '@orbit/terra';
-import { CopyButton } from '@orbit/components';
 import {
   VALID,
   deriveFieldKey,

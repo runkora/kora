@@ -1,103 +1,90 @@
-/**
- * RadioGroup + RadioGroupItem
- *
- * Single-select control group backed by Radix. `RadioGroupItem` is the bare
- * 18 px circle — compose it with `Label`/`Text` for simple rows, or with a
- * `Card selected` surface for card-style pickers (framework, model, and
- * environment selection in the agent builder).
- */
-
 import * as React from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '../layout/stack';
-import { Text } from '../typography/typography';
-import { Card, CardContent } from '../card';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
+import { Label } from '../label/label';
 import { RadioGroup, RadioGroupItem } from './index';
 
-// ─── Meta ─────────────────────────────────────────────────────────────────────
-
+/**
+ * RadioGroup
+ *
+ * A short list where exactly one option can be chosen. Each item is only the
+ * circle, so put a Label next to it.
+ */
 const meta: Meta<typeof RadioGroup> = {
   title: 'Terra/Atoms/RadioGroup',
   component: RadioGroup,
-  parameters: {
-    layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
-  },
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof RadioGroup>;
 
-// ─── Stories ──────────────────────────────────────────────────────────────────
+function Row({
+  id,
+  value,
+  label,
+  disabled,
+}: {
+  id: string;
+  value: string;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="flex items-center gap-2">
+      <RadioGroupItem id={id} value={value} disabled={disabled} />
+      <Label htmlFor={id}>{label}</Label>
+    </div>
+  );
+}
 
-/** Plain radio circles with inline labels. */
-export const Default: Story = {
-  render: () => (
-    <RadioGroup defaultValue="claude-code" aria-label="Framework">
-      <Stack direction="horizontal" gap="snug" align="center">
-        <RadioGroupItem value="claude-code" id="rg-claude-code" />
-        <Text as="span" size="supporting">
-          Claude Code
-        </Text>
-      </Stack>
-      <Stack direction="horizontal" gap="snug" align="center">
-        <RadioGroupItem value="codex" id="rg-codex" />
-        <Text as="span" size="supporting">
-          Codex
-        </Text>
-      </Stack>
-      <Stack direction="horizontal" gap="snug" align="center">
-        <RadioGroupItem value="custom" id="rg-custom" disabled />
-        <Text as="span" size="supporting" color="muted">
-          Custom (unavailable)
-        </Text>
-      </Stack>
+function Controlled() {
+  const [value, setValue] = React.useState('claude-code');
+  return (
+    <RadioGroup aria-label="Framework" value={value} onValueChange={setValue}>
+      <Row id="overview-claude" value="claude-code" label="Claude Code" />
+      <Row id="overview-codex" value="codex" label="Codex" />
+      <Row id="overview-custom" value="custom" label="Custom" />
     </RadioGroup>
+  );
+}
+
+export const Overview: Story = {
+  render: () => (
+    <div className="max-w-sm space-y-8">
+      <Example title="Choose one">
+        <Controlled />
+      </Example>
+    </div>
   ),
 };
 
-/**
- * Card selection surface — the product composition. `RadioGroup` provides the
- * single-select semantics; each option is a `Card` whose `selected` prop
- * mirrors the group value.
- */
-export const CardSelection: Story = {
-  render: function CardSelectionStory() {
-    const [value, setValue] = React.useState('sonnet');
-    const options = [
-      { value: 'opus', label: 'Claude Opus', hint: 'Highest capability' },
-      { value: 'sonnet', label: 'Claude Sonnet', hint: 'Balanced default' },
-      { value: 'haiku', label: 'Claude Haiku', hint: 'Fastest, lowest cost' },
-    ];
-    return (
-      <RadioGroup value={value} onValueChange={setValue} aria-label="Model" className="w-[360px]">
-        {options.map((option) => (
-          <Card
-            key={option.value}
-            interactive
-            selected={value === option.value}
-            onClick={() => setValue(option.value)}
-          >
-            <CardContent padded compact>
-              <Stack direction="horizontal" gap="snug" align="center">
-                <RadioGroupItem value={option.value} aria-label={option.label} />
-                <Stack gap="none">
-                  <Text size="supporting" weight="emphasis">
-                    {option.label}
-                  </Text>
-                  <Text size="caption" color="muted">
-                    {option.hint}
-                  </Text>
-                </Stack>
-              </Stack>
-            </CardContent>
-          </Card>
-        ))}
-      </RadioGroup>
-    );
-  },
+export const Options: Story = {
+  render: () => (
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name="unselected" use="A circle that is not chosen.">
+          <RadioGroup aria-label="Unselected" defaultValue="">
+            <Row id="opt-unselected" value="a" label="Codex" />
+          </RadioGroup>
+        </Option>
+        <Option name="selected" use="The chosen option, filled in.">
+          <RadioGroup aria-label="Selected" defaultValue="a">
+            <Row id="opt-selected" value="a" label="Claude Code" />
+          </RadioGroup>
+        </Option>
+        <Option name="disabled" use="Cannot be chosen.">
+          <RadioGroup aria-label="Disabled" defaultValue="">
+            <Row id="opt-disabled" value="a" label="Not available" disabled />
+          </RadioGroup>
+        </Option>
+        <Option name="disabled, selected" use="Chosen and locked.">
+          <RadioGroup aria-label="Disabled and selected" defaultValue="a">
+            <Row id="opt-disabled-selected" value="a" label="Set by policy" disabled />
+          </RadioGroup>
+        </Option>
+      </OptionTable>
+    </div>
+  ),
 };

@@ -4,17 +4,17 @@
 **Created:** 2026-06-29  
 **Last Updated:** 2026-06-30  
 **Owner:** Justin Wilkin  
-**Stakeholders:** Orbit Core Team, Platform Administrators, Agent Developers, Human Tool Consumers (IDE / desktop MCP client users)
+**Stakeholders:** kora Core Team, Platform Administrators, Agent Developers, Human Tool Consumers (IDE / desktop MCP client users)
 
 ---
 
 ## Executive Summary
 
-The MCP / Tool Gateway is Orbit's governed front door to MCP (Model Context Protocol) tool servers. It is a single endpoint that both **humans** (via desktop/IDE MCP clients such as Claude Desktop, Cursor, or VS Code) and **agents** (via their injected platform token) connect to in order to reach MCP tools. Every `tools/list` is filtered to what the caller is allowed to see, and every `tools/call` is policy-checked *before* it executes — down to the individual tool.
+The MCP / Tool Gateway is kora's governed front door to MCP (Model Context Protocol) tool servers. It is a single endpoint that both **humans** (via desktop/IDE MCP clients such as Claude Desktop, Cursor, or VS Code) and **agents** (via their injected platform token) connect to in order to reach MCP tools. Every `tools/list` is filtered to what the caller is allowed to see, and every `tools/call` is policy-checked *before* it executes — down to the individual tool.
 
-Its defining move is to lift the **second tier of enforcement out of the MCP server and into the platform**. Today, per-tool authorisation is only possible if you own and modify the MCP server's code ([scope-gated-tool-exposure-via-mcp](../adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md)). The gateway removes that requirement: Orbit introspects each registered MCP's `tools/list`, **registers every tool as a platform scope** (`mcp:<server>:<tool>:use`), and enforces access at the gateway using the existing grant model ([policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)). This means any MCP server — including unmodified open-source ones — can be governed at the tool level without changing its code.
+Its defining move is to lift the **second tier of enforcement out of the MCP server and into the platform**. Today, per-tool authorisation is only possible if you own and modify the MCP server's code ([scope-gated-tool-exposure-via-mcp](../adr/2026-03-05-scope-gated-tool-exposure-via-mcp.md)). The gateway removes that requirement: kora introspects each registered MCP's `tools/list`, **registers every tool as a platform scope** (`mcp:<server>:<tool>:use`), and enforces access at the gateway using the existing grant model ([policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)). This means any MCP server — including unmodified open-source ones — can be governed at the tool level without changing its code.
 
-MCP servers are **registered in infra, never created in the UI** — declared as operator-reconciled resources (CRs). A **tenant** registers its own servers (tenant-scoped, private to it); the only **global** servers are platform-owned — the Orbit MCP and any platform-level MCPs Orbit registers itself — and these are available to every tenant. The platform then introspects each server to register its scopes. MVP governs **Orbit-hosted servers only** (first-party and Orbit-deployed wrapped open-source); remote third-party SaaS MCP servers are an explicit fast-follow.
+MCP servers are **registered in infra, never created in the UI** — declared as operator-reconciled resources (CRs). A **tenant** registers its own servers (tenant-scoped, private to it); the only **global** servers are platform-owned — the kora MCP and any platform-level MCPs kora registers itself — and these are available to every tenant. The platform then introspects each server to register its scopes. MVP governs **kora-hosted servers only** (first-party and kora-deployed wrapped open-source); remote third-party SaaS MCP servers are an explicit fast-follow.
 
 The gateway adds a new Policy Enforcement Point, not a new access-management surface — access is administered through the **existing** grant model. For **humans**, an admin grants tool scopes through the policy dashboard, and the human's MCP client authenticates via the **MCP OAuth flow**. For **agents**, MCP/tool access is selected in the agent's settings UI and reconciled into the agent's **single auto-managed grant** — exactly as model access works today — and a generated session config (detailed in §4) lets the agent reach the gateway with zero credential handling. The MVP ships **both personas**.
 
@@ -26,12 +26,12 @@ Per-call audit rides the **existing OpenTelemetry** discipline (span + structure
 
 ### Current State
 
-Orbit can deploy and register MCP servers as first-class `SERVICE` principals, and a server *that Orbit owns* can scope-gate its own tool surface at connection time. But there is no consumption plane:
+kora can deploy and register MCP servers as first-class `SERVICE` principals, and a server *that kora owns* can scope-gate its own tool surface at connection time. But there is no consumption plane:
 
 - There is **no single endpoint** a human's MCP client or an agent can point at to reach governed tools. Consumers would have to connect to each MCP server individually.
 - Per-tool enforcement currently **requires owning the MCP's code** — the server itself must read the delegation token and filter its `tools/list`. Open-source and third-party MCP servers cannot be governed this way.
 - The introspected tool manifest is treated as **discovery metadata only, not security-validated** ([mcp-server-registration ADR](../adr/2026-03-05-mcp-server-registration-deployment-and-governance.md)). Nothing turns "this server exposes tool X" into "principal P may call tool X."
-- **Humans have no first-class path at all.** Today's MCP design is agent-centric (pull/push discovery into a task). A developer who wants to use a governed Orbit tool from their own IDE has nowhere to connect.
+- **Humans have no first-class path at all.** Today's MCP design is agent-centric (pull/push discovery into a task). A developer who wants to use a governed kora tool from their own IDE has nowhere to connect.
 
 ### User Pain Points
 
@@ -42,9 +42,9 @@ Orbit can deploy and register MCP servers as first-class `SERVICE` principals, a
 
 ### Business Impact
 
-- **Adoption ceiling.** The MCP ecosystem's value is the long tail of open-source servers. If Orbit can only govern code it owns, it cannot govern the ecosystem — undercutting the "What can it access?" pillar at exactly the layer customers care about.
+- **Adoption ceiling.** The MCP ecosystem's value is the long tail of open-source servers. If kora can only govern code it owns, it cannot govern the ecosystem — undercutting the "What can it access?" pillar at exactly the layer customers care about.
 - **Security exposure.** All-or-nothing server access forces admins to over-grant. Per-tool control is the difference between "the team has the GitHub MCP" and "the team can read issues but not force-push."
-- **Incomplete identity story.** Orbit's promise is one identity model for humans and agents. Without a human consumption path for tools, that promise is only half-delivered.
+- **Incomplete identity story.** kora's promise is one identity model for humans and agents. Without a human consumption path for tools, that promise is only half-delivered.
 
 ---
 
@@ -52,17 +52,17 @@ Orbit can deploy and register MCP servers as first-class `SERVICE` principals, a
 
 ### Primary Goals
 
-1. **One governed front door.** A single MCP endpoint that both human MCP clients and agents connect to, speaking standard MCP — no consumer-side Orbit code required.
+1. **One governed front door.** A single MCP endpoint that both human MCP clients and agents connect to, speaking standard MCP — no consumer-side kora code required.
 2. **Per-tool enforcement at the platform layer.** Introspect each registered MCP, register its tools as scopes, and check every `tools/list` and `tools/call` against the caller's grants — without modifying the MCP server.
 3. **Govern code we don't own.** Bring unmodified open-source / wrapped MCP servers under the same per-tool policy as first-party ones.
 4. **Dual persona, one enforcement spine.** Humans authenticate via the MCP OAuth flow from their client and discover tools via the UI; agents connect with their auto-injected platform token via a generated config. Both hit the *same* filter/check logic.
 5. **Reuse, don't reinvent, access management.** Tool access is granted through the existing policy-service grants and policy dashboard. The gateway is a new PEP only.
-6. **Tenant-isolated, infra-declared registration.** Tenants register their own servers (tenant-scoped, infra-declared, never UI-created); Orbit registers the platform/global ones (e.g. the Orbit MCP). A tenant can never see or grant another tenant's servers.
+6. **Tenant-isolated, infra-declared registration.** Tenants register their own servers (tenant-scoped, infra-declared, never UI-created); kora registers the platform/global ones (e.g. the kora MCP). A tenant can never see or grant another tenant's servers.
 
 ### Success Metrics
 
 - An admin can register an unmodified open-source MCP server and, within one screen, grant a role access to a subset of its tools — with the rest denied by default.
-- A human pointing Claude Desktop at the Orbit gateway sees exactly the tools their grants allow, and a denied `tools/call` is rejected by the gateway before reaching the server.
+- A human pointing Claude Desktop at the kora gateway sees exactly the tools their grants allow, and a denied `tools/call` is rejected by the gateway before reaching the server.
 - An agent calling the same gateway with its platform token gets the same per-tool decisions, with every call attributed to its principal in the audit trail.
 - Re-introspecting a changed MCP idempotently adds new tools and removes vanished ones with no manual scope bookkeeping; a new tool is reachable only where the existing coverage rule already allows it (server-level grant), never by the platform auto-creating a grant.
 
@@ -70,8 +70,8 @@ Orbit can deploy and register MCP servers as first-class `SERVICE` principals, a
 
 ## Non-Goals (MVP)
 
-- **Remote third-party SaaS MCP servers.** MVP fronts Orbit-hosted/registered servers only. Proxying remote MCP endpoints (e.g. a hosted GitHub MCP URL) is a fast-follow.
-- **Backend-credential injection for the gateway→upstream hop.** An Orbit-hosted MCP server is a managed microservice that handles its own downstream credentials — it is *not* an untrusted agent sandbox, so it does not need forced routing through the credential-aware outbound gateway. The MCP gateway governs the call *to* the tool; how the tool authenticates its own *backend* is the server's concern, not the gateway's. (This is distinct from forwarding the *caller's* identity: by default the gateway does **not** forward the caller's token to an upstream either, except to first-party servers explicitly flagged for it — see the gateway ADR's `callerIdentity` opt-in.)
+- **Remote third-party SaaS MCP servers.** MVP fronts kora-hosted/registered servers only. Proxying remote MCP endpoints (e.g. a hosted GitHub MCP URL) is a fast-follow.
+- **Backend-credential injection for the gateway→upstream hop.** A kora-hosted MCP server is a managed microservice that handles its own downstream credentials — it is *not* an untrusted agent sandbox, so it does not need forced routing through the credential-aware outbound gateway. The MCP gateway governs the call *to* the tool; how the tool authenticates its own *backend* is the server's concern, not the gateway's. (This is distinct from forwarding the *caller's* identity: by default the gateway does **not** forward the caller's token to an upstream either, except to first-party servers explicitly flagged for it — see the gateway ADR's `callerIdentity` opt-in.)
 - **Delegation-chain modelling for agents.** MVP authorises on the principal in the agent's presented token. Nested `act`-chain enforcement across the gateway hop is a later platform constraint, not MVP.
 - **Per-tool argument / payload policy.** MVP authorises *which tool*, not *with what arguments*. Field-level / content policy is future work.
 - **MCP resources and prompts.** MVP governs **tools**. `resources/*` and `prompts/*` MCP surfaces are out of scope for the first cut.
@@ -84,10 +84,10 @@ Orbit can deploy and register MCP servers as first-class `SERVICE` principals, a
 
 | Persona | Who they are | How they reach the gateway |
 | --- | --- | --- |
-| **Tenant Administrator** | Registers their tenant's own MCP servers in infra (CR), reviews discovered tools, grants tool scopes to roles | Orbit web UI (policy dashboard + a read-only tool-catalog view) — no "create server" form |
-| **Orbit (platform operator)** | Registers the global/platform MCPs (the Orbit MCP and any platform-level servers) available to all tenants | Infra/CR managed by Orbit itself |
+| **Tenant Administrator** | Registers their tenant's own MCP servers in infra (CR), reviews discovered tools, grants tool scopes to roles | kora web UI (policy dashboard + a read-only tool-catalog view) — no "create server" form |
+| **kora (platform operator)** | Registers the global/platform MCPs (the kora MCP and any platform-level servers) available to all tenants | Infra/CR managed by kora itself |
 | **Human Tool Consumer** | A developer using a desktop/IDE MCP client who wants governed tools in their own workflow | MCP client (Claude Desktop / Cursor / VS Code) → gateway, authed via the **MCP OAuth flow** |
-| **Agent** | An Orbit-run agent that calls tools during a run | In-pod MCP connection to the gateway via an auto-generated, **unauthenticated** MCP config (platform token auto-injected). Access is set in the agent's settings UI, not by the agent |
+| **Agent** | A kora-run agent that calls tools during a run | In-pod MCP connection to the gateway via an auto-generated, **unauthenticated** MCP config (platform token auto-injected). Access is set in the agent's settings UI, not by the agent |
 | **Security / Compliance** | Needs assurance every tool call is authorised and attributed | Reads the audit/event trail; sets default-deny posture |
 
 ---
@@ -96,14 +96,14 @@ Orbit can deploy and register MCP servers as first-class `SERVICE` principals, a
 
 ### Registration & Discovery
 
-- **US-001 — Declare and introspect a server via infra.** *As a platform admin, I want to declare an MCP server as infra (a CR) and have Orbit call its `tools/list` and record every tool, so that its tools become governable platform scopes without me editing the server or hand-building a UI entry.*
+- **US-001 — Declare and introspect a server via infra.** *As a platform admin, I want to declare an MCP server as infra (a CR) and have kora call its `tools/list` and record every tool, so that its tools become governable platform scopes without me editing the server or hand-building a UI entry.*
   - [ ] An MCP server is declared as an operator-reconciled resource (CR), not created in the UI.
   - [ ] Reconciliation triggers introspection of the server's tool surface.
   - [ ] Each discovered tool is registered idempotently as a scope `mcp:<server>:<tool>:use`.
   - [ ] The tool name, description, and input schema are captured for display.
 
-- **US-002 — Platform-global tools plus my own tenant servers.** *As a tenant admin, I want my tenant to see the platform's global MCPs (like the Orbit MCP) alongside the servers I register myself — and never another tenant's — so that shared tools are available without my managing them and my own servers stay private.*
-  - [ ] Global servers (the Orbit MCP and any platform-level MCPs) are registered by Orbit and available to every tenant.
+- **US-002 — Platform-global tools plus my own tenant servers.** *As a tenant admin, I want my tenant to see the platform's global MCPs (like the kora MCP) alongside the servers I register myself — and never another tenant's — so that shared tools are available without my managing them and my own servers stay private.*
+  - [ ] Global servers (the kora MCP and any platform-level MCPs) are registered by kora and available to every tenant.
   - [ ] A tenant registers its own servers as tenant-scoped CRs, private to that tenant.
   - [ ] A tenant can never see, introspect, or grant another tenant's servers or their tool scopes.
 
@@ -129,12 +129,12 @@ Orbit can deploy and register MCP servers as first-class `SERVICE` principals, a
 
 ### Human Consumption
 
-- **US-007 — Connect a desktop/IDE MCP client.** *As a human developer, I want to connect my MCP client to Orbit and get the tools I'm allowed, so that I use governed tools from my own workflow.*
+- **US-007 — Connect a desktop/IDE MCP client.** *As a human developer, I want to connect my MCP client to kora and get the tools I'm allowed, so that I use governed tools from my own workflow.*
   - [ ] The gateway authenticates a human via the MCP OAuth flow.
   - [ ] `tools/list` returns exactly the caller's granted tools.
   - [ ] A denied `tools/call` returns a clear MCP error.
 
-- **US-008 — Get a ready-to-paste client config.** *As a human developer, I want the Orbit UI to give me the connection config for my MCP client, so that setup is copy-paste, not hand-rolled.*
+- **US-008 — Get a ready-to-paste client config.** *As a human developer, I want the kora UI to give me the connection config for my MCP client, so that setup is copy-paste, not hand-rolled.*
   - [ ] UI surfaces the gateway endpoint and a generated client config snippet.
 
 ### Agent Consumption
@@ -151,7 +151,7 @@ Orbit can deploy and register MCP servers as first-class `SERVICE` principals, a
 
 - **US-011 — Agent calls are authorised and attributed.** *As security, I want an agent's tool calls through the gateway to be checked against its grant and attributed to its principal, so that an agent can never exceed its configured tool set.*
   - [ ] `tools/list` and `tools/call` are enforced against the agent's grant.
-  - [ ] No agent-side Orbit code is required beyond the generated config.
+  - [ ] No agent-side kora code is required beyond the generated config.
 
 ### Audit
 
@@ -167,7 +167,7 @@ The gateway is a new control-plane component (a greenfield `internal/toolgateway
 
 ### 1. Registration & Introspection
 
-MCP servers are declared in infra as operator-reconciled resources (CRs) — tenant-scoped by a tenant, or global when Orbit registers a platform server (extending the registry from [mcp-server-registration-deployment-and-governance](../adr/2026-03-05-mcp-server-registration-deployment-and-governance.md)). On reconciliation, the platform connects to the server as an MCP client and calls `tools/list`. For each tool it registers a scope `mcp:<server>:<tool>:use` into the policy-service catalog, capturing the tool's name, description, and input schema for display. Re-introspection is **idempotent**: appeared tools are added, vanished tools are retired, unchanged surfaces are no-ops. This is the step that turns a previously non-security tool manifest into the **authoritative, governable** surface — and the reason an unmodified open-source server can be governed.
+MCP servers are declared in infra as operator-reconciled resources (CRs) — tenant-scoped by a tenant, or global when kora registers a platform server (extending the registry from [mcp-server-registration-deployment-and-governance](../adr/2026-03-05-mcp-server-registration-deployment-and-governance.md)). On reconciliation, the platform connects to the server as an MCP client and calls `tools/list`. For each tool it registers a scope `mcp:<server>:<tool>:use` into the policy-service catalog, capturing the tool's name, description, and input schema for display. Re-introspection is **idempotent**: appeared tools are added, vanished tools are retired, unchanged surfaces are no-ops. This is the step that turns a previously non-security tool manifest into the **authoritative, governable** surface — and the reason an unmodified open-source server can be governed.
 
 ### 2. Authorisation (the new PEP)
 
@@ -185,7 +185,7 @@ One enforcement spine, two front doors:
 | | Human path | Agent path |
 | --- | --- | --- |
 | **Authenticates with** | the **MCP OAuth flow** from an MCP client (net-new build) | platform token auto-injected into the agent's outbound request (sidecar) |
-| **Discovers tools via** | Orbit web UI + generated client config | auto-generated, unauthenticated MCP config at session spin-up |
+| **Discovers tools via** | kora web UI + generated client config | auto-generated, unauthenticated MCP config at session spin-up |
 | **Granted via** | admin grants tool scopes through the policy dashboard | selection in the agent's settings UI, reconciled into the agent's single auto-managed grant |
 | **Authorised on** | the human principal's grants | the agent principal's grant |
 
@@ -193,11 +193,11 @@ Both resolve to a platform principal, and both hit the identical filter/check lo
 
 ### 4. Agent MCP Provisioning
 
-Agents never hand-configure tools. An agent's MCP/tool access is selected in its creation/settings UI (which MCP servers from the gateway, and which tools within each). That selection is **reconciled into the agent's single auto-managed grant** — the grant is immutable, so a scope change is a delete-and-recreate of the one grant carrying the agent's model *and* tool scopes, exactly the atomic reconciliation model access uses today ([agent-identity-and-policy-provisioning](../adr/2026-05-11-agent-identity-and-policy-provisioning.md)). At session spin-up, Orbit generates an **unauthenticated** MCP client config that points the agent at the gateway and lists its configured tool sources; the config carries no credentials because the platform auto-injects the agent's token on every outbound call ([envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md)). The result: an agent gets exactly its configured tools, governed and attributed, with zero auth handling on the agent side.
+Agents never hand-configure tools. An agent's MCP/tool access is selected in its creation/settings UI (which MCP servers from the gateway, and which tools within each). That selection is **reconciled into the agent's single auto-managed grant** — the grant is immutable, so a scope change is a delete-and-recreate of the one grant carrying the agent's model *and* tool scopes, exactly the atomic reconciliation model access uses today ([agent-identity-and-policy-provisioning](../adr/2026-05-11-agent-identity-and-policy-provisioning.md)). At session spin-up, kora generates an **unauthenticated** MCP client config that points the agent at the gateway and lists its configured tool sources; the config carries no credentials because the platform auto-injects the agent's token on every outbound call ([envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md)). The result: an agent gets exactly its configured tools, governed and attributed, with zero auth handling on the agent side.
 
 ### 5. Governing Proxy
 
-Authorised `tools/call`s are forwarded to the upstream Orbit-hosted MCP server over its existing in-mesh connection; the response streams back to the consumer. The MCP gateway governs *the call to the tool*, not the tool's downstream credentials — an Orbit-hosted MCP is a managed microservice responsible for its own backend authentication, so there is no forced egress routing or credential injection on this hop.
+Authorised `tools/call`s are forwarded to the upstream kora-hosted MCP server over its existing in-mesh connection; the response streams back to the consumer. The MCP gateway governs *the call to the tool*, not the tool's downstream credentials — a kora-hosted MCP is a managed microservice responsible for its own backend authentication, so there is no forced egress routing or credential injection on this hop.
 
 ### Request lifecycle (sketch)
 
@@ -219,8 +219,8 @@ Steps 1, 3 and 4 are §3 (auth) and §2/§5 (check + proxy):
 
 ### In Scope (MVP)
 
-- Infra/CR-based server registration (tenant-scoped + Orbit-registered global), greenfield `internal/toolgateway`.
-- Governing proxy fronting **Orbit-hosted** MCP servers.
+- Infra/CR-based server registration (tenant-scoped + kora-registered global), greenfield `internal/toolgateway`.
+- Governing proxy fronting **kora-hosted** MCP servers.
 - Introspection of `tools/list` and idempotent registration of `mcp:<server>:<tool>:use` scopes.
 - `tools/list` filtering and `tools/call` pre-check via existing grants (new PEP).
 - Human authentication via the **MCP OAuth flow** (net-new) and agent authentication (injected platform token). **Both personas in MVP.**
@@ -245,7 +245,7 @@ Steps 1, 3 and 4 are §3 (auth) and §2/§5 (check + proxy):
 ### Functional
 
 **P0 (MVP)**
-- FR-1 Register an MCP server via operator-reconciled CR (tenant-scoped or Orbit-registered global); a tenant cannot reference another tenant's server.
+- FR-1 Register an MCP server via operator-reconciled CR (tenant-scoped or kora-registered global); a tenant cannot reference another tenant's server.
 - FR-2 On reconciliation, introspect the server's `tools/list` and register each tool as a scope; mark the CR un-ready and retain prior scopes if the server is unreachable or returns a malformed list.
 - FR-3 Idempotent re-sync: add appeared tools, retire vanished tools, no-op on no change.
 - FR-4 The platform never auto-creates grants; a new tool is reachable only where the existing coverage rule already allows it.
@@ -270,7 +270,7 @@ Steps 1, 3 and 4 are §3 (auth) and §2/§5 (check + proxy):
 ### Non-Functional
 
 - **Security:** default-deny; no consumer ever sees or calls an ungranted tool; every decision audited; tenant isolation holds across registration, introspection, catalog, and grants.
-- **Compatibility:** speak standard MCP to both consumers and upstreams — no Orbit-specific client required.
+- **Compatibility:** speak standard MCP to both consumers and upstreams — no kora-specific client required.
 - **Observability:** every decision is an OTel span + structured log (no event-spine dependency); distributed tracing across the consumer→gateway→server hop; decision metrics.
 - **Reliability:** streaming responses with a defined timeout / cancellation / backpressure story for long-running `tools/call`s; upstream failures surface as clean MCP errors, never silent hangs.
 - **Latency:** authorisation adds negligible overhead relative to tool execution (reuse local PDP path); target **authz < 10 ms p95** added to a `tools/call`. The per-caller `tools/list` filter must not fan out an uncached PDP call per advertised tool.
@@ -366,13 +366,13 @@ The MVP is **Phase 1 + Phase 2** (both personas), mapping onto the three ADRs (r
 | Term | Definition |
 | --- | --- |
 | **MCP** | Model Context Protocol — the standard for exposing tools/resources to AI clients |
-| **MCP / Tool Gateway** | Orbit's governing proxy that both humans and agents connect to for tools |
+| **MCP / Tool Gateway** | kora's governing proxy that both humans and agents connect to for tools |
 | **Introspection** | The platform calling an MCP server's `tools/list` to discover its tools |
 | **Tool scope** | A platform scope `mcp:<server>:<tool>:use` registered from a discovered tool. Covered by the broader `mcp:<server>:use` (whole server) via the existing scope-hierarchy prefix rule — no `*` glob |
 | **Tenant server** | An MCP server a tenant registers itself (CR), private to that tenant |
-| **Global server** | A platform-owned MCP server Orbit registers (e.g. the Orbit MCP), available to all tenants |
+| **Global server** | A platform-owned MCP server kora registers (e.g. the kora MCP), available to all tenants |
 | **MCP OAuth** | The MCP authorization flow (OAuth 2.1) a human's MCP client uses to authenticate to the gateway — net-new build |
 | **PEP** | Policy Enforcement Point — where an access decision is enforced |
 | **Default-deny** | A tool with no covering grant is unreachable |
 | **Dual persona** | The human and agent consumption paths over one enforcement spine |
-| **Governed server** | An Orbit-hosted/registered MCP server fronted by the gateway |
+| **Governed server** | A kora-hosted/registered MCP server fronted by the gateway |

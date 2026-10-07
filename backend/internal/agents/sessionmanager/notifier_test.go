@@ -142,7 +142,7 @@ func TestHTTPNotifier_ProvisionSandbox_OKReturnsEndpoint(t *testing.T) {
 	defer srv.Close()
 
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-	sandbox, err := n.ProvisionSandbox(context.Background(), "run-1", false)
+	sandbox, err := n.ProvisionSandbox(context.Background(), "run-1", false, "", false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -162,7 +162,7 @@ func TestHTTPNotifier_ProvisionSandbox_Non2xxReturnsError(t *testing.T) {
 	defer srv.Close()
 
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-	_, err := n.ProvisionSandbox(context.Background(), "run-1", false)
+	_, err := n.ProvisionSandbox(context.Background(), "run-1", false, "", false)
 	if err == nil {
 		t.Fatal("expected error for 404 response, got nil")
 	}
@@ -189,13 +189,17 @@ func TestHTTPNotifier_ProvisionSandbox_AheadQuery(t *testing.T) {
 				gotQuery = r.URL.Query().Get("ahead")
 				gotPath = r.URL.Path
 				w.WriteHeader(http.StatusOK)
-				w.Write([]byte(`{"endpoint":"10.0.0.5:50051","exec_token":"tok-1"}`)) //nolint:errcheck
+				_, _ = w.Write([]byte(`{"endpoint":"10.0.0.5:50051","exec_token":"tok-1","canary_host":"pypi.org"}`))
 			}))
 			defer srv.Close()
 
 			n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-			if _, err := n.ProvisionSandbox(context.Background(), "run-1", tc.ahead); err != nil {
+			sandbox, err := n.ProvisionSandbox(context.Background(), "run-1", tc.ahead, "", false)
+			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
+			}
+			if sandbox.CanaryHost != "pypi.org" {
+				t.Errorf("canary host = %q, want the one orbit-agents chose", sandbox.CanaryHost)
 			}
 			if gotQuery != tc.want {
 				t.Errorf("ahead query = %q, want %q", gotQuery, tc.want)

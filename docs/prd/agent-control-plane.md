@@ -3,14 +3,14 @@
 **Status:** Implemented  
 **Created:** 2026-05-08  
 **Last Updated:** 2026-05-08  
-**Owner:** Orbit Core Team  
-**Stakeholders:** Orbit Core Team, Enterprise Platform Operators, Agent Developers, End Users
+**Owner:** kora Core Team  
+**Stakeholders:** kora Core Team, Enterprise Platform Operators, Agent Developers, End Users
 
 ---
 
 ## Executive Summary
 
-The Agent Control Plane is Orbit's execution layer for AI agents. It allows platform operators and tenant users to define, deploy, and interact with AI agents that run inside the cluster with full platform identity, governed LLM access, and isolated workspaces. Managed agents are built on real agentic CLI frameworks (Claude Code, Codex, OpenCode) and are accessible via a chat UI or observable in headless mode. Tenant-deployed (BYOC) agents are auto-discovered and surfaced in the same portal with usage visibility. The control plane is the realisation of Orbit's agent-first architecture — making agents first-class citizens of the platform rather than external callers of it.
+The Agent Control Plane is kora's execution layer for AI agents. It allows platform operators and tenant users to define, deploy, and interact with AI agents that run inside the cluster with full platform identity, governed LLM access, and isolated workspaces. Managed agents are built on real agentic CLI frameworks (Claude Code, Codex, OpenCode) and are accessible via a chat UI or observable in headless mode. Tenant-deployed (BYOC) agents are auto-discovered and surfaced in the same portal with usage visibility. The control plane is the realisation of kora's agent-first architecture — making agents first-class citizens of the platform rather than external callers of it.
 
 ---
 
@@ -18,12 +18,12 @@ The Agent Control Plane is Orbit's execution layer for AI agents. It allows plat
 
 ### Current State
 
-Orbit's identity, policy, and inference infrastructure already supports agents as first-class principals. The `AGENT` principal type exists, SPIFFE/SPIRE attestation works for workloads in tenant namespaces, and the inference-gateway attributes usage to agents. However, there is no control plane for agent lifecycle. There is no way to define an agent, deploy it, start a session, interact with it, or observe what it is doing. Agents that exist today are externally managed and invisible to the platform beyond token usage.
+kora's identity, policy, and inference infrastructure already supports agents as first-class principals. The `AGENT` principal type exists, SPIFFE/SPIRE attestation works for workloads in tenant namespaces, and the inference-gateway attributes usage to agents. However, there is no control plane for agent lifecycle. There is no way to define an agent, deploy it, start a session, interact with it, or observe what it is doing. Agents that exist today are externally managed and invisible to the platform beyond token usage.
 
 ### User Pain Points
 
 **For end users (tenants):**
-- No way to start and interact with an AI agent through the Orbit UI
+- No way to start and interact with an AI agent through the kora UI
 - No visibility into what agents are doing — no activity feed, no run history, no context
 - Cannot resume an agent session after closing the browser
 - Cannot observe a headless agent run in progress
@@ -51,7 +51,7 @@ Orbit's identity, policy, and inference infrastructure already supports agents a
 
 ### Primary Goals
 
-1. **Agent definition:** Allow users to define managed agent types via the Orbit UI and API — specifying the framework, instructions, and tool access
+1. **Agent definition:** Allow users to define managed agent types via the kora UI and API — specifying the framework, instructions, and tool access
 2. **Managed execution:** Platform deploys, scales, and manages agent infrastructure — SPIRE identity, LLM access, workspace — transparently
 3. **Interactive sessions:** Users can start a chat session with any managed agent and interact with it in real time with streaming output
 4. **Headless observation:** Users can observe a headless agent run in progress — seeing tool calls, thinking, and output — without interacting
@@ -74,7 +74,7 @@ Orbit's identity, policy, and inference infrastructure already supports agents a
 - RFC 8693 delegation / act-on-behalf flows (deferred)
 - Workspace resume (design for it, do not implement in v1)
 - Trigger definitions — scheduled runs, webhook-triggered runs (deferred)
-- BYOC agent chat interaction or lifecycle management from Orbit UI
+- BYOC agent chat interaction or lifecycle management from kora UI
 - Per-agent-type resource limit configuration by users (platform defaults apply)
 - Multi-agent orchestration / agent-to-agent communication
 - Agent marketplace or template sharing
@@ -86,13 +86,13 @@ Orbit's identity, policy, and inference infrastructure already supports agents a
 ### US-001: Define a Managed Agent Type
 
 **As a** tenant user,  
-**I want to** create a managed agent type via the Orbit UI,  
+**I want to** create a managed agent type via the kora UI,  
 **So that** I have a running agent I can start sessions with.
 
 **Acceptance Criteria:**
-- [ ] User can create an agent type with: name, description, framework selection, system prompt, tool scope selection
+- [ ] User can create an agent type with: name, description, framework selection, system prompt
 - [ ] Available frameworks: `claude-code`, `codex`, `opencode`
-- [ ] Tool scopes selection creates corresponding grants in the policy service — the agent's platform JWT is governed by those grants
+- [ ] The agent type's access selections create corresponding grants in the policy service: the agent's platform JWT is governed by those grants
 - [ ] On creation, platform provisions a StatefulSet in the tenant namespace with the correct configuration
 - [ ] SPIRE entry is registered automatically for the agent type (pod selector based)
 - [ ] Agent type appears in the agent portal within 60 seconds of creation
@@ -103,7 +103,7 @@ Orbit's identity, policy, and inference infrastructure already supports agents a
 ### US-002: Start a Chat Session with a Managed Agent
 
 **As a** tenant user,  
-**I want to** open a chat session with a managed agent from the Orbit UI,  
+**I want to** open a chat session with a managed agent from the kora UI,  
 **So that** I can interact with it in real time.
 
 **Acceptance Criteria:**
@@ -209,7 +209,7 @@ Orbit's identity, policy, and inference infrastructure already supports agents a
 
 ### High-Level Approach
 
-The Agent Control Plane consists of a new platform service (`orbit-agents`) that owns agent type registration, run lifecycle, session routing, and event streaming. Agent workloads run as StatefulSets in tenant namespaces — one StatefulSet per agent type per tenant — with a platform-built session-manager process as the main container. The session-manager wraps the agentic CLI (Claude Code, Codex, OpenCode) via a per-framework transform layer that normalises all output to a standard Orbit event format. Events are persisted to a run event log, enabling full context replay on reconnect. The platform issues agent identity, governs LLM access, and manages workspaces transparently — agent code has no awareness of these concerns.
+The Agent Control Plane consists of a new platform service (`orbit-agents`) that owns agent type registration, run lifecycle, session routing, and event streaming. Agent workloads run as StatefulSets in tenant namespaces — one StatefulSet per agent type per tenant — with a platform-built session-manager process as the main container. The session-manager wraps the agentic CLI (Claude Code, Codex, OpenCode) via a per-framework transform layer that normalises all output to a standard kora event format. Events are persisted to a run event log, enabling full context replay on reconnect. The platform issues agent identity, governs LLM access, and manages workspaces transparently — agent code has no awareness of these concerns.
 
 ### Agent Definition Model
 
@@ -221,7 +221,6 @@ A managed agent type is defined by:
 | Description | What this agent does |
 | Framework | Which CLI to wrap: `claude-code`, `codex`, `opencode` |
 | System prompt | Instructions passed to the framework at session start |
-| Tool scopes | Scopes granted to this agent — creates grants in policy-service |
 
 The definition is stored in the `orbit-agents` database. It drives the creation of the StatefulSet, SPIRE entry, and policy grants. Users do not configure infrastructure directly.
 
@@ -229,7 +228,7 @@ The definition is stored in the `orbit-agents` database. It drives the creation 
 
 Each agent type runs as a Kubernetes StatefulSet in the tenant namespace. Pods have stable, predictable DNS names that allow the `orbit-agents` service to route to specific pods. Each pod contains three containers:
 
-- **session-manager** — Orbit-built process; manages multiple concurrent sessions, owns worktrees and subprocess lifecycle
+- **session-manager** — kora-built process; manages multiple concurrent sessions, owns worktrees and subprocess lifecycle
 - **identity-proxy** — existing sidecar; exchanges SPIFFE SVID for platform JWT, injects it on outbound LLM calls
 - **Envoy** — Istio-injected sidecar; enforces mTLS, runs ext_proc for transparent token injection
 
@@ -237,9 +236,9 @@ The session-manager handles multiple concurrent sessions within a single pod. Ea
 
 ### Transform Layer
 
-The session-manager does not speak any framework-specific protocol. Each supported CLI framework has a transform layer that wraps the subprocess and presents a standard interface to the session-manager. The transform layer handles: starting the CLI with the correct flags and environment, sending user messages to it, reading and parsing its output, and translating that output into the Orbit standard event format. Adding support for a new framework requires implementing a new transform layer — no other component changes.
+The session-manager does not speak any framework-specific protocol. Each supported CLI framework has a transform layer that wraps the subprocess and presents a standard interface to the session-manager. The transform layer handles: starting the CLI with the correct flags and environment, sending user messages to it, reading and parsing its output, and translating that output into the kora standard event format. Adding support for a new framework requires implementing a new transform layer — no other component changes.
 
-The Orbit standard event format is a structured stream of typed events:
+The kora standard event format is a structured stream of typed events:
 
 | Event Type | Description |
 |---|---|
@@ -277,7 +276,7 @@ New sessions are routed to any available pod for the agent type. Existing sessio
 
 ### BYOC Agent Visibility
 
-`orbit-agents` watches Kubernetes pod events across all `orbit-tenant-*` namespaces. Pods with an Orbit SPIFFE identity (identified by annotations set during SPIRE attestation) are surfaced in the agent portal. LLM usage is already attributed to BYOC agents via the inference-gateway JWT — no additional instrumentation is required. BYOC agents appear in the same portal view as managed agents but without chat, lifecycle, or workspace capabilities.
+`orbit-agents` watches Kubernetes pod events across all `orbit-tenant-*` namespaces. Pods with a kora SPIFFE identity (identified by annotations set during SPIRE attestation) are surfaced in the agent portal. LLM usage is already attributed to BYOC agents via the inference-gateway JWT — no additional instrumentation is required. BYOC agents appear in the same portal view as managed agents but without chat, lifecycle, or workspace capabilities.
 
 ### Streaming Architecture
 
@@ -329,7 +328,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 ### In Scope (v1)
 
-- Managed agent type definition and registration (name, description, framework, system prompt, tool scopes)
+- Managed agent type definition and registration (name, description, framework, system prompt)
 - Platform provisioning: StatefulSet, SPIRE entry, grants, headless Service, RBAC
 - Interactive chat sessions with managed agents (real-time streaming output, user message input)
 - Headless run observation (real-time event stream, no user input)
@@ -385,7 +384,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - [ ] BYOC agents surfaced in agent portal with status and LLM usage
 - [ ] Agent portal: list all agent types and runs for the authenticated tenant
 - [ ] All agent LLM usage attributed to the correct principal in inference usage logs
-- [ ] Agent grants created from tool scopes at agent type creation; removed at deletion
+- [ ] Agent grants created from the agent type's access selections at agent type creation; removed at deletion
 
 **P1 — Post-v1:**
 - [ ] Workspace resume: restore snapshot + reconstruct conversation context from `run_events`
@@ -444,8 +443,8 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 | SPIFFE/SPIRE ([spiffe-spire-workload-attestation](../adr/2026-03-05-spiffe-spire-workload-attestation.md)) | Implemented | Workload attestation for agent pods |
 | identity-proxy sidecar ([envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md)) | Implemented | SVID → JWT exchange; outbound token injection |
 | inference-gateway ([inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md)) | Implemented | LLM access for agent workloads |
-| Policy service / grants ([policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)) | Implemented | Grant creation for agent tool scopes |
-| Orbit Operator ([orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md)) | Implemented | Operator manages platform infrastructure; untouched by this feature |
+| Policy service / grants ([policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)) | Implemented | Grant creation for agent types |
+| kora Operator ([orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md)) | Implemented | Operator manages platform infrastructure; untouched by this feature |
 | PostgreSQL | Implemented | Agent type registry, run/session state, event log |
 | Istio / Envoy | Implemented | mTLS between orbit-agents and session-manager pods |
 | Object storage (S3-compatible) | Planned | Workspace snapshot destination |
@@ -499,7 +498,7 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 
 ### Alternative 3: CRDs and Operator Extension for Agent Lifecycle
 
-**Description:** Introduce `OrbitAgent` CRDs; extend the Orbit Operator to reconcile agent StatefulSets and SPIRE entries.
+**Description:** Introduce `OrbitAgent` CRDs; extend the kora Operator to reconcile agent StatefulSets and SPIRE entries.
 
 **Why not chosen:**
 - The operator is designed for platform infrastructure reconciliation (SPIRE, Istio, charts) — not for runtime agent lifecycle
@@ -631,26 +630,26 @@ Each run gets an isolated worktree provisioned within the pod's volume at sessio
 - [spiffe-spire-workload-attestation](../adr/2026-03-05-spiffe-spire-workload-attestation.md) — SPIFFE/SPIRE workload identity
 - [envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md) — identity-proxy sidecar
 - [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) — Inference Gateway
-- [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) — Orbit Operator
+- [orbit-kubernetes-operator](../adr/2026-03-31-orbit-kubernetes-operator.md) — kora Operator
 - [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md) — Policy and grant model
 
 ### Glossary
 
 | Term | Definition |
 |---|---|
-| Managed Agent | An agent type defined via the Orbit UI/API and deployed and managed by the platform |
+| Managed Agent | An agent type defined via the kora UI/API and deployed and managed by the platform |
 | BYOC Agent | Bring-Your-Own-Container — a tenant-built agent deployed in its own tenant namespace; platform provides identity and LLM access but does not manage lifecycle |
 | Run | The unit of work — a server-side entity representing one agent execution; persists independently of browser sessions |
 | Session | A browser connection to a run; transient; destroyed on disconnect |
-| Session Manager | The Orbit-built main container in each agent pod; manages multiple concurrent sessions, worktrees, and subprocesses |
-| Transform Layer | A per-framework adapter within the session-manager that wraps a CLI subprocess and normalises its output to the Orbit event format |
-| Orbit Event Format | The standard structured event stream used by the platform: `text_delta`, `thinking_delta`, `tool_use`, `tool_result`, `message_stop` |
+| Session Manager | The kora-built main container in each agent pod; manages multiple concurrent sessions, worktrees, and subprocesses |
+| Transform Layer | A per-framework adapter within the session-manager that wraps a CLI subprocess and normalises its output to the kora event format |
+| kora Event Format | The standard structured event stream used by the platform: `text_delta`, `thinking_delta`, `tool_use`, `tool_result`, `message_stop` |
 | Run Event Log | The persistent, append-only record of all events for a run — the source of truth for replay on reconnect and future resume |
 | StatefulSet | Kubernetes workload type used for agent pods; provides stable, predictable pod DNS names |
 | Worktree | An isolated filesystem directory provisioned per run within the pod's volume |
 | Workspace Snapshot | A point-in-time archive of a run's worktree, persisted to object storage on run completion |
 | SPIRE Entry | A SPIFFE identity registration for a workload, keyed to a pod selector; created per agent type |
-| Platform JWT | The Orbit-issued bearer token that governs all service-to-service and agent-to-service calls |
+| Platform JWT | The kora-issued bearer token that governs all service-to-service and agent-to-service calls |
 
 ---
 

@@ -29,8 +29,6 @@ func newWatcherTestService(t *testing.T) *Service {
 	t.Setenv("ORBIT_ALLOW_EPHEMERAL_KEY", "true")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY_FILE", "")
 	t.Setenv("ORBIT_TOKEN_SIGNING_KEY", "")
-	t.Setenv("ORBIT_TENANTS_CONFIG", "")
-	t.Setenv(clientSecretsEnvVar, "")
 
 	cfg := &Config{
 		Token: TokenConfig{
@@ -105,9 +103,8 @@ func TestWatchTenantRegistry_ExitsOnCancel(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tenants.yaml")
 	writeRegistryFile(t, path)
-	t.Setenv("ORBIT_TENANTS_CONFIG", path)
-
 	svc := newWatcherTestService(t)
+	svc.cfg.Registry.TenantsPath = path
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
@@ -143,9 +140,8 @@ func TestWatchTenantRegistry_NoPostCancelReload(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tenants.yaml")
 	writeRegistryFile(t, path)
-	t.Setenv("ORBIT_TENANTS_CONFIG", path)
-
 	svc := newWatcherTestService(t)
+	svc.cfg.Registry.TenantsPath = path
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
@@ -183,9 +179,8 @@ func TestWatchClientSecrets_NoPostCancelReload(t *testing.T) {
 	if err := os.WriteFile(path, []byte("reload-test: s3cr3t\n"), 0o644); err != nil {
 		t.Fatalf("write secrets file: %v", err)
 	}
-	t.Setenv(clientSecretsEnvVar, path)
-
 	svc := newWatcherTestService(t)
+	svc.cfg.Registry.ClientSecretsPath = path
 	ctx, cancel := context.WithCancel(context.Background())
 
 	done := make(chan struct{})
@@ -222,9 +217,8 @@ func TestWatchTenantRegistry_BurstCoalesced(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "tenants.yaml")
 	writeRegistryFile(t, path)
-	t.Setenv("ORBIT_TENANTS_CONFIG", path)
-
 	svc := newWatcherTestService(t)
+	svc.cfg.Registry.TenantsPath = path
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 

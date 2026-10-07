@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -23,7 +24,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 		logger: logging.NewLoggerWithOutput(io.Discard),
 		cfg: K8sProvisionerConfig{
 			SessionManagerImage: "ghcr.io/clear-route/orbit-session-manager:1.0.0",
-			SandboxImage:        "ghcr.io/clear-route/orbit-sandbox-exec:1.0.0",
+			SandboxImage:        "ghcr.io/clear-route/kora-sandbox-base:1.0.0",
 			SandboxGRPCPort:     50051,
 			ImagePullSecrets:    []string{"ghcr-pull", "mirror-pull"},
 			TrustDomain:         "orbit.example.com",
@@ -35,7 +36,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 }
 
 func renderedSandboxPod() *corev1.Pod {
-	return podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", nil, "test-exec-token")
+	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", testSandboxSpec(), "test-exec-token")
 }
 
 func renderedStatefulSet() appsv1.StatefulSet {
@@ -44,7 +45,7 @@ func renderedStatefulSet() appsv1.StatefulSet {
 }
 
 // assertRestrictedPodSpec checks the parts of the restricted Pod Security
-// Standard that Orbit sets itself; the remaining fields are Kubernetes defaults.
+// Standard that kora sets itself; the remaining fields are Kubernetes defaults.
 func assertRestrictedPodSpec(t *testing.T, spec corev1.PodSpec) {
 	t.Helper()
 	sc := spec.SecurityContext
@@ -86,6 +87,9 @@ func assertRestrictedPodSpec(t *testing.T, spec corev1.PodSpec) {
 		if csc.SeccompProfile != nil {
 			t.Errorf("container %s: must inherit the pod seccomp profile, not override it", c.Name)
 		}
+		if csc.ReadOnlyRootFilesystem == nil || !*csc.ReadOnlyRootFilesystem {
+			t.Errorf("container %s: readOnlyRootFilesystem must be true", c.Name)
+		}
 	}
 	want := []corev1.LocalObjectReference{{Name: "ghcr-pull"}, {Name: "mirror-pull"}}
 	if len(spec.ImagePullSecrets) != len(want) {
@@ -109,9 +113,66 @@ func TestSandboxPod_RestrictedPodSecurity(t *testing.T) {
 func TestSessionManagerStatefulSet_RestrictedPodSecurity(t *testing.T) {
 	ss := renderedStatefulSet()
 	assertRestrictedPodSpec(t, ss.Spec.Template.Spec)
-	c := ss.Spec.Template.Spec.Containers[0]
-	if c.SecurityContext.ReadOnlyRootFilesystem != nil {
-		t.Error("session-manager must not set readOnlyRootFilesystem; the agent writes to its home directory")
+}
+
+// Neither runtime pod calls the Kubernetes API or reads service links.
+// Both would hand an agent a token or a map of the tenant namespace.
+func TestRuntimePods_NoServiceAccountTokenOrServiceLinks(t *testing.T) {
+	for name, spec := range map[string]corev1.PodSpec{
+		"sandbox":     renderedSandboxPod().Spec,
+		"statefulset": renderedStatefulSet().Spec.Template.Spec,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if spec.AutomountServiceAccountToken == nil || *spec.AutomountServiceAccountToken {
+				t.Errorf("automountServiceAccountToken = %v, want false", spec.AutomountServiceAccountToken)
+			}
+			if spec.EnableServiceLinks == nil || *spec.EnableServiceLinks {
+				t.Errorf("enableServiceLinks = %v, want false", spec.EnableServiceLinks)
+			}
+		})
+	}
+}
+
+// A read-only root needs writable scratch paths, and every node-disk write must be capped
+// so one pod cannot fill a node.
+func TestRuntimePods_BoundedScratchStorage(t *testing.T) {
+	for name, tc := range map[string]struct {
+		spec  corev1.PodSpec
+		paths []string
+	}{
+		"sandbox":     {renderedSandboxPod().Spec, []string{"/var/tmp", "/home/orbit"}},
+		"statefulset": {renderedStatefulSet().Spec.Template.Spec, []string{"/tmp", "/home/orbit"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := tc.spec.Containers[0]
+			for _, rl := range []corev1.ResourceList{c.Resources.Requests, c.Resources.Limits} {
+				if _, ok := rl[corev1.ResourceEphemeralStorage]; !ok {
+					t.Errorf("container %s: ephemeral-storage missing from %v", c.Name, rl)
+				}
+			}
+			emptyDirs := map[string]*corev1.EmptyDirVolumeSource{}
+			for _, v := range tc.spec.Volumes {
+				if v.EmptyDir != nil {
+					emptyDirs[v.Name] = v.EmptyDir
+				}
+			}
+			mounted := map[string]bool{}
+			for _, m := range c.VolumeMounts {
+				dir, ok := emptyDirs[m.Name]
+				if !ok {
+					continue
+				}
+				mounted[m.MountPath] = true
+				if dir.SizeLimit == nil || dir.SizeLimit.IsZero() {
+					t.Errorf("scratch volume %s at %s has no sizeLimit", m.Name, m.MountPath)
+				}
+			}
+			for _, p := range tc.paths {
+				if !mounted[p] {
+					t.Errorf("no scratch volume mounted at %s", p)
+				}
+			}
+		})
 	}
 }
 
@@ -139,10 +200,28 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	}
 }
 
+// The session-manager caps the Node heap of its runs from this value, so an
+// install's setting must reach every agent pod.
+func TestSessionManagerStatefulSet_PassesNodeHeapCap(t *testing.T) {
+	p := podSecurityProvisioner()
+	p.cfg.NodeMaxOldSpaceMB = 768
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ss := p.buildSessionManagerStatefulSet(at, "ns", podLabels(at))
+	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "ORBIT_NODE_MAX_OLD_SPACE_MB" {
+			if e.Value != "768" {
+				t.Errorf("ORBIT_NODE_MAX_OLD_SPACE_MB = %q, want 768", e.Value)
+			}
+			return
+		}
+	}
+	t.Error("session-manager env is missing ORBIT_NODE_MAX_OLD_SPACE_MB")
+}
+
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.cfg.ImagePullSecrets = nil
-	if pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", nil, "test-exec-token"); pod.Spec.ImagePullSecrets != nil {
+	if pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "ns", testSandboxSpec(), "test-exec-token"); pod.Spec.ImagePullSecrets != nil {
 		t.Errorf("sandbox imagePullSecrets = %+v, want field omitted", pod.Spec.ImagePullSecrets)
 	}
 	at := AgentType{Slug: "coder", TenantID: "acme"}
@@ -278,5 +357,29 @@ func TestRuntimePods_NoIstioTemplatesAnnotation(t *testing.T) {
 	}
 	if ss.Spec.Template.Annotations["proxy.istio.io/config"] == "" || ss.Spec.Template.Annotations["traffic.sidecar.istio.io/excludeOutboundPorts"] == "" {
 		t.Error("proxy.istio.io/config and excludeOutboundPorts must stay")
+	}
+}
+
+// The rendered templates carry IN_MESH so a reconcile rolls pods created before
+// the operator webhook enforced it.
+func TestRuntimePods_PeerMetadataInMeshOnly(t *testing.T) {
+	for name, ann := range map[string]map[string]string{
+		"sandbox pod":     renderedSandboxPod().Annotations,
+		"session-manager": renderedStatefulSet().Spec.Template.Annotations,
+	} {
+		var cfg struct {
+			Hold         bool `json:"holdApplicationUntilProxyStarts"`
+			ProxyHeaders struct {
+				MetadataExchangeHeaders struct {
+					Mode string `json:"mode"`
+				} `json:"metadataExchangeHeaders"`
+			} `json:"proxyHeaders"`
+		}
+		if err := json.Unmarshal([]byte(ann["proxy.istio.io/config"]), &cfg); err != nil {
+			t.Fatalf("%s proxy config: %v", name, err)
+		}
+		if !cfg.Hold || cfg.ProxyHeaders.MetadataExchangeHeaders.Mode != "IN_MESH" {
+			t.Errorf("%s proxy config = %+v", name, cfg)
+		}
 	}
 }

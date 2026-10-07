@@ -1,5 +1,5 @@
 // Package config provides a typed, environment-aware configuration loader
-// for the Orbit control plane.
+// for the kora control plane.
 //
 // # Loading modes
 //
@@ -7,14 +7,21 @@
 //
 //	var cfg = config.MustLoad[StorageConfig]("internal/platform/storage", config.Environment())
 //
-// Use [LoadService] for service entry points under cmd/. It merges two YAML
-// layers in order — service-only, no platform config included:
+// Use [LoadService] for service entry points under cmd/. It merges the
+// service's own YAML layers in order:
 //
 //  1. {serviceModule}/config/base.yaml   — service defaults (optional)
 //
 //  2. {serviceModule}/config/{env}.yaml  — service env overrides (optional)
 //
 //     var cfg = config.MustLoadService[Config]("cmd/identity", config.Environment())
+//
+// # Rendered config files
+//
+// Both loaders merge /etc/orbit/config/{module}.yaml last when it exists. The
+// chart renders it per install and mounts it there; see
+// docs/adr/2026-10-06-rendered-service-config-files.md. Decoding is strict:
+// an unknown key or a mistyped value fails the load.
 //
 // Platform-wide settings (observability tunables, log format) are loaded
 // independently by each platform package — see [observability.DefaultConfig].
@@ -26,25 +33,30 @@
 package config
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 
 	"github.com/go-viper/mapstructure/v2"
-	"github.com/spf13/viper"
+	"go.yaml.in/yaml/v3"
 )
 
 // defaultEnvironment is used when APP_ENV is not set.
-// Production is the safe default — explicit env var overrides (e.g. ORBIT_POSTGRES_SSL_MODE,
-// ORBIT_REDIS_TLS_ENABLED) are used by local dev tooling instead of changing this.
 const defaultEnvironment = "production"
+
+// overlayRoot is where the chart mounts the rendered config files. Tests point it elsewhere.
+var overlayRoot = "/etc/orbit/config"
 
 // Environment reads the APP_ENV environment variable.
 // Returns "production" if APP_ENV is unset or empty.
-// Local development binaries set APP_ENV=local via the .env file (make dev).
-// Chart deployments no longer inject APP_ENV — production is always the default in cluster.
+// Binaries run on the host set APP_ENV=local. Chart deployments do not set it.
 //
-// Supported values by convention: "local", "development", "production".
+// Supported values by convention: "local", "production".
 func Environment() string {
 	if env := os.Getenv("APP_ENV"); env != "" {
 		return env
@@ -62,24 +74,21 @@ func MustLoad[T any](module, environment string) *T {
 	return cfg
 }
 
-// Load reads and unmarshals the YAML config file at
-// {projectRoot}/{module}/config/{environment}.yaml into a new T.
+// Load reads {projectRoot}/{module}/config/{environment}.yaml, then the
+// rendered file for module when it exists, and decodes them into a new T.
 //
 // Use this for packages that own a single config file. For service binaries
-// that need the four-layer platform + per-service merge, use [LoadService].
+// use [LoadService].
 func Load[T any](module, environment string) (*T, error) {
 	path, err := resolvePath(module, environment)
 	if err != nil {
 		return nil, fmt.Errorf("config: resolve path for module %q env %q: %w", module, environment, err)
 	}
-
-	v := viper.New()
-	v.SetConfigFile(path)
-	if err := v.ReadInConfig(); err != nil {
+	merged, err := readYAML(path)
+	if err != nil {
 		return nil, fmt.Errorf("config: read %q: %w", path, err)
 	}
-
-	return unmarshalExact[T](v)
+	return loadWithOverlay[T](module, merged)
 }
 
 // MustLoadService is like [LoadService] but panics on error. It is the
@@ -94,66 +103,107 @@ func MustLoadService[T any](serviceModule, environment string) *T {
 	return cfg
 }
 
-// LoadService loads a service binary's configuration by merging two
-// service-specific YAML layers into T:
-//
-//  1. {serviceModule}/config/base.yaml   — service defaults (optional)
-//  2. {serviceModule}/config/{env}.yaml  — service env overrides (optional)
-//
-// Only service-owned keys are loaded here (e.g. server.port, observability.serviceName).
-// Platform-wide settings (OTLP endpoint, sampling rate, log format) are owned by
-// the observability package and loaded independently via [observability.DefaultConfig].
+// LoadService loads a service binary's configuration by merging, in order,
+// {serviceModule}/config/base.yaml, {serviceModule}/config/{env}.yaml and the
+// rendered file for serviceModule. Each layer is optional.
 func LoadService[T any](serviceModule, environment string) (*T, error) {
-	v := viper.New()
-	v.SetConfigType("yaml")
-
-	// Layer 1: service base (optional).
-	serviceBase, err := resolvePath(serviceModule, "base")
-	if err != nil {
-		return nil, fmt.Errorf("config: resolve service base path: %w", err)
-	}
-	err = mergeIfExists(v, serviceBase)
-	if err != nil {
-		return nil, fmt.Errorf("config: merge service base config %q: %w", serviceBase, err)
-	}
-
-	// Layer 2: service env override (optional).
-	serviceEnv, err := resolvePath(serviceModule, environment)
-	if err != nil {
-		return nil, fmt.Errorf("config: resolve service env path: %w", err)
-	}
-	if err := mergeIfExists(v, serviceEnv); err != nil {
-		return nil, fmt.Errorf("config: merge service env config %q: %w", serviceEnv, err)
-	}
-
-	return unmarshalExact[T](v)
-}
-
-// mergeIfExists merges the YAML file at path into v. If the file does not
-// exist it is silently skipped. Any other error is returned.
-func mergeIfExists(v *viper.Viper, path string) error {
-	if _, err := os.Stat(path); err != nil {
-		if os.IsNotExist(err) {
-			return nil
+	merged := map[string]any{}
+	for _, name := range []string{"base", environment} {
+		path, err := resolvePath(serviceModule, name)
+		if err != nil {
+			return nil, fmt.Errorf("config: resolve %s path for %q: %w", name, serviceModule, err)
 		}
-		return err
+		if err := mergeIfExists(merged, path); err != nil {
+			return nil, err
+		}
 	}
-	v.SetConfigFile(path)
-	return v.MergeInConfig()
+	return loadWithOverlay[T](serviceModule, merged)
 }
 
-// unmarshalExact decodes the Viper instance into a new T using yaml struct
-// tags. Fields tagged yaml:"-" are skipped. Unknown keys in the config file
-// that have no corresponding struct field cause an error.
-func unmarshalExact[T any](v *viper.Viper) (*T, error) {
+// loadWithOverlay merges the rendered file for module over merged and decodes the result.
+func loadWithOverlay[T any](module string, merged map[string]any) (*T, error) {
+	if err := mergeIfExists(merged, filepath.Join(overlayRoot, module+".yaml")); err != nil {
+		return nil, err
+	}
+	return decodeExact[T](merged)
+}
+
+// mergeIfExists deep-merges the YAML file at path into dst. A missing file is skipped.
+func mergeIfExists(dst map[string]any, path string) error {
+	src, err := readYAML(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("config: read %q: %w", path, err)
+	}
+	mergeMaps(dst, src)
+	return nil
+}
+
+func readYAML(path string) (map[string]any, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]any{}
+	if err := yaml.Unmarshal(data, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// mergeMaps merges src into dst. Nested maps merge key by key; any other value replaces.
+func mergeMaps(dst, src map[string]any) {
+	for k, v := range src {
+		if sm, ok := v.(map[string]any); ok {
+			if dm, ok := dst[k].(map[string]any); ok {
+				mergeMaps(dm, sm)
+				continue
+			}
+		}
+		dst[k] = v
+	}
+}
+
+// decodeExact decodes merged into a new T using yaml struct tags. Fields tagged
+// yaml:"-" are skipped. A key with no field, or a value of the wrong type, is an error.
+func decodeExact[T any](merged map[string]any) (*T, error) {
 	var cfg T
-	err := v.UnmarshalExact(&cfg, func(dc *mapstructure.DecoderConfig) {
-		dc.TagName = "yaml"
+	dec, err := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		TagName:     "yaml",
+		ErrorUnused: true,
+		DecodeHook:  jsonDecodeHook,
+		Result:      &cfg,
 	})
 	if err != nil {
+		return nil, fmt.Errorf("config: decoder: %w", err)
+	}
+	if err := dec.Decode(merged); err != nil {
 		return nil, fmt.Errorf("config: unmarshal: %w", err)
 	}
 	return &cfg, nil
+}
+
+var jsonUnmarshalerType = reflect.TypeFor[json.Unmarshaler]()
+
+// jsonDecodeHook decodes Kubernetes API types and json.Unmarshaler implementations
+// through encoding/json, so their json tags and formats such as "500m" apply.
+func jsonDecodeHook(_, to reflect.Type, data any) (any, error) {
+	if !reflect.PointerTo(to).Implements(jsonUnmarshalerType) && !strings.HasPrefix(to.PkgPath(), "k8s.io/") {
+		return data, nil
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, fmt.Errorf("encode %s: %w", to, err)
+	}
+	out := reflect.New(to)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(out.Interface()); err != nil {
+		return nil, fmt.Errorf("decode %s: %w", to, err)
+	}
+	return out.Elem().Interface(), nil
 }
 
 // resolvePath builds the absolute path to

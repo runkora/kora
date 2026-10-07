@@ -17,7 +17,7 @@ func testMutator() *PodMutator {
 		SamplingRate:            "1.0",
 		IdentityProxyImage:      "ghcr.io/clear-route/orbit-identity-proxy@sha256:abc",
 		IdentityProxyPullPolicy: corev1.PullIfNotPresent,
-		OPAImage:                "docker.io/openpolicyagent/opa:1.15.2-envoy-static",
+		OPAImage:                "docker.io/openpolicyagent/opa:1.21.0-envoy-static",
 		OPAPullPolicy:           corev1.PullIfNotPresent,
 		OPALogLevel:             "info",
 	}}
@@ -183,6 +183,40 @@ func TestMergeUserVolumeMounts_PreservesExisting(t *testing.T) {
 	}
 	if _, ok := m[volumeIdentityProxy]; !ok {
 		t.Error("identity-proxy mount missing")
+	}
+}
+
+// Peer-metadata headers stay in the mesh whatever the pod asked for, and other
+// proxyHeaders settings survive the merge.
+func TestMergeProxyConfig_PeerMetadataInMeshOnly(t *testing.T) {
+	cases := []struct {
+		name     string
+		existing string
+		keep     string
+	}{
+		{name: "no annotation"},
+		{name: "existing proxy headers kept", existing: `{"proxyHeaders":{"server":{"disabled":true}}}`, keep: "server"},
+		{name: "pod opting into headers is overridden", existing: `{"proxyHeaders":{"metadataExchangeHeaders":{"mode":"ALWAYS"}}}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := mergeProxyConfig(tc.existing)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var cfg struct {
+				ProxyHeaders map[string]json.RawMessage `json:"proxyHeaders"`
+			}
+			if err := json.Unmarshal([]byte(out), &cfg); err != nil {
+				t.Fatal(err)
+			}
+			if got := string(cfg.ProxyHeaders["metadataExchangeHeaders"]); got != `{"mode":"IN_MESH"}` {
+				t.Errorf("metadataExchangeHeaders = %s", got)
+			}
+			if _, ok := cfg.ProxyHeaders[tc.keep]; tc.keep != "" && !ok {
+				t.Errorf("proxyHeaders.%s dropped: %s", tc.keep, out)
+			}
+		})
 	}
 }
 

@@ -18,6 +18,7 @@ import { MobileSidebarDrawer } from './mobile-sidebar-drawer';
 
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
+  useRouter: () => ({ push: vi.fn() }),
 }));
 
 vi.mock('./permissions-provider', () => ({
@@ -64,10 +65,10 @@ describe('MobileSidebarDrawer', () => {
 
     // Nav groups from the reused DashboardSidebar
     expect(screen.getByText('Control Plane')).toBeInTheDocument();
-    // Reused SidebarBrandHeader (single source of brand + version)
-    expect(screen.getByText('Orbit')).toBeInTheDocument();
-    expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument();
+    // Reused SidebarBrandHeader (the version lives in the page header, not here)
+    expect(screen.getByRole('img', { name: 'kora' })).toBeInTheDocument();
     // Reused SidebarUserFooter
+    expect(screen.getByText('Dev User')).toBeInTheDocument();
     expect(screen.getByText('dev@orbit.local')).toBeInTheDocument();
     // Accessible dialog title
     expect(screen.getByText('Navigation')).toBeInTheDocument();

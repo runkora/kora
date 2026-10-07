@@ -1,4 +1,4 @@
-// migrate applies Orbit's database schema. It embeds every service's goose
+// migrate applies kora's database schema. It embeds every service's goose
 // migrations and runs them as one set, as a Helm hook Job in a cluster and
 // through `go run` in local development (docs/adr/2026-09-10-database-migrations.md).
 package main

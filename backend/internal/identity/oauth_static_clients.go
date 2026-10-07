@@ -33,17 +33,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// oauthClientsEnvVar holds the path to the aggregated OAuth clients file,
-// mounted from the orbit-tenant-oauth-clients ConfigMap (managed by the
-// orbit-operator, rendered from OAuthClient CRs). When unset (e.g. local dev
-// with only DCR clients) the static source is empty and only dynamically
-// registered clients resolve.
-const oauthClientsEnvVar = "ORBIT_OAUTH_CLIENTS_CONFIG"
-
-// oauthClientsPath returns the mounted oauth-clients.json path from the
-// ORBIT_OAUTH_CLIENTS_CONFIG environment variable.
-func oauthClientsPath() string { return os.Getenv(oauthClientsEnvVar) }
-
 // staticClientEntry is the wire shape of one element of oauth-clients.json —
 // the runtime contract the operator's OAuthClientAggregator renders. TenantID
 // is carried for provenance; the authorization server resolves by client_id.

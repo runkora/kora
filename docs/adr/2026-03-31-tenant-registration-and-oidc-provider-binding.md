@@ -9,9 +9,9 @@
 
 ## Context
 
-[unified-identity-model](2026-03-05-unified-identity-model.md) established the foundational identity model for Orbit. It declared, as first-class requirements:
+[unified-identity-model](2026-03-05-unified-identity-model.md) established the foundational identity model for kora. It declared, as first-class requirements:
 
-> *"Each tenant may have its own OIDC/SAML federation configuration. Orbit supports multiple upstream IdP registrations, each scoped to a tenant."*
+> *"Each tenant may have its own OIDC/SAML federation configuration. kora supports multiple upstream IdP registrations, each scoped to a tenant."*
 > *"Multi-tenancy is enforced at the identity layer — tenant isolation cannot be accidentally bypassed by omission."*
 
 The current implementation has `tenant_id` as a field on `Principal`, `Session`, and JWT claims, and the `identity_sessions` table has a `tenant_id NOT NULL` column. However, several critical requirements from [unified-identity-model](2026-03-05-unified-identity-model.md) are not yet implemented:
@@ -27,7 +27,7 @@ The identity gaps exist because [unified-identity-model](2026-03-05-unified-iden
 
 ### Why Tenant Config Cannot Live in the Service YAML Files
 
-Orbit's service YAML files (`internal/identity/config/local.yaml`, `development.yaml`, `production.yaml`) are **baked into the container image at build time** via the Dockerfile `find /app -path "*/config/*.yaml"` step. This means they are build-time artifacts, not runtime configuration.
+kora's service YAML files (`internal/identity/config/local.yaml`, `development.yaml`, `production.yaml`) are **baked into the container image at build time** via the Dockerfile `find /app -path "*/config/*.yaml"` step. This means they are build-time artifacts, not runtime configuration.
 
 Tenant configuration is fundamentally different in nature:
 
@@ -58,7 +58,7 @@ The answer depends on the operational model of the deployment. Three patterns ex
 - **Platform-admin bootstrap** — a privileged root credential exists at install time; the platform admin registers tenants via an API
 - **Operator-managed, infrastructure-declared** — tenants are declared as configuration in the deployment repository, applied by whoever controls the cluster (Dex, Vault, Keycloak in operator mode)
 
-Orbit's current deployment model is explicitly operator-managed: Helm charts are provided for others to deploy into their environments, and the platform team maintains a separate deployment repository for internal environments. This is not a SaaS product with self-service sign-up at this stage.
+kora's current deployment model is explicitly operator-managed: Helm charts are provided for others to deploy into their environments, and the platform team maintains a separate deployment repository for internal environments. This is not a SaaS product with self-service sign-up at this stage.
 
 ### Problem Statement
 
@@ -95,7 +95,7 @@ The identity service needs:
 * **Binary independence**: Tenant config must be injectable at deployment time without rebuilding the image
 * **Operational simplicity**: The platform team should not own or manage individual user membership; that must remain with the customer's IdP
 * **Local dev experience**: The `make dev-up` + `make dev` flows must remain zero-config — no extra init jobs, seeds, or out-of-band setup
-* **Deployment model alignment**: Orbit ships Helm charts; tenant configuration is operator-provided infrastructure config, mounted at runtime
+* **Deployment model alignment**: kora ships Helm charts; tenant configuration is operator-provided infrastructure config, mounted at runtime
 * **Evolution path**: The solution should not close off the future operator/CRD model
 
 ---
@@ -153,7 +153,7 @@ This is exactly the pattern used by Dex (`dex serve /etc/dex/config.yaml`), Prom
 
 ### Option 4: Kubernetes CRD with an operator controller
 
-**Description:** Define a `Tenant` CRD (`orbit.io/v1alpha1`). An Orbit controller reconciles CRDs into in-memory state consumed by the identity service.
+**Description:** Define a `Tenant` CRD (`orbit.io/v1alpha1`). A kora controller reconciles CRDs into in-memory state consumed by the identity service.
 
 **Pros:**
 - Fully declarative and Kubernetes-native
@@ -188,11 +188,11 @@ This is the same separation made by every comparable platform tool.
 
 #### Why OIDC Issuer as the Membership Boundary
 
-The platform team should never own individual user membership. If a tenant has registered their Entra ID tenant as their OIDC issuer, whoever can authenticate against that Entra tenant is a member of the Orbit tenant — Orbit enforces nothing more granular than that at the identity layer. Role assignment and fine-grained authorisation are handled by the policy engine ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)).
+The platform team should never own individual user membership. If a tenant has registered their Entra ID tenant as their OIDC issuer, whoever can authenticate against that Entra tenant is a member of the kora tenant — kora enforces nothing more granular than that at the identity layer. Role assignment and fine-grained authorisation are handled by the policy engine ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)).
 
 This is correct because:
 - The customer already manages their user directory in their IdP
-- Duplicating membership in Orbit creates synchronisation drift
+- Duplicating membership in kora creates synchronisation drift
 - Deprovisioning a user in Entra automatically revokes their ability to obtain a new platform token
 - The OIDC `iss` claim is cryptographically bound to the issuing provider — it cannot be spoofed by the client
 
@@ -437,7 +437,7 @@ The Helm chart renders:
 2. The ConfigMap is mounted at `/etc/orbit/tenants.yaml` in the identity service pod
 3. Client secrets are stored in Kubernetes Secrets and exposed as environment variables in the pod spec via `env[].valueFrom.secretKeyRef`
 
-The deployment repository owns the tenant configuration. The Orbit repository owns the schema and the loader. Neither owns the other's data.
+The deployment repository owns the tenant configuration. The kora repository owns the schema and the loader. Neither owns the other's data.
 
 ---
 

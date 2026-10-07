@@ -18,8 +18,8 @@ const runTokenHeader = "X-Orbit-Run-Token"
 // what makes a caller a particular run.
 //
 // It lives in the run's workspace, the one place a sibling run cannot reach:
-// orbit-session-runner confines each agent to RWDirs(workDir) and gives it its
-// own PID namespace, so neither another run's files nor its environment are
+// orbit-session-runner confines each agent to RWDirs(workDir) and a Landlock
+// domain of its own, so neither another run's files nor its environment are
 // readable. On the workspace volume it also survives a pod restart, which is
 // what lets a restarted pod verify a caller at all.
 //

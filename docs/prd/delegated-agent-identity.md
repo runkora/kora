@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Every agent in Orbit acts as itself, with its own standing access, regardless of who starts it. A user with read-only access can start an agent that holds write access, and the agent will write, so the user has escalated their access by proxy. This introduces a second kind of agent that acts on behalf of the person who runs it: bounded by exactly that person's access, attributed to them, and with its runs visible only to them. It makes Orbit's central claim, that an agent can never access more than the person who delegated to it, true for the human-initiated case.
+Every agent in kora acts as itself, with its own standing access, regardless of who starts it. A user with read-only access can start an agent that holds write access, and the agent will write, so the user has escalated their access by proxy. This introduces a second kind of agent that acts on behalf of the person who runs it: bounded by exactly that person's access, attributed to them, and with its runs visible only to them. It makes kora's central claim, that an agent can never access more than the person who delegated to it, true for the human-initiated case.
 
 ---
 
@@ -33,7 +33,7 @@ Every agent in Orbit acts as itself, with its own standing access, regardless of
 
 ### Business Impact
 
-- Orbit's stated position is that a person can delegate to an agent with defined scope and full accountability, and that the agent can never access more than the delegator. For human-initiated runs that is not true today, because no delegation takes place.
+- kora's stated position is that a person can delegate to an agent with defined scope and full accountability, and that the agent can never access more than the delegator. For human-initiated runs that is not true today, because no delegation takes place.
 - Access-by-proxy escalation is a compliance problem. Asked whether a user can exceed their permissions by going through an agent, the honest answer today is yes.
 - Agents cannot be shared safely. Teams either over-grant a shared agent or maintain one agent per person, and both are bad outcomes.
 - Without private runs, the product cannot be used for work that involves anything sensitive, which excludes most of the work customers would want to put through it.

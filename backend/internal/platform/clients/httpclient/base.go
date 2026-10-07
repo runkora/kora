@@ -1,5 +1,5 @@
 // Package httpclient provides the shared HTTP client foundation for all
-// Orbit platform HTTP calls — both first-party service-to-service calls and
+// kora platform HTTP calls — both first-party service-to-service calls and
 // calls through third-party provider SDKs (e.g. anthropic-sdk-go, openai-go).
 //
 // # Choosing the right pattern
@@ -97,7 +97,7 @@ var (
 	ErrEncodeBody = errors.New("failed to encode request body")
 )
 
-// Base is the shared foundation for all Orbit service-to-service HTTP clients.
+// Base is the shared foundation for all kora service-to-service HTTP clients.
 //
 // Embed *Base in a service-specific client struct — do not use Base directly.
 // The zero value is not usable; construct with New.

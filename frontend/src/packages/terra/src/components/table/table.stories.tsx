@@ -2,578 +2,491 @@
 
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
+import { Badge } from '../badge';
+import { Button } from '../button';
+import { Skeleton } from '../skeleton';
+import { Code } from '../typography';
 import {
-  // Base primitives
-  TableRoot,
   Table,
-  TableHeader,
   TableBody,
-  TableFooter,
-  TableRow,
-  TableHead,
-  TableCell,
   TableCaption,
-  // Extras
+  TableCell,
+  TableColumnHeader,
   TableContainer,
   TableEmpty,
-  // Toolbar
+  TableFooter,
+  TableHead,
+  TableHeader,
+  TableRoot,
+  TableRow,
   TableToolbar,
   TableToolbarShell,
-  // Column header
-  TableColumnHeader,
-  // Utilities
   nextSortDir,
 } from './index';
-import type { SortDir, TableColumnVisibility, TableColumnFilter } from './index';
+import type { SortDir, TableColumnFilter, TableColumnVisibility } from './index';
 
-// ── Meta ──────────────────────────────────────────────────────────────────────
-
-const meta: Meta = {
+/**
+ * Table
+ *
+ * Shows rows of data in columns. Build it from a header and a body, and add a toolbar and sortable
+ * column headers when people need to search, sort or filter.
+ */
+const meta: Meta<typeof Table> = {
   title: 'Terra/Molecules/Table',
-  parameters: {
-    layout: 'centered',
-    backgrounds: { default: 'orbit' },
-  },
+  component: Table,
   tags: ['autodocs'],
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
-type Story = StoryObj;
+type Story = StoryObj<typeof Table>;
 
-// ── Fixtures ──────────────────────────────────────────────────────────────────
+type Status = 'Running' | 'Idle' | 'Suspended' | 'Error';
 
-const agents = [
-  { id: 'apollo-3', status: 'Running', tools: 3, uptime: '4d 12h', cpu: '42%' },
-  { id: 'hermes-1', status: 'Idle', tools: 0, uptime: '2d 3h', cpu: '1%' },
-  { id: 'minerva-2', status: 'Suspended', tools: 1, uptime: '0d 8h', cpu: '0%' },
-  { id: 'daedalus-4', status: 'Error', tools: 2, uptime: '1d 1h', cpu: '89%' },
-  { id: 'icarus-5', status: 'Running', tools: 4, uptime: '6d 22h', cpu: '61%' },
+const agents: { name: string; status: Status; runs: number; cost: string }[] = [
+  { name: 'apollo-3', status: 'Running', runs: 412, cost: '$4.12' },
+  { name: 'hermes-1', status: 'Idle', runs: 87, cost: '$1.87' },
+  { name: 'minerva-2', status: 'Suspended', runs: 254, cost: '$2.54' },
+  { name: 'daedalus-4', status: 'Error', runs: 63, cost: '$0.63' },
+  { name: 'icarus-5', status: 'Running', runs: 329, cost: '$3.29' },
 ];
 
-const credentials = [
-  { name: 'prod-s3-read', type: 'AWS IAM', scope: 's3:GetObject', expires: '2d' },
-  { name: 'gh-actions-token', type: 'GitHub', scope: 'repo:read', expires: '12h' },
-  { name: 'pg-readonly', type: 'Postgres', scope: 'SELECT', expires: '30d' },
-  { name: 'vault-transit', type: 'Vault', scope: 'encrypt', expires: '6h' },
+const statusOptions: TableColumnFilter['options'] = [
+  { value: 'Running', label: 'Running', dot: 'bg-status-healthy' },
+  { value: 'Idle', label: 'Idle', dot: 'bg-status-idle' },
+  { value: 'Suspended', label: 'Suspended', dot: 'bg-status-pending' },
+  { value: 'Error', label: 'Error', dot: 'bg-status-error' },
 ];
 
-const resources = [
-  { resource: 'CPU cores', allocated: '32', used: '18' },
-  { resource: 'Memory (GiB)', allocated: '128', used: '74' },
-  { resource: 'Disk (TiB)', allocated: '10', used: '3.2' },
-  { resource: 'Network (Gbps)', allocated: '40', used: '12' },
-];
+const statusVariant = {
+  Running: 'healthy',
+  Idle: 'idle',
+  Suspended: 'pending',
+  Error: 'error',
+} as const;
 
-// ── 1. Default — basic table ──────────────────────────────────────────────────
+function StatusBadge({ status }: { status: Status }) {
+  return <Badge variant={statusVariant[status]}>{status}</Badge>;
+}
 
-export const Default: Story = {
-  name: 'Default',
-  render: () => (
-    <div className="w-[560px]">
+/** A small static table of agents, with optional extra parts inside the table element. */
+function AgentTable({
+  rows = agents,
+  children,
+}: {
+  rows?: typeof agents;
+  children?: React.ReactNode;
+}) {
+  return (
+    <TableRoot>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Agent</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead align="right">Runs</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((agent) => (
+            <TableRow key={agent.name}>
+              <TableCell>
+                <Code>{agent.name}</Code>
+              </TableCell>
+              <TableCell>
+                <StatusBadge status={agent.status} />
+              </TableCell>
+              <TableCell className="text-right">{agent.runs}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+        {children}
+      </Table>
+    </TableRoot>
+  );
+}
+
+function toggleValue(set: Set<string>, value: string) {
+  const next = new Set(set);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
+
+function AgentsOverview() {
+  const [query, setQuery] = useState('');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
+  const [statuses, setStatuses] = useState<Set<string>>(new Set());
+  const [columns, setColumns] = useState<TableColumnVisibility[]>([
+    { id: 'status', label: 'Status', visible: true },
+    { id: 'runs', label: 'Runs', visible: true },
+    { id: 'cost', label: 'Cost', visible: true },
+  ]);
+
+  const shown = (id: string) => columns.find((c) => c.id === id)?.visible;
+  const rows = agents
+    .filter((a) => a.name.includes(query.toLowerCase()))
+    .filter((a) => statuses.size === 0 || statuses.has(a.status))
+    .sort((a, b) => (sortDir === 'asc' ? a.runs - b.runs : b.runs - a.runs));
+  const visibleCount = 1 + columns.filter((c) => c.visible).length;
+
+  return (
+    <TableContainer>
+      <TableToolbar
+        search={{ value: query, onChange: setQuery, placeholder: 'Search agents' }}
+        count={{ showing: rows.length, total: agents.length, label: 'agents' }}
+        columns={{
+          items: columns,
+          onToggle: (id) =>
+            setColumns((prev) =>
+              prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)),
+            ),
+        }}
+      />
       <TableRoot>
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Agent ID</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Tools</TableHead>
-              <TableHead>Uptime</TableHead>
-              <TableHead>CPU</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {agents.map((agent) => (
-              <TableRow key={agent.id}>
-                <TableCell>
-                  <code>{agent.id}</code>
-                </TableCell>
-                <TableCell>{agent.status}</TableCell>
-                <TableCell>{agent.tools}</TableCell>
-                <TableCell>{agent.uptime}</TableCell>
-                <TableCell>{agent.cpu}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableRoot>
-    </div>
-  ),
-};
-
-// ── 2. With caption ───────────────────────────────────────────────────────────
-
-export const WithCaption: Story = {
-  name: 'With Caption',
-  render: () => (
-    <div className="w-[560px]">
-      <TableRoot>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Agent ID</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Tools</TableHead>
-              <TableHead>CPU</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {agents.map((agent) => (
-              <TableRow key={agent.id}>
-                <TableCell>
-                  <code>{agent.id}</code>
-                </TableCell>
-                <TableCell>{agent.status}</TableCell>
-                <TableCell>{agent.tools}</TableCell>
-                <TableCell>{agent.cpu}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-          <TableCaption>5 agents · last refreshed just now</TableCaption>
-        </Table>
-      </TableRoot>
-    </div>
-  ),
-};
-
-// ── 3. With footer ────────────────────────────────────────────────────────────
-
-export const WithFooter: Story = {
-  name: 'With Footer',
-  render: () => (
-    <div className="w-[400px]">
-      <TableRoot>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Resource</TableHead>
-              <TableHead>Allocated</TableHead>
-              <TableHead>Used</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {resources.map((row) => (
-              <TableRow key={row.resource}>
-                <TableCell>{row.resource}</TableCell>
-                <TableCell>{row.allocated}</TableCell>
-                <TableCell>{row.used}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-          <TableFooter>
-            <TableRow>
-              <TableCell>Total</TableCell>
-              <TableCell>—</TableCell>
-              <TableCell>—</TableCell>
-            </TableRow>
-          </TableFooter>
-        </Table>
-      </TableRoot>
-    </div>
-  ),
-};
-
-// ── 4. Credentials ────────────────────────────────────────────────────────────
-
-export const Credentials: Story = {
-  name: 'Credentials',
-  render: () => (
-    <div className="w-[540px]">
-      <TableRoot>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Type</TableHead>
-              <TableHead>Scope</TableHead>
-              <TableHead>Expires</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {credentials.map((cred) => (
-              <TableRow key={cred.name}>
-                <TableCell>
-                  <code>{cred.name}</code>
-                </TableCell>
-                <TableCell>{cred.type}</TableCell>
-                <TableCell>
-                  <code>{cred.scope}</code>
-                </TableCell>
-                <TableCell>{cred.expires}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </TableRoot>
-    </div>
-  ),
-};
-
-// ── 5. TableContainer — card shell ────────────────────────────────────────────
-
-export const WithContainer: Story = {
-  name: 'TableContainer (card shell)',
-  render: () => (
-    <div className="w-[560px]">
-      <TableContainer>
-        <TableRoot>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Agent ID</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Tools</TableHead>
-                <TableHead>Uptime</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {agents.map((agent) => (
-                <TableRow key={agent.id}>
-                  <TableCell>
-                    <code>{agent.id}</code>
-                  </TableCell>
-                  <TableCell>{agent.status}</TableCell>
-                  <TableCell>{agent.tools}</TableCell>
-                  <TableCell>{agent.uptime}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableRoot>
-      </TableContainer>
-    </div>
-  ),
-};
-
-// ── 6. TableEmpty ─────────────────────────────────────────────────────────────
-
-export const Empty: Story = {
-  name: 'TableEmpty',
-  render: () => (
-    <div className="w-[480px]">
-      <TableRoot>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Agent ID</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Tools</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            <TableEmpty colSpan={3} message="No agents found." />
-          </TableBody>
-        </Table>
-      </TableRoot>
-    </div>
-  ),
-};
-
-// ── 7. TableColumnHeader — sort only ─────────────────────────────────────────
-
-export const ColumnHeaderSort: Story = {
-  name: 'TableColumnHeader — Sort',
-  render: () => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [sortCol, setSortCol] = useState<string>('name');
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [sortDir, setSortDir] = useState<SortDir>('asc');
-
-    function handleSort(col: string) {
-      if (sortCol === col) {
-        setSortDir((d) => nextSortDir(d));
-      } else {
-        setSortCol(col);
-        setSortDir('asc');
-      }
-    }
-
-    return (
-      <div className="w-[480px]">
-        <TableRoot>
-          <Table>
-            <TableHeader>
-              <TableRow>
+              <TableHead>Agent</TableHead>
+              {shown('status') && (
                 <TableColumnHeader
-                  sortDir={sortCol === 'name' ? sortDir : null}
-                  onSort={() => handleSort('name')}
-                >
-                  Name
-                </TableColumnHeader>
-                <TableColumnHeader
-                  sortDir={sortCol === 'status' ? sortDir : null}
-                  onSort={() => handleSort('status')}
+                  filter={{
+                    options: statusOptions,
+                    selected: statuses,
+                    onToggle: (v) => setStatuses((prev) => toggleValue(prev, v)),
+                    onClear: () => setStatuses(new Set()),
+                  }}
                 >
                   Status
                 </TableColumnHeader>
+              )}
+              {shown('runs') && (
                 <TableColumnHeader
                   align="right"
-                  sortDir={sortCol === 'cpu' ? sortDir : null}
-                  onSort={() => handleSort('cpu')}
-                >
-                  CPU
-                </TableColumnHeader>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {agents.map((agent) => (
-                <TableRow key={agent.id}>
-                  <TableCell>
-                    <code>{agent.id}</code>
-                  </TableCell>
-                  <TableCell>{agent.status}</TableCell>
-                  <TableCell>{agent.cpu}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableRoot>
-      </div>
-    );
-  },
-};
-
-// ── 8. TableColumnHeader — filter only ───────────────────────────────────────
-
-const STATUS_OPTS: TableColumnFilter['options'] = [
-  { value: 'Running', label: 'Running' },
-  { value: 'Idle', label: 'Idle' },
-  { value: 'Suspended', label: 'Suspended' },
-  { value: 'Error', label: 'Error' },
-];
-
-export const ColumnHeaderFilter: Story = {
-  name: 'TableColumnHeader — Filter',
-  render: () => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [selected, setSelected] = useState<Set<string>>(new Set());
-
-    function toggleStatus(v: string) {
-      setSelected((prev) => {
-        const next = new Set(prev);
-        if (next.has(v)) next.delete(v);
-        else next.add(v);
-        return next;
-      });
-    }
-
-    const filtered = selected.size > 0 ? agents.filter((a) => selected.has(a.status)) : agents;
-
-    return (
-      <div className="w-[480px]">
-        <TableRoot>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Agent ID</TableHead>
-                <TableColumnHeader
-                  filter={{
-                    options: STATUS_OPTS,
-                    selected,
-                    onToggle: toggleStatus,
-                    onClear: () => setSelected(new Set()),
-                  }}
-                >
-                  Status
-                </TableColumnHeader>
-                <TableHead>Tools</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.length === 0 ? (
-                <TableEmpty colSpan={3} message="No agents match this filter." />
-              ) : (
-                filtered.map((agent) => (
-                  <TableRow key={agent.id}>
-                    <TableCell>
-                      <code>{agent.id}</code>
-                    </TableCell>
-                    <TableCell>{agent.status}</TableCell>
-                    <TableCell>{agent.tools}</TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </TableRoot>
-      </div>
-    );
-  },
-};
-
-// ── 9. TableColumnHeader — sort + filter ─────────────────────────────────────
-
-export const ColumnHeaderSortAndFilter: Story = {
-  name: 'TableColumnHeader — Sort + Filter',
-  render: () => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [sortDir, setSortDir] = useState<SortDir>('asc');
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [statusFilter, setStatusFilter] = useState<Set<string>>(new Set());
-
-    const sorted = [...agents].sort((a, b) =>
-      sortDir === 'asc' ? a.id.localeCompare(b.id) : b.id.localeCompare(a.id),
-    );
-    const filtered =
-      statusFilter.size > 0 ? sorted.filter((a) => statusFilter.has(a.status)) : sorted;
-
-    function toggleStatus(v: string) {
-      setStatusFilter((prev) => {
-        const next = new Set(prev);
-        if (next.has(v)) next.delete(v);
-        else next.add(v);
-        return next;
-      });
-    }
-
-    return (
-      <div className="w-[480px]">
-        <TableRoot>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableColumnHeader
                   sortDir={sortDir}
-                  onSort={() => setSortDir((d) => nextSortDir(d))}
+                  onSort={() => setSortDir((d) => nextSortDir(d) ?? 'asc')}
                 >
-                  Agent ID
+                  Runs
                 </TableColumnHeader>
-                <TableColumnHeader
-                  filter={{
-                    options: STATUS_OPTS,
-                    selected: statusFilter,
-                    onToggle: toggleStatus,
-                    onClear: () => setStatusFilter(new Set()),
-                  }}
-                >
-                  Status
-                </TableColumnHeader>
-                <TableHead>Tools</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.length === 0 ? (
-                <TableEmpty colSpan={3} message="No agents match this filter." />
-              ) : (
-                filtered.map((agent) => (
-                  <TableRow key={agent.id}>
-                    <TableCell>
-                      <code>{agent.id}</code>
-                    </TableCell>
-                    <TableCell>{agent.status}</TableCell>
-                    <TableCell>{agent.tools}</TableCell>
-                  </TableRow>
-                ))
               )}
-            </TableBody>
-          </Table>
-        </TableRoot>
-      </div>
-    );
-  },
-};
+              {shown('cost') && <TableHead align="right">Cost</TableHead>}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableEmpty colSpan={visibleCount} message="No agents match." />
+            ) : (
+              rows.map((agent) => (
+                <TableRow key={agent.name}>
+                  <TableCell>
+                    <Code>{agent.name}</Code>
+                  </TableCell>
+                  {shown('status') && (
+                    <TableCell>
+                      <StatusBadge status={agent.status} />
+                    </TableCell>
+                  )}
+                  {shown('runs') && <TableCell className="text-right">{agent.runs}</TableCell>}
+                  {shown('cost') && <TableCell className="text-right">{agent.cost}</TableCell>}
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableRoot>
+    </TableContainer>
+  );
+}
 
-// ── 10. Toolbar stories ───────────────────────────────────────────────────────
-//
-// One story per prop group so each can be understood in isolation,
-// then a combined story showing all three groups together.
-
-const TOOLBAR_COLS: TableColumnVisibility[] = [
-  { id: 'status', label: 'Status', visible: true },
-  { id: 'tools', label: 'Tools', visible: true },
-  { id: 'uptime', label: 'Uptime', visible: false },
-  { id: 'cpu', label: 'CPU', visible: false },
-];
-
-// 10a — search group only
-export const ToolbarSearch: Story = {
-  name: 'TableToolbar — search',
-  render: () => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [q, setQ] = useState('');
-    return (
-      <div className="w-[480px]">
-        <TableContainer>
-          <TableToolbar search={{ value: q, onChange: setQ, placeholder: 'Search agents…' }} />
-        </TableContainer>
-      </div>
-    );
-  },
-};
-
-// 10b — count group only
-export const ToolbarCount: Story = {
-  name: 'TableToolbar — count',
+export const Overview: Story = {
   render: () => (
-    <div className="w-[480px]">
-      <TableContainer>
-        <TableToolbar count={{ showing: 3, total: 5, label: 'agents' }} />
-      </TableContainer>
+    <div className="max-w-3xl space-y-8">
+      <Example title="Search, filter, sort and hide columns">
+        <AgentsOverview />
+      </Example>
+      <Example title="A plain table">
+        <TableContainer>
+          <AgentTable />
+        </TableContainer>
+      </Example>
     </div>
   ),
 };
 
-// 10c — columns group only
-export const ToolbarColumns: Story = {
-  name: 'TableToolbar — columns toggle',
-  render: () => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [cols, setCols] = useState<TableColumnVisibility[]>(TOOLBAR_COLS);
-    function toggle(id: string) {
-      setCols((prev) => prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)));
-    }
-    return (
-      <div className="w-[480px]">
-        <TableContainer>
-          <TableToolbar columns={{ items: cols, onToggle: toggle }} />
-        </TableContainer>
-      </div>
-    );
-  },
-};
+function SortDemo() {
+  const [dir, setDir] = useState<SortDir>('asc');
+  const rows = [...agents].sort((a, b) =>
+    dir === 'desc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name),
+  );
+  return (
+    <TableContainer>
+      <TableRoot>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableColumnHeader sortDir={dir} onSort={() => setDir((d) => nextSortDir(d))}>
+                Agent
+              </TableColumnHeader>
+              <TableHead>Status</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.slice(0, 3).map((agent) => (
+              <TableRow key={agent.name}>
+                <TableCell>
+                  <Code>{agent.name}</Code>
+                </TableCell>
+                <TableCell>
+                  <StatusBadge status={agent.status} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableRoot>
+    </TableContainer>
+  );
+}
 
-// 10d — all three groups together (isolated toolbar demo, no table rows)
-export const Toolbar: Story = {
-  name: 'TableToolbar — all groups',
-  render: () => {
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [q, setQ] = useState('');
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    const [cols, setCols] = useState<TableColumnVisibility[]>(TOOLBAR_COLS);
+function FilterDemo({ withSort = false }: { withSort?: boolean }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(['Running']));
+  const [dir, setDir] = useState<SortDir>('asc');
+  const rows = agents
+    .filter((a) => selected.size === 0 || selected.has(a.status))
+    .sort((a, b) => (dir === 'desc' ? b.runs - a.runs : a.runs - b.runs));
+  return (
+    <TableContainer>
+      <TableRoot>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Agent</TableHead>
+              <TableColumnHeader
+                filter={{
+                  options: statusOptions,
+                  selected,
+                  onToggle: (v) => setSelected((prev) => toggleValue(prev, v)),
+                  onClear: () => setSelected(new Set()),
+                }}
+              >
+                Status
+              </TableColumnHeader>
+              {withSort ? (
+                <TableColumnHeader
+                  align="right"
+                  sortDir={dir}
+                  onSort={() => setDir((d) => nextSortDir(d))}
+                >
+                  Runs
+                </TableColumnHeader>
+              ) : (
+                <TableHead align="right">Runs</TableHead>
+              )}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {rows.length === 0 ? (
+              <TableEmpty colSpan={3} message="No agents match." />
+            ) : (
+              rows.map((agent) => (
+                <TableRow key={agent.name}>
+                  <TableCell>
+                    <Code>{agent.name}</Code>
+                  </TableCell>
+                  <TableCell>
+                    <StatusBadge status={agent.status} />
+                  </TableCell>
+                  <TableCell className="text-right">{agent.runs}</TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableRoot>
+    </TableContainer>
+  );
+}
 
-    function toggle(id: string) {
-      setCols((prev) => prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)));
-    }
+function SearchDemo() {
+  const [query, setQuery] = useState('');
+  return (
+    <TableContainer>
+      <TableToolbar search={{ value: query, onChange: setQuery, placeholder: 'Search agents' }} />
+    </TableContainer>
+  );
+}
 
-    const showing = agents.filter((a) => !q || a.id.toLowerCase().includes(q.toLowerCase())).length;
+function ColumnsDemo() {
+  const [columns, setColumns] = useState<TableColumnVisibility[]>([
+    { id: 'status', label: 'Status', visible: true },
+    { id: 'runs', label: 'Runs', visible: true },
+    { id: 'cost', label: 'Cost', visible: false },
+  ]);
+  return (
+    <TableContainer>
+      <TableToolbar
+        columns={{
+          items: columns,
+          onToggle: (id) =>
+            setColumns((prev) =>
+              prev.map((c) => (c.id === id ? { ...c, visible: !c.visible } : c)),
+            ),
+        }}
+      />
+    </TableContainer>
+  );
+}
 
-    return (
-      <div className="w-[640px]">
-        <TableContainer>
-          <TableToolbar
-            search={{ value: q, onChange: setQ, placeholder: 'Search agents…' }}
-            count={{ showing, total: agents.length, label: 'agents' }}
-            columns={{ items: cols, onToggle: toggle }}
-          />
-        </TableContainer>
-      </div>
-    );
-  },
-};
-
-// ── TableToolbarShell ─────────────────────────────────────────────────────────
-
-import { Skeleton } from '../skeleton';
-
-/** TableToolbarShell — bare container for skeleton placeholders and custom toolbar content */
-export const ToolbarShell: StoryObj = {
-  name: 'TableToolbarShell — skeleton',
+export const Options: Story = {
   render: () => (
-    <TableToolbarShell>
-      <Skeleton shape="block" width="quarter" size="sm" />
-      <div style={{ marginLeft: 'auto', display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-        <Skeleton shape="line" width="quarter" size="xs" />
-        <Skeleton shape="block" width="quarter" size="sm" />
-      </div>
-    </TableToolbarShell>
+    <div className="max-w-5xl space-y-10">
+      <OptionTable
+        title="Table parts"
+        note="TableRoot scrolls a wide table sideways. TableContainer adds the rounded border."
+      >
+        <Option name="TableContainer" use="A rounded border around a toolbar and a table.">
+          <TableContainer>
+            <AgentTable rows={agents.slice(0, 2)} />
+          </TableContainer>
+        </Option>
+        <Option
+          name='TableHead align="right"'
+          use="Line a header up with a column of numbers. Also accepts center."
+        >
+          <AgentTable rows={agents.slice(0, 2)} />
+        </Option>
+        <Option
+          name="TableHead srOnly"
+          use="Hide a header from view but keep it for screen readers, such as an actions column."
+        >
+          <TableRoot>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Agent</TableHead>
+                  <TableHead srOnly>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {agents.slice(0, 2).map((agent) => (
+                  <TableRow key={agent.name}>
+                    <TableCell>
+                      <Code>{agent.name}</Code>
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="ghost">
+                        Open
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableRoot>
+        </Option>
+        <Option name='TableRow data-selected="true"' use="Tint a row to show it is selected.">
+          <TableRoot>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Agent</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {agents.slice(0, 3).map((agent, i) => (
+                  <TableRow key={agent.name} data-selected={i === 1}>
+                    <TableCell>
+                      <Code>{agent.name}</Code>
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge status={agent.status} />
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableRoot>
+        </Option>
+        <Option name="TableCaption" use="A short note under the table, such as a row count.">
+          <AgentTable rows={agents.slice(0, 2)}>
+            <TableCaption>5 agents, refreshed just now</TableCaption>
+          </AgentTable>
+        </Option>
+        <Option name="TableFooter" use="A closing row for totals.">
+          <AgentTable rows={agents.slice(0, 2)}>
+            <TableFooter>
+              <TableRow>
+                <TableCell>Total</TableCell>
+                <TableCell />
+                <TableCell className="text-right">499</TableCell>
+              </TableRow>
+            </TableFooter>
+          </AgentTable>
+        </Option>
+        <Option name="TableEmpty" use="A single row that says there is nothing to show.">
+          <AgentTable rows={[]}>
+            <TableBody>
+              <TableEmpty colSpan={3} message="No agents yet." />
+            </TableBody>
+          </AgentTable>
+        </Option>
+      </OptionTable>
+
+      <OptionTable
+        title="Column headers"
+        note="TableColumnHeader replaces TableHead when a column can be sorted or filtered. The click cycle is ascending, descending, off."
+      >
+        <Option name="sortDir, onSort" use="Add a sort button to the header.">
+          <SortDemo />
+        </Option>
+        <Option
+          name="filter"
+          use="Add a filter menu. The icon turns to the accent colour while a filter is on."
+        >
+          <FilterDemo />
+        </Option>
+        <Option name="sortDir, onSort, filter" use="Sort and filter can sit on different columns.">
+          <FilterDemo withSort />
+        </Option>
+      </OptionTable>
+
+      <OptionTable
+        title="Toolbar"
+        note="Each group is optional. Leave one out to hide that part of the toolbar."
+      >
+        <Option name="search" use="A search box. You keep the text in your own state.">
+          <SearchDemo />
+        </Option>
+        <Option name="count" use='Shows "Showing 3 of 5 agents". Set label to the row name.'>
+          <TableContainer>
+            <TableToolbar count={{ showing: 3, total: 5, label: 'agents' }} />
+          </TableContainer>
+        </Option>
+        <Option name="columns" use="A Columns button that lets people show and hide columns.">
+          <ColumnsDemo />
+        </Option>
+        <Option name="actions" use="Any extra controls, placed after the search box.">
+          <TableContainer>
+            <TableToolbar actions={<Button size="sm">New agent</Button>} />
+          </TableContainer>
+        </Option>
+        <Option
+          name="TableToolbarShell"
+          use="The bare toolbar strip. Use it for loading placeholders or custom content."
+        >
+          <TableContainer>
+            <TableToolbarShell>
+              <Skeleton shape="block" width="quarter" size="sm" />
+              <div className="ml-auto flex items-center gap-3">
+                <Skeleton shape="line" width="quarter" size="xs" />
+                <Skeleton shape="block" width="quarter" size="sm" />
+              </div>
+            </TableToolbarShell>
+          </TableContainer>
+        </Option>
+      </OptionTable>
+    </div>
   ),
 };

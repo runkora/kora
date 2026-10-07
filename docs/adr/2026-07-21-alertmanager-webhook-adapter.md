@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-07-21-alertmanager-webhook-adapter.md -->
 
-**Status:** Proposed
+**Status:** Accepted (the curated field set, sub-decision 3 and the injection-hardening non-goal superseded in part by [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) 2026-09-29)
 **Date:** 2026-07-21
 **Deciders:** Tom Morelly, Platform Engineering
 **Technical Story:** Second webhook source adapter for the Triggers framework — start agent runs from Prometheus Alertmanager notifications (on-call triage, alert-driven remediation, incident context gathering).
@@ -36,7 +36,7 @@ How should the Alertmanager adapter authenticate deliveries, expose an `event_ty
 ### Non-Goals
 
 - Additional non-GitHub adapters (Grafana OnCall, PagerDuty, generic HMAC) — separate ADRs if wanted.
-- Automatic registration of the Orbit webhook receiver in Alertmanager configuration (admins paste it manually, same as GitHub).
+- Automatic registration of the kora webhook receiver in Alertmanager configuration (admins paste it manually, same as GitHub).
 - Per-alert fan-out — one delivery still produces at most one matched dispatch per trigger, over the aggregated fields. Users needing per-alert semantics should split their alerts at the Prometheus rule / Alertmanager routing level.
 - Prompt-templating injection hardening — deferred platform-wide, as with GitHub `pr.title` / `issue.body`. Annotation text authored in Prometheus rules is treated as untrusted data.
 - Rich Alertmanager response semantics — the receiver returns 2xx as long as the delivery was verified and recorded; we do not encode retry hints for Alertmanager.
@@ -48,7 +48,7 @@ How should the Alertmanager adapter authenticate deliveries, expose an `event_ty
 
 * **Adapter interface stability** — the `SourceAdapter` contract should extend, not fragment. If the interface has to change, the change must be minimal and equally reasonable for future adapters.
 * **Fail-closed dedup** — the ADR-mandated `ErrMissingDeliveryID` guard on `Service.Ingest` must apply to every adapter uniformly; no adapter gets to skip it.
-* **Idiomatic authentication** — Orbit's own machine-to-machine calls use bearer tokens on `Authorization`; a webhook adapter that speaks a different auth idiom is a compatibility cost operators pay forever.
+* **Idiomatic authentication** — kora's own machine-to-machine calls use bearer tokens on `Authorization`; a webhook adapter that speaks a different auth idiom is a compatibility cost operators pay forever.
 * **90% field coverage** — most trigger conditions gate on a small set of labels; the field map should surface them by natural dotted keys rather than force every trigger author to reason about the raw payload.
 * **No schema change** — `webhook_sources.provider`, `triggers.event_type`, and the deliveries table are already `TEXT`; a new adapter that needed a migration would be a signal we misdesigned in June, not that we should migrate now.
 
@@ -66,7 +66,7 @@ Two independent axes shape the adapter: **authentication** and **event/dedup**. 
 
 **Pros:**
 - Native to Alertmanager configuration — no signing proxy, no shim.
-- Matches how Orbit's own APIs authenticate (bearer platform tokens), so the mental model is consistent.
+- Matches how kora's own APIs authenticate (bearer platform tokens), so the mental model is consistent.
 - Reuses `generateSecret()`, `secretCipher`, and the "shown once" API response contract unchanged.
 
 **Cons:**
@@ -93,7 +93,7 @@ Two independent axes shape the adapter: **authentication** and **event/dedup**. 
 
 **Cons:**
 - Two secrets (username + password) where one suffices — every operator picks a placeholder username and the semantic is bearer with extra steps.
-- Bearer is the more idiomatic machine-to-machine idiom in Orbit; adopting Basic here would be gratuitous asymmetry.
+- Bearer is the more idiomatic machine-to-machine idiom in kora; adopting Basic here would be gratuitous asymmetry.
 
 ### Event/dedup axis
 
@@ -108,7 +108,7 @@ Two independent axes shape the adapter: **authentication** and **event/dedup**. 
 
 **Cons:**
 - A payload that changes only the `alerts` array (same group, same status, but a new alert added mid-window) hashes differently and dispatches again — arguably correct (there's new information) but users who want strict "one dispatch per group" have to work around it via match conditions. Aligned with the Alertmanager mental model: the aggregated notification is what the agent responds to; content changes to that notification are new signal.
-- `groupKey` is Alertmanager-internal; if two Alertmanager instances route to the same Orbit source with overlapping group keys the hash could collide across senders. In practice each source has one Alertmanager, but the collision case is easy to close: `receiver` (also part of the payload) is prepended to the hash inputs, namespacing the dedup key by sender without changing the surface for the common single-sender case.
+- `groupKey` is Alertmanager-internal; if two Alertmanager instances route to the same kora source with overlapping group keys the hash could collide across senders. In practice each source has one Alertmanager, but the collision case is easy to close: `receiver` (also part of the payload) is prepended to the hash inputs, namespacing the dedup key by sender without changing the surface for the common single-sender case.
 
 #### B2: Single `event_type` `alert`, `status` only via `match_condition`
 
@@ -140,7 +140,7 @@ Two independent axes shape the adapter: **authentication** and **event/dedup**. 
 
 ### Rationale
 
-A1 is the only auth option that respects both Alertmanager's actual configuration surface and Orbit's own idioms. A2 leaks the secret; A3 is bearer with extra steps.
+A1 is the only auth option that respects both Alertmanager's actual configuration surface and kora's own idioms. A2 leaks the secret; A3 is bearer with extra steps.
 
 B1 is the only event/dedup option that fits the pipeline unchanged: it gives us a natural event-type split (matching the GitHub `pull_request` / `push` precedent), a content-derived dedup key that respects the fail-closed guarantee, and no schema change. B2 hides the split from the UI; B3 sacrifices the platform's replay defense for one adapter.
 

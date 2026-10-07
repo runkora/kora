@@ -2,15 +2,17 @@
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
+  AgentInsightsPeriod,
+  AgentOverviewResponse,
   AgentType,
-  AgentTypeUsage,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
-  Run,
   UpdateAgentTypeRequest,
 } from '@orbit/shared/api';
-import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
-import type { AgentTypeRow, RunRow } from '../../_types';
+import { toAgentTypeRow } from '../../_types';
+import type { AgentTypeRow } from '../../_types';
+import { fetchPeriodRead, fetchRunPage, runPageSearch } from '../../_services/agents-api';
+import type { RunPageQuery } from '../../_services/agents-api';
 
 // ── fetchAgentDetail ──────────────────────────────────────────────────────────
 
@@ -104,27 +106,11 @@ export async function deleteAgentType(id: string): Promise<{ error: string | nul
 
 // ── fetchAgentRuns ────────────────────────────────────────────────────────────
 
-export async function fetchAgentRuns(
-  agentTypeId: string,
-  agentTypeRow: AgentTypeRow,
-): Promise<{ data: RunRow[]; error: string | null }> {
-  let res: Response;
-  try {
-    res = await fetch(ApiRoute.runs.listForType(agentTypeId), { cache: 'no-store' });
-  } catch {
-    return { data: [], error: 'Network error: could not reach the server.' };
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      data: [],
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
-  }
-  const body = (await res.json()) as { data: Run[] };
-  const byId = indexAgentTypes([agentTypeRow]);
-  return { data: (body.data ?? []).map((r) => toRunRow(r, byId)), error: null };
-}
+/** One page of one agent's runs, newest first. Pass the previous page's cursor for the next. */
+export const fetchAgentRuns = (agentTypeRow: AgentTypeRow, query: RunPageQuery = {}) =>
+  fetchRunPage(`${ApiRoute.runs.listForType(agentTypeRow.id)}${runPageSearch(query)}`, [
+    agentTypeRow,
+  ]);
 
 // ── deleteRun ─────────────────────────────────────────────────────────────────
 
@@ -169,24 +155,7 @@ export async function updateAgentType(
   return { agentType: toAgentTypeRow(body.data), error: null };
 }
 
-// ── fetchAgentTypeUsage ───────────────────────────────────────────────────────
+// ── fetchAgentOverview ────────────────────────────────────────────────────────
 
-export async function fetchAgentTypeUsage(
-  id: string,
-): Promise<{ usage: AgentTypeUsage | null; error: string | null }> {
-  let res: Response;
-  try {
-    res = await fetch(ApiRoute.agentTypes.usage(id), { cache: 'no-store' });
-  } catch {
-    return { usage: null, error: 'Network error: could not reach the server.' };
-  }
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      usage: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
-  }
-  const usageBody = (await res.json()) as AgentTypeUsage;
-  return { usage: usageBody, error: null };
-}
+export const fetchAgentOverview = (slug: string, period: AgentInsightsPeriod) =>
+  fetchPeriodRead<AgentOverviewResponse>(ApiRoute.agentTypes.overview(slug, period));

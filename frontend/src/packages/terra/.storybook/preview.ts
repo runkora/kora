@@ -39,11 +39,11 @@ const preview: Preview = {
      * The three values mirror Terra's surface token hierarchy so stories can
      * be verified on the actual backgrounds they will appear on in production:
      *
-     *   orbit   — `--color-background` (#060709)  — the root page background,
-     *             the darkest surface. Default because most Orbit UI renders here.
+     *   base    — `--color-background` (#0d0f11)  — the root page background,
+     *             the darkest surface. Default because most kora UI renders here.
      *
-     *   surface — `--color-surface`    (#101214)  — card and panel backgrounds,
-     *             one step lighter than orbit. Use for components that live
+     *   surface — `--color-surface`    (#1a1d20)  — card and panel backgrounds,
+     *             one step lighter than base. Use for components that live
      *             inside cards or sidebars.
      *
      *   light   — #ffffff                         — forces a white background to
@@ -54,17 +54,15 @@ const preview: Preview = {
      * Storybook's background switcher runs outside the component render tree
      * and therefore cannot read `var(--color-background)` at runtime.
      *
-     * These hexes mirror `--terra-bg-base: 13%` in tokens.css:
-     *   orbit   = oklch(13% 0.005 248) → #060709   (--terra-raw-black)
-     *   surface = oklch(18% 0.005 248) → #101214   (base + --terra-bg-step-1: 5%)
-     * If `--terra-bg-base` (or the neutral seeds) change, recompute BOTH values
+     * These hexes mirror `--terra-raw-black` and `--terra-raw-950` in tokens.css.
+     * If either changes, update BOTH values
      * together — a stale canvas colour silently misrepresents contrast.
      */
     backgrounds: {
-      default: 'orbit',
+      default: 'base',
       values: [
-        { name: 'orbit', value: '#060709' },
-        { name: 'surface', value: '#101214' },
+        { name: 'base', value: '#0d0f11' },
+        { name: 'surface', value: '#1a1d20' },
         { name: 'light', value: '#ffffff' },
       ],
     },

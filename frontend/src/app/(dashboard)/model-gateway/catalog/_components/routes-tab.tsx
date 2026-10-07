@@ -20,22 +20,21 @@ import {
 } from '@orbit/terra';
 import { fmtCost } from '@orbit/utils';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
-import { PROVIDER_LABELS } from '../_utils/catalog-constants';
+import { providerTitle } from '../_utils/catalog-constants';
 
 interface RoutesTabProps {
   model: VirtualModel;
   onChange: (m: VirtualModel) => void;
   providerModels: ProviderModel[];
+  // providers are the registered and discovered providers a route may target.
+  providers: Provider[];
 }
 
-export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
-  const availableProviders = Array.from(
-    new Set(providerModels.map((m) => m.provider)),
-  ) as Provider[];
-  const providersWithModels =
-    availableProviders.length > 0
-      ? availableProviders
-      : (['bedrock', 'vertexai', 'azure'] as Provider[]);
+export function RoutesTab({ model, onChange, providerModels, providers }: RoutesTabProps) {
+  // A saved route keeps its provider selectable even after it is unregistered.
+  function providerOptions(current: Provider): Provider[] {
+    return providers.includes(current) ? providers : [current, ...providers];
+  }
 
   function modelsForProvider(provider: Provider): ProviderModel[] {
     return providerModels.filter((m) => m.provider === provider);
@@ -137,6 +136,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
           <Button
             variant="ghost"
             size="sm"
+            disabled={providers.length === 0}
             onClick={() => {
               onChange({
                 ...model,
@@ -144,7 +144,7 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                   ...model.routes,
                   {
                     id: crypto.randomUUID(),
-                    provider: providersWithModels[0] ?? 'bedrock',
+                    provider: providers[0],
                     modelId: '',
                     priority: model.routes.length + 1,
                     weight: 0,
@@ -160,6 +160,12 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
             Add Route
           </Button>
         </Stack>
+
+        {providers.length === 0 && (
+          <Text size="caption" color="muted">
+            No providers are registered. Apply an InferenceProvider resource to add routes.
+          </Text>
+        )}
 
         {model.strategy === 'weighted' && (
           <Alert variant="warning">
@@ -207,9 +213,9 @@ export function RoutesTab({ model, onChange, providerModels }: RoutesTabProps) {
                     onChange({ ...model, routes: updated });
                   }}
                 >
-                  {providersWithModels.map((p) => (
+                  {providerOptions(route.provider).map((p) => (
                     <option key={p} value={p}>
-                      {PROVIDER_LABELS[p] ?? p}
+                      {providerTitle(p)}
                     </option>
                   ))}
                 </NativeSelect>

@@ -5,8 +5,8 @@ import { cn } from '../../utils';
 /**
  * NavItem variants — active, default, and disabled states across two sizes.
  *
- * The active state uses a left accent bar + tinted background to communicate
- * the current location in the control plane.
+ * The active state is a tinted background with accent text, marking the
+ * current location in the control plane.
  *
  * Size variants:
  *   md — standard sidebar navigation (14px / py-2) — the default
@@ -25,16 +25,8 @@ const navItemVariants = cva(
   {
     variants: {
       state: {
-        /**
-         * Currently active route — accent left bar + tinted background.
-         * The pseudo-element bar is achieved with a thick left border on
-         * a positioned child so it doesn't collapse the padding box.
-         */
-        active: [
-          'bg-accent/10 text-accent',
-          'before:absolute before:inset-y-1 before:left-0 before:w-0.5',
-          'before:rounded-full before:bg-accent',
-        ],
+        /** Currently active route: tinted background and accent text. */
+        active: 'bg-accent/15 text-accent',
 
         /**
          * Default / inactive — ghost-like, brightens on hover.

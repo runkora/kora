@@ -79,7 +79,7 @@ func (d *DriftReconciler) Reconcile(ctx context.Context, _ reconcile.Request) (r
 	return reconcile.Result{}, nil
 }
 
-// SetupWithManager watches only Orbit's two webhook configurations.
+// SetupWithManager watches only kora's two webhook configurations.
 func (d *DriftReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	own := predicate.NewPredicateFuncs(func(obj client.Object) bool {
 		return obj.GetName() == Webhooks.Mutating || obj.GetName() == Webhooks.Validating

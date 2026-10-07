@@ -268,7 +268,7 @@ func TestHandleProvisionSandbox_UnhostedRunIsNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-elsewhere/provision-sandbox", nil)
+	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-elsewhere/provision-sandbox", strings.NewReader("{}"))
 	r.SetPathValue("runID", "run-elsewhere")
 	r.Header.Set(runTokenHeader, tok)
 

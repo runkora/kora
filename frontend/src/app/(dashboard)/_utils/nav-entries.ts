@@ -22,7 +22,12 @@ const MAIN_NAV: NavEntry[] = [
   { label: 'Agents', href: APP_ROUTES.agents.list, icon: 'bot' },
   { label: 'Connections', href: APP_ROUTES.connections, icon: 'network' },
   { label: 'MCP Servers', href: APP_ROUTES.mcpGateway.servers, icon: 'server' },
-  { label: 'Environments', href: APP_ROUTES.environments, icon: 'layers' },
+  {
+    label: 'Environments',
+    href: APP_ROUTES.environments,
+    icon: 'layers',
+    requiredScope: 'agents:environments:read',
+  },
   { label: 'Marketplace', href: APP_ROUTES.marketplace.overview, icon: 'box' },
   {
     label: 'Triggers',
@@ -78,7 +83,12 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
     icon: 'bar-chart',
     requiredScope: 'platform:analytics:read',
   },
-  { label: 'Models', href: APP_ROUTES.modelGateway.models, icon: 'sparkles' },
+  {
+    label: 'Models',
+    href: APP_ROUTES.modelGateway.models,
+    icon: 'sparkles',
+    requiredScope: 'inference:list',
+  },
   {
     label: 'Catalog',
     href: APP_ROUTES.modelGateway.catalog,

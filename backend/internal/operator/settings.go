@@ -4,7 +4,7 @@ package operator
 // the life of the process. Read by every aggregator and reconciler that
 // names the system namespace.
 var (
-	// systemNamespace is where Orbit's services and the aggregated registries live.
+	// systemNamespace is where kora's services and the aggregated registries live.
 	systemNamespace = "orbit-system"
 
 	// istioNamespace is where the customer's istiod runs; tenant network policies

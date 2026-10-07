@@ -17,8 +17,8 @@ orbitAgents:
 
 # Settings shared by every agent framework.
 runner:
-  # Applies Landlock and a PID namespace before the agent execs, for every
-  # framework. See docs/adr/2026-06-04-per-session-home-isolation.md.
+  # Applies Landlock before the agent execs, for every framework.
+  # See docs/adr/2026-06-04-per-session-home-isolation.md.
   wrapperPath: orbit-session-runner
   # The orbit-shell proxy. Exposed under a "bash" basename by
   # Dockerfile.session-manager, since shell detection keys on that.
@@ -44,7 +44,7 @@ opencode:
 # Codex and OpenCode cannot follow the same pattern: Codex requires a custom
 # provider declaration in config.toml to set wire_api = "responses" (an
 # env-var-only approach has no equivalent field), and OpenCode requires a
-# provider block in opencode.json. Both files are written at session start
+# provider block in its config. Both are written at session start
 # by the respective runners, which need this URL to do so. Extending the
 # operator to inject per-framework env vars for every future runner type
 # would couple it to runner implementation details; centralising the value

@@ -4,28 +4,34 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, DataTable, SegmentedControl, Stack, Text } from '@orbit/terra';
+import {
+  Button,
+  DataTable,
+  SegmentedControl,
+  Stack,
+  Text,
+  ConfirmDialog,
+  EmptyState,
+} from '@orbit/terra';
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@orbit/terra';
-import { ConfirmDialog, EmptyState, StatusBadge } from '@orbit/components';
+import { StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
+import type { RunStateCounts } from '@orbit/shared/api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
+import { RUN_FILTER_STATES } from '../_hooks/use-agent-detail';
+import type { RunFilter } from '../_hooks/use-agent-detail';
 import { formatDuration, formatRelativeTime } from '../../_types';
 import type { RunRow } from '../../_types';
 import { StartedByCell } from './started-by-cell';
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
+/** How many runs a filter matches, from the server's counts; undefined without them. */
+function filterCount(counts: RunStateCounts | null, filter: RunFilter): number | undefined {
+  if (!counts) return undefined;
+  if (filter === 'all') return counts.total;
+  return RUN_FILTER_STATES[filter].reduce((n, state) => n + (counts.by_state[state] ?? 0), 0);
 }
-
-// ── Status groupings ──────────────────────────────────────────────────────────
-
-const ACTIVE_STATES = ['pending', 'starting', 'active', 'idle', 'completing'];
 
 // ── Status helpers ────────────────────────────────────────────────────────────
 
@@ -65,33 +71,23 @@ interface AgentRunsTabProps {
 }
 
 export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
-  const { agent, runs, status, error, refresh, deleteRun } = useAgentDetailContext();
+  const {
+    agent,
+    runs,
+    stateCounts,
+    runFilter,
+    setRunFilter,
+    loadMoreRuns,
+    status,
+    error,
+    refresh,
+    deleteRun,
+  } = useAgentDetailContext();
   const router = useRouter();
 
   const [deleteTarget, setDeleteTarget] = useState<RunRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'completed' | 'failed'>(
-    'all',
-  );
-
-  const runCounts = useMemo(
-    () => ({
-      all: runs.length,
-      active: runs.filter((r) => ACTIVE_STATES.includes(r.state)).length,
-      completed: runs.filter((r) => r.state === 'completed').length,
-      failed: runs.filter((r) => r.state === 'failed' || r.state === 'budget_exhausted').length,
-    }),
-    [runs],
-  );
-
-  const filteredRuns = useMemo(() => {
-    if (statusFilter === 'all') return runs;
-    if (statusFilter === 'active') return runs.filter((r) => ACTIVE_STATES.includes(r.state));
-    if (statusFilter === 'completed') return runs.filter((r) => r.state === 'completed');
-    return runs.filter((r) => r.state === 'failed' || r.state === 'budget_exhausted');
-  }, [runs, statusFilter]);
-
   const handleDelete = async () => {
     if (!deleteTarget) return;
     setIsDeleting(true);
@@ -110,6 +106,8 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'summary',
         header: 'Task',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '9rem',
         locked: true,
         cell: (row) =>
           row.summary ? (
@@ -136,6 +134,8 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'id',
         header: 'Run ID',
+        gridWidth: '8rem',
+        minWidth: '5.5rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -146,18 +146,24 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'state',
         header: 'Status',
+        gridWidth: '7.5rem',
+        minWidth: '4.5rem',
         locked: true,
         cell: (row) => runStatusBadge(row),
       },
       {
         id: 'startedBy',
         header: 'Started by',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '6rem',
         locked: true,
         cell: (row) => <StartedByCell row={row} />,
       },
       {
         id: 'started',
         header: 'Started',
+        gridWidth: '8rem',
+        minWidth: '5rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.startedAt ?? row.createdAt,
@@ -170,6 +176,8 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'duration',
         header: 'Duration',
+        gridWidth: '6.5rem',
+        minWidth: '4.5rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -178,18 +186,10 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         ),
       },
       {
-        id: 'tokens',
-        header: 'Tokens',
-        locked: true,
-        cell: (row) => (
-          <Text mono size="supporting">
-            {row.tokensUsed ? formatTokens(row.tokensUsed) : '—'}
-          </Text>
-        ),
-      },
-      {
         id: 'tools',
         header: 'Tools',
+        gridWidth: '6rem',
+        minWidth: '4rem',
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
@@ -200,8 +200,9 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
-        gridWidth: '8rem',
+        gridWidth: '7rem',
         cell: (row) => (
           <Stack direction="horizontal" gap="snug">
             <Button
@@ -242,7 +243,10 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           private — make that legible rather than leaving lists mysteriously short. */}
       {agent?.identityMode === 'delegated' && <DelegatedRunNotice />}
       {/* Show EmptyState when there are no runs and no error */}
-      {status !== 'error' && runs.length === 0 && status !== 'loading' ? (
+      {status !== 'error' &&
+      runFilter === 'all' &&
+      runs.rows.length === 0 &&
+      status !== 'loading' ? (
         <EmptyState
           icon="play-circle"
           title="No runs yet"
@@ -255,7 +259,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         />
       ) : (
         <DataTable
-          data={filteredRuns}
+          data={status === 'loading' ? [] : runs.rows}
           columns={columns}
           getRowKey={(row) => row.id}
           noun="runs"
@@ -271,13 +275,17 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
           quickFilters={
             <SegmentedControl
               aria-label="Filter runs by status"
-              value={statusFilter}
-              onChange={(v) => setStatusFilter(v as typeof statusFilter)}
+              value={runFilter}
+              onChange={(v) => setRunFilter(v as RunFilter)}
               options={[
-                { value: 'all', label: 'All', count: runCounts.all },
-                { value: 'active', label: 'Active', count: runCounts.active },
-                { value: 'completed', label: 'Completed', count: runCounts.completed },
-                { value: 'failed', label: 'Failed', count: runCounts.failed },
+                { value: 'all', label: 'All', count: filterCount(stateCounts, 'all') },
+                { value: 'active', label: 'Active', count: filterCount(stateCounts, 'active') },
+                {
+                  value: 'completed',
+                  label: 'Completed',
+                  count: filterCount(stateCounts, 'completed'),
+                },
+                { value: 'failed', label: 'Failed', count: filterCount(stateCounts, 'failed') },
               ]}
             />
           }
@@ -293,14 +301,40 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
               </Stack>
             ) : undefined
           }
-          emptyMessage="No runs yet."
-          filteredEmptyMessage="No runs match your search."
+          emptyMessage={
+            status === 'loading'
+              ? 'Loading runs…'
+              : runFilter === 'all'
+                ? 'No runs yet.'
+                : 'No runs match this filter.'
+          }
+          filteredEmptyMessage={
+            status === 'loading' ? 'Loading runs…' : 'No runs match your search.'
+          }
           onRowClick={(row) => {
             if (agent) {
               router.push(APP_ROUTES.agents.run(agent.slug, row.id));
             }
           }}
         />
+      )}
+
+      {runs.nextCursor && status !== 'error' && (
+        <Stack align="center" gap="tight" paddingBlock="tight">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => void loadMoreRuns()}
+            disabled={runs.loadingMore}
+          >
+            {runs.loadingMore ? 'Loading…' : runs.loadMoreError ? 'Retry' : 'Load more runs'}
+          </Button>
+          {runs.loadMoreError && (
+            <Text size="caption" color="status-error">
+              {runs.loadMoreError}
+            </Text>
+          )}
+        </Stack>
       )}
 
       <ConfirmDialog

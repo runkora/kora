@@ -28,6 +28,10 @@ export { Callout } from './components/callout';
 export type { CalloutProps } from './components/callout';
 
 export { Icon } from './components/icon';
+export { KoraLogo } from './components/kora-logo';
+export type { KoraLogoProps } from './components/kora-logo';
+export { KoraMark } from './components/kora-mark';
+export type { KoraMarkProps } from './components/kora-mark';
 export type {
   IconProps,
   IconName,
@@ -96,6 +100,8 @@ export { Skeleton } from './components/skeleton';
 export { OrbitalLoader } from './components/orbital-loader';
 export type { OrbitalLoaderProps } from './components/orbital-loader';
 
+export { Donut, donutSegmentColor } from './components/donut';
+export type { DonutProps, DonutSegment } from './components/donut';
 export { Sparkline, sparklineBarVariants } from './components/sparkline';
 export type { SparklineProps } from './components/sparkline';
 
@@ -115,6 +121,9 @@ export { CodeBlock } from './components/code-block';
 export type { CodeBlockProps } from './components/code-block';
 
 // ─── Molecules ───────────────────────────────────────────────────────────────
+
+export { TruncatingBadge } from './components/truncating-badge';
+export type { TruncatingBadgeProps } from './components/truncating-badge';
 
 export {
   Card,
@@ -165,8 +174,12 @@ export { DangerZone, dangerZoneVariants } from './components/danger-zone';
 export type { DangerZoneProps } from './components/danger-zone';
 
 export { StatCard } from './components/stat-card';
-export type { StatCardProps } from './components/stat-card';
+export type { StatCardProps, StatCardDelta, StatCardBreakdownItem } from './components/stat-card';
 
+export { CopyButton } from './components/copy-button';
+export type { CopyButtonProps } from './components/copy-button';
+export { CopyField } from './components/copy-field';
+export type { CopyFieldProps } from './components/copy-field';
 export { SegmentedControl } from './components/segmented-control';
 export type { SegmentedControlProps, SegmentedControlOption } from './components/segmented-control';
 
@@ -183,6 +196,7 @@ export type { BreadcrumbsProps, BreadcrumbsItem } from './components/breadcrumbs
 export { Tooltip, TooltipProvider, TooltipTrigger, TooltipContent } from './components/tooltip';
 
 export { Popover, PopoverTrigger, PopoverAnchor, PopoverContent } from './components/popover';
+export type { PopoverContentProps } from './components/popover';
 
 export { Tabs, TabsList, TabsTrigger, TabsContent } from './components/tabs';
 export type { TabsTriggerProps } from './components/tabs';
@@ -202,8 +216,12 @@ export type { ProgressProps } from './components/progress';
 export { Output } from './components/output';
 export type { OutputProps } from './components/output';
 
-export { TemplateField } from './components/template-field';
-export type { TemplateFieldProps, TemplateCatalogEntry } from './components/template-field';
+export { TemplateField, TemplateCatalogList } from './components/template-field';
+export type {
+  TemplateFieldProps,
+  TemplateCatalogEntry,
+  TemplateCatalogListProps,
+} from './components/template-field';
 /**
  * The minimal template-model surface: parse a template, write one back, agree
  * with the token grammar, and render a preview (`exampleMap` builds the map
@@ -335,6 +353,15 @@ export type {
   ModalFooterProps,
 } from './components/modal';
 
+export { BottomSheet } from './components/bottom-sheet';
+export type { BottomSheetProps } from './components/bottom-sheet';
+
+export { EmptyState } from './components/empty-state';
+export type { EmptyStateProps } from './components/empty-state';
+
+export { ConfirmDialog } from './components/confirm-dialog';
+export type { ConfirmDialogProps } from './components/confirm-dialog';
+
 export {
   TableRoot,
   Table,
@@ -380,3 +407,5 @@ export type {
 // ─── Hooks ───────────────────────────────────────────────────────────────────
 
 export { useDialog } from './hooks/use-dialog';
+export { useCopy } from './hooks/use-copy';
+export type { CopyStatus } from './hooks/use-copy';

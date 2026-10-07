@@ -6,8 +6,8 @@ import (
 )
 
 func TestVersionSupported(t *testing.T) {
-	r := &Runner{Config: Config{SupportedIstioMinors: []string{"1.29", "1.28"}}}
-	for version, want := range map[string]bool{"1.29.1": true, "1.28.4": true, "1.30.0": false, "garbage": false} {
+	r := &Runner{Config: Config{SupportedIstioMinors: []string{"1.31", "1.30"}}}
+	for version, want := range map[string]bool{"1.31.1": true, "1.30.4": true, "1.29.8": false, "1.32.0": false, "garbage": false} {
 		if ok, _ := r.versionSupported(version); ok != want {
 			t.Errorf("%s: supported=%v want %v", version, ok, want)
 		}

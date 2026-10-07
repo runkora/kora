@@ -1,5 +1,5 @@
 # =============================================================================
-# Orbit Frontend — multi-stage Docker build
+# kora Frontend — multi-stage Docker build
 # =============================================================================
 #
 # Build context: frontend/  (self-contained pnpm workspace)
@@ -50,6 +50,10 @@ COPY . .
 ARG NEXT_PUBLIC_APP_URL=https://orbit.local.clearroute.io:8443
 ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 
+# The release tag the image is built for, shown in the sidebar.
+ARG ORBIT_VERSION=dev
+ENV NEXT_PUBLIC_ORBIT_VERSION=${ORBIT_VERSION}
+
 # ORBIT_API_URL and BFF_SESSION_SECRET are server-side only, but Next.js
 # evaluates server modules during `next build` to collect page data, so they
 # must be present at build time to pass validation. These placeholder values
@@ -89,7 +93,7 @@ FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b533
 
 WORKDIR /app
 
-# Non-root user matching uid/gid 65532 used by all other Orbit service containers.
+# Non-root user matching uid/gid 65532 used by all other kora service containers.
 RUN addgroup --system --gid 65532 orbit && \
     adduser  --system --uid 65532 --ingroup orbit orbit
 

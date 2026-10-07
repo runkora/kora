@@ -89,6 +89,11 @@ func readSandbox() sandbox {
 // match sessionmanager.runTokenHeader.
 const runTokenHeader = "X-Orbit-Run-Token"
 
+// provisionTimeout sits above the session-manager's worst case for a provision
+// (its retry budget, at most 320s, plus the 90s egress canary), so its verdict
+// arrives. orbit-runtime-mcp uses the same bound.
+const provisionTimeout = 420 * time.Second
+
 // readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
 func readTrimmed(path string) string {
 	data, err := os.ReadFile(path)
@@ -248,7 +253,7 @@ func reprovisionSandbox() (sandbox, error) {
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", smURL, runID)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), provisionTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
@@ -262,6 +267,13 @@ func reprovisionSandbox() (sandbox, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode/100 != 2 {
+		// The session-manager words a lost sandbox for the model; pass it through.
+		var apiErr struct {
+			Message string `json:"message"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&apiErr) == nil && apiErr.Message != "" {
+			return sandbox{}, errors.New(apiErr.Message)
+		}
 		return sandbox{}, fmt.Errorf("provision-sandbox returned %d", resp.StatusCode)
 	}
 	// Drain the body so the connection can be reused / cleanly closed.

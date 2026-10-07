@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -137,6 +138,44 @@ func TestCreateForwardsModelWithoutDerivingScopes(t *testing.T) {
 	}
 }
 
+// TestGuardrailsForwarded proves agents.create and agents.update pass the
+// loop-guard thresholds through, and agents.get returns them as the API does.
+func TestGuardrailsForwarded(t *testing.T) {
+	var gotBody map[string]any
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"at-1","guardrails":{"repeated_call_warn":3,"repeated_call_pause":5}}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	thresholds := map[string]any{"repeated_call_warn": 3, "repeated_call_pause": 5}
+	for _, tc := range []struct {
+		tool string
+		args map[string]any
+	}{
+		{"agents.create", map[string]any{"name": "Reviewer", "slug": "reviewer", "model_id": "m", "guardrails": thresholds}},
+		{"agents.update", map[string]any{"agent_type_id": "at-1", "guardrails": thresholds}},
+	} {
+		call("tools/call", map[string]any{"name": tc.tool, "arguments": tc.args})
+		g, _ := gotBody["guardrails"].(map[string]any)
+		if g["repeated_call_warn"] != float64(3) || g["repeated_call_pause"] != float64(5) || len(g) != 2 {
+			t.Errorf("%s forwarded guardrails %v", tc.tool, gotBody["guardrails"])
+		}
+	}
+	got := call("tools/call", map[string]any{"name": "agents.get", "arguments": map[string]any{"agent_type_id": "at-1"}})
+	if raw, _ := json.Marshal(got); !strings.Contains(string(raw), "repeated_call_pause") {
+		t.Errorf("agents.get did not return the guardrails: %v", got)
+	}
+}
+
 // TestTriggerToolsUseTriggersBackend guards the fix for the trigger tools
 // 404ing in dev: they must call the orbit-triggers backend, not identity. The
 // trigger-sources/triggers/deliveries endpoints moved out of the identity binary
@@ -168,6 +207,71 @@ func TestTriggerToolsUseTriggersBackend(t *testing.T) {
 
 	if gotPath != "/api/v1/trigger-sources" {
 		t.Errorf("triggers.sources.list hit %q, want /api/v1/trigger-sources on the triggers backend", gotPath)
+	}
+}
+
+// TestTriggerProviderToolsAndSenderRestriction covers the provider catalog
+// tools and sender_restriction forwarding on trigger create and update.
+func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
+	var gotPath, gotQuery string
+	var gotBody map[string]any
+	triggers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.RawQuery
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer triggers.Close()
+
+	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	call("tools/call", map[string]any{"name": "triggers.providers.event_types", "arguments": map[string]any{"provider": "github"}})
+	if gotPath != "/api/v1/trigger-providers/github/event-types" {
+		t.Errorf("event_types hit %q", gotPath)
+	}
+
+	call("tools/call", map[string]any{"name": "triggers.providers.fields", "arguments": map[string]any{"provider": "github", "event_type": "issue_comment"}})
+	if gotPath != "/api/v1/trigger-providers/github/fields" || gotQuery != "event_type=issue_comment" {
+		t.Errorf("fields hit %q?%q", gotPath, gotQuery)
+	}
+
+	gotPath = ""
+	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{"source_id": "src-1", "name": "t"}})
+	if gotPath != "" {
+		t.Errorf("create without event_type reached the backend at %q", gotPath)
+	}
+
+	restriction := map[string]any{"logins": []any{"octocat"}, "associations": []any{"MEMBER"}}
+	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
+		"source_id": "src-1", "name": "t", "event_type": "issue_comment", "sender_restriction": restriction,
+	}})
+	if gotPath != "/api/v1/triggers" {
+		t.Errorf("create hit %q", gotPath)
+	}
+	if got, _ := gotBody["sender_restriction"].(map[string]any); got["associations"] == nil || got["logins"] == nil {
+		t.Errorf("create did not forward sender_restriction: %v", gotBody["sender_restriction"])
+	}
+
+	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "sender_restriction": restriction}})
+	if got, _ := gotBody["sender_restriction"].(map[string]any); got["logins"] == nil {
+		t.Errorf("update did not forward sender_restriction: %v", gotBody["sender_restriction"])
+	}
+
+	contains := map[string]any{"comment.body": []any{"@kora-agent"}}
+	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
+		"source_id": "src-1", "name": "t", "event_type": "issue_comment", "match_contains": contains,
+	}})
+	if got, _ := gotBody["match_contains"].(map[string]any); got["comment.body"] == nil {
+		t.Errorf("create did not forward match_contains: %v", gotBody["match_contains"])
+	}
+	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "match_contains": map[string]any{}}})
+	if got, ok := gotBody["match_contains"].(map[string]any); !ok || len(got) != 0 {
+		t.Errorf("update did not forward an empty match_contains: %v", gotBody["match_contains"])
 	}
 }
 
@@ -266,6 +370,19 @@ func TestRunToolsForwardMethodAndPath(t *testing.T) {
 		call("tools/call", map[string]any{"name": "runs.terminate", "arguments": map[string]any{"run_id": "run-1"}})
 		if gotMethod != http.MethodDelete || gotPath != "/api/v1/runs/run-1" {
 			t.Errorf("terminate hit %s %s", gotMethod, gotPath)
+		}
+	})
+
+	t.Run("list forwards filters and the page position", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "runs.list", "arguments": map[string]any{
+			"agent_type_id": "at-9", "state": "pending,active", "cursor": "abc", "limit": 20,
+		}})
+		if gotMethod != http.MethodGet || gotPath != "/api/v1/runs" {
+			t.Errorf("list hit %s %s", gotMethod, gotPath)
+		}
+		want := url.Values{"agent_type_id": {"at-9"}, "state": {"pending,active"}, "cursor": {"abc"}, "limit": {"20"}}
+		if !reflect.DeepEqual(gotQuery, want) {
+			t.Errorf("list query = %v, want %v", gotQuery, want)
 		}
 	})
 
@@ -446,7 +563,7 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 	wantRequires := map[string]string{
 		// orbit-agents  /api/v1/agent-types  → agents:types:{read,write}
 		"agents.list": "agents:types:read", "agents.get": "agents:types:read",
-		"agents.tool_scopes": "agents:types:read", "agents.create": "agents:types:write",
+		"agents.create": "agents:types:write",
 		"agents.update": "agents:types:write", "agents.delete": "agents:types:write",
 		"agents.connectors": "platform:connections:read",
 		// orbit-agents  /api/v1/environments  → agents:environments:{read,write}
@@ -455,6 +572,8 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 		"agents.environments.create":  "agents:environments:write",
 		"agents.environments.replace": "agents:environments:write",
 		"agents.environments.delete":  "agents:environments:write",
+		"agents.sandbox_images.list":  "agents:environments:read",
+		"agents.environments.sizes":   "agents:environments:read",
 		// orbit-agents  /api/v1/runs  → agents:runs:{read,write}
 		"runs.list": "agents:runs:read", "runs.get": "agents:runs:read", "runs.events": "agents:runs:read",
 		"runs.start": "agents:runs:write", "runs.send_message": "agents:runs:write",
@@ -463,7 +582,7 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 		"models.list":         "inference:list",
 		"models.virtual.list": "platform:catalog:read", "models.virtual.get": "platform:catalog:read",
 		"models.virtual.create": "platform:catalog:write", "models.virtual.update": "platform:catalog:write",
-		"models.virtual.delete": "platform:catalog:write", "models.providers.list": "platform:catalog:read",
+		"models.virtual.delete": "platform:catalog:write", "models.providers.list": "platform:catalog:read", "models.providers.status": "platform:catalog:read",
 		"models.providers.refresh": "platform:catalog:write", "models.providers.set_enabled": "platform:catalog:write",
 		"models.pricing.list": "platform:catalog:read", "models.pricing.set_override": "platform:catalog:write",
 		"models.pricing.clear_override": "platform:catalog:write",
@@ -482,7 +601,8 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 		"triggers.sources.delete": "triggers:write", "triggers.list": "triggers:read",
 		"triggers.get": "triggers:read", "triggers.create": "triggers:write",
 		"triggers.update": "triggers:write", "triggers.delete": "triggers:write",
-		"triggers.deliveries.list": "triggers:read",
+		"triggers.deliveries.list":       "triggers:read",
+		"triggers.providers.event_types": "triggers:read", "triggers.providers.fields": "triggers:read",
 	}
 
 	for tool, want := range wantRequires {

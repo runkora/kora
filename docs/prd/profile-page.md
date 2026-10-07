@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit has no centralised view where users can inspect their identity, permissions, or API tokens. The profile page gives every authenticated user a single screen answering "who am I, what can I do, and what tokens have I issued?" — accessible from a popover menu in the sidebar footer.
+kora has no centralised view where users can inspect their identity, permissions, or API tokens. The profile page gives every authenticated user a single screen answering "who am I, what can I do, and what tokens have I issued?" — accessible from a popover menu in the sidebar footer.
 
 ---
 
@@ -325,7 +325,7 @@ The profile page displays three cards in a single-column layout:
 
 ### Glossary
 
-- **Principal ID:** Unique identifier for a user in Orbit, derived from the OIDC `sub` claim.
+- **Principal ID:** Unique identifier for a user in kora, derived from the OIDC `sub` claim.
 - **Scope:** A permission string in `resource:path:action` format (e.g., `platform:grants:read`).
 - **Grant:** A direct assignment of scopes to a principal, stored in `policy_grants`.
 - **Role:** An OIDC role name mapped to a set of scopes via `policy_role_scopes`.

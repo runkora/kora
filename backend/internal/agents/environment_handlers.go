@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 )
@@ -12,11 +13,11 @@ import (
 
 func (c *Controller) handleCreateEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	var req CreateEnvironmentRequest
+	var req EnvironmentRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.Name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeMissingField, "name is required", nil), nil)
 		return
@@ -55,12 +56,12 @@ func (c *Controller) handleGetEnvironment(w http.ResponseWriter, r *http.Request
 
 func (c *Controller) handleUpdateEnvironment(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	var req UpdateEnvironmentRequest
+	var req EnvironmentRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
 	req.ID = r.PathValue("id")
-	if req.Name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeMissingField, "name is required", nil), nil)
 		return
@@ -88,9 +89,12 @@ func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseW
 	case errors.Is(err, ErrNotFound):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.NotFoundError(api.ErrCodeResourceNotFound, "environment not found", nil), nil)
-	case errors.Is(err, ErrEnvironmentNameTaken):
+	case errors.Is(err, ErrEnvironmentSlugTaken):
 		api.ErrorResponse(ctx, w, c.logger,
-			api.ConflictError(api.ErrCodeResourceExists, "environment name already taken for this tenant", nil), nil)
+			api.ConflictError(api.ErrCodeResourceExists, "environment slug already taken for this tenant", nil), nil)
+	case errors.Is(err, ErrEnvironmentInUse):
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ConflictError(api.ErrCodeConflict, "environment is attached to an agent; detach it first", nil), nil)
 	case errors.Is(err, ErrInvalidEnvironment):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil), nil)
@@ -98,4 +102,9 @@ func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseW
 		api.ErrorResponse(ctx, w, c.logger,
 			api.InternalError(api.ErrCodeInternalError, "environment operation failed", nil), err)
 	}
+}
+
+// handleEnvironmentSizes returns the install's default and maximum environment sizes.
+func (c *Controller) handleEnvironmentSizes(w http.ResponseWriter, r *http.Request) {
+	api.JSON(r.Context(), w, c.logger, http.StatusOK, c.environments.Sizes())
 }

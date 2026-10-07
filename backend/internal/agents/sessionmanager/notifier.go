@@ -20,6 +20,10 @@ import (
 // appends the status code and response body to it.
 var errNotifierUnexpectedStatus = errors.New("orbit-agents returned unexpected status")
 
+// ErrEnvironmentRejected means orbit-agents refused the environment the agent
+// chose. Its message tells the agent why. Retrying does not help.
+var ErrEnvironmentRejected = errors.New("environment refused")
+
 // Notifier delivers events to orbit-agents for live SSE fan-out and run
 // lifecycle callbacks.
 // Implementations are best-effort — errors are logged but never fatal.
@@ -41,7 +45,11 @@ type Notifier interface {
 	ExhaustRun(ctx context.Context, runID string, fromState string) error
 	// ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 	// given run and returns how to reach and authenticate to it.
-	ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error)
+	// environment names one of the agent's environments. Empty keeps the
+	// current one. replace switches a live sandbox to it.
+	ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error)
+	// ListEnvironments returns orbit-agents' list of the run's environments unchanged.
+	ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error)
 	GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error)
 	// SetSummary reports the run's generated task summary to orbit-agents, which
 	// persists it set-once. Best-effort.
@@ -57,8 +65,11 @@ func (NoopNotifier) IdleRun(_ context.Context, _ string) error                  
 func (NoopNotifier) ActivateRun(_ context.Context, _ string) error                   { return nil }
 func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ string, _ bool) error { return nil }
 func (NoopNotifier) ExhaustRun(_ context.Context, _ string, _ string) error          { return nil }
-func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool) (Sandbox, error) {
+func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, _ string, _ bool) (Sandbox, error) {
 	return Sandbox{}, nil
+}
+func (NoopNotifier) ListEnvironments(_ context.Context, _ string) (json.RawMessage, error) {
+	return json.RawMessage(`{"environments":[]}`), nil
 }
 func (NoopNotifier) GetSandbox(_ context.Context, _ string) (Sandbox, bool, error) {
 	return Sandbox{}, false, nil
@@ -172,23 +183,32 @@ func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, b
 	return result, true, nil
 }
 
-func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
-	url := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
+func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error) {
+	target := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
 	if ahead {
-		url += "?ahead=true"
+		target += "?ahead=true"
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	body, _ := json.Marshal(map[string]any{"environment": environment, "replace": replace})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
 		return Sandbox{}, fmt.Errorf("build request: %w", err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	_, span, resp, err := n.sandboxClient.Do(ctx, "sessionmanager.Notifier.ProvisionSandbox", req)
 	defer span.End()
 	if err != nil {
-		return Sandbox{}, fmt.Errorf("post provision-sandbox: %w", err)
+		return Sandbox{}, fmt.Errorf("call orbit-agents: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return Sandbox{}, n.sandboxClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
+		// The body is read once. A 409 is a refused environment choice whose message the agent reads.
+		body := n.sandboxClient.ReadErrorBody(span, resp)
+		var apiErr api.APIError
+		if resp.StatusCode == http.StatusConflict && json.Unmarshal([]byte(body), &apiErr) == nil && apiErr.Message != "" {
+			return Sandbox{}, fmt.Errorf("%w: %s", ErrEnvironmentRejected, apiErr.Message)
+		}
+		_ = n.sandboxClient.RecordError(span, errNotifierUnexpectedStatus)
+		return Sandbox{}, fmt.Errorf("%w: status %d: %s", errNotifierUnexpectedStatus, resp.StatusCode, body)
 	}
 	var result Sandbox
 	if err := n.sandboxClient.DecodeJSON(span, resp, &result); err != nil {
@@ -198,6 +218,28 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead
 		return Sandbox{}, ErrSandboxIncomplete
 	}
 	return result, nil
+}
+
+func (n *HTTPNotifier) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
+	target := fmt.Sprintf("%s/internal/runs/%s/environments", n.baseURL, runID)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build request: %w", err)
+	}
+	_, span, resp, err := n.lifecycleClient.Do(ctx, "sessionmanager.Notifier.ListEnvironments", req)
+	defer span.End()
+	if err != nil {
+		return nil, fmt.Errorf("list environments: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, n.lifecycleClient.HandleErrorResponse(span, resp, errNotifierUnexpectedStatus)
+	}
+	var raw json.RawMessage
+	if err := n.lifecycleClient.DecodeJSON(span, resp, &raw); err != nil {
+		return nil, fmt.Errorf("decode environments: %w", err)
+	}
+	return raw, nil
 }
 
 func (n *HTTPNotifier) SetSummary(ctx context.Context, runID, summary string) error {

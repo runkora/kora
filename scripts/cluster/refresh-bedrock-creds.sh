@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
 # =============================================================================
-# refresh-bedrock-creds.sh — Inject AWS credentials into the cluster for
-#                             local Bedrock development.
+# refresh-bedrock-creds.sh: register local Bedrock providers from your AWS SSO
+# session.
 #
 # Usage:
-#   make cluster-bedrock-creds        # recommended — loads AWS_PROFILE from .env
-#   bash scripts/cluster/refresh-bedrock-creds.sh  # direct
+#   make cluster-bedrock-creds        # loads AWS_PROFILE and BEDROCK_* from .env
 #
-# Requires AWS_PROFILE to be set (in .env or environment).
-# BEDROCK_ACCOUNTS (in .env) controls which per-alias keys are patched.
+# .env sets AWS_PROFILE, BEDROCK_ACCOUNTS (comma-separated aliases) and
+# BEDROCK_<ALIAS>_REGION per alias.
 #
 # What it does:
-#   1. Checks if the current SSO session is still valid.
-#   2. If not, runs `aws sso login` interactively to refresh it.
-#   3. Exports the live credentials and patches them into orbit-secrets.
-#   4. Restarts the inference gateway to pick up the new credentials.
-#
-# SSO sessions typically last 8–12 hours. Re-run this command any time
-# you get Bedrock auth errors — it handles the login automatically.
+#   1. Logs in to AWS SSO if the session has expired.
+#   2. Writes the session into Secret orbit-bedrock-credentials.
+#   3. Applies one InferenceProvider per alias, named after it.
+# The inference gateway watches both and reloads without a restart. Re-run it
+# whenever Bedrock returns auth errors.
 # =============================================================================
 set -euo pipefail
 
@@ -30,70 +27,52 @@ step() { echo -e "\n${YELLOW}▶ $*${RESET}"; }
 ok()   { echo -e "${GREEN}✓ $*${RESET}"; }
 fail() { echo -e "${RED}✗ $*${RESET}"; exit 1; }
 
-# ── Preflight ─────────────────────────────────────────────────────────────────
+NAMESPACE="${ORBIT_SYSTEM_NAMESPACE:-orbit-system}"
+SECRET=orbit-bedrock-credentials
 
-[[ -n "${AWS_PROFILE:-}" ]] \
-  || fail "AWS_PROFILE is not set — add AWS_PROFILE=<your-profile> to .env"
-
-# ── Ensure SSO session is valid ───────────────────────────────────────────────
+[[ -n "${AWS_PROFILE:-}" ]] || fail "AWS_PROFILE is not set; add AWS_PROFILE=<your-profile> to .env"
+[[ -n "${BEDROCK_ACCOUNTS:-}" ]] || fail "BEDROCK_ACCOUNTS is not set; add BEDROCK_ACCOUNTS=<alias,...> to .env"
 
 step "Checking AWS SSO session for profile '${AWS_PROFILE}'"
-
 if ! aws sts get-caller-identity --profile "${AWS_PROFILE}" &>/dev/null; then
-  echo "  Session expired or not found — launching SSO login..."
+  echo "  Session expired or not found; launching SSO login..."
   aws sso login --profile "${AWS_PROFILE}"
 fi
-
-ok "SSO session valid"
-
-# ── Export credentials ────────────────────────────────────────────────────────
-
-step "Reading credentials from profile '${AWS_PROFILE}'"
-
 CREDS=$(aws configure export-credentials --profile "${AWS_PROFILE}" --format env-no-export) \
   || fail "Failed to export credentials from profile '${AWS_PROFILE}'"
-
 ACCESS_KEY=$(echo "${CREDS}"    | grep '^AWS_ACCESS_KEY_ID'     | cut -d= -f2-)
 SECRET_KEY=$(echo "${CREDS}"    | grep '^AWS_SECRET_ACCESS_KEY' | cut -d= -f2-)
 SESSION_TOKEN=$(echo "${CREDS}" | grep '^AWS_SESSION_TOKEN'     | cut -d= -f2- || echo "")
 
-ok "Credentials exported"
+step "Writing Secret ${SECRET} in ${NAMESPACE}"
+SECRET_ARGS=(--from-literal=accessKeyID="${ACCESS_KEY}" --from-literal=secretAccessKey="${SECRET_KEY}")
+[[ -n "${SESSION_TOKEN}" ]] && SECRET_ARGS+=(--from-literal=sessionToken="${SESSION_TOKEN}")
+kubectl create secret generic "${SECRET}" -n "${NAMESPACE}" "${SECRET_ARGS[@]}" --dry-run=client -o yaml \
+  | kubectl label --local -f - orbit.io/inference-provider=true -o yaml \
+  | kubectl apply -f -
 
-# ── Patch orbit-secrets ───────────────────────────────────────────────────────
-
-step "Patching orbit-secrets in orbit-system"
-
-B64_KEY=$(echo -n "${ACCESS_KEY}"    | base64 | tr -d '\n')
-B64_SECRET=$(echo -n "${SECRET_KEY}" | base64 | tr -d '\n')
-B64_TOKEN=$(echo -n "${SESSION_TOKEN}" | base64 | tr -d '\n')
-
-[[ -n "${BEDROCK_ACCOUNTS:-}" ]] \
-  || fail "BEDROCK_ACCOUNTS is not set — add BEDROCK_ACCOUNTS=<alias,...> to .env"
-
-# Build a merge-patch data object for all per-alias credential keys.
-# --type=merge takes a plain {"data":{...}} object; no op/path/value noise.
-# All aliases share the same SSO session — one export covers all of them.
-PATCH_DATA="{"
-IFS=',' read -ra RAW_ALIASES <<< "${BEDROCK_ACCOUNTS}"
-for RAW in "${RAW_ALIASES[@]}"; do
-  ALIAS="${RAW^^}"
-  ALIAS="${ALIAS// /}"
+step "Applying Bedrock InferenceProviders"
+IFS=',' read -ra ALIASES <<< "${BEDROCK_ACCOUNTS}"
+for RAW in "${ALIASES[@]}"; do
+  ALIAS="${RAW// /}"
   [[ -z "${ALIAS}" ]] && continue
-  PATCH_DATA+="\"BEDROCK_${ALIAS}_ACCESS_KEY_ID\":\"${B64_KEY}\","
-  PATCH_DATA+="\"BEDROCK_${ALIAS}_SECRET_ACCESS_KEY\":\"${B64_SECRET}\","
-  PATCH_DATA+="\"BEDROCK_${ALIAS}_SESSION_TOKEN\":\"${B64_TOKEN}\","
+  REGION_VAR="BEDROCK_${ALIAS^^}_REGION"
+  REGION="${!REGION_VAR:-}"
+  [[ -n "${REGION}" ]] || fail "${REGION_VAR} is not set in .env"
+  kubectl apply -f - <<YAML
+apiVersion: orbit.io/v1alpha1
+kind: InferenceProvider
+metadata:
+  name: ${ALIAS}
+  namespace: ${NAMESPACE}
+spec:
+  type: bedrock
+  bedrock:
+    region: ${REGION}
+    credentials:
+      secretRef:
+        name: ${SECRET}
+YAML
 done
-PATCH_DATA="${PATCH_DATA%,}}"
 
-kubectl patch secret orbit-secrets -n orbit-system --type=merge -p="{\"data\":${PATCH_DATA}}"
-
-ok "orbit-secrets patched (${BEDROCK_ACCOUNTS})"
-
-# ── Restart inference gateway ─────────────────────────────────────────────────
-
-step "Restarting inference gateway"
-
-kubectl rollout restart deployment/orbit-inference-gateway -n orbit-system
-kubectl rollout status deployment/orbit-inference-gateway -n orbit-system --timeout=60s
-
-ok "Bedrock credentials refreshed — inference gateway is live"
+ok "Bedrock providers registered: ${BEDROCK_ACCOUNTS}"

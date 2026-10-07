@@ -3,7 +3,7 @@
 **Status:** Accepted  
 **Date:** 2026-04-02
 **Deciders:** Platform Engineering  
-**Technical Story:** Enable developers to use Orbit inference from local coding agents (Claude Code, Cursor, Continue) without re-authenticating every 60 minutes.
+**Technical Story:** Enable developers to use kora inference from local coding agents (Claude Code, Cursor, Continue) without re-authenticating every 60 minutes.
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### Background
 
-Orbit's platform token model today has two classes of JWT:
+kora's platform token model today has two classes of JWT:
 
 | Token Class | PrincipalType | Issued Via | TTL | Refresh |
 |---|---|---|---|---|
@@ -34,19 +34,19 @@ The `xAPIKeyMiddleware` step is particularly relevant: Claude Code and other Ant
 
 ### Problem Statement
 
-Developers running coding agents locally need a stable, longer-lived credential to point those agents at Orbit inference. Neither existing token class is suitable:
+Developers running coding agents locally need a stable, longer-lived credential to point those agents at kora inference. Neither existing token class is suitable:
 
 - Human session tokens expire after 60 minutes and require an interactive browser redirect to renew.
-- Agent tokens require a SPIFFE/SPIRE attestation chain that only exists inside Orbit-managed clusters — it cannot be obtained on a developer laptop.
+- Agent tokens require a SPIFFE/SPIRE attestation chain that only exists inside kora-managed clusters — it cannot be obtained on a developer laptop.
 
-The result is that developers bypass Orbit and use raw provider API keys locally, which eliminates all usage attribution, cost visibility, and policy enforcement during the development phase.
+The result is that developers bypass kora and use raw provider API keys locally, which eliminates all usage attribution, cost visibility, and policy enforcement during the development phase.
 
 ### Goals
 
 - Allow any authenticated human user to create a long-lived token that works at inference endpoints.
-- Scope those tokens to inference only — they must not grant access to the main Orbit management API.
+- Scope those tokens to inference only — they must not grant access to the main kora management API.
 - Give users self-service lifecycle control: create, list, revoke.
-- Preserve Orbit's security properties: only hashed token values at rest, JTI-based revocation, full usage attribution.
+- Preserve kora's security properties: only hashed token values at rest, JTI-based revocation, full usage attribution.
 
 ### Non-Goals
 
@@ -75,7 +75,7 @@ The result is that developers bypass Orbit and use raw provider API keys locally
 Add `PAT` to the existing `PrincipalType` enum in `backend/internal/platform/token/claims.go`. The token is otherwise structurally identical to existing platform JWTs. Inference-only enforcement is achieved by:
 
 1. The inference gateway allowing `PAT`, `AGENT`, and `HUMAN` in a `requireInferencePrincipal` middleware.
-2. The main Orbit API rejecting `PAT`-typed tokens at its auth layer with 403.
+2. The main kora API rejecting `PAT`-typed tokens at its auth layer with 403.
 
 PATs are persisted in a new `user_pat_tokens` table (name, token_hash, expires_at, revoked_at). No refresh token; revoke-and-recreate is the recovery path.
 
@@ -313,9 +313,9 @@ No new principal-type guard middleware is added to the inference gateway. Any to
 
 Fine-grained enforcement — which principal types may call which providers or models — is the responsibility of the policy layer ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md)). Adding a static allowlist middleware now would duplicate logic that the policy engine will own and would need to be removed or reconciled when OPA integration lands. The `PrincipalType=PAT` discriminator is already available in the request context for the policy engine to key off.
 
-The only enforcement boundary added in this ADR is at the main Orbit API (see below), which prevents PATs from accessing management endpoints entirely.
+The only enforcement boundary added in this ADR is at the main kora API (see below), which prevents PATs from accessing management endpoints entirely.
 
-### Main Orbit API — PAT Rejection
+### Main kora API — PAT Rejection
 
 The main API (`cmd/orbit` or equivalent) adds a check after `AuthMiddleware` verifies the token. If `claims.Orbit.PrincipalType == token.PrincipalTypePAT`, the request is rejected with 403 before reaching any handler. This can be implemented as a thin middleware applied to the main API's route group, or as a guard inside the auth middleware itself keyed on configuration.
 

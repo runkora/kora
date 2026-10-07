@@ -22,11 +22,6 @@ const PLANNED: { icon: IconName; title: string; desc: string }[] = [
     desc: 'Runaway-loop protection.',
   },
   {
-    icon: 'triangle-alert',
-    title: 'Halt on repeated failures',
-    desc: 'Stop the run after consecutive tool errors.',
-  },
-  {
     icon: 'eye-off',
     title: 'Redact PII in prompts & logs',
     desc: 'Detected personal data is masked before it reaches the model or the audit trail.',
@@ -50,7 +45,7 @@ export function PlannedLimits() {
         </Stack>
         {PLANNED.map((p) => (
           <Stack key={p.title} gap="none">
-            <Separator span="full" />
+            <Separator />
             <Stack direction="horizontal" align="center" gap="cozy" padding="cozy" disabled>
               <Icon
                 name={p.icon}

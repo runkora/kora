@@ -3,8 +3,6 @@ package bedrock
 import (
 	"context"
 	"fmt"
-	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -15,9 +13,11 @@ import (
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	bedrockSDK "github.com/aws/aws-sdk-go-v2/service/bedrock"
 	bedrockSDKtypes "github.com/aws/aws-sdk-go-v2/service/bedrock/types"
 	bedrockruntimeSDK "github.com/aws/aws-sdk-go-v2/service/bedrockruntime"
+	"github.com/aws/aws-sdk-go-v2/service/sts"
 	openai "github.com/openai/openai-go/v3"
 	openaiopt "github.com/openai/openai-go/v3/option"
 
@@ -27,104 +27,20 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Config holds the Bedrock connector configuration.
-// Populated exclusively from environment variables via LoadMultiConfig — never from YAML.
+// Config holds one Bedrock account and region. Empty keys use the AWS default
+// credential chain (IRSA, EKS Pod Identity).
 type Config struct {
 	Region          string
 	AccessKeyID     string // optional — falls back to default AWS credential chain
 	SecretAccessKey string // optional — falls back to default AWS credential chain
 	SessionToken    string // optional — for temporary credentials
-}
-
-// ── Multi-account support ─────────────────────────────────────────────────────
-
-// aliasRe validates a Bedrock account alias. Aliases may only contain
-// lowercase letters, digits, and underscores. Hyphens are excluded because
-// the prefix BEDROCK_<UPPER_ALIAS>_ must be a valid POSIX env var name.
-var aliasRe = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-
-// NamedConfig pairs a validated alias with its per-account Config.
-type NamedConfig struct {
-	// Alias is the operator-chosen name, e.g. "prod", "staging".
-	// It becomes the suffix in the provider name "bedrock:<alias>".
-	Alias  string
-	Config Config
-}
-
-// LoadMultiConfig returns the set of Bedrock account configurations to register.
-// Bedrock is disabled when BEDROCK_ACCOUNTS is unset or empty.
-//
-// Environment variables (ALIAS uppercased):
-//
-//	BEDROCK_ACCOUNTS                  — comma-separated list of aliases, e.g. "prod,staging"
-//	BEDROCK_<ALIAS>_REGION            — required per alias
-//	BEDROCK_<ALIAS>_ACCESS_KEY_ID     — optional
-//	BEDROCK_<ALIAS>_SECRET_ACCESS_KEY — optional
-//	BEDROCK_<ALIAS>_SESSION_TOKEN     — optional
-func LoadMultiConfig() ([]NamedConfig, error) {
-	raw := os.Getenv("BEDROCK_ACCOUNTS")
-	if raw == "" {
-		return nil, nil
-	}
-	var configs []NamedConfig
-	for alias := range strings.SplitSeq(raw, ",") {
-		alias = strings.TrimSpace(alias)
-		if alias == "" {
-			continue
-		}
-		if !aliasRe.MatchString(alias) {
-			return nil, fmt.Errorf("bedrock: invalid account alias %q — must start with a letter and contain only [a-z0-9_]", alias)
-		}
-		prefix := "BEDROCK_" + strings.ToUpper(alias) + "_"
-		region := os.Getenv(prefix + "REGION")
-		if region == "" {
-			return nil, fmt.Errorf("bedrock: %sREGION is required for account %q", prefix, alias)
-		}
-		configs = append(configs, NamedConfig{
-			Alias: alias,
-			Config: Config{
-				Region:          region,
-				AccessKeyID:     os.Getenv(prefix + "ACCESS_KEY_ID"),
-				SecretAccessKey: os.Getenv(prefix + "SECRET_ACCESS_KEY"),
-				SessionToken:    os.Getenv(prefix + "SESSION_TOKEN"),
-			},
-		})
-	}
-	if len(configs) == 0 {
-		return nil, fmt.Errorf("bedrock: BEDROCK_ACCOUNTS is set but contains no valid aliases (got %q)", raw)
-	}
-	return configs, nil
-}
-
-// MultiFactory implements inferencegw.MultiConnectorFactory for AWS Bedrock.
-// It reads BEDROCK_ACCOUNTS and returns one NamedConnector per alias.
-// Returns nil when BEDROCK_ACCOUNTS is unset.
-type MultiFactory struct{}
-
-// Build reads env vars and returns one NamedConnector per configured account.
-// Returns nil when Bedrock is disabled entirely.
-func (MultiFactory) Build(logger logging.Logger) ([]inferencegw.NamedConnector, error) {
-	cfgs, err := LoadMultiConfig()
-	if err != nil {
-		return nil, err
-	}
-	if len(cfgs) == 0 {
-		return nil, nil
-	}
-
-	out := make([]inferencegw.NamedConnector, 0, len(cfgs))
-	for _, nc := range cfgs {
-		providerName := inferencegw.ProviderName("bedrock:" + nc.Alias)
-		conn, err := New(&nc.Config, providerName, logger)
-		if err != nil {
-			return nil, fmt.Errorf("bedrock account %q: %w", nc.Alias, err)
-		}
-		out = append(out, inferencegw.NamedConnector{
-			Name:      conn.Name(),
-			Connector: conn,
-		})
-	}
-	return out, nil
+	// AssumeRoleARN is a role assumed on top of the base credentials. One
+	// gateway identity reaches another account through it.
+	AssumeRoleARN string
+	ExternalID    string
+	// RoleSessionName names the assumed sessions in CloudTrail. Empty uses
+	// defaultRoleSessionName.
+	RoleSessionName string
 }
 
 // Connector implements inferencegw.ProviderConnector for AWS Bedrock.
@@ -187,6 +103,9 @@ func New(cfg *Config, providerName inferencegw.ProviderName, logger logging.Logg
 	}
 	if err != nil {
 		return nil, fmt.Errorf("bedrock: load AWS config: %w", err)
+	}
+	if cfg.AssumeRoleARN != "" {
+		awsCfg.Credentials = assumeRoleCredentials(awsCfg, cfg.AssumeRoleARN, cfg.ExternalID, cfg.RoleSessionName)
 	}
 
 	// OpenAI-compatible Bedrock endpoint — requires SigV4 signing on every request.
@@ -535,4 +454,22 @@ func isAnthropicModel(id string) bool {
 	// used by clients and by the routing engine on a cold start (before the
 	// first ListModels sweep has populated the alias table).
 	return strings.HasPrefix(base, "claude-")
+}
+
+// defaultRoleSessionName names assumed sessions when the resource sets none.
+const defaultRoleSessionName = "orbit-inference-gateway"
+
+// assumeRoleCredentials assumes roleARN with the base credentials in base. The
+// cache refreshes the session before it expires.
+func assumeRoleCredentials(base aws.Config, roleARN, externalID, sessionName string) aws.CredentialsProvider {
+	if sessionName == "" {
+		sessionName = defaultRoleSessionName
+	}
+	provider := stscreds.NewAssumeRoleProvider(sts.NewFromConfig(base), roleARN, func(o *stscreds.AssumeRoleOptions) {
+		o.RoleSessionName = sessionName
+		if externalID != "" {
+			o.ExternalID = aws.String(externalID)
+		}
+	})
+	return aws.NewCredentialsCache(provider)
 }

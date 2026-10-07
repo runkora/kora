@@ -97,8 +97,8 @@ describe('Heading', () => {
 // ── Text ──────────────────────────────────────────────────────────────────────
 
 const TEXT_SIZE_CLASS = {
-  micro: 'text-[11px]',
-  caption: 'text-xs',
+  micro: 'text-xs',
+  caption: 'text-[13px]',
   supporting: 'text-sm',
   body: 'text-base',
   lead: 'text-lg',

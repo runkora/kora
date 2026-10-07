@@ -9,7 +9,7 @@
 
 ## Context
 
-Orbit is being developed in an era where AI-assisted development is becoming the norm. The codebase will be maintained and extended by both human developers and AI coding assistants. Language and framework choices directly impact development velocity, code quality, maintainability, and the effectiveness of AI assistance.
+kora is being developed in an era where AI-assisted development is becoming the norm. The codebase will be maintained and extended by both human developers and AI coding assistants. Language and framework choices directly impact development velocity, code quality, maintainability, and the effectiveness of AI assistance.
 
 ### Background
 

@@ -4,16 +4,16 @@
 **Created:** 2025-01-26  
 **Last Updated:** 2025-07-14  
 **Supersedes:** `docs/prd/model-gateway.md` (Model Gateway PRD — retired)  
-**Owner:** Orbit Core Team  
-**Stakeholders:** Orbit Core Team, Agent Developers, Enterprise Platform Operators
+**Owner:** kora Core Team  
+**Stakeholders:** kora Core Team, Agent Developers, Enterprise Platform Operators
 
 ---
 
 ## Executive Summary
 
-The Inference Gateway is Orbit's unified interface layer between agents and AI model providers. It exposes an OpenAI-compatible API that routes requests to provider-specific backends — AWS Bedrock, Google Vertex AI, Azure AI, and OpenAI direct — using a "Bring Your Own Provider" (BYOP) model where operators supply their own cloud credentials at deployment time.
+The Inference Gateway is kora's unified interface layer between agents and AI model providers. It exposes an OpenAI-compatible API that routes requests to provider-specific backends — AWS Bedrock, Google Vertex AI, Azure AI, and OpenAI direct — using a "Bring Your Own Provider" (BYOP) model where operators supply their own cloud credentials at deployment time.
 
-Authentication uses Orbit's existing platform token system ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one — there is no separate credential layer. Any principal with a valid Orbit platform token (agent, human, or service) can call the inference API. Cost and token usage are attributed at full principal resolution: per-tenant, per-principal, and per-principal-type.
+Authentication uses kora's existing platform token system ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one — there is no separate credential layer. Any principal with a valid kora platform token (agent, human, or service) can call the inference API. Cost and token usage are attributed at full principal resolution: per-tenant, per-principal, and per-principal-type.
 
 The Policy Engine integration point is designed into the architecture from launch. Until the Policy Engine (OPA) ships, all models are available to all authenticated principals. Once OPA is operational, model access will be governed by policy without any gateway changes.
 
@@ -25,7 +25,7 @@ MVP delivers production reliability (streaming, retries, failover, connection po
 
 ### Current State
 
-Orbit is the control plane for AI agents. The platform layers (identity, policy, credentials, events) are still being established. There is currently no standardised inference interface. Each agent developer must implement provider-specific integrations from scratch, handle reliability patterns manually, and solve credential distribution in isolation.
+kora is the control plane for AI agents. The platform layers (identity, policy, credentials, events) are still being established. There is currently no standardised inference interface. Each agent developer must implement provider-specific integrations from scratch, handle reliability patterns manually, and solve credential distribution in isolation.
 
 ### User Pain Points
 
@@ -60,7 +60,7 @@ Orbit is the control plane for AI agents. The platform layers (identity, policy,
 ### Primary Goals
 
 1. **Unified Provider Interface:** A single OpenAI-compatible API endpoint that routes to AWS Bedrock, Google Vertex AI, Azure AI, and OpenAI direct through a BYOP model — operators supply their own cloud credentials or API keys at deployment time.
-2. **Platform Identity Integration:** Authentication uses Orbit's platform token system ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one. Any authenticated Orbit principal — agent, human, or service — can call the gateway without a separate credential.
+2. **Platform Identity Integration:** Authentication uses kora's platform token system ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one. Any authenticated kora principal — agent, human, or service — can call the gateway without a separate credential.
 3. **Policy-Ready Architecture:** The Policy Engine integration point is built into the gateway from launch. Model access control will activate automatically when the OPA-based Policy Engine ships — no gateway changes required.
 4. **Production Reliability:** Streaming support, automatic retries with exponential backoff, failover chains, and connection pooling built in from day one.
 5. **Intelligent Routing:** Lowest-cost routing and explicit failover chains as the two primary routing strategies.
@@ -84,7 +84,7 @@ Orbit is the control plane for AI agents. The platform layers (identity, policy,
 - Cost and usage queryable by tenant, principal, principal type, model, provider, and time period
 
 **Access Control:**
-- 100% of requests authenticated via Orbit platform token
+- 100% of requests authenticated via kora platform token
 - Policy enforcement point built and stubbed from day one — activates when Policy Engine ships
 
 ---
@@ -92,7 +92,7 @@ Orbit is the control plane for AI agents. The platform layers (identity, policy,
 ## Non-Goals (MVP)
 
 - Policy Engine (OPA) enforcement — integration point is designed and stubbed; enforcement activates when OPA ships
-- Orbit Event Spine integration — deferred to Post-MVP
+- kora Event Spine integration — deferred to Post-MVP
 - Provider credential management via Helm chart — deferred to the infrastructure ADR (not yet in this branch)
 - Advanced load balancing (latency-based, performance-based) — P1
 - Circuit breaker pattern — P1
@@ -110,13 +110,13 @@ Orbit is the control plane for AI agents. The platform layers (identity, policy,
 
 ### US-001: Agent Inference via Platform Token
 
-**As an** agent workload with a valid Orbit platform token (attested via SPIFFE/SPIRE),  
+**As an** agent workload with a valid kora platform token (attested via SPIFFE/SPIRE),  
 **I want to** call the Inference Gateway using the same Bearer token I already carry,  
 **So that** I can make model inference calls without any additional credentials or configuration.
 
 **Acceptance Criteria:**
-- [ ] Requests authenticated via Orbit platform JWT (`Authorization: Bearer <platform-token>`)
-- [ ] Token validated against Orbit's JWKS endpoint (signature, expiry, JTI blocklist via [unified-identity-model](../adr/2026-03-05-unified-identity-model.md))
+- [ ] Requests authenticated via kora platform JWT (`Authorization: Bearer <platform-token>`)
+- [ ] Token validated against kora's JWKS endpoint (signature, expiry, JTI blocklist via [unified-identity-model](../adr/2026-03-05-unified-identity-model.md))
 - [ ] Principal context (`tenant_id`, `principal_id`, `principal_type`) extracted from token claims
 - [ ] Requests without a valid platform token receive `401 Unauthorized`
 - [ ] Token validation is performed at the gateway layer — application handlers receive pre-validated principal context
@@ -125,14 +125,14 @@ Orbit is the control plane for AI agents. The platform layers (identity, policy,
 
 ### US-002: Human Developer Inference Access
 
-**As a** human developer authenticated to the Orbit Control Plane Portal via OIDC,  
-**I want to** call the Inference Gateway using my existing Orbit platform token,  
+**As a** human developer authenticated to the kora Control Plane Portal via OIDC,  
+**I want to** call the Inference Gateway using my existing kora platform token,  
 **So that** I can test inference calls during development without managing a separate API credential.
 
 **Acceptance Criteria:**
 - [ ] Human principals (OIDC-federated) authenticate the same way as agent principals
 - [ ] Usage attributed to `principal_type: HUMAN` with the human's `principal_id` in logs and usage records
-- [ ] No separate token or credential flow required beyond the existing Orbit session
+- [ ] No separate token or credential flow required beyond the existing kora session
 
 ---
 
@@ -266,14 +266,14 @@ Orbit is the control plane for AI agents. The platform layers (identity, policy,
 - [ ] Every request logs: timestamp, `tenant_id`, `principal_id`, `principal_type`, model requested, provider routed to, routing strategy, HTTP status, latency (ms), input/output token count, estimated cost, retry count, error (if any)
 - [ ] Configurable log levels: debug logs full request/response body; production logs metadata only
 - [ ] Request body logging is opt-in due to potential PII in prompts
-- [ ] Logs are structured JSON, emitted via Orbit's standard `*logging.Logger` — compatible with standard log aggregation pipelines
+- [ ] Logs are structured JSON, emitted via kora's standard `*logging.Logger` — compatible with standard log aggregation pipelines
 
 ---
 
 ### US-012: Policy Engine Integration Point
 
 **As a** platform operator (future state),  
-**I want** model access to be governed by the Orbit Policy Engine,  
+**I want** model access to be governed by the kora Policy Engine,  
 **So that** I can restrict which agents or tenants can call which models, enforce cost thresholds, or require approval for expensive models.
 
 **Acceptance Criteria (current — stub):**
@@ -365,7 +365,7 @@ Agent / Human / Service Principal
 ### Key Design Decisions
 
 **Platform Token Authentication:**  
-The Inference Gateway accepts Orbit platform JWTs only. No separate token system is built or maintained. Token validation occurs at the Orbit Gateway (Envoy, Layer 1 per [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md)) before the request reaches the Inference Gateway service. The service extracts principal context from headers injected by Envoy after validation. This keeps the Inference Gateway's authentication concern minimal and consistent with all other Orbit services.
+The Inference Gateway accepts kora platform JWTs only. No separate token system is built or maintained. Token validation occurs at the kora Gateway (Envoy, Layer 1 per [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md)) before the request reaches the Inference Gateway service. The service extracts principal context from headers injected by Envoy after validation. This keeps the Inference Gateway's authentication concern minimal and consistent with all other kora services.
 
 **Principal-Level Attribution:**  
 Every inference request is attributed to its full principal context — `tenant_id`, `principal_id`, `principal_type`. For agents, this maps to the attested SPIFFE identity. For humans, to the federated OIDC identity. For service principals, to the platform service identity. This enables genuinely granular cost and usage analysis that was not possible with the previous per-gateway-token attribution model.
@@ -491,7 +491,7 @@ inference_usage
 - `GET /metrics` — Prometheus metrics scrape endpoint
 
 **Authentication:**
-- Orbit platform token validation (JWT — signature, expiry, JTI blocklist)
+- kora platform token validation (JWT — signature, expiry, JTI blocklist)
 - Principal context extraction (`tenant_id`, `principal_id`, `principal_type`)
 
 **Provider Support (BYOP):**
@@ -515,7 +515,7 @@ inference_usage
 
 **Observability:**
 - Per-request usage records persisted to PostgreSQL with full principal attribution
-- Structured request/response metadata logging via Orbit's `*logging.Logger`
+- Structured request/response metadata logging via kora's `*logging.Logger`
 - Prometheus metrics endpoint
 - Provider pricing: AWS and Vertex polled via pricing APIs (configurable TTL, default 1h); Azure AI and OpenAI prices manually configured
 
@@ -524,7 +524,7 @@ inference_usage
 | Feature | Disposition |
 |---|---|
 | Policy Engine (OPA) enforcement | Interface stubbed — enforcement activates when OPA ships |
-| Orbit Event Spine integration | Deferred — Post-MVP |
+| kora Event Spine integration | Deferred — Post-MVP |
 | Helm chart / credential provisioning mechanism | Deferred — infrastructure ADR |
 | Per-principal rate limiting (RPM/TPM) | P1 — Post-MVP |
 | Circuit breaker pattern per provider | P1 |
@@ -536,7 +536,7 @@ inference_usage
 | Anthropic Messages API wire format (`POST /v1/messages`) | P1 — enables Claude Code and Anthropic SDK clients |
 | Image generation endpoints | Future |
 | Local/self-hosted models (Ollama, vLLM) | Future |
-| Custom model fine-tuning or hosting | Never — out of scope for Orbit |
+| Custom model fine-tuning or hosting | Never — out of scope for kora |
 
 ---
 
@@ -545,7 +545,7 @@ inference_usage
 ### Functional Requirements
 
 **P0 — Must Have (MVP):**
-- [ ] Orbit platform token validation on every request (JWT sig, expiry, JTI blocklist)
+- [ ] kora platform token validation on every request (JWT sig, expiry, JTI blocklist)
 - [ ] Principal context extraction (`tenant_id`, `principal_id`, `principal_type`) from validated token
 - [ ] OpenAI-compatible `POST /v1/chat/completions` endpoint
 - [ ] Streaming support (SSE) on chat completions
@@ -561,14 +561,14 @@ inference_usage
 - [ ] Connection pooling per provider (configurable pool size)
 - [ ] Provider pricing: AWS Bedrock and Vertex AI polled from pricing APIs (configurable TTL, default 1h); Azure AI and OpenAI prices manually configured in config
 - [ ] Per-request usage records persisted to PostgreSQL with full principal attribution
-- [ ] Structured request/response metadata logging (Orbit `*logging.Logger`)
+- [ ] Structured request/response metadata logging (kora `*logging.Logger`)
 - [ ] `GET /v1/usage` API with filtering by tenant, principal, principal type, model, provider, time range
 - [ ] `GET /healthz` health check endpoint
 - [ ] `GET /metrics` Prometheus metrics endpoint
 
 **P1 — Post-MVP:**
 - [ ] OPA-backed `PolicyEvaluator` implementation (plug-in to existing interface)
-- [ ] Orbit Event Spine integration (structured event emission per request)
+- [ ] kora Event Spine integration (structured event emission per request)
 - [ ] Per-principal rate limiting (RPM and TPM, Redis-backed)
 - [ ] Circuit breaker pattern per provider
 - [ ] Response caching (in-memory, then Redis)
@@ -606,7 +606,7 @@ inference_usage
 - Streaming connections handle provider disconnects with appropriate error propagation
 
 **Scalability:**
-- Horizontal scaling via stateless instances behind Orbit Gateway
+- Horizontal scaling via stateless instances behind kora Gateway
 - PostgreSQL for usage persistence; read replicas supported for usage queries
 - Redis required for rate limiting when P1 is implemented
 
@@ -623,11 +623,11 @@ inference_usage
 
 | Dependency | Status | Requirement | Impact |
 |---|---|---|---|
-| Orbit Platform Token ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) | **Implemented** | Identity and principal extraction | Required — authentication from day one |
-| Orbit Gateway / Envoy ([universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md)) | **Designed** | Layer 1 token validation + principal context injection | Required — gateway enforces before service sees request |
+| kora Platform Token ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) | **Implemented** | Identity and principal extraction | Required — authentication from day one |
+| kora Gateway / Envoy ([universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md)) | **Designed** | Layer 1 token validation + principal context injection | Required — gateway enforces before service sees request |
 | PostgreSQL | **Implemented** | Usage record persistence | Required |
 | Policy Engine (OPA) | Planned | Model access control | Deferred — interface stubbed; enforcement activates when OPA ships |
-| Orbit Event Spine | Planned | Structured event emission | Deferred — Post-MVP |
+| kora Event Spine | Planned | Structured event emission | Deferred — Post-MVP |
 | Helm Chart Infrastructure | Planned | Provider credential provisioning at deploy time | Deferred — separate infrastructure ADR |
 | Redis | **Implemented** | Rate limiting (when P1 ships) | Not required for MVP |
 
@@ -663,31 +663,31 @@ inference_usage
 
 ### Alternative 1: Standalone Token System (Previous PRD Approach)
 
-**Description:** Issue gateway-specific tokens (user-scoped and app-scoped) stored in PostgreSQL, independent of Orbit's identity system.
+**Description:** Issue gateway-specific tokens (user-scoped and app-scoped) stored in PostgreSQL, independent of kora's identity system.
 
 **Why not chosen:**
-- Creates a second identity surface to manage, maintain, and secure — directly contradicting Orbit's unified identity model ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md))
+- Creates a second identity surface to manage, maintain, and secure — directly contradicting kora's unified identity model ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md))
 - Agents already carry platform tokens via the SPIFFE/SPIRE + Envoy sidecar flow — requiring a second credential is unnecessary friction
 - Attribution is coarser (per-gateway-token, not per-principal) — loses `tenant_id`, `principal_type`, and all the richness of the platform token
 - Was an explicitly temporary design in the previous PRD, pending identity integration that is now complete
 
 ### Alternative 2: Use LiteLLM Proxy
 
-**Description:** Deploy LiteLLM as the gateway layer and integrate Orbit components around it.
+**Description:** Deploy LiteLLM as the gateway layer and integrate kora components around it.
 
 **Why not chosen:**
-- Deep integration with Orbit identity and policy evaluation requires gateway internals access
-- Would require maintaining a fork or relying on a plugin system not designed for Orbit's architecture
-- LiteLLM's 100+ provider model is broader than Orbit's BYOP requirement
-- Does not align with Orbit's posture — a standalone router, not part of an integrated control plane
+- Deep integration with kora identity and policy evaluation requires gateway internals access
+- Would require maintaining a fork or relying on a plugin system not designed for kora's architecture
+- LiteLLM's 100+ provider model is broader tha kora's BYOP requirement
+- Does not align with kora's posture — a standalone router, not part of an integrated control plane
 
 ### Alternative 3: Use Portkey
 
-**Description:** Use Portkey's open-source gateway as Orbit's inference layer.
+**Description:** Use Portkey's open-source gateway as kora's inference layer.
 
 **Why not chosen:**
 - Portkey is a complete commercial product, not a composable component
-- Cannot embed deeply with Orbit principal context, credential broker, or event spine
+- Cannot embed deeply with kora principal context, credential broker, or event spine
 - License and control concerns for core infrastructure
 - Building our own enables the control plane integration story from day one
 
@@ -711,7 +711,7 @@ inference_usage
 | 1 | Streaming support timeline | **Resolved** | Streaming is P0; ships with MVP |
 | 2 | Routing strategies for MVP | **Resolved** | Lowest-cost and failover chains are P0 |
 | 3 | Provider set for launch | **Resolved** | AWS Bedrock, Google Vertex AI, Azure AI, OpenAI direct |
-| 4 | Auth approach | **Resolved** | Orbit platform tokens ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one; no standalone token system |
+| 4 | Auth approach | **Resolved** | kora platform tokens ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) from day one; no standalone token system |
 | 5 | Policy evaluation at gateway | **Resolved** | Interface designed and stubbed from day one; enforcement activates when OPA ships |
 | 6 | Multimodal support | **Resolved** | Supported via provider pass-through; no normalisation in MVP |
 | 7 | Cost table maintenance | **Resolved** | AWS Bedrock and Vertex AI polled from pricing APIs (configurable TTL, default 1h). Azure AI and OpenAI manually configured in config. On pricing API failure, last cached prices used with staleness warning logged. |
@@ -734,11 +734,11 @@ inference_usage
 - Platform token validation (JWT sig, expiry, JTI blocklist) — principal context extraction
 - `PolicyEvaluator` interface + stub allow-all implementation
 - OpenAI direct provider connector
-- Basic request/response metadata logging (Orbit `*logging.Logger`)
+- Basic request/response metadata logging (kora `*logging.Logger`)
 - `GET /healthz` health check endpoint
 - Prometheus metrics endpoint skeleton
 
-**Exit Criteria:** Can make streaming and non-streaming completions via the gateway using an OpenAI API key, authenticated with an Orbit platform token. Policy evaluator interface is called on every request.
+**Exit Criteria:** Can make streaming and non-streaming completions via the gateway using an OpenAI API key, authenticated with a kora platform token. Policy evaluator interface is called on every request.
 
 ---
 
@@ -787,12 +787,12 @@ inference_usage
 
 ---
 
-### Post-MVP: Orbit Integration Phase
+### Post-MVP: kora Integration Phase
 
-**Goal:** Connect the gateway deeply into the Orbit control plane.
+**Goal:** Connect the gateway deeply into the kora control plane.
 
 - OPA-backed `PolicyEvaluator` implementation (model access control per principal, tenant, cost threshold)
-- Orbit Event Spine integration (structured event per request — emits to event spine alongside structured logs)
+- kora Event Spine integration (structured event per request — emits to event spine alongside structured logs)
 - Per-principal rate limiting (RPM and TPM; Redis-backed for horizontal scale)
 - Circuit breaker pattern per provider
 - Response caching (in-memory, then Redis)
@@ -823,7 +823,7 @@ inference_usage
 - [universal-gateway-policy-enforcement](../adr/2026-03-05-universal-gateway-policy-enforcement.md) — Gateway and sidecar enforcement topology
 - [credential-aware-outbound-gateway](../adr/2026-03-05-credential-aware-outbound-gateway.md) — Credential broker (Post-MVP integration)
 - [inference-gateway-architecture](../adr/2026-04-01-inference-gateway-architecture.md) — Inference Gateway architecture decision record
-- [Orbit Architecture](../../ARCHITECTURE.md) — Overall system design
+- [kora Architecture](../../ARCHITECTURE.md) — Overall system design
 
 ### References
 
@@ -838,20 +838,20 @@ inference_usage
 
 | Term | Definition |
 |---|---|
-| BYOP | Bring Your Own Provider — operators supply cloud credentials/API keys; Orbit does not custody them |
-| Platform Token | Orbit-issued JWT carrying a normalised Principal — the single credential accepted by all Orbit services ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) |
-| Principal | The unified identity abstraction for any Orbit actor: HUMAN, AGENT, or SERVICE |
+| BYOP | Bring Your Own Provider — operators supply cloud credentials/API keys; kora does not custody them |
+| Platform Token | kora-issued JWT carrying a normalised Principal — the single credential accepted by all kora services ([unified-identity-model](../adr/2026-03-05-unified-identity-model.md)) |
+| Principal | The unified identity abstraction for any kora actor: HUMAN, AGENT, or SERVICE |
 | Failover Chain | An ordered list of (provider, model) pairs; the gateway advances to the next on failure |
 | Lowest-Cost Routing | Routing strategy that selects the provider/model combination with the lowest per-token price |
 | Connection Pool | Pre-established HTTP connections to a provider, reused across requests |
 | Routing Group | A logical model name (e.g. `"claude-sonnet"`) that maps to one or more provider/model options |
 | SSE | Server-Sent Events — the streaming protocol used by OpenAI and supported by the gateway |
-| PolicyEvaluator | The interface between the Inference Gateway and the Orbit Policy Engine; stubbed as allow-all until OPA ships |
+| PolicyEvaluator | The interface between the Inference Gateway and the kora Policy Engine; stubbed as allow-all until OPA ships |
 | Token (LLM) | A unit of text in a language model's vocabulary, used for cost calculation |
 | API Dialect | A client-facing wire format (OpenAI-compatible or Anthropic Messages API) — the gateway supports multiple dialects via separate inbound translation handlers sharing a single internal routing and connector layer |
 | Anthropic Messages API | The native wire format used by Claude Code and all Anthropic SDK clients — `POST /v1/messages`, separate system field, content array format, distinct SSE event lifecycle |
-| Event Spine | Orbit's event-driven signalling system (integrated Post-MVP) |
-| Credential Broker | Orbit component that manages secrets/API keys (integrated Post-MVP) |
+| Event Spine | kora's event-driven signalling system (integrated Post-MVP) |
+| Credential Broker | kora component that manages secrets/API keys (integrated Post-MVP) |
 
 ---
 

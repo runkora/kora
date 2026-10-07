@@ -1,14 +1,14 @@
 'use client';
 
-/** @tier 3 — agents-scoped. The caller's agent drafts, listed above the agent table. */
+/** @tier 3 — agents-scoped. The caller's agent drafts: a header button with a count and an expandable list. */
 
 // A draft is not an agent type, so it does not arrive with the agents list —
-// this section fetches the caller's drafts separately and offers resume and
-// delete, nothing else (docs/adr/2026-07-17-agent-builder.md §2).
+// the caller's drafts are fetched separately and offer resume and delete,
+// nothing else (docs/adr/2026-07-17-agent-builder.md §2).
 
 import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Button, Card, CardContent, Eyebrow, Icon, Stack, Text } from '@orbit/terra';
+import { Badge, Button, Card, CardContent, Eyebrow, Icon, Stack, Text } from '@orbit/terra';
 import type { AgentTypeDraft } from '@orbit/shared/api';
 import { deleteDraft, fetchDrafts } from '../_services/agents-api';
 import { openBuilder } from '../_lib/builder-url';
@@ -28,7 +28,8 @@ function since(iso: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-export function DraftsSection() {
+/** The caller's drafts, refreshed on mount and whenever the builder closes. */
+export function useDrafts() {
   const [drafts, setDrafts] = useState<AgentTypeDraft[]>([]);
   const searchParams = useSearchParams();
   const builderOpen = searchParams.get('agent') !== null;
@@ -37,14 +38,40 @@ export function DraftsSection() {
     void fetchDrafts().then(({ data }) => setDrafts(data));
   }, []);
 
-  // Refresh on mount and whenever the builder closes (a draft may have been
-  // created, updated, or turned into an agent while it was open).
+  // A draft may have been created, updated, or turned into an agent while the builder was open.
   useEffect(() => {
     if (!builderOpen) refresh();
   }, [builderOpen, refresh]);
 
-  if (drafts.length === 0) return null;
+  return { drafts, refresh };
+}
 
+export interface DraftsButtonProps {
+  count: number;
+  open: boolean;
+  onToggle: () => void;
+}
+
+/** Renders nothing when there are no drafts. */
+export function DraftsButton({ count, open, onToggle }: DraftsButtonProps) {
+  if (count === 0) return null;
+  return (
+    <Button variant="ghost" aria-expanded={open} onClick={onToggle}>
+      <Icon name="file-text" size="xs" />
+      Drafts
+      <Badge variant="secondary" size="sm">
+        {count}
+      </Badge>
+    </Button>
+  );
+}
+
+export interface DraftsListProps {
+  drafts: AgentTypeDraft[];
+  onChanged: () => void;
+}
+
+export function DraftsList({ drafts, onChanged }: DraftsListProps) {
   return (
     <Stack gap="cozy">
       <Stack direction="horizontal" align="baseline" gap="snug">
@@ -82,7 +109,7 @@ export function DraftsSection() {
                   size="icon-sm"
                   aria-label={`Delete draft ${draftName(draft)}`}
                   onClick={() => {
-                    void deleteDraft(draft.id).then(refresh);
+                    void deleteDraft(draft.id).then(onChanged);
                   }}
                 >
                   <Icon name="trash" />

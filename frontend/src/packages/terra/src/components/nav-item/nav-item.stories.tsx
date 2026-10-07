@@ -1,148 +1,127 @@
 import type { Meta, StoryObj } from '@storybook/react';
+import { Example, Option, OptionTable } from '../../docs/story-ui';
+import { Icon } from '../icon/icon';
+import { Stack } from '../layout/stack';
 import { NavItem } from './nav-item';
-import {
-  CpuIcon,
-  KeyIcon,
-  ShieldIcon,
-  ActivityIcon,
-  SettingsIcon,
-  MessageSquareIcon,
-  AlertTriangleIcon,
-} from 'lucide-react';
 
+/**
+ * NavItem
+ *
+ * One entry in a sidebar menu, with an optional icon and count. Use `asChild` to render a link
+ * instead of a button.
+ */
 const meta: Meta<typeof NavItem> = {
-  title: 'Terra/Molecules/NavItem',
+  title: 'Terra/Atoms/NavItem',
   component: NavItem,
-  parameters: {
-    layout: 'centered',
-    backgrounds: { default: 'orbit' },
-  },
   tags: ['autodocs'],
-  argTypes: {
-    state: {
-      control: 'select',
-      options: ['default', 'active', 'disabled'],
-    },
-    size: {
-      control: 'select',
-      options: ['md', 'sm'],
-    },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof NavItem>;
 
-export const Default: Story = {
-  args: {
-    state: 'default',
-    icon: <CpuIcon />,
-    children: 'Agents',
-  },
-};
-
-export const Active: Story = {
-  args: {
-    state: 'active',
-    icon: <CpuIcon />,
-    children: 'Agents',
-  },
-};
-
-export const Disabled: Story = {
-  args: {
-    state: 'disabled',
-    icon: <KeyIcon />,
-    children: 'Credentials',
-  },
-};
-
-export const WithBadge: Story = {
-  args: {
-    state: 'default',
-    icon: <AlertTriangleIcon />,
-    badge: 4,
-    children: 'Alerts',
-  },
-};
-
-export const ActiveWithBadge: Story = {
-  args: {
-    state: 'active',
-    icon: <ActivityIcon />,
-    badge: 12,
-    children: 'Events',
-  },
-};
-
-export const TextOnly: Story = {
-  args: {
-    state: 'default',
-    children: 'Documentation',
-  },
-};
-
-export const Compact: Story = {
-  args: {
-    state: 'default',
-    size: 'sm',
-    icon: <MessageSquareIcon />,
-    children: 'Policy review thread',
-  },
-};
-
-export const PrimaryNavigation: Story = {
+export const Overview: Story = {
   render: () => (
-    <div className="flex flex-col gap-1 w-56 p-2 bg-surface rounded-lg">
-      <NavItem state="active" icon={<CpuIcon />}>
-        Agents
-      </NavItem>
-      <NavItem state="default" icon={<KeyIcon />}>
-        Credentials
-      </NavItem>
-      <NavItem state="default" icon={<ShieldIcon />} badge={2}>
-        Policies
-      </NavItem>
-      <NavItem state="default" icon={<ActivityIcon />}>
-        Events
-      </NavItem>
-      <NavItem state="disabled" icon={<SettingsIcon />}>
-        Settings
-      </NavItem>
+    <div className="max-w-xl space-y-8">
+      <Example title="Sidebar menu">
+        <Stack gap="tight" className="w-56 rounded-lg bg-surface p-2">
+          <NavItem state="active" icon={<Icon name="cpu" />} asChild>
+            <a href="#">Agents</a>
+          </NavItem>
+          <NavItem icon={<Icon name="key" />} asChild>
+            <a href="#">Credentials</a>
+          </NavItem>
+          <NavItem icon={<Icon name="shield" />} badge={2} asChild>
+            <a href="#">Policies</a>
+          </NavItem>
+          <NavItem icon={<Icon name="activity" />} asChild>
+            <a href="#">Events</a>
+          </NavItem>
+          <NavItem state="disabled" icon={<Icon name="settings" />} asChild>
+            <a href="#">Settings</a>
+          </NavItem>
+        </Stack>
+      </Example>
+      <Example title="Compact list">
+        <Stack gap="none" className="w-56 rounded-lg bg-surface p-2">
+          {['Policy review: apollo-3', 'Credential audit', 'Incident 42 response'].map((label) => (
+            <NavItem key={label} size="sm" icon={<Icon name="bot" size="2xs" />} asChild>
+              <a href="#">{label}</a>
+            </NavItem>
+          ))}
+        </Stack>
+      </Example>
     </div>
   ),
 };
 
-export const CompactList: Story = {
+export const Options: Story = {
   render: () => (
-    <div className="flex flex-col gap-0.5 w-56 p-2 bg-surface rounded-lg">
-      {[
-        'Policy review — apollo-3',
-        'Credential audit thread',
-        'Incident #42 response',
-        'MCP tool registration',
-        'Access scope discussion',
-      ].map((label) => (
-        <NavItem key={label} size="sm" icon={<MessageSquareIcon />} state="default">
-          {label}
-        </NavItem>
-      ))}
-    </div>
-  ),
-};
-
-export const AllStates: Story = {
-  render: () => (
-    <div className="flex flex-col gap-1 w-56">
-      <NavItem state="default" icon={<CpuIcon />}>
-        Default
-      </NavItem>
-      <NavItem state="active" icon={<ShieldIcon />}>
-        Active
-      </NavItem>
-      <NavItem state="disabled" icon={<KeyIcon />}>
-        Disabled
-      </NavItem>
+    <div className="max-w-5xl">
+      <OptionTable title="Options">
+        <Option name='state="default"' use="An entry that is not the current page.">
+          <div className="w-56">
+            <NavItem icon={<Icon name="cpu" />} asChild>
+              <a href="#">Agents</a>
+            </NavItem>
+          </div>
+        </Option>
+        <Option
+          name='state="active"'
+          use="The page you are on. A tinted background and accent text mark it."
+        >
+          <div className="w-56">
+            <NavItem state="active" icon={<Icon name="cpu" />} asChild>
+              <a href="#">Agents</a>
+            </NavItem>
+          </div>
+        </Option>
+        <Option
+          name='state="disabled"'
+          use="An entry that cannot be used. It does not react to clicks."
+        >
+          <div className="w-56">
+            <NavItem state="disabled" icon={<Icon name="key" />} asChild>
+              <a href="#">Credentials</a>
+            </NavItem>
+          </div>
+        </Option>
+        <Option name='size="md"' use="Standard menu entry. The default.">
+          <div className="w-56">
+            <NavItem icon={<Icon name="bot" />} asChild>
+              <a href="#">Policy review</a>
+            </NavItem>
+          </div>
+        </Option>
+        <Option name='size="sm"' use="Tighter entry for long lists such as history.">
+          <div className="w-56">
+            <NavItem size="sm" icon={<Icon name="bot" size="2xs" />} asChild>
+              <a href="#">Policy review</a>
+            </NavItem>
+          </div>
+        </Option>
+        <Option name="badge" use="A short count after the label.">
+          <div className="w-56">
+            <NavItem icon={<Icon name="triangle-alert" />} badge={4} asChild>
+              <a href="#">Alerts</a>
+            </NavItem>
+          </div>
+        </Option>
+        <Option name="icon (omitted)" use="Text only, with no icon.">
+          <div className="w-56">
+            <NavItem asChild>
+              <a href="#">Documentation</a>
+            </NavItem>
+          </div>
+        </Option>
+        <Option name="asChild" use="Style your own link so the entry navigates.">
+          <div className="w-56">
+            <NavItem icon={<Icon name="file-text" />} asChild>
+              <a href="#docs">Documentation</a>
+            </NavItem>
+          </div>
+        </Option>
+      </OptionTable>
     </div>
   ),
 };

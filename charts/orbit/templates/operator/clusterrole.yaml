@@ -40,15 +40,33 @@ rules:
   - apiGroups: ["networking.istio.io"]
     resources: ["destinationrules"]
     verbs: ["get", "list", "watch", "create", "patch"]
+  # Limits agent pods' Envoy to the platform services
+  # (docs/adr/2026-09-30-agent-pod-egress-lockdown.md).
+  - apiGroups: ["networking.istio.io"]
+    resources: ["sidecars"]
+    verbs: ["get", "list", "watch", "create", "patch"]
   # Reconciliation inputs; read-only.
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants", "connections", "oauthclients", "mcpservers"]
     verbs: ["get", "list", "watch"]
   # Status conditions. Connection and OAuthClient have none.
   - apiGroups: ["orbit.io"]
-    resources: ["orbittenants/status", "mcpservers/status"]
+    resources: ["orbittenants/status", "mcpservers/status", "sandboximages/status"]
     verbs: ["get", "patch"]
-  # caBundle and failurePolicy on Orbit's own webhooks.
+  # The operator validates every SandboxImage and owns kora-base in each tenant namespace.
+  - apiGroups: ["orbit.io"]
+    resources: ["sandboximages"]
+    verbs: ["get", "list", "watch", "create", "patch"]
+  # Owner references with blockOwnerDeletion on the warmers need this where
+  # OwnerReferencesPermissionEnforcement is on.
+  - apiGroups: ["orbit.io"]
+    resources: ["sandboximages/finalizers"]
+    verbs: ["update"]
+  # Each warm SandboxImage owns one pre-pull DaemonSet. Preflight reads the CNI DaemonSet.
+  - apiGroups: ["apps"]
+    resources: ["daemonsets"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
+  # caBundle and failurePolicy on kora's own webhooks.
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
     resourceNames: ["aaa-orbit-agent-pod-mutator", "orbit-agent-pod-validator"]
@@ -56,12 +74,8 @@ rules:
   - apiGroups: ["admissionregistration.k8s.io"]
     resources: ["mutatingwebhookconfigurations", "validatingwebhookconfigurations"]
     verbs: ["list", "watch"]
-  # Preflight: CNI presence, SPIRE registrations. istiod comes from the
-  # injector ConfigMap, not a Deployment. CSI driver and CRD presence have no
-  # direct RBAC; see preflight.go's SVID fetch and ClusterSPIFFEID checks.
-  - apiGroups: ["apps"]
-    resources: ["daemonsets"]
-    verbs: ["get"]
+  # Preflight reads SPIRE registrations and finds istiod through the injector ConfigMap.
+  # The DaemonSet rule above covers CNI presence; the CSI driver and CRD checks need no RBAC.
   - apiGroups: ["spire.spiffe.io"]
     resources: ["clusterspiffeids"]
     verbs: ["list"]

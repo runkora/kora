@@ -6,9 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -49,7 +53,7 @@ type CodexRunnerConfig struct {
 
 	// InferenceGatewayURL is written into a per-run config.toml (via writeCodexConfig)
 	// as the custom provider base_url so Codex routes all Responses API calls
-	// through the Orbit inference gateway.
+	// through the kora inference gateway.
 	InferenceGatewayURL string
 
 	// SystemPrompt, when non-empty, is sent as developerInstructions in thread/start.
@@ -78,13 +82,26 @@ type codexMsg struct {
 	Method string          `json:"method,omitempty"`
 	Params json.RawMessage `json:"params,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
+	Error  *codexRPCError  `json:"error,omitempty"`
 }
+
+// codexRPCError is the error member of a response the runner sends back to a
+// server request it does not handle.
+type codexRPCError struct {
+	Code    int    `json:"code"`
+	Message string `json:"message"`
+}
+
+// codexMethodNotFound is the JSON-RPC "method not found" error code.
+const codexMethodNotFound = -32601
 
 // codexActiveItem tracks an in-flight tool item between item/started and item/completed.
 type codexActiveItem struct {
-	itemType  string
-	inputRaw  json.RawMessage
-	outputBuf strings.Builder
+	name       string
+	parent     string
+	startedAt  time.Time
+	progressAt time.Time
+	outputBuf  strings.Builder
 }
 
 // maxStderrLines bounds the tail of Codex subprocess stderr kept in memory for
@@ -93,16 +110,6 @@ type codexActiveItem struct {
 // stdout), so a short tail is the only way to recover that detail without
 // exec'ing into the pod.
 const maxStderrLines = 20
-
-// isCodexToolType returns true for item types that map to tool_use/tool_result events.
-// The v2 protocol uses camelCase type names.
-func isCodexToolType(t string) bool {
-	switch t {
-	case "commandExecution", "fileChange", "mcpToolCall":
-		return true
-	}
-	return false
-}
 
 // CodexRunner implements Runner for the Codex app-server subprocess.
 //
@@ -116,17 +123,20 @@ type CodexRunner struct {
 	cfg          CodexRunnerConfig
 	cmd          *exec.Cmd
 	stdin        io.WriteCloser
-	stdinMu      sync.Mutex   // guards all stdin writes (Send + approval responses)
+	stdinMu      sync.Mutex   // guards all stdin writes (Send + server request replies)
 	threadID     atomic.Value // string; set after thread/start or thread/resume; "" until Start returns
 	activeTurnID atomic.Value // string; captured from turn/started; cleared on turn/completed or error
 	events       chan Event
 	once         sync.Once
-	textBuf      strings.Builder
+	textBuf      turnText
 	thinkingBuf  strings.Builder
 	pendingMu    sync.Mutex
 	pending      map[int64]chan codexMsg // in-flight requests awaiting response
 	nextID       atomic.Int64
 	activeItems  map[string]*codexActiveItem // tool items between item/started and item/completed
+	childThreads map[string]string           // subagent thread id → the collabAgentToolCall that spawned it
+	retryAttempt int                         // retries seen this turn, when Codex's message carries no count
+	turnErrored  bool                        // a run_error was already recorded for this turn
 	stderrMu     sync.Mutex
 	stderrTail   []string // bounded tail of subprocess stderr lines; see maxStderrLines
 }
@@ -137,10 +147,11 @@ func NewCodexRunner(cfg CodexRunnerConfig) *CodexRunner {
 		cfg.BinaryPath = "codex"
 	}
 	return &CodexRunner{
-		cfg:         cfg,
-		events:      make(chan Event, 256),
-		pending:     make(map[int64]chan codexMsg),
-		activeItems: make(map[string]*codexActiveItem),
+		cfg:          cfg,
+		events:       make(chan Event, 256),
+		pending:      make(map[int64]chan codexMsg),
+		activeItems:  make(map[string]*codexActiveItem),
+		childThreads: make(map[string]string),
 	}
 }
 
@@ -252,17 +263,28 @@ func (r *CodexRunner) Start(ctx context.Context, workDir string) error {
 	return nil
 }
 
-// Send delivers a user message to the Codex app-server as a turn/start request.
-// Returns immediately — token-level deltas flow through the Events() channel.
-func (r *CodexRunner) Send(_ context.Context, text string) error {
+// Send delivers a user message to the Codex app-server. During a turn it is a
+// turn/steer, which Codex reads at the turn's next step, as Claude Code does with
+// a message sent mid-turn; otherwise a turn/start. Returns once written; deltas
+// flow through the Events() channel.
+func (r *CodexRunner) Send(ctx context.Context, text string) error {
 	threadID, _ := r.threadID.Load().(string)
 	if threadID == "" {
 		return fmt.Errorf("codex: cannot send before thread is initialized")
 	}
+	input := []map[string]string{{"type": "text", "text": text}}
+	if turnID, _ := r.activeTurnID.Load().(string); turnID != "" {
+		// A steer fails when the turn ended meanwhile; the message then starts one.
+		if _, err := r.sendRPCRaw(ctx, "turn/steer", map[string]any{
+			"threadId": threadID, "expectedTurnId": turnID, "input": input,
+		}); err == nil {
+			return nil
+		}
+	}
 	id := r.nextID.Add(1)
 	params := map[string]any{
 		"threadId": threadID,
-		"input":    []map[string]string{{"type": "text", "text": text}},
+		"input":    input,
 	}
 	msg := codexMsg{ID: &id, Method: "turn/start", Params: mustMarshal(params)}
 	r.stdinMu.Lock()
@@ -275,7 +297,7 @@ func (r *CodexRunner) SendToolResult(_ context.Context, _, _ string) error {
 	return ErrNotSupported
 }
 
-// Events returns the channel of Orbit standard events.
+// Events returns the channel of kora standard events.
 func (r *CodexRunner) Events() <-chan Event {
 	return r.events
 }
@@ -341,7 +363,7 @@ func (r *CodexRunner) Close() error {
 // sandboxToolInstructions tells a Codex agent to provision a sandbox, and where
 // to find the tool. Codex keeps MCP tools out of the model's tool list until
 // they are searched for. Claude Code and OpenCode list them directly.
-const sandboxToolInstructions = `Your commands run inside this container until you provision a sandbox, and only a sandbox can reach the network. Provision one with the provision_sandbox tool before you clone, install, build, or call anything outside. If the tool is not already in your tool list, search for it by name.`
+const sandboxToolInstructions = `Your commands run inside this container until you provision a sandbox, and only a sandbox can reach the network. Provision one with the provision_sandbox tool before you clone, install, build, run tests, do anything memory-heavy, or call anything outside. If the tool is not already in your tool list, search for it by name.`
 
 // codexDeveloperInstructions is the agent's own prompt with the sandbox
 // instructions appended, or those instructions alone when the agent has no prompt.
@@ -365,6 +387,9 @@ func (r *CodexRunner) mcpServersTOML() string {
 [mcp_servers.runtime]
 command = "orbit-runtime-mcp"
 args    = []
+default_tools_approval_mode = "approve"
+# Codex starts MCP servers with a filtered env; the run token proves the run on /internal calls.
+env_vars = ["ORBIT_RUN_TOKEN"]
 
 [mcp_servers.runtime.env]
 ORBIT_SESSION_MANAGER_URL = %q
@@ -378,6 +403,7 @@ ORBIT_RUN_ID              = %q
 			fmt.Fprintf(&b, `
 [mcp_servers.%s]
 url = %q
+default_tools_approval_mode = "approve"
 `, server, url+"/v1/mcp/"+server)
 		}
 	}
@@ -529,7 +555,7 @@ func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
 
 		switch {
 		case msg.ID != nil && msg.Method != "":
-			// Server→client request (e.g. approval). Handle inline.
+			// Server→client request. Handle inline.
 			r.handleServerRequest(ctx, msg)
 		case msg.ID != nil && msg.Method == "":
 			// Response to one of our requests.
@@ -541,25 +567,20 @@ func (r *CodexRunner) readLoop(ctx context.Context, stdout io.Reader) {
 	}
 }
 
-// handleServerRequest processes a request sent by the Codex server (e.g. approval).
-// Always auto-approves. Caller is the readLoop goroutine.
+// handleServerRequest rejects every Codex server request: the config turns
+// approvals off, and an unanswered request would hang the run.
 func (r *CodexRunner) handleServerRequest(ctx context.Context, req codexMsg) {
-	switch req.Method {
-	case "item/commandExecution/requestApproval", "item/fileChange/requestApproval":
-		// v2 protocol: decision field is an enum string, not a bool.
-		resp := codexMsg{ID: req.ID, Result: mustMarshal(map[string]string{"decision": "accept"})}
-		r.stdinMu.Lock()
-		if err := r.writeJSONL(resp); err != nil {
-			r.cfg.Logger.Warn(ctx, "Codex: failed to write approval response",
-				logging.Field{Key: "run_id", Value: r.cfg.RunID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-		r.stdinMu.Unlock()
-	default:
-		r.cfg.Logger.Warn(ctx, "Codex: unknown server request",
+	r.cfg.Logger.Warn(ctx, "Codex: unknown server request",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "method", Value: req.Method},
+	)
+	resp := codexMsg{ID: req.ID, Error: &codexRPCError{Code: codexMethodNotFound, Message: "method not supported: " + req.Method}}
+	r.stdinMu.Lock()
+	defer r.stdinMu.Unlock()
+	if err := r.writeJSONL(resp); err != nil {
+		r.cfg.Logger.Warn(ctx, "Codex: failed to write server request error",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
-			logging.Field{Key: "method", Value: req.Method},
+			logging.Field{Key: "error", Value: err.Error()},
 		)
 	}
 }
@@ -579,28 +600,54 @@ func (r *CodexRunner) dispatchResponse(resp codexMsg) {
 }
 
 // handleNotification processes an unsolicited notification from the Codex server.
+// A subagent runs on its own thread; only the main thread's turns drive the run.
 func (r *CodexRunner) handleNotification(ctx context.Context, msg codexMsg) {
-	r.captureActiveTurnID(msg.Params)
+	var scope struct {
+		ThreadID string `json:"threadId"`
+	}
+	_ = json.Unmarshal(msg.Params, &scope)
+	main, _ := r.threadID.Load().(string)
+	onMain := scope.ThreadID == "" || main == "" || scope.ThreadID == main
+	if onMain {
+		r.captureActiveTurnID(msg.Params)
+	}
+	if onMain {
+		r.handleMainThread(ctx, msg)
+	}
+	switch msg.Method {
+	case "item/started":
+		r.handleItemStarted(msg.Params, r.parentOf(scope.ThreadID, onMain))
+	case "item/commandExecution/outputDelta":
+		r.handleOutputDelta(msg.Params)
+	case "item/mcpToolCall/progress":
+		r.handleToolProgress(msg.Params)
+	case "item/completed":
+		r.handleItemCompleted(msg.Params)
+	}
+}
+
+// handleMainThread handles what only the main thread drives: the turn's text,
+// its end, and its errors. turn/started only carries the turn id, captured above.
+func (r *CodexRunner) handleMainThread(ctx context.Context, msg codexMsg) {
 	switch msg.Method {
 	case "item/agentMessage/delta":
 		r.handleTextDelta(msg.Params)
 	case "item/reasoning/textDelta":
 		r.handleReasoningDelta(msg.Params)
-	case "item/started":
-		r.handleItemStarted(msg.Params)
-	case "item/commandExecution/outputDelta":
-		r.handleOutputDelta(msg.Params)
-	case "item/completed":
-		r.handleItemCompleted(msg.Params)
 	case "turn/completed":
 		r.handleTurnCompleted(ctx, msg.Params)
 	case "error":
 		r.handleErrorNotification(ctx, msg.Params)
-	case "turn/started":
-		// Informational — no event emitted. turn_id captured by captureActiveTurnID above.
-	default:
-		// Unknown notification — ignore.
 	}
+}
+
+// parentOf names the subagent call a notification's thread belongs to, or ""
+// for the main thread.
+func (r *CodexRunner) parentOf(threadID string, onMain bool) string {
+	if onMain {
+		return ""
+	}
+	return r.childThreads[threadID]
 }
 
 // captureActiveTurnID extracts turn.id from turn/started and turn/completed params
@@ -642,18 +689,101 @@ func (r *CodexRunner) handleReasoningDelta(params json.RawMessage) {
 	r.emit(EventTypeThinkingDelta, ThinkingDeltaPayload{Delta: p.Delta})
 }
 
-func (r *CodexRunner) handleItemStarted(params json.RawMessage) {
-	var p struct {
-		Item struct {
-			Type string `json:"type"`
-			ID   string `json:"id"`
-		} `json:"item"`
+// codexItem holds the ThreadItem fields the runner records. The protocol's
+// ThreadItem is a union keyed by type; unused fields stay zero.
+type codexItem struct {
+	Type             string          `json:"type"`
+	ID               string          `json:"id"`
+	Status           string          `json:"status"`
+	Command          string          `json:"command"`
+	Cwd              string          `json:"cwd"`
+	AggregatedOutput *string         `json:"aggregatedOutput"`
+	ExitCode         *int            `json:"exitCode"`
+	Changes          json.RawMessage `json:"changes"`
+	Server           string          `json:"server"`
+	Tool             string          `json:"tool"`
+	Arguments        json.RawMessage `json:"arguments"`
+	Result           *struct {
+		Content json.RawMessage `json:"content"`
+	} `json:"result"`
+	Error *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+	Prompt            *string                              `json:"prompt"`
+	ReceiverThreadIDs []string                             `json:"receiverThreadIds"`
+	AgentsStates      map[string]struct{ Message *string } `json:"agentsStates"`
+	Query             string                               `json:"query"`
+}
+
+// codexShellWrap matches Codex's command line for a shell call: the configured
+// shell run with -lc and the agent's command as one quoted argument.
+var codexShellWrap = regexp.MustCompile(`(?s)^\S+ -lc '(.*)'$`)
+
+// unwrapShell returns the command the agent asked for, without the shell Codex
+// wraps it in; anything else is returned as it is.
+func unwrapShell(command string) string {
+	m := codexShellWrap.FindStringSubmatch(command)
+	if m == nil {
+		return command
 	}
-	if err := json.Unmarshal(params, &p); err != nil || !isCodexToolType(p.Item.Type) {
+	return strings.ReplaceAll(m[1], `'\''`, `'`)
+}
+
+// codexToolCall names a tool item and gives its own arguments as the recorded
+// input, in the same shape every runner records: what the tool was asked to do.
+// ok is false for items that are not tool calls (messages, reasoning, plans).
+func codexToolCall(it codexItem) (name string, input any, ok bool) {
+	switch it.Type {
+	case "commandExecution":
+		return "commandExecution", map[string]string{"command": unwrapShell(it.Command), "cwd": it.Cwd}, true
+	case "fileChange":
+		return "fileChange", map[string]json.RawMessage{"changes": it.Changes}, true
+	case "mcpToolCall":
+		return "mcp__" + it.Server + "__" + it.Tool, it.Arguments, true
+	case "dynamicToolCall":
+		return it.Tool, it.Arguments, true
+	case "collabAgentToolCall":
+		return it.Tool, map[string]any{"prompt": it.Prompt, "receiver_thread_ids": it.ReceiverThreadIDs}, true
+	case "webSearch":
+		return "webSearch", map[string]string{"query": it.Query}, true
+	}
+	return "", nil, false
+}
+
+func (r *CodexRunner) handleItemStarted(params json.RawMessage, parent string) {
+	var p struct {
+		Item codexItem `json:"item"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
 		return
 	}
-	r.activeItems[p.Item.ID] = &codexActiveItem{itemType: p.Item.Type, inputRaw: params}
-	r.emit(EventTypeToolUse, ToolUsePayload{ID: p.Item.ID, Name: p.Item.Type, Input: params})
+	name, input, ok := codexToolCall(p.Item)
+	if !ok {
+		return
+	}
+	r.rememberChildThreads(p.Item)
+	if parent == "" && r.textBuf.Len() > 0 {
+		// Text written before a call is kept in order, as the Claude runner does.
+		r.emit(EventTypeTextBlock, TextBlockPayload{Content: r.textBuf.String()})
+		r.textBuf.Reset()
+	}
+	now := time.Now()
+	r.activeItems[p.Item.ID] = &codexActiveItem{name: name, parent: parent, startedAt: now, progressAt: now}
+	raw, _ := json.Marshal(input)
+	r.emit(EventTypeToolUse, ToolUsePayload{ID: p.Item.ID, Name: name, Input: raw, ParentToolUseID: parent})
+}
+
+// rememberChildThreads maps the threads a subagent call spawned back to that
+// call, so the subagent's own items can name it as their parent.
+func (r *CodexRunner) rememberChildThreads(it codexItem) {
+	if it.Type != "collabAgentToolCall" {
+		return
+	}
+	for _, id := range it.ReceiverThreadIDs {
+		if _, known := r.childThreads[id]; !known {
+			r.childThreads[id] = it.ID
+		}
+	}
 }
 
 func (r *CodexRunner) handleOutputDelta(params json.RawMessage) {
@@ -666,49 +796,192 @@ func (r *CodexRunner) handleOutputDelta(params json.RawMessage) {
 	}
 	if item, ok := r.activeItems[p.ItemID]; ok {
 		item.outputBuf.WriteString(p.Delta)
+		r.progress(p.ItemID, item)
 	}
+}
+
+func (r *CodexRunner) handleToolProgress(params json.RawMessage) {
+	var p struct {
+		ItemID string `json:"itemId"`
+	}
+	if err := json.Unmarshal(params, &p); err != nil {
+		return
+	}
+	if item, ok := r.activeItems[p.ItemID]; ok {
+		r.progress(p.ItemID, item)
+	}
+}
+
+// codexProgressEvery spaces tool_progress events: Codex reports output as it
+// streams, and the UI only counts seconds.
+const codexProgressEvery = 5 * time.Second
+
+// progress reports a still-running call. Codex has no heartbeat of its own;
+// streamed output and MCP progress messages stand in for one.
+func (r *CodexRunner) progress(id string, item *codexActiveItem) {
+	if time.Since(item.progressAt) < codexProgressEvery {
+		return
+	}
+	item.progressAt = time.Now()
+	r.emit(EventTypeToolProgress, ToolProgressPayload{
+		ToolUseID:       id,
+		ToolName:        item.name,
+		ParentToolUseID: item.parent,
+		ElapsedSeconds:  int(time.Since(item.startedAt).Seconds()),
+	})
 }
 
 func (r *CodexRunner) handleItemCompleted(params json.RawMessage) {
 	var p struct {
-		Item struct {
-			Type string `json:"type"`
-			ID   string `json:"id"`
-		} `json:"item"`
+		Item codexItem `json:"item"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
 		return
 	}
 	item, ok := r.activeItems[p.Item.ID]
-	if !ok || !isCodexToolType(p.Item.Type) {
+	if !ok {
 		return
 	}
 	delete(r.activeItems, p.Item.ID)
-	r.emit(EventTypeToolResult, ToolResultPayload{ToolUseID: p.Item.ID, Content: item.outputBuf.String()})
+	r.rememberChildThreads(p.Item)
+	content, isError := codexItemResult(p.Item, item.outputBuf.String())
+	r.emit(EventTypeToolResult, newToolResult(p.Item.ID, content, isError, item.parent))
 }
 
-func (r *CodexRunner) handleTurnCompleted(ctx context.Context, _ json.RawMessage) {
-	text := r.textBuf.String()
-	thinking := r.thinkingBuf.String()
-	r.textBuf.Reset()
-	r.thinkingBuf.Reset()
+// codexItemResult is a finished tool item's result as text, and whether it
+// failed. A declined call is one Codex refused to run.
+func codexItemResult(it codexItem, streamed string) (string, bool) {
+	failed := it.Status == codexFailed || it.Status == "declined"
+	switch it.Type {
+	case "commandExecution":
+		out := streamed
+		if it.AggregatedOutput != nil {
+			out = *it.AggregatedOutput
+		}
+		if it.Status == "declined" {
+			return "Command declined", true
+		}
+		if it.ExitCode != nil && *it.ExitCode != 0 {
+			return fmt.Sprintf("Exit code %d\n%s", *it.ExitCode, out), true
+		}
+		return out, failed
+	case "mcpToolCall":
+		if it.Error != nil {
+			return it.Error.Message, true
+		}
+		if it.Result != nil {
+			return toolResultText(it.Result.Content), failed
+		}
+	case "fileChange":
+		return string(it.Changes), failed
+	case "collabAgentToolCall":
+		return collabResult(it), failed
+	}
+	return "", failed
+}
+
+// collabResult is what a subagent call reported: its agents' messages, or, for
+// a spawn, which answers before the subagent does, the thread it started.
+func collabResult(it codexItem) string {
+	// Sorted by thread, so the recorded result does not depend on map order.
+	var parts []string
+	for _, thread := range slices.Sorted(maps.Keys(it.AgentsStates)) {
+		if m := it.AgentsStates[thread].Message; m != nil {
+			parts = append(parts, *m)
+		}
+	}
+	if len(parts) == 0 && len(it.ReceiverThreadIDs) > 0 {
+		return "Started subagent thread " + strings.Join(it.ReceiverThreadIDs, ", ")
+	}
+	return strings.Join(parts, "\n")
+}
+
+// handleTurnCompleted ends a main-thread turn. An interrupted turn keeps its
+// partial text, marked, and records the stop; the process stays alive.
+func (r *CodexRunner) handleTurnCompleted(ctx context.Context, params json.RawMessage) {
+	var p struct {
+		Turn struct {
+			Status string `json:"status"`
+			Error  *struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		} `json:"turn"`
+	}
+	_ = json.Unmarshal(params, &p)
 	r.activeTurnID.Store("")
-	r.emit(EventTypeMessageComplete, MessageCompletePayload{Text: text, Thinking: thinking})
+	r.retryAttempt = 0
+	switch p.Turn.Status {
+	case "interrupted":
+		r.flushPartial()
+		r.emit(EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"})
+	case codexFailed:
+		r.flushPartial()
+		if !r.turnErrored {
+			msg := "agent turn failed"
+			if p.Turn.Error != nil && p.Turn.Error.Message != "" {
+				msg = p.Turn.Error.Message
+			}
+			r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: msg})
+		}
+	default:
+		r.emit(EventTypeMessageComplete, MessageCompletePayload{Text: r.textBuf.String(), Thinking: r.thinkingBuf.String()})
+		r.textBuf.Reset()
+		r.thinkingBuf.Reset()
+	}
+	r.turnErrored = false
 	r.emit(EventTypeMessageStop, nil)
 
 	r.cfg.Logger.Info(ctx, "Codex turn completed",
 		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "status", Value: p.Turn.Status},
 	)
 }
 
+// flushPartial emits the text a cut-short turn had produced, marked interrupted.
+func (r *CodexRunner) flushPartial() {
+	if r.textBuf.Len() > 0 || r.thinkingBuf.Len() > 0 {
+		r.emit(EventTypeMessageComplete, MessageCompletePayload{
+			Text:        r.textBuf.String(),
+			Thinking:    r.thinkingBuf.String(),
+			Interrupted: true,
+		})
+	}
+	r.textBuf.Reset()
+	r.thinkingBuf.Reset()
+}
+
+// codexFailed is the status Codex gives a failed item or turn.
+const codexFailed = "failed"
+
+// codexRetryCount reads "attempt/max" from a retry message such as
+// "Reconnecting... 2/5"; Codex puts the counts only in the text.
+var codexRetryCount = regexp.MustCompile(`(\d+)/(\d+)`)
+
+// handleErrorNotification records a model or stream error. willRetry means
+// Codex is retrying it; otherwise the turn has failed and ends with its
+// turn/completed. An error outside a turn has no turn to end, so the process is
+// closed and the run fails.
 func (r *CodexRunner) handleErrorNotification(ctx context.Context, params json.RawMessage) {
 	var p struct {
 		Error struct {
-			Message string `json:"message"`
+			Message        string          `json:"message"`
+			CodexErrorInfo json.RawMessage `json:"codexErrorInfo"`
 		} `json:"error"`
+		WillRetry bool `json:"willRetry"`
 	}
 	if params != nil {
 		_ = json.Unmarshal(params, &p)
+	}
+	class, status := codexErrorClass(p.Error.CodexErrorInfo)
+	if p.WillRetry {
+		r.retryAttempt++
+		retry := APIRetryPayload{Attempt: r.retryAttempt, ErrorStatus: status, Error: class}
+		if m := codexRetryCount.FindStringSubmatch(p.Error.Message); m != nil {
+			retry.Attempt, _ = strconv.Atoi(m[1])
+			retry.MaxRetries, _ = strconv.Atoi(m[2])
+		}
+		r.emit(EventTypeAPIRetry, retry)
+		return
 	}
 	stderrTail := r.stderrSnapshot()
 	r.cfg.Logger.Error(ctx, "Codex error notification",
@@ -716,26 +989,38 @@ func (r *CodexRunner) handleErrorNotification(ctx context.Context, params json.R
 		logging.Field{Key: "message", Value: p.Error.Message},
 		logging.Field{Key: "stderr_tail", Value: stderrTail},
 	)
-	r.textBuf.Reset()
-	r.thinkingBuf.Reset()
-	r.activeTurnID.Store("")
-	// Emit a run_error so the registry marks the run as failed, then close
-	// stdin to cause the subprocess to exit and the event channel to close.
-	// stderrTail carries the HTTP status/URL/response body that Codex logs to
-	// its subprocess stderr but never includes in the "error" notification
-	// itself, so it's appended here to keep that detail recoverable from the run.
+	// stderrTail carries the HTTP status, URL and response body that Codex logs
+	// to stderr but never includes in the "error" notification itself.
 	message := p.Error.Message
 	if stderrTail != "" {
 		message = message + "\n" + stderrTail
 	}
-	r.emit(EventTypeRunError, RunErrorPayload{
-		Code:    "runner_error",
-		Message: message,
-	})
-	r.stdin.Close() //nolint:errcheck
+	r.emit(EventTypeRunError, RunErrorPayload{Code: "runner_error", Message: message})
+	r.turnErrored = true
+	if turnID, _ := r.activeTurnID.Load().(string); turnID == "" {
+		_ = r.stdin.Close()
+	}
 }
 
-// emit sends an Orbit event to the events channel.
+// codexErrorClass reads Codex's error info: a bare string ("unauthorized") or an
+// object keyed by the class carrying the upstream HTTP status.
+func codexErrorClass(raw json.RawMessage) (string, *int) {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s, nil
+	}
+	var obj map[string]struct {
+		HTTPStatusCode *int `json:"httpStatusCode"`
+	}
+	if json.Unmarshal(raw, &obj) == nil {
+		for k, v := range obj {
+			return k, v.HTTPStatusCode
+		}
+	}
+	return "", nil
+}
+
+// emit sends a kora event to the events channel.
 func (r *CodexRunner) emit(t EventType, payload any) {
 	if payload == nil {
 		r.events <- Event{Type: t}
@@ -749,7 +1034,7 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 }
 
 // writeCodexConfig creates a per-run CODEX_HOME directory under workDir and
-// writes a config.toml that points Codex at the Orbit inference gateway.
+// writes a config.toml that points Codex at the kora inference gateway.
 //
 // The bearer token is read from the ORBIT_INFERENCE_KEY environment variable
 // (env_key = "ORBIT_INFERENCE_KEY" in config.toml). This keeps the credential
@@ -781,14 +1066,27 @@ func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 model = %q
 # Codex refuses to run a command unless it can sandbox it with bubblewrap, which
 # this image does not carry: without this it panics with "bubblewrap is
-# unavailable" and no command runs at all. Orbit's boundary is the sandbox pod
+# unavailable" and no command runs at all. kora's boundary is the sandbox pod
 # and the Landlock wrapper around this process, so a second sandbox nested inside
 # them would add nothing (docs/adr/2026-09-18-sandbox-exec-trust-boundary.md).
 # Stays above the first table header: a key after one belongs to that table.
 sandbox_mode = "danger-full-access"
+# Headless: no human can answer an approval, and kora's gateways enforce policy.
+approval_policy = "never"
+# The agent pod reaches only platform services
+# (docs/adr/2026-09-30-agent-pod-egress-lockdown.md): no update check, and no
+# hosted web search tool, as for Claude Code.
+check_for_update_on_startup = false
+web_search = "disabled"
+
+[analytics]
+enabled = false
+
+[feedback]
+enabled = false
 
 [model_providers.orbit]
-name     = "Orbit"
+name     = "kora"
 base_url = %q
 env_key  = "ORBIT_INFERENCE_KEY"
 wire_api = "responses"
@@ -805,6 +1103,12 @@ trust_level = "trusted"
 [features]
 shell_tool = true
 unified_exec = false
+# The shell snapshot is taken by a login shell on this pod, whose /etc/profile
+# resets PATH; replayed in the sandbox it would hide the toolchains and user
+# installs. Without it, commands get the sandbox's own environment.
+shell_snapshot = false
+# The curated plugin sync clones github.com/openai/plugins at start.
+plugins = false
 %s`, r.cfg.Model, perRunURL, workDir, r.mcpServersTOML())
 
 	configPath := filepath.Join(codexHome, "config.toml")
@@ -822,3 +1126,6 @@ func mustMarshal(v any) json.RawMessage {
 	}
 	return b
 }
+
+// TakeText hands over the text streamed so far; see Runner.
+func (r *CodexRunner) TakeText() string { return r.textBuf.take() }

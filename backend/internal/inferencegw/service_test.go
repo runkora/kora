@@ -158,7 +158,7 @@ func buildTestRouter(vms []VirtualModel) *RoutingEngine {
 		ProviderBedrock:  &stubConnector{name: ProviderBedrock},
 		ProviderVertexAI: &stubConnector{name: ProviderVertexAI},
 	}
-	r := NewRoutingEngine(connectors)
+	r := NewRoutingEngine(connectors, nil, nil)
 	if vms != nil {
 		r.LoadVirtualCatalog(newTestSnap(vms, nil))
 	}

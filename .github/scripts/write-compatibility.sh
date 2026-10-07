@@ -1,21 +1,25 @@
 #!/usr/bin/env bash
-# Writes compatibility.yaml. The Kubernetes and Istio ranges track the pinned
-# Istio's support window; the rest comes from versions.env. Env: TAG.
+# Writes compatibility.yaml. Istio minors come from the orbit chart's preflight
+# list and the SPIRE chart from the reference install; tooling comes from
+# versions.env. Keep the Kubernetes list in step with the charts CI render
+# matrix. Env: TAG.
 set -euo pipefail
 : "${TAG:?}"
 source scripts/cluster/versions.env
+istio=$(yq -o=json -I=0 '.operator.preflight.supportedIstioMinors' charts/orbit/values.yaml)
+spire=$(yq '.versions.spire' deploy/reference/environments/example.yaml)
 cat > compatibility.yaml <<YAML
 release: ${TAG}
 kubernetes:
-  tested: ["1.31", "1.32", "1.33"]
+  tested: ["1.34", "1.35", "1.36"]
 istio:
-  supported: ["1.29", "1.28"]
+  supported: ${istio}
   mode: sidecar
   cni: required
 spire:
-  chart: "${SPIRE_CHART_VERSION}"
+  chart: "${spire}"
 postgresql:
-  supported: ["13", "14", "15", "16", "17"]
+  supported: ["14", "15", "16", "17", "18"]
 tooling:
   helm: "${HELM_VERSION}"
   helmfile: "${HELMFILE_VERSION}"

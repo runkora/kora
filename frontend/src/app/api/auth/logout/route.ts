@@ -1,7 +1,7 @@
 /**
  * POST /api/auth/logout
  *
- * Revokes the Orbit tokens server-side and destroys the session cookie.
+ * Revokes the kora tokens server-side and destroys the session cookie.
  *
  * 1. Reads the session from the sealed cookie.
  * 2. Calls `POST /identity/revoke` for both the refresh token and access token

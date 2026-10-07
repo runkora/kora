@@ -30,7 +30,7 @@ const headingVariants = cva('font-sans tracking-tight', {
        * Renders as h1.
        *
        * ```tsx
-       * <Heading variant="display">Orbit</Heading>
+       * <Heading variant="display">kora</Heading>
        * ```
        */
       display: 'text-5xl font-bold leading-none tracking-[-0.03em]',
@@ -120,7 +120,7 @@ export interface HeadingProps extends VariantProps<typeof headingVariants> {
  * Use `variant="metric"` for large KPI/stat numbers — renders as a div.
  *
  * ```tsx
- * <Heading variant="display">Orbit</Heading>
+ * <Heading variant="display">kora</Heading>
  * <Heading variant="title">Agents</Heading>
  * <Heading variant="metric">4,821</Heading>
  * <Heading variant="subsection" color="muted">Configuration</Heading>
@@ -145,8 +145,8 @@ Heading.displayName = 'Heading';
  * alignment, and overflow modifiers.
  *
  * Size variants use semantic names describing purpose, not scale:
- *   micro      — finest detail: 11px, timestamps in dense UIs, disclaimer text
- *   caption    — fine detail: 12px, timestamps, badge labels, auxiliary metadata
+ *   micro      — finest detail: 12px, timestamps in dense UIs, disclaimer text
+ *   caption    — fine detail: 13px, timestamps, badge labels, auxiliary metadata
  *   supporting — secondary body: descriptions, helper text, table metadata
  *   body       — default prose: the majority of UI text lives here
  *   lead       — introductory: opening paragraphs, feature descriptions
@@ -159,9 +159,9 @@ const textVariants = cva('font-sans', {
        * keyboard shortcut hints, and single-line disclaimer text where caption
        * (12px) would still feel too large. Use sparingly.
        */
-      micro: 'text-[11px] leading-none',
+      micro: 'text-xs leading-none',
       /** Finest text — 12px timestamps, status labels, auxiliary data. */
-      caption: 'text-xs leading-none',
+      caption: 'text-[13px] leading-none',
       /** Secondary body — descriptions, helper text, table metadata. */
       supporting: 'text-sm leading-normal',
       /** Default prose — the primary body copy size. */
@@ -272,13 +272,17 @@ export interface TextProps extends VariantProps<typeof textVariants> {
    * is intrinsic to the content itself (e.g. a filename, a conversation
    * title, a long agent ID).
    *
+   * Pass `"start"` to clip the beginning instead, so the end stays visible.
+   * Use it for dotted paths and identifiers where the last part is the one
+   * that matters, for example `repository.template_repository.permissions.push`.
+   *
    * ```tsx
    * <Text size="caption" weight="emphasis" truncate>
    *   A very long conversation title that will be clipped
    * </Text>
    * ```
    */
-  truncate?: boolean;
+  truncate?: boolean | 'start';
 
   /**
    * When true, renders the text in a monospace font (font-mono). Use for
@@ -355,7 +359,7 @@ export interface TextProps extends VariantProps<typeof textVariants> {
  * <Text>Agent is running.</Text>
  * <Text size="supporting" color="muted">Last seen 2 minutes ago</Text>
  * <Text size="caption" color="subtle" weight="strong" transform="uppercase">Today</Text>
- * <Text size="caption" align="center" color="subtle">Orbit AI can make mistakes.</Text>
+ * <Text size="caption" align="center" color="subtle">kora AI can make mistakes.</Text>
  * <Text size="micro" color="subtle">Shift + Enter for new line</Text>
  * <Text size="caption" weight="emphasis" truncate>Very long agent ID</Text>
  * <Text size="supporting" mono>apollo-retriever</Text>
@@ -378,6 +382,7 @@ const Text = React.forwardRef<HTMLElement, TextProps>(
       preserveWhitespace = false,
       asChild = false,
       as,
+      children,
       ...props
     },
     ref,
@@ -391,13 +396,16 @@ const Text = React.forwardRef<HTMLElement, TextProps>(
         className={cn(
           textVariants({ size, color, weight, transform, align }),
           truncate && 'truncate',
+          truncate === 'start' && '[direction:rtl]',
           mono && 'font-mono',
           tabular && 'tabular-nums',
           preserveWhitespace && 'whitespace-pre-wrap',
           className,
         )}
         {...props}
-      />
+      >
+        {truncate === 'start' && !asChild ? <bdi>{children}</bdi> : children}
+      </Comp>
     );
   },
 );

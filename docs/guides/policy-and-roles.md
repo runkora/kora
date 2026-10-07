@@ -1,12 +1,12 @@
 # Policy, Roles, and Access Control
 
-This guide explains how Orbit's authorisation model works and how to configure access for principals on your tenant. It covers the scope vocabulary, grants, roles, and the relationship between them.
+This guide explains how kora's authorisation model works and how to configure access for principals on your tenant. It covers the scope vocabulary, grants, roles, and the relationship between them.
 
 ---
 
 ## Overview
 
-Orbit uses a **default-deny whitelist model**. No principal can access any resource unless an explicit grant or role assignment says they can. Every request (agent, human, service account) passes through policy evaluation before the resource is reached.
+kora uses a **default-deny whitelist model**. No principal can access any resource unless an explicit grant or role assignment says they can. Every request (agent, human, service account) passes through policy evaluation before the resource is reached.
 
 There are two complementary ways to give a principal access to something:
 
@@ -264,39 +264,34 @@ Grant deletion takes effect within the bundle polling interval (default: ≤ 30 
 
 Services declare which scopes protect their routes by registering at startup with the policy service. This is how Layer 1 (OPA Envoy sidecar) knows which scope a request needs before it reaches the service handler.
 
-Platform services (inference gateway, policy gateway) register globally: their routes are included in every tenant's bundle. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes, but every `required_scope` must exist in that tenant's vocabulary first.
+Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally: their routes are included in every tenant's bundle. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes, but every `required_scope` must exist in that tenant's vocabulary first.
 
 ### How It Works
 
-Route registration uses the platform's identity mechanism: no explicit credentials are passed by the caller. The service's identity-proxy sidecar exchanges its SPIFFE SVID for a platform token, which is automatically injected on outbound requests by Envoy's ext_proc filter. The policy service derives the registration scope (global vs tenant) from the token's principal type:
+A platform service registers with its own platform token. The identity client's `SelfTokenSource` exchanges the pod's SPIFFE SVID for that token in-process, and the `routescopes` client sends it as the bearer on the registration call only. The policy service derives the registration scope (global vs tenant) from the token's principal type:
 
-- `SYSTEM` principal → global registration, compiled into every tenant bundle
-- `SERVICE` principal → tenant-scoped, compiled into that tenant's bundle only
+- `SYSTEM` principal → global registration, compiled into every tenant bundle. The `service` field must equal the token's `display_name`, which is the pod's SPIFFE component (`/system/<name>`).
+- `SERVICE` principal → tenant-scoped, compiled into that tenant's bundle only. The `service` field must equal the token's subject.
+
+A registration for any other service is rejected with 403.
 
 ### Adding Route Registration to a Service
 
-Use the `internal/platform/clients/routescopes` client:
+Use the `internal/platform/clients/routescopes` client with a token source, and hand the register function to `KeepRegistered`, which retries until the first success and then re-registers periodically:
 
 ```go
-client := routescopes.NewClient(cfg.PolicyServiceURL, logger)
-if err := client.Register(ctx, "my-service", []routescopes.RouteScope{
-    {PathPrefix: "/v1/my-resource/", Method: "POST", RequiredScope: "my-scope:write"},
-    {PathPrefix: "/v1/my-resource/", Method: "GET",  RequiredScope: "my-scope:read"},
-}); err != nil {
-    logger.Error(ctx, "route registration failed", logging.Field{Key: "error", Value: err.Error()})
+selfToken := identityclient.NewClient(cfg.Identity.InternalURL, logger).SelfTokenSource()
+client := routescopes.NewClient(cfg.Policy.PolicyServiceInternalURL, selfToken, logger)
+register := func(ctx context.Context) error {
+    return client.Register(ctx, "my-service", []routescopes.RouteScope{
+        {PathPrefix: "/v1/my-resource/", Method: "POST", RequiredScope: "my-scope:write"},
+        {PathPrefix: "/v1/my-resource/", Method: "GET", RequiredScope: "my-scope:read"},
+    }, nil)
 }
+go routescopes.KeepRegistered(ctx, logger, "my-service", register)
 ```
 
-The client retries with exponential backoff to handle the startup window while the identity-proxy sidecar exchanges its SVID for a token.
-
-### Sidecar Requirements
-
-For route registration (and any outbound platform call) to work, the service pod must have:
-
-1. `inject.istio.io/templates: "sidecar,spire,identity-proxy"`: adds the identity-proxy container, which exchanges the SPIFFE SVID for a platform JWT and injects it on outbound requests
-2. `orbit.io/identity-proxy: "enabled"`: activates the Envoy ext_proc filter that injects the token
-
-Services that also run an OPA sidecar (for outbound scope enforcement) additionally need `orbit.io/opa-policy: "enabled"`. Platform services use identity-proxy without OPA.
+The service name must match the pod's `spiffe.io/component` label.
 
 ### Inspecting Registered Routes
 

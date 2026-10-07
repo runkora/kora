@@ -92,13 +92,12 @@ func PodURL(slug string, ordinal int, namespace string) string {
 // (the dependency direction would be backwards) and a shared type in internal/platform/ would
 // pull session-manager domain concepts into the platform layer.
 type CreateSessionRequest struct {
-	RunID        string   `json:"run_id"`
-	AgentTypeID  string   `json:"agent_type_id"`
-	TenantID     string   `json:"tenant_id"`
-	Framework    string   `json:"framework,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	AllowedTools []string `json:"allowed_tools,omitempty"`
-	SystemPrompt string   `json:"system_prompt,omitempty"`
+	RunID        string `json:"run_id"`
+	AgentTypeID  string `json:"agent_type_id"`
+	TenantID     string `json:"tenant_id"`
+	Framework    string `json:"framework,omitempty"`
+	Model        string `json:"model,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
 	// MCPServers are the distinct MCP servers the agent has tool grants on; the
 	// runner provisions one governed endpoint (/v1/mcp/<server>) per entry.
 	MCPServers []string `json:"mcp_servers,omitempty"`
@@ -106,6 +105,21 @@ type CreateSessionRequest struct {
 	// immediately, rather than waiting for the agent to ask for one. It provisions
 	// in the background, so the session is created either way.
 	ProvisionSandbox bool `json:"provision_sandbox,omitempty"`
+	// Guardrails are the run's thresholds; a zero field takes the
+	// session-manager's default (docs/adr/2026-09-29-agent-run-guardrails.md).
+	Guardrails RunGuardrails `json:"guardrails"`
+}
+
+// RunGuardrails carries the install's sandbox settings and the agent type's
+// loop thresholds for one run.
+type RunGuardrails struct {
+	SandboxProvisionAttempts    int `json:"sandbox_provision_attempts,omitempty"`
+	SandboxProvisionBackoffSecs int `json:"sandbox_provision_backoff_secs,omitempty"`
+	SandboxProvisionBudgetSecs  int `json:"sandbox_provision_budget_secs,omitempty"`
+	RepeatedCallWarn            int `json:"repeated_call_warn,omitempty"`
+	RepeatedCallPause           int `json:"repeated_call_pause,omitempty"`
+	WaitRearmWarn               int `json:"wait_rearm_warn,omitempty"`
+	WaitRearmPause              int `json:"wait_rearm_pause,omitempty"`
 }
 
 // CreateSession starts a new agent subprocess on the target pod.

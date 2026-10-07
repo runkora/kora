@@ -1,16 +1,16 @@
-# Terra: Orbit Design System
+# Terra: kora Design System
 
 **`@orbit/terra`** · `frontend/src/packages/terra/`
 
 ---
 
-_Terra_ is Latin for earth: the destination of every orbital descent. Terra firma means solid ground. The design system is the solid, stable visual foundation that everything in Orbit lands on: the tokens, components, and visual language that carry the platform experience from the control plane down to the user's screen.
+_Terra_ is Latin for earth: the destination of every orbital descent. Terra firma means solid ground. The design system is the solid, stable visual foundation that everything in kora lands on: the tokens, components, and visual language that carry the platform experience from the control plane down to the user's screen.
 
 ---
 
 ## Overview
 
-Terra is a monorepo workspace package. It lives at `frontend/src/packages/terra/` inside the Orbit frontend directory and is consumed via the pnpm workspace protocol:
+Terra is a monorepo workspace package. It lives at `frontend/src/packages/terra/` inside the kora frontend directory and is consumed via the pnpm workspace protocol:
 
 ```json
 "@orbit/terra": "workspace:*"
@@ -123,7 +123,7 @@ Background variants (e.g., `bg-status-healthy-subtle`) are available for badge a
 
 | Token         | Value      | Purpose                                    |
 | ------------- | ---------- | ------------------------------------------ |
-| `--font-sans` | Geist Sans | Body text, UI labels                       |
+| `--font-sans` | Inter      | Body text, UI labels                       |
 | `--font-mono` | Geist Mono | Agent IDs, policy names, code, identifiers |
 
 Use `font-mono` for any value that represents a system identifier: agent IDs, credential names, event IDs, policy slugs. This reinforces the technical character of the UI.
@@ -320,7 +320,7 @@ Stories are the primary way to review and document component variants. Run `pnpm
 
 ## For AI Assistants
 
-When generating components for Orbit using Terra:
+When generating components for kora using Terra:
 
 1. **Import from `@orbit/terra`**: never import directly from internal paths like `src/components/button`
 2. **Use semantic token classes**: `bg-surface`, `text-foreground`, `text-muted`, `border-border`, `text-accent`. Never arbitrary shades like `gray-800` or `blue-500`
@@ -377,4 +377,4 @@ for the same rules.
 
 - [Design System PRD](../../../../docs/prd/design-system.md)
 - [Architecture Decision Record](../../../../docs/adr/2026-03-25-terra-frontend-design-system.md)
-- [Orbit Frontend](../../)
+- [kora Frontend](../../)

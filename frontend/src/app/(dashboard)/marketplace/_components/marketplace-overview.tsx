@@ -6,6 +6,7 @@ import { useState } from 'react';
 import {
   Alert,
   Button,
+  EmptyState,
   Icon,
   Input,
   Label,
@@ -20,7 +21,7 @@ import {
   Text,
 } from '@orbit/terra';
 import type { SkillSort } from '@orbit/shared/api';
-import { EmptyState, ViewToggle } from '@orbit/components';
+import { ViewToggle } from '@orbit/components';
 import type { ViewToggleProps } from '@orbit/components';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 import { MIN_SEARCH_LENGTH, SORT_OPTIONS } from '../_types';

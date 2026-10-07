@@ -5,31 +5,39 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
-// withUserCtx builds verified HUMAN claims with a subject and an optional
-// comma-separated roles claim — the shape the identity service stamps and the
-// shape isPlatformAdmin/isRunStarter read.
-func withRunCallerCtx(ctx context.Context, tenantID, sub, roles string) context.Context {
-	claims := map[string]string{}
-	if roles != "" {
-		claims["roles"] = roles
-	}
+// withRunCallerCtx builds verified HUMAN claims with a subject.
+func withRunCallerCtx(ctx context.Context, tenantID, sub string) context.Context {
 	return token.WithClaims(ctx, &token.PlatformClaims{
 		RegisteredClaims: jwt.RegisteredClaims{Subject: sub},
-		Orbit: token.OrbitClaims{
-			TenantID:      tenantID,
-			PrincipalType: token.PrincipalTypeHuman,
-			Claims:        claims,
-		},
+		Orbit:            token.OrbitClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
 	})
 }
+
+// delegatedReadEvaluator allows everything except agents:delegated:read, held only by holders.
+type delegatedReadEvaluator struct {
+	allowAllEvaluator
+	holders map[string]bool
+}
+
+func (e delegatedReadEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	if len(in.PathSegments) == 1 && in.PathSegments[0] == "delegated" {
+		return policy.Result{Allow: in.Claims != nil && e.holders[in.Claims.Subject]}, nil
+	}
+	return policy.Result{Allow: true}, nil
+}
+
+var auditorEval = delegatedReadEvaluator{holders: map[string]bool{"auditor": true}}
 
 // seedDelegatedRun seeds a delegated agent type and one of its runs.
 func seedDelegatedRun(t *testing.T, repo *mockRepository, runID, createdBy string, state RunState) {
@@ -52,70 +60,33 @@ func seedAutonomousRun(t *testing.T, repo *mockRepository, runID, createdBy stri
 // ── Steer matrix (Decision 6): send / interrupt are starter-only ──────────────
 
 func TestDelegatedRun_SteerMatrix(t *testing.T) {
-	const starter = "alice"
-	callers := []struct {
-		name    string
-		subject string
-		roles   string
-	}{
-		{"starter", starter, ""},
-		{"platform admin", "admin-1", "platform-admin"},
-		{"platform admin", "admin-2", "some-role,platform-admin"},
-		{"other user", "bob", "developer"},
-	}
-
+	// A holder of agents:delegated:read can terminate but not steer; everyone else gets not-found.
 	actions := []struct {
-		name string
-		call func(s *RunService, ctx context.Context, runID string) error
-		// wantAdmin is the expected error for a non-starter admin.
-		// Send/interrupt steer the run → refused with the explicit reason.
-		// Terminate is governance → allowed.
-		wantAdmin error
+		name       string
+		call       func(s *RunService, ctx context.Context, runID string) error
+		wantHolder error
 	}{
-		{
-			name: "send message",
-			call: func(s *RunService, ctx context.Context, runID string) error {
-				return s.SendMessage(ctx, runID, "hello")
-			},
-			wantAdmin: ErrDelegatedRunSteer,
-		},
-		{
-			name: "interrupt",
-			call: func(s *RunService, ctx context.Context, runID string) error {
-				return s.InterruptRun(ctx, runID)
-			},
-			wantAdmin: ErrDelegatedRunSteer,
-		},
-		{
-			name: "terminate",
-			call: func(s *RunService, ctx context.Context, runID string) error {
-				return s.TerminateRun(ctx, runID)
-			},
-			wantAdmin: nil,
-		},
+		{"send message", func(s *RunService, ctx context.Context, id string) error { return s.SendMessage(ctx, id, "hello") }, ErrDelegatedRunSteer},
+		{"interrupt", func(s *RunService, ctx context.Context, id string) error { return s.InterruptRun(ctx, id) }, ErrDelegatedRunSteer},
+		{"terminate", func(s *RunService, ctx context.Context, id string) error { return s.TerminateRun(ctx, id) }, nil},
 	}
-
+	callers := []struct {
+		name, subject string
+		want          func(holder error) error
+	}{
+		{"starter", "alice", func(error) error { return nil }},
+		{"holder", "auditor", func(h error) error { return h }},
+		{"other user", "bob", func(error) error { return ErrNotFound }},
+	}
 	for _, action := range actions {
 		for _, caller := range callers {
 			t.Run(action.name+"/"+caller.name, func(t *testing.T) {
-				f, repo, _, _ := newTestService(t)
-				seedDelegatedRun(t, repo, "run-1", starter, RunStateActive)
-				ctx := withRunCallerCtx(context.Background(), "t1", caller.subject, caller.roles)
+				f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
+				seedDelegatedRun(t, repo, "run-1", "alice", RunStateActive)
+				ctx := withRunCallerCtx(context.Background(), "t1", caller.subject)
 
 				err := action.call(f.run, ctx, "run-1")
-				var want error
-				switch {
-				case caller.subject == starter:
-					want = nil // the starter may always act on their own run
-				case caller.roles != "" && strings.Contains(caller.roles, "admin"):
-					want = action.wantAdmin
-				default:
-					want = ErrNotFound // non-starter, non-admin: existence is not leaked
-				}
-				if want == nil && err != nil {
-					t.Fatalf("err = %v, want nil", err)
-				}
-				if want != nil && !errors.Is(err, want) {
+				if want := caller.want(action.wantHolder); !errors.Is(err, want) || (want == nil && err != nil) {
 					t.Fatalf("err = %v, want %v", err, want)
 				}
 			})
@@ -128,7 +99,7 @@ func TestAutonomousRun_SteerUnchanged(t *testing.T) {
 	// the scope-based authz may steer, whoever started the run.
 	f, repo, _, sm := newTestService(t)
 	seedAutonomousRun(t, repo, "run-a", "alice", RunStateActive)
-	ctx := withRunCallerCtx(context.Background(), "t1", "bob", "")
+	ctx := withRunCallerCtx(context.Background(), "t1", "bob")
 
 	if err := f.run.SendMessage(ctx, "run-a", "hi"); err != nil {
 		t.Fatalf("SendMessage on autonomous run by non-starter: %v", err)
@@ -150,19 +121,18 @@ func TestDelegatedRun_GetRunVisibility(t *testing.T) {
 	tests := []struct {
 		name      string
 		subject   string
-		roles     string
 		wantErr   error
 		wantOwner string
 	}{
-		{"starter sees own run", "alice", "", nil, "alice"},
-		{"platform admin sees any run", "admin-1", "platform-admin", nil, "alice"},
-		{"other user gets not-found", "bob", "developer", ErrNotFound, ""},
+		{"starter sees own run", "alice", nil, "alice"},
+		{"holder of agents:delegated:read sees any run", "auditor", nil, "alice"},
+		{"other user gets not-found", "bob", ErrNotFound, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			f, repo, _, _ := newTestService(t)
+			f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
 			seedDelegatedRun(t, repo, "run-1", "alice", RunStateActive)
-			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject, tc.roles)
+			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
 
 			run, err := f.run.GetRun(ctx, "run-1")
 			if tc.wantErr != nil {
@@ -188,7 +158,7 @@ func TestDelegatedRun_GetRunVisibility(t *testing.T) {
 func TestAutonomousRun_GetRunVisibilityUnchanged(t *testing.T) {
 	f, repo, _, _ := newTestService(t)
 	seedAutonomousRun(t, repo, "run-a", "alice", RunStateActive)
-	ctx := withRunCallerCtx(context.Background(), "t1", "bob", "")
+	ctx := withRunCallerCtx(context.Background(), "t1", "bob")
 
 	run, err := f.run.GetRun(ctx, "run-a")
 	if err != nil {
@@ -204,7 +174,7 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 	// bob's on an autonomous agent. The filter is applied inside the repository
 	// query (mirrored by the mock), so counts are exact — no post-trimming.
 	seed := func(t *testing.T) (*testServiceFacade, *mockRepository) {
-		f, repo, _, _ := newTestService(t)
+		f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
 		seedDelegatedRun(t, repo, "run-alice", "alice", RunStateActive)
 		seedDelegatedRun(t, repo, "run-bob", "bob", RunStateActive)
 		seedAutonomousRun(t, repo, "run-auto", "bob", RunStateActive)
@@ -214,24 +184,24 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 	tests := []struct {
 		name    string
 		subject string
-		roles   string
 		wantIDs map[string]bool
 	}{
-		{"starter sees own delegated + all autonomous", "alice", "",
+		{"starter sees own delegated + all autonomous", "alice",
 			map[string]bool{"run-alice": true, "run-auto": true}},
-		{"other starter sees own delegated + all autonomous", "bob", "",
+		{"other starter sees own delegated + all autonomous", "bob",
 			map[string]bool{"run-bob": true, "run-auto": true}},
-		{"platform admin sees everything", "admin-1", "platform-admin",
+		{"holder of agents:delegated:read sees everything", "auditor",
 			map[string]bool{"run-alice": true, "run-bob": true, "run-auto": true}},
-		{"third user sees only autonomous", "charlie", "",
+		{"third user sees only autonomous", "charlie",
 			map[string]bool{"run-auto": true}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f, _ := seed(t)
-			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject, tc.roles)
+			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
 
-			runs, err := f.run.ListRuns(ctx, "", 0)
+			page, err := f.run.ListRuns(ctx, "", RunListQuery{Limit: maxRunsLimit})
+			runs := page.Runs
 			if err != nil {
 				t.Fatalf("ListRuns: %v", err)
 			}
@@ -251,17 +221,16 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 }
 
 func TestRunVisibility_FailClosedWithoutSubject(t *testing.T) {
-	// A caller with claims but no subject (and no admin role) must see no
-	// delegated runs — even ones whose created_by is also empty.
-	f, repo, _, _ := newTestService(t)
+	// A caller with no subject sees no delegated runs, even ones whose created_by is also empty.
+	f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
 	seedDelegatedRun(t, repo, "run-empty", "", RunStateActive)
-	ctx := withRunCallerCtx(context.Background(), "t1", "", "")
+	ctx := withRunCallerCtx(context.Background(), "t1", "")
 
-	runs, err := f.run.ListRuns(ctx, "", 0)
+	page, err := f.run.ListRuns(ctx, "", RunListQuery{Limit: maxRunsLimit})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != 0 {
+	if runs := page.Runs; len(runs) != 0 {
 		t.Errorf("got %d runs, want 0 (empty subject must match nothing)", len(runs))
 	}
 	if _, err := f.run.GetRun(ctx, "run-empty"); !errors.Is(err, ErrNotFound) {
@@ -275,12 +244,12 @@ func TestRunVisibility_FailClosedWithoutSubject(t *testing.T) {
 // the given caller identity. accept="" exercises the SSE attach path (the
 // request context is pre-canceled so an allowed stream returns immediately
 // after replay instead of blocking on live events).
-func eventsRequest(t *testing.T, c *Controller, runID, subject, roles, accept string) *httptest.ResponseRecorder {
+func eventsRequest(t *testing.T, c *Controller, runID, subject, accept string) *httptest.ResponseRecorder {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/runs/"+runID+"/events", nil).
-		WithContext(withRunCallerCtx(ctx, "t1", subject, roles))
+		WithContext(withRunCallerCtx(ctx, "t1", subject))
 	req.SetPathValue("id", runID)
 	if accept != "" {
 		req.Header.Set("Accept", accept)
@@ -294,12 +263,11 @@ func TestDelegatedRun_EventAccess(t *testing.T) {
 	tests := []struct {
 		name     string
 		subject  string
-		roles    string
 		wantCode int
 	}{
-		{"starter may attach", "alice", "", http.StatusOK},
-		{"platform admin may attach", "admin-1", "platform-admin", http.StatusOK},
-		{"other user is refused with not-found", "bob", "", http.StatusNotFound},
+		{"starter may attach", "alice", http.StatusOK},
+		{"holder of agents:delegated:read may attach", "auditor", http.StatusOK},
+		{"other user is refused with not-found", "bob", http.StatusNotFound},
 	}
 	for _, accept := range []string{"", "application/json"} {
 		mode := "sse"
@@ -308,10 +276,10 @@ func TestDelegatedRun_EventAccess(t *testing.T) {
 		}
 		for _, tc := range tests {
 			t.Run(mode+"/"+tc.name, func(t *testing.T) {
-				c, repo, _, _ := newTestController(t)
+				c, repo, _, _ := newTestControllerWithEval(t, auditorEval)
 				seedDelegatedRun(t, repo, "run-1", "alice", RunStateActive)
 
-				w := eventsRequest(t, c, "run-1", tc.subject, tc.roles, accept)
+				w := eventsRequest(t, c, "run-1", tc.subject, accept)
 				if w.Code != tc.wantCode {
 					t.Fatalf("status = %d, want %d (body: %s)", w.Code, tc.wantCode, w.Body.String())
 				}
@@ -329,21 +297,21 @@ func TestAutonomousRun_EventAccessUnchanged(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
 	seedAutonomousRun(t, repo, "run-a", "alice", RunStateActive)
 
-	if w := eventsRequest(t, c, "run-a", "bob", "", ""); w.Code != http.StatusOK {
+	if w := eventsRequest(t, c, "run-a", "bob", ""); w.Code != http.StatusOK {
 		t.Fatalf("SSE attach on autonomous run by non-starter: status = %d, want 200", w.Code)
 	}
 }
 
-// ── Handler mapping: admin steer refusal is a legible 403, not a 404 ─────────
+// ── Handler mapping: a holder's steer refusal is a 403 ──
 
-func TestHandleSendMessage_DelegatedAdminRefusal(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
+func TestHandleSendMessage_DelegatedReadHolderRefusal(t *testing.T) {
+	c, repo, _, _ := newTestControllerWithEval(t, auditorEval)
 	seedDelegatedRun(t, repo, "run-1", "alice", RunStateActive)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/messages",
 		strings.NewReader(`{"content":"do the thing"}`))
 	req.Header.Set("Content-Type", "application/json")
-	req = req.WithContext(withRunCallerCtx(req.Context(), "t1", "admin-1", "platform-admin"))
+	req = req.WithContext(withRunCallerCtx(req.Context(), "t1", "auditor"))
 	req.SetPathValue("id", "run-1")
 	w := httptest.NewRecorder()
 	c.handleSendMessage(w, req)
@@ -353,5 +321,27 @@ func TestHandleSendMessage_DelegatedAdminRefusal(t *testing.T) {
 	}
 	if body := w.Body.String(); !strings.Contains(body, "starter's authority") {
 		t.Errorf("body %q should carry the steer refusal reason", body)
+	}
+}
+
+// ── Run outcomes use the list scope ──
+
+func TestRunOutcomes_UsesTheRunListScope(t *testing.T) {
+	for _, tc := range []struct {
+		subject string
+		want    RunVisibility
+	}{
+		{"alice", RunVisibility{Subject: "alice"}},
+		{"auditor", RunVisibility{SeeAll: true, Subject: "auditor"}},
+	} {
+		t.Run(tc.subject, func(t *testing.T) {
+			f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
+			seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper"})
+			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
+			want := RunScope{AgentTypeIDs: []string{"at-auto"}, Vis: tc.want}
+			if _, err := f.run.RunOutcomes(ctx, time.Time{}, time.Time{}); err != nil || !reflect.DeepEqual(repo.outcomesScope, want) {
+				t.Errorf("scope %+v, %v; want %+v", repo.outcomesScope, err, want)
+			}
+		})
 	}
 }

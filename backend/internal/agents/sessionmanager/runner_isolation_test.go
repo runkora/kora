@@ -2,6 +2,7 @@ package sessionmanager
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -28,12 +30,61 @@ func TestBuildFlags_BaseFlags(t *testing.T) {
 		"--verbose",
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
-		"--tools",
 	}
 	for _, want := range always {
 		if !containsFlag(flags, want) {
 			t.Errorf("buildFlags() missing required flag %q; got %v", want, flags)
 		}
+	}
+}
+
+// Every run must disable Claude Code's own commit trailer and PR footer:
+// Orbit, not the subprocess's default settings, is the record of who ran an
+// agent.
+func TestBuildFlags_DisablesOwnAttribution(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(io.Discard),
+		RunID:  "run-1",
+	})
+	flags := r.buildFlags()
+	i := slices.Index(flags, "--settings")
+	if i < 0 || i+1 >= len(flags) {
+		t.Fatalf("buildFlags() missing --settings value; got %v", flags)
+	}
+	var settings struct {
+		Attribution struct {
+			Commit *string `json:"commit"`
+			PR     *string `json:"pr"`
+		} `json:"attribution"`
+	}
+	if err := json.Unmarshal([]byte(flags[i+1]), &settings); err != nil {
+		t.Fatalf("--settings value is not valid JSON: %v (%q)", err, flags[i+1])
+	}
+	if settings.Attribution.Commit == nil || *settings.Attribution.Commit != "" {
+		t.Errorf("attribution.commit = %v, want empty string", settings.Attribution.Commit)
+	}
+	if settings.Attribution.PR == nil || *settings.Attribution.PR != "" {
+		t.Errorf("attribution.pr = %v, want empty string", settings.Attribution.PR)
+	}
+}
+
+// Every run gets the full built-in tool set minus the platform exclusions: no
+// --tools allow-list, and the exclusions passed as one --disallowedTools value.
+func TestBuildFlags_ExcludedTools(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(io.Discard),
+		RunID:  "run-1",
+	})
+	flags := r.buildFlags()
+	if containsFlag(flags, "--tools") {
+		t.Errorf("buildFlags() must not restrict tools with --tools; got %v", flags)
+	}
+	i := slices.Index(flags, "--disallowedTools")
+	if i < 0 || i+1 >= len(flags) {
+		t.Fatalf("buildFlags() missing --disallowedTools value; got %v", flags)
+	}
+	if got, want := flags[i+1], "WebSearch,WebFetch,AskUserQuestion,PushNotification,DesignSync"; got != want {
+		t.Errorf("--disallowedTools = %q, want %q", got, want)
 	}
 }
 
@@ -156,19 +207,19 @@ func TestStart_RunHomeDirCreated(t *testing.T) {
 }
 
 func TestStart_PerRunTmpDirCreated(t *testing.T) {
-	// The per-run tmpdir must live inside the workspace at {workDir}/.tmp so that
-	// the Landlock RWDirs(workDir) rule covers it automatically. See docs/adr/2026-06-04-per-session-home-isolation.md.
+	// The per-run tmpdir is .tmp/{runID} beside the workspace, which orbit-session-runner
+	// grants and the sandbox mounts at /tmp. See docs/adr/2026-06-04-per-session-home-isolation.md.
 	_, workDir := startIsolated(t, ClaudeRunnerConfig{})
-	tmpDir := filepath.Join(workDir, ".tmp")
+	tmpDir := runfs.TmpDir(workDir)
 	if info, err := os.Stat(tmpDir); err != nil || !info.IsDir() {
 		t.Errorf("per-run tmpdir not created as a directory at %q", tmpDir)
 	}
 }
 
-func TestStart_TmpDirInsideWorkDir(t *testing.T) {
-	// TMPDIR must point inside the workspace, not under /tmp, so Landlock covers it.
+func TestStart_TmpDirIsRunsOwnBesideWorkDir(t *testing.T) {
+	// TMPDIR must point at the run's own tmp dir, not the pod's shared /tmp.
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{})
-	wantTmp := filepath.Join(workDir, ".tmp")
+	wantTmp := filepath.Join(filepath.Dir(workDir), ".tmp", filepath.Base(workDir))
 	got := envValue(r.cmd.Env, "TMPDIR")
 	if got != wantTmp {
 		t.Errorf("TMPDIR = %q, want %q", got, wantTmp)
@@ -185,7 +236,7 @@ func TestStart_HOMEPointsToRunHome(t *testing.T) {
 
 func TestStart_TMPDIRPointsToPerRunDir(t *testing.T) {
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{})
-	assertEnvExact(t, r.cmd.Env, "TMPDIR", filepath.Join(workDir, ".tmp"))
+	assertEnvExact(t, r.cmd.Env, "TMPDIR", runfs.TmpDir(workDir))
 }
 
 func TestStart_InheritedHOMEInBaseEnvIsStripped(t *testing.T) {
@@ -216,7 +267,7 @@ func TestStart_TMPDIRInExtraEnvIsStripped(t *testing.T) {
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{
 		ExtraEnv: []string{"TMPDIR=/wrong/tmp"},
 	})
-	assertEnvExact(t, r.cmd.Env, "TMPDIR", filepath.Join(workDir, ".tmp"))
+	assertEnvExact(t, r.cmd.Env, "TMPDIR", runfs.TmpDir(workDir))
 	assertEnvNoDuplicates(t, r.cmd.Env, "TMPDIR")
 }
 
@@ -227,6 +278,15 @@ func TestStart_OtherExtraEnvPreserved(t *testing.T) {
 	})
 	assertEnvContains(t, r.cmd.Env, "WORKSPACE=/workspaces/run-abc")
 	assertEnvContains(t, r.cmd.Env, "CUSTOM_VAR=hello")
+}
+
+func TestBuildRunEnv_RunNodeOptionsReplacesInherited(t *testing.T) {
+	// The per-run heap cap must win over a NODE_OPTIONS the pod carries, or
+	// Node would read whichever came first.
+	r := &ClaudeRunner{cfg: ClaudeRunnerConfig{ExtraEnv: []string{"NODE_OPTIONS=--max-old-space-size=512"}}}
+	env := r.buildRunEnv([]string{"NODE_OPTIONS=--max-old-space-size=8192"}, "/home", "/tmp")
+	assertEnvExact(t, env, "NODE_OPTIONS", "--max-old-space-size=512")
+	assertEnvNoDuplicates(t, env, "NODE_OPTIONS")
 }
 
 // ── cross-run isolation ───────────────────────────────────────────────────────
@@ -248,7 +308,7 @@ func TestStart_SiblingRunsGetDistinctHOME(t *testing.T) {
 }
 
 func TestStart_SiblingRunsGetDistinctTMPDIR(t *testing.T) {
-	// Each run's workDir is a distinct t.TempDir(), so .tmp inside each is distinct.
+	// Each run's workDir is a distinct t.TempDir(), so each gets its own .tmp/{runID}.
 	r1, workDir1 := startIsolated(t, ClaudeRunnerConfig{RunID: "run-a"})
 	r2, workDir2 := startIsolated(t, ClaudeRunnerConfig{RunID: "run-b"})
 
@@ -257,12 +317,12 @@ func TestStart_SiblingRunsGetDistinctTMPDIR(t *testing.T) {
 	if tmp1 == tmp2 {
 		t.Errorf("sibling runs share TMPDIR=%q — /tmp side-channel possible", tmp1)
 	}
-	// Each TMPDIR must be inside its own workDir (Landlock coverage guarantee).
-	if !strings.HasPrefix(tmp1, workDir1) {
-		t.Errorf("run-a TMPDIR=%q is not inside workDir=%q", tmp1, workDir1)
+	// Each TMPDIR must be its own run's tmp dir (the one Landlock grants that run).
+	if tmp1 != runfs.TmpDir(workDir1) {
+		t.Errorf("run-a TMPDIR=%q, want %q", tmp1, runfs.TmpDir(workDir1))
 	}
-	if !strings.HasPrefix(tmp2, workDir2) {
-		t.Errorf("run-b TMPDIR=%q is not inside workDir=%q", tmp2, workDir2)
+	if tmp2 != runfs.TmpDir(workDir2) {
+		t.Errorf("run-b TMPDIR=%q, want %q", tmp2, runfs.TmpDir(workDir2))
 	}
 }
 
@@ -312,25 +372,17 @@ func TestStart_WithWrapper_ArgsLayout(t *testing.T) {
 	}
 }
 
-func TestStart_WithWrapper_TmpDirInsideWorkDir(t *testing.T) {
-	// TMPDIR must be inside the workDir passed as args[1] to the wrapper so that
-	// the Landlock RWDirs(workDir) rule covers the tmp directory. See docs/adr/2026-06-04-per-session-home-isolation.md.
+func TestStart_WithWrapper_TmpDirMatchesRunnerGrant(t *testing.T) {
+	// orbit-session-runner grants .tmp/{base} beside the workDir it receives as
+	// argv[1]; TMPDIR must be exactly that directory or Landlock denies it.
 	truePath := stubBinary(t)
 	r, workDir := startIsolated(t, ClaudeRunnerConfig{
 		WrapperPath: truePath,
 	})
 
-	wantHome := filepath.Join(workDir, ".runhome")
-	wantTmp := filepath.Join(workDir, ".tmp")
-
-	assertEnvExact(t, r.cmd.Env, "HOME", wantHome)
-	assertEnvExact(t, r.cmd.Env, "TMPDIR", wantTmp)
-
-	// TMPDIR must be inside the workDir that orbit-session-runner receives as argv[1].
+	assertEnvExact(t, r.cmd.Env, "HOME", filepath.Join(workDir, ".runhome"))
 	wrapperWorkDir := r.cmd.Args[1]
-	if !strings.HasPrefix(wantTmp, wrapperWorkDir) {
-		t.Errorf("TMPDIR %q is not inside wrapper argv[1] workDir %q — Landlock would not cover it", wantTmp, wrapperWorkDir)
-	}
+	assertEnvExact(t, r.cmd.Env, "TMPDIR", filepath.Join(filepath.Dir(wrapperWorkDir), ".tmp", filepath.Base(wrapperWorkDir)))
 }
 
 // ── helpers ───────────────────────────────────────────────────────────────────

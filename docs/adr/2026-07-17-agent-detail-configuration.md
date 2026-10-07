@@ -62,14 +62,13 @@ Configuration absorbs Settings and Connectivity. Runs keeps its own tab: it is a
 
 ### 3. The motif extracts to feature-shared components
 
-New directory `agents/_components/motif/`, Tier 3 (feature-shared, Orbit-domain-aware, single feature):
+New directory `agents/_components/motif/`, Tier 3 (feature-shared, kora-domain-aware, single feature):
 
 | Component | Extracted from | Consumed by |
 |---|---|---|
 | `FrameworkCards` | `step-behaviour.tsx` | wizard step 2, config Behaviour |
 | `ModelPicker` (family groups + threshold search) | `step-behaviour.tsx` | wizard step 2, config Behaviour |
 | `McpToolTree` | `step-tools.tsx` | wizard step 3, config Tools & access |
-| `PlatformToolsCard` | `step-tools.tsx` | wizard step 3, config Tools & access |
 | `ConnectionCards` | `step-tools.tsx` | wizard step 3, config Tools & access |
 | `EgressModeCards` (+ hosts textarea) | `step-tools.tsx` | wizard step 3, config Network access |
 | `EnvironmentCard` | `step-tools.tsx` | wizard step 3, config Network access |

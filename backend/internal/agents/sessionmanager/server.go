@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
@@ -24,8 +26,7 @@ type ControllerConfig struct {
 	// ClaudeBinaryPath overrides the claude binary location.
 	ClaudeBinaryPath string
 	// WrapperPath is the path to orbit-session-runner. When set, every agent
-	// subprocess runs through it, applying Landlock and a PID namespace
-	// (docs/adr/2026-06-04-per-session-home-isolation.md).
+	// subprocess runs through it, applying Landlock (docs/adr/2026-06-04-per-session-home-isolation.md).
 	WrapperPath string
 	// ShellPath is the orbit-shell proxy OpenCode is pointed at. Claude Code and
 	// Codex resolve it from the image.
@@ -45,8 +46,8 @@ type ControllerConfig struct {
 	// OpenCodeBinaryPath overrides the opencode binary location. Defaults to "opencode".
 	OpenCodeBinaryPath string
 
-	// InferenceGatewayURL is the base URL of the Orbit inference gateway.
-	// Injected as OPENAI_BASE_URL for Codex; written into opencode.json for OpenCode.
+	// InferenceGatewayURL is the base URL of the kora inference gateway.
+	// Injected as OPENAI_BASE_URL for Codex; written into the OpenCode config for OpenCode.
 	InferenceGatewayURL string
 
 	// ToolGatewayURL is the in-mesh base URL of the MCP tool-gateway, written
@@ -56,6 +57,10 @@ type ControllerConfig struct {
 	// OTLPEndpoint is the platform collector Claude Code exports to. Empty
 	// disables its telemetry.
 	OTLPEndpoint string
+
+	// NodeMaxOldSpaceMB caps the heap of Node processes a run starts on the agent
+	// pod, which shares one memory limit across every run. Zero disables the cap.
+	NodeMaxOldSpaceMB int
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -210,6 +215,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /session/{runID}/interrupt", c.handleInterruptSession)
 	mux.Handle("DELETE /session/{runID}", c.handleCloseSession)
 	mux.Handle("POST /internal/session/{runID}/provision-sandbox", c.handleProvisionSandbox)
+	mux.Handle("POST /internal/session/{runID}/replace-environment", c.handleReplaceEnvironment)
+	mux.Handle("GET /internal/session/{runID}/environments", c.handleListEnvironments)
 	mux.Handle("GET /internal/session/{runID}/sandbox", c.handleGetSandbox)
 }
 
@@ -229,19 +236,45 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 // separate because the client package cannot import the server package (the
 // dependency direction would be backwards).
 type CreateSessionRequest struct {
-	RunID        string   `json:"run_id"`
-	AgentTypeID  string   `json:"agent_type_id"`
-	TenantID     string   `json:"tenant_id"`
-	Framework    string   `json:"framework"`
-	Model        string   `json:"model"`
-	AllowedTools []string `json:"allowed_tools"`
-	SystemPrompt string   `json:"system_prompt"`
+	RunID        string `json:"run_id"`
+	AgentTypeID  string `json:"agent_type_id"`
+	TenantID     string `json:"tenant_id"`
+	Framework    string `json:"framework"`
+	Model        string `json:"model"`
+	SystemPrompt string `json:"system_prompt"`
 	// MCPServers are the distinct MCP servers the agent has tool grants on; one
 	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
 	MCPServers []string `json:"mcp_servers"`
 	// ProvisionSandbox provisions this run's sandbox immediately instead of
 	// waiting for the agent to ask for one.
 	ProvisionSandbox bool `json:"provision_sandbox"`
+	// Guardrails are the run's thresholds from orbit-agents; zero fields take
+	// this pod's defaults (docs/adr/2026-09-29-agent-run-guardrails.md).
+	Guardrails RunGuardrails `json:"guardrails"`
+}
+
+// RunGuardrails is the wire form of a run's guardrails.
+type RunGuardrails struct {
+	SandboxProvisionAttempts    int `json:"sandbox_provision_attempts"`
+	SandboxProvisionBackoffSecs int `json:"sandbox_provision_backoff_secs"`
+	SandboxProvisionBudgetSecs  int `json:"sandbox_provision_budget_secs"`
+	RepeatedCallWarn            int `json:"repeated_call_warn"`
+	RepeatedCallPause           int `json:"repeated_call_pause"`
+	WaitRearmWarn               int `json:"wait_rearm_warn"`
+	WaitRearmPause              int `json:"wait_rearm_pause"`
+}
+
+// guardrails converts the wire form; zero stays zero, for the registry's fallback.
+func (g RunGuardrails) guardrails() Guardrails {
+	return Guardrails{
+		SandboxProvisionAttempts: g.SandboxProvisionAttempts,
+		SandboxProvisionBackoff:  time.Duration(g.SandboxProvisionBackoffSecs) * time.Second,
+		SandboxProvisionBudget:   time.Duration(g.SandboxProvisionBudgetSecs) * time.Second,
+		RepeatedCallWarn:         g.RepeatedCallWarn,
+		RepeatedCallPause:        g.RepeatedCallPause,
+		WaitRearmWarn:            g.WaitRearmWarn,
+		WaitRearmPause:           g.WaitRearmPause,
+	}
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -297,7 +330,6 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			BinaryPath:        c.cfg.ClaudeBinaryPath,
 			WrapperPath:       c.cfg.WrapperPath,
 			Model:             req.Model,
-			AllowedTools:      req.AllowedTools,
 			SystemPrompt:      req.SystemPrompt,
 			Bare:              c.cfg.ClaudeBare,
 			SessionManagerURL: fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
@@ -332,6 +364,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			InferenceGatewayURL: c.cfg.InferenceGatewayURL,
 			Logger:              c.logger,
 			RunID:               req.RunID,
+			SystemPrompt:        req.SystemPrompt,
 			ExtraEnv:            c.runEnv(req.RunID, runToken),
 			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
@@ -350,6 +383,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		Runner:       runner,
 		Model:        req.Model,
 		InferenceURL: inferenceURL,
+		Guardrails:   req.Guardrails.guardrails(),
 	}
 
 	if err := c.registry.Create(ctx, cfg); err != nil {
@@ -380,7 +414,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
 	bgCtx := context.WithoutCancel(ctx)
 	go func() {
-		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true); err != nil {
+		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true, "", false); err != nil {
 			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: err.Error()},
@@ -423,13 +457,21 @@ func (c *Controller) prepareRun(w http.ResponseWriter, r *http.Request, req Crea
 // gone. ORBIT_RUN_TOKEN is how that call proves which run it is: loopback only
 // proves the caller is in this pod, which every run here satisfies.
 // orbit-shell is a child of the agent and inherits this environment.
+//
+// The install environment uses the sandbox's paths under the run's local dir.
+// Claude Code and Codex replay the agent's environment in sandbox commands.
 func (c *Controller) runEnv(runID, runToken string) []string {
-	return []string{
-		fmt.Sprintf("WORKSPACE=%s", filepath.Join(c.cfg.WorkspacesBasePath, runID)),
+	workspace := filepath.Join(c.cfg.WorkspacesBasePath, runID)
+	env := []string{
+		"WORKSPACE=" + workspace,
 		fmt.Sprintf("ORBIT_SESSION_MANAGER_URL=http://localhost:%d", c.cfg.SelfPort),
 		"ORBIT_RUN_ID=" + runID,
 		"ORBIT_RUN_TOKEN=" + runToken,
 	}
+	if c.cfg.NodeMaxOldSpaceMB > 0 {
+		env = append(env, fmt.Sprintf("NODE_OPTIONS=--max-old-space-size=%d", c.cfg.NodeMaxOldSpaceMB))
+	}
+	return append(env, runfs.InstallEnv(runfs.LocalDir(workspace), os.Getenv("PATH"))...)
 }
 
 // requireRunToken binds the caller to the run in the path. Returns false and
@@ -569,31 +611,78 @@ func (c *Controller) handleCloseSession(w http.ResponseWriter, r *http.Request) 
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
+// sandboxRequest is what orbit-runtime-mcp and orbit-shell send to provision
+// or replace a sandbox. Environment is empty for the current or default one.
+type sandboxRequest struct {
+	Environment string `json:"environment"`
+}
+
 // handleProvisionSandbox is called by orbit-runtime-mcp (running inside Claude)
 // to provision a sandbox pod. It delegates to orbit-agents then writes the
 // gRPC endpoint to disk so orbit-shell can route Bash commands to the sandbox.
 func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Request) {
+	c.serveSandbox(w, r, false)
+}
+
+// handleReplaceEnvironment replaces the run's sandbox with one in another environment.
+// orbit-agents checks the name and refuses a replacement without one.
+func (c *Controller) handleReplaceEnvironment(w http.ResponseWriter, r *http.Request) {
+	c.serveSandbox(w, r, true)
+}
+
+// serveSandbox provisions the run's sandbox, or replaces it when replace is set.
+func (c *Controller) serveSandbox(w http.ResponseWriter, r *http.Request, replace bool) {
 	ctx := r.Context()
 	runID := r.PathValue("runID")
 	if !c.requireRunToken(w, r, runID) {
 		return
 	}
-
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false)
-	if err != nil {
-		// A run this pod does not host is a caller aimed at the wrong session,
-		// which a 500 would bury among ordinary Kubernetes failures.
-		if errors.Is(err, ErrSessionNotFound) {
-			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-			return
-		}
-		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to provision sandbox", nil)
-		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	var req sandboxRequest
+	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, replace)
+	if err != nil {
+		c.writeSandboxError(ctx, w, runID, err, "failed to provision sandbox")
+		return
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"endpoint": endpoint})
+}
+
+// handleListEnvironments lists the environments the run's agent may use.
+func (c *Controller) handleListEnvironments(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	runID := r.PathValue("runID")
+	if !c.requireRunToken(w, r, runID) {
+		return
+	}
+	envs, err := c.registry.ListEnvironments(ctx, runID)
+	if err != nil {
+		c.writeSandboxError(ctx, w, runID, err, "failed to list environments")
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, envs)
+}
+
+// writeSandboxError maps a sandbox failure to a response. failed is the message of an unexpected failure.
+// orbit-runtime-mcp and orbit-shell relay messages for the model as the tool error.
+func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWriter, runID string, err error, failed string) {
+	switch {
+	case errors.Is(err, ErrSessionNotFound):
+		// A run this pod does not host is a caller aimed at the wrong session,
+		// which a 500 would bury among ordinary Kubernetes failures.
+		apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	case errors.Is(err, ErrSandboxLost):
+		apiErr := api.ServiceUnavailableError(runErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	case errors.Is(err, ErrEnvironmentRejected):
+		apiErr := api.ConflictError(api.ErrCodeConflict, strings.TrimPrefix(err.Error(), ErrEnvironmentRejected.Error()+": "), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+	default:
+		apiErr := api.InternalError(api.ErrCodeInternalError, failed, nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	}
 }
 
 // handleGetSandbox reports this run's sandbox, or 404 if it has none.

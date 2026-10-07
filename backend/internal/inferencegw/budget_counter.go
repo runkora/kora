@@ -20,7 +20,8 @@ const (
 
 	// cadenceWeekly is the canonical string for a weekly reset window, used
 	// throughout the budget counter to avoid repeating the literal.
-	cadenceWeekly = "weekly"
+	cadenceWeekly  = "weekly"
+	cadenceMonthly = "monthly"
 )
 
 // SpendScopes describes which canonical counters apply to one request — the
@@ -131,6 +132,15 @@ func periodStart(window string, t time.Time) time.Time {
 		return day.AddDate(0, 0, -offset)
 	}
 	return time.Date(u.Year(), u.Month(), 1, 0, 0, 0, 0, time.UTC)
+}
+
+// periodEnd is when the window containing t resets.
+func periodEnd(window string, t time.Time) time.Time {
+	start := periodStart(window, t)
+	if window == cadenceWeekly {
+		return start.AddDate(0, 0, 7)
+	}
+	return start.AddDate(0, 1, 0)
 }
 
 func principalKey(principalID, window string, t time.Time) string {

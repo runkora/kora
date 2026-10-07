@@ -13,9 +13,8 @@
 // scopes from grants/roles), so two concurrent writers could race. The proxy is
 // stateless on the request path and scales horizontally.
 //
-// The mode is selected per Deployment via the ORBIT_TOOL_GATEWAY_MODE env var,
-// which overrides the image's baked config default (see realMain). See
-// docs/adr/2026-06-29-mcp-server-registration-and-introspection.md.
+// The mode is selected per Deployment by the config file the chart renders for
+// it. See docs/adr/2026-06-29-mcp-server-registration-and-introspection.md.
 package main
 
 import (
@@ -30,6 +29,7 @@ import (
 
 	tgc "github.com/clear-route/orbit/cmd/tool-gateway/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -60,16 +60,9 @@ func realMain() error {
 
 	logger := initLogger()
 	// Trusted-host allowlist for the host-derived RFC 9728 protected-resource
-	// metadata and 401 challenge (ADR 2026-07-04). No-op unless ORBIT_PUBLIC_HOSTS
-	// is set (i.e. public exposure).
-	platformapi.ConfigureTrustedHostsFromEnv()
-	// Mode is a deployment-topology flag: the same image runs as the publisher
-	// (replicas=1) or the scaled proxy. The env var lets the two Deployments
-	// select their mode from one baked config; it overrides config.Mode.
+	// metadata and 401 challenge (ADR 2026-07-04).
+	platformapi.ConfigureTrustedHosts(tgc.Current.PublicHosts)
 	proxyMode := tgc.Current.IsProxyMode()
-	if m := os.Getenv("ORBIT_TOOL_GATEWAY_MODE"); m != "" {
-		proxyMode = m == "proxy"
-	}
 	logger.Info(ctx, "Tool gateway starting",
 		logging.Field{Key: "version", Value: tgc.Current.App.Version},
 		logging.Field{Key: "mode", Value: map[bool]string{true: "proxy", false: "publisher"}[proxyMode]})
@@ -111,7 +104,8 @@ func realMain() error {
 	} else {
 		// ── Publisher: introspection + scope publishing + catalog write ──────
 		introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
-		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, logger)
+		selfToken := identityclient.NewClient(tgc.Current.Identity.InternalURL, logger).SelfTokenSource()
+		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)
 
 		// Re-introspect servers, publish scopes (prune-guarded), rebuild the

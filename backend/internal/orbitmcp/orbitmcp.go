@@ -1,11 +1,11 @@
-// Package orbitmcp is the Orbit MCP server: the first platform-global MCP server.
-// It exposes Orbit's own management surface (agents, policy, models, …) as MCP
+// Package orbitmcp is the kora MCP server: the first platform-global MCP server.
+// It exposes kora's own management surface (agents, policy, models, …) as MCP
 // tools so an agent can operate the control plane. This package holds the TOOLS
 // ONLY — the protocol/transport/passthrough live in the reusable internal/
 // platform/mcp kit, and the HTTP forwarding in internal/platform/clients/orbitjson.
 //
 // Identity model: passthrough. Each tool forwards the CALLER's token to the
-// relevant Orbit API (via orbitjson + the kit's CallerToken); the downstream
+// relevant kora API (via orbitjson + the kit's CallerToken); the downstream
 // service enforces the real platform scope. This server holds no authority.
 //
 // Tools are organized one file per domain (tools_agents.go, tools_models.go,
@@ -25,7 +25,7 @@ import (
 
 const serverName = "orbit"
 
-// Backends holds the in-cluster base URLs of the Orbit services the tools call.
+// Backends holds the in-cluster base URLs of the kora services the tools call.
 type Backends struct {
 	Agents      string
 	Policy      string
@@ -35,7 +35,7 @@ type Backends struct {
 	ToolGateway string
 }
 
-// NewServer builds the Orbit MCP server and registers its tools onto a kit server.
+// NewServer builds the kora MCP server and registers its tools onto a kit server.
 func NewServer(b Backends, jc *orbitjson.Client) *sdk.Server {
 	srv := mcpkit.NewServer(serverName, "0.1.0")
 	registerTools(srv, b, jc)
@@ -107,19 +107,20 @@ const metaRequiresKey = "orbit/requires"
 // HUMAN-only and no agent scope makes it work). The single source of truth for
 // the orbit (first-party, platform-calling) MCP; external MCPs declare nothing.
 var toolRequires = map[string][]string{
-	"agents.list":        {"agents:types:read"},
-	"agents.get":         {"agents:types:read"},
-	"agents.tool_scopes": {"agents:types:read"},
-	"agents.create":      {"agents:types:write"},
-	"agents.update":      {"agents:types:write"},
-	"agents.delete":      {"agents:types:write"},
-	"agents.connectors":  {"platform:connections:read"},
+	"agents.list":       {"agents:types:read"},
+	"agents.get":        {"agents:types:read"},
+	"agents.create":     {"agents:types:write"},
+	"agents.update":     {"agents:types:write"},
+	"agents.delete":     {"agents:types:write"},
+	"agents.connectors": {"platform:connections:read"},
 
 	"agents.environments.list":    {"agents:environments:read"},
 	"agents.environments.get":     {"agents:environments:read"},
 	"agents.environments.create":  {"agents:environments:write"},
 	"agents.environments.replace": {"agents:environments:write"},
 	"agents.environments.delete":  {"agents:environments:write"},
+	"agents.sandbox_images.list":  {"agents:environments:read"},
+	"agents.environments.sizes":   {"agents:environments:read"},
 
 	"models.list":                   {"inference:list"},
 	"models.virtual.list":           {"platform:catalog:read"},
@@ -127,6 +128,7 @@ var toolRequires = map[string][]string{
 	"models.virtual.create":         {"platform:catalog:write"},
 	"models.virtual.update":         {"platform:catalog:write"},
 	"models.virtual.delete":         {"platform:catalog:write"},
+	"models.providers.status":       {"platform:catalog:read"},
 	"models.providers.list":         {"platform:catalog:read"},
 	"models.providers.refresh":      {"platform:catalog:write"},
 	"models.providers.set_enabled":  {"platform:catalog:write"},
@@ -151,17 +153,19 @@ var toolRequires = map[string][]string{
 	"budgets.tenant.delete":     {"platform:budgets:write"},
 	"budgets.principals.status": {"platform:budgets:read"},
 
-	"triggers.sources.list":    {"triggers:read"},
-	"triggers.sources.get":     {"triggers:read"},
-	"triggers.sources.create":  {"triggers:write"},
-	"triggers.sources.update":  {"triggers:write"},
-	"triggers.sources.delete":  {"triggers:write"},
-	"triggers.list":            {"triggers:read"},
-	"triggers.get":             {"triggers:read"},
-	"triggers.create":          {"triggers:write"},
-	"triggers.update":          {"triggers:write"},
-	"triggers.delete":          {"triggers:write"},
-	"triggers.deliveries.list": {"triggers:read"},
+	"triggers.sources.list":          {"triggers:read"},
+	"triggers.sources.get":           {"triggers:read"},
+	"triggers.sources.create":        {"triggers:write"},
+	"triggers.sources.update":        {"triggers:write"},
+	"triggers.sources.delete":        {"triggers:write"},
+	"triggers.list":                  {"triggers:read"},
+	"triggers.get":                   {"triggers:read"},
+	"triggers.create":                {"triggers:write"},
+	"triggers.update":                {"triggers:write"},
+	"triggers.delete":                {"triggers:write"},
+	"triggers.deliveries.list":       {"triggers:read"},
+	"triggers.providers.event_types": {"triggers:read"},
+	"triggers.providers.fields":      {"triggers:read"},
 
 	"runs.list":         {"agents:runs:read"},
 	"runs.get":          {"agents:runs:read"},

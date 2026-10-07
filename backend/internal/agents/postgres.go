@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -69,18 +71,37 @@ func (r *PostgresRepository) CreateAgentType(ctx context.Context, at AgentType) 
 	if mErr != nil {
 		return fmt.Errorf("marshal connectors: %w", mErr)
 	}
-	_, err := r.pool.Exec(ctx, `
-		INSERT INTO agent_types
-			(id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15::jsonb,$16::jsonb,$17,$18,$19)`,
-		at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
-		at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID, string(at.IdentityMode.OrDefault()),
-	)
-	if err != nil {
-		if isUniqueViolation(err) {
-			return ErrSlugTaken
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		_, err := tx.Exec(ctx, `
+			INSERT INTO agent_types
+				(id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14::jsonb,$15::jsonb,$16,$17,$18::jsonb)`,
+			at.ID, at.TenantID, at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework),
+			at.GrantScopes, at.MaxConcurrentRunsPerPod, string(at.State), at.ModelID, now, now, string(connectivityJSON), string(connectorsJSON), at.MCPTools, string(at.IdentityMode.OrDefault()),
+			guardrailsColumn(at.Guardrails),
+		)
+		if err != nil {
+			if isUniqueViolation(err) {
+				return ErrSlugTaken
+			}
+			return fmt.Errorf("insert agent_type: %w", err)
 		}
-		return fmt.Errorf("insert agent_type: %w", err)
+		return writeAgentEnvironments(ctx, tx, at.ID, at.Environments)
+	})
+}
+
+// writeAgentEnvironments replaces an agent's environment links.
+func writeAgentEnvironments(ctx context.Context, tx pgx.Tx, agentTypeID string, envs []AgentEnvironment) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM agent_environments WHERE agent_type_id=$1`, agentTypeID); err != nil {
+		return fmt.Errorf("clear agent environments: %w", err)
+	}
+	for _, e := range envs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO agent_environments (agent_type_id, environment_id, is_default) VALUES ($1,$2,$3)`,
+			agentTypeID, e.EnvironmentID, e.IsDefault,
+		); err != nil {
+			return fmt.Errorf("attach environment %q: %w", e.EnvironmentID, err)
+		}
 	}
 	return nil
 }
@@ -131,19 +152,22 @@ func (r *PostgresRepository) UpdateAgentType(ctx context.Context, at AgentType) 
 	// identity_mode is deliberately absent from the SET list: it is immutable
 	// after creation (the service layer rejects changes; the storage layer never
 	// writes it on update).
-	tag, err := r.pool.Exec(ctx, `
-		UPDATE agent_types
-		SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, tool_scopes=$6, grant_scopes=$7, max_concurrent_runs_per_pod=$8, model_id=$9, updated_at=$10, connectivity=$11::jsonb, connectors=$12::jsonb, mcp_tools=$13, environment_id=$14
-		WHERE id=$15`,
-		at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.ToolScopes, at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools, at.EnvironmentID, at.ID,
-	)
-	if err != nil {
-		return fmt.Errorf("update agent_type: %w", err)
-	}
-	if tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE agent_types
+			SET name=$1, slug=$2, description=$3, system_prompt=$4, framework=$5, grant_scopes=$6, max_concurrent_runs_per_pod=$7, model_id=$8, updated_at=$9, connectivity=$10::jsonb, connectors=$11::jsonb, mcp_tools=$12, guardrails=$13::jsonb
+			WHERE id=$14`,
+			at.Name, at.Slug, at.Description, at.SystemPrompt, string(at.Framework), at.GrantScopes, at.MaxConcurrentRunsPerPod, at.ModelID, time.Now().UTC(), string(connectivityJSON), string(connectorsJSON), at.MCPTools,
+			guardrailsColumn(at.Guardrails), at.ID,
+		)
+		if err != nil {
+			return fmt.Errorf("update agent_type: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return writeAgentEnvironments(ctx, tx, at.ID, at.Environments)
+	})
 }
 
 func (r *PostgresRepository) SetAgentTypeState(ctx context.Context, id string, from, to AgentTypeState) error {
@@ -224,7 +248,7 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 // force-deletes its runs first, so the inner join never drops rows).
 const selectRun = `
 	SELECT r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
-	       r.trigger_id, r.trigger_name, r.delivery_id
+	       r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id
 	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
@@ -232,27 +256,21 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 	return scanRun(row)
 }
 
-func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
-	query := selectRun + ` WHERE r.tenant_id=$1`
-	args := []any{tenantID}
-	if agentTypeID != "" {
-		args = append(args, agentTypeID)
-		query += fmt.Sprintf(" AND r.agent_type_id=$%d", len(args))
+// ListRuns returns up to q.Limit runs in scope, newest first, after q.After.
+// The scope is part of the query, so a page holds only runs the caller may read.
+func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error) {
+	query, args := appendScope(selectRun+` WHERE r.tenant_id=$1`, []any{tenantID}, q.Scope)
+	if len(q.States) > 0 {
+		args = append(args, stateStrings(q.States))
+		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
 	}
-	// Delegated-run visibility (delegated-agent-identity ADR, Decision 6): the
-	// filter lives in the query so result counts stay correct under any future
-	// pagination. An empty vis.Subject matches no delegated run (fail closed).
-	if !vis.SeeAll {
-		args = append(args, vis.Subject)
-		query += fmt.Sprintf(" AND (at.identity_mode <> 'delegated' OR ($%d <> '' AND r.created_by = $%d))", len(args), len(args))
+	if q.After != nil {
+		args = append(args, q.After.CreatedAt, q.After.ID)
+		query += fmt.Sprintf(" AND (r.created_at, r.id) < ($%d, $%d)", len(args)-1, len(args))
 	}
-	// id breaks created_at ties: without it the rows a LIMIT drops at a tie
-	// boundary vary between executions of the same query.
-	query += ` ORDER BY r.created_at DESC, r.id DESC`
-	if limit > 0 {
-		args = append(args, limit)
-		query += fmt.Sprintf(" LIMIT $%d", len(args))
-	}
+	// id breaks created_at ties, which keeps both the page boundary and the cursor stable.
+	args = append(args, q.Limit)
+	query += fmt.Sprintf(" ORDER BY r.created_at DESC, r.id DESC LIMIT $%d", len(args))
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -490,13 +508,18 @@ func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration ti
 
 // ── Events ────────────────────────────────────────────────────────────────────
 
+// AppendRunEvent records an event. A caller that also publishes the event sets
+// CreatedAt, so the live stream and a later replay carry the same time.
 func (r *PostgresRepository) AppendRunEvent(ctx context.Context, e RunEvent) (int64, error) {
+	if e.CreatedAt.IsZero() {
+		e.CreatedAt = eventTime()
+	}
 	var seqNo int64
 	err := r.pool.QueryRow(ctx, `
 		INSERT INTO run_events (run_id, event_type, payload, created_at)
 		VALUES ($1,$2,$3,$4)
 		RETURNING sequence_no`,
-		e.RunID, e.EventType, e.Payload, time.Now().UTC(),
+		e.RunID, e.EventType, e.Payload, e.CreatedAt,
 	).Scan(&seqNo)
 	if err != nil {
 		return 0, fmt.Errorf("insert run_event: %w", err)
@@ -553,15 +576,18 @@ type scanner interface {
 // columns to scan destinations positionally and errors on a count mismatch, so
 // a query that drifts from the scanner fails on every row at runtime rather
 // than at compile time.
-const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, tool_scopes, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, environment_id, identity_mode`
+// The last column aggregates the agent's environment links, default first.
+const agentTypeColumns = `id, tenant_id, name, slug, description, system_prompt, framework, grant_scopes, max_concurrent_runs_per_pod, state, model_id, created_at, updated_at, connectivity, connectors, mcp_tools, identity_mode, guardrails,
+	COALESCE((SELECT jsonb_agg(jsonb_build_object('environment_id', ae.environment_id, 'is_default', ae.is_default) ORDER BY ae.is_default DESC, ae.environment_id)
+		FROM agent_environments ae WHERE ae.agent_type_id = agent_types.id), '[]'::jsonb)`
 
 func scanAgentType(s scanner) (*AgentType, error) {
 	var at AgentType
 	var state, framework, identityMode string
-	var connectivityJSON, connectorsJSON []byte
+	var connectivityJSON, connectorsJSON, guardrailsJSON, environmentsJSON []byte
 	err := s.Scan(
 		&at.ID, &at.TenantID, &at.Name, &at.Slug, &at.Description, &at.SystemPrompt, &framework,
-		&at.ToolScopes, &at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &at.EnvironmentID, &identityMode,
+		&at.GrantScopes, &at.MaxConcurrentRunsPerPod, &state, &at.ModelID, &at.CreatedAt, &at.UpdatedAt, &connectivityJSON, &connectorsJSON, &at.MCPTools, &identityMode, &guardrailsJSON, &environmentsJSON,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -577,10 +603,18 @@ func scanAgentType(s scanner) (*AgentType, error) {
 			return nil, fmt.Errorf("unmarshal connectivity: %w", uErr)
 		}
 	}
+	if len(guardrailsJSON) > 0 {
+		if uErr := json.Unmarshal(guardrailsJSON, &at.Guardrails); uErr != nil {
+			return nil, fmt.Errorf("unmarshal guardrails: %w", uErr)
+		}
+	}
 	if len(connectorsJSON) > 0 {
 		if uErr := json.Unmarshal(connectorsJSON, &at.Connectors); uErr != nil {
 			return nil, fmt.Errorf("unmarshal connectors: %w", uErr)
 		}
+	}
+	if uErr := json.Unmarshal(environmentsJSON, &at.Environments); uErr != nil {
+		return nil, fmt.Errorf("unmarshal environments: %w", uErr)
 	}
 	return &at, nil
 }
@@ -593,7 +627,7 @@ func scanRun(s scanner) (*Run, error) {
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode,
-		&triggerID, &triggerName, &deliveryID,
+		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -616,12 +650,164 @@ func scanRun(s scanner) (*Run, error) {
 	return &r, nil
 }
 
-func isUniqueViolation(err error) bool {
-	// pgx wraps pgconn.PgError; check the SQLSTATE code for unique_violation (23505).
-	type pgErr interface{ SQLState() string }
-	var pe pgErr
-	if errors.As(err, &pe) {
-		return pe.SQLState() == "23505"
+// SetRunEnvironment records the environment of the run's current sandbox. Nil is the built-in default.
+func (r *PostgresRepository) SetRunEnvironment(ctx context.Context, runID string, environmentID *string) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE runs SET environment_id=$1, updated_at=$2 WHERE id=$3`, environmentID, time.Now().UTC(), runID)
+	if err != nil {
+		return fmt.Errorf("set run environment: %w", err)
 	}
-	return false
+	if tag.RowsAffected() == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+func isForeignKeyViolation(err error) bool { return hasSQLState(err, "23503") }
+
+func isUniqueViolation(err error) bool { return hasSQLState(err, "23505") }
+
+// hasSQLState reports whether err wraps a Postgres error with the given SQLSTATE code.
+func hasSQLState(err error, code string) bool {
+	var pe interface{ SQLState() string }
+	return errors.As(err, &pe) && pe.SQLState() == code
+}
+
+// CountRunOutcomes counts completed and failed runs finished in [from, to), using
+// idx_runs_tenant_completed.
+func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunOutcomes, error) {
+	query, args := appendScope(`
+		SELECT COUNT(*) FILTER (WHERE r.state = 'completed'),
+		       COUNT(*) FILTER (WHERE r.state = 'failed')
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		WHERE r.tenant_id = $1
+		  AND r.completed_at >= $2 AND r.completed_at < $3
+		  AND r.state IN ('completed', 'failed')`,
+		[]any{tenantID, from, to}, scope)
+	var out RunOutcomes
+	err := r.pool.QueryRow(ctx, query, args...).Scan(&out.Completed, &out.Failed)
+	if err != nil {
+		return RunOutcomes{}, fmt.Errorf("count run outcomes: %w", err)
+	}
+	return out, nil
+}
+
+// finishedRunsSQL selects the runs finished in [$2, $3) with their duration in ms.
+// A run that never started counts from its creation. Callers append the scope.
+const finishedRunsSQL = `
+	SELECT r.state, GREATEST(EXTRACT(EPOCH FROM (r.completed_at - COALESCE(r.started_at, r.created_at))) * 1000, 0) AS ms
+	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+	WHERE r.tenant_id = $1
+	  AND r.completed_at >= $2 AND r.completed_at < $3
+	  AND r.state IN ('completed', 'failed')`
+
+// RunStats counts the runs in scope created in [from, to) and those a trigger
+// started, then the runs finished in it by outcome, duration percentile and
+// histogram bucket, then every run in scope by its current state.
+func (r *PostgresRepository) RunStats(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunStats, error) {
+	var out RunStats
+	query, args := appendScope(`
+		SELECT COUNT(*), COUNT(r.trigger_id)
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		WHERE r.tenant_id = $1 AND r.created_at >= $2 AND r.created_at < $3`,
+		[]any{tenantID, from, to}, scope)
+	if err := r.pool.QueryRow(ctx, query, args...).Scan(&out.Total, &out.Triggered); err != nil {
+		return RunStats{}, fmt.Errorf("count runs: %w", err)
+	}
+
+	current, err := r.runStateCounts(ctx, tenantID, scope)
+	if err != nil {
+		return RunStats{}, err
+	}
+	out.Current = current
+
+	inner, args := appendScope(finishedRunsSQL, []any{tenantID, from, to}, scope)
+	var median, p95, p99, longest float64
+	err = r.pool.QueryRow(ctx, `
+		SELECT COUNT(*) FILTER (WHERE state = 'completed'), COUNT(*) FILTER (WHERE state = 'failed'),
+		       COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY ms), 0),
+		       COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms), 0),
+		       COALESCE(percentile_cont(0.99) WITHIN GROUP (ORDER BY ms), 0), COALESCE(MAX(ms), 0)
+		FROM (`+inner+`) f`, args...).Scan(&out.Completed, &out.Failed, &median, &p95, &p99, &longest)
+	if err != nil {
+		return RunStats{}, fmt.Errorf("finished run durations: %w", err)
+	}
+	// p99 and the longest run round up so no run falls above its own histogram edge.
+	d := &out.Durations
+	d.MedianMs, d.P95Ms, d.P99Ms, d.LongestMs =
+		int64(math.Round(median)), int64(math.Round(p95)), int64(math.Ceil(p99)), int64(math.Ceil(longest))
+	d.Buckets = make([]int64, histogramBuckets)
+	finished := out.Completed + out.Failed
+	if finished == 0 {
+		return out, nil
+	}
+	var rangeMs int64
+	rangeMs, d.Capped = histogramRange(finished, d.P99Ms, d.LongestMs)
+
+	args = append(args, rangeMs)
+	rows, err := r.pool.Query(ctx, fmt.Sprintf(`
+		SELECT CASE WHEN ms > $%[1]d THEN %[2]d ELSE LEAST(width_bucket(ms::numeric, 0, $%[1]d::numeric, %[3]d), %[3]d) END AS bucket, COUNT(*)
+		FROM (`+inner+`) f GROUP BY bucket`, len(args), histogramBuckets+1, histogramBuckets), args...)
+	if err != nil {
+		return RunStats{}, fmt.Errorf("finished run buckets: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var bucket int
+		var n int64
+		if err := rows.Scan(&bucket, &n); err != nil {
+			return RunStats{}, fmt.Errorf("scan finished run buckets: %w", err)
+		}
+		if bucket > histogramBuckets {
+			d.Overflow = n
+		} else {
+			d.Buckets[bucket-1] = n
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return RunStats{}, fmt.Errorf("finished run buckets: %w", err)
+	}
+	return out, nil
+}
+
+// runStateCounts counts every run in scope by agent type and current state, whatever its age.
+func (r *PostgresRepository) runStateCounts(ctx context.Context, tenantID string, scope RunScope) (RunStateCounts, error) {
+	out := RunStateCounts{ByState: map[RunState]int64{}, LiveByAgentType: map[string]int64{}}
+	query, args := appendScope(`
+		SELECT r.agent_type_id, r.state, COUNT(*),
+		       COALESCE(EXTRACT(EPOCH FROM (now() - MIN(r.started_at))) * 1000, 0)
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		WHERE r.tenant_id = $1`, []any{tenantID}, scope)
+	rows, err := r.pool.Query(ctx, query+` GROUP BY r.agent_type_id, r.state`, args...)
+	if err != nil {
+		return RunStateCounts{}, fmt.Errorf("count runs by state: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var agentTypeID, state string
+		var n int64
+		var runningMs float64
+		if err := rows.Scan(&agentTypeID, &state, &n, &runningMs); err != nil {
+			return RunStateCounts{}, fmt.Errorf("scan runs by state: %w", err)
+		}
+		out.Total += n
+		out.ByState[RunState(state)] += n
+		if slices.Contains(liveRunStates, RunState(state)) {
+			out.Live += n
+			out.LiveByAgentType[agentTypeID] += n
+			out.LongestLiveMs = max(out.LongestLiveMs, int64(math.Round(runningMs)))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return RunStateCounts{}, fmt.Errorf("count runs by state: %w", err)
+	}
+	return out, nil
+}
+
+// stateStrings converts run states for a text[] query parameter.
+func stateStrings(states []RunState) []string {
+	out := make([]string, len(states))
+	for i, s := range states {
+		out[i] = string(s)
+	}
+	return out
 }

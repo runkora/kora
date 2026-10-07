@@ -100,6 +100,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'requestId',
       header: 'Request ID',
+      gridWidth: '15rem',
+      minWidth: '8.5rem',
       locked: true,
       cell: (row) => (
         <Text size="supporting" color="accent" mono>
@@ -112,6 +114,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'date',
       header: 'Date',
+      gridWidth: '8rem',
+      minWidth: '6.5rem',
       sortable: true,
       sortAccessor: (row) => new Date(row.created_at).getTime(),
       cell: (row) => (
@@ -131,6 +135,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'model',
       header: 'Model',
+      gridWidth: 'minmax(0, 1.5fr)',
+      minWidth: '7.5rem',
       sortable: true,
       sortAccessor: (row) => row.virtual_model_id ?? row.model_id,
       cell: (row) => (
@@ -151,6 +157,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'providerModel',
       header: 'Provider model',
+      gridWidth: 'minmax(0, 1.5fr)',
+      minWidth: '8rem',
       defaultVisible: false,
       sortable: true,
       sortAccessor: (row) => row.model_id,
@@ -165,6 +173,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'status',
       header: 'Status',
+      gridWidth: '6rem',
+      minWidth: '4.5rem',
       filter: {
         mode: 'client',
         options: STATUS_OPTIONS,
@@ -189,6 +199,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'key',
       header: 'Key',
+      gridWidth: 'minmax(0, 1fr)',
+      minWidth: '3.5rem',
       filter: {
         mode: 'server',
         options: keyOptions,
@@ -219,6 +231,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'keyStatus',
       header: 'Key status',
+      gridWidth: '6rem',
+      minWidth: '4.5rem',
       cell: (row) => {
         const pat = row.token_id ? patMap.get(row.token_id) : undefined;
         const keyStatus: 'active' | 'revoked' | 'expired' | 'unknown' | null = row.token_id
@@ -267,6 +281,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'latency',
       header: 'Latency',
+      gridWidth: '6rem',
+      minWidth: '4.5rem',
       align: 'right',
       sortable: true,
       sortAccessor: (row) => row.latency_ms,
@@ -281,6 +297,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'tokens',
       header: 'Tokens',
+      gridWidth: '7rem',
+      minWidth: '4.5rem',
       align: 'right',
       sortable: true,
       sortAccessor: (row) => row.total_tokens,
@@ -310,6 +328,8 @@ export function LogsTab({ selectedKeyId = '' }: LogsTabProps) {
     {
       id: 'cost',
       header: 'Cost',
+      gridWidth: '6rem',
+      minWidth: '4.5rem',
       align: 'right',
       sortable: true,
       sortAccessor: (row) => row.estimated_cost_usd ?? 0,

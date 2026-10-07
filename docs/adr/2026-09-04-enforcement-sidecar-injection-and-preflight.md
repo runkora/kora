@@ -1,9 +1,9 @@
 # Enforcement Sidecar Injection, Preflight and Restricted Pod Security
 
-**Status:** Proposed
+**Status:** Accepted (Amended 2026-10-02)
 **Date:** 2026-09-04
 **Deciders:** Justin Wilkin
-**Technical Story:** Companion to [Install and Distribution Model](2026-09-04-install-and-distribution-model.md). That ADR removes the operator's installation of Istio, which is the only place Orbit's three sidecar injection templates were delivered. This ADR decides how the identity-proxy, the tenant OPA sidecar and the SPIRE proxy wiring reach pods in a mesh Orbit did not install, how the prerequisites contract is verified, and what changes so every Orbit pod admits under the Kubernetes restricted pod security profile. Implements the mesh-portability, fail-closed and restricted-profile requirements of the [Install and Distribution PRD](../prd/install-and-distribution.md).
+**Technical Story:** Companion to [Install and Distribution Model](2026-09-04-install-and-distribution-model.md). That ADR removes the operator's installation of Istio, which is the only place kora's three sidecar injection templates were delivered. This ADR decides how the identity-proxy, the tenant OPA sidecar and the SPIRE proxy wiring reach pods in a mesh kora did not install, how the prerequisites contract is verified, and what changes so every kora pod admits under the Kubernetes restricted pod security profile. Implements the mesh-portability, fail-closed and restricted-profile requirements of the [Install and Distribution PRD](../prd/install-and-distribution.md).
 
 ---
 
@@ -11,30 +11,30 @@
 
 ### Background
 
-Every tenant pod (agent StatefulSet, sandbox) carries two Orbit containers beside the Istio sidecar: the identity-proxy, which exchanges the pod's SVID for a platform token and stamps it on outbound calls through an ext_proc filter over a shared Unix socket; and an OPA sidecar, which enforces the tenant's policy bundle on inbound calls through ext_authz. Every Orbit pod, system and tenant, needs the Istio sidecar to obtain its certificate from SPIRE rather than istiod: `PILOT_CERT_PROVIDER=spire`, `SPIFFE_ENDPOINT_SOCKET`, and the SPIFFE CSI volume mounted into `istio-proxy`.
+Every tenant pod (agent StatefulSet, sandbox) carries two kora containers beside the Istio sidecar: the identity-proxy, which exchanges the pod's SVID for a platform token and stamps it on outbound calls through an ext_proc filter over a shared Unix socket; and an OPA sidecar, which enforces the tenant's policy bundle on inbound calls through ext_authz. Every kora pod, system and tenant, needs the Istio sidecar to obtain its certificate from SPIRE rather than istiod: `PILOT_CERT_PROVIDER=spire`, `SPIFFE_ENDPOINT_SOCKET`, and the SPIFFE CSI volume mounted into `istio-proxy`.
 
 Today this is delivered by three istiod injection templates (`spire`, `identity-proxy`, `opa-policy`) that the operator renders into the istiod Helm values. Pods select them through the `inject.istio.io/templates` annotation. System pods set that annotation in the chart. Tenant pods get it from the operator's mutating webhook (`pod_webhook.go`), which matches pod creation in namespaces labelled `orbit.io/role: tenant`, adds the labels `orbit.io/identity-proxy=enabled` and `orbit.io/opa-policy=enabled` (which activate the two `EnvoyFilter`s), sets `orbit.io/tenant-id` from the namespace label (read by the OPA container through the downward API), and merges the template list into the annotation. The webhook is named `aaa-orbit-agent-pod-mutator` so it sorts before `istio-sidecar-injector`, and runs with `failurePolicy: Ignore` on the reasoning that in-process OPA in the owned services is the authoritative boundary.
 
-Istio's injection template (release-1.29 `injection-template.yaml`) settles what the three templates can be replaced with. Since Istio 1.27 on Kubernetes 1.29 and later, `istio-proxy` is rendered as a native sidecar init container (lines 184-193). The `sidecar.istio.io/userVolumeMount` pod annotation renders mounts inside that same container block (line 461), so a pod-level annotation reaches the native sidecar; a template's `containers[name=istio-proxy].volumeMounts` patch does not merge into an `initContainers` entry, which is why the operator's template mounts stop working under native sidecars. `proxy.istio.io/config` `proxyMetadata` renders as environment variables on `istio-proxy` (lines 147-149). `holdApplicationUntilProxyStarts` is a no-op under native sidecars (lines 71-73); ordering comes from init-container sequencing. The identity-proxy has been run as an explicit container in a Deployment with no template involved. Orbit's current pin is Istio 1.29.1.
+Istio's injection template (release-1.29 `injection-template.yaml`) settles what the three templates can be replaced with. Since Istio 1.27 on Kubernetes 1.29 and later, `istio-proxy` is rendered as a native sidecar init container (lines 184-193). The `sidecar.istio.io/userVolumeMount` pod annotation renders mounts inside that same container block (line 461), so a pod-level annotation reaches the native sidecar; a template's `containers[name=istio-proxy].volumeMounts` patch does not merge into an `initContainers` entry, which is why the operator's template mounts stop working under native sidecars. `proxy.istio.io/config` `proxyMetadata` renders as environment variables on `istio-proxy` (lines 147-149). `holdApplicationUntilProxyStarts` is a no-op under native sidecars (lines 71-73); ordering comes from init-container sequencing. The identity-proxy has been run as an explicit container in a Deployment with no template involved. The release-1.31 template renders the same mechanisms, with `userVolumeMount` at line 470. kora's current pin is Istio 1.31.1.
 
 Every piece of the three templates is therefore expressible as pod spec: containers, volumes and two annotations. Managed Istio offerings (AKS add-on, GKE managed control plane) do not expose injection templates; OpenShift Service Mesh exposes them as unsupported configuration. All perform standard sidecar injection and honour per-pod proxy configuration annotations.
 
 The webhook's TLS material is generated by Helm `genCA`/`genSignedCert` and reused across upgrades with `lookup`, which does not work under `helm template` and therefore not under Argo CD.
 
-On pod security: the restricted profile requires `runAsNonRoot`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, a `seccompProfile`, and only the safe volume types. The sandbox pod satisfies all but seccomp. The session-manager container sets no container security context at all. The OPA injected container sets only `runAsUser: 1337`. The identity-proxy container drops all capabilities and runs read-only but sets no seccomp profile. No chart Deployment sets a seccomp profile, the operator's included. The Istio `istio-init` container requires `NET_ADMIN` and `NET_RAW` unless istiod is configured with `pilot.cni.enabled`, in which case it renders the unprivileged `istio-validation` container instead; the injector does not detect a CNI DaemonSet on its own. Nothing in Orbit sets `pilot.cni.enabled`. No Orbit-owned pod uses `hostPath`, host networking or privileged mode.
+On pod security: the restricted profile requires `runAsNonRoot`, `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, a `seccompProfile`, and only the safe volume types. The sandbox pod satisfies all but seccomp. The session-manager container sets no container security context at all. The OPA injected container sets only `runAsUser: 1337`. The identity-proxy container drops all capabilities and runs read-only but sets no seccomp profile. No chart Deployment sets a seccomp profile, the operator's included. The Istio `istio-init` container requires `NET_ADMIN` and `NET_RAW` unless istiod is configured with `pilot.cni.enabled`, in which case it renders the unprivileged `istio-validation` container instead; the injector does not detect a CNI DaemonSet on its own. Nothing in kora sets `pilot.cni.enabled`. No kora-owned pod uses `hostPath`, host networking or privileged mode.
 
 ### Problem Statement
 
-Without istiod templates, Orbit needs another delivery mechanism for its per-pod enforcement that works on any conforming Istio, keeps the fail-closed property, does not depend on Helm features GitOps tools cannot render, and produces pods that admit under the restricted profile.
+Without istiod templates, kora needs another delivery mechanism for its per-pod enforcement that works on any conforming Istio, keeps the fail-closed property, does not depend on Helm features GitOps tools cannot render, and produces pods that admit under the restricted profile.
 
 ### Goals
 
-- Tenant pods receive identity-proxy, OPA and SPIRE proxy wiring with no Orbit-specific istiod configuration.
+- Tenant pods receive identity-proxy, OPA and SPIRE proxy wiring with no kora-specific istiod configuration.
 - System pods receive SPIRE proxy wiring (and identity-proxy where they need it) from the chart alone.
-- A tenant pod without Orbit's enforcement, or without an Istio sidecar, is rejected at admission.
+- A tenant pod without kora's enforcement, or without an Istio sidecar, is rejected at admission.
 - Webhook TLS works under Argo CD.
 - A preflight reports the prerequisites contract; tenants are not admitted while it fails.
-- Every Orbit pod, including runtime-created ones, passes restricted admission, and tenant namespaces enforce it.
+- Every kora pod, including runtime-created ones, passes restricted admission, and tenant namespaces enforce it.
 
 ### Non-Goals
 
@@ -74,7 +74,7 @@ This decision moves where the identity-proxy and OPA sidecar are attached, not w
 - Template mounts do not reach the native-sidecar `istio-proxy`, so a pod-level mechanism is needed anyway.
 - A customer edit to their mesh control plane for a workload-level concern.
 
-### Option B: Orbit's mutating webhook injects the containers, volumes and annotations
+### Option B: kora's mutating webhook injects the containers, volumes and annotations
 
 **Description:** Extend `PodMutator` to add the identity-proxy and OPA containers, the `id-proxy-sock` emptyDir, the SPIFFE CSI volume, the OPA config volume, the `proxy.istio.io/config` proxy metadata and the `sidecar.istio.io/userVolumeMount` annotation. Chart templates carry the same for system pods. Drop the `inject.istio.io/templates` annotation entirely.
 
@@ -103,13 +103,13 @@ This decision moves where the identity-proxy and OPA sidecar are attached, not w
 
 ## Decision
 
-**Chosen Option:** Option B, Orbit's mutating webhook injects the containers, volumes and annotations.
+**Chosen Option:** Option B, kora's mutating webhook injects the containers, volumes and annotations.
 
 ### Decision 1: What the mutating webhook injects
 
 For a pod created in a namespace labelled `orbit.io/role: tenant`, the webhook returns a JSON patch that adds:
 
-**Labels:** `orbit.io/identity-proxy: enabled`, `orbit.io/opa-policy: enabled`. Orbit's ClusterSPIFFEIDs for tenant workloads select `spiffe.io/service`, `spiffe.io/agent` and `orbit.io/role=sandbox`, which the creating component already sets; `spiffe.io/spire-managed-identity` is not injected, because nothing Orbit-owned selects it in tenant namespaces and the SPIRE chart's default registration does.
+**Labels:** `orbit.io/identity-proxy: enabled`, `orbit.io/opa-policy: enabled`. kora's ClusterSPIFFEIDs for tenant workloads select `spiffe.io/service`, `spiffe.io/agent` and `orbit.io/role=sandbox`, which the creating component already sets; `spiffe.io/spire-managed-identity` is not injected, because nothing kora-owned selects it in tenant namespaces and the SPIRE chart's default registration does.
 
 **Annotations:**
 
@@ -133,7 +133,7 @@ sidecar.istio.io/userVolumeMount: '{"workload-socket":{"mountPath":"/run/secrets
 
 The `inject.istio.io/templates` annotation is no longer set. `mergeIstioTemplates` is deleted. The `orbit.io/skip-injection` opt-out label is removed with its `objectSelector`: it is a pod label, so anyone who can create a tenant pod could remove enforcement, and nothing in the repository sets it.
 
-Ordering: the API server invokes mutating webhooks in configuration-name order. The configuration keeps the `aaa-` prefix and runs before `istio-sidecar-injector`, which reads `proxy.istio.io/config` and `userVolumeMount` from the pod at admission. `reinvocationPolicy` is `Never`; `IfNeeded` on Orbit's webhook would not make Istio's injector re-run and permits the API server to reorder. The guarantee that survives any reordering is Decision 2's validating webhook, and the k3d matrix asserts the final pod shape on every supported Istio minor.
+Ordering: the API server invokes mutating webhooks in configuration-name order. The configuration keeps the `aaa-` prefix and runs before `istio-sidecar-injector`, which reads `proxy.istio.io/config` and `userVolumeMount` from the pod at admission. `reinvocationPolicy` is `Never`; `IfNeeded` on kora's webhook would not make Istio's injector re-run and permits the API server to reorder. The guarantee that survives any reordering is Decision 2's validating webhook, and the k3d matrix asserts the final pod shape on every supported Istio minor.
 
 ### Decision 2: Fail closed, including when Istio does not inject
 
@@ -142,7 +142,7 @@ Two webhooks, both `failurePolicy: Fail`, `timeoutSeconds: 10`, `namespaceSelect
 - The mutating webhook of Decision 1.
 - A validating webhook, invoked after all mutation, that rejects a tenant pod when: `sidecar.istio.io/inject` is `"false"`; `sidecar.istio.io/interceptionMode` is `NONE`; the pod has no `istio-proxy` container or init container; the identity-proxy or OPA container is missing; or the pod's namespace carries no injection label matching the configured Istio revision.
 
-The second webhook closes the gap where Orbit's containers land but Istio's injector does not run: a pod opting out of injection, or a namespace whose `istio-injection: enabled` label means nothing on a revision-based Istio without a default tag. The operator labels tenant namespaces with `istio.io/rev: <istio.revision>` when a revision is configured and `istio-injection: enabled` otherwise, and the preflight verifies the label matches a live injector. A tenant pod without identity-proxy cannot obtain a platform token and a pod without OPA has no tenant policy; either is a security gap, not a degraded mode. The previous `Ignore` reasoning (in-process OPA in owned services is authoritative) still holds for the services but not for the agent pod's own enforcement.
+The second webhook closes the gap where kora's containers land but Istio's injector does not run: a pod opting out of injection, or a namespace whose `istio-injection: enabled` label means nothing on a revision-based Istio without a default tag. The operator labels tenant namespaces with `istio.io/rev: <istio.revision>` when a revision is configured and `istio-injection: enabled` otherwise, and the preflight verifies the label matches a live injector. A tenant pod without identity-proxy cannot obtain a platform token and a pod without OPA has no tenant policy; either is a security gap, not a degraded mode. The previous `Ignore` reasoning (in-process OPA in owned services is authoritative) still holds for the services but not for the agent pod's own enforcement.
 
 Consequences for the operator deployment in the `orbit` chart: `operator.replicas: 2` default, a PodDisruptionBudget with `minAvailable: 1`, leader election for reconcilers while both webhooks serve from every replica. The chart documents that scaling the operator to zero blocks tenant pod creation; a single-replica local install accepts that. The webhooks do not match the system, Istio, SPIRE or `kube-system` namespaces, so an outage cannot block its own repair. The operator pod stays outside the mesh (`sidecar.istio.io/inject: "false"`) because the API server's webhook client cannot present a mesh certificate under strict mTLS; the chart comment states that reason rather than the old "the operator installs Istio".
 
@@ -158,13 +158,13 @@ The operator owns its serving certificate. The leader creates a Secret `orbit-op
 
 ### Decision 4: System pods
 
-Orbit's own services set the annotations, volumes and (where used) the identity-proxy container directly in their chart templates through shared helpers:
+kora's own services set the annotations, volumes and (where used) the identity-proxy container directly in their chart templates through shared helpers:
 
 - `orbit.spireProxyAnnotations`: the `proxy.istio.io/config` block and the `userVolumeMount` JSON, extended with `id-proxy-sock` when the component has the identity-proxy.
 - `orbit.spireVolumes`: the `workload-socket` CSI volume.
 - `orbit.identityProxyContainer`: the sidecar container, parameterised from `identityProxy.*` values (image, resources), with the Decision 6 security context.
 
-Components with the identity-proxy today (inference gateway, agents, egress gateway, tool-gateway publisher) render the container and the socket volume. Components without it render only the SPIRE annotations and volume. The `inject.istio.io/templates` annotation is removed from every template. Orbit's ingress gateway pods, deployed by the `orbit` chart's `istio/gateway` subchart, receive the same wiring through that subchart's `env`, `volumes` and `volumeMounts` values; a customer-owned gateway applies the documented equivalent.
+Components with the identity-proxy today (inference gateway, agents, egress gateway, tool-gateway publisher) render the container and the socket volume. Components without it render only the SPIRE annotations and volume. The `inject.istio.io/templates` annotation is removed from every template. kora's ingress gateway pods, deployed by the `orbit` chart's `istio/gateway` subchart, receive the same wiring through that subchart's `env`, `volumes` and `volumeMounts` values; a customer-owned gateway applies the documented equivalent.
 
 ### Decision 5: Preflight
 
@@ -177,16 +177,16 @@ Checks, each with an actionable message:
 | Istio present, revision, version in range | injector ConfigMaps in `istio.namespace` selected by the `istio.io/rev` label; `global.tag` and revision from the values JSON, compared to the release's supported minors and to `istio.revision` |
 | Istio CNI configured | `pilot.cni.enabled` true in the same ConfigMap; `istio-cni-node` DaemonSet present and ready in `istio.namespace` |
 | Trust domain matches | `meshConfig.trustDomain` in the `istio` (or `istio-<rev>`) ConfigMap equals `ORBIT_TRUST_DOMAIN` |
-| Sidecar mode and injection on Orbit namespaces | the system namespace carries `istio-injection: enabled` or an `istio.io/rev` matching a live revision, and does not carry `istio.io/dataplane-mode: ambient` |
+| Sidecar mode and injection on kora namespaces | the system namespace carries `istio-injection: enabled` or an `istio.io/rev` matching a live revision, and does not carry `istio.io/dataplane-mode: ambient` |
 | SPIRE working and trust domain | the operator fetches its own SVID over the Workload API through the CSI socket and compares the SVID trust domain to `ORBIT_TRUST_DOMAIN`; this proves the CSI driver, the agent, the server and the trust domain in one check |
-| SPIRE controller manager | `ClusterSPIFFEID` CRD served; Orbit's registrations report no entry or render failures in `status.stats`; no ClusterSPIFFEID selects `spiffe.io/spire-managed-identity` cluster-wide without `fallback: true`; every Orbit registration uses `spire.className` |
+| SPIRE controller manager | `ClusterSPIFFEID` CRD served; kora's registrations report no entry or render failures in `status.stats`; no ClusterSPIFFEID selects `spiffe.io/spire-managed-identity` cluster-wide without `fallback: true`; every kora registration uses `spire.className` |
 | Own webhooks wired | both configurations present with a populated `caBundle` and `failurePolicy: Fail` |
 
 Preflight mutates nothing outside the operator's own webhook configurations. It reads with the ClusterRole in the companion ADR, which lists the preflight rows; the `helm test` Job runs with the operator's ServiceAccount. Reading injector ConfigMaps by label rather than a fixed `istiod` Deployment name is what makes the check work on revisioned installs and on managed offerings that run istiod outside the cluster.
 
 ### Decision 6: Restricted pod security compliance
 
-Every Orbit-owned pod spec, chart-rendered or runtime-created, sets:
+Every kora-owned pod spec, chart-rendered or runtime-created, sets:
 
 ```yaml
 securityContext:                       # pod; never overridden per container
@@ -198,7 +198,7 @@ containers[*].securityContext:
   readOnlyRootFilesystem: true         # where the process supports it
 ```
 
-The pod-level seccomp profile is what `istio-proxy` and `istio-validation` inherit, since Istio sets none unless `global.proxy.seccompProfile` is configured; no Orbit container may override it. The sandbox's `SELinuxOptions{Level: s0}` is compatible with the restricted profile and stays.
+The pod-level seccomp profile is what `istio-proxy` and `istio-validation` inherit, since Istio sets none unless `global.proxy.seccompProfile` is configured; no kora container may override it. The sandbox's `SELinuxOptions{Level: s0}` is compatible with the restricted profile and stays.
 
 Specific changes:
 
@@ -313,7 +313,7 @@ identityProxy:
   resources: { requests: { cpu: 50m, memory: 32Mi }, limits: { cpu: 200m, memory: 64Mi } }
 
 opaGateway:
-  image: { registry: docker.io, repository: openpolicyagent/opa, tag: 1.15.2-envoy-static, digest: "", pullPolicy: "" }
+  image: { registry: docker.io, repository: openpolicyagent/opa, tag: 1.21.0-envoy-static, digest: "", pullPolicy: "" }
 
 operator:
   replicas: 2
@@ -331,7 +331,7 @@ operator:
     warn: restricted
     audit: restricted
   preflight:
-    supportedIstioMinors: ["1.29", "1.28"]   # stamped by release automation
+    supportedIstioMinors: ["1.31", "1.30"]   # the Istio minors this release supports
     intervalSeconds: 300
 ```
 
@@ -361,26 +361,26 @@ Existing tenant pods keep running; injection and validation apply on the next po
 
 ### Positive
 
-- Orbit runs on any Istio that performs standard injection, including managed offerings, with no control-plane changes.
+- kora runs on any Istio that performs standard injection, including managed offerings, with no control-plane changes.
 - Enforcement delivery is fail-closed at admission, including when Istio does not inject.
 - One owner for the sidecar specs, versioned and configured with the rest of the chart.
 - Webhook TLS and the charts render cleanly under Argo CD, and survive a sync that reapplies them.
 - The preflight turns "is my mesh compatible" into a printed answer and blocks tenants, not the operator, while it fails.
-- Every Orbit pod admits under the restricted profile, tenant namespaces enforce it, and CI holds the line.
+- Every kora pod admits under the restricted profile, tenant namespaces enforce it, and CI holds the line.
 - The tenant OPA's REST API is no longer readable by the agent.
 
 ### Negative
 
 - The operator is now on the tenant pod creation path and must be run with two replicas and a PDB.
 - Istio CNI with `pilot.cni.enabled` joins the prerequisites contract.
-- Any Istio change to how per-pod proxy configuration or `userVolumeMount` is honoured breaks Orbit; the k3d matrix on N and N-1 exists to catch it before a release claims support.
+- Any Istio change to how per-pod proxy configuration or `userVolumeMount` is honoured breaks kora; the k3d matrix on N and N-1 exists to catch it before a release claims support.
 - Two webhooks and a certificate manager in the operator; the operator patches its own webhook configurations.
 
 ### Neutral
 
 - The OPA image and the identity-proxy image become ordinary chart values instead of operator env and injection template literals.
 - `orbit.io/tenant-id` and the two activation labels are unchanged, so the `EnvoyFilter`s are untouched.
-- Orbit's control-plane services report ready independently of the preflight; the failure surface for an unverified cluster is tenant admission and the `OrbitTenant` condition.
+- kora's control-plane services report ready independently of the preflight; the failure surface for an unverified cluster is tenant admission and the `OrbitTenant` condition.
 
 ---
 
@@ -392,7 +392,7 @@ Existing tenant pods keep running; injection and validation apply on the next po
 - A tenant pod with `sidecar.istio.io/inject: "false"` is rejected with the validating webhook's message.
 - Operator scaled to zero: tenant pod creation is rejected, system namespaces unaffected.
 - An Argo CD sync that reapplies the webhook configurations: `caBundle` and `failurePolicy` are restored within the watch latency and no admission is lost.
-- `helm template` of the `orbit` chart contains no `lookup`, `genCA`, `caBundle`, or any of Orbit's former injection template names (`spire`, `identity-proxy`, `opa-policy`); the `istio/gateway` subchart's own `gateway` template annotation remains.
+- `helm template` of the `orbit` chart contains no `lookup`, `genCA`, `caBundle`, or any of kora's former injection template names (`spire`, `identity-proxy`, `opa-policy`); the `istio/gateway` subchart's own `gateway` template annotation remains.
 - `kyverno apply` restricted policies pass on every rendered and runtime pod.
 - Preflight on a cluster whose istiod lacks `pilot.cni.enabled` reports it by name; `OrbitTenant` objects stay out of `Ready`; the operator stays ready.
 
@@ -403,10 +403,53 @@ Existing tenant pods keep running; injection and validation apply on the next po
 
 ---
 
+## Amendment 1 (2026-10-01): No identity-proxy on system pods
+
+**Status:** Accepted
+
+Amends Decision 4. Touches *How does it connect?* Platform services stop receiving an injected token on every outbound call. *Who is this agent?* and *What can it access?* are unchanged for agent workloads.
+
+**Decision.**
+
+- No system pod carries the identity-proxy. The inference gateway, orbit-agents, the egress gateway and the tool-gateway publisher drop the container, the `orbit.io/identity-proxy` label, the `id-proxy-sock` volume and its `userVolumeMount` annotation. They keep the SPIRE annotations and the `workload-socket` volume for mesh mTLS.
+- Platform services fetch their own platform token in-process with the identity client's `SelfTokenSource()` and attach it only to the platform calls that need it ([dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md), Amendment 1).
+- `orbit.spireProxyAnnotations` and `orbit.spireVolumes` lose their `identityProxy` parameter, and the `orbit.identityProxyContainer` helper is removed.
+- Only tenant agent runtime pods and sandbox pods carry the identity-proxy, injected by the operator's webhook. `identityProxy.*` values configure that injection.
+
+**Consequences.** The Decision 4 sentence listing components with the identity-proxy no longer holds. A platform service's plain-HTTP calls to tenant MCP servers, relayed upstreams, model providers and cloud metadata endpoints carry no platform token.
+
+---
+
+## Amendment 2 (2026-10-02): Peer metadata headers stay in the mesh
+
+**Status:** Accepted
+
+Amends Decisions 1 and 4. Touches *Who is this agent?* Workload identity details stop leaving the mesh. *What can it access?* and *How does it connect?* are unchanged.
+
+**Context.** Istio's HTTP metadata exchange filter adds `x-envoy-peer-metadata` and `x-envoy-peer-metadata-id` to outbound plain-HTTP requests. The headers carry the pod name, namespace, labels, service account and cluster. On a call that leaves the mesh they reach a third party: a compatible model provider on plain HTTP, or an upstream the egress gateway relays for a sandbox. Istio's `ProxyConfig.proxyHeaders.metadataExchangeHeaders.mode: IN_MESH` skips both headers when the upstream cluster is `PassthroughCluster` or a `MESH_EXTERNAL` ServiceEntry, and keeps them for in-mesh destinations, where telemetry reads them.
+
+**Options.**
+
+- Set `IN_MESH` in istiod's MeshConfig `defaultConfig`. The cluster's istiod belongs to the customer, and the setting would change every workload in the mesh.
+- An `EnvoyFilter` that removes the headers. It patches Istio's generated listener and route names, which change between releases.
+- Set `IN_MESH` in each kora pod's `proxy.istio.io/config` annotation. The `ProxyConfig` CRD cannot carry `proxyHeaders`; the annotation can.
+
+**Decision.**
+
+- Every `proxy.istio.io/config` kora writes sets `proxyHeaders.metadataExchangeHeaders.mode: IN_MESH`.
+- `orbit.spireProxyAnnotations` carries it for system pods.
+- A component's `podAnnotations` value cannot set `proxy.istio.io/config`; the chart fails the render.
+- The agent StatefulSet and sandbox pod templates `orbit-agents` renders carry it too, so a reconcile rolls existing agent pods.
+- The webhook's merge sets it on every tenant pod, overriding any mode the pod requests and keeping other `proxyHeaders` fields.
+
+**Consequences.** A non-kora workload in the same mesh is unaffected. An external destination that a cluster registers without `MESH_EXTERNAL` still receives the headers.
+
+---
+
 ## Related Decisions
 
 - [Install and Distribution Model](2026-09-04-install-and-distribution-model.md): removes the istiod templates' delivery mechanism; defines the prerequisites contract this preflight verifies and the ClusterRole this ADR's webhooks and preflight need.
-- [Orbit Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md): origin of the pod webhook and its `Ignore` policy.
+- [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md): origin of the pod webhook and its `Ignore` policy.
 - [Gateway-Level OPA Enforcement for External Traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) and [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md): the `EnvoyFilter`s activated by the labels this webhook sets; unchanged.
 - [Dynamic SPIFFE Identity Grants and Tenant Isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md): the label-driven ClusterSPIFFEID model whose tenant selectors are unchanged.
 
@@ -421,4 +464,6 @@ Existing tenant pods keep running; injection and validation apply on the next po
 - Kubernetes Pod Security Standards, restricted: https://kubernetes.io/docs/concepts/security/pod-security-standards/
 - Mutating webhook ordering and reinvocation: https://kubernetes.io/docs/reference/access-authn-authz/extensible-admission-controllers/
 - Kyverno pod-security policies: https://kyverno.io/policies/pod-security/
+- Istio `ProxyConfig.proxyHeaders.metadataExchangeHeaders`: https://istio.io/latest/docs/reference/config/istio.mesh.v1alpha1/#ProxyConfig-ProxyHeaders-MetadataExchangeHeaders
+- Peer metadata filter, `skipMXHeaders` (Envoy contrib, built into Istio 1.31): https://github.com/envoyproxy/envoy/blob/main/contrib/istio/filters/http/peer_metadata/source/peer_metadata.cc
 - Argo CD sync options (`RespectIgnoreDifferences`): https://argo-cd.readthedocs.io/en/stable/user-guide/sync-options/

@@ -27,7 +27,7 @@ function CardDivider() {
   return (
     <Stack asChild>
       <figure className="my-3 m-0">
-        <Separator span="full" />
+        <Separator />
       </figure>
     </Stack>
   );

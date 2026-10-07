@@ -1,4 +1,4 @@
-# Orbit Control Plane - Development Makefile
+# kora Control Plane - Development Makefile
 # ===========================================
 
 # Load environment variables from .env if it exists
@@ -81,7 +81,7 @@ COMMON_TARGETS := setup up down reset auth redeploy test check
 
 .PHONY: help
 help: ## Display this help screen
-	@echo "$(COLOR_BOLD)Orbit Control Plane$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)kora Control Plane$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_BOLD)Start here$(COLOR_RESET)"
 	@for t in $(COMMON_TARGETS); do \
@@ -338,8 +338,9 @@ db-shell: ## Open a psql shell to the database
 
 # cmd/migrate embeds every service's migrations and is what the chart runs as a
 # pre-upgrade hook (docs/adr/2026-09-10-database-migrations.md). Locally it
-# runs through `go run` against the compose Postgres.
-MIGRATE_ENV = APP_ENV=local DB_HOST=$(DB_HOST) DB_PORT=$(DB_PORT) DB_NAME=$(DB_NAME) DB_USER=$(DB_USER) DB_PASSWORD=$(DB_PASSWORD) ORBIT_POSTGRES_SSL_MODE=disable ORBIT_LOG_FORMAT=console
+# runs through `go run` against the compose Postgres, whose address is in
+# backend/internal/platform/storage/config/local.yaml.
+MIGRATE_ENV = APP_ENV=local DB_PASSWORD=$(DB_PASSWORD)
 MIGRATE = cd $(BACKEND_DIR) && $(MIGRATE_ENV) $(GOCMD) run ./cmd/migrate
 
 .PHONY: migrate-status
@@ -437,9 +438,9 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile,
 # The schema is applied by the orbit chart's pre-install hook during
 # cluster-platform, before any service starts.
 .PHONY: up
-up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + Orbit (schema applied by the chart's migrate hook), tenants. Idempotent.
+up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
 	@echo ""
-	@echo "$(COLOR_GREEN)✓ Orbit is up$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ kora is up$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
 	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo ""
@@ -476,11 +477,11 @@ dev-cluster-down: ## Tear down the local k3d cluster
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
 	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers migrate operator \
-	session-manager sandbox-exec
+	session-manager sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
 # Services with a long-lived orbit-system workload that `cluster-update` rolls
-# after the build pass. Excludes identity-proxy (sidecar), sandbox-exec
+# after the build pass. Excludes identity-proxy (sidecar), sandbox-base
 # (on-demand), session-manager (tenant StatefulSet, may not exist yet) and
 # operator (helm-managed — upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
@@ -491,7 +492,7 @@ REDEPLOY_ROLLOUT_SERVICES := \
 # on cluster-update so they re-read chart-managed config on the way back up.
 REDEPLOY_RESTART_ONLY := orbit-opa-gateway
 
-OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
+OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
 
 # ===========================================
 # Image bake (CI / multi-arch publishing)
@@ -600,7 +601,7 @@ BAKE_PLATFORM_IMAGES := \
 	orbit-identity orbit-identity-proxy orbit-inference-gateway \
 	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
 	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers orbit-migrate \
-	orbit-operator orbit-session-manager orbit-sandbox-exec
+	orbit-operator orbit-session-manager kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
 redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
@@ -665,7 +666,7 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
 .PHONY: cluster-platform
-cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and Orbit from deploy/reference/helmfile.yaml.gotmpl
+cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and kora from deploy/reference/helmfile.yaml.gotmpl
 	@EXPECTED="$${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"; \
 	 CURRENT="$$(kubectl config current-context 2>/dev/null || echo '<none>')"; \
 	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
@@ -677,13 +678,14 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 	@bash scripts/cluster/create-secrets.sh orbit-system
 	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
 	@$(MAKE) cluster-ca-configmap
-	@echo "$(COLOR_YELLOW)Creating TLS secret for the Orbit ingress gateway...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Creating TLS secret for the kora ingress gateway...$(COLOR_RESET)"
 	@$(MAKE) cluster-tls-secret
 	@echo "$(COLOR_YELLOW)Resolving Docker container IPs...$(COLOR_RESET)"
 	@bash scripts/cluster/resolve-docker-ips.sh
-	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, Orbit)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, kora)...$(COLOR_RESET)"
 	@cd deploy/reference && helmfile -e local apply
-	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
+	@if [ -n "$$BEDROCK_ACCOUNTS" ]; then bash scripts/cluster/refresh-bedrock-creds.sh; fi
+	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and kora services are running$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
 	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
@@ -735,7 +737,7 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 
 .PHONY: cluster-update
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
-	@echo "$(COLOR_YELLOW)Re-applying the Orbit releases (picks up CRD + template changes)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Re-applying the kora releases (picks up CRD + template changes)...$(COLOR_RESET)"
 	@cd deploy/reference && helmfile -e local apply --selector name=orbit-crds && helmfile -e local apply --selector name=orbit
 	@yq -i ".migrate.sourceHash = \"$$(bash scripts/cluster/migrations-hash.sh)\"" deploy/reference/environments/local.generated.yaml
 	@bash scripts/cluster/redeploy.sh operator --no-build
@@ -763,7 +765,7 @@ cluster-k8s-connection: ## Register the local k3d cluster as a Kubernetes connec
 	@bash scripts/cluster/register-k8s-connection.sh
 
 .PHONY: cluster-bedrock-creds
-cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from your local SSO session (set AWS_PROFILE in .env)
+cluster-bedrock-creds: ## Register Bedrock InferenceProviders from your AWS SSO session (AWS_PROFILE and BEDROCK_* in .env)
 	@bash scripts/cluster/refresh-bedrock-creds.sh
 
 # ===========================================
@@ -778,7 +780,7 @@ cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from yo
 # Usage:
 #   make redeploy SERVICE=identity                       # build + push + rollout
 #   make redeploy SERVICE=session-manager TENANT=example # tenant-scoped
-#   make redeploy SERVICE=sandbox-exec BUILD_ONLY=1      # build + push only
+#   make redeploy SERVICE=sandbox-base BUILD_ONLY=1      # build + push only
 #   make redeploy SERVICE=identity NO_BUILD=1            # rollout only
 #
 # Or use the per-service shortcut targets (redeploy-identity, redeploy-frontend, …).
@@ -862,9 +864,9 @@ redeploy-example: ## Redeploy the example tenant workload (default tenant=exampl
 redeploy-session-manager: ## Redeploy session-manager (statefulset, default tenant=example, override with TENANT=… SLUG=…)
 	@bash scripts/cluster/redeploy.sh session-manager $(REDEPLOY_FLAGS)
 
-.PHONY: redeploy-sandbox-exec
-redeploy-sandbox-exec: ## Build + push sandbox-exec (no rollout — picked up by next agent run)
-	@bash scripts/cluster/redeploy.sh sandbox-exec $(REDEPLOY_FLAGS)
+.PHONY: redeploy-sandbox-base
+redeploy-sandbox-base: ## Build + push the sandbox base image (no rollout; picked up by the next sandbox)
+	@bash scripts/cluster/redeploy.sh sandbox-base $(REDEPLOY_FLAGS)
 
 .PHONY: prune
 prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB
@@ -1002,6 +1004,7 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
 	@# ── 1. Enforce nvm ────────────────────────────────────────────────────────
 	@export NVM_DIR="$${NVM_DIR:-$$HOME/.nvm}"; \
+	export COREPACK_ENABLE_DOWNLOAD_PROMPT=0; \
 	if [ ! -f "$$NVM_DIR/nvm.sh" ]; then \
 		echo "$(COLOR_RED)✗ nvm not found at $$NVM_DIR$(COLOR_RESET)"; \
 		echo "  Install nvm: https://github.com/nvm-sh/nvm"; \
@@ -1017,7 +1020,7 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
 	else \
 		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
-		COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack install -g pnpm@$(PNPM_VERSION); \
+		corepack install -g pnpm@$(PNPM_VERSION); \
 	fi; \
 	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
 	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"

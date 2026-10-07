@@ -12,7 +12,17 @@ export function StepReview() {
   const { fields, catalogues, goTo, createBlockers, submitError } = useAgentBuilderContext();
 
   const model = catalogues.models.find((m) => m.id === fields.modelId);
-  const environment = catalogues.environments.find((e) => e.id === fields.environmentId);
+  const environmentsSummary = useMemo(() => {
+    if (fields.environments.length === 0) return 'None. Runs on the kora base image.';
+    if (catalogues.status.environments === 'loading') return 'Loading environments.';
+    const name = (id: string) =>
+      catalogues.environments.find((e) => e.id === id)?.name ?? 'Deleted environment';
+    const def = fields.environments.find((e) => e.is_default);
+    const names = fields.environments.map((e) => name(e.environment_id)).join(', ');
+    return fields.environments.length > 1 && def
+      ? `${names} (default: ${name(def.environment_id)})`
+      : names;
+  }, [fields.environments, catalogues.environments, catalogues.status.environments]);
   const grantedServers = useMemo(() => {
     const prefixes = new Set(fields.mcpTools.map((s) => s.split(':')[1]));
     return prefixes.size;
@@ -76,10 +86,9 @@ export function StepReview() {
           rows={[
             { label: 'MCP servers', value: String(grantedServers) },
             { label: 'MCP tools granted', value: String(fields.mcpTools.length), mono: true },
-            { label: 'Platform scopes', value: String(fields.toolScopes.length), mono: true },
             { label: 'Connections', value: connectionsSummary },
             { label: 'Network egress', value: fields.connectivityMode },
-            { label: 'Environment', value: environment?.name ?? 'None' },
+            { label: 'Environments', value: environmentsSummary },
           ]}
         />
         <Wizard.ReviewCard
@@ -103,6 +112,20 @@ export function StepReview() {
               label: 'Capacity',
               value: fields.capacityOn ? `${fields.capacity} runs / pod` : 'Service default',
               mono: fields.capacityOn,
+            },
+            {
+              label: 'Repeated calls',
+              value: fields.repeatedCallOn
+                ? `Warn after ${fields.repeatedCallWarn}, pause after ${fields.repeatedCallPause}`
+                : 'Platform default',
+              mono: fields.repeatedCallOn,
+            },
+            {
+              label: 'Wait loops',
+              value: fields.waitRearmOn
+                ? `Warn after ${fields.waitRearmWarn}, pause after ${fields.waitRearmPause}`
+                : 'Platform default',
+              mono: fields.waitRearmOn,
             },
           ]}
         />

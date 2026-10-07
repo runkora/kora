@@ -1,6 +1,6 @@
 # Codex Agent Runner
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-09-29)  
 **Date:** 2026-06-04  
 **Deciders:** Platform Engineering  
 **Technical Story:** [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) implemented the Claude Code runner and explicitly deferred Codex. This ADR documents the subprocess model, wire protocol, transform layer design, and framework dispatch wiring for the Codex runner.
@@ -15,7 +15,7 @@ The `AgentFramework` enum in `agents/models.go` includes `codex`, but no runner 
 
 ## Decision
 
-**Codex runs as a persistent `codex app-server --listen stdio://` subprocess**, one process per session. The runner communicates with it over bidirectional JSONL on stdin/stdout, streams `item/agentMessage/delta` notifications for token-level text, and routes all outbound LLM calls through the Orbit inference gateway via a per-run `config.toml` written to a dedicated `CODEX_HOME` directory.
+**Codex runs as a persistent `codex app-server --listen stdio://` subprocess**, one process per session. The runner communicates with it over bidirectional JSONL on stdin/stdout, streams `item/agentMessage/delta` notifications for token-level text, and routes all outbound LLM calls through the kora inference gateway via a per-run `config.toml` written to a dedicated `CODEX_HOME` directory.
 
 ---
 
@@ -95,11 +95,11 @@ The returned `thread.id` is stored and used as `threadId` in all subsequent `tur
 
 The same auto-approve pattern applies to `item/fileChange/requestApproval`.
 
-#### Notification → Orbit Event Mapping
+#### Notification → kora Event Mapping
 
 All inbound server notifications (no `id` field):
 
-| Notification method | Orbit action |
+| Notification method | kora action |
 |---|---|
 | `turn/started` | No event (informational) |
 | `item/started` | Emit `tool_use` for tool items |
@@ -116,7 +116,7 @@ There is no `turn/failed` notification — all failures arrive as `"error"` noti
 
 ## LLM Routing
 
-Codex routes all LLM calls to `POST /v1/responses` (OpenAI Responses API). The Orbit inference gateway supports this endpoint via `DialectResponses` (see [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md)).
+Codex routes all LLM calls to `POST /v1/responses` (OpenAI Responses API). The kora inference gateway supports this endpoint via `DialectResponses` (see [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md)).
 
 ### Provider configuration via config.toml
 
@@ -284,7 +284,7 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 - `framework: "codex"` agent types now run Codex, not Claude Code — the silent fallthrough is eliminated.
 - Token-level text streaming via `item/agentMessage/delta` matches Claude Code's streaming UX.
-- No changes to `run_events` schema, SSE relay, or frontend — Orbit standard event format is framework-agnostic.
+- No changes to `run_events` schema, SSE relay, or frontend — kora standard event format is framework-agnostic.
 - No base image change required — Codex musl binary runs on existing `node:22-alpine`.
 - No inference gateway changes required — Codex's Responses API calls route via the custom provider `base_url` written in the per-run `config.toml`.
 
@@ -302,13 +302,31 @@ runner = NewCodexRunner(CodexRunnerConfig{
 
 ---
 
+## Amendment 1 (2026-09-29): Codex never asks for approval
+
+**Status:** Accepted
+
+Touches *What can it access?* Codex approvals were never a kora enforcement point: model, remote MCP and egress calls are still checked by kora's gateways, and the runtime MCP server's calls are bound to the run by its run token. Identity (*Who is this agent?*) and credential brokering (*How does it connect?*) are unchanged.
+
+**Context.** The runner answered only `item/commandExecution/requestApproval` and `item/fileChange/requestApproval`. Codex 0.142.1 also sends `mcpServer/elicitation/request` before an MCP tool call; the runner logged it and never replied, so the turn waited forever and a Codex run could not use MCP tools, including the runtime server's `provision_sandbox`.
+
+**Decision.**
+
+- The per-run `config.toml` sets `approval_policy = "never"` at the top level and `default_tools_approval_mode = "approve"` on every `[mcp_servers.*]` table. Codex then sends no approval or elicitation request for shell commands, file changes or MCP tool calls. A command that asks for escalated permissions is rejected back to the model instead.
+- The `[mcp_servers.runtime]` table sets `env_vars = ["ORBIT_RUN_TOKEN"]`. Codex starts stdio MCP servers with a filtered environment, so without it `orbit-runtime-mcp` has no run token and the session-manager rejects `provision_sandbox` with 403.
+- The `accept` handlers for the two approval requests are removed. Any server request the runner receives gets an immediate JSON-RPC error (`-32601`, method not supported) and a warning log, so an unexpected request after a Codex upgrade fails that call instead of hanging the run.
+
+**Consequences.** The "Approval requests" section above and the negative consequence about auto-approving in the read loop no longer describe the runner.
+
+---
+
 ## Related Decisions
 
 - [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) — Responses API support in the inference gateway; enables Codex LLM routing
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; Codex was explicitly deferred here
 - [opencode-agent-runner](2026-06-04-opencode-agent-runner.md) — OpenCode runner; shares the framework dispatch wiring changes documented above
-- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format consumed by this runner
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — kora standard event format consumed by this runner
 
 ---
 
-**Last Updated:** 2026-06-25 (rev 3 — updated for v2 protocol: `--listen stdio://`, `thread/start` before first turn, `turn/start` with `input` array + `threadId`, `turn/interrupt` RPC, camelCase tool item types, `decision: "accept"` approval response, version pinned at 0.142.1)
+**Last Updated:** 2026-09-29 (Amendment 1: Codex never asks for approval)

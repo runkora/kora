@@ -218,7 +218,7 @@ export interface StackProps {
    *
    * ```tsx
    * <Stack textAlign="center">
-   *   <Heading variant="display">Orbit</Heading>
+   *   <Heading variant="display">kora</Heading>
    *   <Text size="lead" color="muted">…</Text>
    * </Stack>
    * ```

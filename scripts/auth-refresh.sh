@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Orbit Token Refresh — rotate the platform session in the credentials file
+# kora Token Refresh — rotate the platform session in the credentials file
 # =============================================================================
 #
 # Usage: ./scripts/auth-refresh.sh [OPTIONS]

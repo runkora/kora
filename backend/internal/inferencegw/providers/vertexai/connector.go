@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -21,8 +20,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Config holds the Vertex AI connector configuration.
-// Populated exclusively from environment variables via LoadConfig — never from YAML.
+// Config holds one Vertex AI project and location.
 type Config struct {
 	ProjectID string
 	Location  string
@@ -31,62 +29,9 @@ type Config struct {
 	// while Gemini/Llama models remain in Location (e.g. us-central1).
 	// When empty, Location is used for all models.
 	AnthropicLocation string
-}
-
-// LoadConfig reads Vertex AI configuration from environment variables.
-// Returns nil when VERTEX_ENABLED is not "true", indicating the connector
-// should not be registered. Returns an error if enabled but misconfigured.
-//
-// Environment variables:
-//
-//	VERTEX_ENABLED              — set to "true" to enable
-//	VERTEX_PROJECT_ID           — GCP project ID (required when enabled)
-//	VERTEX_LOCATION             — GCP region for Gemini/Llama models, e.g. "us-central1" (required when enabled)
-//	VERTEX_ANTHROPIC_LOCATION   — GCP region for Claude models, e.g. "us-east5" (optional; defaults to VERTEX_LOCATION)
-//
-// Auth uses Application Default Credentials (ADC) exclusively.
-// On GKE use Workload Identity; locally set GOOGLE_APPLICATION_CREDENTIALS.
-func LoadConfig() (*Config, error) {
-	if os.Getenv("VERTEX_ENABLED") != "true" {
-		return nil, nil
-	}
-
-	projectID := os.Getenv("VERTEX_PROJECT_ID")
-	if projectID == "" {
-		return nil, fmt.Errorf("vertexai: VERTEX_PROJECT_ID is required when VERTEX_ENABLED=true")
-	}
-
-	location := os.Getenv("VERTEX_LOCATION")
-	if location == "" {
-		return nil, fmt.Errorf("vertexai: VERTEX_LOCATION is required when VERTEX_ENABLED=true")
-	}
-
-	anthropicLocation := os.Getenv("VERTEX_ANTHROPIC_LOCATION")
-	if anthropicLocation == "" {
-		anthropicLocation = location
-	}
-
-	return &Config{
-		ProjectID:         projectID,
-		Location:          location,
-		AnthropicLocation: anthropicLocation,
-	}, nil
-}
-
-// Factory implements inferencegw.ConnectorFactory for Google Cloud Vertex AI.
-type Factory struct{}
-
-// Name returns the provider identifier.
-func (Factory) Name() inferencegw.ProviderName { return inferencegw.ProviderVertexAI }
-
-// Build loads config from env vars and constructs the connector.
-// Returns (nil, nil) when VERTEX_ENABLED is not "true".
-func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, error) {
-	cfg, err := LoadConfig()
-	if err != nil || cfg == nil {
-		return nil, err
-	}
-	return New(cfg, logger)
+	// CredentialsJSON is a service account key. When empty, Application
+	// Default Credentials apply.
+	CredentialsJSON []byte
 }
 
 // Connector implements inferencegw.ProviderConnector for Google Cloud Vertex AI.
@@ -99,6 +44,7 @@ func (Factory) Build(logger logging.Logger) (inferencegw.ProviderConnector, erro
 // through the Anthropic client with full SDK-to-SDK conversion, preserving
 // all tool_calls, structured outputs, and other fields.
 type Connector struct {
+	name            inferencegw.ProviderName
 	openaiClient    *openai.Client
 	anthropicClient *anthropic.Client
 	// listHTTPClient is used exclusively by ListModels to query the Vertex AI
@@ -110,16 +56,17 @@ type Connector struct {
 }
 
 // New constructs a Vertex AI Connector from a validated Config.
-func New(cfg *Config, logger logging.Logger) (*Connector, error) {
+func New(cfg *Config, name inferencegw.ProviderName, logger logging.Logger) (*Connector, error) {
 	ctx := context.Background()
 
-	// Obtain an ADC token source scoped to the Vertex AI API.
-	// On GKE this queries the metadata server (Workload Identity);
-	// locally this reads ~/.config/gcloud/application_default_credentials.json.
-	tokenSource, err := google.DefaultTokenSource(ctx, "https://www.googleapis.com/auth/cloud-platform")
+	// A service account key when configured. Otherwise ADC: on GKE the
+	// metadata server (Workload Identity); locally
+	// ~/.config/gcloud/application_default_credentials.json.
+	creds, err := googleCredentials(ctx, cfg.CredentialsJSON)
 	if err != nil {
-		return nil, fmt.Errorf("vertexai: get ADC token source: %w", err)
+		return nil, err
 	}
+	tokenSource := creds.TokenSource
 
 	// OpenAI-compatible endpoint for Gemini and Llama models on Vertex AI.
 	openaiEndpoint := fmt.Sprintf(
@@ -152,7 +99,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	// AnthropicLocation may differ from Location — Claude 4 models are only available
 	// in certain regions (e.g. us-east5) while Gemini/Llama stay in Location.
 	anthropicClient := anthropic.NewClient(
-		anthropicvertex.WithGoogleAuth(context.Background(), cfg.AnthropicLocation, cfg.ProjectID),
+		anthropicvertex.WithCredentials(context.Background(), cfg.AnthropicLocation, cfg.ProjectID, creds),
 		anthropicopt.WithHTTPClient(httpclient.NewStreamingHTTPClient(
 			&oauth2.Transport{
 				Source: tokenSource,
@@ -171,6 +118,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 	)
 
 	return &Connector{
+		name:            name,
 		openaiClient:    &openaiClient,
 		anthropicClient: &anthropicClient,
 		listHTTPClient:  listHTTPClient,
@@ -180,7 +128,7 @@ func New(cfg *Config, logger logging.Logger) (*Connector, error) {
 }
 
 func (c *Connector) Name() inferencegw.ProviderName {
-	return inferencegw.ProviderVertexAI
+	return c.name
 }
 
 // isClaudeModel reports whether the model ID refers to a Claude model.
@@ -188,4 +136,23 @@ func (c *Connector) Name() inferencegw.ProviderName {
 // they are not available on the OpenAI-compatible endpoint.
 func isClaudeModel(modelID string) bool {
 	return strings.HasPrefix(modelID, "claude-")
+}
+
+const cloudPlatformScope = "https://www.googleapis.com/auth/cloud-platform"
+
+// googleCredentials parses a service account key, or finds Application
+// Default Credentials when none is given.
+func googleCredentials(ctx context.Context, keyJSON []byte) (*google.Credentials, error) {
+	if len(keyJSON) > 0 {
+		creds, err := google.CredentialsFromJSONWithType(ctx, keyJSON, google.ServiceAccount, cloudPlatformScope)
+		if err != nil {
+			return nil, fmt.Errorf("vertexai: parse service account key: %w", err)
+		}
+		return creds, nil
+	}
+	creds, err := google.FindDefaultCredentials(ctx, cloudPlatformScope)
+	if err != nil {
+		return nil, fmt.Errorf("vertexai: find default credentials: %w", err)
+	}
+	return creds, nil
 }

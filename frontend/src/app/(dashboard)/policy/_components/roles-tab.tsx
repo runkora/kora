@@ -25,6 +25,8 @@ import {
   Toggle,
   ToggleRow,
   PageSectionHeader,
+  EmptyState,
+  ConfirmDialog,
 } from '@orbit/terra';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
@@ -33,10 +35,8 @@ import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import { ScopeChip } from '@orbit/components';
-import { ScopeTreePicker } from '@orbit/components';
-import { EmptyState } from '@orbit/components';
-import { ConfirmDialog } from '@orbit/components';
+import { ScopeChipList, scopeColumnFilter } from '@orbit/components';
+import { ScopePicker } from '@orbit/components';
 import { ViewToggle } from '@orbit/components';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
@@ -122,7 +122,7 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       {/* Info box */}
       <Callout>
         <Text size="caption" color="muted">
-          Roles map OIDC role claims to platform scopes. When a human authenticates, Orbit resolves
+          Roles map OIDC role claims to platform scopes. When a human authenticates, kora resolves
           the union of scopes from all matching roles.
         </Text>
       </Callout>
@@ -262,16 +262,13 @@ function RoleCardGrid({
             </CardHeader>
 
             <CardContent grow>
-              <Stack direction="horizontal" gap="tight" wrap>
-                {scopes.map((scope) => (
-                  <ScopeChip key={scope} scope={scope} />
-                ))}
-                {scopes.length === 0 && (
-                  <Text size="caption" color="muted">
-                    No scopes assigned
-                  </Text>
-                )}
-              </Stack>
+              {scopes.length === 0 ? (
+                <Text size="caption" color="muted">
+                  No scopes assigned
+                </Text>
+              ) : (
+                <ScopeChipList scopes={scopes} max={8} />
+              )}
             </CardContent>
 
             <CardFooter compact justify="between">
@@ -342,6 +339,8 @@ function RoleTable({
       {
         id: 'role',
         header: 'Role',
+        gridWidth: '14rem',
+        minWidth: '12rem',
         locked: true,
         sortable: true,
         sortAccessor: (r) => r.role,
@@ -364,17 +363,17 @@ function RoleTable({
       {
         id: 'scopes',
         header: 'Scopes',
-        cell: (r) => (
-          <Stack direction="horizontal" gap="tight" wrap>
-            {(r.scopes ?? []).map((scope) => (
-              <ScopeChip key={scope} scope={scope} />
-            ))}
-          </Stack>
-        ),
+        gridWidth: 'minmax(0, 3fr)',
+        minWidth: '14rem',
+        wrap: true,
+        filter: scopeColumnFilter(roles, (r) => r.scopes ?? []),
+        cell: (r) => <ScopeChipList scopes={r.scopes ?? []} maxRows={2} />,
       },
       {
         id: 'budget',
         header: 'Budget',
+        gridWidth: '8rem',
+        minWidth: '6rem',
         cell: (r) =>
           r.budget ? (
             <Text size="caption" color="muted">
@@ -391,6 +390,8 @@ function RoleTable({
       {
         id: 'created',
         header: 'Created',
+        gridWidth: '6rem',
+        minWidth: '5.5rem',
         sortable: true,
         sortAccessor: (r) => r.created_at ?? '',
         cell: (r) => {
@@ -405,6 +406,7 @@ function RoleTable({
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '5rem',
         cell: (r) => {
@@ -443,7 +445,7 @@ function RoleTable({
         },
       },
     ],
-    [onEdit, onDelete],
+    [onEdit, onDelete, roles],
   );
 
   return (
@@ -540,7 +542,7 @@ function UpsertRoleModal({
                 ({selectedScopes.length} selected)
               </Text>
             </Stack>
-            <ScopeTreePicker
+            <ScopePicker
               scopes={availableScopes}
               selected={selectedScopes}
               onChange={setSelectedScopes}

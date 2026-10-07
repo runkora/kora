@@ -16,6 +16,7 @@ import {
   List,
   Progress,
   Stack,
+  StatCard,
   Table,
   TableBody,
   TableCell,
@@ -26,10 +27,10 @@ import {
   Text,
 } from '@orbit/terra';
 import { StatusBadge } from '@orbit/components';
-import { MetricCard } from '@orbit/components';
-import { EventFeedItem } from '@orbit/components';
+import { EventFeedItem } from './event-feed-item';
 import { APP_ROUTES } from '@orbit/lib/routing';
 
+import type { RunStateCounts } from '@orbit/shared/api';
 import type { AgentTypeRow, RunRow } from '../agents/_types';
 import { formatRelativeTime } from '../agents/_types';
 import type { ConnectionRow } from '../connections/_types';
@@ -131,7 +132,10 @@ export function SpendBudgetCard({ cap }: { cap: TenantCapStatus | null }) {
 
 export interface DashboardPageProps {
   agentTypes: AgentTypeRow[];
-  runs: RunRow[];
+  /** The newest runs, newest first. */
+  recentRuns: RunRow[];
+  /** Every run counted by current state; null when the counts could not be read. */
+  runCounts: RunStateCounts | null;
   connections: ConnectionRow[];
   environments: EnvironmentRow[];
   analytics: AnalyticsResponse | null;
@@ -143,241 +147,212 @@ export interface DashboardPageProps {
 
 export function DashboardPage({
   agentTypes,
-  runs,
+  recentRuns,
+  runCounts,
   connections,
   environments,
   analytics,
   tenantCap,
   windowDays = 7,
 }: DashboardPageProps) {
-  const activeRunCount = runs.filter((r) =>
-    ['active', 'starting', 'pending', 'completing'].includes(r.state),
-  ).length;
-
-  const recentRuns = runs.slice(0, 8);
   const displayedAgents = agentTypes.slice(0, 6);
 
   return (
-    <Stack gap="relaxed" asChild>
-      <main className="px-6 py-6 max-w-screen-xl mx-auto">
-        <Stack gap="tight">
-          <Heading variant="title">Dashboard</Heading>
-          <Text color="muted">Real-time overview of the Orbit control plane.</Text>
+    <Stack gap="relaxed">
+      <Stack gap="tight">
+        <Heading variant="title">Dashboard</Heading>
+        <Text color="muted">Real-time overview of the kora control plane.</Text>
+      </Stack>
+
+      {/* ── Inventory stat cards ── */}
+      <Grid cols={{ base: 2, lg: 4 }} gap="comfortable">
+        <StatCard
+          icon={<Icon name="bot" size="xs" aria-hidden />}
+          label="Agent Types"
+          value={String(agentTypes.length)}
+          delta={{ text: 'registered', positive: true }}
+          footer={<Link href={APP_ROUTES.agents.list}>View all →</Link>}
+        />
+        <StatCard
+          icon={<Icon name="activity" size="xs" aria-hidden />}
+          label="Active Runs"
+          value={runCounts ? String(runCounts.live) : '–'}
+          delta={{
+            text: runCounts ? `${runCounts.total} total` : 'unavailable',
+            positive: (runCounts?.live ?? 0) > 0,
+          }}
+          footer={<Link href={APP_ROUTES.agents.list}>View all →</Link>}
+        />
+        <StatCard
+          icon={<Icon name="network" size="xs" aria-hidden />}
+          label="Connections"
+          value={String(connections.length)}
+          delta={{ text: 'configured', positive: true }}
+          footer={<Link href={APP_ROUTES.connections}>View all →</Link>}
+        />
+        <StatCard
+          icon={<Icon name="layers" size="xs" aria-hidden />}
+          label="Environments"
+          value={String(environments.length)}
+          delta={{ text: 'configured', positive: true }}
+          footer={<Link href={APP_ROUTES.environments}>View all →</Link>}
+        />
+      </Grid>
+
+      {/* ── Agent types table ── */}
+      <Card>
+        <CardHeader>
+          <Stack direction="horizontal" align="center" justify="between">
+            <Stack gap="tight">
+              <CardTitle>Agent Types</CardTitle>
+              <Text size="supporting" color="muted">
+                All agent types registered with the control plane.
+              </Text>
+            </Stack>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={APP_ROUTES.agents.list}>
+                View all
+                <Icon name="chevron-right" size="2xs" />
+              </Link>
+            </Button>
+          </Stack>
+        </CardHeader>
+        <CardContent flush>
+          {agentTypes.length === 0 ? (
+            <Stack align="center" justify="center" paddingBlock="spacious">
+              <Icon name="bot" size="lg" color="subtle" aria-hidden />
+              <Text color="subtle">No agent types registered yet.</Text>
+            </Stack>
+          ) : (
+            <TableRoot>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Name</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Model</TableHead>
+                    <TableHead>Created</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {displayedAgents.map((agent) => (
+                    <TableRow key={agent.id}>
+                      <TableCell>
+                        <Stack gap="none">
+                          <Text size="supporting" weight="emphasis" mono>
+                            {agent.name}
+                          </Text>
+                          <Text size="caption" color="subtle" mono>
+                            {agent.slug}
+                          </Text>
+                        </Stack>
+                      </TableCell>
+                      <TableCell>
+                        <StatusBadge
+                          status={agentStatusMap[agent.state] ?? 'unknown'}
+                          label={agentLabelMap[agent.state]}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Text size="supporting" color="muted" mono>
+                          {agent.modelId}
+                        </Text>
+                      </TableCell>
+                      <TableCell>
+                        <Text size="supporting" color="muted">
+                          {formatRelativeTime(agent.createdAt)}
+                        </Text>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </TableRoot>
+          )}
+        </CardContent>
+        {agentTypes.length > 0 && (
+          <CardFooter justify="between" compact>
+            <Text size="caption" color="subtle">
+              Showing {displayedAgents.length} of {agentTypes.length} agent types
+            </Text>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={APP_ROUTES.agents.list}>
+                View all
+                <Icon name="chevron-right" size="2xs" />
+              </Link>
+            </Button>
+          </CardFooter>
+        )}
+      </Card>
+
+      {/* ── Inference (model gateway) ── */}
+      {analytics && (
+        <Stack gap="comfortable">
+          <Stack direction="horizontal" align="center" justify="between">
+            <Stack gap="tight">
+              <Heading variant="section">Inference</Heading>
+              <Text size="supporting" color="muted">
+                Model gateway activity over the last {windowDays} days.
+              </Text>
+            </Stack>
+            <Button variant="outline" size="sm" asChild>
+              <Link href={APP_ROUTES.modelGateway.analytics}>
+                Analytics
+                <Icon name="chevron-right" size="2xs" />
+              </Link>
+            </Button>
+          </Stack>
+          <AnalyticsKPICards kpis={analytics.kpis} />
+          <AnalyticsRequestsChart buckets={analytics.buckets} />
         </Stack>
+      )}
 
-        {/* ── Inventory stat cards ── */}
-        <Grid cols={{ base: 2, lg: 4 }} gap="comfortable">
-          <MetricCard
-            icon={
-              <Icon name="bot" size="sm" container containerVariant="surface-subtle" aria-hidden />
-            }
-            label="Agent Types"
-            value={String(agentTypes.length)}
-            delta={{ text: 'registered', positive: true }}
-            href={APP_ROUTES.agents.list}
-          />
-          <MetricCard
-            icon={
-              <Icon
-                name="activity"
-                size="sm"
-                container
-                containerVariant="surface-subtle"
-                aria-hidden
-              />
-            }
-            label="Active Runs"
-            value={String(activeRunCount)}
-            delta={{ text: `${runs.length} total`, positive: activeRunCount > 0 }}
-            href={APP_ROUTES.agents.list}
-          />
-          <MetricCard
-            icon={
-              <Icon
-                name="network"
-                size="sm"
-                container
-                containerVariant="surface-subtle"
-                aria-hidden
-              />
-            }
-            label="Connections"
-            value={String(connections.length)}
-            delta={{ text: 'configured', positive: true }}
-            href={APP_ROUTES.connections}
-          />
-          <MetricCard
-            icon={
-              <Icon
-                name="layers"
-                size="sm"
-                container
-                containerVariant="surface-subtle"
-                aria-hidden
-              />
-            }
-            label="Environments"
-            value={String(environments.length)}
-            delta={{ text: 'configured', positive: true }}
-            href={APP_ROUTES.environments}
-          />
-        </Grid>
-
-        {/* ── Agent types table ── */}
-        <Card>
+      {/* ── Activity & spend ── */}
+      <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
+        {/* Recent Runs */}
+        <Card column>
           <CardHeader>
-            <Stack direction="horizontal" align="center" justify="between">
-              <Stack gap="tight">
-                <CardTitle>Agent Types</CardTitle>
-                <Text size="supporting" color="muted">
-                  All agent types registered with the control plane.
-                </Text>
-              </Stack>
-              <Button variant="outline" size="sm" asChild>
-                <Link href={APP_ROUTES.agents.list}>
-                  View all
-                  <Icon name="chevron-right" size="2xs" />
-                </Link>
-              </Button>
+            <Stack gap="tight">
+              <CardTitle>Recent Runs</CardTitle>
+              <Text size="supporting" color="muted">
+                Latest agent run activity.
+              </Text>
             </Stack>
           </CardHeader>
-          <CardContent flush>
-            {agentTypes.length === 0 ? (
+          <CardContent flush grow>
+            {recentRuns.length === 0 ? (
               <Stack align="center" justify="center" paddingBlock="spacious">
-                <Icon name="bot" size="lg" color="subtle" aria-hidden />
-                <Text color="subtle">No agent types registered yet.</Text>
+                <Icon name="activity" size="lg" color="subtle" aria-hidden />
+                <Text color="subtle">No runs yet.</Text>
               </Stack>
             ) : (
-              <TableRoot>
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Name</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Model</TableHead>
-                      <TableHead>Created</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {displayedAgents.map((agent) => (
-                      <TableRow key={agent.id}>
-                        <TableCell>
-                          <Stack gap="none">
-                            <Text size="supporting" weight="emphasis" mono>
-                              {agent.name}
-                            </Text>
-                            <Text size="caption" color="subtle" mono>
-                              {agent.slug}
-                            </Text>
-                          </Stack>
-                        </TableCell>
-                        <TableCell>
-                          <StatusBadge
-                            status={agentStatusMap[agent.state] ?? 'unknown'}
-                            label={agentLabelMap[agent.state]}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Text size="supporting" color="muted" mono>
-                            {agent.modelId}
-                          </Text>
-                        </TableCell>
-                        <TableCell>
-                          <Text size="supporting" color="muted">
-                            {formatRelativeTime(agent.createdAt)}
-                          </Text>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableRoot>
+              <List separator>
+                {recentRuns.map((run) => (
+                  <EventFeedItem
+                    key={run.id}
+                    status={runStatusMap[run.state] ?? 'idle'}
+                    label={run.agentTypeName}
+                    meta={run.state}
+                    message={`Run ${run.id}`}
+                    timestamp={run.createdAt ? formatRelativeTime(run.createdAt) : '—'}
+                  />
+                ))}
+              </List>
             )}
           </CardContent>
-          {agentTypes.length > 0 && (
-            <CardFooter justify="between" compact>
-              <Text size="caption" color="subtle">
-                Showing {displayedAgents.length} of {agentTypes.length} agent types
-              </Text>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={APP_ROUTES.agents.list}>
-                  View all
-                  <Icon name="chevron-right" size="2xs" />
-                </Link>
-              </Button>
-            </CardFooter>
-          )}
+          <CardFooter justify="center" compact>
+            <Button variant="ghost" size="sm" asChild>
+              <Link href={APP_ROUTES.agents.list}>
+                View agents
+                <Icon name="chevron-right" size="2xs" />
+              </Link>
+            </Button>
+          </CardFooter>
         </Card>
 
-        {/* ── Inference (model gateway) ── */}
-        {analytics && (
-          <Stack gap="comfortable">
-            <Stack direction="horizontal" align="center" justify="between">
-              <Stack gap="tight">
-                <Heading variant="section">Inference</Heading>
-                <Text size="supporting" color="muted">
-                  Model gateway activity over the last {windowDays} days.
-                </Text>
-              </Stack>
-              <Button variant="outline" size="sm" asChild>
-                <Link href={APP_ROUTES.modelGateway.analytics}>
-                  Analytics
-                  <Icon name="chevron-right" size="2xs" />
-                </Link>
-              </Button>
-            </Stack>
-            <AnalyticsKPICards kpis={analytics.kpis} />
-            <AnalyticsRequestsChart buckets={analytics.buckets} />
-          </Stack>
-        )}
-
-        {/* ── Activity & spend ── */}
-        <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
-          {/* Recent Runs */}
-          <Card column>
-            <CardHeader>
-              <Stack gap="tight">
-                <CardTitle>Recent Runs</CardTitle>
-                <Text size="supporting" color="muted">
-                  Latest agent run activity.
-                </Text>
-              </Stack>
-            </CardHeader>
-            <CardContent flush grow>
-              {recentRuns.length === 0 ? (
-                <Stack align="center" justify="center" paddingBlock="spacious">
-                  <Icon name="activity" size="lg" color="subtle" aria-hidden />
-                  <Text color="subtle">No runs yet.</Text>
-                </Stack>
-              ) : (
-                <List separator>
-                  {recentRuns.map((run) => (
-                    <EventFeedItem
-                      key={run.id}
-                      status={runStatusMap[run.state] ?? 'idle'}
-                      label={run.agentTypeName}
-                      meta={run.state}
-                      message={`Run ${run.id}`}
-                      timestamp={run.createdAt ? formatRelativeTime(run.createdAt) : '—'}
-                    />
-                  ))}
-                </List>
-              )}
-            </CardContent>
-            <CardFooter justify="center" compact>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={APP_ROUTES.agents.list}>
-                  View agents
-                  <Icon name="chevron-right" size="2xs" />
-                </Link>
-              </Button>
-            </CardFooter>
-          </Card>
-
-          {/* Spend vs budget */}
-          <SpendBudgetCard cap={tenantCap} />
-        </Grid>
-      </main>
+        {/* Spend vs budget */}
+        <SpendBudgetCard cap={tenantCap} />
+      </Grid>
     </Stack>
   );
 }

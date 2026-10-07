@@ -724,6 +724,7 @@ const spanStatusBudgetExceeded = "budget exceeded"
 // slated for removal in a follow-up migration.
 func (s *Service) writeUsage(ctx context.Context, rec InferenceUsageRecord) error {
 	rec.RunID = runIDFromContext(ctx)
+	rec.AgentSlug = agentSlugFromPrincipal(rec.PrincipalType, rec.PrincipalID)
 	// Stamp the delegator from the VERIFIED delegation context — set by the
 	// DelegationMiddleware after signature/blocklist checks, never from
 	// anything the caller asserts. Spend then rolls up to the person as well
@@ -1050,34 +1051,6 @@ func (s *Service) GetRunUsage(ctx context.Context, tenantID, runID string) (RunU
 		return RunUsage{}, fmt.Errorf("get run usage: %w", err)
 	}
 	return RunUsage{RunID: runID, SpendUSD: spend, TotalTokens: tokens}, nil
-}
-
-// GetAgentTypeUsage returns the token breakdown and spend recorded against an
-// agent type's principal over the last 7 days. Returns a zero-value result
-// (not an error) when no usage repository is configured.
-func (s *Service) GetAgentTypeUsage(ctx context.Context, tenantID, agentTypeID string) (AgentTypeUsage, error) {
-	if s.usage == nil {
-		return AgentTypeUsage{AgentTypeID: agentTypeID}, nil
-	}
-	u, err := s.usage.GetAgentTypeUsage(ctx, tenantID, agentTypeID)
-	if err != nil {
-		return AgentTypeUsage{}, fmt.Errorf("get agent type usage: %w", err)
-	}
-	return u, nil
-}
-
-// ListAgentTypeUsage returns the 7-day token breakdown and spend per agent type
-// for the tenant. Returns an empty slice (not an error) when no usage
-// repository is configured.
-func (s *Service) ListAgentTypeUsage(ctx context.Context, tenantID string) ([]AgentTypeUsage, error) {
-	if s.usage == nil {
-		return []AgentTypeUsage{}, nil
-	}
-	usages, err := s.usage.ListAgentTypeUsage(ctx, tenantID)
-	if err != nil {
-		return nil, fmt.Errorf("list agent type usage: %w", err)
-	}
-	return usages, nil
 }
 
 // ListBudgetPrincipals returns per-principal budget status for the tenant:

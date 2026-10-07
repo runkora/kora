@@ -6,7 +6,7 @@ import { cn } from '../../utils';
  * StatusDot variants.
  *
  * Each variant maps to a `--color-status-*` design token so the dot colour is
- * always semantically meaningful in the context of Orbit's agent-state model.
+ * always semantically meaningful in the context of kora's agent-state model.
  *
  * An optional `glow` prop renders a soft halo using `color-mix` to reinforce
  * "live / active" versus "inactive / error" at a glance.
@@ -83,7 +83,7 @@ export interface StatusDotProps extends VariantProps<typeof statusDotVariants> {
  * StatusDot
  *
  * A tiny filled circle that signals an entity's operational state. Maps
- * directly to Orbit's agent-state token set (healthy / degraded / error /
+ * directly to kora's agent-state token set (healthy / degraded / error /
  * idle / pending) plus a neutral `muted` value for disabled entities.
  *
  * ```tsx

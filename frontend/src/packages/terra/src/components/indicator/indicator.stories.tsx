@@ -1,108 +1,77 @@
-/**
- * Indicator
- *
- * Wraps a child and overlays a small status dot in its top-right corner.
- * The canonical use-case is a notification badge on an icon button — the
- * dot signals unread items without needing a counter.
- *
- * `Indicator` must wrap a single child that accepts `ref` forwarding; a
- * `<Button>` or any `<HTMLElement>` works. The dot is `aria-hidden` because
- * the parent button's `aria-label` should carry the full notification intent.
- *
- * ```tsx
- * <Indicator status="error">
- *   <Button variant="ghost" size="icon" aria-label="Notifications (3 unread)">
- *     <Icon name="bell" />
- *   </Button>
- * </Indicator>
- * ```
- */
-
 import type { Meta, StoryObj } from '@storybook/react';
 import { Button } from '../button/button';
 import { Icon } from '../icon/icon';
 import { Stack } from '../layout/stack';
 import { Text } from '../typography/typography';
+import { Option, OptionTable } from '../../docs/story-ui';
 import { Indicator } from './indicator';
 
-// ─── Meta ─────────────────────────────────────────────────────────────────────
-
+/**
+ * Indicator
+ *
+ * Puts a small status dot on the top right corner of another element. Use it to show that
+ * something needs attention, such as unread notifications.
+ */
 const meta: Meta<typeof Indicator> = {
-  title: 'Terra/Atoms/Indicator',
+  title: 'Terra/Molecules/Indicator',
   component: Indicator,
-  parameters: {
-    layout: 'centered',
-    backgrounds: {
-      default: 'orbit',
-      values: [{ name: 'orbit', value: '#060709' }],
-    },
-  },
   tags: ['autodocs'],
-  argTypes: {
-    status: {
-      control: 'select',
-      options: ['healthy', 'degraded', 'error', 'idle', 'pending'],
-    },
-  },
+  parameters: { layout: 'padded' },
 };
 
 export default meta;
 type Story = StoryObj<typeof Indicator>;
 
-// ─── Stories ──────────────────────────────────────────────────────────────────
-
-/** Interactive default — switch the status via the Controls panel. */
-export const Default: Story = {
-  args: { status: 'error' },
-  render: (args) => (
-    <Indicator {...args}>
-      <Button variant="ghost" size="icon" aria-label="Notifications">
-        <Icon name="bell" />
-      </Button>
-    </Indicator>
-  ),
-};
-
-/**
- * All five status variants. Each maps to a `--color-status-*` token so the
- * dot colour carries operational meaning matching the rest of the system.
- */
-export const StatusVariants: Story = {
+export const Overview: Story = {
   render: () => (
-    <Stack direction="horizontal" gap="comfortable" align="center">
-      {(
-        [
-          { status: 'error', icon: 'bell', label: 'Notifications (error)' },
-          { status: 'pending', icon: 'clock', label: 'Scheduled (pending)' },
-          { status: 'degraded', icon: 'alert-circle', label: 'Alerts (degraded)' },
-          { status: 'healthy', icon: 'activity', label: 'Status (healthy)' },
-          { status: 'idle', icon: 'settings', label: 'Config (idle)' },
-        ] as const
-      ).map(({ status, icon, label }) => (
-        <Stack key={status} gap="tight" align="center">
-          <Indicator status={status}>
-            <Button variant="ghost" size="icon" aria-label={label}>
-              <Icon name={icon} />
-            </Button>
-          </Indicator>
-          <Text size="micro" color="muted">
-            {status}
-          </Text>
-        </Stack>
-      ))}
+    <Stack direction="horizontal" gap="relaxed" align="center">
+      <Stack gap="tight" align="center">
+        <Indicator status="error">
+          <Button variant="ghost" size="icon" aria-label="Notifications, 3 unread">
+            <Icon name="bell" />
+          </Button>
+        </Indicator>
+        <Text size="caption" color="muted">
+          With unread
+        </Text>
+      </Stack>
+      <Stack gap="tight" align="center">
+        <Button variant="ghost" size="icon" aria-label="Notifications, none unread">
+          <Icon name="bell" />
+        </Button>
+        <Text size="caption" color="muted">
+          None unread
+        </Text>
+      </Stack>
     </Stack>
   ),
 };
 
-/**
- * Indicator wraps any single child, not just Buttons. Here it overlays a dot
- * on a plain icon — useful for feature icons in a sidebar or card header.
- */
-export const OnIcon: Story = {
-  name: 'On a feature icon',
+const STATUSES = [
+  ['error', 'Something failed and needs action. The default.'],
+  ['degraded', 'Something is working but not well.'],
+  ['pending', 'Something is waiting or in progress.'],
+  ['healthy', 'Everything is fine.'],
+  ['idle', 'Nothing is happening.'],
+] as const;
+
+export const Options: Story = {
   render: () => (
-    <Indicator status="error">
-      <Icon name="shield" size="lg" container containerVariant="surface" />
-    </Indicator>
+    <div className="max-w-5xl">
+      <OptionTable
+        title="Options"
+        note="Give the wrapped element an aria-label that says what the dot means. The dot itself is hidden from screen readers."
+      >
+        {STATUSES.map(([status, use]) => (
+          <Option key={status} name={`status="${status}"`} use={use}>
+            <Indicator status={status}>
+              <Button variant="ghost" size="icon" aria-label={`Alerts, status ${status}`}>
+                <Icon name="bell" />
+              </Button>
+            </Indicator>
+          </Option>
+        ))}
+      </OptionTable>
+    </div>
   ),
 };

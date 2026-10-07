@@ -65,7 +65,7 @@ This ADR covers five distinct but related decisions. Each is addressed in its ow
 A community-maintained JSON file in the LiteLLM GitHub repository. Covers Bedrock, Vertex AI, Azure OpenAI, Anthropic, and OpenAI. Updated approximately daily, sometimes multiple times per day. Fetched as a raw GitHub file — no authentication, no rate limits.
 
 **Pros:**
-- Broad provider coverage matching Orbit's supported providers.
+- Broad provider coverage matching kora's supported providers.
 - Community-maintained with active contributions; price changes and new model additions tracked promptly.
 - No API key, no rate limits, no cost.
 - Single file fetch — trivially simple sync implementation.
@@ -103,7 +103,7 @@ A third-party API that maintains model pricing data.
 
 **Chosen Option: Option A**
 
-LiteLLM's file has the broadest coverage of Orbit's supported providers, is updated at the cadence Orbit needs (daily), and introduces no infrastructure dependency or cost. The sync worker must be implemented against a `PricingSource` interface so the source can be swapped if LiteLLM becomes unavailable or a better source emerges.
+LiteLLM's file has the broadest coverage of kora's supported providers, is updated at the cadence kora needs (daily), and introduces no infrastructure dependency or cost. The sync worker must be implemented against a `PricingSource` interface so the source can be swapped if LiteLLM becomes unavailable or a better source emerges.
 
 **`PricingSource` interface contract:**
 

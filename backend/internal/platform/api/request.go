@@ -4,7 +4,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync/atomic"
 )
@@ -36,23 +35,6 @@ func ConfigureTrustedHosts(hosts []string) {
 		m[h] = true
 	}
 	trustedHostCfg.Store(&trustedHostConfig{hosts: m, canonical: hosts[0]})
-}
-
-// ConfigureTrustedHostsFromEnv configures the allowlist from ORBIT_PUBLIC_HOSTS
-// (comma-separated hostnames, canonical first). No-op when unset. Call once at
-// service startup, before serving.
-func ConfigureTrustedHostsFromEnv() {
-	raw := os.Getenv("ORBIT_PUBLIC_HOSTS")
-	if raw == "" {
-		return
-	}
-	var hosts []string
-	for h := range strings.SplitSeq(raw, ",") {
-		if h = strings.TrimSpace(h); h != "" {
-			hosts = append(hosts, h)
-		}
-	}
-	ConfigureTrustedHosts(hosts)
 }
 
 // enforceTrustedHost returns host unchanged if its hostname is in the configured

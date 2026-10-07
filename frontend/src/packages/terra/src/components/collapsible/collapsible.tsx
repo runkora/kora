@@ -2,14 +2,17 @@
 
 import * as React from 'react';
 import * as CollapsiblePrimitive from '@radix-ui/react-collapsible';
+import { cn } from '../../utils';
 
 /**
  * Collapsible
  *
  * An expandable/collapsible region built on the Radix UI Collapsible
  * primitive for correct `aria-expanded` / `aria-controls` wiring and
- * keyboard support. Terra adds only `data-slot` hooks — visual treatment
- * belongs to the composition (e.g. a tool tree row that expands per server).
+ * keyboard support. Terra adds `data-slot` hooks plus a default height
+ * animation on `CollapsibleContent` — everything else about visual
+ * treatment (padding, dividers, row styling) belongs to the composition
+ * (e.g. a tool tree row that expands per server).
  *
  * Pass `defaultOpen` for uncontrolled usage or `open` + `onOpenChange`
  * for controlled usage.
@@ -49,12 +52,28 @@ CollapsibleTrigger.displayName = 'CollapsibleTrigger';
  * The region shown while the collapsible is open. Radix unmounts nothing —
  * it hides the element — so `data-state="open" | "closed"` is available for
  * styling in compositions.
+ *
+ * Animates open/closed height by default, driven by Radix's
+ * `--radix-collapsible-content-height` custom property (set automatically
+ * on this element) via the `collapsible-down`/`collapsible-up` keyframes in
+ * `tokens.css`.
  */
 const CollapsibleContent = React.forwardRef<
   React.ComponentRef<typeof CollapsiblePrimitive.Content>,
   React.ComponentPropsWithoutRef<typeof CollapsiblePrimitive.Content>
->((props, ref) => (
-  <CollapsiblePrimitive.Content ref={ref} data-slot="collapsible-content" {...props} />
+>(({ className, ...props }, ref) => (
+  <CollapsiblePrimitive.Content
+    ref={ref}
+    data-slot="collapsible-content"
+    className={cn(
+      'overflow-hidden',
+      'data-[state=open]:animate-[collapsible-down_200ms_var(--ease-standard)]',
+      'data-[state=closed]:animate-[collapsible-up_200ms_var(--ease-standard)]',
+      'motion-reduce:data-[state=open]:animate-none motion-reduce:data-[state=closed]:animate-none',
+      className,
+    )}
+    {...props}
+  />
 ));
 CollapsibleContent.displayName = 'CollapsibleContent';
 

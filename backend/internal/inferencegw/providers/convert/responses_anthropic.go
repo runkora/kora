@@ -115,7 +115,9 @@ func newMessageItem(id, status string, content []responses.ResponseOutputMessage
 	// zero-value fields. Codex CLI deserializes ResponseItem::Message with
 	// phase as Option<MessagePhase> (an enum) — an empty string fails to parse
 	// as either None or a valid variant and silently drops the entire item.
-	// Strip "phase" when empty and "content" when null so the wire JSON is clean.
+	// Strip "phase" when empty. A null "content" becomes [], the shape OpenAI
+	// streams on response.output_item.added; Codex drops an item without it and
+	// then rejects the text deltas that follow.
 	var m map[string]json.RawMessage
 	err = json.Unmarshal(b, &m)
 	if err != nil {
@@ -124,8 +126,8 @@ func newMessageItem(id, status string, content []responses.ResponseOutputMessage
 	if v, ok := m["phase"]; ok && (string(v) == `""` || string(v) == "null") {
 		delete(m, "phase")
 	}
-	if v, ok := m["content"]; ok && string(v) == "null" {
-		delete(m, "content")
+	if v, ok := m["content"]; !ok || string(v) == "null" {
+		m["content"] = json.RawMessage("[]")
 	}
 	cleaned, err := json.Marshal(m)
 	if err != nil {
@@ -324,7 +326,7 @@ func convertResponsesItems(items []responses.ResponseInputItemUnionParam) ([]ant
 		case item.OfFunctionCallOutput != nil:
 			flushPendingTool()
 			fco := item.OfFunctionCallOutput
-			// Output is a string|[]content union in v3. Orbit only produces string
+			// Output is a string|[]content union in v3. kora only produces string
 			// outputs; reject the content-array variant explicitly to avoid silently
 			// forwarding an empty string to the model.
 			// TODO: handle array variant (images/files) if a future client sends content-array outputs.

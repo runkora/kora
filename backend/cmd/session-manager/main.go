@@ -96,6 +96,7 @@ func initServer(ctx context.Context, logger logging.Logger) *http.Server {
 		InferenceGatewayURL: cfg.InferenceGateway.URL,
 		ToolGatewayURL:      cfg.ToolGateway.URL,
 		OTLPEndpoint:        observability.DefaultConfig.OTLPEndpoint,
+		NodeMaxOldSpaceMB:   cfg.Runner.NodeMaxOldSpaceMB,
 	}, registry, verifier)
 
 	return apiServer.Server(
