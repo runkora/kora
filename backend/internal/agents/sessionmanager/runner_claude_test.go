@@ -229,14 +229,15 @@ func TestDispatch_Result_EmitsMessageCompleteAndStop(t *testing.T) {
 	}
 }
 
-func TestDispatch_Result_EmptySuccessEmitsRunError(t *testing.T) {
+func TestDispatch_Result_EmptySuccessWithResultEmitsRunError(t *testing.T) {
 	r := newTestRunner()
-	// textBuf is empty — simulates Claude returning no text after inference errors.
+	// textBuf is empty and the result holds the API error Claude Code gave up on.
 
 	r.dispatch(context.Background(), claudeOutputWrapper{
 		Type:       "result",
 		Subtype:    "success",
 		StopReason: "stop_sequence",
+		Result:     "API Error: 502 bad gateway",
 	})
 
 	evs := drainN(t, r.events, 1)
@@ -249,6 +250,19 @@ func TestDispatch_Result_EmptySuccessEmitsRunError(t *testing.T) {
 	}
 	if payload.Code != "empty_response" {
 		t.Errorf("code = %q, want empty_response", payload.Code)
+	}
+}
+
+// An empty success with no result ends the turn normally, whatever the stop
+// reason. The session's empty-turn guard decides what follows.
+func TestDispatch_Result_EmptySuccessWithoutResultEndsTurn(t *testing.T) {
+	for _, stop := range []string{"end_turn", "stop_sequence"} {
+		r := newTestRunner()
+		r.dispatch(context.Background(), claudeOutputWrapper{Type: "result", Subtype: "success", StopReason: stop})
+		evs := drainN(t, r.events, 2)
+		if evs[0].Type != EventTypeMessageComplete || evs[1].Type != EventTypeMessageStop {
+			t.Errorf("stop_reason %q: events = %v, want message_complete then message_stop", stop, eventTypes(evs))
+		}
 	}
 }
 
@@ -712,5 +726,18 @@ func TestClaudeBuildRunEnv_Offline(t *testing.T) {
 	}
 	if got["CLAUDE_CODE_ENABLE_TELEMETRY"] != "1" || got["HOME"] != "/run/home" {
 		t.Errorf("telemetry, HOME = %q, %q", got["CLAUDE_CODE_ENABLE_TELEMETRY"], got["HOME"])
+	}
+}
+
+// An interrupted empty turn emits nothing. The stop is recorded when the
+// process exits, and the empty-turn guard does not see a turn end.
+func TestDispatch_Result_InterruptedEmptyEndTurnEmitsNothing(t *testing.T) {
+	r := newTestRunner()
+	r.interrupted.Store(true)
+	r.dispatch(context.Background(), claudeOutputWrapper{Type: "result", Subtype: "success", StopReason: "end_turn"})
+	select {
+	case ev := <-r.events:
+		t.Errorf("unexpected event %q", ev.Type)
+	default:
 	}
 }

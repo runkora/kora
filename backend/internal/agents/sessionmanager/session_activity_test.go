@@ -151,6 +151,7 @@ func TestDrain_IdleToActive(t *testing.T) {
 			reg, r, n := startScripted(t, time.Minute)
 			t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
 
+			pushEvent(t, r, EventTypeTextDelta)
 			pushEvent(t, r, EventTypeMessageStop)
 			waitFor(t, "idle", func() bool { c, _ := n.snapshot(); return len(c) == 1 })
 			if tt.viaMessage {
@@ -160,7 +161,7 @@ func TestDrain_IdleToActive(t *testing.T) {
 				waitFor(t, "activation on send", func() bool { c, _ := n.snapshot(); return len(c) == 2 })
 			}
 			pushEvent(t, r, tt.next)
-			waitFor(t, "event pushed", func() bool { _, evs := n.snapshot(); return len(evs) == 2 })
+			waitFor(t, "event pushed", func() bool { _, evs := n.snapshot(); return len(evs) == 3 })
 
 			if calls, _ := n.snapshot(); !slices.Equal(calls, tt.wantCalls) {
 				t.Errorf("state calls = %v, want %v", calls, tt.wantCalls)
@@ -175,6 +176,7 @@ func TestSend_StopsIdleTimerBeforeTheTurnsFirstEvent(t *testing.T) {
 	reg, r, n := startScripted(t, 50*time.Millisecond)
 	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
 
+	pushEvent(t, r, EventTypeTextDelta)
 	pushEvent(t, r, EventTypeMessageStop)
 	waitFor(t, "idle", func() bool { c, _ := n.snapshot(); return len(c) == 1 })
 	if err := reg.Send(context.Background(), "run-1", "next"); err != nil {

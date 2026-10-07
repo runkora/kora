@@ -586,26 +586,22 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 		logging.Field{Key: "text_len", Value: textLen},
 		logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
 	)
-	// An empty turn with a non-standard stop reason signals a silent failure
-	// (e.g. inference gateway returning 5xx after exhausted retries).
-	// textBlockEmitted=true means text was already flushed before tool calls,
-	// so the turn has content even if textBuf is now empty.
-	if !r.turnHadText() && w.StopReason != "end_turn" {
+	// Claude Code reports an API error it gave up on as an empty success with the
+	// error in the result. An empty turn without one goes to the session's empty-turn guard.
+	if !r.turnHadText() {
 		if r.interrupted.Load() {
 			return // SIGINT caused the empty turn — runner will restart via --resume
 		}
-		msg := w.Result
-		if msg == "" {
-			msg = fmt.Sprintf("Agent produced an empty response (stop_reason=%q) — the inference gateway may have returned an error", w.StopReason)
+		if w.StopReason != "end_turn" && w.Result != "" {
+			r.cfg.Logger.Error(ctx, "agent empty turn — possible inference error",
+				logging.Field{Key: "run_id", Value: r.cfg.RunID},
+				logging.Field{Key: "framework", Value: "claude-code"},
+				logging.Field{Key: "stop_reason", Value: w.StopReason},
+				logging.Field{Key: "result", Value: w.Result},
+			)
+			r.endTurnWithError("empty_response", w.Result)
+			return
 		}
-		r.cfg.Logger.Error(ctx, "agent empty turn — possible inference error",
-			logging.Field{Key: "run_id", Value: r.cfg.RunID},
-			logging.Field{Key: "framework", Value: "claude-code"},
-			logging.Field{Key: "stop_reason", Value: w.StopReason},
-			logging.Field{Key: "result", Value: msg},
-		)
-		r.endTurnWithError("empty_response", msg)
-		return
 	}
 	r.emit(EventTypeMessageComplete, MessageCompletePayload{
 		Text:     r.textBuf.String(),

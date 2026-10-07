@@ -123,6 +123,10 @@ type session struct {
 	// turn_stopped is recorded as the guardrail's stop, not the user's.
 	guardStopped atomic.Bool
 	guard        loopGuard
+	emptyTurns   emptyTurnGuard
+	// failure is the run_error teardown records when the session closed to fail
+	// the run. Unset means the process exited on its own.
+	failure atomic.Pointer[RunErrorPayload]
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -797,7 +801,7 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 
 			s.noteStop(ev.Type)
 			switch {
-			case ev.Type == EventTypeMessageStop:
+			case reg.turnEnds(ctx, s, ev):
 				armIdle()
 			case !isStatusEvent(ev.Type):
 				disarmIdle()
@@ -935,7 +939,8 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 		logging.Field{Key: "budget_exhausted", Value: budgetExhausted},
 	)
 	if failed && !budgetExhausted {
-		reg.emitRunError(bgCtx, cfg.RunID, "subprocess_exit", "Agent process exited unexpectedly")
+		f := s.failureReason()
+		reg.emitRunError(bgCtx, cfg.RunID, f.Code, f.Message)
 	}
 	fromState := "active"
 	if s.isIdle.Load() {
