@@ -138,6 +138,25 @@ describe('Agent runs tab', () => {
     expect(screen.getByRole('button', { name: /All/ })).toHaveTextContent('11');
   });
 
+  it('says it is loading during a filter switch with a search term set', async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    server.use(
+      http.get(`/api/agents/types/${agent.id}/runs`, async () => {
+        await held;
+        return HttpResponse.json({ data: rawRuns(10, 11, 'failed'), next_cursor: null });
+      }),
+    );
+    renderTab(rawRuns(0, 3), null);
+
+    await userEvent.type(screen.getByPlaceholderText('Search runs…'), 'Task');
+    await userEvent.click(screen.getByRole('button', { name: /Failed/ }));
+
+    expect(await screen.findByText('Loading runs…')).toBeInTheDocument();
+    release();
+    await waitFor(() => expect(screen.getByText('Task 10')).toBeInTheDocument());
+  });
+
   it('filters on the server and counts from the server totals', async () => {
     const queries = serveRuns({
       'failed,budget_exhausted:': { data: rawRuns(10, 12, 'failed'), next_cursor: null },

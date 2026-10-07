@@ -308,7 +308,9 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
                 ? 'No runs yet.'
                 : 'No runs match this filter.'
           }
-          filteredEmptyMessage="No runs match your search."
+          filteredEmptyMessage={
+            status === 'loading' ? 'Loading runs…' : 'No runs match your search.'
+          }
           onRowClick={(row) => {
             if (agent) {
               router.push(APP_ROUTES.agents.run(agent.slug, row.id));
