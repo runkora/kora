@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { hasScopeCovering } from '@orbit/lib/permissions';
-import { deriveSlug } from '@orbit/lib/slug';
+import { deriveSlug, slugInput } from '@orbit/lib/slug';
 import { usePermissions } from '../../_components/permissions-provider';
 import type {
   AgentEnvironment,
@@ -138,6 +138,7 @@ export interface AgentBuilderStateShape {
   setField: <K extends keyof BuilderFields>(key: K, value: BuilderFields[K]) => void;
   setName: (name: string) => void;
   setSlug: (slug: string) => void;
+  normaliseSlug: () => void;
   goTo: (step: number) => void;
   next: () => void;
   back: () => void;
@@ -181,6 +182,11 @@ export const AGENT_SLUG_RULE =
   'Use lowercase letters, digits and hyphens. Start with a letter, end with a letter or digit, and keep it to 52 characters or fewer.';
 export const SLUG_RE = /^[a-z]([a-z0-9-]{0,50}[a-z0-9])?$/;
 export const AGENT_SLUG_MAX_LENGTH = 52;
+
+/** The slug field's value as someone types it, cut to the agent limit. */
+export function agentSlugInput(value: string): string {
+  return slugInput(value).slice(0, AGENT_SLUG_MAX_LENGTH);
+}
 
 // ── Payload mapping ───────────────────────────────────────────────────────────
 
@@ -510,11 +516,17 @@ export function useAgentBuilder(params: {
 
   const setSlug = useCallback(
     (slug: string) => {
-      setFields((f) => ({ ...f, slug: deriveSlug(slug) || slug.toLowerCase(), slugEdited: true }));
+      setFields((f) => ({ ...f, slug: agentSlugInput(slug), slugEdited: true }));
       scheduleSave();
     },
     [scheduleSave],
   );
+
+  // Typing keeps leading and trailing hyphens; leaving the field trims them.
+  const normaliseSlug = useCallback(() => {
+    setFields((f) => ({ ...f, slug: deriveSlug(f.slug, AGENT_SLUG_MAX_LENGTH) }));
+    scheduleSave();
+  }, [scheduleSave]);
 
   // ── Navigation + validity ──────────────────────────────────────────────────
   const stepValid = useMemo(() => {
@@ -609,6 +621,7 @@ export function useAgentBuilder(params: {
     setField,
     setName,
     setSlug,
+    normaliseSlug,
     goTo,
     next,
     back,
