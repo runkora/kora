@@ -53,10 +53,11 @@ rules:
   - apiGroups: ["orbit.io"]
     resources: ["orbittenants/status", "mcpservers/status", "sandboximages/status"]
     verbs: ["get", "patch"]
-  # The operator validates every SandboxImage and owns kora-base in each tenant namespace.
+  # The operator validates every SandboxImage, owns kora-base in each tenant
+  # namespace, and deletes the bundled images that are disabled.
   - apiGroups: ["orbit.io"]
     resources: ["sandboximages"]
-    verbs: ["get", "list", "watch", "create", "patch"]
+    verbs: ["get", "list", "watch", "create", "patch", "delete"]
   # Owner references with blockOwnerDeletion on the warmers need this where
   # OwnerReferencesPermissionEnforcement is on.
   - apiGroups: ["orbit.io"]
