@@ -36,11 +36,9 @@ import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import { ScopeChip } from '@orbit/components';
-import { ScopeTreePicker } from '@orbit/components';
-import { EmptyState } from '@orbit/components';
-import { ConfirmDialog } from '@orbit/components';
-import { ViewToggle } from '@orbit/components';
+import { ScopeChipList, scopeColumnFilter } from '@orbit/components';
+import { ScopePicker } from '@orbit/components';
+import { ViewToggle } from '@orbit/terra';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
 

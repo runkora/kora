@@ -34,7 +34,10 @@ export default async function MarketplaceOverviewPage({
   if (!result.ok) {
     // The load failed. The overview shows the error and a retry button.
     return (
-      <MarketplaceShell initialOverview={emptyOverview(browse)} initialError={result.message} />
+      <MarketplaceShell
+        initialOverview={result.overview ?? emptyOverview(browse)}
+        initialError={result.message}
+      />
     );
   }
 

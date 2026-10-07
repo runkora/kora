@@ -108,14 +108,5 @@ function matchesSearch(skill: PackageOverview, query: string): boolean {
 
   const name = skill.title_of_package.toLowerCase();
 
-  if (trimmed.includes('*')) {
-    const pattern = trimmed.split('*').map(escapeRegExp).join('.*');
-    return new RegExp(`^${pattern}$`).test(name);
-  }
-
-  return name.includes(trimmed) || skill.description.toLowerCase().includes(trimmed);
-}
-
-function escapeRegExp(literal: string): string {
-  return literal.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+  return name.includes(trimmed);
 }

@@ -103,7 +103,7 @@ const dot = RUN_STATE_DISPLAY[run.state];
 
 ## ViewToggle
 
-**Import:** `import { ViewToggle } from '@orbit/components'`
+**Promoted to Terra. Import:** `import { ViewToggle } from '@orbit/terra'`
 
 **When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Terra `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs and the Marketplace overview use it.
 

@@ -35,6 +35,19 @@ const SECTIONS: Record<string, SectionHeader> = {
   marketplace: { title: 'Marketplace', keepQueryOnBack: true },
 };
 
+// useSyncExternalStore plumbing for reading the browser host: the host never
+// changes, so the store has no subscription; the server snapshot is empty.
+const subscribeNoop = () => () => {};
+const getServerHost = () => '';
+
+function marketplaceDetailLabel(path: string): string {
+  try {
+    return decodeURIComponent(path).split('/').pop() ?? path;
+  } catch {
+    return path;
+  }
+}
+
 export function DashboardHeader() {
   const pathname = usePathname();
   const { toggle, isOpen } = useSidebarState();
@@ -46,7 +59,10 @@ export function DashboardHeader() {
   // (header.title below is not optional-chained, and would crash the whole page).
   const header = SECTIONS[section] ?? { title: 'Dashboard' };
   const isDetail = segments.length > 1;
-  const detailLabel = segments[segments.length - 1];
+  const detailLabel =
+    section === 'marketplace'
+      ? marketplaceDetailLabel(segments.slice(1).join('/'))
+      : segments[segments.length - 1];
 
   return (
     <Stack
