@@ -115,17 +115,13 @@ export async function fetchRunPage(
       error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
     };
   }
-  try {
-    const body = (await res.json()) as RunsPageResponse;
-    const byId = indexAgentTypes(agentTypes);
-    return {
-      data: (body.data ?? []).map((r) => toRunRow(r, byId)),
-      nextCursor: body.next_cursor ?? null,
-      error: null,
-    };
-  } catch {
-    return { data: [], nextCursor: null, error: 'The server sent an unreadable response.' };
-  }
+  const body = (await res.json()) as RunsPageResponse;
+  const byId = indexAgentTypes(agentTypes);
+  return {
+    data: (body.data ?? []).map((r) => toRunRow(r, byId)),
+    nextCursor: body.next_cursor ?? null,
+    error: null,
+  };
 }
 
 /** One page of the runs of every agent the caller may read. */

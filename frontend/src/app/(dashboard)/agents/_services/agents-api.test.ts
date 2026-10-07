@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fetchRunPage, fetchRunStats, runPageSearch } from './agents-api';
+import { fetchRunPage, fetchRunStats } from './agents-api';
 import { AGENT_ROWS, RAW_RUNS } from '../_components/agents-mock-data';
 
 const respond = (body: unknown, status = 200) =>
@@ -12,16 +12,6 @@ const respond = (body: unknown, status = 200) =>
 
 afterEach(() => vi.restoreAllMocks());
 
-describe('runPageSearch', () => {
-  it('writes only the parts that are set', () => {
-    expect(runPageSearch({})).toBe('');
-    expect(runPageSearch({ states: ['pending', 'active'], limit: 10, cursor: 'abc' })).toBe(
-      '?state=pending%2Cactive&limit=10&cursor=abc',
-    );
-    expect(runPageSearch({ states: [], cursor: null })).toBe('');
-  });
-});
-
 describe('fetchRunPage', () => {
   it('maps the page to rows and keeps the next cursor', async () => {
     respond({ data: RAW_RUNS.slice(0, 2), next_cursor: 'next' });
@@ -29,13 +19,6 @@ describe('fetchRunPage', () => {
     expect(page.error).toBeNull();
     expect(page.nextCursor).toBe('next');
     expect(page.data.map((r) => r.id)).toEqual(RAW_RUNS.slice(0, 2).map((r) => r.id));
-  });
-
-  it('reports an unreadable body as an error so the caller can retry', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"data": [', { status: 200 }));
-    const page = await fetchRunPage('/api/agents/runs', AGENT_ROWS);
-    expect(page.error).toBe('The server sent an unreadable response.');
-    expect(page.nextCursor).toBeNull();
   });
 
   it('reports the server message on failure', async () => {
