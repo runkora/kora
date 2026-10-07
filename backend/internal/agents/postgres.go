@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -255,21 +256,21 @@ func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error
 	return scanRun(row)
 }
 
-func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
-	query := selectRun + ` WHERE r.tenant_id=$1`
-	args := []any{tenantID}
-	if agentTypeID != "" {
-		args = append(args, agentTypeID)
-		query += fmt.Sprintf(" AND r.agent_type_id=$%d", len(args))
+// ListRuns returns up to q.Limit runs in scope, newest first, after q.After.
+// The scope is part of the query, so a page holds only runs the caller may read.
+func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error) {
+	query, args := appendScope(selectRun+` WHERE r.tenant_id=$1`, []any{tenantID}, q.Scope)
+	if len(q.States) > 0 {
+		args = append(args, stateStrings(q.States))
+		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
 	}
-	query, args = appendVisibility(query, args, vis)
-	// id breaks created_at ties: without it the rows a LIMIT drops at a tie
-	// boundary vary between executions of the same query.
-	query += ` ORDER BY r.created_at DESC, r.id DESC`
-	if limit > 0 {
-		args = append(args, limit)
-		query += fmt.Sprintf(" LIMIT $%d", len(args))
+	if q.After != nil {
+		args = append(args, q.After.CreatedAt, q.After.ID)
+		query += fmt.Sprintf(" AND (r.created_at, r.id) < ($%d, $%d)", len(args)-1, len(args))
 	}
+	// id breaks created_at ties, which keeps both the page boundary and the cursor stable.
+	args = append(args, q.Limit)
+	query += fmt.Sprintf(" ORDER BY r.created_at DESC, r.id DESC LIMIT $%d", len(args))
 
 	rows, err := r.pool.Query(ctx, query, args...)
 	if err != nil {
@@ -690,31 +691,38 @@ func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID stri
 	return out, nil
 }
 
-// finishedRunsSQL selects the agent type's runs finished in [$3, $4) with their duration in ms.
-// A run that never started counts from its creation.
+// finishedRunsSQL selects the runs finished in [$2, $3) with their duration in ms.
+// A run that never started counts from its creation. Callers append the scope.
 const finishedRunsSQL = `
 	SELECT r.state, GREATEST(EXTRACT(EPOCH FROM (r.completed_at - COALESCE(r.started_at, r.created_at))) * 1000, 0) AS ms
 	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
-	WHERE r.tenant_id = $1 AND r.agent_type_id = $2
-	  AND r.completed_at >= $3 AND r.completed_at < $4
+	WHERE r.tenant_id = $1
+	  AND r.completed_at >= $2 AND r.completed_at < $3
 	  AND r.state IN ('completed', 'failed')`
 
-// AgentRunStats counts the agent type's runs created in [from, to) and those a trigger
-// started, then the runs finished in it by outcome, duration percentile and histogram bucket.
-func (r *PostgresRepository) AgentRunStats(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (RunStats, error) {
+// RunStats counts the runs in scope created in [from, to) and those a trigger
+// started, then the runs finished in it by outcome, duration percentile and
+// histogram bucket, then every run in scope by its current state.
+func (r *PostgresRepository) RunStats(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunStats, error) {
 	var out RunStats
-	query, args := appendVisibility(`
+	query, args := appendScope(`
 		SELECT COUNT(*), COUNT(r.trigger_id)
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
-		WHERE r.tenant_id = $1 AND r.agent_type_id = $2 AND r.created_at >= $3 AND r.created_at < $4`,
-		[]any{tenantID, agentTypeID, from, to}, vis)
+		WHERE r.tenant_id = $1 AND r.created_at >= $2 AND r.created_at < $3`,
+		[]any{tenantID, from, to}, scope)
 	if err := r.pool.QueryRow(ctx, query, args...).Scan(&out.Total, &out.Triggered); err != nil {
-		return RunStats{}, fmt.Errorf("count agent runs: %w", err)
+		return RunStats{}, fmt.Errorf("count runs: %w", err)
 	}
 
-	inner, args := appendVisibility(finishedRunsSQL, []any{tenantID, agentTypeID, from, to}, vis)
+	current, err := r.runStateCounts(ctx, tenantID, scope)
+	if err != nil {
+		return RunStats{}, err
+	}
+	out.Current = current
+
+	inner, args := appendScope(finishedRunsSQL, []any{tenantID, from, to}, scope)
 	var median, p95, p99, longest float64
-	err := r.pool.QueryRow(ctx, `
+	err = r.pool.QueryRow(ctx, `
 		SELECT COUNT(*) FILTER (WHERE state = 'completed'), COUNT(*) FILTER (WHERE state = 'failed'),
 		       COALESCE(percentile_cont(0.5) WITHIN GROUP (ORDER BY ms), 0),
 		       COALESCE(percentile_cont(0.95) WITHIN GROUP (ORDER BY ms), 0),
@@ -759,4 +767,47 @@ func (r *PostgresRepository) AgentRunStats(ctx context.Context, tenantID, agentT
 		return RunStats{}, fmt.Errorf("finished run buckets: %w", err)
 	}
 	return out, nil
+}
+
+// runStateCounts counts every run in scope by agent type and current state, whatever its age.
+func (r *PostgresRepository) runStateCounts(ctx context.Context, tenantID string, scope RunScope) (RunStateCounts, error) {
+	out := RunStateCounts{ByState: map[RunState]int64{}, LiveByAgentType: map[string]int64{}}
+	query, args := appendScope(`
+		SELECT r.agent_type_id, r.state, COUNT(*),
+		       COALESCE(EXTRACT(EPOCH FROM (now() - MIN(r.started_at))) * 1000, 0)
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
+		WHERE r.tenant_id = $1`, []any{tenantID}, scope)
+	rows, err := r.pool.Query(ctx, query+` GROUP BY r.agent_type_id, r.state`, args...)
+	if err != nil {
+		return RunStateCounts{}, fmt.Errorf("count runs by state: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var agentTypeID, state string
+		var n int64
+		var runningMs float64
+		if err := rows.Scan(&agentTypeID, &state, &n, &runningMs); err != nil {
+			return RunStateCounts{}, fmt.Errorf("scan runs by state: %w", err)
+		}
+		out.Total += n
+		out.ByState[RunState(state)] += n
+		if slices.Contains(liveRunStates, RunState(state)) {
+			out.Live += n
+			out.LiveByAgentType[agentTypeID] += n
+			out.LongestLiveMs = max(out.LongestLiveMs, int64(math.Round(runningMs)))
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return RunStateCounts{}, fmt.Errorf("count runs by state: %w", err)
+	}
+	return out, nil
+}
+
+// stateStrings converts run states for a text[] query parameter.
+func stateStrings(states []RunState) []string {
+	out := make([]string, len(states))
+	for i, s := range states {
+		out[i] = string(s)
+	}
+	return out
 }

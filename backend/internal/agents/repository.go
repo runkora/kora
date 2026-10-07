@@ -28,20 +28,19 @@ type AgentTypeRepository interface {
 type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
-	// ListRuns returns a tenant's runs newest first, optionally narrowed to one
-	// agent type. limit caps the row count; limit <= 0 returns every match.
-	// vis applies the delegated-run visibility rule INSIDE the query (Decision 6
-	// of docs/adr/2026-07-23-delegated-agent-identity.md): unless vis.SeeAll,
-	// runs of delegated agent types are returned only where created_by equals
-	// vis.Subject. Autonomous-agent runs are never filtered.
-	ListRuns(ctx context.Context, tenantID string, agentTypeID string, vis RunVisibility, limit int) ([]Run, error)
+	// ListRuns returns up to q.Limit of a tenant's runs newest first, after
+	// q.After. q.Scope is applied in the query: only runs of q.Scope.AgentTypeIDs,
+	// and unless q.Scope.Vis.SeeAll, runs of delegated agent types only where
+	// created_by equals q.Scope.Vis.Subject (Decision 6 of
+	// docs/adr/2026-07-23-delegated-agent-identity.md).
+	ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error)
 	// CountRunOutcomes counts the completed and failed runs that finished in
-	// [from, to), under the same delegated-run visibility rule as ListRuns.
+	// [from, to), under the delegated-run visibility rule.
 	CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error)
-	// AgentRunStats returns the agent type's run counts and durations for [from, to)
-	// under the delegated-run visibility rule: runs created in the window are counted by
-	// trigger, and runs finished in it by outcome and duration.
-	AgentRunStats(ctx context.Context, tenantID, agentTypeID string, vis RunVisibility, from, to time.Time) (RunStats, error)
+	// RunStats returns the run counts and durations of the runs in scope for
+	// [from, to): runs created in the window are counted by trigger, runs
+	// finished in it by outcome and duration, and every run by current state.
+	RunStats(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunStats, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
 	// AssignPod sets pod_ordinal and transitions pending→starting atomically.

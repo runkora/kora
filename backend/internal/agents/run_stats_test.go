@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"testing"
 	"time"
 
@@ -54,8 +55,9 @@ func TestAgentRunStats_VisibilityAndUnknownAgent(t *testing.T) {
 			repo.statsResult = RunStats{Total: 3}
 			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
 			got, err := f.run.AgentRunStats(ctx, "helper", usagewindow.Period7d, time.Now())
-			if err != nil || got.Total != 3 || repo.statsVis != tc.want || repo.statsAgentTypeID != "at-auto" {
-				t.Errorf("stats %+v, visibility %+v for %q, %v; want the repository result for at-auto under %+v", got, repo.statsVis, repo.statsAgentTypeID, err, tc.want)
+			want := RunScope{AgentTypeIDs: []string{"at-auto"}, Vis: tc.want}
+			if err != nil || got.Total != 3 || !reflect.DeepEqual(repo.statsScope, want) {
+				t.Errorf("stats %+v, scope %+v, %v; want the repository result for %+v", got, repo.statsScope, err, want)
 			}
 		})
 	}
@@ -90,8 +92,8 @@ func TestAgentRunStats_DeniedCallerGetsNotFound(t *testing.T) {
 	f, repo, _, _ := newTestServiceWithEval(t, denyRunsEval{})
 	seedStatsAgent(t, repo)
 	ctx := withRunCallerCtx(context.Background(), "t1", "alice")
-	if _, err := f.run.AgentRunStats(ctx, "helper", usagewindow.Period7d, time.Now()); !errors.Is(err, ErrNotFound) || repo.statsAgentTypeID != "" {
-		t.Errorf("err = %v, read agent type %q; want ErrNotFound and no read", err, repo.statsAgentTypeID)
+	if _, err := f.run.AgentRunStats(ctx, "helper", usagewindow.Period7d, time.Now()); !errors.Is(err, ErrNotFound) || repo.statsScope.AgentTypeIDs != nil {
+		t.Errorf("err = %v, read scope %+v; want ErrNotFound and no read", err, repo.statsScope)
 	}
 }
 

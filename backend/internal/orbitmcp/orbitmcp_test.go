@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -369,6 +370,19 @@ func TestRunToolsForwardMethodAndPath(t *testing.T) {
 		call("tools/call", map[string]any{"name": "runs.terminate", "arguments": map[string]any{"run_id": "run-1"}})
 		if gotMethod != http.MethodDelete || gotPath != "/api/v1/runs/run-1" {
 			t.Errorf("terminate hit %s %s", gotMethod, gotPath)
+		}
+	})
+
+	t.Run("list forwards filters and the page position", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "runs.list", "arguments": map[string]any{
+			"agent_type_id": "at-9", "state": "pending,active", "cursor": "abc", "limit": 20,
+		}})
+		if gotMethod != http.MethodGet || gotPath != "/api/v1/runs" {
+			t.Errorf("list hit %s %s", gotMethod, gotPath)
+		}
+		want := url.Values{"agent_type_id": {"at-9"}, "state": {"pending,active"}, "cursor": {"abc"}, "limit": {"20"}}
+		if !reflect.DeepEqual(gotQuery, want) {
+			t.Errorf("list query = %v, want %v", gotQuery, want)
 		}
 	})
 

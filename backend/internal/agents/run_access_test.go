@@ -199,7 +199,8 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 			f, _ := seed(t)
 			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
 
-			runs, err := f.run.ListRuns(ctx, "", 0)
+			page, err := f.run.ListRuns(ctx, RunListParams{Limit: maxRunsLimit})
+			runs := page.Runs
 			if err != nil {
 				t.Fatalf("ListRuns: %v", err)
 			}
@@ -224,11 +225,11 @@ func TestRunVisibility_FailClosedWithoutSubject(t *testing.T) {
 	seedDelegatedRun(t, repo, "run-empty", "", RunStateActive)
 	ctx := withRunCallerCtx(context.Background(), "t1", "")
 
-	runs, err := f.run.ListRuns(ctx, "", 0)
+	page, err := f.run.ListRuns(ctx, RunListParams{Limit: maxRunsLimit})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
-	if len(runs) != 0 {
+	if runs := page.Runs; len(runs) != 0 {
 		t.Errorf("got %d runs, want 0 (empty subject must match nothing)", len(runs))
 	}
 	if _, err := f.run.GetRun(ctx, "run-empty"); !errors.Is(err, ErrNotFound) {

@@ -201,30 +201,16 @@ func (a *Authz) canReadDelegatedRuns(ctx context.Context) (bool, error) {
 	return r.Allow, nil
 }
 
-// filterRuns returns the subset of runs the principal may "read". Requires a
-// resolver to look up the run's agent type slug — runs do not carry slug
-// directly, only agent_type_id. The resolver is expected to cache lookups.
-//
-// Runs whose agent type cannot be resolved are excluded (fail closed).
-func (a *Authz) filterRuns(ctx context.Context, runs []Run, resolveSlug func(agentTypeID string) (string, bool)) ([]Run, error) {
-	if len(runs) == 0 {
-		return runs, nil
+// readableRunAgentTypes returns the IDs of the agent types in ats whose runs
+// the principal may read (agents:runs:<slug>:read), in one policy query, so
+// run reads can filter by them in SQL.
+func (a *Authz) readableRunAgentTypes(ctx context.Context, ats []AgentType) ([]string, error) {
+	if len(ats) == 0 {
+		return nil, nil
 	}
-	candidates := make([]policy.Candidate, 0, len(runs))
-	keep := make([]bool, len(runs))
-	for i, run := range runs {
-		slug, ok := resolveSlug(run.AgentTypeID)
-		if !ok {
-			continue // fail closed
-		}
-		keep[i] = true
-		candidates = append(candidates, policy.Candidate{
-			ID:           run.ID,
-			PathSegments: []string{"runs", slug},
-		})
-	}
-	if len(candidates) == 0 {
-		return runs[:0], nil
+	candidates := make([]policy.Candidate, len(ats))
+	for i, at := range ats {
+		candidates[i] = policy.Candidate{ID: at.ID, PathSegments: []string{"runs", at.Slug}}
 	}
 	allowed, err := a.eval.Query(ctx, policy.QueryInput{
 		Claims:       claimsFromContext(ctx),
@@ -236,17 +222,7 @@ func (a *Authz) filterRuns(ctx context.Context, runs []Run, resolveSlug func(age
 	if err != nil {
 		return nil, fmt.Errorf("authz query runs: %w", err)
 	}
-	set := stringSet(allowed)
-	out := runs[:0]
-	for i, run := range runs {
-		if !keep[i] {
-			continue
-		}
-		if _, ok := set[run.ID]; ok {
-			out = append(out, run)
-		}
-	}
-	return out, nil
+	return allowed, nil
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
