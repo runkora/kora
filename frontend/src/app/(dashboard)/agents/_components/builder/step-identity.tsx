@@ -13,6 +13,7 @@ import {
   Textarea,
 } from '@orbit/terra';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
+import { AGENT_SLUG_RULE, SLUG_RE } from '../../_hooks/use-agent-builder';
 import { IdentityModeCards } from '../motif/identity-mode-cards';
 
 export function StepIdentity() {
@@ -30,6 +31,8 @@ export function StepIdentity() {
       : null),
   };
 
+  const slugInvalid = fields.slug !== '' && !SLUG_RE.test(fields.slug);
+
   return (
     <Stack gap="relaxed">
       <SectionHeading
@@ -46,9 +49,10 @@ export function StepIdentity() {
               maxLength={128}
             />
           </FormField>
-          <FormField label="Slug" required>
+          <FormField label="Slug" required error={slugInvalid ? AGENT_SLUG_RULE : undefined}>
             <Input
               mono
+              hasError={slugInvalid}
               value={fields.slug}
               onChange={(e) => setSlug(e.target.value)}
               placeholder="deployment-assistant"

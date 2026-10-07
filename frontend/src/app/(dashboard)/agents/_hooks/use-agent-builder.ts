@@ -172,7 +172,14 @@ const EMPTY_FIELDS: BuilderFields = {
 /** The draft payload: a partial create request plus builder-only resume state. */
 type DraftPayload = Partial<CreateAgentTypeRequest> & { _builder?: { step?: number } };
 
-const SLUG_RE = /^[a-z0-9-]+$/;
+/**
+ * The API's agent slug rule. The slug names the agent's Kubernetes Service, so
+ * it is a DNS-1035 label, and it stops at 52 characters so the StatefulSet's
+ * revision label fits in 63.
+ */
+export const AGENT_SLUG_RULE =
+  'Use lowercase letters, digits and hyphens. Start with a letter, end with a letter or digit, and keep it to 52 characters or fewer.';
+export const SLUG_RE = /^[a-z]([a-z0-9-]{0,50}[a-z0-9])?$/;
 
 // ── Payload mapping ───────────────────────────────────────────────────────────
 
@@ -515,8 +522,7 @@ export function useAgentBuilder(params: {
   const stepHint = useMemo((): string | undefined => {
     if (step === 0) {
       if (fields.name.trim().length <= 1) return 'Enter a display name of at least two characters.';
-      if (!SLUG_RE.test(fields.slug))
-        return 'Slug must be lowercase letters, digits, and hyphens only.';
+      if (!SLUG_RE.test(fields.slug)) return AGENT_SLUG_RULE;
     }
     if (step === 1) {
       if (!fields.modelId) return 'Choose a model before continuing.';

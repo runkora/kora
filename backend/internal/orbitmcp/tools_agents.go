@@ -99,7 +99,7 @@ type getAgentArgs struct {
 // caller's token by the agents service; any tenant in the body is ignored.
 type createAgentArgs struct {
 	Name                    string           `json:"name" jsonschema:"display name for the agent type"`
-	Slug                    string           `json:"slug" jsonschema:"unique slug within the tenant (lowercase, dash-separated)"`
+	Slug                    string           `json:"slug" jsonschema:"unique slug within the tenant: lowercase letters, digits and hyphens, starting with a letter, ending with a letter or digit, at most 52 characters"`
 	Description             string           `json:"description,omitempty" jsonschema:"short human description of what the agent does"`
 	SystemPrompt            string           `json:"system_prompt,omitempty" jsonschema:"the system prompt the agent runs with"`
 	Framework               string           `json:"framework,omitempty" jsonschema:"agent CLI framework"`
