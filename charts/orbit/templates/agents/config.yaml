@@ -6,7 +6,6 @@ orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md)
 {{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 320) }}
   {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 320" }}
 {{- end }}
-{{- $tag := .Values.global.imageTag | default .Chart.AppVersion }}
 cmd/orbit-agents:
   kubernetes:
     systemNamespace: {{ include "orbit.systemNamespace" . | toJson }}
@@ -17,10 +16,7 @@ cmd/orbit-agents:
   policy:
     bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
   agents:
-    {{- $sessionManager := printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry $tag }}
-    {{- with .Values.agents.config.sessionManagerDigest }}
-    {{- $sessionManager = printf "%s/orbit-session-manager@%s" $.Values.global.imageRegistry . }}
-    {{- end }}
+    {{- $sessionManager := include "orbit.imageRef" (dict "root" $ "image" (dict "repository" "orbit-session-manager" "digest" .Values.agents.config.sessionManagerDigest)) }}
     sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default $sessionManager | toJson }}
     sandboxImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
     {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}
