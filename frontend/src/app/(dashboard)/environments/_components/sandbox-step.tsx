@@ -308,7 +308,7 @@ export function SizeCard({
                       id={`size-${field.key}`}
                       type="number"
                       inputMode="decimal"
-                      min={field.key === 'cpu' ? 0.5 : 1}
+                      min={0}
                       max={max(field.key)}
                       step={field.key === 'cpu' ? 0.5 : 1}
                       value={value.custom[field.key]}

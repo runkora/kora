@@ -1,6 +1,6 @@
 /**
- * Size presets for the environment wizard. Sizes are Kubernetes quantities on
- * the wire and plain cores and GiB in the wizard.
+ * @tier 3 — environments-scoped. Size presets for the environment wizard. Sizes
+ * are Kubernetes quantities on the wire and plain cores and GiB in the wizard.
  */
 
 import type { EnvironmentSize, EnvironmentSizes } from '@orbit/shared/api';
