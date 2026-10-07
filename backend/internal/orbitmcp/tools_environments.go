@@ -41,7 +41,7 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client)
 		})
 
 	addTool(srv, "agents.environments.replace",
-		"Replace an environment in full. Every field you omit is cleared, and an omitted size dimension takes the "+
+		"Replace an environment in full. Every field you omit is cleared except the slug, and an omitted size dimension takes the "+
 			"default. Fetch it first with agents.environments.get. Edits apply to every agent it is attached to.",
 		func(ctx context.Context, a replaceEnvironmentArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
@@ -80,7 +80,8 @@ type environmentIDArgs struct {
 }
 
 type environmentArgs struct {
-	Name         string         `json:"name" jsonschema:"the environment name (unique within the tenant)"`
+	Slug         string         `json:"slug,omitempty" jsonschema:"what agents select the environment by: lowercase letters, digits and hyphens, unique within the tenant; derived from name when omitted on create, and it cannot change"`
+	Name         string         `json:"name" jsonschema:"the environment's name for people"`
 	Description  string         `json:"description,omitempty" jsonschema:"what this environment is for; agents read it when they choose one"`
 	SandboxImage string         `json:"sandbox_image,omitempty" jsonschema:"name of a valid sandbox image from agents.sandbox_images.list; omit for the kora base image"`
 	Size         *sizeArg       `json:"size,omitempty" jsonschema:"CPU, memory and local disk; omitted values take the install default"`

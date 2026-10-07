@@ -602,6 +602,7 @@ export const ENVIRONMENTS: Environment[] = [
   {
     id: 'env_engineering',
     tenant_id: TENANT,
+    slug: 'engineering',
     name: 'Engineering',
     description: 'Package registries and the internal docs site.',
     sandbox_image: 'acme-go',
@@ -614,6 +615,7 @@ export const ENVIRONMENTS: Environment[] = [
   {
     id: 'env_node',
     tenant_id: TENANT,
+    slug: 'node-apps',
     name: 'Node apps',
     description: 'Node and pnpm for the dashboard.',
     sandbox_image: 'kora-base',

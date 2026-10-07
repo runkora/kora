@@ -17,6 +17,7 @@ vi.mock('@orbit/server/session', () => ({
 }));
 
 import { POST } from './route';
+import { PUT } from './[id]/route';
 import { getSession } from '@orbit/server/session';
 
 const session = {
@@ -44,6 +45,7 @@ describe('environments BFF routes', () => {
       new NextRequest('http://localhost/api/agents/environments', {
         method: 'POST',
         body: JSON.stringify({
+          slug: 'go',
           name: 'Go services',
           sandbox_image: 'acme-go',
           size: { cpu: '4', memory: '8Gi', disk: '20Gi' },
@@ -52,6 +54,7 @@ describe('environments BFF routes', () => {
     );
     expect(res.status).toBe(201);
     expect(received).toEqual({
+      slug: 'go',
       name: 'Go services',
       description: '',
       sandbox_image: 'acme-go',
@@ -59,5 +62,24 @@ describe('environments BFF routes', () => {
       egress_hosts: [],
       connectors: [],
     });
+  });
+
+  it('forwards the slug and the name on update', async () => {
+    let received: unknown;
+    server.use(
+      http.put('http://test-agents/api/v1/environments/env-1', async ({ request }) => {
+        received = await request.json();
+        return HttpResponse.json({ id: 'env-1' });
+      }),
+    );
+    const res = await PUT(
+      new NextRequest('http://localhost/api/agents/environments/env-1', {
+        method: 'PUT',
+        body: JSON.stringify({ slug: 'go', name: 'Go services' }),
+      }),
+      { params: Promise.resolve({ id: 'env-1' }) },
+    );
+    expect(res.status).toBe(200);
+    expect(received).toMatchObject({ slug: 'go', name: 'Go services' });
   });
 });

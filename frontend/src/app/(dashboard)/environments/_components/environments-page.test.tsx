@@ -16,6 +16,7 @@ vi.mock('../_services/environments-api', () => ({
 
 const row = (id: string, name: string, sandboxImage: string): EnvironmentRow => ({
   id,
+  slug: id,
   name,
   description: '',
   sandboxImage,
@@ -53,6 +54,20 @@ describe('EnvironmentsPage', () => {
     expect(screen.getByText('kora-base')).toBeInTheDocument();
     expect(screen.getByText('runs as root')).toBeInTheDocument();
     expect(screen.getAllByText('2 CPU · 4Gi memory · 10Gi disk')).toHaveLength(3);
+  });
+
+  it('shows each slug under its name', () => {
+    render(
+      <EnvironmentsPage
+        rows={[{ ...ROWS[0]!, slug: 'go-services' }]}
+        connections={[]}
+        images={IMAGES}
+        sizes={null}
+        error={null}
+      />,
+    );
+    expect(screen.getByText('Go services')).toBeInTheDocument();
+    expect(screen.getByText('go-services')).toBeInTheDocument();
   });
 
   it('refreshes after deleting an unattached environment', async () => {

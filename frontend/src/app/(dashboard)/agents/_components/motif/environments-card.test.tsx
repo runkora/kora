@@ -6,6 +6,7 @@ import { EnvironmentsCard } from './environments-card';
 const env = (id: string, name: string, sandboxImage = 'kora-base'): Environment => ({
   id,
   tenant_id: 't',
+  slug: id,
   name,
   description: '',
   sandbox_image: sandboxImage,

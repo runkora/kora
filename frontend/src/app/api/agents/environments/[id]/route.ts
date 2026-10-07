@@ -20,6 +20,7 @@ export const PUT = withAuth(
     }
     try {
       const updated = await updateEnvironment(session.accessToken, id, {
+        slug: body.slug ?? '',
         name: body.name,
         description: body.description ?? '',
         sandbox_image: body.sandbox_image ?? '',

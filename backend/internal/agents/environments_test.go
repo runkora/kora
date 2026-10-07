@@ -18,7 +18,7 @@ import (
 )
 
 func TestEnvironmentValidate_Size(t *testing.T) {
-	base := Environment{Name: "go", SandboxImage: si.BaseName}
+	base := Environment{Slug: "go", Name: "Go", SandboxImage: si.BaseName}
 	for _, tc := range []struct {
 		name    string
 		size    EnvironmentSize
@@ -165,6 +165,131 @@ func TestCreateEnvironment_BaseImageUnavailable(t *testing.T) {
 	}
 }
 
+func TestDeriveSlug(t *testing.T) {
+	for in, want := range map[string]string{
+		"Go services":          "go-services",
+		"  Payments / Review ": "payments-review",
+		"node22":               "node22",
+		"---":                  "",
+		"Café ML":              "caf-ml",
+	} {
+		if got := deriveSlug(in); got != want {
+			t.Errorf("deriveSlug(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// A create takes the slug it is given, derives one from the name when it has none,
+// and rejects a slug that is not a DNS-1123 label.
+func TestCreateEnvironment_Slug(t *testing.T) {
+	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+	}}
+	ctx := withTenantCtx(context.Background(), "t-1")
+	for _, tc := range []struct {
+		name     string
+		req      EnvironmentRequest
+		wantSlug string
+		wantErr  string
+	}{
+		{"given", EnvironmentRequest{Name: "Go services", Slug: "go"}, "go", ""},
+		{"derived", EnvironmentRequest{Name: "Go services"}, "go-services", ""},
+		{"symbols only", EnvironmentRequest{Name: "***"}, "", "supply a slug"},
+		{"too long", EnvironmentRequest{Name: strings.Repeat("a", 64)}, "", "supply a slug"},
+		{"not a label", EnvironmentRequest{Name: "Go", Slug: "Go_Services"}, "", "supply a slug"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, k8s)
+			env, err := svc.CreateEnvironment(ctx, tc.req)
+			if tc.wantErr != "" {
+				if !errors.Is(err, ErrInvalidEnvironment) || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("err = %v, want ErrInvalidEnvironment with %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if env.Slug != tc.wantSlug || env.Name != tc.req.Name {
+				t.Errorf("slug, name = %q, %q; want %q, %q", env.Slug, env.Name, tc.wantSlug, tc.req.Name)
+			}
+		})
+	}
+}
+
+// An update keeps the stored slug, even one that is not a DNS-1123 label, and refuses to change it.
+func TestUpdateEnvironment_SlugIsImmutable(t *testing.T) {
+	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+	}}
+	ctx := withTenantCtx(context.Background(), "t-1")
+	for _, tc := range []struct {
+		name    string
+		slug    string
+		wantErr bool
+	}{
+		{"omitted", "", false},
+		{"same", "Legacy Env", false},
+		{"changed", "legacy-env", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &fakeEnvStore{envs: map[string]Environment{
+				"e1": {ID: "e1", TenantID: "t-1", Slug: "Legacy Env", Name: "Legacy Env", SandboxImage: si.BaseName},
+			}}
+			svc := newEnvironmentService(store, k8s)
+			env, err := svc.UpdateEnvironment(ctx, EnvironmentRequest{ID: "e1", Slug: tc.slug, Name: "Legacy"})
+			if tc.wantErr {
+				if !errors.Is(err, ErrInvalidEnvironment) || !strings.Contains(err.Error(), "slug cannot change") {
+					t.Fatalf("err = %v, want ErrInvalidEnvironment about the slug", err)
+				}
+				if store.envs["e1"].Name != "Legacy Env" {
+					t.Errorf("stored name = %q, want it unchanged", store.envs["e1"].Name)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if env.Slug != "Legacy Env" || store.envs["e1"].Name != "Legacy" {
+				t.Errorf("slug %q, stored name %q; want the stored slug and the new name", env.Slug, store.envs["e1"].Name)
+			}
+		})
+	}
+}
+
+// An update that changes the slug is a 400.
+func TestHandleUpdateEnvironment_SlugChange(t *testing.T) {
+	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+	}}
+	store := &fakeEnvStore{envs: map[string]Environment{
+		"env-1": {ID: "env-1", TenantID: "t-1", Slug: "go", Name: "Go", SandboxImage: si.BaseName},
+	}}
+	c := NewController(nil, nil, newEnvironmentService(store, k8s), nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	req := withTenantRequest(httptest.NewRequest(http.MethodPut, "/api/v1/environments/env-1", strings.NewReader(`{"slug":"node","name":"Go"}`)), "t-1")
+	req.SetPathValue("id", "env-1")
+	w := httptest.NewRecorder()
+	c.handleUpdateEnvironment(w, req)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "slug cannot change") {
+		t.Errorf("status %d body %s, want 400 about the slug", w.Code, w.Body.String())
+	}
+}
+
+// Create and update require a name for people.
+func TestHandleEnvironment_NameRequired(t *testing.T) {
+	svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, &mockK8s{})
+	c := NewController(nil, nil, svc, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	for _, handle := range []func(http.ResponseWriter, *http.Request){c.handleCreateEnvironment, c.handleUpdateEnvironment} {
+		req := withTenantRequest(httptest.NewRequest(http.MethodPost, "/api/v1/environments", strings.NewReader(`{"slug":"go","name":"  "}`)), "t-1")
+		req.SetPathValue("id", "env-1")
+		w := httptest.NewRecorder()
+		handle(w, req)
+		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "name is required") {
+			t.Errorf("status %d body %s, want 400 name is required", w.Code, w.Body.String())
+		}
+	}
+}
+
 // Deleting an attached environment is a 409. The frontend tells the user to detach it first.
 func TestHandleDeleteEnvironment_InUse(t *testing.T) {
 	svc := newEnvironmentService(&fakeEnvStore{deleteErr: ErrEnvironmentInUse}, &mockK8s{})
@@ -180,9 +305,9 @@ func TestHandleDeleteEnvironment_InUse(t *testing.T) {
 
 func TestValidateEnvironments(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
-	repo.envs["a"] = &Environment{ID: "a", TenantID: "t-1", Name: "a"}
-	repo.envs["b"] = &Environment{ID: "b", TenantID: "t-1", Name: "b"}
-	repo.envs["other"] = &Environment{ID: "other", TenantID: "t-2", Name: "other"}
+	repo.envs["a"] = &Environment{ID: "a", TenantID: "t-1", Slug: "a"}
+	repo.envs["b"] = &Environment{ID: "b", TenantID: "t-1", Slug: "b"}
+	repo.envs["other"] = &Environment{ID: "other", TenantID: "t-2", Slug: "other"}
 	for _, tc := range []struct {
 		name    string
 		in      []AgentEnvironment
@@ -216,8 +341,8 @@ func TestValidateEnvironments(t *testing.T) {
 // The grant is the agent's own scopes plus the union of every attached environment.
 func TestEffectiveScopes_UnionOfEnvironments(t *testing.T) {
 	repo := newMockRepository()
-	repo.envs["go"] = &Environment{ID: "go", TenantID: "acme", Name: "go", EgressHosts: []string{"proxy.golang.org"}}
-	repo.envs["node"] = &Environment{ID: "node", TenantID: "acme", Name: "node", EgressHosts: []string{"registry.npmjs.org"},
+	repo.envs["go"] = &Environment{ID: "go", TenantID: "acme", Slug: "go", EgressHosts: []string{"proxy.golang.org"}}
+	repo.envs["node"] = &Environment{ID: "node", TenantID: "acme", Slug: "node", EgressHosts: []string{"registry.npmjs.org"},
 		Connectors: []Connector{{Connection: "github", Actions: []string{"contents:read"}}}}
 	at := AgentType{
 		TenantID:     "acme",
@@ -252,8 +377,8 @@ func TestEffectiveScopes_UnionOfEnvironments(t *testing.T) {
 func TestHandleUpdateAgentType_InvalidEnvironmentsIs400(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
 	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	repo.envs["a"] = &Environment{ID: "a", TenantID: "t-1", Name: "a"}
-	repo.envs["b"] = &Environment{ID: "b", TenantID: "t-1", Name: "b"}
+	repo.envs["a"] = &Environment{ID: "a", TenantID: "t-1", Slug: "a"}
+	repo.envs["b"] = &Environment{ID: "b", TenantID: "t-1", Slug: "b"}
 	req := withTenantRequest(httptest.NewRequest(http.MethodPatch, "/api/v1/agent-types/at-1",
 		strings.NewReader(`{"environments":[{"environment_id":"a"},{"environment_id":"b"}]}`)), "t-1")
 	req.SetPathValue("id", "at-1")
@@ -285,5 +410,13 @@ func TestSQLStateHelpers(t *testing.T) {
 	}
 	if !isUniqueViolation(unique) || isUniqueViolation(fk) {
 		t.Error("isUniqueViolation matched the wrong errors")
+	}
+}
+
+// The built-in environment is selected by the slug default and shown as Default.
+func TestDefaultEnvironment_SlugAndName(t *testing.T) {
+	env := DefaultEnvironment(testSizes.Default)
+	if env.Slug != DefaultEnvironmentName || env.Name != "Default" {
+		t.Errorf("slug, name = %q, %q", env.Slug, env.Name)
 	}
 }

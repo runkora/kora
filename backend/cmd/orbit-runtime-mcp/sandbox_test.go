@@ -71,8 +71,8 @@ func TestEnvironmentTools(t *testing.T) {
 		bodies = append(bodies, string(raw))
 		if r.URL.Path == "/internal/session/run-1/environments" {
 			_, _ = w.Write([]byte(`{"environments":[
-				{"name":"go","description":"Go services.","image":"acme-go","size":{"cpu":"4","memory":"8Gi","disk":"20Gi"},"default":true,"current":true},
-				{"name":"node","description":"Node apps","image":"acme-node","size":{"cpu":"2","memory":"4Gi","disk":"10Gi"}}]}`))
+				{"slug":"go","name":"Go services","description":"Go services.","image":"acme-go","size":{"cpu":"4","memory":"8Gi","disk":"20Gi"},"default":true,"current":true},
+				{"slug":"node","name":"node","description":"Node apps","image":"acme-node","size":{"cpu":"2","memory":"4Gi","disk":"10Gi"}}]}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"endpoint":"10.0.0.5:50051"}`))
@@ -90,8 +90,8 @@ func TestEnvironmentTools(t *testing.T) {
 	}
 
 	list := text(s.handleToolsCall(jsonRPCRequest{ID: 1, Params: []byte(`{"name":"list_environments"}`)}))
-	if !strings.Contains(list, "- go (default, current sandbox): Go services. Image acme-go. 4 CPU, 8Gi memory, 20Gi local disk.") ||
-		!strings.Contains(list, "- node: Node apps. Image acme-node.") {
+	if !strings.Contains(list, "- go \"Go services\" (default, current sandbox): Go services. Image acme-go. 4 CPU, 8Gi memory, 20Gi local disk.") ||
+		!strings.Contains(list, "- node \"node\": Node apps. Image acme-node.") {
 		t.Errorf("list = %q", list)
 	}
 	text(s.handleToolsCall(jsonRPCRequest{ID: 2, Params: []byte(`{"name":"provision_sandbox","arguments":{"environment":"go"}}`)}))
@@ -132,5 +132,18 @@ func TestToolsList_EnvironmentTools(t *testing.T) {
 		if strings.Contains(tool["description"].(string), "—") {
 			t.Errorf("%s description has an em dash", tool["name"])
 		}
+	}
+}
+
+// An orbit-agents from the previous release sends only name, and the line starts with it.
+func TestListEnvironments_PreviousRelease(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"environments":[{"name":"go","image":"acme-go","size":{"cpu":"4","memory":"8Gi","disk":"20Gi"},"default":true}]}`))
+	}))
+	defer srv.Close()
+	s := &mcpServer{sessionManagerURL: srv.URL, runID: "run-1", httpClient: srv.Client()}
+	list, err := s.listEnvironments()
+	if err != nil || !strings.HasPrefix(list, "- go (default): Image acme-go.") {
+		t.Errorf("list = %q, %v", list, err)
 	}
 }

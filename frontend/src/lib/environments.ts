@@ -30,3 +30,14 @@ export function sizeLabel(size: EnvironmentSize): string {
     .filter(Boolean)
     .join(' · ');
 }
+
+/** The agents service accepts a new environment slug when it is a DNS-1123 label. */
+const SLUG_LABEL = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/;
+
+/** Why a new environment's slug would be rejected, or null when it is valid. */
+export function slugProblem(slug: string): string | null {
+  if (!slug) return 'Enter a slug.';
+  if (slug.length > 63) return 'Use at most 63 characters.';
+  if (!SLUG_LABEL.test(slug)) return 'Use lowercase letters, digits and hyphens.';
+  return null;
+}

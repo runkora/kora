@@ -18,8 +18,8 @@ import (
 // and seeds its run "run-1". Each environment has its own valid SandboxImage.
 func seedEnvironments(t *testing.T, repo *mockRepository, k8s *mockK8s) {
 	t.Helper()
-	repo.envs["env-go"] = &Environment{ID: "env-go", TenantID: "t-1", Name: "go", SandboxImage: "acme-go", Size: EnvironmentSize{CPU: "4", Memory: "8Gi", Disk: "20Gi"}}
-	repo.envs["env-node"] = &Environment{ID: "env-node", TenantID: "t-1", Name: "node", SandboxImage: "acme-node", Size: testSizes.Default}
+	repo.envs["env-go"] = &Environment{ID: "env-go", TenantID: "t-1", Slug: "go", SandboxImage: "acme-go", Size: EnvironmentSize{CPU: "4", Memory: "8Gi", Disk: "20Gi"}}
+	repo.envs["env-node"] = &Environment{ID: "env-node", TenantID: "t-1", Slug: "node", SandboxImage: "acme-node", Size: testSizes.Default}
 	k8s.sandboxImages = map[string]*si.SandboxImage{
 		"acme-go":   validSandboxImage("acme-go", "ghcr.io/acme/go:1", "sha256:go"),
 		"acme-node": validSandboxImage("acme-node", "ghcr.io/acme/node:1", "sha256:node"),
@@ -213,7 +213,7 @@ func TestListRunEnvironments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Name != "go" || !got[0].Default || got[0].Current || got[1].Name != "node" || !got[1].Current {
+	if len(got) != 2 || got[0].Slug != "go" || !got[0].Default || got[0].Current || got[1].Slug != "node" || !got[1].Current {
 		t.Errorf("environments = %+v, want go default first and node current", got)
 	}
 	if got[0].Image != "acme-go" {
@@ -228,7 +228,7 @@ func TestListRunEnvironments_NoneAttached(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].Name != DefaultEnvironmentName || got[0].Image != si.BaseName || !got[0].Default {
+	if len(got) != 1 || got[0].Slug != DefaultEnvironmentName || got[0].Image != si.BaseName || !got[0].Default {
 		t.Errorf("environments = %+v, want the built-in default on kora-base", got)
 	}
 }
@@ -252,7 +252,7 @@ func TestHandleProvisionSandbox_EnvironmentRefusal(t *testing.T) {
 
 	w = httptest.NewRecorder()
 	c.handleListRunEnvironments(w, callbackReq(http.MethodGet, "/internal/runs/run-1/environments", ""))
-	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"name":"go"`) {
+	if w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"slug":"go"`) {
 		t.Errorf("list status %d body %s", w.Code, w.Body.String())
 	}
 }

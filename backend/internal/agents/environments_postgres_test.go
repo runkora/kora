@@ -47,7 +47,8 @@ func testEnvironment(t *testing.T, r *PostgresRepository, tenant, name string) E
 	env := Environment{
 		ID:           uuid.NewString(),
 		TenantID:     tenant,
-		Name:         name,
+		Slug:         name,
+		Name:         name + " services",
 		Description:  name + " sandbox",
 		SandboxImage: "acme-" + name,
 		Size:         EnvironmentSize{CPU: "4", Memory: "8Gi", Disk: "20Gi"},
@@ -109,6 +110,49 @@ func TestPostgres_EnvironmentRoundTrip(t *testing.T) {
 	}
 	if _, err := r.GetEnvironment(ctx, "other-tenant", env.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("another tenant's read = %v, want ErrNotFound", err)
+	}
+}
+
+// The slug and the name for people are separate columns, an update changes only
+// the name, and a row the previous release wrote without a name reads its slug.
+func TestPostgres_EnvironmentSlugAndName(t *testing.T) {
+	r, tenant := testEnvironmentRepo(t)
+	ctx := context.Background()
+	env := testEnvironment(t, r, tenant, "go")
+
+	got, err := r.GetEnvironment(ctx, tenant, env.ID)
+	if err != nil {
+		t.Fatalf("GetEnvironment: %v", err)
+	}
+	if got.Slug != "go" || got.Name != "go services" {
+		t.Errorf("slug, name = %q, %q; want go, go services", got.Slug, got.Name)
+	}
+
+	env.Name = "Go"
+	env.Slug = "ignored"
+	if err := r.UpdateEnvironment(ctx, env); err != nil {
+		t.Fatalf("UpdateEnvironment: %v", err)
+	}
+	got, _ = r.GetEnvironment(ctx, tenant, env.ID)
+	if got.Slug != "go" || got.Name != "Go" {
+		t.Errorf("after update slug, name = %q, %q; want go, Go", got.Slug, got.Name)
+	}
+
+	legacy := uuid.NewString()
+	if _, err := r.pool.Exec(ctx, `INSERT INTO environments (id, tenant_id, name) VALUES ($1,$2,'legacy')`, legacy, tenant); err != nil {
+		t.Fatalf("insert without display_name: %v", err)
+	}
+	got, err = r.GetEnvironment(ctx, tenant, legacy)
+	if err != nil || got.Slug != "legacy" || got.Name != "legacy" {
+		t.Errorf("legacy row = %+v (%v), want its slug as the name", got, err)
+	}
+
+	dup := env
+	dup.ID = uuid.NewString()
+	dup.Slug = "go"
+	dup.Name = "Another name"
+	if err := r.CreateEnvironment(ctx, dup); !errors.Is(err, ErrEnvironmentSlugTaken) {
+		t.Errorf("duplicate slug = %v, want ErrEnvironmentSlugTaken", err)
 	}
 }
 

@@ -9,6 +9,9 @@ export type { Connector };
 
 export interface EnvironmentRow {
   id: string;
+  /** What agents select the environment by. */
+  slug: string;
+  /** The environment's name for people. */
   name: string;
   description: string;
   /** SandboxImage name. */
@@ -25,6 +28,8 @@ export interface EnvironmentRow {
 export function toEnvironmentRow(e: Environment): EnvironmentRow {
   return {
     id: e.id,
+    // An orbit-agents from the previous release sends only name, which is then the slug.
+    slug: e.slug || e.name,
     name: e.name,
     description: e.description,
     sandboxImage: e.sandbox_image,
