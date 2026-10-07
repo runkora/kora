@@ -17,7 +17,11 @@ cmd/orbit-agents:
   policy:
     bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
   agents:
-    sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default (printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry $tag) | toJson }}
+    {{- $sessionManager := printf "%s/orbit-session-manager:%s" .Values.global.imageRegistry $tag }}
+    {{- with .Values.agents.config.sessionManagerDigest }}
+    {{- $sessionManager = printf "%s/orbit-session-manager@%s" $.Values.global.imageRegistry . }}
+    {{- end }}
+    sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default $sessionManager | toJson }}
     sandboxImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
     {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}
     environments:

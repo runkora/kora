@@ -290,7 +290,7 @@ A `release.yml` workflow on `v*` tags, reusing `docker.yml` through `workflow_ca
 3. Set `version` and `appVersion` on both charts to the tag, and write every digest into the packaged chart's `values.yaml` at `helm package` time. Source `values.yaml` keeps empty digests so local development uses tags and the tag matches the published source.
 4. `helm push` both charts to `oci://ghcr.io/clear-route/charts/`.
 5. Sign charts and images with cosign using a repository-held key while the repository is private (keyless signing writes image names to the public transparency log), switching to keyless with the GitHub OIDC identity when the repository opens. Attach SLSA provenance. The workflow holds `id-token: write`, `packages: write`, `attestations: write`.
-6. Publish release assets: `images.txt` (every image reference including third-party), `compatibility.yaml` (supported Kubernetes, Istio, SPIRE, Helm, Helmfile and helm-diff versions), and release notes generated from conventional commits with a breaking-changes section.
+6. Publish release assets: `images.txt` (every image the release publishes, plus the third-party images the chart references), `compatibility.yaml` (supported Kubernetes, Istio, SPIRE, Helm, Helmfile and helm-diff versions), and release notes generated from conventional commits with a breaking-changes section.
 
 Chart CI on every pull request touching `charts/`, `deploy/reference/`, `backend/internal/operator/` or `backend/internal/agents/k8s*.go`: `ct lint` with `values.schema.json` (`check-version-increment: false`, versions are stamped at release), `helm template | kubeconform` per supported Kubernetes minor with `istioctl analyze --use-kube=false` on the rendered output for the Istio resources kubeconform has no schema for, the restricted pod security check from the companion ADR, and a k3d matrix that runs the reference Helmfile against Istio N and N-1 (k3d rather than kind so CI and local development use the same cluster tooling). The Argo CD example is render-validated; exercising it as an install is a future improvement. Renovate tracks the Istio and SPIRE versions in `deploy/reference/`.
 
@@ -399,7 +399,7 @@ Every component block accepts `image.{registry,repository,tag,digest,pullPolicy}
 {{- end }}
 ```
 
-Takes `(dict "root" $ "name" "<values key>")`, the values key being the component's top-level block. Tag resolution is component `image.tag`, then `global.imageTag`, then the chart appVersion, so local development pins every deployed image with one `global.imageTag` and a release pins each with a `digest`. This covers the twelve chart-deployed images. The two images orbit-agents runs at runtime, `orbit-session-manager` and `orbit-sandbox-exec`, are referenced by full string in `agents.config` and resolve by tag; digest-pinning them is deferred. A sibling `orbit.imageRef` takes `(dict "root" $ "image" <image map>)` for a nested image block that isn't a top-level values key, such as `identityProxy.image` or `opaGateway.image`.
+Takes `(dict "root" $ "name" "<values key>")`, the values key being the component's top-level block. Tag resolution is component `image.tag`, then `global.imageTag`, then the chart appVersion, so local development pins every deployed image with one `global.imageTag` and a release pins each with a `digest`. This covers the twelve chart-deployed images. The two images orbit-agents runs at runtime, `orbit-session-manager` and `kora-sandbox-base`, are referenced by full string in `agents.config`. A release pins `orbit-session-manager` through `agents.config.sessionManagerDigest`, and `kora-sandbox-base` resolves by tag. A sibling `orbit.imageRef` takes `(dict "root" $ "image" <image map>)` for a nested image block that isn't a top-level values key, such as `identityProxy.image` or `opaGateway.image`.
 
 ---
 
@@ -493,7 +493,7 @@ Tenant CRs, tenant namespaces, tenant CAs and aggregated ConfigMaps are untouche
 - The k3d matrix installs the reference Helmfile on Istio N and N-1 with CNI and SPIRE, the preflight reports the contract satisfied, and kora's gateway pods hold an SVID in kora's trust domain.
 - The matrix uninstalls `orbit`, confirms `OrbitTenant` objects, tenant namespaces and the CRDs remain, and reinstalls without manual steps.
 - The matrix runs on k3d with its NetworkPolicy controller enabled and asserts that a sandbox cannot reach the internet except through the egress gateway (`scripts/cluster/test-egress-lockdown.sh`) and that a documented flow succeeds.
-- `cosign verify` succeeds for both charts and every image in `images.txt`, including against a mirrored copy.
+- `cosign verify` succeeds for both charts and every kora image in `images.txt`, including against a mirrored copy.
 - Operator ClusterRole contains no wildcard verbs, and the operator's informers list Secrets only in kora's namespaces.
 
 ### Monitoring
