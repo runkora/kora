@@ -55,7 +55,7 @@ EOF
 #
 #   dockerfile  Path to the Dockerfile, relative to repo root.
 #   context     Build context, relative to repo root.
-#   build_arg   Optional --build-args, space-separated KEY=VALUE pairs; empty if
+#   build_arg   Optional --build-arg entries, space-separated KEY=VALUE pairs; empty if
 #               not needed. {sha} is the git SHA and {go_version} is GO_VERSION
 #               from versions.hcl.
 #   image       Image name (without tag); IMAGE=orbit-foo → orbit-foo:latest.
