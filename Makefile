@@ -633,10 +633,10 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 
 # Sandbox images make up does not build. They must match the local-sandbox-images
 # group in docker-bake.local.hcl.
-BAKE_SANDBOX_IMAGES := kora-sandbox-go kora-sandbox-python kora-sandbox-node
+BAKE_SANDBOX_IMAGES := kora-sandbox-go kora-sandbox-python kora-sandbox-node kora-sandbox-dev
 
 .PHONY: redeploy-sandbox-images
-redeploy-sandbox-images: ## Build + push BAKE_SANDBOX_IMAGES (the bundled sandbox images) to the local registry
+redeploy-sandbox-images: ## Build + push BAKE_SANDBOX_IMAGES (the bundled sandbox images and kora-sandbox-dev) to the local registry
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
 	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
 	GIT_SHA="$$GIT_SHA" docker buildx bake \
