@@ -1,14 +1,18 @@
 package egressgw
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
 )
@@ -106,5 +110,37 @@ func TestAnonymousReadOrDeny_OnlyGitHub(t *testing.T) {
 	_, err := b.anonymousReadOrDeny(context.Background(), span, claimsFor("acme", "agent", "run"), conn, FromHTTP(req), denial)
 	if !errors.Is(err, ErrForbidden) || len(eval.egressChecks) != 0 {
 		t.Errorf("err = %v with %d posture checks, want the denial and no fallback", err, len(eval.egressChecks))
+	}
+}
+
+// A request the fallback serves logs only the anonymous-read decision. A
+// request it declines keeps the denial line.
+func TestAuthorize_FallbackLogsOneLine(t *testing.T) {
+	tests := []struct {
+		name, method, path string
+		ownEgress          bool
+		want, notWant      string
+	}{
+		{"unclassified read served", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", true, "egress authorized: anonymous read", "egress denied"},
+		{"policy-denied read served", http.MethodGet, "/orbital/orbit/pulls", true, "egress authorized: anonymous read", "egress denied"},
+		{"unclassified read declined", http.MethodGet, "/octocat/hello-world.git/info/refs?service=git-upload-pack", false, "egress denied: adapter could not classify action", "anonymous read"},
+		{"policy-denied write declined", http.MethodPost, "/orbital/orbit/pulls", true, "egress denied by policy", "anonymous read"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			cfg, _ := json.Marshal(map[string]any{"app_id": "12345", "installation_id": 42, "owner": "orbital"})
+			f.repo.items["acme|github"].Config = cfg
+			var logs bytes.Buffer
+			b := NewBroker(&postureEvaluator{ownEgress: tc.ownEgress}, f.repo, f.registry, passthrough.New(), logging.NewLoggerWithOutput(&logs))
+
+			r := httptest.NewRequest(tc.method, "https://"+f.connectionHost+tc.path, nil)
+			_, _ = b.Authorize(context.Background(), claimsFor("acme", "agent", "run-1"), FromHTTP(r))
+
+			out := logs.String()
+			if strings.Count(out, tc.want) != 1 || strings.Contains(out, tc.notWant) {
+				t.Errorf("want one %q and no %q, got:\n%s", tc.want, tc.notWant, out)
+			}
+		})
 	}
 }

@@ -129,7 +129,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return Decision{}, err
 	}
 
-	cls, err := b.classify(ctx, connector, conn, req)
+	cls, err := b.classify(connector, req)
 	if err != nil {
 		span.RecordError(err)
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, deny(DenialUnclassified, req.Host, conn, credentials.Classification{}, err))
@@ -144,7 +144,7 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 	// sidecar, which the agent cannot bypass.
 	action, also := cls.Action, []string(nil)
 	if registered {
-		authorized, perr := b.evaluatePolicy(ctx, claims, conn, cls, req, tenantID)
+		authorized, perr := b.evaluatePolicy(ctx, claims, conn, cls, req)
 		if perr != nil {
 			return b.policyDenied(ctx, span, claims, conn, req, perr)
 		}
@@ -211,6 +211,11 @@ func (b *Broker) policyDenied(ctx context.Context, span trace.Span, claims *toke
 		return b.anonymousReadOrDeny(ctx, span, claims, conn, req, denial)
 	}
 	span.SetStatus(codes.Error, ErrForbidden.Error())
+	// An evaluator error is logged where it happens. An operational result
+	// such as no policy for the tenant is logged here.
+	if denial != nil && denial.decision != "" {
+		b.logDenial(ctx, claims.Orbit.TenantID, req, denial)
+	}
 	return Decision{}, perr
 }
 
@@ -226,6 +231,7 @@ const anonymousReadAction = "anonymous_read"
 func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claims *token.PlatformClaims, conn *credentials.Connection, req EgressRequest, denial *Denial) (Decision, error) {
 	if conn.Adapter != credentials.AdapterGitHubApp || !isRead(req) || !b.ownEgressAllows(ctx, claims, req.Host) {
 		span.SetStatus(codes.Error, ErrForbidden.Error())
+		b.logDenial(ctx, claims.Orbit.TenantID, req, denial)
 		return Decision{}, denial
 	}
 
@@ -256,6 +262,35 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 		},
 		Action: anonymousReadAction,
 	}, nil
+}
+
+// logDenial records a refused call once, after the fallback has declined it.
+// The query string and headers stay out of the log: either can carry tokens.
+func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressRequest, d *Denial) {
+	if d.Reason == DenialUnclassified {
+		cause := ""
+		if d.cause != nil {
+			cause = d.cause.Error()
+		}
+		b.logger.Info(ctx, "egress denied: adapter could not classify action",
+			logging.Field{Key: "connection", Value: d.Connection},
+			logging.Field{Key: "host", Value: req.Host},
+			logging.Field{Key: "method", Value: req.Method},
+			logging.Field{Key: "path", Value: requestPath(req)},
+			logging.Field{Key: "error", Value: cause},
+		)
+		return
+	}
+	b.logger.Info(ctx, "egress denied by policy",
+		logging.Field{Key: "connection", Value: d.Connection},
+		logging.Field{Key: "host", Value: req.Host},
+		logging.Field{Key: "method", Value: req.Method},
+		logging.Field{Key: "path", Value: requestPath(req)},
+		logging.Field{Key: "action", Value: d.Action},
+		logging.Field{Key: "qualifier", Value: d.Qualifier},
+		logging.Field{Key: "tenant_id", Value: tenantID},
+		logging.Field{Key: "reason", Value: d.decision},
+	)
 }
 
 // ownEgressAllows asks policy whether the caller's own posture (open mode, or
@@ -305,22 +340,10 @@ func hostWithoutPort(host string) string {
 // grant: an attachment narrowed to a repository compiles to a qualified scope,
 // and policy evaluation below rejects anything the grant does not cover. See
 // docs/adr/2026-07-22-connection-scope-qualifiers.md.
-func (b *Broker) classify(ctx context.Context, connector credentials.Connector, conn *credentials.Connection, req EgressRequest) (credentials.Classification, error) {
-	cls, err := connector.Classify(req.HTTPRequest)
-	if err != nil {
-		// An adapter that cannot classify the request shape is a deny.
-		// The deny is recorded with the unsupported reason so audit captures it.
-		b.logger.Info(ctx, "egress denied: adapter could not classify action",
-			logging.Field{Key: "connection", Value: conn.Name},
-			logging.Field{Key: "host", Value: req.Host},
-			logging.Field{Key: "method", Value: req.Method},
-			logging.Field{Key: "path", Value: requestPath(req)},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		return credentials.Classification{}, err
-	}
-
-	return cls, nil
+func (b *Broker) classify(connector credentials.Connector, req EgressRequest) (credentials.Classification, error) {
+	// An adapter that cannot classify the request shape is a deny, logged by
+	// logDenial unless the anonymous fallback serves the request.
+	return connector.Classify(req.HTTPRequest)
 }
 
 // evaluatePolicy checks the classified call against the caller's grants and
@@ -335,7 +358,7 @@ func (b *Broker) classify(ctx context.Context, connector credentials.Connector, 
 // classification's AlsoRequired actions, which are appended when all are held.
 // An evaluator error on the classified action or a required one fails closed;
 // one on an alternate drops that alternate.
-func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, req EgressRequest, tenantID string) ([]string, error) {
+func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaims, conn *credentials.Connection, cls credentials.Classification, req EgressRequest) ([]string, error) {
 	primary, err := b.checkAction(ctx, claims, conn, cls.Action, cls.Qualifier)
 	if err != nil {
 		b.logger.Error(ctx, "policy evaluation failed",
@@ -372,19 +395,9 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 	}
 
 	if len(authorized) == 0 {
-		b.logger.Info(ctx, "egress denied by policy",
-			logging.Field{Key: "connection", Value: conn.Name},
-			logging.Field{Key: "host", Value: req.Host},
-			logging.Field{Key: "method", Value: req.Method},
-			logging.Field{Key: "path", Value: requestPath(req)},
-			logging.Field{Key: "action", Value: cls.Action},
-			logging.Field{Key: "qualifier", Value: cls.Qualifier},
-			logging.Field{Key: "tenant_id", Value: tenantID},
-			logging.Field{Key: "reason", Value: primary.Reason},
-		)
 		reason, label := policyDenialReason(reasons)
 		d := deny(reason, req.Host, conn, cls, nil)
-		d.PolicyReason = label
+		d.PolicyReason, d.decision = label, primary.Reason
 		return nil, d
 	}
 
@@ -401,19 +414,9 @@ func (b *Broker) evaluatePolicy(ctx context.Context, claims *token.PlatformClaim
 			return nil, deny(DenialPolicyUnavailable, req.Host, conn, required, err)
 		}
 		if !decision.Allow {
-			b.logger.Info(ctx, "egress denied by policy",
-				logging.Field{Key: "connection", Value: conn.Name},
-				logging.Field{Key: "host", Value: req.Host},
-				logging.Field{Key: "method", Value: req.Method},
-				logging.Field{Key: "path", Value: requestPath(req)},
-				logging.Field{Key: "action", Value: action},
-				logging.Field{Key: "qualifier", Value: cls.Qualifier},
-				logging.Field{Key: "tenant_id", Value: tenantID},
-				logging.Field{Key: "reason", Value: decision.Reason},
-			)
 			reason, label := policyDenialReason([]string{decision.Reason})
 			d := deny(reason, req.Host, conn, required, nil)
-			d.PolicyReason = label
+			d.PolicyReason, d.decision = label, decision.Reason
 			return nil, d
 		}
 		authorized = append(authorized, action)
