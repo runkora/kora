@@ -171,20 +171,6 @@ agents:
 
 Disabling a bundled image deletes its `SandboxImage` from every tenant namespace. An environment that selects it can no longer start a sandbox, and the agent receives a message that the image is not registered. Running sandboxes keep running. The operator changes only the bundled `SandboxImage` resources it created. If a tenant registers its own `SandboxImage` under a bundled name, the operator leaves it in place, does not register the bundled image in that namespace, and logs the conflict.
 
-kora also publishes `kora-sandbox-dev` for agents that work on kora itself. It carries Go, `golangci-lint`, `buf`, `protoc-gen-go`, `protoc-gen-go-grpc`, `deadcode`, `gitleaks` and `pnpm` at the versions in `versions.hcl` and the Node 24 LTS release of `kora-sandbox-node`. It carries no dependency caches, and the chart does not register it. Register it in the tenant that runs kora's own agents with the tag of the installed release:
-
-```yaml
-apiVersion: orbit.io/v1alpha1
-kind: SandboxImage
-metadata:
-  name: kora-dev
-  namespace: orbit-tenant-kora
-spec:
-  image: ghcr.io/clear-route/kora-sandbox-dev:v0.7.0
-  description: kora's development tools at the versions kora pins.
-  warm: true
-```
-
 An environment combines a sandbox image with a size, egress hosts and connectors. Users with `agents:environments:write` create environments through the API or the Environments page and attach them to agents. An agent with no environment runs its sandboxes on `kora-base` at the default size. Helm values set the default size and the largest size an environment can request:
 
 ```yaml
