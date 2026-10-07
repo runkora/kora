@@ -152,6 +152,25 @@ The `Valid` condition states why the operator rejected an image. An environment 
 
 The operator keeps a `SandboxImage` named `kora-base` in every tenant namespace. It points at `agents.config.sandboxImage`, and `agents.sandboxImages.warmBase` sets its `warm` flag. Every tenant reconcile restores it.
 
+kora also publishes three bundled images built on the base image, and the operator registers each enabled one in every tenant namespace:
+
+*   **`kora-go`:** `kora-sandbox-go`, with `golangci-lint`, `buf` and `protoc`.
+*   **`kora-python`:** `kora-sandbox-python`, with `ruff` and `pytest`.
+*   **`kora-node`:** `kora-sandbox-node`, with Node LTS and `pnpm`.
+
+Each one is enabled with `warm: false` by default. An empty `image` uses the release image from `global.imageRegistry`. Set `image` to a mirror or to your own build:
+
+```yaml
+agents:
+  sandboxImages:
+    bundled:
+      go: { enabled: true, warm: true, image: "" }
+      python: { enabled: true, warm: false, image: "" }
+      node: { enabled: false }
+```
+
+Disabling a bundled image deletes its `SandboxImage` from every tenant namespace. An environment that selects it can no longer start a sandbox, and the agent receives a message that the image is not registered. Running sandboxes keep running. The operator changes only the bundled `SandboxImage` resources it created. If a tenant registers its own `SandboxImage` under a bundled name, the operator leaves it in place, does not register the bundled image in that namespace, and logs the conflict.
+
 An environment combines a sandbox image with a size, egress hosts and connectors. Users with `agents:environments:write` create environments through the API or the Environments page and attach them to agents. An agent with no environment runs its sandboxes on `kora-base` at the default size. Helm values set the default size and the largest size an environment can request:
 
 ```yaml
