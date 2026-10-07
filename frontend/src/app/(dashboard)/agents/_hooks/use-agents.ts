@@ -9,14 +9,20 @@
 // the store's state + actions must satisfy the AgentsStateShape interface.
 
 import { useState, useCallback } from 'react';
-import { fetchAgentTypes, fetchRuns } from '../_services/agents-api';
+import type { AgentRunStats } from '@orbit/shared/api';
+import { fetchAgentTypes, fetchRuns, fetchRunStats } from '../_services/agents-api';
+import { DEFAULT_PERIOD, RUNNING_ROWS } from '../_lib/spend';
+import { LIVE_RUN_STATES } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 export type LoadStatus = 'idle' | 'loading' | 'success' | 'error';
 
 export interface AgentsStateShape {
   agentTypes: AgentTypeRow[];
-  recentRuns: RunRow[];
+  /** The newest live runs, at most RUNNING_ROWS; `runStats` counts them all. */
+  liveRuns: RunRow[];
+  /** Tenant run stats for the default window; null when they could not be read. */
+  runStats: AgentRunStats | null;
   status: LoadStatus;
   error: string | null;
   refresh: () => Promise<void>;
@@ -24,11 +30,13 @@ export interface AgentsStateShape {
 
 export function useAgents(
   initialAgentTypes: AgentTypeRow[],
-  initialRuns: RunRow[],
+  initialLiveRuns: RunRow[],
+  initialRunStats: AgentRunStats | null,
   initialError: string | null,
 ): AgentsStateShape {
   const [agentTypes, setAgentTypes] = useState<AgentTypeRow[]>(initialAgentTypes);
-  const [recentRuns, setRecentRuns] = useState<RunRow[]>(initialRuns);
+  const [liveRuns, setLiveRuns] = useState<RunRow[]>(initialLiveRuns);
+  const [runStats, setRunStats] = useState<AgentRunStats | null>(initialRunStats);
   const [status, setStatus] = useState<LoadStatus>(
     initialError ? 'error' : initialAgentTypes.length > 0 ? 'success' : 'idle',
   );
@@ -47,13 +55,19 @@ export function useAgents(
 
     setAgentTypes(typesResult.data);
 
-    const runsResult = await fetchRuns(typesResult.data);
+    const [runsResult, statsResult] = await Promise.all([
+      fetchRuns(typesResult.data, { states: LIVE_RUN_STATES, limit: RUNNING_ROWS }),
+      fetchRunStats(DEFAULT_PERIOD),
+    ]);
     if (!runsResult.error) {
-      setRecentRuns(runsResult.data);
+      setLiveRuns(runsResult.data);
+    }
+    if (statsResult.data) {
+      setRunStats(statsResult.data);
     }
 
     setStatus('success');
   }, []);
 
-  return { agentTypes, recentRuns, status, error, refresh };
+  return { agentTypes, liveRuns, runStats, status, error, refresh };
 }

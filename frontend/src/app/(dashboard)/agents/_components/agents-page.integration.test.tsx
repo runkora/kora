@@ -11,7 +11,7 @@ vi.mock('next/navigation', () => ({
 }));
 
 import { AgentsShell } from './agents-shell';
-import { AGENT_ROWS, RUN_ROWS } from './agents-mock-data';
+import { AGENT_ROWS, RUN_ROWS, mockRunArgs, mockRunStats } from './agents-mock-data';
 import { mockInsightsResponse } from './agents-insights-mock-data';
 import type { Period } from '../_lib/spend';
 
@@ -29,7 +29,7 @@ describe('Agents page insights', () => {
     renderWithProviders(
       <AgentsShell
         initialAgentTypes={AGENT_ROWS}
-        initialRuns={RUN_ROWS}
+        {...mockRunArgs(RUN_ROWS)}
         initialError={null}
         initialInsights={mockInsightsResponse('7d')}
       />,
@@ -42,5 +42,37 @@ describe('Agents page insights', () => {
     await userEvent.click(screen.getByRole('button', { name: '30d' }));
     await waitFor(() => expect(screen.getByText('Last 30 days')).toBeInTheDocument());
     expect(requested).toEqual(['30d']);
+  });
+});
+
+describe('Agents page run figures', () => {
+  it('takes live counts from the server stats rather than the runs it lists', async () => {
+    server.use(http.get('/api/agents/types/drafts', () => HttpResponse.json({ data: [] })));
+    const stats = mockRunStats([]);
+    const agent = AGENT_ROWS[0];
+    stats.current = {
+      total: 900,
+      by_state: { active: 40, completing: 2, starting: 3, pending: 5, completed: 850 },
+      live: 50,
+      live_by_agent_type: { [agent.id]: 50 },
+      longest_live_ms: 3_600_000,
+    };
+    const live = RUN_ROWS.filter((r) =>
+      ['active', 'starting', 'pending', 'completing'].includes(r.state),
+    );
+    renderWithProviders(
+      <AgentsShell
+        initialAgentTypes={AGENT_ROWS}
+        initialLiveRuns={live}
+        initialRunStats={stats}
+        initialError={null}
+        initialInsights={mockInsightsResponse('7d')}
+      />,
+    );
+
+    expect(screen.getByText('50 runs in progress')).toBeInTheDocument();
+    expect(screen.getByText('42 running · 3 starting · 5 queued')).toBeInTheDocument();
+    expect(screen.getByText('50 running now')).toBeInTheDocument();
+    expect(screen.getByText(`+${50 - live.length} more runs not shown`)).toBeInTheDocument();
   });
 });

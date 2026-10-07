@@ -21,6 +21,13 @@ const overview = (period: AgentInsightsPeriod): AgentOverviewResponse => ({
       buckets: Array<number>(10).fill(0),
       overflow: 0,
     },
+    current: {
+      total: 5,
+      by_state: { completed: 4, failed: 1 },
+      live: 0,
+      live_by_agent_type: {},
+      longest_live_ms: 0,
+    },
   },
 });
 

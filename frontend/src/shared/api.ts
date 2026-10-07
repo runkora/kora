@@ -522,8 +522,25 @@ export interface AgentInsightsResponse {
 }
 
 /**
+ * Mirrors Go: agents.RunStateCounts.
+ * Every run the caller can see, counted by the state it is in now, whatever its age.
+ */
+export interface RunStateCounts {
+  total: number;
+  /** Absent states have no runs. */
+  by_state: Partial<Record<RunState, number>>;
+  /** Runs in flight: pending, starting, active or completing. */
+  live: number;
+  /** Live runs keyed by agent type id. */
+  live_by_agent_type: Record<string, number>;
+  /** How long the earliest-started live run has been running. */
+  longest_live_ms: number;
+}
+
+/**
  * Mirrors Go: agents.RunStats.
- * One agent's run counts and durations for a window, from orbit-agents.
+ * The run counts and durations of one agent, or of every agent the caller can
+ * read, for a window, from orbit-agents.
  */
 export interface AgentRunStats {
   /** Runs created in the window, and the part a trigger started; the rest are manual. */
@@ -544,6 +561,23 @@ export interface AgentRunStats {
     buckets: number[];
     overflow: number;
   };
+  current: RunStateCounts;
+}
+
+/**
+ * Mirrors the GET /api/v1/runs response: one page of runs, newest first.
+ * `next_cursor` is null on the last page.
+ */
+export interface RunsPage {
+  runs: Run[];
+  next_cursor: string | null;
+  limit: number;
+}
+
+/** A page of runs as the BFF run routes serve it. */
+export interface RunsPageResponse {
+  data: RunWithAttribution[];
+  next_cursor: string | null;
 }
 
 /**

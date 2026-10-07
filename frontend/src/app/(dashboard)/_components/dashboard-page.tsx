@@ -30,6 +30,7 @@ import { StatusBadge } from '@orbit/components';
 import { EventFeedItem } from './event-feed-item';
 import { APP_ROUTES } from '@orbit/lib/routing';
 
+import type { RunStateCounts } from '@orbit/shared/api';
 import type { AgentTypeRow, RunRow } from '../agents/_types';
 import { formatRelativeTime } from '../agents/_types';
 import type { ConnectionRow } from '../connections/_types';
@@ -131,7 +132,10 @@ export function SpendBudgetCard({ cap }: { cap: TenantCapStatus | null }) {
 
 export interface DashboardPageProps {
   agentTypes: AgentTypeRow[];
-  runs: RunRow[];
+  /** The newest runs, newest first. */
+  recentRuns: RunRow[];
+  /** Every run counted by current state; null when the counts could not be read. */
+  runCounts: RunStateCounts | null;
   connections: ConnectionRow[];
   environments: EnvironmentRow[];
   analytics: AnalyticsResponse | null;
@@ -143,18 +147,14 @@ export interface DashboardPageProps {
 
 export function DashboardPage({
   agentTypes,
-  runs,
+  recentRuns,
+  runCounts,
   connections,
   environments,
   analytics,
   tenantCap,
   windowDays = 7,
 }: DashboardPageProps) {
-  const activeRunCount = runs.filter((r) =>
-    ['active', 'starting', 'pending', 'completing'].includes(r.state),
-  ).length;
-
-  const recentRuns = runs.slice(0, 8);
   const displayedAgents = agentTypes.slice(0, 6);
 
   return (
@@ -176,8 +176,11 @@ export function DashboardPage({
         <StatCard
           icon={<Icon name="activity" size="xs" aria-hidden />}
           label="Active Runs"
-          value={String(activeRunCount)}
-          delta={{ text: `${runs.length} total`, positive: activeRunCount > 0 }}
+          value={runCounts ? String(runCounts.live) : '–'}
+          delta={{
+            text: runCounts ? `${runCounts.total} total` : 'unavailable',
+            positive: (runCounts?.live ?? 0) > 0,
+          }}
           footer={<Link href={APP_ROUTES.agents.list}>View all →</Link>}
         />
         <StatCard

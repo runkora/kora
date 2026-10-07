@@ -30,7 +30,7 @@ import { DraftsButton, DraftsList, useDrafts } from './drafts-section';
 import { AgentCard } from './agent-card';
 import { AgentStatTiles } from './agent-stat-tiles';
 import { AgentsSpendCard } from './agents-spend-card';
-import { RunningNowCard, isLiveRun } from './running-now-card';
+import { RunningNowCard } from './running-now-card';
 import { DEFAULT_PERIOD, PERIOD_OPTIONS, PERIOD_TEXT } from '../_lib/spend';
 import type { Period } from '../_lib/spend';
 import { formatRelativeTime } from '../_types';
@@ -73,7 +73,7 @@ interface AgentsPageProps {
 }
 
 export function AgentsPage({ initialInsights }: AgentsPageProps) {
-  const { agentTypes, recentRuns, status, error, refresh } = useAgentsContext();
+  const { agentTypes, liveRuns, runStats, status, error, refresh } = useAgentsContext();
   const router = useRouter();
   const { drafts, refresh: refreshDrafts } = useDrafts();
 
@@ -95,22 +95,20 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
 
   // ── Figures ────────────────────────────────────────────────────────────────
 
-  const liveRuns = useMemo(() => recentRuns.filter(isLiveRun), [recentRuns]);
-
-  const runCounts = useMemo(() => {
-    const count = (...states: string[]) => liveRuns.filter((r) => states.includes(r.state)).length;
-    return {
-      running: count('active', 'completing'),
-      starting: count('starting'),
-      queued: count('pending'),
-      longestMs: Math.max(0, ...liveRuns.map((r) => r.durationMs ?? 0)),
-    };
-  }, [liveRuns]);
-
-  const outcomes = windowData?.outcomes ?? {
-    completed: recentRuns.filter((r) => r.state === 'completed').length,
-    failed: recentRuns.filter((r) => r.state === 'failed').length,
+  const live = runStats?.current;
+  const runCounts = {
+    running: (live?.by_state.active ?? 0) + (live?.by_state.completing ?? 0),
+    starting: live?.by_state.starting ?? 0,
+    queued: live?.by_state.pending ?? 0,
+    longestMs: live?.longest_live_ms ?? 0,
   };
+
+  // Without the window's outcomes the tiles fall back to the default window's run stats.
+  const outcomes = windowData?.outcomes ?? {
+    completed: runStats?.completed ?? 0,
+    failed: runStats?.failed ?? 0,
+  };
+  const outcomesText = windowData?.outcomes ? periodText : PERIOD_TEXT[DEFAULT_PERIOD].text;
 
   const tokens = useMemo(() => {
     if (!windowData) return null;
@@ -146,13 +144,8 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
 
   // ── Active run counts per agent type ──────────────────────────────────────
 
-  const activeRunsByType = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const run of liveRuns) {
-      counts.set(run.agentTypeId, (counts.get(run.agentTypeId) ?? 0) + 1);
-    }
-    return counts;
-  }, [liveRuns]);
+  const liveByType = live?.live_by_agent_type;
+  const activeRunsByType = useMemo(() => liveByType ?? {}, [liveByType]);
 
   // ── Identity filter (list view) ────────────────────────────────────────────
 
@@ -230,7 +223,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
-            {activeRunsByType.get(row.id) ?? 0}
+            {activeRunsByType[row.id] ?? 0}
           </Text>
         ),
       },
@@ -340,7 +333,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
           runs={runCounts}
           outcomes={outcomes}
           tokens={tokens}
-          outcomesText={windowData?.outcomes ? periodText : 'recent runs'}
+          outcomesText={outcomesText}
           periodText={periodText}
           tokensNote={unavailableText}
         />
@@ -358,7 +351,10 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         />
       </Grid>
 
-      <RunningNowCard runs={liveRuns} />
+      <RunningNowCard
+        runs={liveRuns}
+        counts={{ ...runCounts, total: live?.live ?? liveRuns.length }}
+      />
 
       {/* Section header */}
       <Stack direction="horizontal" align="baseline" gap="snug">
@@ -387,7 +383,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               agent={agent}
               usage={usage[agent.slug]}
               totalCost={totalCost}
-              liveRuns={activeRunsByType.get(agent.id) ?? 0}
+              liveRuns={activeRunsByType[agent.id] ?? 0}
               period={period}
               usageNote={windowStatus === 'ready' ? undefined : unavailableText}
               onRun={setStartRunTarget}

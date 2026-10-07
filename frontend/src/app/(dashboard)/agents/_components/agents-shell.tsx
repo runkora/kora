@@ -4,12 +4,13 @@
 
 import { AgentsProvider } from '../_context/agents-context';
 import { AgentsPage } from './agents-page';
-import type { AgentInsightsResponse } from '@orbit/shared/api';
+import type { AgentInsightsResponse, AgentRunStats } from '@orbit/shared/api';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 interface AgentsShellProps {
   initialAgentTypes: AgentTypeRow[];
-  initialRuns: RunRow[];
+  initialLiveRuns: RunRow[];
+  initialRunStats: AgentRunStats | null;
   initialError: string | null;
   /** The 7-day insights the server render fetched. */
   initialInsights?: AgentInsightsResponse | null;
@@ -17,14 +18,16 @@ interface AgentsShellProps {
 
 export function AgentsShell({
   initialAgentTypes,
-  initialRuns,
+  initialLiveRuns,
+  initialRunStats,
   initialError,
   initialInsights,
 }: AgentsShellProps) {
   return (
     <AgentsProvider
       initialAgentTypes={initialAgentTypes}
-      initialRuns={initialRuns}
+      initialLiveRuns={initialLiveRuns}
+      initialRunStats={initialRunStats}
       initialError={initialError}
     >
       <AgentsPage {...(initialInsights ? { initialInsights } : {})} />

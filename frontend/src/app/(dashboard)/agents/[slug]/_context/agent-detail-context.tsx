@@ -14,6 +14,7 @@ const AgentDetailContext = createContext<AgentDetailStateShape | null>(null);
 interface AgentDetailProviderProps {
   initialAgent: AgentTypeRow | null;
   initialRuns: RunRow[];
+  initialNextCursor: string | null;
   initialError: string | null;
   initialStatus: DetailStatus;
   children: React.ReactNode;
@@ -22,11 +23,18 @@ interface AgentDetailProviderProps {
 export function AgentDetailProvider({
   initialAgent,
   initialRuns,
+  initialNextCursor,
   initialError,
   initialStatus,
   children,
 }: AgentDetailProviderProps) {
-  const state = useAgentDetail(initialAgent, initialRuns, initialError, initialStatus);
+  const state = useAgentDetail(
+    initialAgent,
+    initialRuns,
+    initialNextCursor,
+    initialError,
+    initialStatus,
+  );
   return <AgentDetailContext.Provider value={state}>{children}</AgentDetailContext.Provider>;
 }
 

@@ -11,6 +11,8 @@ import type { AgentOverviewResponse } from '@orbit/shared/api';
 interface AgentDetailShellProps {
   initialAgent: AgentTypeRow | null;
   initialRuns: RunRow[];
+  /** Where the second page of runs starts; null when the first page holds them all. */
+  initialNextCursor: string | null;
   initialError: string | null;
   initialStatus: DetailStatus;
   /** The default window's overview, fetched by the server render. */
@@ -20,6 +22,7 @@ interface AgentDetailShellProps {
 export function AgentDetailShell({
   initialAgent,
   initialRuns,
+  initialNextCursor,
   initialError,
   initialStatus,
   initialOverview,
@@ -28,6 +31,7 @@ export function AgentDetailShell({
     <AgentDetailProvider
       initialAgent={initialAgent}
       initialRuns={initialRuns}
+      initialNextCursor={initialNextCursor}
       initialError={initialError}
       initialStatus={initialStatus}
     >

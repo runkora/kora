@@ -1,4 +1,4 @@
-// RSC: fetches the agent type, its runs and its default-window overview by slug.
+// RSC: fetches the agent type, its first page of runs and its default-window overview by slug.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { fetchAgentDetailFromBFF } from './_services/agent-detail-server';
@@ -23,6 +23,7 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
 
   const initialAgent = result?.ok ? result.agent : null;
   const initialRuns = result?.ok ? result.runs : [];
+  const initialNextCursor = result?.ok ? result.nextCursor : null;
   const initialError = result && !result.ok ? result.message : null;
   const initialStatus =
     result === null
@@ -37,6 +38,7 @@ export default async function AgentDetailPage({ params }: AgentDetailPageProps) 
     <AgentDetailShell
       initialAgent={initialAgent}
       initialRuns={initialRuns}
+      initialNextCursor={initialNextCursor}
       initialError={initialError}
       initialStatus={initialStatus}
       initialOverview={overview}

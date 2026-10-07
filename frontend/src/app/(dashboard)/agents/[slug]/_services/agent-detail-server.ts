@@ -1,14 +1,14 @@
 import 'server-only';
 
-import type { AgentType, Run } from '@orbit/shared/api';
-import { agentsClient } from '@orbit/server/agents-client';
+import type { AgentType } from '@orbit/shared/api';
+import { agentsClient, runsPageParams } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
-import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
-import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
+import { listRunsWithNames } from '@orbit/server/services/runs-server';
+import { RUNS_PAGE_SIZE, indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
 import type { AgentTypeRow, RunRow } from '../../_types';
 
 export type AgentDetailResult =
-  | { ok: true; agent: AgentTypeRow; runs: RunRow[] }
+  | { ok: true; agent: AgentTypeRow; runs: RunRow[]; nextCursor: string | null }
   | { ok: false; status: number; message: string };
 
 export async function fetchAgentDetailFromBFF(
@@ -35,22 +35,15 @@ export async function fetchAgentDetailFromBFF(
 
     const agent = toAgentTypeRow(detail ?? found);
 
-    const runsUpstream = await client.get<{ runs: Run[] }>(
-      `/api/v1/runs?tenant_id=${encodeURIComponent(tenantId)}&agent_type_id=${encodeURIComponent(found.id)}`,
-    );
-    const rawRuns = runsUpstream?.runs ?? [];
-    // Resolve run starters to display names (same enrichment as the runs BFF
-    // routes) so the server-rendered runs tab attributes runs on first paint.
-    const names = await resolveUserDisplayNames(
+    // The first page of runs, with starters' display names so the runs tab attributes them on first paint.
+    const page = await listRunsWithNames(
       accessToken,
-      rawRuns.map((r) => r.created_by),
+      runsPageParams({ agentTypeId: found.id, limit: RUNS_PAGE_SIZE }),
     );
     const byId = indexAgentTypes([agent]);
-    const runs = rawRuns.map((r) =>
-      toRunRow({ ...r, created_by_name: names.get(r.created_by) ?? null }, byId),
-    );
+    const runs = page.data.map((r) => toRunRow(r, byId));
 
-    return { ok: true, agent, runs };
+    return { ok: true, agent, runs, nextCursor: page.next_cursor };
   } catch (err) {
     if (err instanceof ApiError) {
       return { ok: false, status: err.status, message: err.message };

@@ -6,6 +6,7 @@
  */
 
 import type {
+  AgentRunStats,
   AgentType,
   AgentTypeDraft,
   AgentTypeUsage,
@@ -17,7 +18,8 @@ import type {
   Run,
   RunWithAttribution,
 } from '@orbit/shared/api';
-import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
+import { RUNNING_ROWS } from '../_lib/spend';
+import { LIVE_RUN_STATES, indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 const MINUTE = 60_000;
@@ -673,4 +675,49 @@ export const SCALE_USAGE: AgentTypeUsage[] = SCALE_AGENT_TYPES.map((a, i) => {
     Math.round(500_000 * weight),
     Math.round(120 * weight * 100) / 100,
   );
+});
+
+// ── Run stats ────────────────────────────────────────────────────────────────
+
+/** The run stats orbit-agents would return for these rows, all inside the window. */
+export function mockRunStats(rows: RunRow[]): AgentRunStats {
+  const byState: AgentRunStats['current']['by_state'] = {};
+  const liveByAgentType: Record<string, number> = {};
+  let longest = 0;
+  for (const r of rows) {
+    byState[r.state] = (byState[r.state] ?? 0) + 1;
+    if (LIVE_RUN_STATES.includes(r.state)) {
+      liveByAgentType[r.agentTypeId] = (liveByAgentType[r.agentTypeId] ?? 0) + 1;
+      longest = Math.max(longest, r.durationMs ?? 0);
+    }
+  }
+  const live = Object.values(liveByAgentType).reduce((n, c) => n + c, 0);
+  return {
+    total: rows.length,
+    triggered: rows.filter((r) => r.startedByTrigger).length,
+    completed: byState.completed ?? 0,
+    failed: byState.failed ?? 0,
+    durations: {
+      median_ms: 0,
+      p95_ms: 0,
+      p99_ms: 0,
+      longest_ms: 0,
+      capped: false,
+      buckets: Array(10).fill(0) as number[],
+      overflow: 0,
+    },
+    current: {
+      total: rows.length,
+      by_state: byState,
+      live,
+      live_by_agent_type: liveByAgentType,
+      longest_live_ms: longest,
+    },
+  };
+}
+
+/** The Agents page's run props for these rows: the first live runs and their stats. */
+export const mockRunArgs = (rows: RunRow[]) => ({
+  initialLiveRuns: rows.filter((r) => LIVE_RUN_STATES.includes(r.state)).slice(0, RUNNING_ROWS),
+  initialRunStats: mockRunStats(rows),
 });
