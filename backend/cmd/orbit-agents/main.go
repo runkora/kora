@@ -267,8 +267,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	}, logger)
 
 	sizes := environmentSizes(cfg)
-	if err := sizes.Validate(); err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
+	if validateErr := sizes.Validate(); validateErr != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
 	}
 	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize:  sizes.Default,
