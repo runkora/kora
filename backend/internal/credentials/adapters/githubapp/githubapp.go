@@ -207,10 +207,6 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 		return classifyContentHost(req.Method, path, owner)
 	}
 
-	if cls, ok, err := classifyReleaseDownload(req.Method, path, owner); ok || err != nil {
-		return cls, err
-	}
-
 	// Catch-all: verb-classified and unqualified, the legacy behavior for
 	// anything not recognized above.
 	verb, err := verbClass(req.Method)
@@ -453,31 +449,6 @@ func classifyContentHost(method, path, owner string) (credentials.Classification
 		qualifier = normalizeName(segs[1])
 	}
 	return credentials.Classification{Action: ActionContentsRead, Qualifier: qualifier}, nil
-}
-
-// classifyReleaseDownload recognizes release asset downloads on the web host:
-//
-//	GET /{owner}/{repo}/releases/download/{tag}/{asset}
-//	GET /{owner}/{repo}/releases/latest/download/{asset}
-//
-// A download is contents:read on the repository. A foreign owner is denied
-// like a git path of another owner. ok=false means fall through.
-func classifyReleaseDownload(method, path, owner string) (credentials.Classification, bool, error) {
-	segs := pathSegments(path)
-	if len(segs) < 5 || segs[2] != "releases" || (segs[3] != "download" && (segs[3] != "latest" || segs[4] != "download")) {
-		return credentials.Classification{}, false, nil
-	}
-	if verb, err := verbClass(method); err != nil || verb != verbRead {
-		return credentials.Classification{}, false, nil
-	}
-	qualifier := ""
-	if owner != "" {
-		if normalizeName(segs[0]) != owner {
-			return credentials.Classification{}, true, credentials.ErrUnsupportedAction
-		}
-		qualifier = normalizeName(segs[1])
-	}
-	return credentials.Classification{Action: ActionContentsRead, Qualifier: qualifier}, true, nil
 }
 
 // verbClass maps an HTTP method to the read/write verb class.

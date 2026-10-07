@@ -320,13 +320,6 @@ func TestConnector_Classify(t *testing.T) {
 		{"objects_opaque", http.MethodGet, "https://objects.githubusercontent.com/blobs/deadbeef", "contents:read", "", false},
 		{"content_host_write", http.MethodPost, "https://codeload.github.com/orbital/orbit/tar.gz/main", "", "", true},
 
-		// Release asset downloads on the web host
-		{"release_download", http.MethodGet, "https://github.com/orbital/orbit/releases/download/v1.0/buf.tar.gz", "contents:read", "orbit", false},
-		{"release_download_head", http.MethodHead, "https://github.com/orbital/orbit/releases/download/v1.0/buf.tar.gz", "contents:read", "orbit", false},
-		{"release_latest_download", http.MethodGet, "https://github.com/orbital/orbit/releases/latest/download/buf.tar.gz", "contents:read", "orbit", false},
-		{"release_download_foreign_owner", http.MethodGet, "https://github.com/bufbuild/buf/releases/download/v1.0/buf.tar.gz", "", "", true},
-		{"release_page", http.MethodGet, "https://github.com/orbital/orbit/releases/tag/v1.0", "repo:read", "", false},
-
 		// ID-addressed pagination links stay on the unqualified catch-all
 		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "repo:read", "", false},
 
