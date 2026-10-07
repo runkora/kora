@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-10-07  
-**Last Updated:** 2026-10-07  
+**Last Updated:** 2026-10-08  
 **Owner:** Platform team  
 **Stakeholders:** Platform engineering teams, agent builders, kora maintainers  
 
@@ -38,7 +38,7 @@ None at this time.
 
 1.  A new kora installation offers Go, Python and Node sandbox images in every tenant without an image pipeline of its own.
 2.  Platform teams decide which bundled images their tenants receive and which ones stay warm.
-3.  The kora development image carries the development tools at the versions kora's repository pins and the Node LTS release of the Node image.
+3.  The kora development image carries kora's development tools at the versions kora's repository pins.
 
 ### Success Metrics
 
@@ -97,7 +97,7 @@ None at this time.
 
 ### High-Level Approach
 
-kora will build three language images on the kora base image and release them with every version of kora. The kora installation will register each one that is turned on in every tenant, in the same way it registers the kora base image today. The base image keeps Go and Python, and each language image adds the extra tools for its language.
+kora will build three language images on the kora base image and release them with every version of kora. The kora installation will register each one that is turned on in every tenant, in the same way it registers the kora base image today.
 
 ### User Experience
 
@@ -113,7 +113,7 @@ kora will build three language images on the kora base image and release them wi
 *   **Go image:** The base image plus Go linting and code generation tools.
 *   **Python image:** The base image plus Python linting and test tools.
 *   **Node image:** The base image plus Node and pnpm.
-*   **kora development image:** The base image plus kora's pinned development tools.
+*   **kora development image:** The Node image plus kora's pinned development tools.
 
 ---
 
