@@ -358,18 +358,18 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
     return run, nil
 }
 
-func (s *RunService) ListRuns(ctx context.Context, p RunListParams) (RunPage, error) {
-    // The agent types whose runs the caller may read, from one policy query.
+func (s *RunService) ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error) {
     ats, err := s.atRepo.ListAgentTypes(ctx, tenantID)
     if err != nil {
-        return RunPage{}, err
+        return nil, err
     }
+    // One policy query over the agent types; the repository filters on the result in SQL.
     readable, err := s.authz.readableRunAgentTypes(ctx, ats)
     if err != nil {
-        return RunPage{}, err
+        return nil, err
     }
-    // The repository filters on the readable agent types in SQL, so a page is never thinned afterwards.
-    return s.listPage(ctx, RunScope{AgentTypeIDs: readable, Vis: vis}, p)
+    q.Scope = RunScope{AgentTypeIDs: readable}
+    return s.repo.ListRuns(ctx, tenantID, q)
 }
 ```
 
