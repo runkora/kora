@@ -264,6 +264,7 @@ For the API shape:
 *   Until an agent pod rolls to the new session-manager image, its `list_environments` shows the name in the place of the slug, and a selection by a name that differs from the slug fails with the list of slugs.
 *   The `name` field changes from the identifier to the display name.
 *   A previous-release client that reads `name` as the identifier receives the display name. The two values match for every environment that existed before the upgrade.
+*   While the previous release's orbit-agents still serves requests during an upgrade, an update it handles writes the requested name into the slug column. The new release rejects slug changes once it serves every request.
 
 ---
 
