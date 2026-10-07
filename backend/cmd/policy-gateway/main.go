@@ -58,9 +58,16 @@ func realMain() error {
 	eval := policy.NewEvaluator(pgc.Current.Policy.BundleEndpoint, pgc.Current.BundlePollInterval(), logger)
 	eval.Start(ctx)
 
+	// Failing to register these instruments is not fatal — a gateway that
+	// refuses to start because a metric could not be registered has turned
+	// its own observability into an outage — but it is loud, because
+	// unmeasured is not the state anyone signed up for. Mirrors
+	// policy-service's NewMetrics handling (cmd/policy-service/main.go).
 	policygwMetrics, err := policygw.NewMetrics(meter)
 	if err != nil {
-		return fmt.Errorf("create policy-gateway metrics: %w", err)
+		logger.Error(ctx, "failed to register policy-gateway metrics; running uninstrumented",
+			logging.Field{Key: "error", Value: err.Error()})
+		policygwMetrics = nil
 	}
 
 	svc := policygw.NewService(eval, logger, policygwMetrics)

@@ -331,7 +331,7 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 	now := time.Now().UTC()
 	var tag interface{ RowsAffected() int64 }
 	var err error
-	if to == RunStateCompleted || to == RunStateFailed {
+	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
 		tag, err = r.pool.Exec(ctx, `
 			UPDATE runs SET state=$1, completed_at=$2, updated_at=$2
 			WHERE id=$3 AND state=$4`,

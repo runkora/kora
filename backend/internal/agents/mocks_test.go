@@ -347,6 +347,12 @@ func (m *mockRepository) SetRunState(_ context.Context, id string, from, to RunS
 		return ErrConflict
 	}
 	r.State = to
+	// Mirrors PostgresRepository.SetRunState: completed_at is stamped on
+	// every terminal state, budget_exhausted included, not just completed/failed.
+	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
+		now := time.Now().UTC()
+		r.CompletedAt = &now
+	}
 	return nil
 }
 

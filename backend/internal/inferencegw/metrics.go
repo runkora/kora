@@ -20,13 +20,19 @@ import (
 //
 // Labels follow docs/adr/2026-10-07-domain-metrics-instrumentation.md's
 // binding cardinality policy: enum-backed labels by default, with tenant_id
-// allowed only on these billing/budget metrics (usage, tokens, cost) because
-// tenant count is bounded and slow-growing. The request-duration histogram
-// deliberately excludes tenant_id — it would multiply with provider/model/
-// status. The budget-utilization gauge excludes it entirely and is further
+// allowed only on these billing/budget metrics (usage, tokens, cost, budget
+// utilization) because tenant count is bounded and slow-growing. The
+// request-duration histogram deliberately excludes tenant_id — it would
+// multiply with provider/model/status. The budget-utilization gauge is
 // restricted to tenant/role_pool scoped ceilings — a run is single-use and a
 // tenant's principal set is effectively unbounded, so either would open an
-// unbounded cardinality hole.
+// unbounded cardinality hole. Within that restriction it carries tenant_id
+// (always) plus role_pool (only for scope=="role_pool" entries, left empty
+// for scope=="tenant" — role names are an admin-configured, per-tenant-small
+// set: internal/policyservice/roles, compiled into data/role_budgets by
+// internal/policyservice/bundle/compiler.go's buildRoleBudgets), so that
+// distinct tenants' and distinct role pools' ceilings no longer collide on
+// the same (scope, window) series.
 type Metrics struct {
 	usageTotal        metric.Int64Counter
 	tokensTotal       metric.Int64Counter
@@ -103,16 +109,26 @@ func (m *Metrics) observeUsage(ctx context.Context, rec InferenceUsageRecord) {
 	}
 	status := string(rec.Status)
 
+	// On the model-not-found path, rec.ModelID is the raw client-supplied
+	// req.Model (service.go's writeFailedUsage), never a catalog value — any
+	// caller could otherwise mint unbounded series by varying the model
+	// name. Substitute a fixed sentinel instead for every model-labeled
+	// series derived from this record.
+	model := rec.ModelID
+	if rec.Status == UsageStatusModelNotFound {
+		model = "unresolved"
+	}
+
 	m.usageTotal.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("status", status),
 		attribute.String("provider", provider),
-		attribute.String("model", rec.ModelID),
+		attribute.String("model", model),
 		attribute.String("tenant_id", rec.TenantID),
 	))
 
 	m.costTotal.Add(ctx, rec.EstimatedCostUSD, metric.WithAttributes(
 		attribute.String("provider", provider),
-		attribute.String("model", rec.ModelID),
+		attribute.String("model", model),
 		attribute.String("tenant_id", rec.TenantID),
 	))
 
@@ -120,7 +136,7 @@ func (m *Metrics) observeUsage(ctx context.Context, rec InferenceUsageRecord) {
 	// (ADR, Implementation table).
 	m.requestDuration.Record(ctx, float64(rec.LatencyMS)/1000, metric.WithAttributes(
 		attribute.String("provider", provider),
-		attribute.String("model", rec.ModelID),
+		attribute.String("model", model),
 		attribute.String("status", status),
 	))
 
@@ -141,7 +157,7 @@ func (m *Metrics) observeUsage(ctx context.Context, rec InferenceUsageRecord) {
 		}
 		m.tokensTotal.Add(ctx, int64(k.count), metric.WithAttributes(
 			attribute.String("provider", provider),
-			attribute.String("model", rec.ModelID),
+			attribute.String("model", model),
 			attribute.String("kind", k.kind),
 			attribute.String("tenant_id", rec.TenantID),
 		))
@@ -157,7 +173,21 @@ func (m *Metrics) observeUsage(ctx context.Context, rec InferenceUsageRecord) {
 // cardinality hole the ADR's cardinality policy forbids. This is a hard rule,
 // not a default — it is checked here regardless of what BudgetCeiling.Scope
 // values the caller happens to pass in.
-func (m *Metrics) observeBudgetCeilings(ctx context.Context, ceilings []policy.BudgetCeiling) {
+//
+// tenant_id is always set from tenantID (the tenant the enclosing budget
+// check ran against — every ceiling passed in here was evaluated for that
+// one tenant) rather than left off: without it, every tenant's and every
+// role pool's ceiling for a given (scope, window) collapsed onto the same
+// series, so the last write won. role_pool disambiguates further within a
+// tenant for scope=="role_pool" ceilings, where BudgetCeiling.ID is the OIDC
+// role name (budget.rego's role_pool rule binds "id" to the pooled role);
+// it is left empty for scope=="tenant" ceilings, where there is only one
+// series per tenant per window. Role names are an admin-configured,
+// per-tenant set (internal/policyservice/roles, compiled into
+// data/role_budgets by compiler.go's buildRoleBudgets) — small and
+// slow-changing like tenants themselves, so this stays within the ADR's
+// cardinality policy.
+func (m *Metrics) observeBudgetCeilings(ctx context.Context, tenantID string, ceilings []policy.BudgetCeiling) {
 	if m == nil {
 		return
 	}
@@ -169,9 +199,15 @@ func (m *Metrics) observeBudgetCeilings(ctx context.Context, ceilings []policy.B
 			// No configured limit: a ratio would be undefined/infinite.
 			continue
 		}
+		rolePool := ""
+		if c.Scope == "role_pool" {
+			rolePool = c.ID
+		}
 		m.budgetUtilization.Record(ctx, c.SpendUSD/c.LimitUSD, metric.WithAttributes(
 			attribute.String("scope", c.Scope),
 			attribute.String("window", c.Window),
+			attribute.String("tenant_id", tenantID),
+			attribute.String("role_pool", rolePool),
 		))
 	}
 }

@@ -67,12 +67,16 @@ func (m *Metrics) recordSandboxPhase(ctx context.Context, phase string, elapsed 
 }
 
 // recordGuardrailWarning counts one loop-guard warning sent to the agent.
-func (m *Metrics) recordGuardrailWarning(ctx context.Context, kind, tool string) {
+//
+// kind is one of the bounded loopKind* consts; the tool name is deliberately
+// not a label here (docs/adr/2026-10-07-domain-metrics-instrumentation.md's
+// cardinality rule): it is copied from the agent-emitted ToolUsePayload.Name
+// and is not enum-backed, so it can grow without bound.
+func (m *Metrics) recordGuardrailWarning(ctx context.Context, kind string) {
 	if m == nil {
 		return
 	}
 	m.guardrailWarnings.Add(ctx, 1, metric.WithAttributes(
 		attribute.String("kind", kind),
-		attribute.String("tool", tool),
 	))
 }

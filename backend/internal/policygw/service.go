@@ -49,7 +49,7 @@ func (s *Service) Check(
 	}
 	took := time.Since(start)
 
-	s.metrics.recordCheck(ctx, result.Allow, resourceType, took)
+	s.metrics.recordCheck(ctx, result.Allow, coarsenResourceType(resourceType), took)
 	if !result.Allow {
 		s.metrics.recordDeny(ctx, result.Reason)
 	}

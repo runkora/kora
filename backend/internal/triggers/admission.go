@@ -229,6 +229,12 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		}
 		for _, s := range superseded {
 			a.recordSuperseded(ctx, t, s.DeliveryID, deliveryID, "replaced by a newer fire")
+			// Admit's own return value describes the outcome for the NEW fire
+			// (AdmitEnqueued here), never the displaced one's. Each displaced
+			// fire gets its own admission-outcome count at the point it is
+			// displaced, or "superseded" would be part of the outcome set and
+			// never observed.
+			a.metrics.recordAdmissionOutcome(ctx, AdmitSuperseded)
 		}
 		return AdmitEnqueued, nil
 
