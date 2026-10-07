@@ -17,7 +17,7 @@ The change touches _How does it connect?_ by adding images that sandboxes run in
 
 `docker-bake.hcl` defines `kora-sandbox-base` as a target (lines 175-190) with `SANDBOX_BASE_VERSION = IMAGE_TAG` and the tag `${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-base:${IMAGE_TAG}`, and lists it in `group "default"` (lines 226-239). `.github/workflows/images.yml` reads the targets from `docker buildx bake --print` (lines 37-40) and builds each one in its own matrix job (lines 49-52). `.github/workflows/release.yml` calls it on a `v*` tag with `image_tag: ${{ github.ref_name }}` and `platforms: linux/amd64,linux/arm64` (lines 26-30). The base builder cross-compiles `sandbox-exec` for the target architecture, and the runtime stage selects downloads by `dpkg --print-architecture` (`backend/Dockerfile.sandbox-exec` lines 49-54, 143).
 
-`.github/scripts/stamp-release-charts.sh` writes `images.txt` from the top-level `charts/orbit/values.yaml` components that set `image.repository` (lines 21-34), and `.github/scripts/sign-release.sh` signs each reference in `images.txt` (lines 13-15). `kora-sandbox-base` is not a top-level component. Consequently, the release neither pins it to a digest nor signs it.
+`.github/scripts/stamp-release-charts.sh` writes `images.txt` from the chart's images and from every tag that `docker buildx bake --print -f docker-bake.hcl` lists (lines 48-53). `.github/scripts/sign-release.sh` signs each reference in `images.txt` under the release namespace (lines 13-17). A new bake target is listed and signed without a change to either script.
 
 The chart renders the base image reference in `orbit.sandboxBaseImage` (`charts/orbit/templates/_helpers.tpl` line 146) from `agents.config.sandboxImage` (`charts/orbit/values.yaml` line 509), or from `<global.imageRegistry>/kora-sandbox-base:<global.imageTag or appVersion>`. The operator config carries it as `sandboxImages.baseImage` with `warmBase` from `agents.sandboxImages.warmBase` (`charts/orbit/values.yaml` line 629, `charts/orbit/templates/operator/config.yaml` lines 40-42). `backend/cmd/operator/main.go` line 319 passes both to `TenantReconciler.SandboxBase` (`backend/internal/operator/tenant_controller.go` line 59). On every tenant reconcile, `ensureBaseSandboxImage` creates or patches the `SandboxImage` `kora-base` and replaces its whole spec (`backend/internal/operator/tenant_sandboximage.go` lines 21-43, `tenant_controller.go` line 179). `kora-base` carries the label `app.kubernetes.io/managed-by: orbit-operator` from `tenantPolicyLabels` (`tenant_sandboximage.go` line 48, `backend/internal/operator/tenant_agent_egress.go` lines 151-153).
 
@@ -132,7 +132,7 @@ NODE_VERSION = "24"
 
 `docker-bake.hcl` will gain one target per image and list each one in `group "default"`. Each target will set `contexts = { kora-sandbox-base = "target:kora-sandbox-base" }`. Each matrix job in `images.yml` will then build its image on a base from the same commit without waiting on a pushed base tag.
 
-The release will list `kora-sandbox-base` and the four sandbox images in `images.txt`, and `sign-release.sh` signs them with the other release images. `orbit-session-manager` is also missing from `images.txt`, and a separate change covers it. The chart does not pin the digests of sandbox images. The operator resolves each tag to a digest when it validates the `SandboxImage`, and sandboxes pull that digest. `kora-base` works the same way.
+The four new bake targets put the sandbox images in `images.txt`, and the release signs them with the other release images. The chart does not pin the digests of sandbox images. The operator resolves each tag to a digest when it validates the `SandboxImage`, and sandboxes pull that digest. `kora-base` works the same way.
 
 ### 5. Chart and Operator
 
@@ -193,7 +193,7 @@ None at this time.
 
 ### Positive
 
-*   The release signs `kora-sandbox-base` for the first time.
+None at this time.
 
 ### Negative
 
@@ -215,7 +215,6 @@ None at this time.
 *   `backend/` Dockerfiles for `kora-sandbox-go`, `kora-sandbox-python`, `kora-sandbox-node` and `kora-sandbox-dev`.
 *   `versions.hcl`, `Makefile` and `.github/workflows/images.yml`: the shared tool versions and the `check-versions` target.
 *   `docker-bake.hcl`: the four targets and their `group "default"` entries.
-*   `.github/scripts/stamp-release-charts.sh`: the sandbox images in `images.txt`.
 *   `charts/orbit/values.yaml`, `charts/orbit/templates/_helpers.tpl` and `charts/orbit/templates/operator/config.yaml`: `agents.sandboxImages.bundled` and the image references.
 *   `backend/cmd/operator/config/config.go` and `backend/cmd/operator/main.go`: the bundled image config.
 *   `backend/internal/platform/sandboximages/v1alpha1/types.go` and `backend/internal/operator/tenant_sandboximage.go`: the bundled names, and the create, patch and delete steps.
