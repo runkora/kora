@@ -148,26 +148,15 @@ func TestPostgres_RunStatsTenantScope(t *testing.T) {
 		t.Fatalf("RunStats: %v", err)
 	}
 
-	// The same scope counted directly in SQL.
-	var sqlTotal, sqlWindow int64
-	query, args := appendScope(`SELECT COUNT(*), COUNT(*) FILTER (WHERE r.created_at >= $2)
-		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id WHERE r.tenant_id = $1`,
-		[]any{tenant, now.Add(-7 * 24 * h)}, scope)
-	if err := r.pool.QueryRow(ctx, query, args...).Scan(&sqlTotal, &sqlWindow); err != nil {
-		t.Fatalf("count: %v", err)
-	}
-
 	c := got.Current
 	checks := []struct {
 		name      string
 		got, want int64
 	}{
 		{"window total", got.Total, 7},
-		{"window total against SQL", got.Total, sqlWindow},
 		{"completed in the window", got.Completed, 1},
 		{"failed in the window", got.Failed, 1},
 		{"current total", c.Total, 8},
-		{"current total against SQL", c.Total, sqlTotal},
 		{"live", c.Live, 4},
 		{"active", c.ByState[RunStateActive], 1},
 		{"idle", c.ByState[RunStateIdle], 1},

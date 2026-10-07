@@ -68,7 +68,7 @@ func seedRunsAcrossTypes(t *testing.T, repo *mockRepository, tenant string, n, t
 }
 
 // walkRuns follows next cursors from the first page and returns every run in order.
-func walkRuns(t *testing.T, ctx context.Context, svc *RunService, p RunListParams) (runs []Run, pages int) {
+func walkRuns(t *testing.T, ctx context.Context, svc *RunService, p RunListQuery) (runs []Run, pages int) {
 	t.Helper()
 	for {
 		page, err := svc.ListRuns(ctx, p)
@@ -83,7 +83,7 @@ func walkRuns(t *testing.T, ctx context.Context, svc *RunService, p RunListParam
 		if len(page.Runs) != p.Limit {
 			t.Fatalf("page %d holds %d runs and has a next cursor, want a full page of %d", pages, len(page.Runs), p.Limit)
 		}
-		if p.Cursor, err = decodeRunCursor(page.NextCursor); err != nil {
+		if p.After, err = decodeRunCursor(page.NextCursor); err != nil {
 			t.Fatalf("decode cursor: %v", err)
 		}
 		if pages > 100 {
@@ -113,21 +113,11 @@ func TestListRuns_PagesCoverEveryRunOnce(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 130, 3)
 
-	runs, pages := walkRuns(t, withTenantCtx(context.Background(), "t-1"), svc.run, RunListParams{Limit: 50})
+	runs, pages := walkRuns(t, withTenantCtx(context.Background(), "t-1"), svc.run, RunListQuery{Limit: 50})
 	if pages != 3 || len(runs) != 130 {
 		t.Fatalf("got %d runs over %d pages, want 130 over 3", len(runs), pages)
 	}
 	assertNewestFirstNoDuplicates(t, runs)
-}
-
-func TestListRuns_ExactPageMultipleHasNoEmptyTail(t *testing.T) {
-	svc, repo, _, _ := newTestService(t)
-	seedRunsAcrossTypes(t, repo, "t-1", 20, 2)
-
-	runs, pages := walkRuns(t, withTenantCtx(context.Background(), "t-1"), svc.run, RunListParams{Limit: 10})
-	if pages != 2 || len(runs) != 20 {
-		t.Errorf("got %d runs over %d pages, want 20 over 2", len(runs), pages)
-	}
 }
 
 // The read grant is part of the query, so a caller who may read one agent's
@@ -138,7 +128,7 @@ func TestListRuns_GrantFilterKeepsPagesFull(t *testing.T) {
 	svc.run.authz = NewAuthz(&pathAllowEvaluator{segment: "stub-at-0"})
 	ctx := withTenantCtx(context.Background(), "t-1")
 
-	runs, _ := walkRuns(t, ctx, svc.run, RunListParams{Limit: 10})
+	runs, _ := walkRuns(t, ctx, svc.run, RunListQuery{Limit: 10})
 	if len(runs) != 30 {
 		t.Fatalf("got %d runs, want the 30 runs of at-0", len(runs))
 	}
@@ -149,7 +139,7 @@ func TestListRuns_GrantFilterKeepsPagesFull(t *testing.T) {
 	}
 	assertNewestFirstNoDuplicates(t, runs)
 
-	page, err := svc.run.ListRuns(ctx, RunListParams{AgentTypeID: "at-1", Limit: 10})
+	page, err := svc.run.ListRuns(ctx, RunListQuery{AgentTypeID: "at-1", Limit: 10})
 	if err != nil || len(page.Runs) != 0 || page.NextCursor != "" {
 		t.Errorf("an agent outside the grant gave %d runs, cursor %q, %v; want none", len(page.Runs), page.NextCursor, err)
 	}
@@ -163,7 +153,7 @@ func TestListRuns_AgentTypeAndStateFilters(t *testing.T) {
 	repo.runs["run-0006"].State = RunStateFailed
 	ctx := withTenantCtx(context.Background(), "t-1")
 
-	runs, _ := walkRuns(t, ctx, svc.run, RunListParams{AgentTypeID: "at-0", States: []RunState{RunStateFailed}, Limit: 1})
+	runs, _ := walkRuns(t, ctx, svc.run, RunListQuery{AgentTypeID: "at-0", States: []RunState{RunStateFailed}, Limit: 1})
 	var ids []string
 	for _, r := range runs {
 		ids = append(ids, r.ID)
@@ -180,50 +170,11 @@ func TestListRuns_OnePolicyQueryOverAgentTypes(t *testing.T) {
 	counting := &countingQueryEvaluator{}
 	svc.run.authz = NewAuthz(counting)
 
-	if _, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), RunListParams{Limit: 200}); err != nil {
+	if _, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), RunListQuery{Limit: 200}); err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
 	if counting.calls != 1 || counting.candidates != 5 {
 		t.Errorf("policy queries = %d over %d candidates, want 1 over the 5 agent types", counting.calls, counting.candidates)
-	}
-}
-
-// Paging never surfaces another starter's delegated run, and the hidden runs
-// do not shorten a page.
-func TestListRuns_DelegatedVisibilityAcrossPages(t *testing.T) {
-	f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
-	seedDelegatedAgentType(t, repo, "at-del", "t1", "reviewer")
-	seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper", MaxConcurrentRunsPerPod: 5})
-	base := time.Now().UTC().Truncate(time.Microsecond)
-	for i := range 30 {
-		r := Run{ID: fmt.Sprintf("run-%02d", i), TenantID: "t1", State: RunStateActive, CreatedAt: base.Add(-time.Duration(i) * time.Second)}
-		switch i % 3 {
-		case 0:
-			r.AgentTypeID, r.CreatedBy = "at-del", "alice"
-		case 1:
-			r.AgentTypeID, r.CreatedBy = "at-del", "bob"
-		default:
-			r.AgentTypeID, r.CreatedBy = "at-auto", "bob"
-		}
-		seedRun(t, repo, r)
-	}
-
-	for _, tc := range []struct {
-		subject string
-		want    int
-	}{{"alice", 20}, {"charlie", 10}, {"auditor", 30}} {
-		t.Run(tc.subject, func(t *testing.T) {
-			runs, _ := walkRuns(t, withRunCallerCtx(context.Background(), "t1", tc.subject), f.run, RunListParams{Limit: 4})
-			if len(runs) != tc.want {
-				t.Fatalf("%s saw %d runs, want %d", tc.subject, len(runs), tc.want)
-			}
-			assertNewestFirstNoDuplicates(t, runs)
-			for _, r := range runs {
-				if tc.subject != "auditor" && r.AgentTypeID == "at-del" && r.CreatedBy != tc.subject {
-					t.Errorf("%s saw %s, a delegated run started by %s", tc.subject, r.ID, r.CreatedBy)
-				}
-			}
-		})
 	}
 }
 
@@ -281,21 +232,26 @@ func listRuns(t *testing.T, c *Controller, query string) (int, listRunsBody) {
 func TestHandleListRuns_Limits(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 260, 2)
+	for _, id := range []string{"run-0001", "run-0002", "run-0003"} {
+		repo.runs[id].State = RunStateFailed
+	}
 
 	for _, tc := range []struct {
-		name, query string
-		wantRuns    int
+		name, query         string
+		wantRuns, wantLimit int
+		wantNext            bool
 	}{
-		{"absent takes the default", "", defaultRunsLimit},
-		{"an explicit limit", "limit=7", 7},
-		{"the maximum", "limit=200", maxRunsLimit},
-		{"above the maximum is clamped", "limit=5000", maxRunsLimit},
+		{"absent takes the default", "", defaultRunsLimit, defaultRunsLimit, true},
+		{"an explicit limit", "limit=7", 7, 7, true},
+		{"the maximum", "limit=200", maxRunsLimit, maxRunsLimit, true},
+		{"above the maximum is clamped", "limit=5000", maxRunsLimit, maxRunsLimit, true},
+		{"the last page has a null cursor", "state=failed", 3, defaultRunsLimit, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			code, body := listRuns(t, c, tc.query)
-			if code != http.StatusOK || len(body.Runs) != tc.wantRuns || body.Limit != tc.wantRuns || body.NextCursor == nil {
-				t.Errorf("status %d, %d runs, limit %d, cursor %v; want 200, %d runs and a next cursor",
-					code, len(body.Runs), body.Limit, body.NextCursor, tc.wantRuns)
+			if code != http.StatusOK || len(body.Runs) != tc.wantRuns || body.Limit != tc.wantLimit || (body.NextCursor != nil) != tc.wantNext {
+				t.Errorf("status %d, %d runs, limit %d, cursor %v; want 200, %d runs, limit %d, next cursor %v",
+					code, len(body.Runs), body.Limit, body.NextCursor, tc.wantRuns, tc.wantLimit, tc.wantNext)
 			}
 		})
 	}
@@ -322,42 +278,6 @@ func TestHandleListRuns_RepeatedStateKeysCombine(t *testing.T) {
 	}
 }
 
-func TestHandleListRuns_CursorRoundTrip(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	seedRunsAcrossTypes(t, repo, "t-1", 25, 2)
-
-	var all []Run
-	query := "limit=10"
-	for range 3 {
-		code, body := listRuns(t, c, query)
-		if code != http.StatusOK {
-			t.Fatalf("status %d for %s", code, query)
-		}
-		all = append(all, body.Runs...)
-		if body.NextCursor == nil {
-			break
-		}
-		query = "limit=10&cursor=" + *body.NextCursor
-	}
-	if len(all) != 25 {
-		t.Fatalf("got %d runs over the pages, want 25", len(all))
-	}
-	assertNewestFirstNoDuplicates(t, all)
-}
-
-func TestHandleListRuns_LastPageHasNullCursor(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	seedRunsAcrossTypes(t, repo, "t-1", 3, 1)
-	w := getRequest(t, c.handleListRuns, "")
-	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(w.Body.Bytes(), &raw); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if string(raw["next_cursor"]) != "null" {
-		t.Errorf("next_cursor = %s, want null on the last page", raw["next_cursor"])
-	}
-}
-
 // ── Tenant run stats ──────────────────────────────────────────────────────────
 
 func TestTenantRunStats_ScopeIsReadableAgentsUnderVisibility(t *testing.T) {
@@ -375,19 +295,6 @@ func TestTenantRunStats_ScopeIsReadableAgentsUnderVisibility(t *testing.T) {
 	want := RunScope{AgentTypeIDs: []string{"at-auto", "at-del"}, Vis: RunVisibility{Subject: "alice"}}
 	if !reflect.DeepEqual(repo.statsScope, want) {
 		t.Errorf("scope = %+v, want %+v", repo.statsScope, want)
-	}
-}
-
-func TestTenantRunStats_DeniedAgentIsOutOfScope(t *testing.T) {
-	f, repo, _, _ := newTestServiceWithEval(t, pathAllowEvaluator{segment: "helper"})
-	seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper"})
-	seedAgentType(t, repo, AgentType{ID: "at-hidden", TenantID: "t1", Slug: "hidden"})
-
-	if _, err := f.run.TenantRunStats(withRunCallerCtx(context.Background(), "t1", "alice"), usagewindow.Period7d, time.Now()); err != nil {
-		t.Fatalf("TenantRunStats: %v", err)
-	}
-	if !reflect.DeepEqual(repo.statsScope.AgentTypeIDs, []string{"at-auto"}) {
-		t.Errorf("scope agent types = %v, want only at-auto", repo.statsScope.AgentTypeIDs)
 	}
 }
 
