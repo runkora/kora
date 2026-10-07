@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 
-# Tool versions — keep in sync with pinned versions in Makefile.
+# Tool versions — keep in sync with the pinned versions in versions.hcl.
 env:
   GOLANGCI_LINT_VERSION: v2.11.3
 
@@ -41,6 +41,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Check GO_VERSION against backend/go.mod
+        run: make check-versions
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

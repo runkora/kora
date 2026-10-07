@@ -8,7 +8,8 @@
 # VERSION CONFIGURATION
 # =============================================================================
 ARG BUN_VERSION=1.3.9
-ARG GO_VERSION=1.26.0
+# Set from GO_VERSION in versions.hcl by docker-bake.hcl and scripts/cluster/redeploy.sh.
+ARG GO_VERSION
 ARG RUST_VERSION=1.83.0
 ARG JAVA_VERSION=21
 ARG DOTNET_VERSION=8.0
@@ -140,6 +141,7 @@ RUN if [ "$INSTALL_RUST" = "true" ]; then \
 # Go
 RUN if [ "$INSTALL_GO" = "true" ]; then \
       set -eux; \
+      : "${GO_VERSION:?set GO_VERSION from versions.hcl}"; \
       dpkgArch="$(dpkg --print-architecture)"; ARCH="${dpkgArch##*-}"; \
       curl --proto '=https' --tlsv1.2 -fsSLO https://go.dev/dl/go${GO_VERSION}.linux-$ARCH.tar.gz && \
       tar -C /usr/local -xzf go${GO_VERSION}.linux-$ARCH.tar.gz && \

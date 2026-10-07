@@ -8,7 +8,7 @@ on:
 permissions:
   contents: read
 
-# Tool versions — keep in sync with pinned versions in Makefile.
+# Tool versions — keep in sync with the pinned versions in versions.hcl.
 env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10'

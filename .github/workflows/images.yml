@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: list
         run: |
-          TARGETS=$(docker buildx bake --print -f docker-bake.hcl 2>/dev/null \
+          TARGETS=$(docker buildx bake --print -f docker-bake.hcl -f versions.hcl 2>/dev/null \
             | jq -c '[.target | keys[] | select(startswith("_") | not)]')
           echo "targets=${TARGETS}" >> "${GITHUB_OUTPUT}"
 
@@ -78,7 +78,9 @@ jobs:
           IMAGE_TAG: ${{ steps.version.outputs.tag }}
         with:
           source: .
-          files: docker-bake.hcl
+          files: |
+            docker-bake.hcl
+            versions.hcl
           targets: ${{ matrix.target }}
           push: ${{ inputs.push }}
           load: ${{ !inputs.push }}

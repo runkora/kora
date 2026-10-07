@@ -25,6 +25,11 @@ variable "NEXT_PUBLIC_APP_URL" {
   default = "https://orbit.local.clearroute.io:8443"
 }
 
+// Set from versions.hcl, which every build passes as a second file. A build
+// without it fails at the Go step of Dockerfile.sandbox-exec. `bake --print`
+// works without it, for the release scripts that only read tags.
+variable "GO_VERSION" {}
+
 target "_backend-default" {
   context    = "./backend"
   dockerfile = "Dockerfile"
@@ -178,6 +183,7 @@ target "kora-sandbox-base" {
   pull       = true
   args = {
     SANDBOX_BASE_VERSION = IMAGE_TAG
+    GO_VERSION           = GO_VERSION
   }
   labels = {
     "org.opencontainers.image.title" = "kora-sandbox-base"

@@ -22,15 +22,10 @@ FRONTEND_DIR=./frontend
 # Binary output
 BINARY_DIR=.bin
 
-# Tool versions (pin for reproducible installs)
-GITLEAKS_VERSION=v8.27.2
-GOLANGCI_LINT_VERSION=v2.11.3
-NODE_VERSION=24
-PNPM_VERSION=10.32.1
-PROTOC_GEN_GO_VERSION=v1.36.11
-PROTOC_GEN_GO_GRPC_VERSION=v1.5.1
-BUF_VERSION=v1.55.1
-DEADCODE_VERSION=v0.48.0
+# Tool versions live in versions.hcl, which docker buildx bake also reads. HCL
+# quotes each value, so strip the quotes after the include.
+include versions.hcl
+$(foreach v,$(shell sed -n 's/^\([A-Z_]*\) *=.*/\1/p' versions.hcl),$(eval $(v) := $(patsubst "%",%,$($(v)))))
 
 # Backing-service defaults. `.env` holds only machine-local secrets, so these
 # mirror the defaults in docker-compose.yml and are overridable from .env.
@@ -48,7 +43,7 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
-# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake orbit-frontend
+# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake -f docker-bake.hcl -f versions.hcl orbit-frontend
 NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
 
 # Docker image publishing (generic backend/Dockerfile via docker buildx bake)
@@ -264,8 +259,17 @@ proto-gen: ## Generate Go code from proto files (requires buf — run make insta
 	@cd backend && buf generate
 	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
+.PHONY: check-versions
+check-versions: ## Verify GO_VERSION in versions.hcl matches the go directive in backend/go.mod
+	@GOMOD=$$(awk '$$1 == "go" { print $$2; exit }' backend/go.mod); \
+	if [ "$$GOMOD" != "$(GO_VERSION)" ]; then \
+		echo "$(COLOR_RED)✗ versions.hcl GO_VERSION=$(GO_VERSION) but backend/go.mod has go $$GOMOD$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_GREEN)✓ GO_VERSION $(GO_VERSION) matches backend/go.mod$(COLOR_RESET)"
+
 .PHONY: check-tool-versions
-check-tool-versions: ## Verify installed tool versions match pinned versions in Makefile
+check-tool-versions: ## Verify installed tool versions match pinned versions in versions.hcl
 	@echo "$(COLOR_YELLOW)Checking tool versions...$(COLOR_RESET)"
 	@INSTALLED=$$(golangci-lint --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$INSTALLED" = "$(GOLANGCI_LINT_VERSION)" ]; then \
@@ -502,7 +506,7 @@ OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
 docker-bake-build: ## Build images via docker buildx bake and load them into the local Docker daemon
 	@echo "$(COLOR_YELLOW)Building $(BACKEND_IMAGE_GROUP) from $(DOCKER_BAKE_FILE) with tags $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG) [$(DOCKER_BUILD_PLATFORMS)]...$(COLOR_RESET)"
 	@REGISTRY=$(IMAGE_REGISTRY) IMAGE_NAMESPACE=$(IMAGE_NAMESPACE) IMAGE_TAG=$(IMAGE_TAG) \
-		docker buildx bake -f $(DOCKER_BAKE_FILE) \
+		docker buildx bake -f $(DOCKER_BAKE_FILE) -f versions.hcl \
 			--set '*.platform=$(DOCKER_BUILD_PLATFORMS)' \
 			--load $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Built images with tags $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
@@ -511,7 +515,7 @@ docker-bake-build: ## Build images via docker buildx bake and load them into the
 docker-bake-push: ## Build and push images via docker buildx bake (defaults to GHCR)
 	@echo "$(COLOR_YELLOW)Publishing $(BACKEND_IMAGE_GROUP) from $(DOCKER_BAKE_FILE) to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG) [$(DOCKER_PUSH_PLATFORMS)]...$(COLOR_RESET)"
 	@REGISTRY=$(IMAGE_REGISTRY) IMAGE_NAMESPACE=$(IMAGE_NAMESPACE) IMAGE_TAG=$(IMAGE_TAG) \
-		docker buildx bake -f $(DOCKER_BAKE_FILE) \
+		docker buildx bake -f $(DOCKER_BAKE_FILE) -f versions.hcl \
 			--set '*.platform=$(DOCKER_PUSH_PLATFORMS)' \
 			--push $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Published images to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
@@ -610,7 +614,7 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 	echo "$(COLOR_YELLOW)Baking platform images in parallel (GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
 	GIT_SHA="$$GIT_SHA" \
 		docker buildx bake \
-			-f docker-bake.hcl -f docker-bake.local.hcl \
+			-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 			--load local-platform || exit $$?; \
 	if [ -f secrets/mkcert-ca.pem ]; then \
 		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
@@ -635,7 +639,7 @@ redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via do
 	for tgt in orbit-example; do \
 		GIT_SHA="$$GIT_SHA" \
 			docker buildx bake \
-				-f docker-bake.hcl -f docker-bake.local.hcl \
+				-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 				--load $$tgt || exit $$?; \
 	done
 	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
@@ -1232,7 +1236,7 @@ chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/orbit
 
 .PHONY: check
-check: tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
+check: check-versions tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
