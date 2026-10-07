@@ -100,6 +100,7 @@ export function useMarketplace(
 
   // The browse values of the results on screen.
   const committedRef = useRef<MarketplaceBrowseParams>(initialData.browse);
+  const hasSuccessfulOverviewRef = useRef(initialError === null);
   // The request in flight, or null.
   const pendingRef = useRef<BrowseRequest | null>(null);
   // The request that failed last, for retry(), or null.
@@ -147,6 +148,12 @@ export function useMarketplace(
     if (result.overview === null) {
       // 4a. Error: keep the current results and URL.
       failedRef.current = request;
+      if (result.partialOverview && !hasSuccessfulOverviewRef.current) {
+        // The list loaded, even though this Marketplace's Skills failed.
+        // Keep the selector available so another Marketplace can be picked.
+        committedRef.current = result.partialOverview.browse;
+        setOverview(result.partialOverview);
+      }
       setError(result.error);
       setStatus('error');
       if (request.history === 'popstate') {
@@ -161,6 +168,7 @@ export function useMarketplace(
     const next = result.overview;
     failedRef.current = null;
     committedRef.current = next.browse;
+    hasSuccessfulOverviewRef.current = true;
     setOverview(next);
     setError(null);
     setStatus('success');
@@ -221,13 +229,33 @@ export function useMarketplace(
   // Back and Forward: load the result page of the restored URL.
   useEffect(() => {
     function handlePopState() {
+      // History navigation supersedes active requests and typed text whose
+      // debounce deadline has not arrived yet.
+      if (searchTimerRef.current) {
+        clearTimeout(searchTimerRef.current);
+        searchTimerRef.current = null;
+      }
+      if (controllerRef.current) {
+        controllerRef.current.abort();
+      }
+      requestIdRef.current += 1;
+      pendingRef.current = null;
+      pickedMarketplaceRef.current = null;
       if (window.location.pathname !== APP_ROUTES.marketplace.overview) {
         // The restored URL is another page. Next.js handles it.
         return;
       }
       const browse = parseBrowseParams(new URLSearchParams(window.location.search));
       if (sameBrowse(browse, committedRef.current)) {
-        // Only other query keys changed, for example `agent`.
+        // Forward can restore the visible results before Back finishes.
+        setSearchTextState(browse.query);
+        if (hasSuccessfulOverviewRef.current) {
+          failedRef.current = null;
+          setError(null);
+          setStatus('success');
+        } else {
+          setStatus('error');
+        }
         return;
       }
       void load({ browse, history: 'popstate' });

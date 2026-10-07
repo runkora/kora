@@ -48,7 +48,7 @@ export const APP_ROUTES = {
   marketplace: {
     overview: '/marketplace',
     /** `slug` is the backend Skill slug, used as an opaque value. It can contain `/`. */
-    detail: (slug: string) => `/marketplace/${slug}` as const,
+    detail: (slug: string) => `/marketplace/${encodeURIComponent(slug)}` as const,
   },
 
   // ── Policy ───────────────────────────────────────────────────────────────

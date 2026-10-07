@@ -46,7 +46,7 @@ export const GET = withAuth(async (req: NextRequest, session) => {
       clientStatus = result.status;
     }
     return NextResponse.json(
-      { code: 'upstream_error', message: 'Failed to load Skills' },
+      { code: 'upstream_error', message: 'Failed to load Skills', data: result.overview },
       { status: clientStatus },
     );
   }

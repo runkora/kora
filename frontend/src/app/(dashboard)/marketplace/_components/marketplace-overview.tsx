@@ -19,10 +19,10 @@ import {
   RadioGroupItem,
   Stack,
   Text,
+  ViewToggle,
+  type ViewToggleProps,
 } from '@orbit/terra';
 import type { SkillSort } from '@orbit/shared/api';
-import { ViewToggle } from '@orbit/components';
-import type { ViewToggleProps } from '@orbit/components';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 import { MIN_SEARCH_LENGTH, SORT_OPTIONS } from '../_types';
 import { toResultState } from '../_utils/browse-params';
@@ -139,7 +139,7 @@ function Toolbar({
       <Stack direction={{ base: 'vertical', lg: 'horizontal' }} align="center" gap="snug">
         <Stack grow style={{ minWidth: 0 }}>
           <Input
-            placeholder="Search Skills by name or description"
+            placeholder="Search Skills by name"
             value={searchText}
             onChange={(event) => setSearchText(event.target.value)}
             aria-label="Search Skills"
@@ -201,7 +201,7 @@ function Toolbar({
 
 /** Non-blocking notices above the results: a refresh in progress, or a failed refresh. */
 function RequestNotice() {
-  const { status, error, retry } = useMarketplaceContext();
+  const { status, error, retry, total } = useMarketplaceContext();
 
   if (status === 'loading') {
     return (
@@ -226,7 +226,8 @@ function RequestNotice() {
         <Icon name="triangle-alert" color="status-error" />
         <Stack grow>
           <Text size="caption" color="status-error">
-            {message} The results below are from the last successful request.
+            {message}
+            {total > 0 && ' The results below are from the last successful request.'}
           </Text>
         </Stack>
         <Button variant="outline" size="xs" onClick={retry}>
@@ -240,7 +241,11 @@ function RequestNotice() {
 }
 
 function Results({ view }: { view: ViewMode }) {
-  const { browse, total, clearSearch } = useMarketplaceContext();
+  const { browse, total, clearSearch, status } = useMarketplaceContext();
+  if ((status === 'error' || status === 'loading') && total === 0) {
+    // Failed or pending Skills requests do not establish that the source is empty.
+    return null;
+  }
   const resultState = toResultState(total, browse.query);
 
   if (resultState === 'configured_but_empty') {

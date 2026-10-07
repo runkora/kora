@@ -37,7 +37,7 @@ import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChipList, scopeColumnFilter } from '@orbit/components';
 import { ScopePicker } from '@orbit/components';
-import { ViewToggle } from '@orbit/components';
+import { ViewToggle } from '@orbit/terra';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
 

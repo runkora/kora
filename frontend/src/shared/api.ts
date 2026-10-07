@@ -1062,7 +1062,7 @@ export interface AgentTypeGuardrails {
 }
 
 // ── Marketplace ─────────────────────────────────────────────────────────
-// Package refers to a Skill/PLugin.
+// Package refers to a Skill/Plugin.
 export interface Marketplace {
   name: string;
 }

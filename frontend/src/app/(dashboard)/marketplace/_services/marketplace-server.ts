@@ -13,7 +13,14 @@ import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types
 //   - BFF route: return an HTTP status to the browser
 
 export type MarketplaceOverviewResult =
-  { ok: true; overview: MarketplaceOverviewData } | { ok: false; status: number; message: string };
+  | { ok: true; overview: MarketplaceOverviewData }
+  | {
+      ok: false;
+      status: number;
+      message: string;
+      /** Successfully loaded list, retained when only the Skills request fails. */
+      overview?: MarketplaceOverviewData;
+    };
 
 export type SkillDetailResult =
   { ok: true; skill: PackageDetail } | { ok: false; status: number; message: string };
@@ -67,15 +74,22 @@ export async function loadMarketplaceOverview(
   }
 
   let page = browse.page;
+  const partialOverview: MarketplaceOverviewData = {
+    marketplaces,
+    requested: browse,
+    browse: { ...browse, marketplace },
+    skills: [],
+    total: 0,
+  };
   let result = await loadSkillsPage(accessToken, marketplace, browse, signal);
-  if (!result.ok) return result;
+  if (!result.ok) return { ...result, overview: partialOverview };
 
   const lastPage = Math.max(1, Math.ceil(result.total / browse.pageSize));
   if (page > lastPage) {
     // The URL asks for a page after the last page. Load the last page.
     page = lastPage;
     result = await loadSkillsPage(accessToken, marketplace, { ...browse, page }, signal);
-    if (!result.ok) return result;
+    if (!result.ok) return { ...result, overview: partialOverview };
   }
 
   return {

@@ -10,6 +10,8 @@ export interface FetchMarketplaceOverviewResult {
   error: string | null;
   /** True when a newer request cancelled this one. The caller ignores the result. */
   cancelled: boolean;
+  /** A loaded Marketplace list, if only the Skills request failed. */
+  partialOverview?: MarketplaceOverviewData;
 }
 
 /**
@@ -37,7 +39,13 @@ export async function fetchMarketplaceOverview(
   }
 
   if (!res.ok) {
-    return { overview: null, error: await readErrorMessage(res), cancelled: false };
+    const failure = await readError(res);
+    return {
+      overview: null,
+      error: failure.message,
+      cancelled: false,
+      partialOverview: failure.overview,
+    };
   }
 
   try {
@@ -52,21 +60,23 @@ export async function fetchMarketplaceOverview(
   }
 }
 
-async function readErrorMessage(res: Response): Promise<string> {
-  let body: { message?: string };
+async function readError(
+  res: Response,
+): Promise<{ message: string; overview?: MarketplaceOverviewData }> {
+  let body: { message?: string; data?: MarketplaceOverviewData };
   try {
-    body = (await res.json()) as { message?: string };
+    body = (await res.json()) as { message?: string; data?: MarketplaceOverviewData };
   } catch {
     // The body is not JSON. Show the status code.
-    return `Request failed (${res.status})`;
+    return { message: `Request failed (${res.status})` };
   }
 
   if (body.message) {
     // The BFF explained the failure.
-    return body.message;
+    return { message: body.message, overview: body.data };
   }
   // No explanation. Show the status code.
-  return `Request failed (${res.status})`;
+  return { message: `Request failed (${res.status})`, overview: body.data };
 }
 
 function isAbortError(err: unknown): boolean {

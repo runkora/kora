@@ -35,6 +35,14 @@ const SECTIONS: Record<string, SectionHeader> = {
 const subscribeNoop = () => () => {};
 const getServerHost = () => '';
 
+function marketplaceDetailLabel(path: string): string {
+  try {
+    return decodeURIComponent(path).split('/').pop() ?? path;
+  } catch {
+    return path;
+  }
+}
+
 export function DashboardHeader() {
   const pathname = usePathname();
   const { toggle, isOpen } = useSidebarState();
@@ -46,7 +54,10 @@ export function DashboardHeader() {
   // (header.title below is not optional-chained, and would crash the whole page).
   const header = SECTIONS[section] ?? { title: 'Dashboard' };
   const isDetail = segments.length > 1;
-  const detailLabel = segments[segments.length - 1];
+  const detailLabel =
+    section === 'marketplace'
+      ? marketplaceDetailLabel(segments.slice(1).join('/'))
+      : segments[segments.length - 1];
 
   // Derived from the dashboard origin. useSyncExternalStore reads window on the
   // client and '' on the server with no hydration mismatch (window isn't

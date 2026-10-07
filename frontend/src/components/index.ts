@@ -38,7 +38,3 @@ export { ModelPicker } from './model-picker';
 
 /** Per-connection action grants as collapsible tri-state cards. */
 export { ConnectionCards } from './connection-cards';
-
-/** Card/list view switch: two icon buttons in a ButtonGroup. */
-export { ViewToggle } from './view-toggle';
-export type { ViewToggleProps } from './view-toggle';
