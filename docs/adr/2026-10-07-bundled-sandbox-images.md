@@ -32,6 +32,8 @@ Measured with empty caches on 2026-10-07 (Go 1.26.4, pnpm 10.32.1):
 *   A `GOOS=linux go build ./...` in `backend/` fills a 2.0 GiB build cache (399 MB with zstd).
 *   `kora-sandbox-base:v0.7.0-rc.3` is 346 MB compressed on amd64 and 330 MB on arm64.
 
+A run does not read caches at their default paths in the image. `runfs.InstallEnv` sets `GOMODCACHE`, `GOCACHE` and the npm paths to the run-local volume (`backend/internal/agents/sandbox/runfs/runfs.go` lines 44-60), sandbox-exec moves `HOME` into the run's workspace (`backend/cmd/sandbox-exec/main.go` lines 270-287), and the sandbox root filesystem is read-only (`backend/internal/agents/k8s.go` line 1570). `pnpm install --frozen-lockfile --offline` against a pre-fetched store on a read-only mount fails with `EROFS` on `/store/v10/projects/`. pnpm writes to its store on every install.
+
 ### Goals
 
 *   kora ships Go, Python and Node sandbox images built on `kora-sandbox-base` and released with it.
@@ -76,9 +78,13 @@ Measured with empty caches on 2026-10-07 (Go 1.26.4, pnpm 10.32.1):
 
 ### D5. What `kora-dev` Pre-Caches
 
-*   **Tools only (rejected):** `kora-dev` carries the pinned tools and no dependencies. Every run downloads the Go modules and the frontend packages.
-*   **Modules and pnpm store (chosen):** `kora-dev` carries the pinned tools, the Go module cache and the pnpm store.
+*   **Tools only (chosen):** `kora-dev` carries the pinned tools and no dependencies.
+*   **Modules and pnpm store at their default paths (rejected):** Runs would bypass both caches and still download every dependency.
+*   **Go modules through a `file://` GOPROXY (rejected for now):** The image holds the module download cache, and `GOPROXY=file:///<cache>/cache/download,https://proxy.golang.org,direct` copies modules into the run-local `GOMODCACHE` without a network fetch. It adds about 378 MB compressed to the image, and the download time it saves is not measured yet.
+*   **pnpm store seeded at sandbox start (rejected for now):** sandbox-exec copies a store from the image into the run-local volume and points pnpm at it. It needs a change to sandbox-exec, and every `kora-dev` sandbox start copies about 884 MiB of small files.
 *   **Modules, pnpm store and Go build cache (rejected):** `kora-dev` also carries a Go build cache. The image would grow to about four times the base image, and the build cache is the first cache to go stale.
+
+The two options rejected for now can be revisited if measured download times justify them.
 
 ---
 
@@ -96,12 +102,7 @@ The initial toolchain set for each language image is a proposal:
 *   **`kora-python`:** `ruff` and `pytest` on top of the `uv` that the base image already installs.
 *   **`kora-node`:** The current Node LTS release and `pnpm`.
 
-`kora-dev` will install `golangci-lint`, `buf`, `protoc-gen-go`, `protoc-gen-go-grpc`, `gitleaks`, `deadcode`, Node and `pnpm` at the versions in a shared versions file. It will use the Go from the base image. At build time it will:
-
-1.  Run `go mod download` in `backend/` to fill the Go module cache.
-2.  Run `pnpm fetch` against `frontend/pnpm-lock.yaml` to fill the pnpm store.
-
-`kora-dev` will not carry a Go build cache.
+`kora-dev` will install `golangci-lint`, `buf`, `protoc-gen-go`, `protoc-gen-go-grpc`, `gitleaks`, `deadcode`, Node and `pnpm` at the versions in a shared versions file. It will use the Go from the base image. It will not carry a Go module cache, a pnpm store or a Go build cache.
 
 ### 2. The Shared Versions File
 
@@ -131,7 +132,7 @@ NODE_VERSION = "24"
 
 `docker-bake.hcl` will gain one target per image and list each one in `group "default"`. Each target will set `contexts = { kora-sandbox-base = "target:kora-sandbox-base" }`. Each matrix job in `images.yml` will then build its image on a base from the same commit without waiting on a pushed base tag.
 
-`stamp-release-charts.sh` will add `kora-sandbox-base` and the four sandbox images to `images.txt`. `sign-release.sh` then signs them with the other release images. `orbit-session-manager` is also missing from `images.txt`, and a separate change covers it.
+The release will list `kora-sandbox-base` and the four sandbox images in `images.txt`, and `sign-release.sh` signs them with the other release images. `orbit-session-manager` is also missing from `images.txt`, and a separate change covers it. The chart does not pin the digests of sandbox images. The operator resolves each tag to a digest when it validates the `SandboxImage`, and sandboxes pull that digest. `kora-base` works the same way.
 
 ### 5. Chart and Operator
 
@@ -159,9 +160,9 @@ agents:
 *   A non-empty `image` replaces the image reference in the same way as `agents.config.sandboxImage`. An empty `image` renders `<global.imageRegistry>/kora-sandbox-<language>:<global.imageTag or appVersion>` in the same way as `orbit.sandboxBaseImage`.
 *   The operator config will carry the image reference, `enabled` and `warm` for each bundled image.
 *   `backend/internal/platform/sandboximages/v1alpha1/types.go` will hold the bundled `SandboxImage` names and descriptions next to `BaseName` and `BaseDescription`.
-*   The operator will create each bundled `SandboxImage` with the label `app.kubernetes.io/managed-by: orbit-operator`. It will patch or delete only a `SandboxImage` that carries this label.
+*   The operator will create each bundled `SandboxImage` with the labels `app.kubernetes.io/managed-by: orbit-operator` and `orbit.io/component: bundled-sandbox-image`. It will patch or delete only a `SandboxImage` that carries both labels. `backend/internal/operator/tenant_pullsecrets.go` lines 16-19 pair the same two labels for the same reason.
 *   On every tenant reconcile, the operator will create or patch the `SandboxImage` of each enabled bundled image and delete the `SandboxImage` of each disabled bundled image.
-*   If a tenant has registered its own `SandboxImage` under a bundled name without the label, the operator leaves it unchanged and does not register the bundled image in that tenant. It logs one message at info level with the tenant, the namespace and the name, and the tenant reconcile continues.
+*   If a tenant has registered its own `SandboxImage` under a bundled name without both labels, the operator leaves it unchanged and does not register the bundled image in that tenant. It logs one message at info level with the tenant, the namespace and the name, and the tenant reconcile continues.
 *   Kubernetes garbage collection removes the warmer DaemonSet of a deleted `SandboxImage` through its controller reference.
 
 Tenants keep registering their own `SandboxImage` resources alongside `kora-base` and the bundled images.
@@ -192,7 +193,7 @@ None at this time.
 
 ### Positive
 
-*   The release pins and signs `kora-sandbox-base` for the first time.
+*   The release signs `kora-sandbox-base` for the first time.
 
 ### Negative
 
@@ -200,11 +201,11 @@ None at this time.
 *   Every enabled bundled image adds one `SandboxImage` to each tenant, and every warm one adds a pre-pull DaemonSet to each tenant.
 *   A tenant that registers its own `SandboxImage` under a bundled name does not receive that bundled image.
 *   Environments on a disabled bundled image cannot start a sandbox until the image is enabled again or the environment selects another image.
-*   The `kora-dev` caches reflect `backend/go.sum` and `frontend/pnpm-lock.yaml` at the release. A run on a later commit downloads each dependency that changed after the release.
+*   Every `kora-dev` run downloads kora's Go modules and frontend packages.
 
 ### Neutral
 
-*   `kora-base` and `agents.config.sandboxImage` are unchanged. `kora-base` already carries the ownership label, and the operator still patches it without checking the label.
+*   `kora-base` and `agents.config.sandboxImage` are unchanged. The operator still patches `kora-base` without checking its labels.
 *   The `Makefile` tool pins move to `versions.hcl`.
 
 ---

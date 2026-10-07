@@ -81,11 +81,10 @@ None at this time.
 
 **As a** kora maintainer,  
 **I want to** run kora's own agents on an image with kora's development tools at the versions kora pins,  
-**So that** those agents build and test kora without installing tools or downloading dependencies in each run.
+**So that** those agents build and test kora without installing tools in each run.
 
 **Acceptance Criteria:**
 *   [ ] Each kora release publishes the kora development image.
-*   [ ] The kora development image has kora's Go modules and frontend packages already downloaded at the release's versions.
 *   [ ] kora's own deployment registers the kora development image like any other tenant image.
 
 ### Secondary User Stories
@@ -114,7 +113,7 @@ kora will build three language images on the kora base image and release them wi
 *   **Go image:** The base image plus Go linting and code generation tools.
 *   **Python image:** The base image plus Python linting and test tools.
 *   **Node image:** The base image plus Node and pnpm.
-*   **kora development image:** The base image plus kora's pinned development tools and kora's downloaded dependencies.
+*   **kora development image:** The base image plus kora's pinned development tools.
 
 ---
 
