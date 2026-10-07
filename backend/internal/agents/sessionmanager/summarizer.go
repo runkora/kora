@@ -62,7 +62,14 @@ type messagesRequest struct {
 	Model     string            `json:"model"`
 	MaxTokens int               `json:"max_tokens"`
 	System    string            `json:"system,omitempty"`
+	Thinking  messagesThinking  `json:"thinking"`
 	Messages  []messagesMessage `json:"messages"`
+}
+
+// messagesThinking disables extended thinking. A reasoning model otherwise
+// spends summaryMaxTokens on a thinking block and returns no text block.
+type messagesThinking struct {
+	Type string `json:"type"`
 }
 
 type messagesMessage struct {
@@ -71,9 +78,15 @@ type messagesMessage struct {
 }
 
 type messagesResponse struct {
-	Content []struct {
-		Text string `json:"text"`
-	} `json:"content"`
+	Content []messagesContentBlock `json:"content"`
+}
+
+// messagesContentBlock is one block of a Messages API response. A reasoning
+// model returns a "thinking" block before the "text" block, and the
+// "thinking" block has no Text.
+type messagesContentBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
 }
 
 // Summarize produces a ≤120-char one-sentence label for initialMessage using the
@@ -84,6 +97,7 @@ func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessa
 		Model:     model,
 		MaxTokens: summaryMaxTokens,
 		System:    summarizerSystemPrompt,
+		Thinking:  messagesThinking{Type: "disabled"},
 		Messages: []messagesMessage{
 			{Role: "user", Content: fmt.Sprintf(summaryPromptTemplate, initialMessage)},
 		},
@@ -116,11 +130,23 @@ func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessa
 		return "", err
 	}
 
-	if len(result.Content) == 0 || result.Content[0].Text == "" {
+	text := firstText(result.Content)
+	if text == "" {
 		return "", fmt.Errorf("inference gateway returned empty summary")
 	}
 
-	return truncateSummary(result.Content[0].Text), nil
+	return truncateSummary(text), nil
+}
+
+// firstText returns the text of the first content block of type "text",
+// skipping any leading "thinking" blocks a reasoning model returns first.
+func firstText(blocks []messagesContentBlock) string {
+	for _, block := range blocks {
+		if block.Type == "text" && block.Text != "" {
+			return block.Text
+		}
+	}
+	return ""
 }
 
 // truncateSummary trims whitespace and caps the result at summaryMaxChars

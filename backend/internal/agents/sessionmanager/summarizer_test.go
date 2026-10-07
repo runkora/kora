@@ -79,9 +79,9 @@ func TestSummarizer_TruncatesToMaxChars(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(messagesResponse{Content: []struct { //nolint:errcheck,errchkjson
-			Text string `json:"text"`
-		}{{Text: long}}})
+		json.NewEncoder(w).Encode(messagesResponse{ //nolint:errcheck,errchkjson
+			Content: []messagesContentBlock{{Type: "text", Text: long}},
+		})
 	}))
 	defer srv.Close()
 
@@ -142,5 +142,68 @@ func TestSummarizer_ErrorOnEmptyContent(t *testing.T) {
 	s := newSummarizer(logging.NewLogger())
 	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
 		t.Fatal("expected error for empty content, got nil")
+	}
+}
+
+// A reasoning model returns a "thinking" block before the "text" block; the
+// summary must come from the text block, not the thinking block.
+func TestSummarizer_SkipsLeadingThinkingBlock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"thinking","thinking":"reasoning about the label..."},{"type":"text","text":"Audit the repo"}]}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	got, err := s.Summarize(context.Background(), srv.URL, "m", "x")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Audit the repo" {
+		t.Errorf("summary = %q, want %q", got, "Audit the repo")
+	}
+}
+
+// A reasoning model can spend its whole token budget thinking and return only
+// a thinking block; that must still surface the empty-summary error, not a
+// summary built from the thinking block's own content.
+func TestSummarizer_ErrorOnThinkingBlockOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"thinking","thinking":"reasoning..."}]}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
+		t.Fatal("expected error when only a thinking block is returned, got nil")
+	}
+}
+
+// The request must disable extended thinking so a reasoning model does not
+// spend its token budget on a thinking block, leaving no text block.
+func TestSummarizer_DisablesThinking(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"text","text":"Label"}]}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	thinking, ok := body["thinking"].(map[string]any)
+	if !ok {
+		t.Fatalf("request should carry a thinking object, got %v", body["thinking"])
+	}
+	if thinking["type"] != "disabled" {
+		t.Errorf("thinking.type = %v, want %q", thinking["type"], "disabled")
 	}
 }
