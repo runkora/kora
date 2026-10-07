@@ -43,7 +43,7 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
-# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake orbit-frontend
+# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake -f docker-bake.hcl -f versions.hcl orbit-frontend
 NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
 
 # Docker image publishing (generic backend/Dockerfile via docker buildx bake)
@@ -497,7 +497,7 @@ OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
 docker-bake-build: ## Build images via docker buildx bake and load them into the local Docker daemon
 	@echo "$(COLOR_YELLOW)Building $(BACKEND_IMAGE_GROUP) from $(DOCKER_BAKE_FILE) with tags $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG) [$(DOCKER_BUILD_PLATFORMS)]...$(COLOR_RESET)"
 	@REGISTRY=$(IMAGE_REGISTRY) IMAGE_NAMESPACE=$(IMAGE_NAMESPACE) IMAGE_TAG=$(IMAGE_TAG) \
-		docker buildx bake -f $(DOCKER_BAKE_FILE) \
+		docker buildx bake -f $(DOCKER_BAKE_FILE) -f versions.hcl \
 			--set '*.platform=$(DOCKER_BUILD_PLATFORMS)' \
 			--load $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Built images with tags $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
@@ -506,7 +506,7 @@ docker-bake-build: ## Build images via docker buildx bake and load them into the
 docker-bake-push: ## Build and push images via docker buildx bake (defaults to GHCR)
 	@echo "$(COLOR_YELLOW)Publishing $(BACKEND_IMAGE_GROUP) from $(DOCKER_BAKE_FILE) to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG) [$(DOCKER_PUSH_PLATFORMS)]...$(COLOR_RESET)"
 	@REGISTRY=$(IMAGE_REGISTRY) IMAGE_NAMESPACE=$(IMAGE_NAMESPACE) IMAGE_TAG=$(IMAGE_TAG) \
-		docker buildx bake -f $(DOCKER_BAKE_FILE) \
+		docker buildx bake -f $(DOCKER_BAKE_FILE) -f versions.hcl \
 			--set '*.platform=$(DOCKER_PUSH_PLATFORMS)' \
 			--push $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Published images to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
@@ -605,7 +605,7 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 	echo "$(COLOR_YELLOW)Baking platform images in parallel (GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
 	GIT_SHA="$$GIT_SHA" \
 		docker buildx bake \
-			-f docker-bake.hcl -f docker-bake.local.hcl \
+			-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 			--load local-platform || exit $$?; \
 	if [ -f secrets/mkcert-ca.pem ]; then \
 		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
@@ -630,7 +630,7 @@ redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via do
 	for tgt in orbit-example; do \
 		GIT_SHA="$$GIT_SHA" \
 			docker buildx bake \
-				-f docker-bake.hcl -f docker-bake.local.hcl \
+				-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 				--load $$tgt || exit $$?; \
 	done
 	@for svc in $(REDEPLOY_TENANT_SERVICES); do \

@@ -66,6 +66,7 @@ jobs:
             imageworkflow:
               - 'docker-bake.hcl'
               - '.github/actions/**'
+              - 'versions.hcl'
               - '.github/workflows/images.yml'
 
       # The every quantifier makes each negation exclude; the patterns mirror

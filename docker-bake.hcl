@@ -25,6 +25,14 @@ variable "NEXT_PUBLIC_APP_URL" {
   default = "https://orbit.local.clearroute.io:8443"
 }
 
+// Set from versions.hcl, which every bake call passes as a second file.
+variable "GO_VERSION" {
+  validation {
+    condition     = GO_VERSION != ""
+    error_message = "GO_VERSION is empty: pass -f versions.hcl to docker buildx bake."
+  }
+}
+
 target "_backend-default" {
   context    = "./backend"
   dockerfile = "Dockerfile"
@@ -178,6 +186,7 @@ target "kora-sandbox-base" {
   pull       = true
   args = {
     SANDBOX_BASE_VERSION = IMAGE_TAG
+    GO_VERSION           = GO_VERSION
   }
   labels = {
     "org.opencontainers.image.title" = "kora-sandbox-base"

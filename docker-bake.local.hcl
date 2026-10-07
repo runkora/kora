@@ -10,7 +10,7 @@
 // never rebuilds on the parallel path.
 //
 // Usage (typically driven by Makefile):
-//   docker buildx bake -f docker-bake.hcl -f docker-bake.local.hcl \
+//   docker buildx bake -f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 //     --load local-platform
 
 variable "GIT_SHA" {
