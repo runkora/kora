@@ -74,6 +74,7 @@ jobs:
 
       - uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
         # docker-bake.hcl tags every image with IMAGE_TAG, which defaults to latest.
+        # A sandbox image job also builds kora-sandbox-base, so it reads the base cache too.
         env:
           IMAGE_TAG: ${{ steps.version.outputs.tag }}
         with:
@@ -88,6 +89,7 @@ jobs:
             *.platform=${{ inputs.platforms }}
             *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }}
             *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }},mode=max,ignore-error=true
+            kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:kora-sandbox-base
             *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.url=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
