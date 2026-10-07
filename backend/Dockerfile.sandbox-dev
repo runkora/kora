@@ -18,11 +18,16 @@ ARG PROTOC_GEN_GO_VERSION
 ARG PROTOC_GEN_GO_GRPC_VERSION
 ARG DEADCODE_VERSION
 ARG GITLEAKS_VERSION
+ARG HELM_VERSION
 
 # Digests from the gitleaks release's checksums file, checked when pinned. A
 # GITLEAKS_VERSION bump in versions.hcl needs new digests here.
 ARG GITLEAKS_SHA256_AMD64=141c3b2dede46d8b3a53b47116da756bd223decc0374797559a6b50ecba5590c
 ARG GITLEAKS_SHA256_ARM64=fd59a77b3d898ab14782264bf7a22db457871db56debc5d7ac3e30b64b379921
+
+# Digests from get.helm.sh. A HELM_VERSION bump in versions.hcl needs new digests here.
+ARG HELM_SHA256_AMD64=86584a54def73570558f66f5111cc53dfed56689637ae32c1201205d494f54fb
+ARG HELM_SHA256_ARM64=31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973b06a08
 
 USER 0
 
@@ -35,8 +40,8 @@ RUN set -eux; \
     go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}"; \
     go install "golang.org/x/tools/cmd/deadcode@${DEADCODE_VERSION}"; \
     case "$(dpkg --print-architecture)" in \
-      amd64) GL_ARCH=x64; GL_SHA="${GITLEAKS_SHA256_AMD64}";; \
-      arm64) GL_ARCH=arm64; GL_SHA="${GITLEAKS_SHA256_ARM64}";; \
+      amd64) GL_ARCH=x64; GL_SHA="${GITLEAKS_SHA256_AMD64}"; HELM_SHA="${HELM_SHA256_AMD64}";; \
+      arm64) GL_ARCH=arm64; GL_SHA="${GITLEAKS_SHA256_ARM64}"; HELM_SHA="${HELM_SHA256_ARM64}";; \
       *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1;; \
     esac; \
     tarball="gitleaks_${GITLEAKS_VERSION#v}_linux_${GL_ARCH}.tar.gz"; \
@@ -45,8 +50,13 @@ RUN set -eux; \
     echo "${GL_SHA}  ${tarball}" | sha256sum --check; \
     tar -xzf "${tarball}" gitleaks; \
     install -m 0755 gitleaks /usr/local/bin/gitleaks; \
+    helm_tarball="helm-${HELM_VERSION}-linux-$(dpkg --print-architecture).tar.gz"; \
+    curl --proto '=https' --tlsv1.2 -fsSLO "https://get.helm.sh/${helm_tarball}"; \
+    echo "${HELM_SHA}  ${helm_tarball}" | sha256sum --check; \
+    tar -xzf "${helm_tarball}" --strip-components=1 "linux-$(dpkg --print-architecture)/helm"; \
+    install -m 0755 helm /usr/local/bin/helm; \
     rm -rf /tmp/*; \
     golangci-lint --version; buf --version; protoc-gen-go --version; \
-    protoc-gen-go-grpc --version; deadcode -h 2>&1 | head -1; gitleaks version
+    protoc-gen-go-grpc --version; deadcode -h 2>&1 | head -1; gitleaks version; helm version --short
 
 USER 100:100

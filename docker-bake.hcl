@@ -36,6 +36,7 @@ variable "PROTOC_GEN_GO_VERSION" {}
 variable "PROTOC_GEN_GO_GRPC_VERSION" {}
 variable "DEADCODE_VERSION" {}
 variable "GITLEAKS_VERSION" {}
+variable "HELM_VERSION" {}
 
 target "_backend-default" {
   context    = "./backend"
@@ -268,6 +269,7 @@ target "kora-sandbox-dev" {
     PROTOC_GEN_GO_GRPC_VERSION = PROTOC_GEN_GO_GRPC_VERSION
     DEADCODE_VERSION           = DEADCODE_VERSION
     GITLEAKS_VERSION           = GITLEAKS_VERSION
+    HELM_VERSION               = HELM_VERSION
   }
   labels = {
     "org.opencontainers.image.title" = "kora-sandbox-dev"
