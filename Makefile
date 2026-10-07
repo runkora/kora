@@ -643,6 +643,7 @@ redeploy-sandbox-images: ## Build + push the bundled sandbox images (kora-sandbo
 		docker push --quiet "localhost:5001/$$img:$$GIT_SHA" > /dev/null && \
 		echo "  ✓ $$img" || exit $$?; \
 	done
+	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Bundled sandbox images built and pushed$(COLOR_RESET)"
 
 .PHONY: redeploy-tenant-bake
