@@ -591,6 +591,7 @@ The following failures were observed:
 *   **Separate scope for connector egress (chosen):** Connector-derived egress hosts compile to their own scope in the policy bundle. The broker reads the agent's own posture from the same bundle it already evaluates.
 *   **Posture in platform token claims (rejected):** The platform token carries the agent's own egress posture as claims for the broker to read. This puts authorization data in the identity token, and a posture change would apply only when the token is refreshed.
 *   **Resolve repository IDs for paginated links (rejected):** The GitHub adapter maps `api.github.com/repositories/<id>/...` paths to their owner and repository. Resolution needs a GitHub call for each unknown ID. That adds lookup state and an abuse surface for limited value. Page URLs addressed by owner and repository keep the credential.
+*   **Classify release-download paths for granted repositories (rejected):** The GitHub adapter classifies `github.com/<owner>/<repo>/releases/download/...` as `contents:read` qualified by that repository. GitHub returns 404 for that URL with an installation token. Public release assets already work through the fallback.
 
 ### Decision
 
@@ -600,10 +601,8 @@ The broker and the GitHub adapter will change as follows:
 2.  The fallback will apply only when the agent's own egress posture allows the host: open mode, or the host in the agent's whitelist (including environment egress hosts). An agent with closed egress (mode `none`) will never fall back, even when a connector makes the host reachable.
 3.  Connector-derived egress hosts will compile to `egress:<host>:connector`, a scope separate from the agent's own egress scopes. The agent's own egress scopes are `egress:connect` for open mode and `egress:<host>:connect` for whitelist and environment egress hosts. The sidecar will allow a `CONNECT` under either scope. The broker's fallback will check only the agent's own egress scopes.
 4.  Writes and any request beyond a public read will need a connection grant through the existing connector resources and actions. There is no separate repository allowlist.
-5.  The GitHub adapter will classify `github.com/<owner>/<repo>/releases/download/...` as `contents:read` qualified by that repository. Release assets redirect to signed `*.githubusercontent.com` URLs.
-6.  Granted repositories will keep the connection's credential for release-asset downloads.
-7.  Anonymous reads will share GitHub's unauthenticated rate limit of 60 requests an hour per gateway IP. This limit is accepted.
-8.  The audit log will record each fallback decision as an anonymous read.
+5.  Anonymous reads will share GitHub's unauthenticated rate limit of 60 requests an hour per gateway IP. This limit is accepted.
+6.  The audit log will record each fallback decision as an anonymous read.
 
 ### Consequences
 
