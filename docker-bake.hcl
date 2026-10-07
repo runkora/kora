@@ -25,13 +25,10 @@ variable "NEXT_PUBLIC_APP_URL" {
   default = "https://orbit.local.clearroute.io:8443"
 }
 
-// Set from versions.hcl, which every bake call passes as a second file.
-variable "GO_VERSION" {
-  validation {
-    condition     = GO_VERSION != ""
-    error_message = "GO_VERSION is empty: pass -f versions.hcl to docker buildx bake."
-  }
-}
+// Set from versions.hcl, which every build passes as a second file. A build
+// without it fails at the Go step of Dockerfile.sandbox-exec. `bake --print`
+// works without it, for the release scripts that only read tags.
+variable "GO_VERSION" {}
 
 target "_backend-default" {
   context    = "./backend"
