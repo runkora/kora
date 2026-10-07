@@ -631,6 +631,25 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Platform images built and pushed via bake$(COLOR_RESET)"
 
+# Sandbox images make up does not build. They must match the local-sandbox-images
+# group in docker-bake.local.hcl.
+BAKE_SANDBOX_IMAGES := kora-sandbox-go kora-sandbox-python kora-sandbox-node
+
+.PHONY: redeploy-sandbox-images
+redeploy-sandbox-images: ## Build + push BAKE_SANDBOX_IMAGES (the bundled sandbox images) to the local registry
+	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
+	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
+	GIT_SHA="$$GIT_SHA" docker buildx bake \
+		-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
+		--load local-sandbox-images || exit $$?; \
+	for img in $(BAKE_SANDBOX_IMAGES); do \
+		docker push --quiet "localhost:5001/$$img:latest" > /dev/null && \
+		docker push --quiet "localhost:5001/$$img:$$GIT_SHA" > /dev/null && \
+		echo "  ✓ $$img" || exit $$?; \
+	done
+	@docker image prune -f > /dev/null
+	@echo "$(COLOR_GREEN)✓ Bundled sandbox images built and pushed$(COLOR_RESET)"
+
 .PHONY: redeploy-tenant-bake
 redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via docker buildx bake (serial — one target at a time)
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
