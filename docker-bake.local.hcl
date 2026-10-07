@@ -2,16 +2,18 @@
 //
 // Overlay for local k3d development — re-tags every image at localhost:5001
 // (the k3d local registry) and adds a :git-sha tag so kubectl describe shows
-// which build is running. Used only by `make redeploy-platform-bake` (the
-// ORBIT_PARALLEL_BUILDS=1 path); CI continues to use docker-bake.hcl alone.
+// which build is running. Used by `make redeploy-platform-bake` (the
+// ORBIT_PARALLEL_BUILDS=1 path), `make redeploy-tenant-bake` and
+// `make redeploy-sandbox-images`; CI continues to use docker-bake.hcl alone.
 //
 // Keep the local-platform group in sync with BAKE_PLATFORM_IMAGES in the
 // Makefile and REDEPLOY_PLATFORM_SERVICES — a service missing here silently
-// never rebuilds on the parallel path.
+// never rebuilds on the parallel path. Keep local-sandbox-images in sync with
+// BAKE_SANDBOX_IMAGES.
 //
 // Usage (typically driven by Makefile):
-//   docker buildx bake -f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
-//     --load local-platform
+//   docker buildx bake -f docker-bake.hcl -f docker-bake.local.hcl \
+//     -f versions.hcl --load local-platform
 
 variable "GIT_SHA" {
   default = "dev"
