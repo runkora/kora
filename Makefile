@@ -22,15 +22,10 @@ FRONTEND_DIR=./frontend
 # Binary output
 BINARY_DIR=.bin
 
-# Tool versions (pin for reproducible installs)
-GITLEAKS_VERSION=v8.27.2
-GOLANGCI_LINT_VERSION=v2.11.3
-NODE_VERSION=24
-PNPM_VERSION=10.32.1
-PROTOC_GEN_GO_VERSION=v1.36.11
-PROTOC_GEN_GO_GRPC_VERSION=v1.5.1
-BUF_VERSION=v1.55.1
-DEADCODE_VERSION=v0.48.0
+# Tool versions live in versions.hcl, which docker buildx bake also reads. HCL
+# quotes each value, so strip the quotes after the include.
+include versions.hcl
+$(foreach v,$(shell sed -n 's/^\([A-Z_]*\) *=.*/\1/p' versions.hcl),$(eval $(v) := $(patsubst "%",%,$($(v)))))
 
 # Backing-service defaults. `.env` holds only machine-local secrets, so these
 # mirror the defaults in docker-compose.yml and are overridable from .env.
@@ -265,7 +260,7 @@ proto-gen: ## Generate Go code from proto files (requires buf — run make insta
 	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
 .PHONY: check-tool-versions
-check-tool-versions: ## Verify installed tool versions match pinned versions in Makefile
+check-tool-versions: ## Verify installed tool versions match pinned versions in versions.hcl
 	@echo "$(COLOR_YELLOW)Checking tool versions...$(COLOR_RESET)"
 	@INSTALLED=$$(golangci-lint --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$INSTALLED" = "$(GOLANGCI_LINT_VERSION)" ]; then \
