@@ -2,6 +2,7 @@ package operator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -23,21 +24,39 @@ type SandboxBase struct {
 // Every reconcile replaces its whole spec and drops a field a tenant added.
 func (r *TenantReconciler) ensureBaseSandboxImage(ctx context.Context, tenant *OrbitTenant) error {
 	desired := baseSandboxImage(tenantNamespace(tenant), tenant.Name, r.SandboxBase)
-	existing := &si.SandboxImage{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	existing, err := r.getSandboxImage(ctx, desired.Namespace, desired.Name)
+	if err != nil {
+		return err
+	}
+	return r.upsertSandboxImage(ctx, desired, existing)
+}
+
+// getSandboxImage returns the named SandboxImage, or nil when there is none.
+func (r *TenantReconciler) getSandboxImage(ctx context.Context, ns, name string) (*si.SandboxImage, error) {
+	img := &si.SandboxImage{}
+	err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: name}, img)
 	if apierrors.IsNotFound(err) {
-		if err = r.Create(ctx, desired); err != nil {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get SandboxImage %q in %q: %w", name, ns, err)
+	}
+	return img, nil
+}
+
+// upsertSandboxImage creates desired when existing is nil, and otherwise
+// replaces the spec and labels of existing with those of desired.
+func (r *TenantReconciler) upsertSandboxImage(ctx context.Context, desired, existing *si.SandboxImage) error {
+	if existing == nil {
+		if err := r.Create(ctx, desired); err != nil {
 			return fmt.Errorf("create SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
 		}
 		return nil
 	}
-	if err != nil {
-		return fmt.Errorf("get SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
-	}
 	patch := client.MergeFrom(existing.DeepCopy())
 	existing.Spec = desired.Spec
 	existing.Labels = desired.Labels
-	if err = r.Patch(ctx, existing, patch); err != nil {
+	if err := r.Patch(ctx, existing, patch); err != nil {
 		return fmt.Errorf("patch SandboxImage %q in %q: %w", desired.Name, desired.Namespace, err)
 	}
 	return nil
@@ -65,47 +84,41 @@ type BundledSandboxImage struct {
 // ensureBundledSandboxImages registers each enabled bundled image in the tenant
 // namespace and removes each disabled one. It patches and deletes only the
 // SandboxImages it created. A tenant's own SandboxImage under a bundled name is
-// left alone, and that tenant does not receive the bundled image.
+// left alone, and that tenant does not receive the bundled image. A failure on
+// one image does not stop the others.
 func (r *TenantReconciler) ensureBundledSandboxImages(ctx context.Context, tenant *OrbitTenant) error {
 	ns := tenantNamespace(tenant)
+	var errs []error
 	for _, b := range si.Bundled {
 		cfg := r.SandboxBundled[b.Key]
-		existing := &si.SandboxImage{}
-		err := r.Get(ctx, client.ObjectKey{Namespace: ns, Name: b.Name}, existing)
-		found := err == nil
-		if err != nil && !apierrors.IsNotFound(err) {
-			return fmt.Errorf("get SandboxImage %q in %q: %w", b.Name, ns, err)
+		desired := bundledSandboxImage(ns, tenant.Name, b, cfg)
+		existing, err := r.getSandboxImage(ctx, ns, b.Name)
+		if err != nil {
+			errs = append(errs, err)
+			continue
 		}
 		switch {
-		case found && !ownsBundledSandboxImage(existing):
+		case existing != nil && !ownsBundledSandboxImage(existing):
 			if cfg.Enabled {
-				r.Logger.Info(ctx, "tenant SandboxImage uses a bundled image name; bundled image not registered",
+				r.Logger.Debug(ctx, "tenant SandboxImage uses a bundled image name; bundled image not registered",
 					logging.Field{Key: "tenant", Value: tenant.Name},
 					logging.Field{Key: "namespace", Value: ns},
 					logging.Field{Key: "name", Value: b.Name},
 				)
 			}
 		case !cfg.Enabled:
-			if found {
+			if existing != nil {
 				if err := r.Delete(ctx, existing); err != nil && !apierrors.IsNotFound(err) {
-					return fmt.Errorf("delete SandboxImage %q in %q: %w", b.Name, ns, err)
+					errs = append(errs, fmt.Errorf("delete SandboxImage %q in %q: %w", b.Name, ns, err))
 				}
 			}
-		case !found:
-			if err := r.Create(ctx, bundledSandboxImage(ns, tenant.Name, b, cfg)); err != nil {
-				return fmt.Errorf("create SandboxImage %q in %q: %w", b.Name, ns, err)
-			}
 		default:
-			desired := bundledSandboxImage(ns, tenant.Name, b, cfg)
-			patch := client.MergeFrom(existing.DeepCopy())
-			existing.Spec = desired.Spec
-			existing.Labels = desired.Labels
-			if err := r.Patch(ctx, existing, patch); err != nil {
-				return fmt.Errorf("patch SandboxImage %q in %q: %w", b.Name, ns, err)
+			if err := r.upsertSandboxImage(ctx, desired, existing); err != nil {
+				errs = append(errs, err)
 			}
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
 // ownsBundledSandboxImage reports whether the operator created img as a bundled image.
