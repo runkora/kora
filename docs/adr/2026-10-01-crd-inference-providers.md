@@ -103,7 +103,7 @@ This touches *How does it connect?*. Provider credentials move from env into Sec
 ### 2. The `compatible` type
 
 - `apis` lists what the endpoint serves: `chatCompletions`, `embeddings`, `responses`, `messages`.
-- Declared APIs pass through natively.
+- Declared APIs pass through natively. A `messages` request for a non-Anthropic model has its trailing system messages folded ([Anthropic Zero-Translation Path, Amendment 1](2026-04-01-anthropic-zero-translation-path.md#amendment-1-2026-10-07-trailing-system-messages-fold-for-non-anthropic-models)).
 - An undeclared API runs through an existing bridge when a declared API can carry it:
   - chat completions over `messages`, through the OpenAI-to-Anthropic conversion;
   - Responses over `chatCompletions`, else over `messages`, through the existing Responses bridges.

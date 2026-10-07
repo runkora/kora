@@ -1,7 +1,9 @@
 // Package compatible connects the gateway to an endpoint that speaks the
 // OpenAI or Anthropic APIs: OpenAI, Anthropic, OpenRouter, vLLM. The
-// endpoint's declared APIs pass through natively. An undeclared API runs
-// through an existing bridge when one of the declared APIs can carry it.
+// endpoint's declared APIs pass through natively, except that a messages
+// request for a non-Anthropic model has its trailing system messages folded.
+// An undeclared API runs through an existing bridge when one of the declared
+// APIs can carry it.
 package compatible
 
 import (
@@ -255,21 +257,23 @@ func (c *Connector) ResponsesStream(ctx context.Context, params responses.Respon
 	return nil, c.unsupported(ip.APIResponses)
 }
 
-// AnthropicMessages passes through when the endpoint serves messages. There is
-// no bridge from messages to the OpenAI APIs.
+// AnthropicMessages passes through when the endpoint serves messages, with
+// trailing system messages folded for a non-Anthropic model. There is no
+// bridge from messages to the OpenAI APIs.
 func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.MessageNewParams) (*anthropic.Message, error) {
 	if !c.serves[ip.APIMessages] {
 		return nil, c.unsupported(ip.APIMessages)
 	}
-	return c.message(ctx, params)
+	return c.message(ctx, foldTrailingSystem(params))
 }
 
-// AnthropicMessagesStream passes a streaming messages request through.
+// AnthropicMessagesStream passes a streaming messages request through, with
+// trailing system messages folded for a non-Anthropic model.
 func (c *Connector) AnthropicMessagesStream(ctx context.Context, params anthropic.MessageNewParams) (<-chan inferencegw.AnthropicStreamEvent, error) {
 	if !c.serves[ip.APIMessages] {
 		return nil, c.unsupported(ip.APIMessages)
 	}
-	return forward(c.anthropic.Messages.NewStreaming(ctx, params),
+	return forward(c.anthropic.Messages.NewStreaming(ctx, foldTrailingSystem(params)),
 		func(ev anthropic.MessageStreamEventUnion) inferencegw.AnthropicStreamEvent {
 			return inferencegw.AnthropicStreamEvent{Event: ev}
 		},
