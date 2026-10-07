@@ -4,9 +4,7 @@
 # already carries Go. See docs/adr/2026-10-07-bundled-sandbox-images.md.
 
 # docker-bake.hcl maps kora-sandbox-base to the base target from the same commit.
-# A plain docker build passes BASE_IMAGE instead.
-ARG BASE_IMAGE=kora-sandbox-base
-FROM ${BASE_IMAGE}
+FROM kora-sandbox-base
 
 # golangci-lint and buf share kora's pins in versions.hcl. docker-bake.hcl passes them.
 ARG GOLANGCI_LINT_VERSION
@@ -25,8 +23,6 @@ ARG PROTOC_SHA256_ARM64=8b8f18bd2b30346efbc698dd5a73dd7c805f3ef8380f6dfc95c768f3
 USER 0
 
 RUN set -eux; \
-    : "${GOLANGCI_LINT_VERSION:?set GOLANGCI_LINT_VERSION from versions.hcl}"; \
-    : "${BUF_VERSION:?set BUF_VERSION from versions.hcl}"; \
     case "$(dpkg --print-architecture)" in \
       amd64) LINT_ARCH=amd64; LINT_SHA="${GOLANGCI_LINT_SHA256_AMD64}"; \
              BUF_ARCH=x86_64; BUF_SHA="${BUF_SHA256_AMD64}"; \

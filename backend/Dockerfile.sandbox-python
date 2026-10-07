@@ -4,9 +4,7 @@
 # carries Python and uv. See docs/adr/2026-10-07-bundled-sandbox-images.md.
 
 # docker-bake.hcl maps kora-sandbox-base to the base target from the same commit.
-# A plain docker build passes BASE_IMAGE instead.
-ARG BASE_IMAGE=kora-sandbox-base
-FROM ${BASE_IMAGE}
+FROM kora-sandbox-base
 
 ARG RUFF_VERSION=0.16.10
 ARG PYTEST_VERSION=9.1.1
