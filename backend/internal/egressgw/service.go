@@ -55,10 +55,13 @@ type Broker struct {
 	passthrough credentials.Adapter
 	logger      logging.Logger
 	nodeOwners  *ownerCache
+	metrics     *Metrics
 }
 
 // NewBroker constructs a Broker. None of the dependencies are optional; passing
-// a nil for any of them yields a Broker that panics on first use.
+// a nil for any of them yields a Broker that panics on first use, except
+// metrics: a nil *Metrics is fully usable and records nothing, for a binary
+// that has not wired a meter.
 //
 // pass serves hosts with no registered connection. It is held directly rather
 // than in adapters so that a Connection CR cannot name it: reaching a public
@@ -69,8 +72,9 @@ func NewBroker(
 	adapters *AdapterRegistry,
 	pass credentials.Adapter,
 	logger logging.Logger,
+	metrics *Metrics,
 ) *Broker {
-	return &Broker{policy: pol, conns: conns, adapters: adapters, passthrough: pass, logger: logger, nodeOwners: newOwnerCache(time.Now)}
+	return &Broker{policy: pol, conns: conns, adapters: adapters, passthrough: pass, logger: logger, nodeOwners: newOwnerCache(time.Now), metrics: metrics}
 }
 
 // Authorize is the broker's one entry point. It validates the request, looks
@@ -167,7 +171,9 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		Qualifier:      cls.Qualifier,
 		AlsoAuthorized: also,
 	}
+	mintStart := time.Now()
 	cred, err := connector.Mint(ctx, identity)
+	b.metrics.recordMint(ctx, adapter.Type(), cls.Action, time.Since(mintStart), err)
 	if err != nil {
 		// The upstream refusing to issue a credential for this scope (e.g. the
 		// GitHub App installation lacks the permission kora authorized) is a

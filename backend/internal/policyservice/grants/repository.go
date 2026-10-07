@@ -93,6 +93,16 @@ type Repository interface {
 	// for a single tenant. Used by the stats endpoint.
 	CountByTenant(ctx context.Context, tenantID string) (total int, byType map[PrincipalType]int, err error)
 
+	// CountAllByPrincipalType returns the total grant count across every
+	// tenant, broken down by principal type, in one query (no tenant filter).
+	// Used only by the observable-gauge callback in policy-service's metrics
+	// instrument set (internal/policyservice/metrics.go) — never exposed via
+	// any HTTP endpoint, and deliberately separate from CountByTenant/Stats()
+	// (policyservice/api/service.go:334-399), which stay scoped to one tenant
+	// per call to avoid leaking cross-tenant counts. See
+	// docs/adr/2026-10-07-domain-metrics-instrumentation.md.
+	CountAllByPrincipalType(ctx context.Context) (map[PrincipalType]int, error)
+
 	// PurgeScopeFromAll removes a scope string from every grant's scopes array
 	// across all tenants. Called when a vocabulary scope is deleted.
 	PurgeScopeFromAll(ctx context.Context, scope string) error
@@ -278,6 +288,28 @@ func (r *postgresRepository) CountByTenant(ctx context.Context, tenantID string)
 		total += count
 	}
 	return total, byType, rows.Err()
+}
+
+func (r *postgresRepository) CountAllByPrincipalType(ctx context.Context) (map[PrincipalType]int, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT principal_type, COUNT(*) FROM policy_grants
+		GROUP BY principal_type
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("count all grants by principal type: %w", err)
+	}
+	defer rows.Close()
+
+	byType := make(map[PrincipalType]int)
+	for rows.Next() {
+		var pt string
+		var count int
+		if err := rows.Scan(&pt, &count); err != nil {
+			return nil, fmt.Errorf("scan grant count: %w", err)
+		}
+		byType[PrincipalType(pt)] = count
+	}
+	return byType, rows.Err()
 }
 
 func (r *postgresRepository) scanGrant(row pgx.Row) (*Grant, error) {

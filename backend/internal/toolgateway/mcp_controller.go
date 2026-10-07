@@ -18,6 +18,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -45,14 +46,16 @@ type MCPController struct {
 	registry  *Registry
 	proxy     *Proxy
 	basePath  string // the gateway base path (e.g. /v1), used to form the per-server resource
+	metrics   *Metrics
 	logger    logging.Logger
 	tracer    trace.Tracer
 }
 
 // NewMCPController constructs the request-path controller. basePath forms the
 // per-server resource in the 401 challenge (host derived per request).
-// blocklist holds revoked delegation JTIs.
-func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, blocklist mw.JTIBlocklist, basePath string, logger logging.Logger) *MCPController {
+// blocklist holds revoked delegation JTIs. metrics may be nil (e.g. in
+// tests), in which case tools/call recording is a no-op.
+func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, catalog CatalogRepository, registry *Registry, proxy *Proxy, blocklist mw.JTIBlocklist, basePath string, metrics *Metrics, logger logging.Logger) *MCPController {
 	return &MCPController{
 		verifier:  verifier,
 		blocklist: blocklist,
@@ -61,6 +64,7 @@ func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, c
 		registry:  registry,
 		proxy:     proxy,
 		basePath:  basePath,
+		metrics:   metrics,
 		logger:    logger,
 		tracer:    otel.Tracer("orbit.tool-gateway"),
 	}
@@ -241,6 +245,7 @@ type callParams struct {
 // upstream. The server is fixed by the connection's path; the tool name is plain.
 // Default-deny: an ungranted call is rejected before the upstream.
 func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWriter, r *http.Request, req jsonRPCRequest, claims *platformtoken.PlatformClaims, server string, srv Server) {
+	start := time.Now()
 	var params callParams
 	if err := json.Unmarshal(req.Params, &params); err != nil {
 		c.writeRPCError(ctx, w, req.ID, -32602, "invalid params")
@@ -271,11 +276,13 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 	})
 	if err != nil {
 		span.SetAttributes(attribute.String("mcp.decision", "error"))
+		c.metrics.recordInvocation(ctx, server, tool, "error", time.Since(start))
 		c.writeRPCError(ctx, w, req.ID, -32603, "policy check failed")
 		return
 	}
 	if !res.Allow {
 		span.SetAttributes(attribute.String("mcp.decision", "deny"))
+		c.metrics.recordInvocation(ctx, server, tool, "deny", time.Since(start))
 		c.logger.Info(ctx, "tools/call denied",
 			logging.Field{Key: "server", Value: server},
 			logging.Field{Key: "tool", Value: tool},
@@ -291,6 +298,7 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 		return
 	}
 	span.SetAttributes(attribute.String("mcp.decision", "allow"))
+	c.metrics.recordInvocation(ctx, server, tool, "allow", time.Since(start))
 	c.logger.Info(ctx, "tools/call allowed",
 		logging.Field{Key: "server", Value: server},
 		logging.Field{Key: "tool", Value: tool},

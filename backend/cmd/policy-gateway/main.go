@@ -58,7 +58,12 @@ func realMain() error {
 	eval := policy.NewEvaluator(pgc.Current.Policy.BundleEndpoint, pgc.Current.BundlePollInterval(), logger)
 	eval.Start(ctx)
 
-	svc := policygw.NewService(eval, logger)
+	policygwMetrics, err := policygw.NewMetrics(meter)
+	if err != nil {
+		return fmt.Errorf("create policy-gateway metrics: %w", err)
+	}
+
+	svc := policygw.NewService(eval, logger, policygwMetrics)
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 

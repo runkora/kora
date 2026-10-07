@@ -150,7 +150,12 @@ type DeliveryStore interface {
 	// did, skipped if no trigger matched. The summary is never authored
 	// independently — writing it inline from the first success is what makes
 	// "started two, denied one" unrepresentable (ADR Decision 3).
-	DeriveDeliveryStatus(ctx context.Context, deliveryID string) error
+	//
+	// It returns the status it wrote, or "" when the delivery was left
+	// untouched (already 'duplicate'/'missed', or no such row) — the signal the
+	// delivery-outcomes metric needs to attribute a count only to a status this
+	// call actually produced.
+	DeriveDeliveryStatus(ctx context.Context, deliveryID string) (string, error)
 
 	// InsertDeliveryRun records one per-trigger outcome for a delivery.
 	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error

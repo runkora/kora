@@ -64,7 +64,7 @@ func lookupBroker(pol *selectionPolicy, conns candidateConns, la *lookupAdapter)
 	la.Adapter = githubapp.New(nil, nil, logger)
 	adapters := NewAdapterRegistry()
 	adapters.Register(la)
-	return NewBroker(pol, conns, adapters, passthrough.New(), logger)
+	return NewBroker(pol, conns, adapters, passthrough.New(), logger, nil)
 }
 
 func graphqlRequest(body string) EgressRequest {
@@ -181,7 +181,7 @@ func TestResolveConnection_NodeOwnersDoNotLeak(t *testing.T) {
 	adapters := NewAdapterRegistry()
 	adapters.Register(la)
 	pol := &selectionPolicy{scopes: holdsAll}
-	b := NewBroker(pol, three, adapters, passthrough.New(), logger)
+	b := NewBroker(pol, three, adapters, passthrough.New(), logger, nil)
 
 	denial := func(t *testing.T, err error) *Denial {
 		t.Helper()

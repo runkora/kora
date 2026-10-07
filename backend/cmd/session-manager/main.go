@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"syscall"
 
 	"time"
+
+	"go.opentelemetry.io/otel/metric"
 
 	smConfig "github.com/runkora/kora/backend/cmd/session-manager/config"
 	"github.com/runkora/kora/backend/internal/agents/sessionmanager"
@@ -69,6 +72,28 @@ func main() {
 	run(ctx, logger, server, registry, metrics)
 }
 
+// registerSessionMetrics registers the observable gauge tracking the number
+// of currently active sessions on this pod (orbit_session_manager_sessions_active),
+// backed by the existing Registry.ActiveCount().
+func registerSessionMetrics(meter metric.Meter, registry *sessionmanager.Registry) error {
+	gauge, err := meter.Int64ObservableGauge(
+		"orbit_session_manager_sessions_active",
+		metric.WithDescription("Number of currently active sessions on this session-manager pod"),
+	)
+	if err != nil {
+		return fmt.Errorf("create sessions active gauge: %w", err)
+	}
+
+	_, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
+		o.ObserveInt64(gauge, int64(registry.ActiveCount()))
+		return nil
+	}, gauge)
+	if err != nil {
+		return fmt.Errorf("register sessions active callback: %w", err)
+	}
+	return nil
+}
+
 func initObservability(ctx context.Context) (func(), error) {
 	shutdown, err := observability.Setup(ctx, observability.Config{
 		ServiceName:     smConfig.Current.Observability.ServiceName,
@@ -115,6 +140,21 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
 	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout, b)
+	if err := registerSessionMetrics(metrics.Meter(), registry); err != nil {
+		logger.Error(ctx, "failed to register session-manager active-sessions gauge; running uninstrumented",
+			logging.Field{Key: "error", Value: err.Error()})
+	}
+	// Sandbox-provisioning and loop-guard domain metrics
+	// (docs/adr/2026-10-07-domain-metrics-instrumentation.md), filed under the
+	// orbit-agents row of that ADR's catalog even though this binary emits them:
+	// sandbox provisioning and the loop guard are both internal/agents/sessionmanager,
+	// the package this ADR's table names for them.
+	if smMetrics, err := sessionmanager.NewMetrics(metrics.Meter()); err != nil {
+		logger.Error(ctx, "failed to create session-manager domain metrics; running uninstrumented",
+			logging.Field{Key: "error", Value: err.Error()})
+	} else {
+		registry.SetMetrics(smMetrics)
+	}
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		ClaudeBinaryPath:    cfg.Claude.BinaryPath,
 		WrapperPath:         cfg.Runner.WrapperPath,

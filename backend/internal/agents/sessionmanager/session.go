@@ -178,12 +178,17 @@ type Registry struct {
 	draining atomic.Bool
 	mu       sync.RWMutex
 	sessions map[string]*session
+	metrics  *Metrics // nil = no instruments installed; every record call is a no-op
 }
 
 // productNamer is the one brand method the registry calls.
 type productNamer interface {
 	ProductName() string
 }
+
+// SetMetrics installs the instrument set sandbox provisioning and the loop
+// guard record on. When unset, those calls are no-ops.
+func (reg *Registry) SetMetrics(m *Metrics) { reg.metrics = m }
 
 // NewRegistry creates a session registry.
 func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier, idleTimeout time.Duration, brand productNamer) *Registry {
@@ -654,9 +659,11 @@ func writeSandboxDescriptor(runDir string, sandbox Sandbox) error {
 // sandboxStatus reports a provisioning phase to orbit-agents. Best-effort, and
 // detached from ctx so a caller that gave up still leaves the phase recorded.
 func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, started time.Time, message string) {
+	elapsed := time.Since(started)
+	reg.metrics.recordSandboxPhase(ctx, phase, elapsed)
 	ev, err := newEvent(EventTypeSandboxStatus, SandboxStatusPayload{
 		Phase:     phase,
-		ElapsedMs: time.Since(started).Milliseconds(),
+		ElapsedMs: elapsed.Milliseconds(),
 		Message:   message,
 	})
 	if err != nil {

@@ -66,7 +66,7 @@ func selectionBroker(pol *selectionPolicy, conns candidateConns) *Broker {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	adapters := NewAdapterRegistry()
 	adapters.Register(githubapp.New(nil, nil, logger))
-	return NewBroker(pol, conns, adapters, passthrough.New(), logger)
+	return NewBroker(pol, conns, adapters, passthrough.New(), logger, nil)
 }
 
 func egressRequest(method, url string) EgressRequest {

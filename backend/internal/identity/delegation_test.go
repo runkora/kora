@@ -152,6 +152,7 @@ func newDelegationTestService(t *testing.T) (*Service, *mockDelegationRepository
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newDelegationTestService: %v", err)
@@ -196,6 +197,7 @@ func newDelegationTestServiceWithPAT(t *testing.T) (*Service, *mockDelegationRep
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newDelegationTestServiceWithPAT: %v", err)

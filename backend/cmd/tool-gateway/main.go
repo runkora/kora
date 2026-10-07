@@ -115,19 +115,35 @@ func realMain() error {
 		defer func() { _ = redis.Close() }()
 		blocklist := storage.NewJTIBlocklist(redis)
 		proxy := toolgateway.NewProxy(tgc.Current.App.Version, logger)
+		// Proxy mode has no Introspector, so the servers-by-state gauge is not
+		// registered here (snapshots=nil); the invocation counter/histogram are
+		// still usable from handleToolsCall.
+		toolMetrics, err := toolgateway.NewMetrics(metrics.Meter(), nil, logger)
+		if err != nil {
+			logger.Error(ctx, "failed to register tool-gateway metrics; running uninstrumented",
+				logging.Field{Key: "error", Value: err.Error()})
+			toolMetrics = nil
+		}
 		// MCP OAuth (RFC 9728): the MCP route challenges unauthenticated clients
 		// toward the protected-resource metadata, which the metadata controller
 		// serves and which points at the identity authorization server. All URLs
 		// are derived from the request host — only the base path is configured.
 		basePath := tgc.Current.Server.BasePath
 		controllers = append(controllers,
-			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, blocklist, basePath, logger),
+			toolgateway.NewMCPController(verifier, eval, catalogRepo, registry, proxy, blocklist, basePath, toolMetrics, logger),
 			toolgateway.NewOAuthMetadataController(basePath, logger),
 		)
 		go registry.Watch(ctx) // keep the mounted registry fresh for server resolution
 	} else {
 		// ── Publisher: introspection + scope publishing + catalog write ──────
 		introspector := toolgateway.NewIntrospector(nil, tgc.Current.App.Version, logger)
+		// Publisher mode holds the Introspector, so this registers the
+		// servers-by-state gauge; the invocation counter/histogram it also
+		// builds are unused here (tools/call is only served in proxy mode).
+		if _, err := toolgateway.NewMetrics(metrics.Meter(), introspector, logger); err != nil {
+			logger.Error(ctx, "failed to register tool-gateway metrics; running uninstrumented",
+				logging.Field{Key: "error", Value: err.Error()})
+		}
 		selfToken := identityclient.NewClient(tgc.Current.Identity.InternalURL, logger).SelfTokenSource()
 		scopeClient := routescopes.NewClient(tgc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 		publisher := toolgateway.NewPublisher(registry, introspector, scopeClient, logger)

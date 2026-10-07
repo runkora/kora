@@ -442,6 +442,7 @@ func (reg *Registry) applyLoopGuard(ctx context.Context, s *session, ev Event) {
 	verdict, finding := s.guard.observe(ev, reg.limits(s), reg.brand.ProductName())
 	switch verdict {
 	case loopWarn:
+		reg.metrics.recordGuardrailWarning(ctx, finding.kind, finding.tool)
 		reg.logger.Warn(ctx, "Loop guard warning sent to the agent",
 			logging.Field{Key: "run_id", Value: s.runID},
 			logging.Field{Key: "kind", Value: finding.kind},

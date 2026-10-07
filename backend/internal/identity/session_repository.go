@@ -31,6 +31,10 @@ type SessionRepository interface {
 	// Refresh token revocation is a separate operation — callers must invoke
 	// RefreshTokenRepository.RevokeAllForSession before or after.
 	RevokeSession(ctx context.Context, id string, revokedAt time.Time) error
+
+	// CountActiveSessions returns the number of sessions that are neither
+	// revoked nor expired. Backs the orbit_identity_sessions_active gauge.
+	CountActiveSessions(ctx context.Context) (int64, error)
 }
 
 // ─── PostgreSQL implementation ────────────────────────────────────────────────
@@ -106,6 +110,20 @@ func (r *postgresSessionRepository) RevokeSession(ctx context.Context, id string
 		return ErrSessionNotFound
 	}
 	return nil
+}
+
+func (r *postgresSessionRepository) CountActiveSessions(ctx context.Context) (int64, error) {
+	var count int64
+	err := r.pool.QueryRow(ctx, `
+		SELECT COUNT(*)
+		FROM   identity_sessions
+		WHERE  revoked_at IS NULL
+		  AND  expires_at > now()
+	`).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active sessions: %w", err)
+	}
+	return count, nil
 }
 
 // scanSession executes query with a single string argument and hydrates a Session.

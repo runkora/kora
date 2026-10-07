@@ -20,6 +20,7 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/storage"
 	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice"
 	"github.com/runkora/kora/backend/internal/policyservice/api"
 	"github.com/runkora/kora/backend/internal/policyservice/bundle"
 	"github.com/runkora/kora/backend/internal/policyservice/grants"
@@ -113,6 +114,19 @@ func realMain() error {
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := api.NewService(grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, bundleSrv, routeStore, logger)
+
+	// Failing to register these gauges is not fatal — a service that refuses
+	// to start because a gauge could not be registered has turned its own
+	// observability into an outage — but it is loud, because unmeasured is
+	// not the state anyone signed up for. Mirrors orbit-triggers' NewMetrics
+	// handling (cmd/orbit-triggers/main.go).
+	policyMetrics, err := policyservice.NewMetrics(metrics.Meter(), svc, logger)
+	if err != nil {
+		logger.Error(ctx, "failed to register policy-service metrics; running uninstrumented",
+			logging.Field{Key: "error", Value: err.Error()})
+		policyMetrics = nil
+	}
+	defer policyMetrics.Close()
 
 	// Self-register the policy service's own routes and platform scope
 	// vocabulary, and keep re-registering.
