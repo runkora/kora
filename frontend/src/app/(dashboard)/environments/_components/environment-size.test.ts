@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import type { EnvironmentSizes } from '@orbit/shared/api';
-import { customError, presetsFor, sizeChoiceFor, sizeRequest, toAmount } from './environment-size';
+import {
+  customError,
+  presetsFor,
+  sizeChoiceFor,
+  sizeRequest,
+  sizeSummary,
+  toAmount,
+} from './environment-size';
 
 const SIZES: EnvironmentSizes = {
   default: { cpu: '2', memory: '4Gi', disk: '10Gi' },
@@ -120,5 +127,43 @@ describe('saved sizes', () => {
     expect(
       customError({ ...choice, custom: { ...choice.custom, memory: '1' } }, sizes, 'memory'),
     ).toBe('Memory can be at most 0.98 GiB.');
+  });
+});
+
+describe('precision', () => {
+  it('reads exponents and large suffixes', () => {
+    expect(toAmount('memory', '1e9')).toBeCloseTo(1e9 / 2 ** 30);
+    expect(toAmount('disk', '1Pi')).toBe(2 ** 20);
+  });
+
+  it('matches a preset only exactly, and sends a near miss unchanged', () => {
+    const near = { cpu: '1999m', memory: '4Gi', disk: '10Gi' };
+    const choice = sizeChoiceFor(near, SIZES);
+    expect(choice.preset).toBe('custom');
+    expect(sizeRequest(choice, SIZES)).toEqual(near);
+  });
+
+  it('keeps Small within a maximum below it', () => {
+    const sizes = { default: SIZES.default, max: { cpu: '8', memory: '500Mi', disk: '50Gi' } };
+    const choice = { ...sizeChoiceFor(undefined, sizes), preset: 'small' as const };
+    expect(toAmount('memory', sizeRequest(choice, sizes).memory)).toBeLessThanOrEqual(
+      toAmount('memory', '500Mi'),
+    );
+  });
+
+  it('keeps a saved quantity it cannot read without blocking the edit', () => {
+    const saved = { cpu: '2', memory: '4Zi', disk: '10Gi' };
+    const choice = sizeChoiceFor(saved, SIZES);
+    expect(choice.custom.memory).toBe('');
+    expect(customError(choice, SIZES, 'memory')).toBeUndefined();
+    expect(sizeRequest(choice, SIZES)).toEqual(saved);
+  });
+
+  it('summarises an empty Custom field as the default', () => {
+    const choice = {
+      preset: 'custom' as const,
+      custom: { cpu: '3', memory: '', disk: '20' },
+    };
+    expect(sizeSummary(choice, SIZES)).toBe('Custom: 3 cores · 4 GiB · 20 GiB');
   });
 });

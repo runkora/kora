@@ -33,6 +33,7 @@ import {
   customError,
   presetsFor,
   toAmount,
+  sizeLine,
   withUnit,
   type Preset,
   type SizeChoice,
@@ -281,9 +282,7 @@ export function SizeCard({
                           <RadioGroupItem value={option.value} aria-label={option.label} />
                         </Stack>
                         <Text size="micro" color="muted">
-                          {values
-                            ? `${withUnit('cpu', values.cpu)} · ${values.memory} GiB · ${values.disk} GiB`
-                            : 'Choose your own values'}
+                          {values ? sizeLine(values) : 'Choose your own values'}
                         </Text>
                       </Stack>
                     </CardContent>

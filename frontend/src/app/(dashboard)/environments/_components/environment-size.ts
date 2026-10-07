@@ -37,12 +37,19 @@ export interface SizeChoice {
 
 type Amounts = Record<SizeKey, number>;
 
-const BINARY: Record<string, number> = { Ki: 2 ** -20, Mi: 2 ** -10, Gi: 1, Ti: 2 ** 10 };
-const DECIMAL: Record<string, number> = { k: 1e3, M: 1e6, G: 1e9, T: 1e12 };
+const BINARY: Record<string, number> = {
+  Ki: 2 ** -20,
+  Mi: 2 ** -10,
+  Gi: 1,
+  Ti: 2 ** 10,
+  Pi: 2 ** 20,
+  Ei: 2 ** 30,
+};
+const DECIMAL: Record<string, number> = { k: 1e3, M: 1e6, G: 1e9, T: 1e12, P: 1e15, E: 1e18 };
 
 /** A quantity as cores ("500m" is 0.5) or GiB ("512Mi" is 0.5). NaN when it does not parse. */
 export function toAmount(key: SizeKey, quantity: string): number {
-  const match = /^\s*([0-9.]+)\s*([a-zA-Z]*)\s*$/.exec(quantity);
+  const match = /^\s*([0-9]*\.?[0-9]+(?:[eE][+-]?[0-9]+)?)\s*([a-zA-Z]*)\s*$/.exec(quantity);
   if (!match) return Number.NaN;
   const n = Number(match[1]);
   const unit = match[2] ?? '';
@@ -52,16 +59,23 @@ export function toAmount(key: SizeKey, quantity: string): number {
   return unit === '' ? n / 2 ** 30 : Number.NaN;
 }
 
+// Amounts keep full precision, and only what is shown is rounded.
 const round = (n: number) => Math.round(n * 100) / 100;
 
+const same = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+
 export const withUnit = (key: SizeKey, n: number) =>
-  key === 'cpu' ? `${n} ${n === 1 ? 'core' : 'cores'}` : `${n} GiB`;
+  key === 'cpu' ? `${round(n)} ${round(n) === 1 ? 'core' : 'cores'}` : `${round(n)} GiB`;
+
+/** A size as one line, e.g. "2 cores · 4 GiB · 10 GiB". */
+export const sizeLine = (values: Amounts) =>
+  `${withUnit('cpu', values.cpu)} · ${withUnit('memory', values.memory)} · ${withUnit('disk', values.disk)}`;
 
 function amounts(size: EnvironmentSize): Amounts {
   return {
-    cpu: round(toAmount('cpu', size.cpu)),
-    memory: round(toAmount('memory', size.memory)),
-    disk: round(toAmount('disk', size.disk)),
+    cpu: toAmount('cpu', size.cpu),
+    memory: toAmount('memory', size.memory),
+    disk: toAmount('disk', size.disk),
   };
 }
 
@@ -79,21 +93,26 @@ export function presetsFor(sizes: EnvironmentSizes): Record<Exclude<Preset, 'cus
   };
 }
 
-/** The preset a saved size matches, or Custom holding its values. A new environment starts on Medium. */
+/**
+ * The preset a saved size matches exactly, or Custom holding its values. A new
+ * environment starts on Medium. A saved quantity the wizard cannot read shows as
+ * an empty field and is sent back unchanged.
+ */
 export function sizeChoiceFor(
   size: EnvironmentSize | undefined,
   sizes: EnvironmentSizes,
 ): SizeChoice {
   const values = amounts(size ?? sizes.default);
+  const shown = (n: number) => (Number.isFinite(n) ? String(round(n)) : '');
   const custom: CustomSize = {
-    cpu: String(values.cpu),
-    memory: String(values.memory),
-    disk: String(values.disk),
+    cpu: shown(values.cpu),
+    memory: shown(values.memory),
+    disk: shown(values.disk),
   };
   if (!size) return { preset: 'medium', custom };
   const presets = presetsFor(sizes);
   const match = (Object.keys(presets) as (keyof typeof presets)[]).find((preset) =>
-    SIZE_FIELDS.every(({ key }) => presets[preset][key] === values[key]),
+    SIZE_FIELDS.every(({ key }) => same(presets[preset][key], values[key])),
   );
   return { preset: match ?? 'custom', custom, saved: { size, custom: { ...custom } } };
 }
@@ -107,11 +126,14 @@ export function customError(choice: SizeChoice, sizes: EnvironmentSizes, key: Si
   if (choice.preset !== 'custom') return undefined;
   const raw = choice.custom[key].trim();
   if (!raw) return undefined;
-  const n = untouched(choice, key) ? toAmount(key, choice.saved!.size[key]) : Number(raw);
+  const kept = untouched(choice, key);
+  const n = kept ? toAmount(key, choice.saved!.size[key]) : Number(raw);
+  // The agents service checks a saved quantity the wizard cannot read.
+  if (kept && !Number.isFinite(n)) return undefined;
   if (!Number.isFinite(n) || n <= 0) return 'Enter a number greater than 0.';
   const max = toAmount(key, sizes.max[key]);
   const label = SIZE_FIELDS.find((f) => f.key === key)?.label ?? key;
-  if (n > max) return `${label} can be at most ${withUnit(key, round(max))}.`;
+  if (n > max) return `${label} can be at most ${withUnit(key, max)}.`;
   return undefined;
 }
 
@@ -121,18 +143,20 @@ export function sizeInvalid(choice: SizeChoice, sizes: EnvironmentSizes) {
 
 function chosenAmounts(choice: SizeChoice, sizes: EnvironmentSizes): Amounts {
   if (choice.preset !== 'custom') return presetsFor(sizes)[choice.preset];
-  return {
-    cpu: Number(choice.custom.cpu) || 0,
-    memory: Number(choice.custom.memory) || 0,
-    disk: Number(choice.custom.disk) || 0,
+  // A kept field is its saved quantity, and an empty one takes the platform default.
+  const amount = (key: SizeKey) => {
+    if (untouched(choice, key)) return toAmount(key, choice.saved!.size[key]);
+    const raw = choice.custom[key].trim();
+    return raw ? Number(raw) : toAmount(key, sizes.default[key]);
   };
+  return { cpu: amount('cpu'), memory: amount('memory'), disk: amount('disk') };
 }
 
 /** A readable summary of the chosen size, e.g. "Medium: 2 cores · 4 GiB · 10 GiB". */
 export function sizeSummary(choice: SizeChoice, sizes: EnvironmentSizes) {
   const values = chosenAmounts(choice, sizes);
   const label = PRESET_OPTIONS.find((o) => o.value === choice.preset)?.label ?? 'Custom';
-  return `${label}: ${withUnit('cpu', values.cpu)} · ${values.memory} GiB · ${values.disk} GiB`;
+  return `${label}: ${sizeLine(values)}`;
 }
 
 /** The size to send. Medium and Large send the platform's own quantities, and an empty Custom field takes the default. */
