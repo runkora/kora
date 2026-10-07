@@ -229,11 +229,12 @@ export function EnvironmentWizard({
       name: name.trim(),
       description: description.trim(),
       sandbox_image: image,
-      // Without the size limits the wizard keeps the saved size, or the platform default.
+      // Without the size limits the wizard keeps the saved or copied size, or the platform default.
       size:
         size && sizes
           ? sizeRequest(size, sizes)
-          : (environment?.size ?? { cpu: '', memory: '', disk: '' }),
+          : (environment?.size ??
+            environments.find((e) => e.id === copyFrom)?.size ?? { cpu: '', memory: '', disk: '' }),
       egress_hosts: egressHosts,
       connectors,
     };
@@ -259,6 +260,8 @@ export function EnvironmentWizard({
     connectors,
     isEdit,
     environment,
+    environments,
+    copyFrom,
     onSaved,
   ]);
 

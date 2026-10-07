@@ -342,6 +342,16 @@ describe('EnvironmentWizard create', () => {
     expect(dialog.queryByPlaceholderText('Search images')).not.toBeInTheDocument();
   });
 
+  it('keeps a copied size when the size limits did not load', async () => {
+    const { dialog, onSaved } = renderWizard(null, { sizes: null });
+    choose(dialog, 'Copy an environment');
+    choose(dialog, 'Code review');
+    await createFromStart(dialog, onSaved);
+    expect(createEnvironment).toHaveBeenCalledWith(
+      expect.objectContaining({ size: REVIEW_ROW.size }),
+    );
+  });
+
   it('carries on without the image list or the size limits', async () => {
     const { dialog, onSaved } = renderWizard(null, { images: null, sizes: null });
     expect(dialog.getByText('Could not load the registered images.')).toBeInTheDocument();
