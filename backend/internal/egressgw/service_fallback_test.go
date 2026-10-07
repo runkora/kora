@@ -144,3 +144,21 @@ func TestAuthorize_FallbackLogsOneLine(t *testing.T) {
 		})
 	}
 }
+
+// The fallback keeps the connection's CA trust for a GitHub Enterprise host
+// behind a private CA, and carries no credential.
+func TestAnonymousReadOrDeny_KeepsConnectionTrust(t *testing.T) {
+	b := NewBroker(&postureEvaluator{ownEgress: true}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	conn := &credentials.Connection{ID: "conn-ghe", Name: "ghe", Adapter: credentials.AdapterGitHubApp, CACert: "-----BEGIN CERTIFICATE-----"}
+	req, _ := http.NewRequest(http.MethodGet, "https://ghe.example.com/other/repo.git/info/refs?service=git-upload-pack", nil)
+	_, span := tracer.Start(context.Background(), "test")
+	defer span.End()
+
+	d, err := b.anonymousReadOrDeny(context.Background(), span, claimsFor("acme", "agent", "run"), conn, FromHTTP(req), deny(DenialUnclassified, "ghe.example.com", conn, credentials.Classification{}, nil))
+	if err != nil {
+		t.Fatalf("anonymousReadOrDeny: %v", err)
+	}
+	if d.Connection != conn || d.Credential.Header != "" || d.Action != anonymousReadAction {
+		t.Errorf("decision = %+v, want the original connection, no credential, action %s", d, anonymousReadAction)
+	}
+}

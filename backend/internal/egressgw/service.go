@@ -251,17 +251,9 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 		logging.Field{Key: "path", Value: requestPath(req)},
 		logging.Field{Key: "credential", Value: false},
 	)
-	// The passthrough connection selects the default transport and injects
-	// nothing. The proxy strips the agent's Authorization header.
-	return Decision{
-		Connection: &credentials.Connection{
-			TenantID: conn.TenantID,
-			Name:     passthroughConnectionName,
-			Adapter:  credentials.AdapterPassthrough,
-			BaseHost: req.Host,
-		},
-		Action: anonymousReadAction,
-	}, nil
+	// The connection is kept for its upstream CA trust. With no credential the
+	// proxy injects nothing and strips the agent's Authorization header.
+	return Decision{Connection: conn, Action: anonymousReadAction}, nil
 }
 
 // logDenial records a refused call once, after the fallback has declined it.
