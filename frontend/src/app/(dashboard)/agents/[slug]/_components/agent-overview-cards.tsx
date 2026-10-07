@@ -17,7 +17,7 @@ import { RunStateDot } from '../../_components/running-now-card';
 
 /** The five most recent runs. */
 export function RecentRunsTable() {
-  const { agent, runs } = useAgentDetailContext();
+  const { agent, recentRuns: runs } = useAgentDetailContext();
   const router = useRouter();
 
   const recentRuns = useMemo(

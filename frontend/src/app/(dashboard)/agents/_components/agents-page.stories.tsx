@@ -17,6 +17,8 @@ import {
   SCALE_USAGE,
   RAW_RUNS,
   RUN_ROWS,
+  mockRunArgs,
+  mockRunStats,
 } from './agents-mock-data';
 import { SCALE_BUDGETS, mockInsightsResponse } from './agents-insights-mock-data';
 import type { Period } from '../_lib/spend';
@@ -26,7 +28,8 @@ function listRoutes(overrides: MockRoutes = {}): MockRoutes {
   return {
     'GET /api/agents/types/drafts': { data: DRAFTS },
     'GET /api/agents/types': { data: AGENT_TYPES },
-    'GET /api/agents/runs': { data: RAW_RUNS },
+    'GET /api/agents/runs': { data: RAW_RUNS, next_cursor: null },
+    'GET /api/agents/runs/stats': { data: mockRunStats(RUN_ROWS) },
     'GET /api/agents/insights': ({ url }: MockRequest) =>
       mockInsightsResponse(url.searchParams.get('period') as Period),
     ...overrides,
@@ -56,7 +59,7 @@ export const Default: Story = {
   decorators: withRoutes(listRoutes()),
   args: {
     initialAgentTypes: AGENT_ROWS,
-    initialRuns: RUN_ROWS,
+    ...mockRunArgs(RUN_ROWS),
     initialError: null,
     initialInsights: mockInsightsResponse('7d'),
   },
@@ -67,7 +70,7 @@ export const WithoutInsights: Story = {
   decorators: withRoutes(
     listRoutes({ 'GET /api/agents/insights': new Response(null, { status: 503 }) }),
   ),
-  args: { initialAgentTypes: AGENT_ROWS, initialRuns: RUN_ROWS, initialError: null },
+  args: { initialAgentTypes: AGENT_ROWS, ...mockRunArgs(RUN_ROWS), initialError: null },
 };
 
 /** The page header's period control set to 30 days. */
@@ -109,8 +112,8 @@ export const NothingRunning: Story = {
   ...Default,
   args: {
     ...Default.args,
-    initialRuns: RUN_ROWS.filter(
-      (r) => !['active', 'completing', 'starting', 'pending'].includes(r.state),
+    ...mockRunArgs(
+      RUN_ROWS.filter((r) => !['active', 'completing', 'starting', 'pending'].includes(r.state)),
     ),
   },
 };
@@ -120,7 +123,7 @@ export const FewAgents: Story = {
   decorators: withRoutes(listRoutes({ 'GET /api/agents/types/drafts': { data: [] } })),
   args: {
     initialAgentTypes: AGENT_ROWS.slice(0, 2),
-    initialRuns: RUN_ROWS.slice(0, 2),
+    ...mockRunArgs(RUN_ROWS.slice(0, 2)),
     initialError: null,
     initialInsights: mockInsightsResponse('7d'),
   },
@@ -138,12 +141,13 @@ export const ListView: Story = {
 const emptyRoutes = listRoutes({
   'GET /api/agents/types/drafts': { data: [] },
   'GET /api/agents/types': { data: [] },
-  'GET /api/agents/runs': { data: [] },
+  'GET /api/agents/runs': { data: [], next_cursor: null },
+  'GET /api/agents/runs/stats': { data: mockRunStats([]) },
 });
 
 /** A new workspace: no agents, no runs, no drafts. */
 export const Empty: Story = {
-  args: { initialAgentTypes: [], initialRuns: [], initialError: null },
+  args: { initialAgentTypes: [], ...mockRunArgs([]), initialError: null },
   decorators: withRoutes(emptyRoutes),
 };
 
@@ -153,21 +157,22 @@ export const ErrorState: Story = {
   play: ListView.play,
   args: {
     initialAgentTypes: [],
-    initialRuns: [],
+    ...mockRunArgs([]),
     initialError: 'Failed to load agents (503). The agents service is not reachable.',
   },
 };
 
 const manyRoutes = listRoutes({
   'GET /api/agents/types': { data: MANY_AGENT_TYPES },
-  'GET /api/agents/runs': { data: MANY_RAW_RUNS },
+  'GET /api/agents/runs': { data: MANY_RAW_RUNS, next_cursor: null },
+  'GET /api/agents/runs/stats': { data: mockRunStats(MANY_RUN_ROWS) },
 });
 
 /** Twenty-plus agents, to check the grid and table at scale. */
 export const ManyAgents: Story = {
   args: {
     initialAgentTypes: MANY_AGENT_ROWS,
-    initialRuns: MANY_RUN_ROWS,
+    ...mockRunArgs(MANY_RUN_ROWS),
     initialError: null,
     initialInsights: mockInsightsResponse('7d'),
   },
@@ -192,7 +197,7 @@ const scaleRoutes = listRoutes({
 export const HundredFiftyAgents: Story = {
   args: {
     initialAgentTypes: SCALE_AGENT_ROWS,
-    initialRuns: SCALE_RUN_ROWS,
+    ...mockRunArgs(SCALE_RUN_ROWS),
     initialError: null,
     initialInsights: scaleInsights('7d'),
   },

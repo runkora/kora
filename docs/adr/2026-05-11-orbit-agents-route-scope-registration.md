@@ -51,7 +51,7 @@ This table is the registration as it stands today, not as this ADR first propose
 | `DELETE` | `/api/v1/runs/` | `agents:runs:write` |
 | `POST` | `/api/v1/runs/` | `agents:runs:write` |
 
-The `/api/v1/runs/` POST prefix covers both `POST /api/v1/runs/{id}/messages` and any future per-run write actions. The `/api/v1/runs/` GET prefix covers `GET /api/v1/runs/{id}`, `GET /api/v1/runs/{id}/events`, and future per-run read actions.
+The `/api/v1/runs/` POST prefix covers both `POST /api/v1/runs/{id}/messages` and any future per-run write actions. The `/api/v1/runs/` GET prefix covers `GET /api/v1/runs/{id}`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/stats`, and future per-run read actions.
 
 **Agent-type writes are authenticated-only for the same reason as run starts.** The governing scope is mode-qualified (`agents:types:{delegated,autonomous}:write`), and the mode is a property of the agent type being written, not of the path. `Authz.checkAgentTypeModeWrite` in `AgentTypeService` is the authoritative check. The same widening argument applies: a route-level `agents:types:write` would prefix-cover both modes and hand every author of one kind the authority to write the other.
 

@@ -125,7 +125,7 @@ function detailRoutes(
       overview(agent.slug, url.searchParams.get('period') as Period),
     'GET /api/agents/types/:id/effective-access': { data: effectiveAccess(agent) },
     'POST /api/agents/types/effective-access': { data: effectiveAccess(agent) },
-    'GET /api/agents/types/:id/runs': { data: runsForAgent(agent.id) },
+    'GET /api/agents/types/:id/runs': { data: runsForAgent(agent.id), next_cursor: null },
     'GET /api/agents/types/:id': { data: agent },
     'GET /api/models': { data: MODELS_CATALOGUE },
     'GET /api/agents/connectors': { data: CONNECTIONS },

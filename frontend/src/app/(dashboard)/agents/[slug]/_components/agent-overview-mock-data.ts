@@ -157,6 +157,13 @@ export function mockOverview(
       durations: outlier
         ? { ...durations, capped: true, longest_ms: outlierMs, overflow: durations.overflow + 1 }
         : durations,
+      current: {
+        total: Math.max(completed + failed, triggered) + 2,
+        by_state: { completed, failed, active: 1, idle: 1 },
+        live: 1,
+        live_by_agent_type: {},
+        longest_live_ms: 4 * 60_000,
+      },
     },
   };
 }

@@ -428,6 +428,11 @@ export const ApiRoute = {
 
   runs: {
     list: (): `${typeof API_BASE}/agents/runs` => `${API_BASE}/agents/runs`,
+    /** Run stats across every agent the caller may read, for one window. */
+    stats: (
+      period: AgentInsightsPeriod,
+    ): `${typeof API_BASE}/agents/runs/stats?period=${AgentInsightsPeriod}` =>
+      `${API_BASE}/agents/runs/stats?period=${period}`,
     listForType: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
       `${API_BASE}/agents/types/${typeId}/runs`,
     start: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
@@ -527,6 +532,7 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['environments']['delete']>
   | ReturnType<(typeof ApiRoute)['runs']['list']>
   | ReturnType<(typeof ApiRoute)['runs']['listForType']>
+  | ReturnType<(typeof ApiRoute)['runs']['stats']>
   | ReturnType<(typeof ApiRoute)['runs']['start']>
   | ReturnType<(typeof ApiRoute)['runs']['detail']>
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>

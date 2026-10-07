@@ -36,7 +36,7 @@ type RunDurationStats struct {
 	Overflow int64 `json:"overflow"`
 }
 
-// RunStats is one agent's run counts and durations for a window.
+// RunStats is the run counts and durations of one agent, or a tenant, for a window.
 type RunStats struct {
 	// Total counts runs created in the window; Triggered those a trigger started, the rest are manual.
 	Total     int64 `json:"total"`
@@ -45,6 +45,19 @@ type RunStats struct {
 	Completed int64            `json:"completed"`
 	Failed    int64            `json:"failed"`
 	Durations RunDurationStats `json:"durations"`
+	// Current counts every run by the state it is in now, regardless of the window.
+	Current RunStateCounts `json:"current"`
+}
+
+// RunStateCounts counts runs by their current state, whatever their age.
+type RunStateCounts struct {
+	Total   int64              `json:"total"`
+	ByState map[RunState]int64 `json:"by_state"`
+	// Live counts runs in flight (pending, starting, active, completing).
+	Live            int64            `json:"live"`
+	LiveByAgentType map[string]int64 `json:"live_by_agent_type"`
+	// LongestLiveMs is how long the earliest-started live run has been running.
+	LongestLiveMs int64 `json:"longest_live_ms"`
 }
 
 // histogramRange returns the upper edge of the histogram and whether it is capped:
@@ -95,11 +108,38 @@ func (s *RunService) agentRunStats(ctx context.Context, tenantID, slug string, p
 	if err != nil {
 		return RunStats{}, err
 	}
+	return s.runStats(ctx, tenantID, RunScope{AgentTypeIDs: []string{at.ID}, Vis: vis}, period, now)
+}
 
-	w := usagewindow.For(period, now)
-	out, err := s.repo.AgentRunStats(ctx, tenantID, at.ID, vis, w.Start, w.End)
+// TenantRunStats returns the run counts and durations of every agent type whose
+// runs the caller may read, for the period's window ending at now.
+func (s *RunService) TenantRunStats(ctx context.Context, period usagewindow.Period, now time.Time) (RunStats, error) {
+	tenantID := tenantFromContext(ctx)
+	ctx, span := agentsTracer.Start(ctx, "agents.TenantRunStats",
+		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
+	)
+	defer span.End()
+	out, err := s.tenantRunStats(ctx, tenantID, period, now)
 	if err != nil {
-		return RunStats{}, fmt.Errorf("agent run stats: %w", err)
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "tenant run stats")
+	}
+	return out, err
+}
+
+func (s *RunService) tenantRunStats(ctx context.Context, tenantID string, period usagewindow.Period, now time.Time) (RunStats, error) {
+	scope, err := s.readableRunScope(ctx, tenantID)
+	if err != nil {
+		return RunStats{}, err
+	}
+	return s.runStats(ctx, tenantID, scope, period, now)
+}
+
+func (s *RunService) runStats(ctx context.Context, tenantID string, scope RunScope, period usagewindow.Period, now time.Time) (RunStats, error) {
+	w := usagewindow.For(period, now)
+	out, err := s.repo.RunStats(ctx, tenantID, scope, w.Start, w.End)
+	if err != nil {
+		return RunStats{}, fmt.Errorf("run stats: %w", err)
 	}
 	return out, nil
 }

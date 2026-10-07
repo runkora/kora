@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -346,56 +347,66 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	return run, nil
 }
 
-// ListRuns returns the runs the principal in ctx may read, newest first,
-// optionally filtered by agent type. Tenant is derived from ctx claims (never
-// from a query string), and the result is filtered by per-agent-type grants via
-// authz.filterRuns.
-//
-// limit <= 0 returns every matching run. The UI presents this as a complete
-// activity history, so truncating server-side silently drops rows a caller
-// cannot tell are missing: filterRuns runs after the row cap, so the response
-// length never reveals whether more exist. A caller that wants a bound passes
-// one explicitly. See issue #209 for offset pagination with the visibility
-// filter pushed into the query, which is what makes a bound safe to default.
-func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, limit int) ([]Run, error) {
+// ListRuns returns a page of the runs the caller may read, newest first, with both visibility rules applied in SQL.
+func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, p RunListQuery) (RunPage, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
 			attribute.String("tenant_id", tenantID),
 			attribute.String("agent_type_id", agentTypeID),
-			attribute.Int("limit", limit),
+			attribute.Int("limit", p.Limit),
 		),
 	)
 	defer span.End()
-	vis, err := s.runVisibility(ctx)
-	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "run visibility")
-		return nil, err
-	}
-	runs, err := s.repo.ListRuns(ctx, tenantID, agentTypeID, vis, limit)
+	page, err := s.listRuns(ctx, tenantID, agentTypeID, p)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")
-		return nil, err
 	}
-	// Build a slug resolver scoped to this list — at most one lookup per distinct
-	// agent type, regardless of how many runs share it. Misses fail closed in
-	// filterRuns, so a deleted agent type does not leak runs.
-	slugCache := make(map[string]string)
-	resolveSlug := func(agentTypeID string) (string, bool) {
-		if slug, ok := slugCache[agentTypeID]; ok {
-			return slug, slug != ""
-		}
-		at, err := s.atRepo.GetAgentType(ctx, agentTypeID)
-		if err != nil || at == nil {
-			slugCache[agentTypeID] = ""
-			return "", false
-		}
-		slugCache[agentTypeID] = at.Slug
-		return at.Slug, true
+	return page, err
+}
+
+func (s *RunService) listRuns(ctx context.Context, tenantID, agentTypeID string, p RunListQuery) (RunPage, error) {
+	scope, err := s.readableRunScope(ctx, tenantID)
+	if err != nil {
+		return RunPage{}, err
 	}
-	return s.authz.filterRuns(ctx, runs, resolveSlug)
+	if agentTypeID != "" {
+		scope.AgentTypeIDs = slices.DeleteFunc(scope.AgentTypeIDs, func(id string) bool { return id != agentTypeID })
+	}
+	q := p
+	q.Scope = scope
+	// One row past the page says whether another page follows.
+	q.Limit = p.Limit + 1
+	runs, err := s.repo.ListRuns(ctx, tenantID, q)
+	if err != nil {
+		return RunPage{}, fmt.Errorf("list runs: %w", err)
+	}
+	page := RunPage{Runs: runs}
+	if len(runs) > p.Limit {
+		page.Runs = runs[:p.Limit]
+		last := page.Runs[len(page.Runs)-1]
+		page.NextCursor = runCursor{CreatedAt: last.CreatedAt, ID: last.ID}.encode()
+	}
+	return page, nil
+}
+
+// readableRunScope is every agent type in the tenant whose runs the caller may
+// read, under the caller's delegated-run visibility.
+func (s *RunService) readableRunScope(ctx context.Context, tenantID string) (RunScope, error) {
+	ats, err := s.atRepo.ListAgentTypes(ctx, tenantID)
+	if err != nil {
+		return RunScope{}, fmt.Errorf("list agent types: %w", err)
+	}
+	ids, err := s.authz.readableRunAgentTypes(ctx, ats)
+	if err != nil {
+		return RunScope{}, err
+	}
+	vis, err := s.runVisibility(ctx)
+	if err != nil {
+		return RunScope{}, err
+	}
+	return RunScope{AgentTypeIDs: ids, Vis: vis}, nil
 }
 
 // RunOutcomes counts the caller's visible completed and failed runs in [from, to).
@@ -405,13 +416,13 @@ func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOu
 		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
 	)
 	defer span.End()
-	vis, err := s.runVisibility(ctx)
+	scope, err := s.readableRunScope(ctx, tenantID)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "run visibility")
+		span.SetStatus(codes.Error, "run scope")
 		return RunOutcomes{}, err
 	}
-	out, err := s.repo.CountRunOutcomes(ctx, tenantID, vis, from, to)
+	out, err := s.repo.CountRunOutcomes(ctx, tenantID, scope, from, to)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "count run outcomes")
