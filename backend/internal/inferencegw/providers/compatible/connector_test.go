@@ -40,7 +40,7 @@ const messageStream = "event: message_start\n" +
 	"event: message_stop\n" + `data: {"type":"message_stop"}` + "\n\n"
 
 // request is what the stand-in upstream saw.
-type request struct{ path, bearer, apiKey string }
+type request struct{ path, bearer, apiKey, body string }
 
 // upstream serves every API at /v1 and records each request.
 type upstream struct {
@@ -49,8 +49,9 @@ type upstream struct {
 }
 
 func (u *upstream) handler(w http.ResponseWriter, r *http.Request) {
+	body, _ := io.ReadAll(r.Body)
 	u.mu.Lock()
-	u.seen = append(u.seen, request{r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("X-Api-Key")})
+	u.seen = append(u.seen, request{r.URL.Path, r.Header.Get("Authorization"), r.Header.Get("X-Api-Key"), string(body)})
 	u.mu.Unlock()
 	switch r.URL.Path {
 	case "/v1/chat/completions":

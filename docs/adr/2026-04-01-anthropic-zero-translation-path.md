@@ -234,10 +234,42 @@ func (c *Connector) ChatCompletion(ctx context.Context, req ChatCompletionReques
 
 ---
 
+## Amendment 1 (2026-10-07): Trailing system messages fold for non-Anthropic models
+
+**Status:** Accepted
+
+Touches *How does it connect?* The gateway changes what it sends upstream for one request shape. *Who is this agent?* and *What can it access?* are unchanged.
+
+**Context.** Claude Code uses the `mid-conversation-system-2026-04-07` beta and ends every request with a `system`-role message. The `compatible` connector forwards these requests unchanged. Some hosts serving non-Anthropic models on the Anthropic Messages API continue a trailing system message as reasoning and never start the assistant turn. The tool call stays in a `thinking` block, the turn ends with no `tool_use`, and Claude Code stops.
+
+**Options.**
+
+*   **Option A (chosen):** Fold the trailing system messages into the last user turn in the gateway for non-Anthropic models.
+*   **Option B (rejected):** Exclude the misbehaving host through aggregator provider routing. It fixes one host for one model, and the next host with the same behavior fails the same way.
+
+**Decision.**
+
+*   Before the `compatible` connector forwards an Anthropic Messages request, it moves the text blocks of the `system`-role messages that end the request into the user message before them. The system messages are removed.
+*   The fold applies to the non-streaming and streaming messages paths in `backend/internal/inferencegw/providers/compatible/`.
+*   A model whose family is `anthropic` (`inferencegw.InferFamily`) or whose id contains `claude` is forwarded unchanged.
+*   A request with no trailing system message is forwarded unchanged. A request whose trailing system messages follow an assistant turn is forwarded unchanged.
+*   System messages earlier in the conversation are forwarded unchanged.
+*   The Bedrock, Vertex AI and Azure messages paths are unchanged. Bedrock and Vertex AI refuse non-Claude models on this path, and the Azure Anthropic endpoint hosts only Claude models.
+
+**Consequences.**
+
+*   A non-Anthropic model on the messages API sees the trailing system text at the end of the user turn.
+*   The upstream request for a non-Anthropic model differs from the client's request. Requests for Anthropic models keep the zero-translation goal.
+*   A model id that `InferFamily` cannot place is treated as non-Anthropic and folded.
+*   Non-text blocks in a trailing system message are dropped with the message.
+
+---
+
 ## Related Decisions
 
 - [inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md) — Inference Gateway architecture.
 - [provider-model-catalog-and-alias-routing](2026-04-01-provider-model-catalog-and-alias-routing.md) — Provider model catalog and alias routing; implemented concurrently with this ADR.
+- [crd-inference-providers](2026-10-01-crd-inference-providers.md): the `compatible` connector that Amendment 1 changes.
 
 ---
 
@@ -249,4 +281,4 @@ func (c *Connector) ChatCompletion(ctx context.Context, req ChatCompletionReques
 
 ---
 
-**Last Updated:** 2025-07-22
+**Last Updated:** 2026-10-07 (Amendment 1: trailing system messages fold for non-Anthropic models)
