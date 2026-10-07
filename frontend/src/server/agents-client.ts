@@ -14,7 +14,6 @@ import type {
   AgentRunStats,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
-  RunState,
   RunsPage,
 } from '@orbit/shared/api';
 
@@ -102,33 +101,12 @@ export async function previewEffectiveAccess(
   });
 }
 
-/** The page of runs to read: filters, page size and the previous page's cursor. */
-export interface RunsPageQuery {
-  agentTypeId?: string;
-  states?: readonly RunState[];
-  limit?: number;
-  cursor?: string;
-}
-
-/** The GET /api/v1/runs query string for a page. */
-export function runsPageParams(query: RunsPageQuery): URLSearchParams {
-  const params = new URLSearchParams();
-  if (query.agentTypeId) params.set('agent_type_id', query.agentTypeId);
-  if (query.states?.length) params.set('state', query.states.join(','));
-  if (query.limit) params.set('limit', String(query.limit));
-  if (query.cursor) params.set('cursor', query.cursor);
-  return params;
-}
-
 /** One page of the runs the caller may read, newest first. orbit-agents validates the params. */
-export async function listRuns(accessToken: string, params: URLSearchParams): Promise<RunsPage> {
-  const qs = params.toString();
-  const page = await request<RunsPage>(`/api/v1/runs${qs ? `?${qs}` : ''}`, accessToken);
-  return {
-    runs: page?.runs ?? [],
-    next_cursor: page?.next_cursor ?? null,
-    limit: page?.limit ?? 0,
-  };
+export async function listRuns(
+  accessToken: string,
+  params: URLSearchParams,
+): Promise<RunsPage | undefined> {
+  return request<RunsPage>(`/api/v1/runs?${params.toString()}`, accessToken);
 }
 
 /** Run stats across every agent type whose runs the caller may read. */

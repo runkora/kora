@@ -1,13 +1,7 @@
 import 'server-only';
 
 import type { AgentRunStats, AgentType } from '@orbit/shared/api';
-import {
-  agentsClient,
-  fetchTenantRunStats,
-  listRuns,
-  runsPageParams,
-} from '@orbit/server/agents-client';
-import type { RunsPageQuery } from '@orbit/server/agents-client';
+import { agentsClient, fetchTenantRunStats, listRuns } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
 import { DEFAULT_PERIOD } from '../_lib/spend';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
@@ -25,14 +19,14 @@ export type AgentsResult =
 export async function fetchAgentsFromBFF(
   accessToken: string,
   tenantId: string,
-  runs: RunsPageQuery,
+  runs: URLSearchParams,
 ): Promise<AgentsResult> {
   try {
     const [typesUpstream, page, runStats] = await Promise.all([
       agentsClient(accessToken).get<{ agent_types: AgentType[] }>(
         `/api/v1/agent-types?tenant_id=${encodeURIComponent(tenantId)}`,
       ),
-      listRuns(accessToken, runsPageParams(runs)),
+      listRuns(accessToken, runs),
       fetchTenantRunStats(accessToken, DEFAULT_PERIOD).catch((err: unknown) => {
         console.error('[fetchAgentsFromBFF] run stats request failed', err);
         return undefined;
@@ -44,7 +38,7 @@ export async function fetchAgentsFromBFF(
     return {
       ok: true,
       agentTypes,
-      runs: page.runs.map((r) => toRunRow(r, byId)),
+      runs: (page?.runs ?? []).map((r) => toRunRow(r, byId)),
       runStats: runStats ?? null,
     };
   } catch (err) {

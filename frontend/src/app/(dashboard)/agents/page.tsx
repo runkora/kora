@@ -13,10 +13,11 @@ export default async function AgentsPage() {
   const session = await getSession();
   const [result, insights] = isSessionValid(session)
     ? await Promise.all([
-        fetchAgentsFromBFF(session.accessToken, session.tenantId, {
-          states: LIVE_RUN_STATES,
-          limit: RUNNING_ROWS,
-        }),
+        fetchAgentsFromBFF(
+          session.accessToken,
+          session.tenantId,
+          new URLSearchParams({ state: LIVE_RUN_STATES.join(','), limit: String(RUNNING_ROWS) }),
+        ),
         loadInsights(session.accessToken, DEFAULT_PERIOD),
       ])
     : [null, null];

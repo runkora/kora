@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { AgentType } from '@orbit/shared/api';
-import { agentsClient, runsPageParams } from '@orbit/server/agents-client';
+import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
 import { listRunsWithNames } from '@orbit/server/services/runs-server';
 import { RUNS_PAGE_SIZE, indexAgentTypes, toAgentTypeRow, toRunRow } from '../../_types';
@@ -38,7 +38,7 @@ export async function fetchAgentDetailFromBFF(
     // The first page of runs, with starters' display names so the runs tab attributes them on first paint.
     const page = await listRunsWithNames(
       accessToken,
-      runsPageParams({ agentTypeId: found.id, limit: RUNS_PAGE_SIZE }),
+      new URLSearchParams({ agent_type_id: found.id, limit: String(RUNS_PAGE_SIZE) }),
     );
     const byId = indexAgentTypes([agent]);
     const runs = page.data.map((r) => toRunRow(r, byId));

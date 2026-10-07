@@ -31,12 +31,13 @@ export async function listRunsWithNames(
   params: URLSearchParams,
 ): Promise<RunsPageResponse> {
   const page = await listRuns(accessToken, params);
+  const runs = page?.runs ?? [];
   const names = await resolveUserDisplayNames(
     accessToken,
-    page.runs.map((r) => r.created_by),
+    runs.map((r) => r.created_by),
   );
   return {
-    data: page.runs.map((r) => ({ ...r, created_by_name: names.get(r.created_by) ?? null })),
-    next_cursor: page.next_cursor,
+    data: runs.map((r) => ({ ...r, created_by_name: names.get(r.created_by) ?? null })),
+    next_cursor: page?.next_cursor ?? null,
   };
 }

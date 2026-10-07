@@ -566,7 +566,6 @@ export interface AgentRunStats {
 export interface RunsPage {
   runs: Run[];
   next_cursor: string | null;
-  limit: number;
 }
 
 /** A page of runs as the BFF run routes serve it. */

@@ -54,7 +54,11 @@ export async function fetchDashboardData(
 ): Promise<DashboardData> {
   const [agentsResult, connectionsResult, environments, analyticsResult, budgetResult] =
     await Promise.all([
-      fetchAgentsFromBFF(accessToken, tenantId, { limit: RECENT_RUNS }),
+      fetchAgentsFromBFF(
+        accessToken,
+        tenantId,
+        new URLSearchParams({ limit: String(RECENT_RUNS) }),
+      ),
       fetchConnections(accessToken, tenantId),
       listEnvironments(accessToken)
         .then((envs) => envs.map(toEnvironmentRow))
