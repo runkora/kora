@@ -9,6 +9,9 @@ export type { Connector };
 
 export interface EnvironmentRow {
   id: string;
+  /** What agents select the environment by. */
+  slug: string;
+  /** The environment's name for people. */
   name: string;
   description: string;
   /** SandboxImage name. */
@@ -25,6 +28,7 @@ export interface EnvironmentRow {
 export function toEnvironmentRow(e: Environment): EnvironmentRow {
   return {
     id: e.id,
+    slug: e.slug,
     name: e.name,
     description: e.description,
     sandboxImage: e.sandbox_image,

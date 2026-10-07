@@ -41,6 +41,7 @@ function environmentMatchesSearch(row: EnvironmentRow, q: string): boolean {
   const lower = q.toLowerCase();
   return (
     row.name.toLowerCase().includes(lower) ||
+    row.slug.toLowerCase().includes(lower) ||
     row.description.toLowerCase().includes(lower) ||
     row.sandboxImage.toLowerCase().includes(lower) ||
     row.egressHosts.some((h) => h.toLowerCase().includes(lower)) ||
@@ -93,6 +94,9 @@ export function EnvironmentsPage({
           <Stack gap="none">
             <Text size="supporting" weight="emphasis">
               {row.name}
+            </Text>
+            <Text size="caption" mono color="subtle">
+              {row.slug}
             </Text>
             {row.description && (
               <Text size="caption" color="muted">
@@ -291,6 +295,7 @@ export function EnvironmentsPage({
         <EnvironmentWizard
           key={formState.environment?.id ?? 'create'}
           environment={formState.environment}
+          environments={rows}
           connections={connections}
           images={images}
           sizes={sizes}

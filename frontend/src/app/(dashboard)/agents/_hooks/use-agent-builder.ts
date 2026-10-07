@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import { hasScopeCovering } from '@orbit/lib/permissions';
+import { deriveSlug } from '@orbit/lib/slug';
 import { usePermissions } from '../../_components/permissions-provider';
 import type {
   AgentEnvironment,
@@ -172,13 +173,6 @@ const EMPTY_FIELDS: BuilderFields = {
 type DraftPayload = Partial<CreateAgentTypeRequest> & { _builder?: { step?: number } };
 
 const SLUG_RE = /^[a-z0-9-]+$/;
-
-export function deriveSlug(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '');
-}
 
 // ── Payload mapping ───────────────────────────────────────────────────────────
 

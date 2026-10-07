@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { SandboxImage } from '@orbit/shared/api';
-import { imageProblem, sizeLabel } from './environments';
+import { imageProblem, sizeLabel, slugProblem } from './environments';
 
 const image = (name: string, valid: boolean, problem?: string): SandboxImage => ({
   name,
@@ -44,5 +44,20 @@ describe('sizeLabel', () => {
       '2 CPU · 4Gi memory · 10Gi disk',
     );
     expect(sizeLabel({ cpu: '', memory: '', disk: '' })).toBe('');
+  });
+});
+
+describe('slugProblem', () => {
+  it('accepts a DNS-1123 label', () => {
+    expect(slugProblem('go-services')).toBeNull();
+  });
+
+  it.each([
+    ['', 'Enter a slug.'],
+    ['a'.repeat(64), 'Use at most 63 characters.'],
+    ['-go', 'Use lowercase letters, digits and hyphens.'],
+    ['Go', 'Use lowercase letters, digits and hyphens.'],
+  ])('rejects %j', (slug, problem) => {
+    expect(slugProblem(slug)).toBe(problem);
   });
 });

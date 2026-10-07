@@ -57,7 +57,8 @@ export const MOCK_CATALOG: ConnectionCatalogEntry[] = [
 export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
   {
     id: '7c1f0a52-3b9e-4d1c-8a47-2f5e61b0c9d3',
-    name: 'dev-registries',
+    slug: 'dev-registries',
+    name: 'Dev registries',
     sandboxImage: 'kora-base',
     size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
     description: 'Public package registries needed to install dependencies.',
@@ -68,7 +69,8 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
   },
   {
     id: 'a94d2e18-6c07-4f3b-b5d2-81e7c4f09a66',
-    name: 'code-review',
+    slug: 'code-review',
+    name: 'Code review',
     sandboxImage: 'acme-go',
     size: { cpu: '4', memory: '8Gi', disk: '20Gi' },
     description: 'GitHub and Slack for reviewing pull requests and reporting back.',
@@ -86,7 +88,8 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
   },
   {
     id: 'e03b7a91-52d4-4c8e-9f16-b7a2d85c3e40',
-    name: 'incident-response',
+    slug: 'incident-response',
+    name: 'Incident response',
     sandboxImage: 'acme-ops',
     size: { cpu: '1', memory: '2Gi', disk: '5Gi' },
     description: 'Read-only cluster access plus paging and chat.',
@@ -104,7 +107,8 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
   },
   {
     id: '3f68c0d4-91ab-47e2-8d35-0c5b9e72a1f8',
-    name: 'locked-down',
+    slug: 'locked-down',
+    name: 'Locked down',
     sandboxImage: 'kora-base',
     size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
     description: '',
@@ -115,7 +119,8 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
   },
   {
     id: 'b52e9f03-7a18-4b6d-a0c4-d1387e45f2b9',
-    name: 'product-triage',
+    slug: 'product-triage',
+    name: 'Product triage',
     sandboxImage: 'acme-node',
     size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
     description: 'Linear issues with a single outbound host for release notes.',
@@ -172,7 +177,8 @@ export const MANY_ENVIRONMENTS: EnvironmentRow[] = [
     const n = String(i + 1).padStart(2, '0');
     return {
       id: `c${n}0a1b2-0000-4000-8000-00000000${n}00`,
-      name: `team-sandbox-${n}`,
+      slug: `team-sandbox-${n}`,
+      name: `Team sandbox ${n}`,
       sandboxImage: i % 2 === 0 ? 'acme-go' : 'kora-base',
       size: { cpu: '2', memory: '4Gi', disk: '10Gi' },
       description: i % 2 === 0 ? `Scratch environment for team ${n}.` : '',

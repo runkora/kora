@@ -298,6 +298,9 @@ export interface McpServer {
 export interface Environment {
   id: string;
   tenant_id: string;
+  /** What agents select the environment by. It cannot change after create. */
+  slug: string;
+  /** The environment's name for people. */
   name: string;
   description: string;
   /** SandboxImage name in the tenant namespace. */
@@ -332,9 +335,11 @@ export interface EnvironmentsListResponse {
   environments: Environment[];
 }
 
-/** Request body for POST/PUT /api/v1/environments; PUT replaces in full. Empty image and size
- * fields take kora-base and the platform default, and a size above the maximum gets a 400. */
+/** Request body for POST/PUT /api/v1/environments; PUT replaces in full except the slug. Empty image and size
+ * fields take kora-base and the platform default, and a size above the maximum gets a 400. A create without a
+ * slug derives one from the name, and an update with a different slug gets a 400. */
 export interface EnvironmentRequest {
+  slug?: string;
   name: string;
   description: string;
   sandbox_image: string;
