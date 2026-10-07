@@ -23,6 +23,7 @@ const meta: Meta<typeof AgentDetailShell> = {
   args: {
     initialAgent: rowFor(CODE_REVIEWER),
     initialRuns: runRowsFor(CODE_REVIEWER),
+    initialNextCursor: null,
     initialError: null,
     initialStatus: 'success',
     initialOverview: mockOverview(CODE_REVIEWER.slug, '7d'),

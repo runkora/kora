@@ -12,7 +12,9 @@ import {
   MANY_AGENT_ROWS,
   MANY_RUN_ROWS,
   RUN_ROWS,
+  mockRunStats,
 } from '../agents/_components/agents-mock-data';
+import type { RunRow } from '../agents/_types';
 import { buildConnectionRows } from '../connections/_types';
 import { toEnvironmentRow } from '../environments/_types';
 import type { AnalyticsBucket, AnalyticsResponse, TenantCapStatus } from '../model-gateway/_types';
@@ -80,12 +82,18 @@ function analytics(
 }
 
 const CONNECTION_ROWS = buildConnectionRows(CONNECTIONS, AGENT_TYPES);
+
+/** The dashboard's run props for these rows: the newest few and the server's counts. */
+const dashboardRuns = (rows: RunRow[]) => ({
+  recentRuns: rows.slice(0, 8),
+  runCounts: mockRunStats(rows).current,
+});
 const ENVIRONMENT_ROWS = ENVIRONMENTS.map(toEnvironmentRow);
 
 /** A busy workspace: many agents and runs, steady traffic, budget comfortably within its cap. */
 export const BUSY_WORKSPACE: DashboardPageProps = {
   agentTypes: MANY_AGENT_ROWS,
-  runs: MANY_RUN_ROWS,
+  ...dashboardRuns(MANY_RUN_ROWS),
   connections: CONNECTION_ROWS,
   environments: ENVIRONMENT_ROWS,
   analytics: analytics([312, 428, 391, 506, 470, 214, 538], 0.012),
@@ -96,7 +104,7 @@ export const BUSY_WORKSPACE: DashboardPageProps = {
 /** A workspace that has just been created: nothing registered, no traffic, no budget. */
 export const NEW_WORKSPACE: DashboardPageProps = {
   agentTypes: [],
-  runs: [],
+  ...dashboardRuns([]),
   connections: [],
   environments: [],
   analytics: null,
@@ -107,8 +115,10 @@ export const NEW_WORKSPACE: DashboardPageProps = {
 /** Spend near the cap, a failing run streak and an elevated error rate. */
 export const ALERTING_WORKSPACE: DashboardPageProps = {
   agentTypes: AGENT_ROWS,
-  runs: RUN_ROWS.map((run, i) =>
-    i % 2 === 0 && run.state === 'completed' ? { ...run, state: 'failed' } : run,
+  ...dashboardRuns(
+    RUN_ROWS.map((run, i) =>
+      i % 2 === 0 && run.state === 'completed' ? { ...run, state: 'failed' as const } : run,
+    ),
   ),
   connections: CONNECTION_ROWS,
   environments: ENVIRONMENT_ROWS,
@@ -134,7 +144,7 @@ export const LIMIT_REACHED_WORKSPACE: DashboardPageProps = {
 /** A small team with light, quiet traffic. */
 export const LIGHT_TRAFFIC: DashboardPageProps = {
   agentTypes: AGENT_ROWS.slice(0, 2),
-  runs: RUN_ROWS.slice(0, 3),
+  ...dashboardRuns(RUN_ROWS.slice(0, 3)),
   connections: CONNECTION_ROWS.slice(0, 1),
   environments: ENVIRONMENT_ROWS.slice(0, 1),
   analytics: analytics([0, 3, 12, 0, 8, 2, 15], 0),

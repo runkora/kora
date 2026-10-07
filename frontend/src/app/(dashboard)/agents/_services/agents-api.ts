@@ -7,6 +7,7 @@ import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
   AgentInsightsPeriod,
   AgentInsightsResponse,
+  AgentRunStats,
   AgentType,
   AgentTypeDraft,
   ConnectionCatalogEntry,
@@ -16,6 +17,8 @@ import type {
   McpServer,
   ModelObject,
   Run,
+  RunState,
+  RunsPageResponse,
   StartRunRequest,
 } from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
@@ -69,25 +72,69 @@ export const fetchAgentInsights = (period: AgentInsightsPeriod) =>
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────
 
-export async function fetchRuns(
+/** A page of runs to read: filters, page size and the previous page's cursor. */
+export interface RunPageQuery {
+  states?: readonly RunState[];
+  limit?: number;
+  cursor?: string | null;
+}
+
+/** The BFF query string for a page of runs, with its leading `?` when not empty. */
+export function runPageSearch(query: RunPageQuery): string {
+  const params = new URLSearchParams();
+  if (query.states?.length) params.set('state', query.states.join(','));
+  if (query.limit) params.set('limit', String(query.limit));
+  if (query.cursor) params.set('cursor', query.cursor);
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
+export interface RunPageResult {
+  data: RunRow[];
+  /** The next page's cursor; null on the last page. */
+  nextCursor: string | null;
+  error: string | null;
+}
+
+/** Fetches one page of runs from a BFF run list route. Never throws. */
+export async function fetchRunPage(
+  url: string,
   agentTypes: AgentTypeRow[],
-): Promise<{ data: RunRow[]; error: string | null }> {
+): Promise<RunPageResult> {
   let res: Response;
   try {
-    res = await fetch(ApiRoute.runs.list(), { cache: 'no-store' });
+    res = await fetch(url, { cache: 'no-store' });
   } catch {
-    return { data: [], error: 'Network error: could not reach the server.' };
+    return { data: [], nextCursor: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
       data: [],
+      nextCursor: null,
       error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
     };
   }
-  const body = (await res.json()) as { data: Run[] };
+  const body = (await res.json()) as RunsPageResponse;
   const byId = indexAgentTypes(agentTypes);
-  return { data: (body.data ?? []).map((r) => toRunRow(r, byId)), error: null };
+  return {
+    data: (body.data ?? []).map((r) => toRunRow(r, byId)),
+    nextCursor: body.next_cursor ?? null,
+    error: null,
+  };
+}
+
+/** One page of the runs of every agent the caller may read. */
+export const fetchRuns = (agentTypes: AgentTypeRow[], query: RunPageQuery = {}) =>
+  fetchRunPage(`${ApiRoute.runs.list()}${runPageSearch(query)}`, agentTypes);
+
+// ── fetchRunStats ─────────────────────────────────────────────────────────────
+
+export async function fetchRunStats(
+  period: AgentInsightsPeriod,
+): Promise<{ data: AgentRunStats | null; error: string | null }> {
+  const result = await fetchPeriodRead<{ data: AgentRunStats | null }>(ApiRoute.runs.stats(period));
+  return { data: result.data?.data ?? null, error: result.error };
 }
 
 // ── fetchStartRun ─────────────────────────────────────────────────────────────

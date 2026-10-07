@@ -61,18 +61,21 @@ export function RunStateDot({ state: name }: { state: string }) {
   );
 }
 
-export function isLiveRun(run: RunRow): boolean {
-  return run.state in LIVE_STATES;
-}
-
 export interface RunningNowCardProps {
-  /** Only runs that are live; see `isLiveRun`. */
+  /** The newest live runs, at most RUNNING_ROWS of them. */
   runs: RunRow[];
+  /** Every live run, counted by the server; null when the counts could not be read. */
+  counts: {
+    running: number;
+    starting: number;
+    queued: number;
+    total: number;
+    longestMs: number;
+  } | null;
 }
 
-export function RunningNowCard({ runs }: RunningNowCardProps) {
-  const count = (...states: string[]) => runs.filter((r) => states.includes(r.state)).length;
-  const longest = Math.max(0, ...runs.map((r) => r.durationMs ?? 0));
+export function RunningNowCard({ runs, counts }: RunningNowCardProps) {
+  const total = counts?.total ?? runs.length;
 
   return (
     <Stack asChild overflow="hidden">
@@ -81,19 +84,16 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
           leadingIcon="activity"
           title="Running now"
           description={
-            runs.length > 0
-              ? `${runs.length} ${runs.length === 1 ? 'run' : 'runs'} in progress`
-              : undefined
+            total > 0 ? `${total} ${total === 1 ? 'run' : 'runs'} in progress` : undefined
           }
           action={
-            runs.length > 0 ? (
+            counts && total > 0 ? (
               <Stack gap="tight" align="end">
                 <Text size="caption" color="muted">
-                  {count('active', 'completing')} running · {count('starting')} starting ·{' '}
-                  {count('pending')} queued
+                  {counts.running} running · {counts.starting} starting · {counts.queued} queued
                 </Text>
                 <Text size="caption" color="subtle">
-                  Longest {formatDuration(longest)}
+                  Longest {formatDuration(counts.longestMs)}
                 </Text>
               </Stack>
             ) : undefined
@@ -170,11 +170,10 @@ export function RunningNowCard({ runs }: RunningNowCardProps) {
             </Table>
           </TableRoot>
         )}
-        {runs.length > RUNNING_ROWS && (
+        {total > runs.length && (
           <CardFooter compact>
             <Text size="caption" color="subtle">
-              +{runs.length - RUNNING_ROWS} more {runs.length - RUNNING_ROWS === 1 ? 'run' : 'runs'}{' '}
-              not shown
+              +{total - runs.length} more {total - runs.length === 1 ? 'run' : 'runs'} not shown
             </Text>
           </CardFooter>
         )}

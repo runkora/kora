@@ -34,6 +34,8 @@ describe('RecentRunsTable', () => {
       <AgentDetailProvider
         initialAgent={agent}
         initialRuns={rows}
+        initialNextCursor={null}
+        initialStateCounts={null}
         initialError={null}
         initialStatus="success"
       >

@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"io"
+	"slices"
 	"sort"
 	"sync"
 	"testing"
@@ -53,13 +54,12 @@ type mockRepository struct {
 	listRunEventsErr       error
 	appendRunMessageErr    error
 
-	outcomesVis RunVisibility
+	outcomesScope RunScope
 
 	// Run stats: the canned result and the arguments the service passed.
-	statsResult      RunStats
-	statsVis         RunVisibility
-	statsAgentTypeID string
-	getBySlugErr     error
+	statsResult  RunStats
+	statsScope   RunScope
+	getBySlugErr error
 }
 
 func newMockRepository() *mockRepository {
@@ -240,30 +240,37 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 	return r.IdentityMode.OrDefault()
 }
 
-func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVisibility, _, _ time.Time) (RunOutcomes, error) {
-	m.outcomesVis = vis
+func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, scope RunScope, _, _ time.Time) (RunOutcomes, error) {
+	m.outcomesScope = scope
 	return RunOutcomes{}, nil
 }
 
-func (m *mockRepository) AgentRunStats(_ context.Context, _, agentTypeID string, vis RunVisibility, _, _ time.Time) (RunStats, error) {
-	m.statsVis, m.statsAgentTypeID = vis, agentTypeID
+func (m *mockRepository) RunStats(_ context.Context, _ string, scope RunScope, _, _ time.Time) (RunStats, error) {
+	m.statsScope = scope
 	return m.statsResult, nil
 }
 
-func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID string, vis RunVisibility, limit int) ([]Run, error) {
+// ListRuns mirrors the SQL: scope (agent types and delegated visibility),
+// states, the keyset cursor, ORDER BY created_at DESC, id DESC, and LIMIT.
+func (m *mockRepository) ListRuns(_ context.Context, tenantID string, q RunListQuery) ([]Run, error) {
 	if m.listRunsErr != nil {
 		return nil, m.listRunsErr
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	vis := q.Scope.Vis
 	var out []Run
 	for _, r := range m.runs {
-		if r.TenantID != tenantID || (agentTypeID != "" && r.AgentTypeID != agentTypeID) {
+		if r.TenantID != tenantID || !slices.Contains(q.Scope.AgentTypeIDs, r.AgentTypeID) {
+			continue
+		}
+		if len(q.States) > 0 && !slices.Contains(q.States, r.State) {
+			continue
+		}
+		if a := q.After; a != nil && (r.CreatedAt.After(a.CreatedAt) || (r.CreatedAt.Equal(a.CreatedAt) && r.ID >= a.ID)) {
 			continue
 		}
 		mode := m.runIdentityModeLocked(r)
-		// Mirror the SQL visibility clause: (at.identity_mode <> 'delegated'
-		// OR (subject <> '' AND r.created_by = subject)).
 		if !vis.SeeAll && mode == IdentityModeDelegated && (vis.Subject == "" || r.CreatedBy != vis.Subject) {
 			continue
 		}
@@ -271,17 +278,14 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID, agentTypeID strin
 		cp.IdentityMode = mode
 		out = append(out, cp)
 	}
-	// Mirror ORDER BY created_at DESC, id DESC LIMIT n. m.runs is a map, so the
-	// sort is what makes the truncation deterministic; id breaks ties because
-	// fixtures commonly share a timestamp.
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
 			return out[i].ID > out[j].ID
 		}
 		return out[i].CreatedAt.After(out[j].CreatedAt)
 	})
-	if limit > 0 && len(out) > limit {
-		out = out[:limit]
+	if len(out) > q.Limit {
+		out = out[:q.Limit]
 	}
 	return out, nil
 }
@@ -876,7 +880,8 @@ func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error)
 }
 
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
-	return f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, 0)
+	page, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, RunListQuery{Limit: maxRunsLimit})
+	return page.Runs, err
 }
 
 func (f *testServiceFacade) TerminateRun(ctx context.Context, id string) error {

@@ -16,6 +16,13 @@ const RUN_STATS: AgentRunStats = {
     buckets: [1, 0, 0, 2, 0, 0, 3, 1, 0, 1],
     overflow: 0,
   },
+  current: {
+    total: 12,
+    by_state: { completed: 8, failed: 2, active: 2 },
+    live: 2,
+    live_by_agent_type: { 'at-1': 2 },
+    longest_live_ms: 60_000,
+  },
 };
 
 const RESPONSE: AgentOverviewResponse = {

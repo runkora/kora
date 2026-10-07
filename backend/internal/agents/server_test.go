@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -297,62 +296,6 @@ func TestHandleListRuns_OK(t *testing.T) {
 	runs, _ := resp["runs"].([]any)
 	if len(runs) != 1 {
 		t.Errorf("expected 1 run, got %d", len(runs))
-	}
-}
-
-func TestHandleListRuns_LimitOmitted_ReturnsEverything(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	for i := range 3 {
-		seedRun(t, repo, Run{ID: fmt.Sprintf("run-%d", i), TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
-	}
-
-	w := getRequest(t, c.handleListRuns, "tenant_id=t-1")
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	runs, _ := resp["runs"].([]any)
-	if len(runs) != 3 {
-		t.Errorf("expected 3 runs, got %d", len(runs))
-	}
-}
-
-func TestHandleListRuns_ExplicitLimit_IsHonoured(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	for i := range 3 {
-		seedRun(t, repo, Run{ID: fmt.Sprintf("run-%d", i), TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
-	}
-
-	w := getRequest(t, c.handleListRuns, "tenant_id=t-1&limit=1")
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want 200", w.Code)
-	}
-	var resp map[string]any
-	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	runs, _ := resp["runs"].([]any)
-	if len(runs) != 1 {
-		t.Errorf("expected 1 run, got %d", len(runs))
-	}
-}
-
-// An unparseable limit must 400, not silently fall through to unbounded — that
-// would turn a caller's typo into the one response shape ("everything") they
-// least expected.
-func TestHandleListRuns_UnparseableLimit_Returns400(t *testing.T) {
-	c, repo, _, _ := newTestController(t)
-	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
-	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateActive})
-
-	w := getRequest(t, c.handleListRuns, "tenant_id=t-1&limit=not-a-number")
-	if w.Code != http.StatusBadRequest {
-		t.Errorf("status = %d, want 400", w.Code)
 	}
 }
 

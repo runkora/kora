@@ -134,6 +134,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /api/v1/environment-sizes", c.handleEnvironmentSizes)
 	mux.Handle("POST /api/v1/runs", c.handleStartRun)
 	mux.Handle("GET /api/v1/runs", c.handleListRuns)
+	mux.Handle("GET /api/v1/runs/stats", c.handleTenantRunStats)
 	mux.Handle("GET /api/v1/run-outcomes", c.handleRunOutcomes)
 	mux.Handle("GET /api/v1/run-stats/{slug}", c.handleRunStats)
 	mux.Handle("GET /api/v1/runs/{id}", c.handleGetRun)
@@ -400,32 +401,49 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
+// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&limit=&cursor=, clamping limit to maxRunsLimit.
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	q := r.URL.Query()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
-	agentTypeID := r.URL.Query().Get("agent_type_id")
-	// limit <= 0 (including absent) means unbounded — see ListRuns. An
-	// unparseable value must 400, not silently fall through to unbounded: that
-	// would turn a caller's typo into the one response shape they didn't ask for.
-	limit := 0
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		parsed, err := strconv.Atoi(raw)
-		if err != nil {
-			apiErr := api.BadRequestError(api.ErrCodeInvalidField, "limit must be an integer", nil)
+	p := RunListQuery{Limit: defaultRunsLimit}
+	if raw := q.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, "limit must be a positive integer", map[string]any{"field": "limit"})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 			return
 		}
-		limit = parsed
+		p.Limit = min(n, maxRunsLimit)
+	}
+	var err error
+	if p.After, err = decodeRunCursor(q.Get("cursor")); err != nil {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", map[string]any{"field": "cursor"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	// Repeated state keys add to the list.
+	if p.States, err = parseRunStates(strings.Join(q["state"], ",")); err != nil {
+		apiErr := api.ValidationError(api.ErrCodeInvalidField, "state must be a comma-separated list of run states", map[string]any{"field": "state"})
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
 	}
 
-	runs, err := c.runs.ListRuns(ctx, agentTypeID, limit)
+	page, err := c.runs.ListRuns(ctx, q.Get("agent_type_id"), p)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
-
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"runs": runs})
+	runs := page.Runs
+	if runs == nil {
+		runs = []Run{}
+	}
+	var next *string
+	if page.NextCursor != "" {
+		next = &page.NextCursor
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"runs": runs, "next_cursor": next, "limit": p.Limit})
 }
 
 // parsePeriod reads the period query, writing the 400 and reporting false when it is invalid.
@@ -470,6 +488,23 @@ func (c *Controller) handleRunStats(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to get run stats", nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, out)
+}
+
+// handleTenantRunStats handles GET /api/v1/runs/stats?period=24h|7d|30d|90d: the
+// run stats of every agent type whose runs the caller may read.
+func (c *Controller) handleTenantRunStats(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	period, ok := c.parsePeriod(w, r)
+	if !ok {
+		return
+	}
+	out, err := c.runs.TenantRunStats(ctx, period, time.Now().UTC())
+	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to get run stats", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

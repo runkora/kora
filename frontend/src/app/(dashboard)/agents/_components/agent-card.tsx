@@ -37,7 +37,8 @@ export interface AgentCardProps {
   usage: AgentTypeUsage | undefined;
   /** Spend across every agent, so the bar shows this agent's share of it. */
   totalCost: number;
-  liveRuns: number;
+  /** Null when the run counts could not be read. */
+  liveRuns: number | null;
   /** Short name for the window the cost covers, for example "7d". */
   period: string;
   /** Shown in place of the usage line while the figures are loading or unavailable. */
@@ -126,7 +127,11 @@ export function AgentCard({
           </Stack>
           <Stack direction="horizontal" align="center" justify="between">
             <Text size="caption" color="subtle">
-              {liveRuns > 0 ? `${liveRuns} running now` : 'Idle'}
+              {liveRuns === null
+                ? 'Run count unavailable'
+                : liveRuns > 0
+                  ? `${liveRuns} running now`
+                  : 'Idle'}
             </Text>
             <Stack direction="horizontal" align="center" gap="tight">
               <Button size="sm" disabled={!canRun} onClick={() => onRun(agent)}>

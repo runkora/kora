@@ -29,6 +29,7 @@ func TestPostgres_CountRunOutcomes(t *testing.T) {
 	ctx := context.Background()
 	auto := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 	del := seedRunAgentType(t, r, tenant, IdentityModeDelegated)
+	unread := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
 	// The other tenant's run references this tenant's agent type, so it goes first.
 	t.Cleanup(func() { _, _ = r.pool.Exec(ctx, `DELETE FROM runs WHERE tenant_id=$1`, tenant+"-other") })
 
@@ -42,6 +43,7 @@ func TestPostgres_CountRunOutcomes(t *testing.T) {
 	seedFinishedRun(t, r, tenant, del.ID, "bob", RunStateCompleted, 2*h, h)             // bob's, private
 	seedFinishedRun(t, r, tenant, del.ID, "bob", RunStateFailed, 2*h, h)                // bob's, private
 	seedFinishedRun(t, r, tenant+"-other", auto.ID, "alice", RunStateCompleted, 2*h, h) // another tenant
+	seedFinishedRun(t, r, tenant, unread.ID, "alice", RunStateFailed, 2*h, h)           // an agent outside the scope
 
 	from, to := time.Now().Add(-7*24*h), time.Now().Add(time.Minute)
 	cases := []struct {
@@ -54,7 +56,7 @@ func TestPostgres_CountRunOutcomes(t *testing.T) {
 		{"an empty subject sees no delegated run", RunVisibility{}, RunOutcomes{Completed: 2, Failed: 1}},
 	}
 	for _, tc := range cases {
-		got, err := r.CountRunOutcomes(ctx, tenant, tc.vis, from, to)
+		got, err := r.CountRunOutcomes(ctx, tenant, RunScope{AgentTypeIDs: []string{auto.ID, del.ID}, Vis: tc.vis}, from, to)
 		if err != nil || got != tc.want {
 			t.Errorf("%s: %+v, %v; want %+v", tc.name, got, err, tc.want)
 		}

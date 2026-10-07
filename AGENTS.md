@@ -147,14 +147,14 @@ All conventions above are mechanically enforced. Do not add inline `//nolint` di
 
 **Tier 2: Import bans** (`depguard` in `.golangci.yml`):
 
-| Rule                                   | What it bans                                    |
-| -------------------------------------- | ----------------------------------------------- |
-| `no-stdlib-log`                        | `log`, `log/slog`                               |
-| `no-otel-span-mgmt-in-service-clients` | `otel/codes`, `otel/trace` inside typed clients |
-| `no-database-sql`                      | `database/sql`                                  |
-| `no-raw-viper`                         | `github.com/spf13/viper`                        |
+| Rule                                   | What it bans                                                 |
+| -------------------------------------- | ------------------------------------------------------------ |
+| `no-stdlib-log`                        | `log`, `log/slog`                                            |
+| `no-otel-span-mgmt-in-service-clients` | `otel/codes`, `otel/trace` inside typed clients              |
+| `no-database-sql`                      | `database/sql`                                               |
+| `no-raw-viper`                         | `github.com/spf13/viper`                                     |
 | `no-raw-yaml`                          | `gopkg.in/yaml.v2`, `gopkg.in/yaml.v3`, `go.yaml.in/yaml/v3` |
-| `no-third-party-routers`               | `gin`, `chi`, `echo`, `gorilla/mux`             |
+| `no-third-party-routers`               | `gin`, `chi`, `echo`, `gorilla/mux`                          |
 
 See `rules/README.md` for full rationale and exception policy.
 
@@ -246,14 +246,14 @@ This describes what the backend test suite **actually is today**, and (separatel
 - **Unit tests**: the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
 - **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `ORBIT_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, including:
 
-  | Package                | File                                                          | Covers                                                                                                                                                                                                                  |
-  | ---------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `triggers`             | `postgres_test.go`                                            | the durable queue (claim, reclaim, trim, drain), delivery dedup and lineage, retention, the admission ceiling                                                                                                           |
-  | `agents`               | `drafts_postgres_test.go`, `run_attribution_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution                                                                                                                                                                     |
-  | `policyservice/grants` | `postgres_test.go`                                            | scope purging across grants                                                                                                                                                                                             |
-  | `policyservice/roles`  | `postgres_test.go`                                            | scope purging across roles                                                                                                                                                                                              |
-  | `inferencegw`          | `postgres_test.go`, `pricing_postgres_test.go`                | the `agent_slug` backfill and write path, per-agent usage aggregates and their index; price overrides without a synced row, and discovered prices replacing a provider's synced rows atomically while keeping overrides |
-  | `example`              | `postgres_test.go`                                            | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
+  | Package                | File                                                                                       | Covers                                                                                                                                                                                                                  |
+  | ---------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `triggers`             | `postgres_test.go`                                                                         | the durable queue (claim, reclaim, trim, drain), delivery dedup and lineage, retention, the admission ceiling                                                                                                           |
+  | `agents`               | `drafts_postgres_test.go`, `run_attribution_postgres_test.go`, `run_page_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution; keyset run pages and run stats                                                                                                                                     |
+  | `policyservice/grants` | `postgres_test.go`                                                                         | scope purging across grants                                                                                                                                                                                             |
+  | `policyservice/roles`  | `postgres_test.go`                                                                         | scope purging across roles                                                                                                                                                                                              |
+  | `inferencegw`          | `postgres_test.go`, `pricing_postgres_test.go`                                             | the `agent_slug` backfill and write path, per-agent usage aggregates and their index; price overrides without a synced row, and discovered prices replacing a provider's synced rows atomically while keeping overrides |
+  | `example`              | `postgres_test.go`                                                                         | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
 
   Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):
 

@@ -9,24 +9,27 @@
 import { createContext, useContext } from 'react';
 import { useAgents } from '../_hooks/use-agents';
 import type { AgentsStateShape } from '../_hooks/use-agents';
+import type { AgentRunStats } from '@orbit/shared/api';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 const AgentsContext = createContext<AgentsStateShape | null>(null);
 
 interface AgentsProviderProps {
   initialAgentTypes: AgentTypeRow[];
-  initialRuns: RunRow[];
+  initialLiveRuns: RunRow[];
+  initialRunStats: AgentRunStats | null;
   initialError: string | null;
   children: React.ReactNode;
 }
 
 export function AgentsProvider({
   initialAgentTypes,
-  initialRuns,
+  initialLiveRuns,
+  initialRunStats,
   initialError,
   children,
 }: AgentsProviderProps) {
-  const state = useAgents(initialAgentTypes, initialRuns, initialError);
+  const state = useAgents(initialAgentTypes, initialLiveRuns, initialRunStats, initialError);
   return <AgentsContext.Provider value={state}>{children}</AgentsContext.Provider>;
 }
 

@@ -25,6 +25,12 @@ export type {
   Connector,
 };
 
+/** The states of a run in flight. An idle run waits for a message and is not live. */
+export const LIVE_RUN_STATES: readonly RunState[] = ['pending', 'starting', 'active', 'completing'];
+
+/** Runs per page on the agent's Runs tab. */
+export const RUNS_PAGE_SIZE = 50;
+
 export interface AgentTypeRow {
   id: string;
   name: string;

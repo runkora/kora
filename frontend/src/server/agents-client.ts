@@ -9,7 +9,13 @@ import 'server-only';
 
 import { config } from './config';
 import { ApiError } from './client';
-import type { EffectiveAccess, EffectiveAccessPreviewRequest } from '@orbit/shared/api';
+import type {
+  AgentInsightsPeriod,
+  AgentRunStats,
+  EffectiveAccess,
+  EffectiveAccessPreviewRequest,
+  RunsPage,
+} from '@orbit/shared/api';
 
 // ---------------------------------------------------------------------------
 // Core fetch helper
@@ -93,4 +99,20 @@ export async function previewEffectiveAccess(
     method: 'POST',
     body,
   });
+}
+
+/** One page of the runs the caller may read, newest first. orbit-agents validates the params. */
+export async function listRuns(
+  accessToken: string,
+  params: URLSearchParams,
+): Promise<RunsPage | undefined> {
+  return request<RunsPage>(`/api/v1/runs?${params.toString()}`, accessToken);
+}
+
+/** Run stats across every agent type whose runs the caller may read. */
+export async function fetchTenantRunStats(
+  accessToken: string,
+  period: AgentInsightsPeriod,
+): Promise<AgentRunStats | undefined> {
+  return request<AgentRunStats>(`/api/v1/runs/stats?period=${period}`, accessToken);
 }

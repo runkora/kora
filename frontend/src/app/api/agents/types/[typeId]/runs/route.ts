@@ -3,8 +3,8 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
-import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
-import type { AgentType, Run, RunWithAttribution } from '@orbit/shared/api';
+import { listRunsWithNames, pickRunsPageParams } from '@orbit/server/services/runs-server';
+import type { AgentType } from '@orbit/shared/api';
 
 type Params = { typeId: string };
 
@@ -26,8 +26,9 @@ async function resolveAgentTypeId(
   return list?.agent_types.find((a) => a.slug === typeId)?.id ?? null;
 }
 
+// GET /api/agents/types/{typeId}/runs?state=&limit=&cursor= returns one page of the agent's runs.
 export const GET = withAuth(
-  async (_req: NextRequest, session, context?: { params: Promise<Params> }) => {
+  async (req: NextRequest, session, context?: { params: Promise<Params> }) => {
     const { typeId } = await (context?.params ?? Promise.resolve({ typeId: '' }));
     try {
       const agentTypeId = await resolveAgentTypeId(session.accessToken, session.tenantId, typeId);
@@ -37,22 +38,8 @@ export const GET = withAuth(
           { status: 404 },
         );
       }
-      const client = agentsClient(session.accessToken);
-      const upstream = await client.get<{ runs: Run[] }>(
-        `/api/v1/runs?tenant_id=${encodeURIComponent(session.tenantId)}&agent_type_id=${encodeURIComponent(agentTypeId)}`,
-      );
-      const runs = upstream?.runs ?? [];
-      // Resolve created_by principals to display names (best-effort — principals
-      // that are not tenant users get no name and the UI falls back to the raw id).
-      const names = await resolveUserDisplayNames(
-        session.accessToken,
-        runs.map((r) => r.created_by),
-      );
-      const data: RunWithAttribution[] = runs.map((r) => ({
-        ...r,
-        created_by_name: names.get(r.created_by) ?? null,
-      }));
-      return NextResponse.json({ data });
+      const params = pickRunsPageParams(new URL(req.url).searchParams, agentTypeId);
+      return NextResponse.json(await listRunsWithNames(session.accessToken, params));
     } catch (err) {
       if (err instanceof ApiError) {
         return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });
