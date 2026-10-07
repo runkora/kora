@@ -147,6 +147,20 @@ the SandboxImage kora-base.
 {{- end }}
 
 {{/*
+The bundled sandbox images as the operator config carries them, keyed as in
+agents.sandboxImages.bundled. The operator registers each enabled one in every
+tenant namespace and removes the rest.
+*/}}
+{{- define "orbit.bundledSandboxImages" -}}
+{{- $out := dict -}}
+{{- range $key, $img := .Values.agents.sandboxImages.bundled -}}
+{{- $ref := $img.image | default (printf "%s/kora-sandbox-%s:%s" $.Values.global.imageRegistry $key ($.Values.global.imageTag | default $.Chart.AppVersion)) -}}
+{{- $_ := set $out $key (dict "enabled" (ne $img.enabled false) "warm" (eq $img.warm true) "image" $ref) -}}
+{{- end -}}
+{{- toJson $out -}}
+{{- end }}
+
+{{/*
 The validated sandbox warming mode. A typo would otherwise render no warming at
 all and look like it worked.
 */}}

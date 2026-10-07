@@ -56,6 +56,15 @@ Kubernetes: `>=1.34.0-0`
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
+| agents.sandboxImages.bundled.go.enabled | bool | `true` | Register kora-go: the base image plus golangci-lint, buf and protoc. |
+| agents.sandboxImages.bundled.go.image | string | `""` | Image reference for kora-go. Empty uses the release image. |
+| agents.sandboxImages.bundled.go.warm | bool | `false` | Keep kora-go pulled on the nodes that run sandboxes. |
+| agents.sandboxImages.bundled.node.enabled | bool | `true` | Register kora-node: the base image plus Node LTS and pnpm. |
+| agents.sandboxImages.bundled.node.image | string | `""` | Image reference for kora-node. Empty uses the release image. |
+| agents.sandboxImages.bundled.node.warm | bool | `false` | Keep kora-node pulled on the nodes that run sandboxes. |
+| agents.sandboxImages.bundled.python.enabled | bool | `true` | Register kora-python: the base image plus ruff and pytest. |
+| agents.sandboxImages.bundled.python.image | string | `""` | Image reference for kora-python. Empty uses the release image. |
+| agents.sandboxImages.bundled.python.warm | bool | `false` | Keep kora-python pulled on the nodes that run sandboxes. |
 | agents.sandboxImages.registryMirrors | object | `{}` | Registry hosts the operator reads through another host. Keys are the host in image references. A value given as http://host is read over plain HTTP. Use http:// for a local registry only. |
 | agents.sandboxImages.registryPorts | list | `[]` | Registry ports other than 443 the operator may dial to validate images. |
 | agents.sandboxImages.warmBase | bool | `false` | Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage sets its own with spec.warm. Each warm image runs one DaemonSet per tenant. |

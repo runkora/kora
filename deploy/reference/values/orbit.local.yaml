@@ -37,6 +37,15 @@ opaGateway:
 agents:
   sandboxImages:
     warmBase: true
+    # make up does not build the bundled images. Run make redeploy-sandbox-images
+    # first, then enable the ones you need.
+    bundled:
+      go:
+        enabled: false
+      python:
+        enabled: false
+      node:
+        enabled: false
     # Image references name orbit-registry:5001. Inside the cluster the k3d
     # registry serves plain HTTP on orbit-registry:5000.
     registryMirrors:
