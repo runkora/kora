@@ -191,12 +191,23 @@ export function EnvironmentWizard({
     : slugError
       ? 'Fix the slug before you continue.'
       : undefined;
+  const copyMissing = !isEdit && start === 'copy' && copyFrom === '';
+  const sandboxHint = problem
+    ? 'Choose a valid image.'
+    : badSize
+      ? 'Fix the size before you continue.'
+      : undefined;
   const hints: (string | undefined)[] = [
     // Edit shows no image on its first step, so only the name and slug hold it.
-    identityHint ?? (problem && !isEdit ? 'Choose a valid image.' : undefined),
-    problem ? 'Choose a valid image.' : badSize ? 'Fix the size before you continue.' : undefined,
+    identityHint ??
+      (copyMissing
+        ? 'Choose an environment to copy.'
+        : problem && !isEdit
+          ? 'Choose a valid image.'
+          : undefined),
+    sandboxHint,
     undefined,
-    identityHint ?? (problem ? 'Choose a valid image.' : undefined),
+    identityHint ?? (copyMissing ? 'Choose an environment to copy.' : sandboxHint),
   ];
   const hint = hints[step];
 

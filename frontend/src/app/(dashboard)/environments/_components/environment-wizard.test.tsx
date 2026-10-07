@@ -245,6 +245,28 @@ describe('EnvironmentWizard create', () => {
     expect(value(dialog, 'Slug')).toBe('go-s');
   });
 
+  it('needs an environment chosen before continuing from a copy', () => {
+    const { dialog } = renderWizard(null);
+    choose(dialog, 'Copy an environment');
+    expect(dialog.getByText('Choose an environment to copy.')).toBeInTheDocument();
+    expect(continueButton(dialog)).toBeDisabled();
+    choose(dialog, 'Code review');
+    expect(continueButton(dialog)).toBeEnabled();
+  });
+
+  it('blocks creating from the Review step with an invalid Custom size', () => {
+    const { dialog } = renderWizard(null);
+    next(dialog);
+    next(dialog);
+    next(dialog);
+    goToStep(dialog, 'Sandbox');
+    choose(dialog, 'Custom');
+    type(dialog, 'CPU', '12');
+    goToStep(dialog, 'Review');
+    expect(dialog.getByText('Fix the size before you continue.')).toBeInTheDocument();
+    expect(dialog.getByRole('button', { name: 'Create environment' })).toBeDisabled();
+  });
+
   it('says so when there is no environment to copy', () => {
     const { dialog } = renderWizard(null, { environments: [] });
     choose(dialog, 'Copy an environment');
