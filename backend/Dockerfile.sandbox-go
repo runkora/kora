@@ -1,0 +1,58 @@
+# syntax=docker/dockerfile:1
+#
+# kora-sandbox-go: kora-sandbox-base plus golangci-lint, buf and protoc. The base
+# already carries Go. See docs/adr/2026-10-07-bundled-sandbox-images.md.
+
+# docker-bake.hcl maps kora-sandbox-base to the base target from the same commit.
+# A plain docker build passes BASE_IMAGE instead.
+ARG BASE_IMAGE=kora-sandbox-base
+FROM ${BASE_IMAGE}
+
+# golangci-lint and buf share kora's pins in versions.hcl. docker-bake.hcl passes them.
+ARG GOLANGCI_LINT_VERSION
+ARG BUF_VERSION
+ARG PROTOC_VERSION=36.2
+
+# Digests of the release files at the versions above, checked against the
+# releases when pinned. A version bump in versions.hcl needs new digests here.
+ARG GOLANGCI_LINT_SHA256_AMD64=87bb8cddbcc825d5778b64e8a91b46c0526b247f4e2f2904dea74ec7450475d1
+ARG GOLANGCI_LINT_SHA256_ARM64=ee3d95f301359e7d578e6d99c8ad5aeadbabc5a13009a30b2b0df11c8058afe9
+ARG BUF_SHA256_AMD64=70d46fbf2e1df60b250d0954a2c6ef2cb57baa936b197a55a9c1b8de89d95c1d
+ARG BUF_SHA256_ARM64=eeab2875438c60b007e9f9689f15f615e74946baa0a9bf81223c4418f3769d00
+ARG PROTOC_SHA256_AMD64=121f6c7afe1d4d0e3ea6aab9432038599250134cbf4474cb1167d2c7decd4278
+ARG PROTOC_SHA256_ARM64=8b8f18bd2b30346efbc698dd5a73dd7c805f3ef8380f6dfc95c768f3f1852f6a
+
+USER 0
+
+RUN set -eux; \
+    : "${GOLANGCI_LINT_VERSION:?set GOLANGCI_LINT_VERSION from versions.hcl}"; \
+    : "${BUF_VERSION:?set BUF_VERSION from versions.hcl}"; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) LINT_ARCH=amd64; LINT_SHA="${GOLANGCI_LINT_SHA256_AMD64}"; \
+             BUF_ARCH=x86_64; BUF_SHA="${BUF_SHA256_AMD64}"; \
+             PROTOC_ARCH=x86_64; PROTOC_SHA="${PROTOC_SHA256_AMD64}";; \
+      arm64) LINT_ARCH=arm64; LINT_SHA="${GOLANGCI_LINT_SHA256_ARM64}"; \
+             BUF_ARCH=aarch64; BUF_SHA="${BUF_SHA256_ARM64}"; \
+             PROTOC_ARCH=aarch_64; PROTOC_SHA="${PROTOC_SHA256_ARM64}";; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1;; \
+    esac; \
+    cd /tmp; \
+    lint="golangci-lint-${GOLANGCI_LINT_VERSION#v}-linux-${LINT_ARCH}"; \
+    curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/golangci/golangci-lint/releases/download/${GOLANGCI_LINT_VERSION}/${lint}.tar.gz"; \
+    echo "${LINT_SHA}  ${lint}.tar.gz" | sha256sum --check; \
+    tar -xzf "${lint}.tar.gz"; \
+    install -m 0755 "${lint}/golangci-lint" /usr/local/bin/golangci-lint; \
+    curl --proto '=https' --tlsv1.2 -fsSLo buf "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-Linux-${BUF_ARCH}"; \
+    echo "${BUF_SHA}  buf" | sha256sum --check; \
+    install -m 0755 buf /usr/local/bin/buf; \
+    protoc="protoc-${PROTOC_VERSION}-linux-${PROTOC_ARCH}.zip"; \
+    curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/protocolbuffers/protobuf/releases/download/v${PROTOC_VERSION}/${protoc}"; \
+    echo "${PROTOC_SHA}  ${protoc}" | sha256sum --check; \
+    python3 -m zipfile -e "${protoc}" /tmp/protoc; \
+    install -m 0755 /tmp/protoc/bin/protoc /usr/local/bin/protoc; \
+    cp -r /tmp/protoc/include/google /usr/local/include/; \
+    chmod -R a+rX /usr/local/include/google; \
+    rm -rf /tmp/*; \
+    golangci-lint --version; buf --version; protoc --version
+
+USER 100:100

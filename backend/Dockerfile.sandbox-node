@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1
+#
+# kora-sandbox-node: kora-sandbox-base plus Node LTS and pnpm.
+# See docs/adr/2026-10-07-bundled-sandbox-images.md.
+
+# docker-bake.hcl maps kora-sandbox-base to the base target from the same commit.
+# A plain docker build passes BASE_IMAGE instead.
+ARG BASE_IMAGE=kora-sandbox-base
+FROM ${BASE_IMAGE}
+
+ARG NODE_VERSION=24.21.0
+# pnpm shares kora's pin in versions.hcl. docker-bake.hcl passes it.
+ARG PNPM_VERSION
+
+# Digests from the release's SHASUMS256.txt, checked when pinned. Refresh them
+# when bumping NODE_VERSION.
+ARG NODE_SHA256_AMD64=fd8e59d5a511510f6a298afb548f18c7d2b1be404d8b4a27d94fbe49f56cb2d6
+ARG NODE_SHA256_ARM64=6ad1325edbdb5649c379b75a237147a666c95d4f9ae8d340fef2d1575d289ad2
+
+USER 0
+
+RUN set -eux; \
+    : "${PNPM_VERSION:?set PNPM_VERSION from versions.hcl}"; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) ARCH=x64; SHA="${NODE_SHA256_AMD64}";; \
+      arm64) ARCH=arm64; SHA="${NODE_SHA256_ARM64}";; \
+      *) echo "unsupported architecture: $(dpkg --print-architecture)" >&2; exit 1;; \
+    esac; \
+    tarball="node-v${NODE_VERSION}-linux-${ARCH}.tar.xz"; \
+    cd /tmp; \
+    curl --proto '=https' --tlsv1.2 -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/${tarball}"; \
+    echo "${SHA}  ${tarball}" | sha256sum --check; \
+    tar -xJf "${tarball}" -C /usr/local --strip-components=1 --no-same-owner \
+      --exclude='*/CHANGELOG.md' --exclude='*/LICENSE' --exclude='*/README.md'; \
+    rm -f "${tarball}"; \
+    npm install -g "pnpm@${PNPM_VERSION}"; \
+    npm cache clean --force; \
+    rm -rf /root/.npm; \
+    node --version; npm --version; pnpm --version
+
+USER 100:100

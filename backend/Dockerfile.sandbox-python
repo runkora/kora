@@ -1,0 +1,23 @@
+# syntax=docker/dockerfile:1
+#
+# kora-sandbox-python: kora-sandbox-base plus ruff and pytest. The base already
+# carries Python and uv. See docs/adr/2026-10-07-bundled-sandbox-images.md.
+
+# docker-bake.hcl maps kora-sandbox-base to the base target from the same commit.
+# A plain docker build passes BASE_IMAGE instead.
+ARG BASE_IMAGE=kora-sandbox-base
+FROM ${BASE_IMAGE}
+
+ARG RUFF_VERSION=0.16.10
+ARG PYTEST_VERSION=9.1.1
+
+USER 0
+
+# The system Python is externally managed on Debian. The sandbox has no other
+# interpreter, so the tools install into it.
+RUN uv pip install --system --break-system-packages --no-cache \
+      "ruff==${RUFF_VERSION}" "pytest==${PYTEST_VERSION}" && \
+    ruff --version && \
+    pytest --version
+
+USER 100:100
