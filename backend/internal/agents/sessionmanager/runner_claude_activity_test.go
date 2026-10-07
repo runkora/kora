@@ -244,7 +244,7 @@ func TestDispatch_ErrorResultEndsTurn(t *testing.T) {
 		code    string
 	}{
 		{name: "agent error", wrapper: claudeOutputWrapper{Type: "result", Subtype: "error_during_execution", Result: "API Error: 500"}, code: "agent_error"},
-		{name: "empty response", wrapper: claudeOutputWrapper{Type: "result", Subtype: "success", StopReason: "stop_sequence"}, code: "empty_response"},
+		{name: "empty response", wrapper: claudeOutputWrapper{Type: "result", Subtype: "success", StopReason: "stop_sequence", Result: "API Error: 502"}, code: "empty_response"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
