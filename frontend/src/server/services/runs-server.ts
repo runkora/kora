@@ -30,14 +30,16 @@ export async function listRunsWithNames(
   accessToken: string,
   params: URLSearchParams,
 ): Promise<RunsPageResponse> {
-  const page = await listRuns(accessToken, params);
-  const runs = page?.runs ?? [];
+  const { runs, next_cursor } = (await listRuns(accessToken, params)) ?? {
+    runs: [],
+    next_cursor: null,
+  };
   const names = await resolveUserDisplayNames(
     accessToken,
     runs.map((r) => r.created_by),
   );
   return {
     data: runs.map((r) => ({ ...r, created_by_name: names.get(r.created_by) ?? null })),
-    next_cursor: page?.next_cursor ?? null,
+    next_cursor,
   };
 }
