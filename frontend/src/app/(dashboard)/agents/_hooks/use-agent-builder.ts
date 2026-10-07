@@ -180,6 +180,7 @@ type DraftPayload = Partial<CreateAgentTypeRequest> & { _builder?: { step?: numb
 export const AGENT_SLUG_RULE =
   'Use lowercase letters, digits and hyphens. Start with a letter, end with a letter or digit, and keep it to 52 characters or fewer.';
 export const SLUG_RE = /^[a-z]([a-z0-9-]{0,50}[a-z0-9])?$/;
+export const AGENT_SLUG_MAX_LENGTH = 52;
 
 // ── Payload mapping ───────────────────────────────────────────────────────────
 
@@ -224,7 +225,7 @@ function fromPayload(payload: DraftPayload): { fields: BuilderFields; step: numb
     ...EMPTY_FIELDS,
     name: payload.name ?? '',
     slug: payload.slug ?? '',
-    slugEdited: (payload.slug ?? '') !== deriveSlug(payload.name ?? ''),
+    slugEdited: (payload.slug ?? '') !== deriveSlug(payload.name ?? '', AGENT_SLUG_MAX_LENGTH),
     description: payload.description ?? '',
     identityMode: payload.identity_mode ?? 'autonomous',
     systemPrompt: payload.system_prompt ?? '',
@@ -497,7 +498,11 @@ export function useAgentBuilder(params: {
 
   const setName = useCallback(
     (name: string) => {
-      setFields((f) => ({ ...f, name, slug: f.slugEdited ? f.slug : deriveSlug(name) }));
+      setFields((f) => ({
+        ...f,
+        name,
+        slug: f.slugEdited ? f.slug : deriveSlug(name, AGENT_SLUG_MAX_LENGTH),
+      }));
       scheduleSave();
     },
     [scheduleSave],
