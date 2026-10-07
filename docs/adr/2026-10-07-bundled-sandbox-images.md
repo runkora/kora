@@ -83,7 +83,7 @@ Each image has its own Dockerfile in `backend/` that builds `FROM kora-sandbox-b
 *   **`kora-go`:** `golangci-lint`, `buf` and `protoc`.
 *   **`kora-python`:** `ruff` and `pytest` on top of the `uv` in the base.
 *   **`kora-node`:** Node 24 LTS and `pnpm`.
-*   **`kora-dev`:** builds on `kora-sandbox-node`, copies `golangci-lint` and `buf` from `kora-sandbox-go`, and adds `protoc-gen-go`, `protoc-gen-go-grpc`, `deadcode` and `gitleaks`. It carries no dependency caches.
+*   **`kora-dev`:** builds on `kora-sandbox-node`, copies `golangci-lint` and `buf` from `kora-sandbox-go`, and adds `protoc-gen-go`, `protoc-gen-go-grpc`, `deadcode`, `gitleaks` and `helm`. It carries no dependency caches.
 
 ### 2. Tool Versions
 
