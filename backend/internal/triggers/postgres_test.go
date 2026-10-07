@@ -1602,6 +1602,48 @@ func TestPostgres_DeriveDeliveryStatus(t *testing.T) {
 			}
 		}
 	})
+
+	// A multi-trigger delivery calls derive() once per per-trigger outcome
+	// recorded against it, not once overall. The first call that actually moves
+	// the status must return it (so the caller counts the delivery exactly
+	// once); every subsequent call within the same final status must return ""
+	// (no row affected), or the delivery-outcomes counter double-counts one
+	// delivery per redundant re-derive.
+	t.Run("a repeat derive with no status change returns no row", func(t *testing.T) {
+		id := newDelivery(t, StatusVerified)
+		addRun(t, id, RunStatusDispatched)
+
+		first, err := r.DeriveDeliveryStatus(ctx, id)
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus (first): %v", err)
+		}
+		if first != StatusDispatched {
+			t.Fatalf("first derive = %q, want %q: the genuine transition must be reported", first, StatusDispatched)
+		}
+
+		// A second trigger on the same delivery also dispatches: the computed
+		// status ('dispatched') is unchanged, so this re-derive must report
+		// nothing to count, even though the UPDATE statement runs again.
+		addRun(t, id, RunStatusDispatched)
+		second, err := r.DeriveDeliveryStatus(ctx, id)
+		if err != nil {
+			t.Fatalf("DeriveDeliveryStatus (second): %v", err)
+		}
+		if second != "" {
+			t.Errorf("second derive = %q, want \"\": an unchanged status must not be recounted", second)
+		}
+
+		// The stored status is still correct even though the second call wrote
+		// nothing: IS DISTINCT FROM only suppresses the no-op write, it does not
+		// leave the row stale.
+		got, err := r.GetDelivery(ctx, tenant, id)
+		if err != nil {
+			t.Fatalf("GetDelivery: %v", err)
+		}
+		if got.Status != StatusDispatched {
+			t.Errorf("stored status = %q, want %q", got.Status, StatusDispatched)
+		}
+	})
 }
 
 // TestPostgres_UpdateDeliveryOutcome_PreservesRunID covers the fan-out case

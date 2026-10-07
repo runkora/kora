@@ -262,6 +262,18 @@ func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
 		t.Fatalf("Admit (dropped): %v", err)
 	}
 
+	// The replace path's own return value describes the newest fire
+	// (AdmitEnqueued), never the one it displaces. Without a separate record at
+	// the point of displacement, "superseded" is part of the outcome set
+	// (AdmissionResult.metricOutcome) but never actually observed.
+	replaceTrig := Trigger{ID: "t-2", TenantID: testTenant, Overflow: OverflowReplace, MaxParallel: 1}
+	if _, err := admission.Admit(ctx, replaceTrig, "d-3", nil); err != nil {
+		t.Fatalf("Admit (replace, first): %v", err)
+	}
+	if _, err := admission.Admit(ctx, replaceTrig, "d-4", nil); err != nil {
+		t.Fatalf("Admit (replace, displaces d-3): %v", err)
+	}
+
 	got, ok := collect(t, reader)["orbit.triggers.admission_outcomes"]
 	if !ok {
 		t.Fatal("admission-outcomes counter not exported")
@@ -276,10 +288,11 @@ func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
 		if !present {
 			t.Fatal("admission-outcomes data point has no outcome attribute")
 		}
-		byOutcome[outcome.AsString()] = dp.Value
+		byOutcome[outcome.AsString()] += dp.Value
 	}
-	if byOutcome["enqueued"] != 1 || byOutcome["dropped"] != 1 {
-		t.Errorf("admission outcomes = %v, want enqueued:1 dropped:1", byOutcome)
+	// enqueued: d-1, d-3, and d-4 (the replacement that stays enqueued).
+	if byOutcome["enqueued"] != 3 || byOutcome["dropped"] != 1 || byOutcome["superseded"] != 1 {
+		t.Errorf("admission outcomes = %v, want enqueued:3 dropped:1 superseded:1", byOutcome)
 	}
 }
 
@@ -322,6 +335,73 @@ func TestMetrics_DeliveryOutcomeRecordsWhatDeriveWrote(t *testing.T) {
 	}
 	if sum.DataPoints[0].Value != 1 {
 		t.Errorf("count = %d, want 1", sum.DataPoints[0].Value)
+	}
+}
+
+// outcomeCounts collects "orbit.triggers.delivery_outcomes" into a map keyed by
+// its "outcome" attribute, summing across data points that share a label (e.g.
+// recorded from different collection cycles or call sites).
+func outcomeCounts(t *testing.T, reader *sdkmetric.ManualReader) map[string]int64 {
+	t.Helper()
+	got, ok := collect(t, reader)["orbit.triggers.delivery_outcomes"]
+	if !ok {
+		return nil
+	}
+	sum, ok := got.Data.(metricdata.Sum[int64])
+	if !ok {
+		t.Fatalf("delivery-outcomes counter is %T, want a sum", got.Data)
+	}
+	byOutcome := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		outcome, present := dp.Attributes.Value("outcome")
+		if !present {
+			t.Fatal("delivery-outcomes data point has no outcome attribute")
+		}
+		byOutcome[outcome.AsString()] += dp.Value
+	}
+	return byOutcome
+}
+
+// A duplicate delivery is arrival-level: its status is set directly by
+// recordDuplicate and it never reaches derive(), so recordDuplicate's own
+// successful insertion is the only place its outcome can ever be counted. This
+// pins that call site rather than relying on derive(), which would never see it.
+func TestMetrics_DuplicateDeliveryRecordsOutcome(t *testing.T) {
+	svc, deps := newTestService(t)
+	m, reader := newTestMetrics(t, deps.repo)
+	svc.metrics = m
+
+	src := mustSource(t, deps.sources)
+	body := prBody("opened", "main")
+	h := sign(src.Secret, body)
+
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out != IngestAccepted {
+		t.Fatalf("first delivery: out=%v err=%v", out, err)
+	}
+	if out, err := svc.Ingest(context.Background(), src.ID, h, body); err != nil || out != IngestDuplicate {
+		t.Fatalf("duplicate delivery: out=%v err=%v", out, err)
+	}
+
+	if got := outcomeCounts(t, reader)[StatusDuplicate]; got != 1 {
+		t.Errorf("duplicate outcome count = %d, want 1", got)
+	}
+}
+
+// A missed tick is likewise arrival-level and never reaches derive(), so
+// RecordMissedTick's own successful insertion is the only place its outcome
+// can ever be counted.
+func TestMetrics_MissedTickRecordsOutcome(t *testing.T) {
+	svc, _ := newTestService(t)
+	m, reader := newTestMetrics(t, newMockRepository())
+	svc.metrics = m
+
+	trig := Trigger{ID: "trig-sched", TenantID: testTenant, Kind: KindScheduled}
+	due := time.Now().UTC().Add(-30 * time.Minute).Truncate(time.Minute)
+
+	svc.RecordMissedTick(context.Background(), trig, due)
+
+	if got := outcomeCounts(t, reader)[StatusMissed]; got != 1 {
+		t.Errorf("missed outcome count = %d, want 1", got)
 	}
 }
 
