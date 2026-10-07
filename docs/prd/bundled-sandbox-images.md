@@ -38,7 +38,7 @@ None at this time.
 
 1.  A new kora installation offers Go, Python and Node sandbox images in every tenant without an image pipeline of its own.
 2.  Platform teams decide which bundled images their tenants receive and which ones stay warm.
-3.  The kora development image matches the tool versions that kora's repository pins.
+3.  The kora development image carries the development tools at the versions kora's repository pins and the Node LTS release of the Node image.
 
 ### Success Metrics
 
