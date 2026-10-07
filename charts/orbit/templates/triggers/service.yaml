@@ -13,7 +13,9 @@ spec:
       port: 80
       targetPort: 8097
       protocol: TCP
+    {{- if .Values.global.metrics.enabled }}
     - name: http-metrics
       port: {{ .Values.global.metrics.port | default 9464 }}
       targetPort: http-metrics
       protocol: TCP
+    {{- end }}

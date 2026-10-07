@@ -26,8 +26,9 @@ This touches *How does it connect?* only incidentally (a new, unauthenticated-by
 ### Non-Goals
 
 - Deploying a Prometheus/Grafana/Prometheus-Operator server in this repo.
-- Guaranteeing an out-of-mesh scraper can reach the endpoint (Istio mTLS is a separate concern from NetworkPolicy — addressed under Consequences, not solved here).
+- Guaranteeing an out-of-mesh scraper can reach the endpoint (Istio mTLS is a separate concern from NetworkPolicy — see Consequences, Negative).
 - `identity-proxy` and `session-manager` chart wiring (both lack a chart Deployment for different reasons — follow-ons).
+- The per-service domain metrics catalogued under Implementation below (run/session states, policy decisions, inference usage, delivery outcomes, credential minting) — this decision covers the plumbing they'll be built on, not the instrumentation itself; see the companion PRD's Non-Goals for why that's follow-up work, not this PR.
 
 ---
 
@@ -89,6 +90,7 @@ This is the only option that gets both export paths from one instrument, matches
 - New direct dependency `go.opentelemetry.io/otel/exporters/prometheus`; `github.com/prometheus/client_golang` promoted indirect → direct.
 - One new container port + Service port per rolled-out service.
 - `identity-proxy` and `session-manager` remain gaps, deferred to follow-up work.
+- **Istio mTLS**: this mesh enforces mTLS east-west (`docs/adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md`). NetworkPolicy and mTLS are independent enforcement layers — passing the scrape-ingress NetworkPolicy rule does not mean a plain-HTTP, out-of-mesh scraper can complete a TLS handshake with the target's Envoy sidecar. The supported path is running the scraper *inside* the mesh (sidecar-injected), where Istio transparently upgrades its plain-HTTP request to mTLS sidecar-to-sidecar with no scraper-side changes. A per-port `PeerAuthentication` with `portLevelMtls` set to `PERMISSIVE` on the metrics port is a documented but **not built** alternative for scrapers that genuinely cannot join the mesh.
 
 ### Neutral
 
@@ -100,14 +102,32 @@ This is the only option that gets both export paths from one instrument, matches
 
 - New package `backend/internal/platform/metrics/` (`Config`, `Exporter`), parallel to `internal/platform/observability/`.
 - `observability.SetupMetrics(ctx, cfg, extraReaders ...sdkmetric.Reader)` — additive signature change.
-- New `backend/internal/platform/middleware/metrics.go`: `MetricsMiddleware(meter, serviceName)`, added to each rolled-out service's existing `mw.MiddlewareChain(...)` call.
-- Per-service `main.go` wiring: a dedicated `*http.Server` for `/metrics`, started/stopped beside the existing app server, using the port `http-metrics` (named per Istio's `http-`/`tcp-`/`grpc-` prefix requirement for Envoy listener generation, documented in `egress-gateway/service.yaml:11-31`), defaulting to port `9464` — not `9090`, which `charts/orbit/templates/platform/netpols.yaml`'s `allow-mesh-sidecar` rule already uses for policy-gateway's ext_authz port.
-- Helm: `global.metrics.{enabled,port}` default block (mirroring `global.observability`), per-service override via the existing `orbit.serviceConfig` helper, container + Service port entries, hardcoded `prometheus.io/*` scrape annotations (scrape correctness is chart-owned, unlike `orbit.podAnnotations`, which is for arbitrary user annotations).
-- A new NetworkPolicy ingress rule in `netpols.yaml`, gated on a new `global.metrics.scraperNamespace` value (empty by default, matching the existing `collectorNamespace` precedent — nothing opens until an operator names where their scraper runs).
-- An opt-in `ServiceMonitor` template (`charts/orbit/templates/platform/servicemonitors.yaml`), gated on both a values flag and a live `Capabilities.APIVersions.Has "monitoring.coreos.com/v1"` check, so enabling the flag without the CRD installed cannot break `helm template`/`install`.
-- Rollout order: identity, orbit-agents, inference-gateway, policy-gateway, policy-service, orbit-triggers, egress-gateway, tool-gateway, orbit-mcp, session-manager (Go-side only). `operator` gets chart-only wiring (it already has controller-runtime's own Prometheus metrics). `migrate`, the sandbox/shell/MCP/session-runner stack, and `identity-proxy` are excluded.
+- New `backend/internal/platform/middleware/metrics.go`: `MetricsMiddleware(meter, serviceName)`. It must run *inside* `api.Mux`'s per-route dispatch, after `RoutePattern` has set the route on the request context, not in a binary's global `mw.MiddlewareChain(...)` — that chain wraps the Mux from outside, so a context value set inside the Mux's own dispatch is never visible to it. `api.Server` takes it via a new `SetMetricsMiddleware` method, threaded down into `Mux.HandleWithMiddleware`.
+- Per-service `main.go` wiring: a dedicated `*http.Server` for `/metrics`, started/stopped beside the existing app server, using the port `http-metrics` (named per Istio's `http-`/`tcp-`/`grpc-` prefix requirement for Envoy listener generation, documented in `egress-gateway/service.yaml:11-31`), defaulting to port `9464` — not `9090`, which `charts/orbit/templates/platform/netpols.yaml`'s `allow-mesh-sidecar` rule already uses for policy-gateway's ext_authz port. Shutdown uses `cfg.Metrics.ShutdownTimeout()`, independent of the service's own general shutdown timeout.
+- Helm: `global.metrics.{enabled,port,scraperNamespace,serviceMonitor}` default block (mirroring `global.observability`), rendered into each service's own `cmd/<service>` config module (`docs/adr/2026-10-06-rendered-service-config-files.md`) rather than an env var fan-out; per-service override is the generic `configOverrides` escape hatch that ADR already provides, not a dedicated chart key. Container + Service port entries and `prometheus.io/*` scrape annotations are gated on `global.metrics.enabled`, so disabling it removes the advertised scrape surface along with the Go-side listener.
+- A new NetworkPolicy ingress rule in `netpols.yaml`, gated on a new `global.metrics.scraperNamespace` value (empty by default, matching the existing `collectorNamespace` precedent). Its port list includes the operator's fixed controller-runtime metrics port (`8080`) unconditionally — that metrics server isn't part of this feature's enable/disable switch — and the 10 wired services' ports only when `global.metrics.enabled` is true.
+- An opt-in `ServiceMonitor` template (`charts/orbit/templates/platform/servicemonitors.yaml`), gated on a values flag, a live `Capabilities.APIVersions.Has "monitoring.coreos.com/v1"` check, and `global.metrics.enabled`, so enabling the flag without the CRD installed cannot break `helm template`/`install`, and disabling metrics takes the ServiceMonitor down with it.
+- Rollout order: identity, orbit-agents, inference-gateway, policy-gateway, policy-service, orbit-triggers, egress-gateway, tool-gateway, orbit-mcp, session-manager (Go-side only). `operator` gets chart-only wiring (it already has controller-runtime's own Prometheus metrics, always on, independent of `global.metrics.enabled`). `migrate`, the sandbox/shell/MCP/session-runner stack, and `identity-proxy` are excluded.
+- Instrument names normalize a leading `orbit-` out of the configured service name before building `orbit.<name>....` — some services configure `orbit-<name>` (e.g. `orbit-identity`), others just `<name>` (e.g. `policy-gateway`); without normalizing, the former would double up into `orbit_orbit_identity_...`.
+- The HTTP request duration histogram uses explicit seconds-scale bucket boundaries (Prometheus client_golang's conventional `DefBuckets`) rather than the OTel SDK's default, millisecond-tuned boundaries, which would otherwise collapse nearly every sub-5-second request into one bucket.
 
-**Istio mTLS note** (documented here, not solved by this ADR): this mesh enforces mTLS east-west (`docs/adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md`). NetworkPolicy and mTLS are independent enforcement layers — passing the NetworkPolicy rule above does not mean a plain-HTTP, out-of-mesh scraper can complete a TLS handshake with the target's Envoy sidecar. The supported path is running the scraper *inside* the mesh (sidecar-injected), where Istio transparently upgrades its plain-HTTP request to mTLS sidecar-to-sidecar with no scraper-side changes. A per-port `PeerAuthentication` with `portLevelMtls` set to `PERMISSIVE` on the metrics port is a documented but **not built** alternative for scrapers that genuinely cannot join the mesh.
+### Follow-up: per-service domain metrics (not implemented in this PR)
+
+This decision ships the plumbing; it does not instrument any feature's business logic beyond the generic HTTP request counter/histogram every service gets automatically. The per-service metrics below are the target shape for follow-up PRs, one or a few services at a time, identified from each service's existing domain model (see the PRD's Non-Goals for why they're deferred rather than bundled here):
+
+| Service | Metric (shape) | Instrumentation point |
+|---|---|---|
+| identity | `orbit_identity_sessions_active` (gauge), `orbit_identity_delegations_issued_total`/`_revoked_total` (counter), `orbit_identity_auth_failures_total{reason}` (counter) | `SessionRepository` (new `ActiveCount` query), `delegation_service.go` |
+| orbit-agents | `orbit_agents_run_transitions_total{from_state,to_state}`, `orbit_agents_runs_active{state}` (gauge), `orbit_agents_run_duration_seconds`, `orbit_agents_runs_reaped_total{outcome}`, `orbit_agents_sessions_active` (gauge), `orbit_agents_session_duration_seconds`, `orbit_agents_sandbox_provision_duration_seconds`/`_failures_total{phase}`, `orbit_agents_guardrail_warnings_total{kind,tool}` | `run_service.go: Transition`/`TransitionRunState`/`StartReaper`, browser `Session` store, `session.go: ProvisionSandbox`, `guardrails.go: loopGuard` |
+| session-manager | `orbit_session_manager_sessions_active` (gauge) | `sessionmanager.Registry.ActiveCount()` — already a ready-made read |
+| policy-gateway | `orbit_policygw_checks_total{allow,resource_type}`, `orbit_policygw_check_duration_seconds`, `orbit_policygw_denies_total{reason}` | `policygw/service.go: Check` |
+| policy-service | `orbit_policyservice_grants{principal_type}`/`_roles{kind}` (gauge), `orbit_policyservice_bundle_compiled_time{tenant_id,status}` (gauge) | existing `GET /policy/stats` query |
+| inference-gateway | `orbit_inference_gateway_usage_total{status,provider,model}`, `_tokens_total{provider,model,kind}`, `_cost_usd_total{provider,model}`, `_request_duration_seconds{provider,model,status}`, `_budget_utilization_ratio{scope,window}` (gauge) | `InferenceUsageRecord` persistence path, `RedisBudgetCounter`'s live ledger |
+| orbit-triggers | `orbit_triggers_delivery_outcomes_total{outcome}`, `orbit_triggers_admission_outcomes_total{outcome}` | `Delivery`/`DeliveryRun` status finalization, `admission.go` |
+| egress-gateway | `orbit_egress_gateway_credentials_minted_total{adapter,action}`/`_mint_duration_seconds`/`_mint_failures_total{reason}` | `adapter.go: Connector.Mint` |
+| tool-gateway | `orbit_tool_gateway_invocations_total{server,tool,decision}`/`_invocation_duration_seconds`, `orbit_tool_gateway_servers{state}` (gauge) | `mcp_controller.go: handleToolsCall`, `introspector.go: Snapshot()` |
+
+A precise "active users" metric is a known, separate gap: no `last_seen`/`last_activity` column exists on `identity.UserProfile` or `Session` today, so it needs a small follow-up migration rather than a metric fabricated from `UpdatedAt`.
 
 ---
 
@@ -133,4 +153,4 @@ This is the only option that gets both export paths from one instrument, matches
 - [Envoy ext_proc Sidecar for Transparent Platform Token Injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) — identity-proxy's deferred `/metrics` gap
 - [Service Mesh and Network Enforcement Infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md) — the mTLS posture this ADR's Consequences section accounts for
 
-**Last Updated:** 2026-10-06
+**Last Updated:** 2026-10-07

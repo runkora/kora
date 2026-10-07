@@ -51,7 +51,10 @@ func main() {
 	}
 	defer shutdownMeter()
 
-	server, registry := initServer(ctx, logger, meter)
+	server, registry, err := initServer(ctx, logger, meter)
+	if err != nil {
+		fatal("Failed to initialize server", err)
+	}
 	run(ctx, logger, server, registry, metricsSrv)
 }
 
@@ -76,10 +79,10 @@ func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.
 
 	metricsSrv := promExporter.Server(logger)
 	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), smConfig.Current.ShutdownTimeout())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), smConfig.Current.Metrics.ShutdownTimeout())
 		defer cancel()
 		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			log.Printf("Error shutting down metrics: %v", err)
+			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}
 	return meter, metricsSrv, cleanup, nil
@@ -111,7 +114,7 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger, meter metric.Meter) (*http.Server, *sessionmanager.Registry) {
+func initServer(ctx context.Context, logger logging.Logger, meter metric.Meter) (*http.Server, *sessionmanager.Registry, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
@@ -148,8 +151,11 @@ func initServer(ctx context.Context, logger logging.Logger, meter metric.Meter) 
 
 	metricsMW, err := mw.MetricsMiddleware(meter, cfg.Observability.ServiceName)
 	if err != nil {
-		log.Fatalf("Failed to create metrics middleware: %v", err)
+		return nil, nil, fmt.Errorf("create metrics middleware: %w", err)
 	}
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
 
 	return apiServer.Server(
 		ctx,
@@ -157,11 +163,10 @@ func initServer(ctx context.Context, logger logging.Logger, meter metric.Meter) 
 		cfg.Server.BasePath,
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(cfg.Observability.ServiceName),
-			metricsMW,
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
-	), registry
+	), registry, nil
 }
 
 func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry, metricsSrv *http.Server) {

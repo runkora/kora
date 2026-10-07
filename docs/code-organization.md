@@ -23,7 +23,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
 | `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
 | `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
-| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` | none |
+| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/orbit/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |

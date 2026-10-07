@@ -29,7 +29,7 @@ spec:
         # (docs/adr/2026-09-16-first-class-workload-placement.md).
         checksum/workloads: {{ include (print $.Template.BasePath "/agents/workloads-configmap.yaml") . | sha256sum }}
         checksum/config: {{ include (print $.Template.BasePath "/agents/config.yaml") . | sha256sum }}
-        prometheus.io/scrape: "true"
+        prometheus.io/scrape: "{{ $.Values.global.metrics.enabled }}"
         prometheus.io/port: "{{ .Values.global.metrics.port | default 9464 }}"
         prometheus.io/path: "/metrics"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
@@ -73,9 +73,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
             - name: http-metrics
               containerPort: {{ .Values.global.metrics.port | default 9464 }}
               protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health

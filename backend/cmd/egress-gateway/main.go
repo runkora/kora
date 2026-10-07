@@ -155,6 +155,9 @@ func realMain() error {
 	// wired outside the controller mux and stays open.
 	connectionsReadController := egressgw.NewConnectionsReadController(connRegistry, registry, verifier, logger)
 	apiServer := platformapi.NewAPI(ctx, logger)
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
 
 	adminHTTP := apiServer.Server(
 		ctx,
@@ -162,7 +165,6 @@ func realMain() error {
 		egc.Current.Server.BasePath,
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(egc.Current.Observability.ServiceName),
-			metricsMW,
 			mw.LoggingMiddleware(logger),
 		),
 		connectionsReadController,
@@ -266,10 +268,10 @@ func initMetrics(ctx context.Context, logger logging.Logger) (metric.Meter, *htt
 
 	metricsSrv := promExporter.Server(logger)
 	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.ShutdownTimeout())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.Metrics.ShutdownTimeout())
 		defer cancel()
 		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "Error shutting down metrics: %v\n", err)
+			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}
 	return meter, metricsSrv, metricsMW, cleanup, nil

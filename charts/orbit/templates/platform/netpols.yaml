@@ -204,18 +204,25 @@ spec:
 {{- end }}
 {{- end }}
 {{- /*
-Ports for the scrape-ingress rule below, taken the same way as the OTLP ports
-above: the global metrics port, and any component overriding its own
-metricsPort. A component that overrides its port still gets scraped, because
-the rule cannot silently miss a port nothing else opens.
+Ports for the scrape-ingress rule below. The 10 internal/platform/metrics
+services only go on the list when metrics are globally enabled — disabling
+them means nothing listens on those ports, so there's no reason to open them.
+The operator is unconditional: its metrics are controller-runtime's own, not
+internal/platform/metrics, and run on a fixed port regardless of
+global.metrics.enabled (see operator/deployment.yaml's http-metrics port); it
+has no app config module for the range below to find a metricsPort override
+in, so it's listed explicitly instead.
 */}}
-{{- $metricsPorts := list (.Values.global.metrics.port | default 9464 | toString) }}
+{{- $metricsPorts := list "8080" }}
+{{- if .Values.global.metrics.enabled }}
+{{- $metricsPorts = append $metricsPorts (.Values.global.metrics.port | default 9464 | toString) }}
 {{- range $name, $component := .Values }}
   {{- if kindIs "map" $component }}
     {{- with (dig "config" "metricsPort" "" $component) }}
       {{- $metricsPorts = append $metricsPorts (toString .) }}
     {{- end }}
   {{- end }}
+{{- end }}
 {{- end }}
 {{- $metricsPorts = $metricsPorts | uniq }}
 {{- with .Values.global.metrics }}

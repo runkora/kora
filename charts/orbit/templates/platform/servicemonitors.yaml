@@ -1,7 +1,9 @@
 # Opt-in Prometheus Operator ServiceMonitor per instrumented service. Renders
-# nothing unless both global.metrics.serviceMonitor.enabled is set AND the
-# monitoring.coreos.com/v1 CRD is present on the target cluster, so leaving the
-# flag on without the CRD installed cannot break `helm template`/`install`.
+# nothing unless metrics are actually enabled, global.metrics.serviceMonitor.enabled
+# is set, AND the monitoring.coreos.com/v1 CRD is present on the target cluster,
+# so leaving the flag on without the CRD installed cannot break `helm
+# template`/`install`, and disabling metrics takes this down with it instead of
+# leaving a ServiceMonitor pointed at a port nothing listens on.
 # See docs/adr/2026-10-06-prometheus-metrics-endpoints.md.
 #
 # This only configures what Prometheus Operator scrapes. It does not by itself
@@ -12,7 +14,7 @@
 # metadata.labels carries (orbit.<svc>.labels), not the pod-level
 # selectorLabels a Service's own spec.selector uses — ServiceMonitor discovers
 # targets by matching Service objects, not Pods.
-{{- if and .Values.global.metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
+{{- if and .Values.global.metrics.enabled .Values.global.metrics.serviceMonitor.enabled (.Capabilities.APIVersions.Has "monitoring.coreos.com/v1") }}
 {{- range $svc := list "identity" "agents" "inference-gateway" "policy-service" "policy-gateway" "triggers" "egress-gateway" "tool-gateway" "mcp" }}
 ---
 apiVersion: monitoring.coreos.com/v1

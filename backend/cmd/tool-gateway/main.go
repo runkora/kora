@@ -143,13 +143,15 @@ func realMain() error {
 
 	// ── HTTP server (health + catalog [+ MCP proxy in proxy mode]) ───────────
 	apiServer := platformapi.NewAPI(ctx, logger)
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
 	srv := apiServer.Server(
 		ctx,
 		tgc.Current.Server.HTTPPort,
 		tgc.Current.Server.BasePath,
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(tgc.Current.Observability.ServiceName),
-			metricsMW,
 			mw.LoggingMiddleware(logger),
 			// Rewrites /run/{run_id}/v1/mcp/… → /v1/mcp/… with the run identity
 			// in context — the same mechanism the inference gateway mounts, so
@@ -209,10 +211,10 @@ func initMetrics(ctx context.Context, logger logging.Logger) (metric.Meter, *htt
 
 	metricsSrv := promExporter.Server(logger)
 	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), tgc.Current.ShutdownTimeout())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tgc.Current.Metrics.ShutdownTimeout())
 		defer cancel()
 		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "Error shutting down metrics: %v\n", err)
+			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}
 	return meter, metricsSrv, metricsMW, cleanup, nil

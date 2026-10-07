@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"time"
@@ -21,9 +22,25 @@ import (
 // in an init() func must not leak into, or collide with, this service's own
 // scrape output.
 type Exporter struct {
-	reader  *otelprom.Exporter // implements sdkmetric.Reader
-	handler http.Handler
-	cfg     Config
+	reader *otelprom.Exporter // implements sdkmetric.Reader
+	reg    *prometheus.Registry
+	cfg    Config
+}
+
+// promErrorLogger adapts logging.Logger to promhttp.HandlerOpts.ErrorLog, so
+// a scrape-time collector/registration error is actually recorded instead of
+// silently dropped (promhttp's zero-value ErrorLog is nil). promhttp gives no
+// per-request context to log against, so this logs against
+// context.Background(), same as any other background/shutdown-path log call
+// in this package.
+type promErrorLogger struct {
+	logger logging.Logger
+}
+
+func (l promErrorLogger) Println(v ...any) {
+	l.logger.Error(context.Background(), "prometheus scrape error",
+		logging.Field{Key: "error", Value: fmt.Sprint(v...)},
+	)
 }
 
 // New builds the Prometheus bridge when cfg.Enabled; returns (nil, nil)
@@ -51,9 +68,9 @@ func New(cfg Config) (*Exporter, error) {
 	}
 
 	return &Exporter{
-		reader:  reader,
-		handler: promhttp.HandlerFor(reg, promhttp.HandlerOpts{}),
-		cfg:     cfg,
+		reader: reader,
+		reg:    reg,
+		cfg:    cfg,
 	}, nil
 }
 
@@ -78,8 +95,11 @@ func (e *Exporter) Server(logger logging.Logger) *http.Server {
 	if e == nil {
 		return nil
 	}
+	handler := promhttp.HandlerFor(e.reg, promhttp.HandlerOpts{
+		ErrorLog: promErrorLogger{logger: logger},
+	})
 	mux := http.NewServeMux()
-	mux.Handle(e.cfg.path(), e.handler)
+	mux.Handle(e.cfg.path(), handler)
 	return &http.Server{
 		Addr:              fmt.Sprintf(":%d", e.cfg.Port),
 		Handler:           mux,

@@ -1,8 +1,8 @@
 # Prometheus Metrics Endpoints - Product Requirements Document
 
-**Status:** Draft
+**Status:** Approved
 **Created:** 2026-10-06
-**Last Updated:** 2026-10-06
+**Last Updated:** 2026-10-07
 **Owner:** Platform Engineering
 **Stakeholders:** Platform operators, SRE, customers running kora without a managed OTel collector
 
@@ -42,7 +42,7 @@ kora's backend services have OTel tracing everywhere, but metrics are push-only 
 2. The same `go.opentelemetry.io/otel/metric` instrument (counter/histogram/gauge) feeds both the existing OTLP push path (when a collector is configured) and the new Prometheus pull path (when metrics are enabled) — zero duplicate instrumentation.
 3. Works with **zero OTel collector infrastructure**: a customer with no collector still gets working Prometheus scraping, because the Prometheus reader is attached independently of whether an OTLP endpoint is configured.
 4. Helm chart wiring so the port is reachable: container port, Service port, `prometheus.io/*` scrape annotations, an opt-in `ServiceMonitor` template, and the NetworkPolicy rule needed to actually let a scraper through the namespace's default-deny posture.
-5. A first, concrete set of per-service metrics grounded in each service's actual domain model (run states, session lifecycles, policy decisions, inference usage, delivery outcomes, credential minting).
+5. A uniform HTTP request counter and duration histogram (`orbit_<service>_http_requests_total`, `orbit_<service>_http_request_duration_seconds`) on every rolled-out service, labeled by method/route/status, as the first metric every service gets for free. The companion ADR's Implementation section catalogs the domain-specific metrics identified for each service (run states, session lifecycles, policy decisions, inference usage, delivery outcomes, credential minting) as the target shape for follow-up PRs — this PRD ships the plumbing they'll be built on, not the domain instruments themselves (see Non-Goals).
 
 ### Success Metrics
 
@@ -56,6 +56,7 @@ kora's backend services have OTel tracing everywhere, but metrics are push-only 
 - Guaranteeing an out-of-mesh scraper can reach the endpoint. This PRD ships the NetworkPolicy rule and the opt-in `ServiceMonitor`, but the mesh runs full Istio mTLS east-west; a scraper must either run inside the mesh (recommended) or a per-port `PeerAuthentication` exception must be added separately — see the companion ADR's Consequences.
 - A `/metrics` endpoint for `identity-proxy` (webhook-injected sidecar, no chart Deployment — already a known, separately-flagged gap) or for the `session-manager` Helm chart (it has no Deployment/Service template; it's dynamically provisioned per-session by `orbit-agents`, so its metrics port must be threaded through that provisioning code, not YAML, as a follow-up).
 - A precise "active users" metric. No `last_seen`/`last_activity` column exists on `identity.UserProfile` or `Session` today; a trustworthy version needs a small follow-up migration, not a metric fabricated from `UpdatedAt`.
+- The per-service domain metrics catalogued in the companion ADR (run/session states, policy decisions, inference usage, delivery outcomes, credential minting). Each requires instrumenting business logic in its own feature package, not the platform plumbing this PRD scopes — tracked as follow-up PRs, one or a few services at a time, so each lands with its own review rather than one PR touching every feature package at once.
 - Fixing the `docs/prd/inference-gateway.md` US-013 mismatch where it says `GET /healthz` but the actual repo convention is `GET /health` — noted here, not fixed as part of this work.
 
 ---
@@ -67,9 +68,9 @@ kora's backend services have OTel tracing everywhere, but metrics are push-only 
 **So that** I get request rates, error rates, active-run/session counts, and policy-decision counts without first standing up collector infrastructure.
 
 **Acceptance Criteria:**
-- [ ] Each rolled-out service listens on a dedicated metrics port, separate from its API port.
-- [ ] `/metrics` returns Prometheus text-format output with both HTTP request metrics and service-specific domain metrics.
-- [ ] Disabling `ORBIT_OTLP_ENDPOINT` has no effect on whether `/metrics` populates.
+- [x] Each rolled-out service listens on a dedicated metrics port, separate from its API port.
+- [x] `/metrics` returns Prometheus text-format output with the uniform HTTP request counter/histogram. Service-specific domain metrics are catalogued in the ADR as follow-up work (see Non-Goals), not delivered by this PRD.
+- [x] Disabling `ORBIT_OTLP_ENDPOINT` has no effect on whether `/metrics` populates.
 
 **As a** platform operator who already runs an OTel collector,
 **I want** the same instruments to also flow to that collector,
@@ -111,19 +112,21 @@ Extend the existing OTel metrics pipeline (`observability.SetupMetrics`) to opti
 - Wiring into: identity, orbit-agents, inference-gateway, policy-gateway, policy-service, orbit-triggers, egress-gateway, tool-gateway, orbit-mcp, session-manager (Go side only for the last one).
 - Helm chart wiring for every one of the above except session-manager (no chart Deployment), plus chart-only wiring (Service port + annotations) for `operator` (already has its own controller-runtime metrics).
 - Opt-in `ServiceMonitor` template and a NetworkPolicy scrape-ingress rule.
-- A first set of per-service metrics (see the companion ADR / implementation plan for the full list).
+- A uniform HTTP request counter/histogram on every rolled-out service (`orbit_<service>_http_requests_total`/`_http_request_duration_seconds`), and bringing `orbit-triggers`' pre-existing instruments onto the same Prometheus reader.
 
 ### Out of Scope
 
 - `migrate` (one-shot Job), `sandbox-exec`/`orbit-runtime-mcp`/`orbit-shell`/`orbit-session-runner` (non-HTTP agent-sandbox stack), `identity-proxy` (sidecar, no chart Deployment).
 - Deploying Prometheus/Grafana/Prometheus-Operator itself.
 - Per-port `PeerAuthentication` Istio exceptions for out-of-mesh scrapers (documented as an alternative, not built).
+- The per-service domain metrics (run/session states, policy decisions, inference usage, delivery outcomes, credential minting) catalogued in the companion ADR. These need instrumentation inside each feature's own business logic, not the platform plumbing this PRD scopes.
 
 ### Future Considerations
 
 - `identity-proxy` `/metrics` (needs Go changes in `pod_webhook.go`'s sidecar injection, separate from this chart-driven rollout).
 - `session-manager` chart-equivalent wiring threaded through `orbit-agents`' dynamic pod-spec construction.
 - A precise "active users" metric backed by a dedicated `last_activity_at` column.
+- Per-service domain metrics (see Out of Scope) — one or a few services at a time, as their own reviewable PRs, following the inventory in the companion ADR.
 
 ---
 
@@ -138,8 +141,8 @@ Extend the existing OTel metrics pipeline (`observability.SetupMetrics`) to opti
 - [ ] Metrics survive graceful shutdown: the metrics `*http.Server` shuts down alongside the app server using the same shutdown timeout.
 
 **Should Have (P1):**
-- [ ] Per-service disable via `{service}.metrics.enabled: false` in Helm values.
-- [ ] Opt-in `ServiceMonitor`, guarded by both a values flag and a live CRD-presence check.
+- [ ] Per-service disable via `{service}.configOverrides: {cmd/{service}: {metrics: {enabled: false}}}` in Helm values (the generic per-service config override mechanism `docs/adr/2026-10-06-rendered-service-config-files.md` introduced) — not a dedicated chart key of its own.
+- [ ] Opt-in `ServiceMonitor`, guarded by a values flag, a live CRD-presence check, and the same `global.metrics.enabled` flag.
 
 **Nice to Have (P2):**
 - [ ] Go runtime / process collectors (`go_*`, `process_*` series) alongside the OTel-fed series.

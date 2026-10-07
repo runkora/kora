@@ -20,7 +20,7 @@ spec:
       annotations:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/egress-gateway/config.yaml") . | sha256sum }}
-        prometheus.io/scrape: "true"
+        prometheus.io/scrape: "{{ $.Values.global.metrics.enabled }}"
         prometheus.io/port: "{{ .Values.global.metrics.port | default 9464 }}"
         prometheus.io/path: "/metrics"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "egressGateway") | nindent 8 }}
@@ -67,9 +67,11 @@ spec:
             - name: admin-http
               containerPort: {{ .Values.egressGateway.adminPort }}
               protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
             - name: http-metrics
               containerPort: {{ .Values.global.metrics.port | default 9464 }}
               protocol: TCP
+            {{- end }}
           livenessProbe:
             tcpSocket:
               port: connect

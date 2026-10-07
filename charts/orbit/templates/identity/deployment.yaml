@@ -22,7 +22,7 @@ spec:
         # Postgres, Redis and the OIDC issuer are outside the mesh.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432,6379,5556"
         checksum/config: {{ include (print $.Template.BasePath "/identity/config.yaml") . | sha256sum }}
-        prometheus.io/scrape: "true"
+        prometheus.io/scrape: "{{ $.Values.global.metrics.enabled }}"
         prometheus.io/port: "{{ .Values.global.metrics.port | default 9464 }}"
         prometheus.io/path: "/metrics"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "identity") | nindent 8 }}
@@ -69,9 +69,11 @@ spec:
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- if .Values.global.metrics.enabled }}
             - name: http-metrics
               containerPort: {{ .Values.global.metrics.port | default 9464 }}
               protocol: TCP
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /health

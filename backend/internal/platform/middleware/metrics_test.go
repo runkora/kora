@@ -46,6 +46,12 @@ func TestMetricsMiddleware_RecordsRequest(t *testing.T) {
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusCreated)
 	})
+	// RoutePattern outermost, MetricsMiddleware inside it — matching
+	// api.Mux.HandleWithMiddleware's real wiring order, where RoutePattern
+	// sets the route on the request context before MetricsMiddleware runs.
+	// Reversing this order is exactly the bug this test guards against; see
+	// TestMux_MetricsMiddlewareReadsRoutePattern in the api package for the
+	// end-to-end version that exercises the real Mux.
 	wrapped := RoutePattern("/widgets")(mw.next(handler))
 
 	req := httptest.NewRequest("POST", "/widgets", nil)
@@ -69,16 +75,32 @@ func TestMetricsMiddleware_RecordsRequest(t *testing.T) {
 		t.Errorf("request count = %d, want 1", count)
 	}
 
-	found := false
+	var histogram *metricdata.Histogram[float64]
 	for _, sm := range rm.ScopeMetrics {
 		for _, m := range sm.Metrics {
 			if m.Name == "orbit.testsvc.http.request.duration" {
-				found = true
+				h, ok := m.Data.(metricdata.Histogram[float64])
+				if !ok {
+					t.Fatalf("orbit.testsvc.http.request.duration is not a Histogram[float64]: %T", m.Data)
+				}
+				histogram = &h
 			}
 		}
 	}
-	if !found {
-		t.Error("orbit.testsvc.http.request.duration not recorded")
+	if histogram == nil {
+		t.Fatal("orbit.testsvc.http.request.duration not recorded")
+	}
+	if len(histogram.DataPoints) != 1 {
+		t.Fatalf("duration data points = %d, want 1", len(histogram.DataPoints))
+	}
+	gotBounds := histogram.DataPoints[0].Bounds
+	if len(gotBounds) != len(secondsBuckets) {
+		t.Fatalf("bucket boundaries = %v, want seconds-scale buckets %v (not the OTel SDK's millisecond-tuned default)", gotBounds, secondsBuckets)
+	}
+	for i, b := range secondsBuckets {
+		if gotBounds[i] != b {
+			t.Fatalf("bucket boundaries = %v, want %v", gotBounds, secondsBuckets)
+		}
 	}
 }
 

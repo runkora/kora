@@ -122,10 +122,10 @@ func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.
 
 	metricsSrv := promExporter.Server(logger)
 	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), ic.Current.ShutdownTimeout())
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), ic.Current.Metrics.ShutdownTimeout())
 		defer cancel()
 		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "Error shutting down metrics: %v\n", err)
+			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}
 	return meter, metricsSrv, cleanup, nil
@@ -279,15 +279,17 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 	if err != nil {
 		return nil, fmt.Errorf("create metrics middleware: %w", err)
 	}
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
 
-	// Middleware order: Tracing (provides context) → Metrics → Logging (uses trace context).
+	// Middleware order: Tracing (provides context) → Logging (uses trace context).
 	server := apiServer.Server(
 		ctx,
 		ic.Current.Server.Port,
 		ic.Current.Server.BasePath,
 		mw.MiddlewareChain(
 			mw.TracingMiddleware(ic.Current.Observability.ServiceName),
-			metricsMW,
 			mw.LoggingMiddleware(logger),
 		),
 		controllers...,
