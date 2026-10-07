@@ -9,12 +9,9 @@
 # kora-sandbox-go, so each pin and digest lives in one Dockerfile. Both build
 # FROM kora-sandbox-base. docker-bake.hcl maps both names to their targets.
 
-ARG GO_TOOLS_IMAGE=kora-sandbox-go
-ARG BASE_IMAGE=kora-sandbox-node
+FROM kora-sandbox-go AS go-tools
 
-FROM ${GO_TOOLS_IMAGE} AS go-tools
-
-FROM ${BASE_IMAGE}
+FROM kora-sandbox-node
 
 # Set from versions.hcl by docker-bake.hcl.
 ARG PROTOC_GEN_GO_VERSION
@@ -33,10 +30,6 @@ COPY --from=go-tools /usr/local/bin/golangci-lint /usr/local/bin/buf /usr/local/
 
 # go install verifies each module against the Go checksum database.
 RUN set -eux; \
-    : "${PROTOC_GEN_GO_VERSION:?set PROTOC_GEN_GO_VERSION from versions.hcl}"; \
-    : "${PROTOC_GEN_GO_GRPC_VERSION:?set PROTOC_GEN_GO_GRPC_VERSION from versions.hcl}"; \
-    : "${DEADCODE_VERSION:?set DEADCODE_VERSION from versions.hcl}"; \
-    : "${GITLEAKS_VERSION:?set GITLEAKS_VERSION from versions.hcl}"; \
     export GOPATH=/tmp/gopath GOCACHE=/tmp/gocache GOBIN=/usr/local/bin; \
     go install "google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}"; \
     go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}"; \
@@ -54,7 +47,6 @@ RUN set -eux; \
     install -m 0755 gitleaks /usr/local/bin/gitleaks; \
     rm -rf /tmp/*; \
     golangci-lint --version; buf --version; protoc-gen-go --version; \
-    protoc-gen-go-grpc --version; deadcode -h 2>&1 | head -1; gitleaks version; \
-    node --version; pnpm --version
+    protoc-gen-go-grpc --version; deadcode -h 2>&1 | head -1; gitleaks version
 
 USER 100:100
