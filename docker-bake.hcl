@@ -32,6 +32,10 @@ variable "GO_VERSION" {}
 variable "GOLANGCI_LINT_VERSION" {}
 variable "BUF_VERSION" {}
 variable "PNPM_VERSION" {}
+variable "PROTOC_GEN_GO_VERSION" {}
+variable "PROTOC_GEN_GO_GRPC_VERSION" {}
+variable "DEADCODE_VERSION" {}
+variable "GITLEAKS_VERSION" {}
 
 target "_backend-default" {
   context    = "./backend"
@@ -250,6 +254,28 @@ target "kora-sandbox-node" {
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-node:${IMAGE_TAG}"]
 }
 
+// kora-dev: kora's own development tools at the versions in versions.hcl. The
+// chart does not register it. kora's own deployment does.
+target "kora-sandbox-dev" {
+  inherits   = ["_sandbox-image"]
+  dockerfile = "Dockerfile.sandbox-dev"
+  contexts = {
+    kora-sandbox-go   = "target:kora-sandbox-go"
+    kora-sandbox-node = "target:kora-sandbox-node"
+  }
+  args = {
+    PROTOC_GEN_GO_VERSION      = PROTOC_GEN_GO_VERSION
+    PROTOC_GEN_GO_GRPC_VERSION = PROTOC_GEN_GO_GRPC_VERSION
+    DEADCODE_VERSION           = DEADCODE_VERSION
+    GITLEAKS_VERSION           = GITLEAKS_VERSION
+  }
+  labels = {
+    "org.opencontainers.image.title" = "kora-sandbox-dev"
+    "org.opencontainers.image.description" = "kora sandbox image for kora development: kora's pinned development tools"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-dev:${IMAGE_TAG}"]
+}
+
 target "orbit-frontend" {
   context    = "./frontend"
   dockerfile = "Dockerfile"
@@ -297,6 +323,7 @@ group "default" {
     "kora-sandbox-go",
     "kora-sandbox-python",
     "kora-sandbox-node",
+    "kora-sandbox-dev",
     "orbit-frontend",
     "orbit-operator",
   ]
