@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-03-sandbox-environments.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted  
+**Status:** Accepted (Amended 2026-10-07)  
 **Date:** 2026-10-03  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Sandbox Environments PRD](../prd/sandbox-environments.md)  
@@ -226,6 +226,47 @@ On the local cluster:
 
 ---
 
+## Amendment 1 (2026-10-07): Environment names and slugs
+
+**Status:** Accepted
+
+Touches none of the three questions. Agents still select an environment by the same stored value, and the access an environment grants is unchanged.
+
+**Context.** An environment has one `name` that serves as both its identifier and its label. Agents select an environment by this value in `provision_sandbox` and `replace_environment`, and `environments_tenant_id_name_key` keeps it unique within a tenant. Editing the label of an environment changes the value its agents select by.
+
+**Options.**
+
+*   **Separate display name (chosen):** A new `display_name` column holds the name for people, and the existing `name` column holds the slug that agents select by.
+*   **Rename the column (rejected):** Rename `name` to `slug` and add a new `name` column. The previous release's orbit-agents reads and writes `name` during an upgrade and would fail against the renamed column.
+*   **Single name (rejected):** Keep a single name. A readable label with spaces and capitals cannot also serve as a stable selector, and every relabel would change what agents select.
+
+For the API shape:
+
+*   **`slug` and `name` (chosen):** Environments carry `slug` and `name` in the same way as agents.
+*   **`name` and `display_name` (rejected):** The API keeps `name` as the identifier and adds `display_name`. The dashboard, the orbit MCP tools and the agent API would use `name` for two different things.
+
+**Decision.**
+
+*   A new migration will add `display_name TEXT NOT NULL DEFAULT ''` to `environments` and set it to `name` on every existing row. An empty `display_name` reads as the slug. The previous release's orbit-agents writes rows without `display_name` and keeps working.
+*   The `name` column will hold the slug. Its column name and its unique constraint stay unchanged.
+*   The environments API will return `slug` from the `name` column and `name` from `display_name`. Create and update requests will take `slug` and `name`, and `name` is required.
+*   A create request will validate the slug as a DNS-1123 label. A create request without `slug` will derive it from `name` with the dashboard's rule: lower case, each run of other characters replaced by a hyphen, and leading and trailing hyphens removed. A derived slug that is empty or not a valid DNS-1123 label (e.g., a name made only of symbols, or longer than 63 characters after derivation) returns 400, and the request must supply `slug`.
+*   The slug will not change after create. An update without `slug` keeps the stored slug, and an update with a different slug returns 400. Existing slugs that are not DNS-1123 labels stay valid.
+*   Display names do not need to be unique within a tenant.
+*   `agents.environments.create` and `agents.environments.replace` in the orbit MCP server will take `slug` and `name` with the same rules.
+*   The run environment list will carry `slug` and `name`. Each `list_environments` line will start with the slug, followed by the name, the marks, the description, the image and the size. `provision_sandbox` and `replace_environment` will select by slug, and an unknown slug returns the agent's slugs.
+*   The built-in default environment will have the slug `default` and the name `Default`.
+*   Pod annotations, the `sandbox_environment` run event and agent attachments will keep the slug and the environment ID as they do today.
+
+**Consequences.**
+
+*   An environment can be relabeled without changing what its agents select.
+*   Until an agent pod rolls to the new session-manager image, its `list_environments` shows the name in the place of the slug, and a selection by a name that differs from the slug fails with the list of slugs.
+*   The `name` field changes from the identifier to the display name.
+*   A previous-release client that reads `name` as the identifier receives the display name. The two values match for every environment that existed before the upgrade.
+
+---
+
 ## Related Decisions
 
 *   [Agent sandbox toolchain and connectivity environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) (superseded)
@@ -237,3 +278,7 @@ On the local cluster:
 ## References
 
 *   [Sandbox Environments PRD](../prd/sandbox-environments.md)
+
+---
+
+**Last Updated:** 2026-10-07 (Amendment 1: environment names and slugs)
