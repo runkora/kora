@@ -105,8 +105,8 @@ var graphqlNestedFields = map[string]requirement{
 
 // graphqlMutationFields maps mutations to the write they perform, matching the
 // REST classification of the same operation (merging is contents:write).
-// Labelable and Lockable mutations also accept discussions, so they stay on the
-// umbrella.
+// Labelable and Lockable mutations are classified separately, by the target
+// node ID, since the same mutations also accept discussions.
 var graphqlMutationFields = map[string]requirement{
 	"createPullRequest": reqWPulls, "updatePullRequest": reqWPulls, "closePullRequest": reqWPulls,
 	"reopenPullRequest": reqWPulls, "markPullRequestReadyForReview": reqWPulls,
@@ -124,6 +124,25 @@ var graphqlMutationFields = map[string]requirement{
 	"addComment": reqWIssueOrPR, "updateIssueComment": reqWIssueOrPR, "deleteIssueComment": reqWIssueOrPR,
 	"addAssigneesToAssignable": reqWIssueOrPR, "removeAssigneesFromAssignable": reqWIssueOrPR,
 	"replaceActorsForAssignable": reqWIssueOrPR,
+}
+
+// graphqlLabelableMutations maps a Labelable or Lockable mutation to the
+// input field holding its target's node ID. The same mutations also accept a
+// discussion's node ID, which carries no category, so these are classified by
+// the ID's type prefix (graphqlNodeIDPrefixes) rather than a static
+// requirement.
+var graphqlLabelableMutations = map[string]string{
+	"addLabelsToLabelable": "labelableId", "removeLabelsFromLabelable": "labelableId",
+	"lockLockable": "lockableId", "unlockLockable": "lockableId",
+}
+
+// graphqlNodeIDPrefixes maps a GitHub global node ID's type prefix to the
+// requirement of a Labelable or Lockable mutation targeting it. A prefix
+// outside this map, including a discussion's "D_", is unknown and needs the
+// umbrella.
+var graphqlNodeIDPrefixes = map[string]requirement{
+	"I_":  reqWIssues,
+	"PR_": reqWPulls,
 }
 
 // classifyGraphQL maps a GraphQL request to the granular actions of the fields
@@ -364,8 +383,27 @@ func (w *graphqlWalker) mutationField(f *ast.Field) {
 	if f.Name == "__typename" {
 		return
 	}
+	if idField, ok := graphqlLabelableMutations[f.Name]; ok {
+		w.require(w.labelableRequirement(f, idField))
+		return
+	}
 	r, ok := graphqlMutationFields[f.Name]
 	w.require(r, ok)
+}
+
+// labelableRequirement classifies a Labelable or Lockable mutation by the
+// type prefix of its target's node ID, read from the mutation's input
+// object. An ID that is not a string, or whose prefix is not in
+// graphqlNodeIDPrefixes (including a discussion's "D_"), is unknown.
+func (w *graphqlWalker) labelableRequirement(f *ast.Field, idField string) (requirement, bool) {
+	input, _ := w.argument(f, "input").(map[string]any)
+	id, _ := input[idField].(string)
+	for prefix, r := range graphqlNodeIDPrefixes {
+		if strings.HasPrefix(id, prefix) {
+			return r, true
+		}
+	}
+	return nil, false
 }
 
 // nodeSelections classifies a node lookup by the types it selects. Fields on
