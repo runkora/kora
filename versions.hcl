@@ -1,6 +1,11 @@
 # Pinned versions of kora's development toolchain. The Makefile includes this
 # file and `docker buildx bake` reads it as a second definition file, so each
-# value is quoted for HCL. Change a version here only.
+# value is quoted for HCL.
+#
+# Other files pin some of the same tools and must change with this file:
+# .github/workflows/backend-ci.yml (golangci-lint), .github/workflows/secret-scan.yml
+# (gitleaks), .github/workflows/frontend-ci.yml (Node and pnpm) and the
+# packageManager field in frontend/package.json (pnpm).
 #
 # GO_VERSION must equal the go directive in backend/go.mod (`make check-versions`).
 
