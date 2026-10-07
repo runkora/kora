@@ -320,6 +320,9 @@ func TestConnector_Classify(t *testing.T) {
 		{"objects_opaque", http.MethodGet, "https://objects.githubusercontent.com/blobs/deadbeef", "contents:read", "", false},
 		{"content_host_write", http.MethodPost, "https://codeload.github.com/orbital/orbit/tar.gz/main", "", "", true},
 
+		// ID-addressed pagination links stay on the unqualified catch-all
+		{"repository_id_page", http.MethodGet, "https://api.github.com/repositories/123/pulls/5/files?page=2", "repo:read", "", false},
+
 		// Anything else: verb-classified catch-all, unqualified
 		{"web_page", http.MethodGet, "https://github.com/orbital", "repo:read", "", false},
 

@@ -35,7 +35,7 @@ func (f failingOn) Check(_ context.Context, in policy.CheckInput) (policy.Result
 func TestEvaluatePolicy_AlsoRequiredEvaluatorErrorFailsClosed(t *testing.T) {
 	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}
 	b := NewBroker(failingOn("github:contents:orbit:read"), nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
-	got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"}, "example")
+	got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("want ErrForbidden, got %v (authorized %v)", err, got)
 	}
@@ -60,7 +60,7 @@ func TestEvaluatePolicy_AlsoRequired(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			b := NewBroker(tc.held, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
-			got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, conn, cls, EgressRequest{Host: "api.github.com", Method: "POST"}, "example")
+			got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, conn, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 			if tc.want == nil {
 				if !errors.Is(err, ErrForbidden) {
 					t.Fatalf("want ErrForbidden, got %v (authorized %v)", err, got)
@@ -82,7 +82,7 @@ func TestEvaluatePolicy_AlsoRequired(t *testing.T) {
 func TestEvaluatePolicy_AlsoRequiredDenialNamesAction(t *testing.T) {
 	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}
 	b := NewBroker(heldScopes{"github:pulls:orbit:read"}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
-	_, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"}, "example")
+	_, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 	var d *Denial
 	if !errors.As(err, &d) {
 		t.Fatalf("want a Denial, got %v", err)

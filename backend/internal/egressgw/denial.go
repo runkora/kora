@@ -30,7 +30,9 @@ type Denial struct {
 	// PolicyReason is the policy decision label when a held grant did not apply,
 	// such as deny:delegation_required. It is our own bundle's label, never a secret.
 	PolicyReason string
-	cause        error
+	// decision is the raw policy label behind a policy denial, for the log.
+	decision string
+	cause    error
 }
 
 // Error reports the denial reason; Message carries the caller-facing text.
