@@ -630,6 +630,32 @@ agents:
     # -- Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage
     # sets its own with spec.warm. Each warm image runs one DaemonSet per tenant.
     warmBase: false
+    # Sandbox images kora ships and registers in every tenant namespace as
+    # kora-go, kora-python and kora-node (docs/adr/2026-10-07-bundled-sandbox-images.md).
+    # Disabling one removes its SandboxImage from every tenant. An empty image means
+    # <global.imageRegistry>/kora-sandbox-<key> at global.imageTag or the appVersion.
+    bundled:
+      go:
+        # -- Register kora-go: the base image plus golangci-lint, buf and protoc.
+        enabled: true
+        # -- Keep kora-go pulled on the nodes that run sandboxes.
+        warm: false
+        # -- Image reference for kora-go. Empty uses the release image.
+        image: ""
+      python:
+        # -- Register kora-python: the base image plus ruff and pytest.
+        enabled: true
+        # -- Keep kora-python pulled on the nodes that run sandboxes.
+        warm: false
+        # -- Image reference for kora-python. Empty uses the release image.
+        image: ""
+      node:
+        # -- Register kora-node: the base image plus Node LTS and pnpm.
+        enabled: true
+        # -- Keep kora-node pulled on the nodes that run sandboxes.
+        warm: false
+        # -- Image reference for kora-node. Empty uses the release image.
+        image: ""
     # -- Registry ports other than 443 the operator may dial to validate images.
     registryPorts: []
     # -- Registry hosts the operator reads through another host. Keys are the

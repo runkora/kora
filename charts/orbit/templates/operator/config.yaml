@@ -40,6 +40,7 @@ cmd/operator:
     sandboxImages:
       baseImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
       warmBase: {{ .Values.agents.sandboxImages.warmBase | toJson }}
+      bundled: {{ include "orbit.bundledSandboxImages" . }}
       registryMirrors: {{ .Values.agents.sandboxImages.registryMirrors | toJson }}
       warmerPlacement: {{ toJson $placement }}
     preflight:

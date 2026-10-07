@@ -71,6 +71,15 @@ install:
                     operator: In
                     values: [sandbox]
       priorityClassName: sandbox
+    bundled:
+      go:
+        enabled: true
+        warm: true
+        image: orbit-registry:5001/kora-sandbox-go:latest
+      node:
+        enabled: false
+        warm: false
+        image: orbit-registry:5001/kora-sandbox-node:latest
 `)
 	t.Chdir(dir)
 
@@ -88,5 +97,11 @@ install:
 	}
 	if p.Affinity == nil || p.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms[0].MatchExpressions[0].Values[0] != "sandbox" {
 		t.Errorf("affinity = %+v", p.Affinity)
+	}
+	if g := si.Bundled["go"]; !g.Enabled || !g.Warm || g.Image != "orbit-registry:5001/kora-sandbox-go:latest" {
+		t.Errorf("bundled go = %+v", g)
+	}
+	if n := si.Bundled["node"]; n.Enabled || n.Image != "orbit-registry:5001/kora-sandbox-node:latest" {
+		t.Errorf("bundled node = %+v", n)
 	}
 }

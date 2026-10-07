@@ -76,6 +76,16 @@ type SandboxImages struct {
 	RegistryMirrors map[string]string `yaml:"registryMirrors"`
 	// WarmerPlacement is the sandbox placement that image warmers run in.
 	WarmerPlacement WarmerPlacement `yaml:"warmerPlacement"`
+	// Bundled holds the bundled sandbox images keyed as in agents.sandboxImages.bundled.
+	// A key that is absent counts as disabled.
+	Bundled map[string]BundledSandboxImage `yaml:"bundled"`
+}
+
+// BundledSandboxImage is one bundled image as the chart renders it.
+type BundledSandboxImage struct {
+	Enabled bool   `yaml:"enabled"`
+	Warm    bool   `yaml:"warm"`
+	Image   string `yaml:"image"`
 }
 
 // WarmerPlacement mirrors operator.WarmerPlacement with yaml tags. main converts between them, which needs identical fields.
