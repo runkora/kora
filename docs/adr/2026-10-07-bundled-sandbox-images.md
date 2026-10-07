@@ -102,7 +102,7 @@ The initial toolchain set for each language image is a proposal:
 *   **`kora-python`:** `ruff` and `pytest` on top of the `uv` that the base image already installs.
 *   **`kora-node`:** The current Node LTS release and `pnpm`.
 
-`kora-dev` will install `golangci-lint`, `buf`, `protoc-gen-go`, `protoc-gen-go-grpc`, `gitleaks`, `deadcode`, Node and `pnpm` at the versions in a shared versions file. It will use the Go from the base image. It will not carry a Go module cache, a pnpm store or a Go build cache.
+`kora-dev` will install `golangci-lint`, `buf`, `protoc-gen-go`, `protoc-gen-go-grpc`, `gitleaks`, `deadcode`, Node and `pnpm` at the versions in a shared versions file. It will use the Go from the base image. It will not carry a Go module cache, a pnpm store or a Go build cache. `kora-dev` will build on `kora-sandbox-node` and copy `golangci-lint` and `buf` from `kora-sandbox-go` to keep each pin and digest in one Dockerfile.
 
 ### 2. The Shared Versions File
 
