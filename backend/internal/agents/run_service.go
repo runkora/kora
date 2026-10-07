@@ -348,17 +348,17 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 }
 
 // ListRuns returns a page of the runs the caller may read, newest first, with both visibility rules applied in SQL.
-func (s *RunService) ListRuns(ctx context.Context, p RunListQuery) (RunPage, error) {
+func (s *RunService) ListRuns(ctx context.Context, agentTypeID string, p RunListQuery) (RunPage, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
 			attribute.String("tenant_id", tenantID),
-			attribute.String("agent_type_id", p.AgentTypeID),
+			attribute.String("agent_type_id", agentTypeID),
 			attribute.Int("limit", p.Limit),
 		),
 	)
 	defer span.End()
-	page, err := s.listRuns(ctx, tenantID, p)
+	page, err := s.listRuns(ctx, tenantID, agentTypeID, p)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "list runs")
@@ -366,13 +366,13 @@ func (s *RunService) ListRuns(ctx context.Context, p RunListQuery) (RunPage, err
 	return page, err
 }
 
-func (s *RunService) listRuns(ctx context.Context, tenantID string, p RunListQuery) (RunPage, error) {
+func (s *RunService) listRuns(ctx context.Context, tenantID, agentTypeID string, p RunListQuery) (RunPage, error) {
 	scope, err := s.readableRunScope(ctx, tenantID)
 	if err != nil {
 		return RunPage{}, err
 	}
-	if p.AgentTypeID != "" {
-		scope.AgentTypeIDs = slices.DeleteFunc(scope.AgentTypeIDs, func(id string) bool { return id != p.AgentTypeID })
+	if agentTypeID != "" {
+		scope.AgentTypeIDs = slices.DeleteFunc(scope.AgentTypeIDs, func(id string) bool { return id != agentTypeID })
 	}
 	q := p
 	q.Scope = scope

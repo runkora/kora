@@ -80,8 +80,6 @@ func appendScope(query string, args []any, scope RunScope) (string, []any) {
 type RunListQuery struct {
 	// Scope is set by the service from the caller's grants; the repository applies it.
 	Scope RunScope
-	// AgentTypeID narrows the scope to one agent type; empty means all the caller may read.
-	AgentTypeID string
 	// States narrows to runs in these states; empty means every state.
 	States []RunState
 	// After is the previous page's cursor; nil is the first page.

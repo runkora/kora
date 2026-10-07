@@ -880,7 +880,7 @@ func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error)
 }
 
 func (f *testServiceFacade) ListRuns(ctx context.Context, tenantID, agentTypeID string) ([]Run, error) {
-	page, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), RunListQuery{AgentTypeID: agentTypeID, Limit: maxRunsLimit})
+	page, err := f.run.ListRuns(withTenantCtx(ctx, tenantID), agentTypeID, RunListQuery{Limit: maxRunsLimit})
 	return page.Runs, err
 }
 

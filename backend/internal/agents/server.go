@@ -406,7 +406,7 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
-	p := RunListQuery{AgentTypeID: q.Get("agent_type_id"), Limit: defaultRunsLimit}
+	p := RunListQuery{Limit: defaultRunsLimit}
 	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
@@ -429,7 +429,7 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	page, err := c.runs.ListRuns(ctx, p)
+	page, err := c.runs.ListRuns(ctx, q.Get("agent_type_id"), p)
 	if err != nil {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to list runs", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)

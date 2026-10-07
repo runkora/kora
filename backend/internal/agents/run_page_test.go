@@ -68,10 +68,10 @@ func seedRunsAcrossTypes(t *testing.T, repo *mockRepository, tenant string, n, t
 }
 
 // walkRuns follows next cursors from the first page and returns every run in order.
-func walkRuns(t *testing.T, ctx context.Context, svc *RunService, p RunListQuery) (runs []Run, pages int) {
+func walkRuns(t *testing.T, ctx context.Context, svc *RunService, agentTypeID string, p RunListQuery) (runs []Run, pages int) {
 	t.Helper()
 	for {
-		page, err := svc.ListRuns(ctx, p)
+		page, err := svc.ListRuns(ctx, agentTypeID, p)
 		if err != nil {
 			t.Fatalf("ListRuns: %v", err)
 		}
@@ -113,7 +113,7 @@ func TestListRuns_PagesCoverEveryRunOnce(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 130, 3)
 
-	runs, pages := walkRuns(t, withTenantCtx(context.Background(), "t-1"), svc.run, RunListQuery{Limit: 50})
+	runs, pages := walkRuns(t, withTenantCtx(context.Background(), "t-1"), svc.run, "", RunListQuery{Limit: 50})
 	if pages != 3 || len(runs) != 130 {
 		t.Fatalf("got %d runs over %d pages, want 130 over 3", len(runs), pages)
 	}
@@ -128,7 +128,7 @@ func TestListRuns_GrantFilterKeepsPagesFull(t *testing.T) {
 	svc.run.authz = NewAuthz(&pathAllowEvaluator{segment: "stub-at-0"})
 	ctx := withTenantCtx(context.Background(), "t-1")
 
-	runs, _ := walkRuns(t, ctx, svc.run, RunListQuery{Limit: 10})
+	runs, _ := walkRuns(t, ctx, svc.run, "", RunListQuery{Limit: 10})
 	if len(runs) != 30 {
 		t.Fatalf("got %d runs, want the 30 runs of at-0", len(runs))
 	}
@@ -139,7 +139,7 @@ func TestListRuns_GrantFilterKeepsPagesFull(t *testing.T) {
 	}
 	assertNewestFirstNoDuplicates(t, runs)
 
-	page, err := svc.run.ListRuns(ctx, RunListQuery{AgentTypeID: "at-1", Limit: 10})
+	page, err := svc.run.ListRuns(ctx, "at-1", RunListQuery{Limit: 10})
 	if err != nil || len(page.Runs) != 0 || page.NextCursor != "" {
 		t.Errorf("an agent outside the grant gave %d runs, cursor %q, %v; want none", len(page.Runs), page.NextCursor, err)
 	}
@@ -153,7 +153,7 @@ func TestListRuns_AgentTypeAndStateFilters(t *testing.T) {
 	repo.runs["run-0006"].State = RunStateFailed
 	ctx := withTenantCtx(context.Background(), "t-1")
 
-	runs, _ := walkRuns(t, ctx, svc.run, RunListQuery{AgentTypeID: "at-0", States: []RunState{RunStateFailed}, Limit: 1})
+	runs, _ := walkRuns(t, ctx, svc.run, "at-0", RunListQuery{States: []RunState{RunStateFailed}, Limit: 1})
 	var ids []string
 	for _, r := range runs {
 		ids = append(ids, r.ID)
@@ -170,7 +170,7 @@ func TestListRuns_OnePolicyQueryOverAgentTypes(t *testing.T) {
 	counting := &countingQueryEvaluator{}
 	svc.run.authz = NewAuthz(counting)
 
-	if _, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), RunListQuery{Limit: 200}); err != nil {
+	if _, err := svc.run.ListRuns(withTenantCtx(context.Background(), "t-1"), "", RunListQuery{Limit: 200}); err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}
 	if counting.calls != 1 || counting.candidates != 5 {
