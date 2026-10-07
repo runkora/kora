@@ -119,6 +119,26 @@ target "kora-sandbox-base" {
     "localhost:5001/kora-sandbox-base:${GIT_SHA}",
   ]
 }
+// The bundled sandbox images. They stay out of local-platform, and make up does
+// not build them. Build them with the local-sandbox-images group.
+target "kora-sandbox-go" {
+  tags = [
+    "localhost:5001/kora-sandbox-go:latest",
+    "localhost:5001/kora-sandbox-go:${GIT_SHA}",
+  ]
+}
+target "kora-sandbox-python" {
+  tags = [
+    "localhost:5001/kora-sandbox-python:latest",
+    "localhost:5001/kora-sandbox-python:${GIT_SHA}",
+  ]
+}
+target "kora-sandbox-node" {
+  tags = [
+    "localhost:5001/kora-sandbox-node:latest",
+    "localhost:5001/kora-sandbox-node:${GIT_SHA}",
+  ]
+}
 target "orbit-frontend" {
   args = {
     ORBIT_VERSION = GIT_SHA
@@ -160,4 +180,8 @@ group "local-platform" {
 
 group "local-tenant" {
   targets = ["orbit-example"]
+}
+
+group "local-sandbox-images" {
+  targets = ["kora-sandbox-go", "kora-sandbox-python", "kora-sandbox-node"]
 }
