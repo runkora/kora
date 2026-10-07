@@ -96,6 +96,11 @@ func realMain() error {
 		metrics.Shutdown(shutdownCtx, logger)
 	}()
 
+	egressMetrics, err := egressgw.NewMetrics(metrics.Meter())
+	if err != nil {
+		return fmt.Errorf("setup egress gateway metrics: %w", err)
+	}
+
 	// ── Policy evaluator ─────────────────────────────────────────────────────
 	eval := policy.NewEvaluator(egc.Current.Policy.BundleEndpoint, egc.Current.BundlePollInterval(), logger)
 	eval.Start(ctx)
@@ -137,7 +142,7 @@ func realMain() error {
 	// The passthrough adapter is passed to the broker rather than registered,
 	// so a Connection CR cannot name it. It serves hosts with no connection,
 	// which the egress whitelist alone authorizes.
-	broker := egressgw.NewBroker(eval, connRegistry, registry, passthrough.New(), logger)
+	broker := egressgw.NewBroker(eval, connRegistry, registry, passthrough.New(), logger, egressMetrics)
 	forward, err := upstreamTransport()
 	if err != nil {
 		return fmt.Errorf("build upstream transport: %w", err)

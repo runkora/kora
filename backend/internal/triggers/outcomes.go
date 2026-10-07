@@ -9,7 +9,7 @@ import (
 // outcomeStore is the two writes recording an outcome takes.
 type outcomeStore interface {
 	InsertDeliveryRun(ctx context.Context, r *DeliveryRun) error
-	DeriveDeliveryStatus(ctx context.Context, deliveryID string) error
+	DeriveDeliveryStatus(ctx context.Context, deliveryID string) (string, error)
 }
 
 // outcomeRecorder writes the per-trigger outcome rows that make up a delivery's
@@ -26,8 +26,9 @@ type outcomeStore interface {
 // record of something that already happened, and there is no caller who could
 // act on the error.
 type outcomeRecorder struct {
-	repo   outcomeStore
-	logger logging.Logger
+	repo    outcomeStore
+	logger  logging.Logger
+	metrics *Metrics // nil records nothing
 }
 
 // record writes one outcome and re-derives the delivery. This is the default;
@@ -63,12 +64,19 @@ func (o outcomeRecorder) insert(ctx context.Context, dr *DeliveryRun) bool {
 	return true
 }
 
-// derive recomputes a delivery's summary status from its per-trigger outcomes.
+// derive recomputes a delivery's summary status from its per-trigger outcomes,
+// and records the outcome this call actually wrote: a delivery left untouched
+// (already arrival-level, or no such row) reports "" and is not counted.
 func (o outcomeRecorder) derive(ctx context.Context, deliveryID string) {
-	if err := o.repo.DeriveDeliveryStatus(ctx, deliveryID); err != nil {
+	status, err := o.repo.DeriveDeliveryStatus(ctx, deliveryID)
+	if err != nil {
 		o.logger.Error(ctx, "failed to derive delivery status",
 			logging.Field{Key: "delivery_id", Value: deliveryID},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
+		return
+	}
+	if status != "" {
+		o.metrics.recordDeliveryOutcome(ctx, status)
 	}
 }

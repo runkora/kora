@@ -77,6 +77,22 @@ func (r AdmissionResult) RunStatus() string {
 	}
 }
 
+// metricOutcome is the label value recorded on the admission-outcomes
+// counter — distinct from RunStatus, which names the per-trigger delivery
+// outcome, not the metric's own vocabulary.
+func (r AdmissionResult) metricOutcome() string {
+	switch r {
+	case AdmitSuperseded:
+		return "superseded"
+	case AdmitDropped:
+		return "dropped"
+	case AdmitPaused:
+		return "paused"
+	default:
+		return "enqueued"
+	}
+}
+
 // PendingDelivery is a fire waiting for a slot.
 type PendingDelivery struct {
 	ID         string
@@ -144,6 +160,7 @@ type Admission struct {
 	repo     admissionStore
 	logger   logging.Logger
 	outcomes outcomeRecorder
+	metrics  *Metrics // nil records nothing
 }
 
 // admissionStore is what admission touches: the queue it manages, the two
@@ -156,11 +173,16 @@ type admissionStore interface {
 }
 
 // NewAdmission constructs the admission controller.
-func NewAdmission(repo admissionStore, logger logging.Logger) *Admission {
+//
+// metrics may be nil, in which case nothing is recorded: instrumentation is
+// injected rather than reached for globally, so a caller that has not wired a
+// meter gets exactly the behavior it had before.
+func NewAdmission(repo admissionStore, logger logging.Logger, metrics *Metrics) *Admission {
 	return &Admission{
 		repo:     repo,
 		logger:   logger,
-		outcomes: outcomeRecorder{repo: repo, logger: logger},
+		outcomes: outcomeRecorder{repo: repo, logger: logger, metrics: metrics},
+		metrics:  metrics,
 	}
 }
 
@@ -172,7 +194,15 @@ func NewAdmission(repo admissionStore, logger logging.Logger) *Admission {
 // the process dies between recording the delivery and starting the run, which
 // leaves a durable record of a start that never happened. The extra latency is
 // on no caller's path: the sender was acknowledged before this is reached.
-func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (AdmissionResult, error) {
+func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fields map[string]string) (result AdmissionResult, err error) {
+	// Recorded once, regardless of which branch below decided it: a named
+	// return plus a defer means every exit path — including the error ones,
+	// which still carry a meaningful AdmissionResult — is counted exactly
+	// once, without repeating the call at each return statement.
+	defer func() {
+		a.metrics.recordAdmissionOutcome(ctx, result)
+	}()
+
 	if t.AutoPausedAt != nil {
 		return AdmitPaused, nil
 	}

@@ -86,6 +86,19 @@ type Repository interface {
 	// CountByTenant returns the number of stored roles for a tenant, without the roles named in exclude.
 	CountByTenant(ctx context.Context, tenantID string, exclude []string) (int, error)
 
+	// CountAllByKind returns the total count of custom (non-reserved) roles
+	// across every tenant, in one query (no tenant filter), keyed "custom".
+	// The reserved (platform-admin) role is derived from the vocabulary, not
+	// stored in this table, so it is not part of this count — the caller
+	// adds it. Used only by the observable-gauge callback in
+	// policy-service's metrics instrument set
+	// (internal/policyservice/metrics.go) — never exposed via any HTTP
+	// endpoint, and deliberately separate from CountByTenant/Stats()
+	// (policyservice/api/service.go:334-399), which stay scoped to one
+	// tenant per call to avoid leaking cross-tenant counts. See
+	// docs/adr/2026-10-07-domain-metrics-instrumentation.md.
+	CountAllByKind(ctx context.Context) (map[string]int, error)
+
 	// PurgeScopeFromAll removes a scope string from every API role's scopes
 	// array across all tenants. Called when a vocabulary scope is deleted. A
 	// declared role keeps its spec, and its next apply reports the missing scope.
@@ -330,6 +343,14 @@ func nonNil(s []string) []string {
 
 // entryColumns is the column list scanEntry reads.
 const entryColumns = `id, tenant_id, role, scopes, budget, created_at, source, COALESCE(resource_uid, ''), COALESCE(resource_name, ''), COALESCE(repository, '')`
+
+func (r *postgresRepository) CountAllByKind(ctx context.Context) (map[string]int, error) {
+	var count int
+	if err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM policy_role_scopes`).Scan(&count); err != nil {
+		return nil, fmt.Errorf("count all roles: %w", err)
+	}
+	return map[string]int{"custom": count}, nil
+}
 
 type scanner interface {
 	Scan(dest ...any) error

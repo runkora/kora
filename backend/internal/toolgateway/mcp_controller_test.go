@@ -76,7 +76,7 @@ func testController(eval policy.Evaluator, cat CatalogRepository) *MCPController
 		servers: []Server{{TenantID: "", Name: "kora", Endpoint: "http://kora/mcp", CallerIdentity: "forward"}},
 		loaded:  true,
 	}
-	return NewMCPController(nil, eval, cat, reg, NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+	return NewMCPController(nil, eval, cat, reg, NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", nil, logging.NewLogger())
 }
 
 // doRPC dispatches a JSON-RPC body against the per-server endpoint, setting the
@@ -158,7 +158,7 @@ func TestTenantOwnershipGuard(t *testing.T) {
 			loaded:  true,
 		}
 		return NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg,
-			NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+			NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", nil, logging.NewLogger())
 	}
 	init := `{"jsonrpc":"2.0","id":1,"method":"initialize"}`
 
@@ -344,7 +344,7 @@ func TestToolsCall_ForwardsDelegationToForwardIdentityOnly(t *testing.T) {
 				servers: []Server{{TenantID: tc.tenantID, Name: "kora", Endpoint: ts.URL + "/mcp", CallerIdentity: tc.callerIdentity}},
 				loaded:  true,
 			}
-			c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg, NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", logging.NewLogger())
+			c := NewMCPController(nil, &fakeEval{checkOK: true}, &memCatalog{}, reg, NewProxy(NewUpstreamCredentials(""), "test", logging.NewLogger()), nil, "/v1", nil, logging.NewLogger())
 
 			claims := &platformtoken.PlatformClaims{}
 			claims.Kora.TenantID = "acme"

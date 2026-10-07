@@ -84,7 +84,7 @@ func TestMCPMiddleware_DelegationBlocklist(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			c := NewMCPController(verifier, &fakeEval{}, &memCatalog{}, &Registry{loaded: true}, nil, tc.blocked, "/v1", testLogger())
+			c := NewMCPController(verifier, &fakeEval{}, &memCatalog{}, &Registry{loaded: true}, nil, tc.blocked, "/v1", nil, testLogger())
 			var seen *policy.DelegationClaims
 			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				seen = policy.DelegationFromContext(r.Context())

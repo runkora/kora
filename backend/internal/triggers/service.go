@@ -158,7 +158,7 @@ func NewService(
 		minter:    minter,
 		admission: admission,
 		brand:     b,
-		outcomes:  outcomeRecorder{repo: repo, logger: logger},
+		outcomes:  outcomeRecorder{repo: repo, logger: logger, metrics: metrics},
 		logger:    logger,
 	}
 }

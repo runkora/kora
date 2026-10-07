@@ -115,7 +115,7 @@ func TestConnect_EndToEnd_GitHubMintAndForward(t *testing.T) {
 	registry := NewAdapterRegistry()
 	registry.Register(gh)
 
-	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
+	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger, nil)
 
 	// Forward transport must accept the upstream's self-signed cert. The
 	// proxy itself terminates inbound TLS via the IssuingCA.

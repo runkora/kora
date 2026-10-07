@@ -243,6 +243,88 @@ type errTest string
 
 func (e errTest) Error() string { return string(e) }
 
+// Admission's outcome counter has to reflect what Admit actually decided, not
+// merely exist: an enqueued fire and one refused at the ceiling must land on
+// distinct label values of the same counter.
+func TestMetrics_AdmissionOutcomesCountedByResult(t *testing.T) {
+	repo := newMockRepository()
+	m, reader := newTestMetrics(t, repo)
+	admission := NewAdmission(repo, silentLogger(), m)
+	ctx := context.Background()
+
+	trig := Trigger{ID: "t-1", TenantID: testTenant, Overflow: OverflowRefuse, MaxParallel: 1}
+
+	if _, err := admission.Admit(ctx, trig, "d-1", nil); err != nil {
+		t.Fatalf("Admit (enqueued): %v", err)
+	}
+	repo.refuseAdmission = true
+	if _, err := admission.Admit(ctx, trig, "d-2", nil); err != nil {
+		t.Fatalf("Admit (dropped): %v", err)
+	}
+
+	got, ok := collect(t, reader)["orbit.triggers.admission_outcomes"]
+	if !ok {
+		t.Fatal("admission-outcomes counter not exported")
+	}
+	sum, ok := got.Data.(metricdata.Sum[int64])
+	if !ok {
+		t.Fatalf("admission-outcomes counter is %T, want a sum", got.Data)
+	}
+	byOutcome := map[string]int64{}
+	for _, dp := range sum.DataPoints {
+		outcome, present := dp.Attributes.Value("outcome")
+		if !present {
+			t.Fatal("admission-outcomes data point has no outcome attribute")
+		}
+		byOutcome[outcome.AsString()] = dp.Value
+	}
+	if byOutcome["enqueued"] != 1 || byOutcome["dropped"] != 1 {
+		t.Errorf("admission outcomes = %v, want enqueued:1 dropped:1", byOutcome)
+	}
+}
+
+// fakeOutcomeStore reports a fixed DeriveDeliveryStatus result without
+// reimplementing its SQL CASE precedence: that precedence is
+// TestPostgres_DeriveDeliveryStatus's job, and repeating it here would only
+// show this file agrees with itself. What this pins is narrower: that derive
+// forwards exactly what the store wrote to the metric, and nothing when the
+// store wrote nothing.
+type fakeOutcomeStore struct{ status string }
+
+func (f fakeOutcomeStore) InsertDeliveryRun(context.Context, *DeliveryRun) error { return nil }
+func (f fakeOutcomeStore) DeriveDeliveryStatus(context.Context, string) (string, error) {
+	return f.status, nil
+}
+
+// The delivery-outcomes counter attributes to whatever DeriveDeliveryStatus
+// actually wrote, not to a status the caller merely requested — it must stay
+// silent when nothing was written (already arrival-level, or no such row).
+func TestMetrics_DeliveryOutcomeRecordsWhatDeriveWrote(t *testing.T) {
+	m, reader := newTestMetrics(t, newMockRepository())
+	ctx := context.Background()
+
+	outcomeRecorder{repo: fakeOutcomeStore{status: StatusDispatched}, logger: silentLogger(), metrics: m}.derive(ctx, "d-1")
+	outcomeRecorder{repo: fakeOutcomeStore{status: ""}, logger: silentLogger(), metrics: m}.derive(ctx, "d-2")
+
+	got, ok := collect(t, reader)["orbit.triggers.delivery_outcomes"]
+	if !ok {
+		t.Fatal("delivery-outcomes counter not exported")
+	}
+	sum, ok := got.Data.(metricdata.Sum[int64])
+	if !ok {
+		t.Fatalf("delivery-outcomes counter is %T, want a sum", got.Data)
+	}
+	if len(sum.DataPoints) != 1 {
+		t.Fatalf("data points = %d, want 1 (the untouched derive must not count)", len(sum.DataPoints))
+	}
+	if outcome, present := sum.DataPoints[0].Attributes.Value("outcome"); !present || outcome.AsString() != StatusDispatched {
+		t.Errorf("outcome = %v, want %q", outcome, StatusDispatched)
+	}
+	if sum.DataPoints[0].Value != 1 {
+		t.Errorf("count = %d, want 1", sum.DataPoints[0].Value)
+	}
+}
+
 // A tick that quietly takes longer than the minute between ticks has stopped
 // being a minutely schedule, and nothing else in the system would say so.
 func TestMetrics_SchedulerTickRecordsDurationAndScanned(t *testing.T) {

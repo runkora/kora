@@ -102,6 +102,19 @@ func (m *mockSessionRepository) RevokeSession(_ context.Context, id string, revo
 	return nil
 }
 
+func (m *mockSessionRepository) CountActiveSessions(_ context.Context) (int64, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var count int64
+	now := time.Now()
+	for _, s := range m.sessions {
+		if s.RevokedAt == nil && s.ExpiresAt.After(now) {
+			count++
+		}
+	}
+	return count, nil
+}
+
 // ── mockRefreshTokenRepository ────────────────────────────────────────────────
 
 type mockRefreshTokenRepository struct {
@@ -519,6 +532,7 @@ func newTestService(t *testing.T, sessions SessionRepository, refreshTokens Refr
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestService: %v", err)
@@ -596,6 +610,7 @@ tenants:
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestServiceWithOIDC: %v", err)
@@ -666,6 +681,7 @@ func newFullTestServiceWithPolicy(t *testing.T) (
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newFullTestServiceWithPolicy: %v", err)
@@ -1031,6 +1047,7 @@ func newTestControllerWithProfiles(t *testing.T) (
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestControllerWithProfiles: %v", err)
@@ -1093,6 +1110,7 @@ tenants:
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestServiceWithDomains: %v", err)
@@ -1187,6 +1205,7 @@ func newTestControllerWithPrefs(t *testing.T) (*Controller, *mockUserPreferences
 		&mockPolicyEvaluator{},
 		&XFCCPrincipalExtractor{},
 		logging.NewLoggerWithOutput(io.Discard),
+		nil,
 	)
 	if err != nil {
 		t.Fatalf("newTestControllerWithPrefs: %v", err)

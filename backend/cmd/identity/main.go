@@ -143,13 +143,25 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 // initControllers wires up repositories, services, and controllers for the
 // identity service. ctx is passed through because the identity service performs
 // OIDC provider discovery eagerly during construction.
-func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, error) {
+func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, meter metric.Meter) ([]api.Controller, error) {
 	identityCfg, err := identity.LoadConfig()
 	if err != nil {
 		return nil, err
 	}
 
 	sessionRepo := identity.NewPostgresSessionRepository(db.Pool())
+
+	// Instruments are built once and injected into the service and delegation
+	// paths. Failing to build them is not fatal — a service that refuses to
+	// start because a gauge could not be registered has turned its own
+	// observability into an outage — but it is loud, because unmeasured is not
+	// the state anyone signed up for.
+	metrics, err := identity.NewMetrics(meter, sessionRepo, logger)
+	if err != nil {
+		logger.Error(ctx, "failed to register identity metrics; running uninstrumented",
+			logging.Field{Key: "error", Value: err.Error()})
+		metrics = nil
+	}
 	refreshRepo := identity.NewPostgresRefreshTokenRepository(db.Pool())
 	blocklist := identity.NewRedisJTIBlocklistRepository(redis)
 	authCodeRepo := identity.NewRedisAuthCodeRepository(redis.Client())
@@ -196,6 +208,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		policyEval,
 		extractor,
 		logger,
+		metrics,
 	)
 	if err != nil {
 		return nil, err
@@ -264,7 +277,7 @@ func identityRoutes() []routescopes.RouteScope {
 func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
-	controllers, err := initControllers(ctx, logger, db, redis)
+	controllers, err := initControllers(ctx, logger, db, redis, meter)
 	if err != nil {
 		return nil, err
 	}

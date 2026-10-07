@@ -1091,7 +1091,7 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	minter := &fakeMinter{token: "minted-token"}
 	// nil metrics: instrumentation is injected, and its absence must leave
 	// behavior identical. Metrics have their own test.
-	admission := NewAdmission(repo, silentLogger())
+	admission := NewAdmission(repo, silentLogger(), nil)
 	svc := NewService(repo, mustRegistry(), cipher, pc, ac, nil, minter, admission, brand.MustNew("kora"), silentLogger(), nil)
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
 	deps.sources = newTestSourceService(t, repo, pc, ac)
@@ -1131,15 +1131,17 @@ func (m *mockRepository) InsertScheduledDelivery(_ context.Context, d *Delivery)
 // TestPostgres_DeriveDeliveryStatus asserts it against the database; repeating
 // the precedence here would only show this file agrees with itself. Counting the
 // calls is what a service test needs, because a derive is the signal that an
-// asynchronous fan-out has finished.
-func (m *mockRepository) DeriveDeliveryStatus(_ context.Context, deliveryID string) error {
+// asynchronous fan-out has finished. Returning "" (rather than a guessed
+// status) means tests built on this mock never see the delivery-outcomes
+// metric fire off a value this file invented.
+func (m *mockRepository) DeriveDeliveryStatus(_ context.Context, deliveryID string) (string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.derived == nil {
 		m.derived = map[string]int{}
 	}
 	m.derived[deliveryID]++
-	return nil
+	return "", nil
 }
 
 // derivedCount is how many times the service re-derived this delivery.

@@ -82,12 +82,18 @@ type RunService struct {
 	// attempts and schedulerDone track the scheduler started by StartScheduler.
 	attempts      sync.WaitGroup
 	schedulerDone chan struct{}
+	metrics       *Metrics // nil = no instruments installed; every record call is a no-op
 }
 
 // missingProvisioner creates an agent type's missing k8s resources without changing existing ones.
 type missingProvisioner interface {
 	ProvisionMissing(ctx context.Context, at AgentType, namespace string) error
 }
+
+// SetMetrics installs the instrument set Transition and StartReaper record
+// run-transition, run-duration, and reaped-run counts on. When unset, those
+// calls are no-ops.
+func (s *RunService) SetMetrics(m *Metrics) { s.metrics = m }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
 // brief appended to an agent's system prompt at run start. When unset, runs start
@@ -539,6 +545,30 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 		logging.Field{Key: "from", Value: string(from)},
 		logging.Field{Key: "to", Value: string(to)},
 	)
+
+	// Best-effort: resolve the run (and, from it, its agent type's framework)
+	// once, for both the transition counter below and the terminal-state
+	// cleanup further down. A failure here is logged, not returned — the
+	// transition itself already committed via SetRunState above, and this is
+	// read-only context for it, the same pattern the agent-type lookups at
+	// lines 309/390/745 already use. See docs/adr/2026-10-07-domain-metrics-instrumentation.md.
+	run, runErr := s.repo.GetRun(ctx, runID)
+	var framework AgentFramework
+	if runErr != nil {
+		s.logger.Warn(ctx, "get run for transition metrics failed",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: runErr.Error()},
+		)
+	} else if agentType, atErr := s.atRepo.GetAgentType(ctx, run.AgentTypeID); atErr != nil {
+		s.logger.Warn(ctx, "get agent type for transition metrics failed",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "error", Value: atErr.Error()},
+		)
+	} else {
+		framework = agentType.Framework
+	}
+	s.metrics.recordTransition(ctx, from, to, framework)
+
 	if err := recordRunState(ctx, s.repo, s.pubsub, runID, to); err != nil {
 		// Log and continue. The event was still published unsequenced, and live
 		// subscribers see the transition. The DB write failure is durable
@@ -555,13 +585,12 @@ func (s *RunService) Transition(ctx context.Context, runID string, from, to RunS
 	}
 
 	if to == RunStateCompleted || to == RunStateFailed || to == RunStateBudgetExhausted {
-		run, err := s.repo.GetRun(ctx, runID)
-		if err != nil {
-			s.logger.Warn(ctx, "get run for sandbox cleanup failed",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
+		if run == nil {
+			// Already logged above (the GetRun that would answer this failed).
 			return nil
+		}
+		if run.StartedAt != nil && run.CompletedAt != nil {
+			s.metrics.recordRunDuration(ctx, run.CompletedAt.Sub(*run.StartedAt))
 		}
 		// The delegation ends with the run (delegated-agent-identity ADR,
 		// Decision 3): tombstone the issuance so no access survives terminal state.
@@ -1076,6 +1105,8 @@ func (s *RunService) StartReaper(ctx context.Context) {
 			if total == 0 {
 				continue
 			}
+			s.metrics.recordReaped(ctx, "failed", len(failedIDs))
+			s.metrics.recordReaped(ctx, "completed", len(completedIDs))
 			s.logger.Info(ctx, "reaped stale runs",
 				logging.Field{Key: "failed_count", Value: len(failedIDs)},
 				logging.Field{Key: "completed_count", Value: len(completedIDs)},

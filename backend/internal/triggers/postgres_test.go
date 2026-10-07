@@ -1548,7 +1548,7 @@ func TestPostgres_DeriveDeliveryStatus(t *testing.T) {
 	}
 	derived := func(t *testing.T, deliveryID string) string {
 		t.Helper()
-		if err := r.DeriveDeliveryStatus(ctx, deliveryID); err != nil {
+		if _, err := r.DeriveDeliveryStatus(ctx, deliveryID); err != nil {
 			t.Fatalf("DeriveDeliveryStatus: %v", err)
 		}
 		got, err := r.GetDelivery(ctx, tenant, deliveryID)

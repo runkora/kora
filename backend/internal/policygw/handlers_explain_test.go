@@ -69,7 +69,7 @@ func (e *scopedEvaluator) Start(_ context.Context) {}
 func testController(held ...string) *Controller {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	return &Controller{
-		svc:    NewService(&scopedEvaluator{held: held}, logger),
+		svc:    NewService(&scopedEvaluator{held: held}, logger, nil),
 		logger: logger,
 	}
 }

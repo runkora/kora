@@ -667,6 +667,45 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 	return out, rows.Err()
 }
 
+// runsActiveByStateFrameworkQuery aggregates every pod-occupying run by state
+// and its agent type's framework, across all tenants, for the
+// orbit_agents_runs_active gauge. Scoped to the OccupiesPod states the same
+// way activeRunsPerPodQuery is: a "runs active" gauge counting every run that
+// ever reached a terminal state would not be a gauge, it would be a growing
+// total.
+var runsActiveByStateFrameworkQuery = fmt.Sprintf(`
+	SELECT r.state, a.framework, COUNT(*)
+	FROM runs r
+	JOIN agent_types a ON a.id = r.agent_type_id
+	WHERE r.state IN (%s)
+	GROUP BY r.state, a.framework`, podOccupancySQLList())
+
+// CountRunsByStateAndFramework aggregates currently-active runs by state and
+// agent framework. Read only by the orbit_agents_runs_active observable gauge
+// callback (internal/agents/metrics.go), not by any request path — deliberately
+// not part of the RunRepository interface, which every mock in this package's
+// tests would otherwise have to implement for a method they do not exercise.
+func (r *PostgresRepository) CountRunsByStateAndFramework(ctx context.Context) ([]RunStateFrameworkCount, error) {
+	rows, err := r.pool.Query(ctx, runsActiveByStateFrameworkQuery)
+	if err != nil {
+		return nil, fmt.Errorf("count runs by state and framework: %w", err)
+	}
+	defer rows.Close()
+
+	var out []RunStateFrameworkCount
+	for rows.Next() {
+		var (
+			state, framework string
+			count            int64
+		)
+		if err := rows.Scan(&state, &framework, &count); err != nil {
+			return nil, err
+		}
+		out = append(out, RunStateFrameworkCount{State: RunState(state), Framework: AgentFramework(framework), Count: count})
+	}
+	return out, rows.Err()
+}
+
 // ReapStaleRuns marks runs that have been stuck in transient states for longer
 // than staleDuration. A run is only reaped when neither runs.updated_at NOR its
 // most recent run_events row is newer than the cutoff — events act as a liveness

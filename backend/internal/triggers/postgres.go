@@ -1002,12 +1002,13 @@ func scheduledAtMinute(t time.Time) time.Time {
 //
 // Deliveries that never reached matching (duplicate, missed) have no runs and
 // are left untouched: their status describes the arrival, not a fan-out.
-func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryID string) error {
+func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryID string) (string, error) {
 	// 'filtered' is deliberately not a failure. A trigger that declined an event
 	// via its own match_condition worked exactly as configured, so a delivery
 	// whose only outcomes are filtered is 'skipped' — nothing was ever going to
 	// run — not 'failed'.
-	_, err := r.pool.Exec(ctx, `
+	var status string
+	err := r.pool.QueryRow(ctx, `
 		UPDATE trigger_deliveries d
 		SET status = CASE
 				WHEN EXISTS (
@@ -1023,11 +1024,18 @@ func (r *postgresRepository) DeriveDeliveryStatus(ctx context.Context, deliveryI
 			END
 		WHERE d.id = $1
 		  AND d.status NOT IN ('duplicate', 'missed')
-	`, deliveryID)
+		RETURNING d.status
+	`, deliveryID).Scan(&status)
 	if err != nil {
-		return fmt.Errorf("derive delivery status: %w", err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Nothing to derive: the delivery is already arrival-level
+			// ('duplicate'/'missed') or does not exist. Not an error — the
+			// caller's metric simply has nothing to attribute.
+			return "", nil
+		}
+		return "", fmt.Errorf("derive delivery status: %w", err)
 	}
-	return nil
+	return status, nil
 }
 
 // RecordSourceRejection counts a request that failed authentication against its

@@ -3,6 +3,7 @@ package policygw
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -13,13 +14,15 @@ import (
 // This is the Layer 2 utility API for non-Go consumers and operator tooling.
 // In-process services should embed platform/policy.Evaluator directly.
 type Service struct {
-	eval   policy.Evaluator
-	logger logging.Logger
+	eval    policy.Evaluator
+	logger  logging.Logger
+	metrics *Metrics
 }
 
-// NewService creates a Service backed by the provided evaluator.
-func NewService(eval policy.Evaluator, logger logging.Logger) *Service {
-	return &Service{eval: eval, logger: logger}
+// NewService creates a Service backed by the provided evaluator. metrics may
+// be nil (e.g. in tests), in which case Check records nothing.
+func NewService(eval policy.Evaluator, logger logging.Logger, metrics *Metrics) *Service {
+	return &Service{eval: eval, logger: logger, metrics: metrics}
 }
 
 // Check evaluates a binary allow/deny decision for already-verified principal claims.
@@ -32,6 +35,7 @@ func (s *Service) Check(
 	action string,
 	attrs map[string]string,
 ) (policy.Result, error) {
+	start := time.Now()
 	result, err := s.eval.Check(ctx, policy.CheckInput{
 		Claims:       claims,
 		Delegation:   delegation,
@@ -42,6 +46,12 @@ func (s *Service) Check(
 	})
 	if err != nil {
 		return policy.Result{}, err
+	}
+	took := time.Since(start)
+
+	s.metrics.recordCheck(ctx, result.Allow, resourceType, took)
+	if !result.Allow {
+		s.metrics.recordDeny(ctx, result.Reason)
 	}
 
 	s.logger.Info(ctx, "policy check",

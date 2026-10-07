@@ -46,7 +46,7 @@ func (f failingOn) Scopes(context.Context, policy.ScopesInput) ([]string, error)
 
 func TestEvaluatePolicy_AlsoRequiredEvaluatorErrorFailsClosed(t *testing.T) {
 	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "kora"}
-	b := NewBroker(failingOn("github:contents:kora:read"), nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	b := NewBroker(failingOn("github:contents:kora:read"), nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 	got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 	if !errors.Is(err, ErrForbidden) {
 		t.Fatalf("want ErrForbidden, got %v (authorized %v)", err, got)
@@ -71,7 +71,7 @@ func TestEvaluatePolicy_AlsoRequired(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			b := NewBroker(tc.held, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+			b := NewBroker(tc.held, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 			got, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, conn, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 			if tc.want == nil {
 				if !errors.Is(err, ErrForbidden) {
@@ -93,7 +93,7 @@ func TestEvaluatePolicy_AlsoRequired(t *testing.T) {
 // would allow it.
 func TestEvaluatePolicy_AlsoRequiredDenialNamesAction(t *testing.T) {
 	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "kora"}
-	b := NewBroker(heldScopes{"github:pulls:kora:read"}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	b := NewBroker(heldScopes{"github:pulls:kora:read"}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 	_, err := b.evaluatePolicy(context.Background(), &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "POST"})
 	var d *Denial
 	if !errors.As(err, &d) {

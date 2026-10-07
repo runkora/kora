@@ -104,7 +104,7 @@ func TestProxy_AnonymousReadFallback(t *testing.T) {
 // A connection of another adapter never takes the fallback, even on a read.
 func TestAnonymousReadOrDeny_OnlyGitHub(t *testing.T) {
 	eval := &postureEvaluator{ownEgress: true}
-	b := NewBroker(eval, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	b := NewBroker(eval, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 	conn := &credentials.Connection{Name: "cluster", Adapter: credentials.AdapterKubernetesBearer}
 	req, _ := http.NewRequest(http.MethodGet, "https://k8s.example.com/api", nil)
 	denial := deny(DenialUnclassified, "k8s.example.com", conn, credentials.Classification{}, nil)
@@ -136,7 +136,7 @@ func TestAuthorize_FallbackLogsOneLine(t *testing.T) {
 			cfg, _ := json.Marshal(map[string]any{"app_id": "12345", "installation_id": 42, "owner": "orbital"})
 			f.repo.items["acme|github"].Config = cfg
 			var logs bytes.Buffer
-			b := NewBroker(&postureEvaluator{ownEgress: tc.ownEgress}, f.repo, f.registry, passthrough.New(), logging.NewLoggerWithOutput(&logs))
+			b := NewBroker(&postureEvaluator{ownEgress: tc.ownEgress}, f.repo, f.registry, passthrough.New(), logging.NewLoggerWithOutput(&logs), nil)
 
 			r := httptest.NewRequest(tc.method, "https://"+f.connectionHost+tc.path, nil)
 			_, _ = b.Authorize(context.Background(), claimsFor("acme", "agent", "run-1"), FromHTTP(r))
@@ -152,7 +152,7 @@ func TestAuthorize_FallbackLogsOneLine(t *testing.T) {
 // The fallback keeps the connection's CA trust for a GitHub Enterprise host
 // behind a private CA, and carries no credential.
 func TestAnonymousReadOrDeny_KeepsConnectionTrust(t *testing.T) {
-	b := NewBroker(&postureEvaluator{ownEgress: true}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+	b := NewBroker(&postureEvaluator{ownEgress: true}, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard), nil)
 	conn := &credentials.Connection{ID: "conn-ghe", Name: "ghe", Adapter: credentials.AdapterGitHubApp, CACert: "-----BEGIN CERTIFICATE-----"}
 	req, _ := http.NewRequest(http.MethodGet, "https://ghe.example.com/other/repo.git/info/refs?service=git-upload-pack", nil)
 	_, span := tracer.Start(context.Background(), "test")

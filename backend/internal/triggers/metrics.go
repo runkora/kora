@@ -35,11 +35,18 @@ import (
 //     nothing to purge and when the job is dead.
 //   - the scheduler, by tick duration and triggers scanned. A tick that starts
 //     taking longer than a minute silently stops being a minutely schedule.
+//   - deliveries, by finalized summary status, and admission decisions, by
+//     outcome. Both are enum-backed counters (docs/adr/2026-10-07-domain-metrics-instrumentation.md):
+//     what fraction of traffic dispatches versus is dropped, superseded or
+//     paused is exactly the health signal a mock of the admission/outcome
+//     logic cannot stand in for.
 type Metrics struct {
-	autoPauses      metric.Int64Counter
-	purgedPayloads  metric.Int64Counter
-	scannedTriggers metric.Int64Counter
-	tickDuration    metric.Float64Histogram
+	autoPauses        metric.Int64Counter
+	purgedPayloads    metric.Int64Counter
+	scannedTriggers   metric.Int64Counter
+	tickDuration      metric.Float64Histogram
+	deliveryOutcomes  metric.Int64Counter
+	admissionOutcomes metric.Int64Counter
 
 	// purgeLastSuccess is the unix time of the last successful purge, published
 	// through an observable gauge. Held as an atomic because the callback runs
@@ -95,6 +102,22 @@ func NewMetrics(meter metric.Meter, repo pendingStatsReader, logger logging.Logg
 		metric.WithUnit("s"),
 	); err != nil {
 		return nil, fmt.Errorf("create tick-duration histogram: %w", err)
+	}
+
+	if m.deliveryOutcomes, err = meter.Int64Counter(
+		"orbit.triggers.delivery_outcomes",
+		metric.WithDescription("Deliveries finalized, by summary status"),
+		metric.WithUnit("{delivery}"),
+	); err != nil {
+		return nil, fmt.Errorf("create delivery-outcomes counter: %w", err)
+	}
+
+	if m.admissionOutcomes, err = meter.Int64Counter(
+		"orbit.triggers.admission_outcomes",
+		metric.WithDescription("Admission decisions made for a fire, by outcome"),
+		metric.WithUnit("{fire}"),
+	); err != nil {
+		return nil, fmt.Errorf("create admission-outcomes counter: %w", err)
 	}
 
 	queueDepth, err := meter.Int64ObservableGauge(
@@ -187,6 +210,26 @@ func (m *Metrics) recordPurge(ctx context.Context, rows int64, at time.Time) {
 		m.purgedPayloads.Add(ctx, rows)
 	}
 	m.purgeLastSuccess.Store(at.Unix())
+}
+
+// recordDeliveryOutcome counts a delivery whose summary status was just
+// (re)derived, attributed by that status: verified/dispatched/skipped/failed/
+// duplicate/missed. The label comes straight off the Delivery status enum
+// (models.go), so this never invents a parallel vocabulary.
+func (m *Metrics) recordDeliveryOutcome(ctx context.Context, outcome string) {
+	if m == nil {
+		return
+	}
+	m.deliveryOutcomes.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", outcome)))
+}
+
+// recordAdmissionOutcome counts one call to Admit, attributed by what it
+// decided: enqueued/superseded/dropped/paused.
+func (m *Metrics) recordAdmissionOutcome(ctx context.Context, result AdmissionResult) {
+	if m == nil {
+		return
+	}
+	m.admissionOutcomes.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", result.metricOutcome())))
 }
 
 // recordSchedulerTick records one pass of the cron loop.
