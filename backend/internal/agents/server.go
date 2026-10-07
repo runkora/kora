@@ -424,7 +424,8 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
 	}
-	if p.States, err = parseRunStates(q.Get("state")); err != nil {
+	// Repeated state keys add to the list.
+	if p.States, err = parseRunStates(strings.Join(q["state"], ",")); err != nil {
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, "state must be a comma-separated list of run states", map[string]any{"field": "state"})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

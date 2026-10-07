@@ -14,7 +14,8 @@ export function pickRunsPageParams(
 ): URLSearchParams {
   const params = new URLSearchParams();
   for (const key of PAGE_PARAMS) {
-    const value = incoming.get(key);
+    // Repeated keys join into one comma-separated value, the form orbit-agents reads.
+    const value = incoming.getAll(key).filter(Boolean).join(',');
     if (value) params.set(key, value);
   }
   if (agentTypeId) params.set('agent_type_id', agentTypeId);

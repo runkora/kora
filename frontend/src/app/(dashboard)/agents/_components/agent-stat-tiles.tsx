@@ -124,7 +124,8 @@ export function StatTile({
 
 export interface AgentStatTilesProps {
   agents: { total: number; healthy: number; provisioning: number; delegated: number };
-  runs: { running: number; starting: number; queued: number; longestMs: number };
+  /** Null when the run counts could not be read, which the tile shows as a dash. */
+  runs: { running: number; starting: number; queued: number; longestMs: number } | null;
   outcomes: { completed: number; failed: number };
   /** Null when the window's usage is not loaded, which the tile shows as a dash. */
   tokens: { cached: number; input: number; output: number } | null;
@@ -146,7 +147,8 @@ export function AgentStatTiles({
   outcomesText,
 }: AgentStatTilesProps) {
   const tokens = tokenFigures ?? { cached: 0, input: 0, output: 0 };
-  const live = runs.running + runs.starting + runs.queued;
+  const counts = runs ?? { running: 0, starting: 0, queued: 0, longestMs: 0 };
+  const live = counts.running + counts.starting + counts.queued;
   const finished = outcomes.completed + outcomes.failed;
   const successRate = finished > 0 ? Math.round((outcomes.completed / finished) * 100) : 0;
   const totalTokens = tokens.cached + tokens.input + tokens.output;
@@ -169,14 +171,20 @@ export function AgentStatTiles({
       <StatTile
         label="Active runs"
         icon="activity"
-        value={String(live)}
+        value={runs ? String(live) : '–'}
         segments={[
-          { label: 'running', value: runs.running },
-          { label: 'starting', value: runs.starting },
-          { label: 'queued', value: runs.queued },
+          { label: 'running', value: counts.running },
+          { label: 'starting', value: counts.starting },
+          { label: 'queued', value: counts.queued },
         ]}
         period="right now"
-        trailing={live > 0 ? `Longest ${formatDuration(runs.longestMs)}` : 'Nothing running'}
+        trailing={
+          !runs
+            ? 'Unavailable'
+            : live > 0
+              ? `Longest ${formatDuration(counts.longestMs)}`
+              : 'Nothing running'
+        }
       />
       <StatTile
         label="Completed runs"

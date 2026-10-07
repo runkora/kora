@@ -386,6 +386,13 @@ func TestRunToolsForwardMethodAndPath(t *testing.T) {
 		}
 	})
 
+	t.Run("list forwards a negative limit for orbit-agents to reject", func(t *testing.T) {
+		call("tools/call", map[string]any{"name": "runs.list", "arguments": map[string]any{"limit": -1}})
+		if gotQuery.Get("limit") != "-1" {
+			t.Errorf("list query = %v, want limit=-1", gotQuery)
+		}
+	})
+
 	t.Run("events GETs the paginated event log", func(t *testing.T) {
 		call("tools/call", map[string]any{"name": "runs.events", "arguments": map[string]any{"run_id": "run-1", "after_seq": 12, "limit": 25}})
 		if gotMethod != http.MethodGet || gotPath != "/api/v1/runs/run-1/events" {

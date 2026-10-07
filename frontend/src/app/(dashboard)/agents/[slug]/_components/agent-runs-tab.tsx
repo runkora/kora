@@ -259,7 +259,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         />
       ) : (
         <DataTable
-          data={runs.rows}
+          data={status === 'loading' ? [] : runs.rows}
           columns={columns}
           getRowKey={(row) => row.id}
           noun="runs"
@@ -301,7 +301,13 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
               </Stack>
             ) : undefined
           }
-          emptyMessage={runFilter === 'all' ? 'No runs yet.' : 'No runs match this filter.'}
+          emptyMessage={
+            status === 'loading'
+              ? 'Loading runs…'
+              : runFilter === 'all'
+                ? 'No runs yet.'
+                : 'No runs match this filter.'
+          }
           filteredEmptyMessage="No runs match your search."
           onRowClick={(row) => {
             if (agent) {

@@ -59,10 +59,9 @@ export function useAgents(
       fetchRuns(typesResult.data, { states: LIVE_RUN_STATES, limit: RUNNING_ROWS }),
       fetchRunStats(DEFAULT_PERIOD),
     ]);
-    if (!runsResult.error) {
+    // The live runs and their counts update together, so the Running now card never mixes two reads.
+    if (!runsResult.error && statsResult.data) {
       setLiveRuns(runsResult.data);
-    }
-    if (statsResult.data) {
       setRunStats(statsResult.data);
     }
 

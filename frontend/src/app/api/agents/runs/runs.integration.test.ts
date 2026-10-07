@@ -78,6 +78,12 @@ describe('GET /api/agents/runs', () => {
     });
   });
 
+  it('joins repeated state keys into one list', async () => {
+    const query = captureUpstream({ runs: [], next_cursor: null, limit: 50 });
+    await get('?state=failed&state=pending');
+    expect(query().get('state')).toBe('failed,pending');
+  });
+
   it('returns the page, the next cursor and resolved starter names', async () => {
     captureUpstream({
       runs: [run('run-1', 'user-1'), run('run-2', 'svc-1')],

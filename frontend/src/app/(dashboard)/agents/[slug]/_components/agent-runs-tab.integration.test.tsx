@@ -148,6 +148,8 @@ describe('Agent runs tab', () => {
     expect(failed).toHaveTextContent('3');
     expect(screen.getByRole('button', { name: /All/ })).toHaveTextContent('12');
     await userEvent.click(failed);
+    // The previous filter's rows go while the new filter's first page loads.
+    expect(screen.queryByText('Task 0')).not.toBeInTheDocument();
 
     await waitFor(() => expect(screen.getByText('Task 11')).toBeInTheDocument());
     expect(screen.queryByText('Task 0')).not.toBeInTheDocument();

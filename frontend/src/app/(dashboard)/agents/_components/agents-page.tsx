@@ -96,12 +96,14 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
   // ── Figures ────────────────────────────────────────────────────────────────
 
   const live = runStats?.current;
-  const runCounts = {
-    running: (live?.by_state.active ?? 0) + (live?.by_state.completing ?? 0),
-    starting: live?.by_state.starting ?? 0,
-    queued: live?.by_state.pending ?? 0,
-    longestMs: live?.longest_live_ms ?? 0,
-  };
+  const runCounts = live
+    ? {
+        running: (live.by_state.active ?? 0) + (live.by_state.completing ?? 0),
+        starting: live.by_state.starting ?? 0,
+        queued: live.by_state.pending ?? 0,
+        longestMs: live.longest_live_ms,
+      }
+    : null;
 
   // Without the window's outcomes the tiles fall back to the default window's run stats.
   const outcomes = windowData?.outcomes ?? {
@@ -223,7 +225,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
-            {activeRunsByType[row.id] ?? 0}
+            {live ? (activeRunsByType[row.id] ?? 0) : '–'}
           </Text>
         ),
       },
@@ -267,7 +269,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         ),
       },
     ],
-    [activeRunsByType],
+    [activeRunsByType, live],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -351,7 +353,10 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         />
       </Grid>
 
-      <RunningNowCard runs={liveRuns} counts={live ? { ...runCounts, total: live.live } : null} />
+      <RunningNowCard
+        runs={liveRuns}
+        counts={live && runCounts ? { ...runCounts, total: live.live } : null}
+      />
 
       {/* Section header */}
       <Stack direction="horizontal" align="baseline" gap="snug">
@@ -380,7 +385,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
               agent={agent}
               usage={usage[agent.slug]}
               totalCost={totalCost}
-              liveRuns={activeRunsByType[agent.id] ?? 0}
+              liveRuns={live ? (activeRunsByType[agent.id] ?? 0) : null}
               period={period}
               usageNote={windowStatus === 'ready' ? undefined : unavailableText}
               onRun={setStartRunTarget}

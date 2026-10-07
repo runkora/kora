@@ -76,3 +76,21 @@ describe('Agents page run figures', () => {
     expect(screen.getByText(`+${50 - live.length} more runs not shown`)).toBeInTheDocument();
   });
 });
+
+describe('Agents page without run stats', () => {
+  it('shows the run counts as unavailable rather than zero', () => {
+    server.use(http.get('/api/agents/types/drafts', () => HttpResponse.json({ data: [] })));
+    renderWithProviders(
+      <AgentsShell
+        initialAgentTypes={AGENT_ROWS}
+        initialLiveRuns={[]}
+        initialRunStats={null}
+        initialError={null}
+        initialInsights={mockInsightsResponse('7d')}
+      />,
+    );
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+    expect(screen.getAllByText('Run count unavailable')).toHaveLength(AGENT_ROWS.length);
+    expect(screen.queryByText('Nothing running')).not.toBeInTheDocument();
+  });
+});

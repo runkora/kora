@@ -311,6 +311,17 @@ func TestHandleListRuns_BadParamsReturn400(t *testing.T) {
 	}
 }
 
+func TestHandleListRuns_RepeatedStateKeysCombine(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedRunsAcrossTypes(t, repo, "t-1", 6, 1)
+	repo.runs["run-0001"].State = RunStateFailed
+	repo.runs["run-0002"].State = RunStatePending
+	code, body := listRuns(t, c, "state=failed&state=pending")
+	if code != http.StatusOK || len(body.Runs) != 2 {
+		t.Errorf("status %d, %d runs; want 200 and the failed and pending runs", code, len(body.Runs))
+	}
+}
+
 func TestHandleListRuns_CursorRoundTrip(t *testing.T) {
 	c, repo, _, _ := newTestController(t)
 	seedRunsAcrossTypes(t, repo, "t-1", 25, 2)
