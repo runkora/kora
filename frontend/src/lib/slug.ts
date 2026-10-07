@@ -1,14 +1,14 @@
 /**
  * The slug rule shared by agents and environments: lower case, each run of
  * other characters becomes one hyphen, and the ends lose their hyphens. The
- * result is cut to 63 characters, the longest DNS label.
+ * result is cut to maxLength characters, by default 63, the longest DNS label.
  */
-export function deriveSlug(name: string): string {
+export function deriveSlug(name: string, maxLength = 63): string {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
-    .slice(0, 63)
+    .slice(0, maxLength)
     .replace(/-+$/, '');
 }
 

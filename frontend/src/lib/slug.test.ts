@@ -12,6 +12,10 @@ describe('deriveSlug', () => {
   ])('derives %j as %j', (name, slug) => {
     expect(deriveSlug(name)).toBe(slug);
   });
+
+  it('cuts to a shorter limit and drops the hyphen left at the cut', () => {
+    expect(deriveSlug(`${'a'.repeat(51)} b`, 52)).toBe('a'.repeat(51));
+  });
 });
 
 describe('slugInput', () => {

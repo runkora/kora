@@ -13,7 +13,29 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/util/validation"
 )
+
+// ErrInvalidSlug is returned when an agent type slug cannot name the
+// Kubernetes resources provisioned for it.
+var ErrInvalidSlug = errors.New("invalid slug")
+
+// maxAgentSlugLength is the longest agent type slug. The slug names the agent's
+// StatefulSet, whose pods carry a controller-revision-hash label of the form
+// "<slug>-<hash>" with a hash of up to 10 characters, and label values stop at
+// 63 characters.
+const maxAgentSlugLength = 52
+
+// validateAgentSlug checks slug can name the agent's ServiceAccount,
+// StatefulSet and Service. A Service name is a DNS-1035 label, so the slug
+// must start with a letter.
+func validateAgentSlug(slug string) error {
+	if len(slug) > maxAgentSlugLength || len(validation.IsDNS1035Label(slug)) > 0 {
+		return fmt.Errorf("%w %q: slug must be lowercase letters, digits and hyphens, start with a letter, end with a letter or digit, and be at most %d characters",
+			ErrInvalidSlug, slug, maxAgentSlugLength)
+	}
+	return nil
+}
 
 // AgentTypeServiceConfig holds the runtime parameters used by AgentTypeService.
 type AgentTypeServiceConfig struct {
@@ -216,6 +238,10 @@ type createValidated struct {
 // cyclomatic complexity in check, mirroring validateAgentTypeUpdate.
 func (s *AgentTypeService) validateAgentTypeCreate(ctx context.Context, req CreateAgentTypeRequest) (createValidated, error) {
 	var out createValidated
+
+	if err := validateAgentSlug(req.Slug); err != nil {
+		return out, err
+	}
 
 	// Identity model: autonomous unless explicitly created delegated. Immutable
 	// after creation (delegated-agent-identity ADR, Decision 1).
