@@ -24,16 +24,19 @@ import (
 // ErrInvalidEnvironment is returned when an environment is malformed. Handlers map it to a 400.
 var ErrInvalidEnvironment = errors.New("invalid environment")
 
-// ErrEnvironmentNameTaken is returned when an environment name collides within a
+// ErrEnvironmentSlugTaken is returned when an environment slug collides within a
 // tenant. Handlers map it to a 409.
-var ErrEnvironmentNameTaken = errors.New("environment name already taken")
+var ErrEnvironmentSlugTaken = errors.New("environment slug already taken")
 
 // ErrEnvironmentInUse is returned when an environment attached to an agent is
 // deleted. Handlers map it to a 409.
 var ErrEnvironmentInUse = errors.New("environment is attached to an agent")
 
-// DefaultEnvironmentName names the built-in environment of an agent with none attached.
+// DefaultEnvironmentName is the slug of the built-in environment of an agent with none attached.
 const DefaultEnvironmentName = "default"
+
+// defaultEnvironmentDisplayName is the built-in environment's name for people.
+const defaultEnvironmentDisplayName = "Default"
 
 // EnvironmentSize is a sandbox's CPU, memory and local disk in Kubernetes quantities.
 type EnvironmentSize struct {
@@ -62,8 +65,11 @@ func (s EnvironmentSizes) Validate() error {
 // Environment is a prepackaged sandbox: a SandboxImage, a size, and the egress hosts and connectors its agents may use.
 // See docs/adr/2026-10-03-sandbox-environments.md.
 type Environment struct {
-	ID          string `json:"id"`
-	TenantID    string `json:"tenant_id"`
+	ID       string `json:"id"`
+	TenantID string `json:"tenant_id"`
+	// Slug is what agents select the environment by. It never changes after create.
+	Slug string `json:"slug"`
+	// Name is the environment's name for people.
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	// SandboxImage names a SandboxImage in the tenant namespace. kora-base is the base image.
@@ -79,7 +85,8 @@ type Environment struct {
 // the base image at the default size with no egress or connectors.
 func DefaultEnvironment(size EnvironmentSize) Environment {
 	return Environment{
-		Name:         DefaultEnvironmentName,
+		Slug:         DefaultEnvironmentName,
+		Name:         defaultEnvironmentDisplayName,
 		Description:  si.BaseDescription,
 		SandboxImage: si.BaseName,
 		Size:         size,
@@ -92,6 +99,9 @@ func DefaultEnvironment(size EnvironmentSize) Environment {
 func (e Environment) Validate(maxSize EnvironmentSize) error {
 	if strings.TrimSpace(e.Name) == "" {
 		return fmt.Errorf("environment name must not be empty")
+	}
+	if strings.TrimSpace(e.Slug) == "" {
+		return fmt.Errorf("environment slug must not be empty")
 	}
 	if errs := validation.IsDNS1123Label(e.SandboxImage); len(errs) > 0 {
 		return fmt.Errorf("sandbox_image %q: %s", e.SandboxImage, strings.Join(errs, "; "))
@@ -158,10 +168,12 @@ func (e Environment) EgressScopes() []string {
 
 // ── Request types ──────────────────────────────────────────────────────────
 
-// EnvironmentRequest is the create and update payload. An update replaces every field.
+// EnvironmentRequest is the create and update payload. An update replaces every field except the slug.
 // The tenant comes from the verified claims, and an empty size dimension takes the install default.
+// A create without a slug derives one from the name, and an update without one keeps the stored slug.
 type EnvironmentRequest struct {
 	ID           string          `json:"-"`
+	Slug         string          `json:"slug"`
 	Name         string          `json:"name"`
 	Description  string          `json:"description"`
 	SandboxImage string          `json:"sandbox_image"`
@@ -237,12 +249,19 @@ func (s *EnvironmentService) CreateEnvironment(ctx context.Context, req Environm
 	defer span.End()
 
 	env := s.fromRequest(tenantFromContext(ctx), uuid.NewString(), req)
+	if env.Slug == "" {
+		env.Slug = deriveSlug(env.Name)
+	}
+	if errs := validation.IsDNS1123Label(env.Slug); len(errs) > 0 {
+		return nil, fmt.Errorf("%w: slug %q: %s; supply a slug of lowercase letters, digits and hyphens",
+			ErrInvalidEnvironment, env.Slug, strings.Join(errs, "; "))
+	}
 	if err := s.validate(ctx, env); err != nil {
 		return nil, err
 	}
 	if err := s.repo.CreateEnvironment(ctx, env); err != nil {
-		if errors.Is(err, ErrEnvironmentNameTaken) {
-			return nil, ErrEnvironmentNameTaken
+		if errors.Is(err, ErrEnvironmentSlugTaken) {
+			return nil, ErrEnvironmentSlugTaken
 		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create environment")
@@ -279,14 +298,17 @@ func (s *EnvironmentService) UpdateEnvironment(ctx context.Context, req Environm
 		return nil, err
 	}
 	env := s.fromRequest(tenantID, existing.ID, req)
+	if env.Slug == "" {
+		env.Slug = existing.Slug
+	}
+	if env.Slug != existing.Slug {
+		return nil, fmt.Errorf("%w: slug cannot change after create", ErrInvalidEnvironment)
+	}
 	env.CreatedAt = existing.CreatedAt
 	if err = s.validate(ctx, env); err != nil {
 		return nil, err
 	}
 	if err = s.repo.UpdateEnvironment(ctx, env); err != nil {
-		if errors.Is(err, ErrEnvironmentNameTaken) {
-			return nil, ErrEnvironmentNameTaken
-		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "update environment")
 		return nil, fmt.Errorf("update environment: %w", err)
@@ -336,6 +358,7 @@ func (s *EnvironmentService) fromRequest(tenantID, id string, req EnvironmentReq
 	return Environment{
 		ID:           id,
 		TenantID:     tenantID,
+		Slug:         strings.TrimSpace(req.Slug),
 		Name:         strings.TrimSpace(req.Name),
 		Description:  req.Description,
 		SandboxImage: image,
@@ -403,6 +426,25 @@ func (s *EnvironmentService) reReconcileAgents(ctx context.Context, tenantID str
 			}
 		}
 	}()
+}
+
+// deriveSlug lowercases name, turns each run of other characters into one hyphen
+// and trims the ends. It matches the dashboard's rule.
+func deriveSlug(name string) string {
+	var b strings.Builder
+	hyphen := false
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			if hyphen && b.Len() > 0 {
+				b.WriteByte('-')
+			}
+			hyphen = false
+			b.WriteRune(r)
+			continue
+		}
+		hyphen = true
+	}
+	return b.String()
 }
 
 // trimNonEmpty trims each string and drops the empties.

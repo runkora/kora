@@ -891,7 +891,7 @@ func (s *RunService) chooseSandbox(ctx context.Context, span trace.Span, run Run
 	}
 	switching = live && env.ID != current
 	if switching && !replace {
-		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Name))
+		return SandboxSpec{}, false, failSpan(span, errResolveEnvironment, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, env.Slug))
 	}
 	spec, err = s.sandboxSpec(ctx, namespace, env)
 	if err != nil {

@@ -144,7 +144,7 @@ func (s *mcpServer) handleInitialize(req jsonRPCRequest) jsonRPCResponse {
 // environmentProperty is the optional or required environment argument.
 var environmentProperty = map[string]any{
 	"type":        "string",
-	"description": "An environment name from list_environments.",
+	"description": "An environment slug from list_environments.",
 }
 
 func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
@@ -155,7 +155,7 @@ func (s *mcpServer) handleToolsList(req jsonRPCRequest) jsonRPCResponse {
 			"tools": []map[string]any{
 				{
 					"name":        "list_environments",
-					"description": "Lists the environments this session can use with their name, description, image and size, and marks the default and the current sandbox's environment.",
+					"description": "Lists the environments this session can use with their slug, name, description, image and size, and marks the default and the current sandbox's environment.",
 					"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "required": []string{}},
 				},
 				{
@@ -238,6 +238,7 @@ func (s *mcpServer) post(action, environment string) error {
 
 // environment is one entry of the session-manager's environment list.
 type environment struct {
+	Slug        string `json:"slug"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Image       string `json:"image"`
@@ -271,7 +272,10 @@ func (s *mcpServer) listEnvironments() (string, error) {
 		if e.Current {
 			marks = append(marks, "current sandbox")
 		}
-		fmt.Fprintf(&b, "- %s", e.Name)
+		fmt.Fprintf(&b, "- %s", e.Slug)
+		if name := strings.TrimSpace(e.Name); name != "" && name != e.Slug {
+			fmt.Fprintf(&b, " %q", name)
+		}
 		if len(marks) > 0 {
 			fmt.Fprintf(&b, " (%s)", strings.Join(marks, ", "))
 		}

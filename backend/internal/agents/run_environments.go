@@ -56,6 +56,7 @@ const eventSandboxEnvironment = "sandbox_environment"
 
 // RunEnvironment is the agent's view of one environment a run may use.
 type RunEnvironment struct {
+	Slug        string          `json:"slug"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	Image       string          `json:"image"`
@@ -80,18 +81,18 @@ func (s *RunService) agentEnvironments(ctx context.Context, at AgentType) ([]Env
 	return envs, nil
 }
 
-// pickEnvironment chooses the environment for a sandbox. The named one comes
+// pickEnvironment chooses the environment for a sandbox. The one with slug comes
 // first, then the run's current one, then the agent's default.
-func pickEnvironment(envs []Environment, name, current string) (Environment, error) {
-	if name != "" {
-		names := make([]string, 0, len(envs))
+func pickEnvironment(envs []Environment, slug, current string) (Environment, error) {
+	if slug != "" {
+		slugs := make([]string, 0, len(envs))
 		for _, e := range envs {
-			if e.Name == name {
+			if e.Slug == slug {
 				return e, nil
 			}
-			names = append(names, e.Name)
+			slugs = append(slugs, e.Slug)
 		}
-		return Environment{}, fmt.Errorf("%w: %q; this agent has %s", ErrEnvironmentNotAttached, name, strings.Join(names, ", "))
+		return Environment{}, fmt.Errorf("%w: %q; this agent has %s", ErrEnvironmentNotAttached, slug, strings.Join(slugs, ", "))
 	}
 	for _, e := range envs {
 		if e.ID == current {
@@ -128,7 +129,7 @@ func (s *RunService) sandboxSpec(ctx context.Context, namespace string, env Envi
 	}
 	spec := SandboxSpec{
 		EnvironmentID: env.ID,
-		Environment:   env.Name,
+		Environment:   env.Slug,
 		Image:         img.PinnedRef(),
 		Size:          env.Size,
 	}
@@ -181,6 +182,7 @@ func (s *RunService) ListRunEnvironments(ctx context.Context, runID string) ([]R
 	out := make([]RunEnvironment, 0, len(envs))
 	for i, e := range envs {
 		out = append(out, RunEnvironment{
+			Slug:        e.Slug,
 			Name:        e.Name,
 			Description: e.Description,
 			Image:       e.SandboxImage,

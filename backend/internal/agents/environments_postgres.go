@@ -13,7 +13,8 @@ import (
 
 // ── Environments ────────────────────────────────────────────────────────────
 
-const environmentColumns = `id, tenant_id, name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, created_at, updated_at`
+// name holds the slug and display_name the name for people.
+const environmentColumns = `id, tenant_id, name, display_name, description, sandbox_image, cpu, memory, disk, egress_hosts, connectors, created_at, updated_at`
 
 func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environment) error {
 	if env.ID == "" {
@@ -26,13 +27,13 @@ func (r *PostgresRepository) CreateEnvironment(ctx context.Context, env Environm
 	}
 	_, err = r.pool.Exec(ctx, `
 		INSERT INTO environments (`+environmentColumns+`)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)`,
-		env.ID, env.TenantID, env.Name, env.Description, env.SandboxImage,
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,$12,$13)`,
+		env.ID, env.TenantID, env.Slug, env.Name, env.Description, env.SandboxImage,
 		env.Size.CPU, env.Size.Memory, env.Size.Disk, env.EgressHosts, connectorsJSON, now, now,
 	)
 	if err != nil {
 		if isUniqueViolation(err) {
-			return ErrEnvironmentNameTaken
+			return ErrEnvironmentSlugTaken
 		}
 		return fmt.Errorf("insert environment: %w", err)
 	}
@@ -95,15 +96,12 @@ func (r *PostgresRepository) UpdateEnvironment(ctx context.Context, env Environm
 	}
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE environments
-		SET name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9
+		SET display_name=$1, description=$2, sandbox_image=$3, cpu=$4, memory=$5, disk=$6, egress_hosts=$7, connectors=$8::jsonb, updated_at=$9
 		WHERE tenant_id=$10 AND id=$11`,
 		env.Name, env.Description, env.SandboxImage, env.Size.CPU, env.Size.Memory, env.Size.Disk,
 		env.EgressHosts, connectorsJSON, time.Now().UTC(), env.TenantID, env.ID,
 	)
 	if err != nil {
-		if isUniqueViolation(err) {
-			return ErrEnvironmentNameTaken
-		}
 		return fmt.Errorf("update environment: %w", err)
 	}
 	if tag.RowsAffected() == 0 {
@@ -166,7 +164,7 @@ func marshalConnectors(connectors []Connector) (string, error) {
 func scanEnvironment(s scanner) (*Environment, error) {
 	var e Environment
 	var connectorsJSON []byte
-	err := s.Scan(&e.ID, &e.TenantID, &e.Name, &e.Description, &e.SandboxImage,
+	err := s.Scan(&e.ID, &e.TenantID, &e.Slug, &e.Name, &e.Description, &e.SandboxImage,
 		&e.Size.CPU, &e.Size.Memory, &e.Size.Disk, &e.EgressHosts, &connectorsJSON, &e.CreatedAt, &e.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
@@ -178,6 +176,10 @@ func scanEnvironment(s scanner) (*Environment, error) {
 		if uErr := json.Unmarshal(connectorsJSON, &e.Connectors); uErr != nil {
 			return nil, fmt.Errorf("unmarshal environment connectors: %w", uErr)
 		}
+	}
+	// A row the previous release wrote has no display name.
+	if e.Name == "" {
+		e.Name = e.Slug
 	}
 	if e.Connectors == nil {
 		e.Connectors = []Connector{}

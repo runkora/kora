@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 )
@@ -16,7 +17,7 @@ func (c *Controller) handleCreateEnvironment(w http.ResponseWriter, r *http.Requ
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	if req.Name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeMissingField, "name is required", nil), nil)
 		return
@@ -60,7 +61,7 @@ func (c *Controller) handleUpdateEnvironment(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	req.ID = r.PathValue("id")
-	if req.Name == "" {
+	if strings.TrimSpace(req.Name) == "" {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeMissingField, "name is required", nil), nil)
 		return
@@ -88,9 +89,9 @@ func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseW
 	case errors.Is(err, ErrNotFound):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.NotFoundError(api.ErrCodeResourceNotFound, "environment not found", nil), nil)
-	case errors.Is(err, ErrEnvironmentNameTaken):
+	case errors.Is(err, ErrEnvironmentSlugTaken):
 		api.ErrorResponse(ctx, w, c.logger,
-			api.ConflictError(api.ErrCodeResourceExists, "environment name already taken for this tenant", nil), nil)
+			api.ConflictError(api.ErrCodeResourceExists, "environment slug already taken for this tenant", nil), nil)
 	case errors.Is(err, ErrEnvironmentInUse):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ConflictError(api.ErrCodeConflict, "environment is attached to an agent; detach it first", nil), nil)
