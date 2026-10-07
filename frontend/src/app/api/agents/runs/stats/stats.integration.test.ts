@@ -27,33 +27,21 @@ describe('GET /api/agents/runs/stats', () => {
     } as never);
   });
 
-  it('asks orbit-agents for the period and returns its stats', async () => {
-    let period: string | null = null;
+  it('asks orbit-agents for the period, 7 days by default, and returns its stats', async () => {
+    const periods: (string | null)[] = [];
     server.use(
       http.get(STATS_URL, ({ request }) => {
-        period = new URL(request.url).searchParams.get('period');
+        periods.push(new URL(request.url).searchParams.get('period'));
         return HttpResponse.json({ total: 3, current: { total: 9, live: 2 } });
       }),
     );
 
     const res = await get('?period=30d');
-    const body = await res.json();
+    await get();
 
     expect(res.status).toBe(200);
-    expect(period).toBe('30d');
-    expect(body.data.current.live).toBe(2);
-  });
-
-  it('defaults to the 7 day window', async () => {
-    let period: string | null = null;
-    server.use(
-      http.get(STATS_URL, ({ request }) => {
-        period = new URL(request.url).searchParams.get('period');
-        return HttpResponse.json({ total: 0 });
-      }),
-    );
-    await get();
-    expect(period).toBe('7d');
+    expect((await res.json()).data.current.live).toBe(2);
+    expect(periods).toEqual(['30d', '7d']);
   });
 
   it('rejects an unknown period without calling upstream', async () => {

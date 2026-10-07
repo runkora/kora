@@ -146,8 +146,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
 
   // ── Active run counts per agent type ──────────────────────────────────────
 
-  const liveByType = live?.live_by_agent_type;
-  const activeRunsByType = useMemo(() => liveByType ?? {}, [liveByType]);
+  const activeRunsByType = live?.live_by_agent_type ?? {};
 
   // ── Identity filter (list view) ────────────────────────────────────────────
 
@@ -225,7 +224,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         locked: true,
         cell: (row) => (
           <Text mono size="supporting">
-            {live ? (activeRunsByType[row.id] ?? 0) : '–'}
+            {live ? (live.live_by_agent_type[row.id] ?? 0) : '–'}
           </Text>
         ),
       },
@@ -269,7 +268,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         ),
       },
     ],
-    [activeRunsByType, live],
+    [live],
   );
 
   // ── Render ────────────────────────────────────────────────────────────────

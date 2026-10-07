@@ -76,7 +76,6 @@ export interface RunningNowCardProps {
 
 export function RunningNowCard({ runs, counts }: RunningNowCardProps) {
   const total = counts?.total ?? runs.length;
-  const shown = Math.min(runs.length, RUNNING_ROWS);
 
   return (
     <Stack asChild overflow="hidden">
@@ -171,10 +170,10 @@ export function RunningNowCard({ runs, counts }: RunningNowCardProps) {
             </Table>
           </TableRoot>
         )}
-        {total > shown && (
+        {total > runs.length && (
           <CardFooter compact>
             <Text size="caption" color="subtle">
-              +{total - shown} more {total - shown === 1 ? 'run' : 'runs'} not shown
+              +{total - runs.length} more {total - runs.length === 1 ? 'run' : 'runs'} not shown
             </Text>
           </CardFooter>
         )}

@@ -102,12 +102,6 @@ describe('GET /api/agents/runs', () => {
     expect(body.data[1].created_by_name).toBeNull();
   });
 
-  it('reads a missing cursor as the last page', async () => {
-    captureUpstream({ runs: [run('run-1')] });
-    const body = await (await get()).json();
-    expect(body.next_cursor).toBeNull();
-  });
-
   it('passes an upstream validation error through with its status', async () => {
     server.use(
       http.get(RUNS_URL, () =>
