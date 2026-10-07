@@ -428,8 +428,8 @@ func (s *EnvironmentService) reReconcileAgents(ctx context.Context, tenantID str
 	}()
 }
 
-// deriveSlug lowercases name, turns each run of other characters into one hyphen
-// and trims the ends. It matches the dashboard's rule.
+// deriveSlug lowercases name, turns each run of characters other than a-z and 0-9
+// into one hyphen and trims the ends. It matches the dashboard's rule for ASCII names.
 func deriveSlug(name string) string {
 	var b strings.Builder
 	hyphen := false

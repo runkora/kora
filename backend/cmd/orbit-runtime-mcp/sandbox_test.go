@@ -91,7 +91,7 @@ func TestEnvironmentTools(t *testing.T) {
 
 	list := text(s.handleToolsCall(jsonRPCRequest{ID: 1, Params: []byte(`{"name":"list_environments"}`)}))
 	if !strings.Contains(list, "- go \"Go services\" (default, current sandbox): Go services. Image acme-go. 4 CPU, 8Gi memory, 20Gi local disk.") ||
-		!strings.Contains(list, "- node: Node apps. Image acme-node.") {
+		!strings.Contains(list, "- node \"node\": Node apps. Image acme-node.") {
 		t.Errorf("list = %q", list)
 	}
 	text(s.handleToolsCall(jsonRPCRequest{ID: 2, Params: []byte(`{"name":"provision_sandbox","arguments":{"environment":"go"}}`)}))
@@ -132,5 +132,18 @@ func TestToolsList_EnvironmentTools(t *testing.T) {
 		if strings.Contains(tool["description"].(string), "—") {
 			t.Errorf("%s description has an em dash", tool["name"])
 		}
+	}
+}
+
+// An orbit-agents from the previous release sends only name, and the line starts with it.
+func TestListEnvironments_PreviousRelease(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"environments":[{"name":"go","image":"acme-go","size":{"cpu":"4","memory":"8Gi","disk":"20Gi"},"default":true}]}`))
+	}))
+	defer srv.Close()
+	s := &mcpServer{sessionManagerURL: srv.URL, runID: "run-1", httpClient: srv.Client()}
+	list, err := s.listEnvironments()
+	if err != nil || !strings.HasPrefix(list, "- go (default): Image acme-go.") {
+		t.Errorf("list = %q, %v", list, err)
 	}
 }

@@ -56,7 +56,7 @@ describe('sizeChoiceFor', () => {
   });
 
   it('holds any other size as Custom', () => {
-    expect(sizeChoiceFor({ cpu: '3', memory: '6Gi', disk: '20Gi' }, SIZES)).toEqual({
+    expect(sizeChoiceFor({ cpu: '3', memory: '6Gi', disk: '20Gi' }, SIZES)).toMatchObject({
       preset: 'custom',
       custom: { cpu: '3', memory: '6', disk: '20' },
     });
@@ -98,5 +98,27 @@ describe('sizeRequest', () => {
     expect(
       sizeRequest({ preset: 'custom', custom: { cpu: ' 4 ', memory: '', disk: '20' } }, SIZES),
     ).toEqual({ cpu: '4', memory: '', disk: '20Gi' });
+  });
+});
+
+describe('saved sizes', () => {
+  const saved = { cpu: '333m', memory: '1000Mi', disk: '3G' };
+
+  it('sends a saved size unchanged until a field is edited', () => {
+    const choice = sizeChoiceFor(saved, SIZES);
+    expect(sizeRequest(choice, SIZES)).toEqual(saved);
+    expect(sizeRequest({ ...choice, custom: { ...choice.custom, cpu: '2' } }, SIZES)).toEqual({
+      ...saved,
+      cpu: '2',
+    });
+  });
+
+  it('checks an untouched field by its saved quantity', () => {
+    const sizes = { default: SIZES.default, max: { cpu: '8', memory: '1000Mi', disk: '50Gi' } };
+    const choice = sizeChoiceFor(saved, sizes);
+    expect(customError(choice, sizes, 'memory')).toBeUndefined();
+    expect(
+      customError({ ...choice, custom: { ...choice.custom, memory: '1' } }, sizes, 'memory'),
+    ).toBe('Memory can be at most 0.98 GiB.');
   });
 });

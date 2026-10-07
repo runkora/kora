@@ -34,7 +34,7 @@ import type {
 } from '@orbit/shared/api';
 import { ConnectionCards, EffectiveAccessPanel } from '@orbit/components';
 import { BASE_IMAGE_NAME, imageProblem, slugProblem } from '@orbit/lib/environments';
-import { deriveSlug } from '@orbit/lib/slug';
+import { deriveSlug, slugInput } from '@orbit/lib/slug';
 import {
   createEnvironment,
   previewEnvironmentAccess,
@@ -153,6 +153,20 @@ export function EnvironmentWizard({
     setConnectors(env.connectors);
   };
 
+  // Going back to an image drops what a copy filled in.
+  const chooseStart = (next: StartFrom) => {
+    setStart(next);
+    if (next === 'copy' || copyFrom === '') return;
+    setCopyFrom('');
+    setNameTyped(undefined);
+    setSlugTyped(undefined);
+    setDescriptionTyped(undefined);
+    setImage(BASE_IMAGE_NAME);
+    if (sizes) setSize(sizeChoiceFor(undefined, sizes));
+    setEgressHosts([]);
+    setConnectors([]);
+  };
+
   // Debounced so typing in the hosts editor doesn't spam the preview endpoint.
   const [access, setAccess] = useState<EffectiveAccess | null>(null);
   const [accessError, setAccessError] = useState<string | null>(null);
@@ -178,7 +192,8 @@ export function EnvironmentWizard({
       ? 'Fix the slug before you continue.'
       : undefined;
   const hints: (string | undefined)[] = [
-    identityHint ?? (problem ? 'Choose a valid image.' : undefined),
+    // Edit shows no image on its first step, so only the name and slug hold it.
+    identityHint ?? (problem && !isEdit ? 'Choose a valid image.' : undefined),
     problem ? 'Choose a valid image.' : badSize ? 'Fix the size before you continue.' : undefined,
     undefined,
     identityHint ?? (problem ? 'Choose a valid image.' : undefined),
@@ -283,9 +298,9 @@ export function EnvironmentWizard({
                 mono
                 value={slug}
                 readOnly={isEdit}
-                onChange={(e) =>
-                  setSlugTyped(deriveSlug(e.target.value) || e.target.value.toLowerCase())
-                }
+                onChange={(e) => {
+                  if (!isEdit) setSlugTyped(slugInput(e.target.value));
+                }}
                 placeholder="go-services"
                 hasError={slugError !== null && !nameMissing}
               />
@@ -310,7 +325,7 @@ export function EnvironmentWizard({
   );
 
   const choiceCard = (value: StartFrom, title: string, text: string, icon: 'box' | 'copy') => (
-    <Card interactive selected={start === value} onClick={() => setStart(value)} column>
+    <Card interactive selected={start === value} onClick={() => chooseStart(value)} column>
       <CardContent padded compact grow>
         <Stack direction="horizontal" align="start" gap="cozy">
           <Icon
@@ -398,7 +413,7 @@ export function EnvironmentWizard({
               <>
                 <RadioGroup
                   value={start}
-                  onValueChange={(v) => setStart(v as StartFrom)}
+                  onValueChange={(v) => chooseStart(v as StartFrom)}
                   aria-label="Start from"
                 >
                   <Grid cols={{ base: 1, sm: 2 }} gap="cozy">

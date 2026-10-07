@@ -219,6 +219,32 @@ describe('EnvironmentWizard create', () => {
     );
   });
 
+  it('drops what a copy filled in when going back to an image', async () => {
+    const { dialog, onSaved } = renderWizard(null);
+    choose(dialog, 'Copy an environment');
+    choose(dialog, 'Code review');
+    choose(dialog, 'Start from an image');
+    expect([value(dialog, 'Name'), value(dialog, 'Slug')]).toEqual(['Base', 'base']);
+    await createFromStart(dialog, onSaved);
+    expect(createEnvironment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sandbox_image: 'kora-base',
+        size: SIZES.default,
+        egress_hosts: [],
+        connectors: [],
+      }),
+    );
+  });
+
+  it('lets a hyphen be typed into the slug', () => {
+    const { dialog } = renderWizard(null);
+    type(dialog, 'Slug', 'go-');
+    expect(value(dialog, 'Slug')).toBe('go-');
+    expect(dialog.getByText('Use lowercase letters, digits and hyphens.')).toBeInTheDocument();
+    type(dialog, 'Slug', 'go-s');
+    expect(value(dialog, 'Slug')).toBe('go-s');
+  });
+
   it('says so when there is no environment to copy', () => {
     const { dialog } = renderWizard(null, { environments: [] });
     choose(dialog, 'Copy an environment');
@@ -390,6 +416,17 @@ describe('EnvironmentWizard edit', () => {
     choose(dialog, 'kora-base');
     goToStep(dialog, 'Review');
     expect(dialog.getByRole('button', { name: 'Save changes' })).toBeEnabled();
+  });
+
+  it('does not block the Identity step on an image it does not show', () => {
+    const { dialog } = renderWizard(ROW);
+    expect(continueButton(dialog)).toBeEnabled();
+  });
+
+  it('ignores typing in the locked slug', () => {
+    const { dialog } = renderWizard(REVIEW_ROW);
+    type(dialog, 'Slug', 'other');
+    expect(value(dialog, 'Slug')).toBe('code-review');
   });
 
   it('reports an image that is not registered', () => {

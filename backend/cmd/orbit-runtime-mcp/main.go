@@ -272,8 +272,13 @@ func (s *mcpServer) listEnvironments() (string, error) {
 		if e.Current {
 			marks = append(marks, "current sandbox")
 		}
-		fmt.Fprintf(&b, "- %s", e.Slug)
-		if name := strings.TrimSpace(e.Name); name != "" && name != e.Slug {
+		// The previous release's orbit-agents sends only name, which is then the slug.
+		slug := e.Slug
+		if slug == "" {
+			slug = e.Name
+		}
+		fmt.Fprintf(&b, "- %s", slug)
+		if name := strings.TrimSpace(e.Name); name != "" && e.Slug != "" {
 			fmt.Fprintf(&b, " %q", name)
 		}
 		if len(marks) > 0 {

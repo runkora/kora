@@ -31,6 +31,8 @@ export type CustomSize = Record<SizeKey, string>;
 export interface SizeChoice {
   preset: Preset;
   custom: CustomSize;
+  /** The saved size and its Custom values. An untouched Custom field sends the saved quantity unchanged. */
+  saved?: { size: EnvironmentSize; custom: CustomSize };
 }
 
 type Amounts = Record<SizeKey, number>;
@@ -93,19 +95,23 @@ export function sizeChoiceFor(
   const match = (Object.keys(presets) as (keyof typeof presets)[]).find((preset) =>
     SIZE_FIELDS.every(({ key }) => presets[preset][key] === values[key]),
   );
-  return { preset: match ?? 'custom', custom };
+  return { preset: match ?? 'custom', custom, saved: { size, custom: { ...custom } } };
 }
+
+/** Whether a Custom field still holds the saved value. */
+const untouched = (choice: SizeChoice, key: SizeKey) =>
+  choice.saved !== undefined && choice.custom[key] === choice.saved.custom[key];
 
 /** The field error for one Custom value, or undefined. */
 export function customError(choice: SizeChoice, sizes: EnvironmentSizes, key: SizeKey) {
   if (choice.preset !== 'custom') return undefined;
   const raw = choice.custom[key].trim();
   if (!raw) return undefined;
-  const n = Number(raw);
+  const n = untouched(choice, key) ? toAmount(key, choice.saved!.size[key]) : Number(raw);
   if (!Number.isFinite(n) || n <= 0) return 'Enter a number greater than 0.';
-  const max = round(toAmount(key, sizes.max[key]));
+  const max = toAmount(key, sizes.max[key]);
   const label = SIZE_FIELDS.find((f) => f.key === key)?.label ?? key;
-  if (n > max) return `${label} can be at most ${withUnit(key, max)}.`;
+  if (n > max) return `${label} can be at most ${withUnit(key, round(max))}.`;
   return undefined;
 }
 
@@ -145,9 +151,10 @@ export function sizeRequest(choice: SizeChoice, sizes: EnvironmentSizes): Enviro
           memory: choice.custom.memory.trim(),
           disk: choice.custom.disk.trim(),
         };
-  return {
-    cpu: values.cpu,
-    memory: values.memory && `${values.memory}Gi`,
-    disk: values.disk && `${values.disk}Gi`,
+  const quantity = (key: SizeKey) => {
+    if (choice.preset === 'custom' && untouched(choice, key)) return choice.saved!.size[key];
+    if (key === 'cpu' || !values[key]) return values[key];
+    return `${values[key]}Gi`;
   };
+  return { cpu: quantity('cpu'), memory: quantity('memory'), disk: quantity('disk') };
 }

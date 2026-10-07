@@ -257,6 +257,24 @@ func TestUpdateEnvironment_SlugIsImmutable(t *testing.T) {
 	}
 }
 
+// An update that changes the slug is a 400.
+func TestHandleUpdateEnvironment_SlugChange(t *testing.T) {
+	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+	}}
+	store := &fakeEnvStore{envs: map[string]Environment{
+		"env-1": {ID: "env-1", TenantID: "t-1", Slug: "go", Name: "Go", SandboxImage: si.BaseName},
+	}}
+	c := NewController(nil, nil, newEnvironmentService(store, k8s), nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	req := withTenantRequest(httptest.NewRequest(http.MethodPut, "/api/v1/environments/env-1", strings.NewReader(`{"slug":"node","name":"Go"}`)), "t-1")
+	req.SetPathValue("id", "env-1")
+	w := httptest.NewRecorder()
+	c.handleUpdateEnvironment(w, req)
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "slug cannot change") {
+		t.Errorf("status %d body %s, want 400 about the slug", w.Code, w.Body.String())
+	}
+}
+
 // Create and update require a name for people.
 func TestHandleEnvironment_NameRequired(t *testing.T) {
 	svc := newEnvironmentService(&fakeEnvStore{envs: map[string]Environment{}}, &mockK8s{})

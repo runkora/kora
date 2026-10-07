@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deriveSlug } from './slug';
+import { deriveSlug, slugInput } from './slug';
 
 describe('deriveSlug', () => {
   it.each([
@@ -10,5 +10,13 @@ describe('deriveSlug', () => {
     ['Café ML', 'caf-ml'],
   ])('derives %j as %j', (name, slug) => {
     expect(deriveSlug(name)).toBe(slug);
+  });
+});
+
+describe('slugInput', () => {
+  it('keeps a hyphen as it is typed', () => {
+    expect(slugInput('go-')).toBe('go-');
+    expect(slugInput('Go Services')).toBe('go-services');
+    expect(slugInput('a__b')).toBe('a-b');
   });
 });
