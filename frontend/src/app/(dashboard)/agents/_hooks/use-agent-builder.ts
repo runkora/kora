@@ -524,9 +524,11 @@ export function useAgentBuilder(params: {
 
   // Typing keeps leading and trailing hyphens; leaving the field trims them.
   const normaliseSlug = useCallback(() => {
-    setFields((f) => ({ ...f, slug: deriveSlug(f.slug, AGENT_SLUG_MAX_LENGTH) }));
+    const slug = deriveSlug(fields.slug, AGENT_SLUG_MAX_LENGTH);
+    if (slug === fields.slug) return;
+    setFields((f) => ({ ...f, slug }));
     scheduleSave();
-  }, [scheduleSave]);
+  }, [fields.slug, scheduleSave]);
 
   // ── Navigation + validity ──────────────────────────────────────────────────
   const stepValid = useMemo(() => {
