@@ -8,6 +8,7 @@ describe('deriveSlug', () => {
     ['node22', 'node22'],
     ['---', ''],
     ['Café ML', 'caf-ml'],
+    [`${'a'.repeat(62)} b`, 'a'.repeat(62)],
   ])('derives %j as %j', (name, slug) => {
     expect(deriveSlug(name)).toBe(slug);
   });
