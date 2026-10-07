@@ -6,12 +6,15 @@
 
 import { useState, useCallback, useEffect, useRef } from 'react';
 import {
+  fetchAgentOverview,
   fetchAgentRuns,
   fetchAgentDetail,
   deleteAgentType,
   deleteRun as apiDeleteRun,
 } from '../_services/agent-detail-api';
 import { fetchStartRun } from '../../_services/agents-api';
+import type { RunStateCounts } from '@orbit/shared/api';
+import { DEFAULT_PERIOD } from '../../_lib/spend';
 import { RUNS_PAGE_SIZE } from '../../_types';
 import type { AgentTypeRow, RunRow, RunState } from '../../_types';
 
@@ -32,6 +35,8 @@ export interface AgentDetailStateShape {
   runs: RunList;
   /** The newest runs whatever the filter, for the Overview. */
   recentRuns: RunRow[];
+  /** Every run of the agent counted by state; null when the counts could not be read. */
+  stateCounts: RunStateCounts | null;
   runFilter: RunFilter;
   /** Switches the filter and loads its first page. */
   setRunFilter: (filter: RunFilter) => void;
@@ -62,6 +67,7 @@ export function useAgentDetail(
   initialAgent: AgentTypeRow | null,
   initialRuns: RunRow[],
   initialNextCursor: string | null,
+  initialStateCounts: RunStateCounts | null,
   initialError: string | null,
   initialStatus: DetailStatus,
 ): AgentDetailStateShape {
@@ -73,6 +79,7 @@ export function useAgentDetail(
     loadMoreError: null,
   });
   const [recentRuns, setRecentRuns] = useState<RunRow[]>(initialRuns);
+  const [stateCounts, setStateCounts] = useState<RunStateCounts | null>(initialStateCounts);
   const [runFilter, setRunFilterState] = useState<RunFilter>('all');
   const [status, setStatus] = useState<DetailStatus>(initialStatus);
   const [error, setError] = useState<string | null>(initialError);
@@ -133,7 +140,16 @@ export function useAgentDetail(
     [agent],
   );
 
-  const refresh = useCallback(() => loadFirstPage(runFilter), [loadFirstPage, runFilter]);
+  // Re-reads the counts after the runs change. A failed read keeps the previous counts.
+  const refreshCounts = useCallback(async () => {
+    if (!agent) return;
+    const { data } = await fetchAgentOverview(agent.slug, DEFAULT_PERIOD);
+    if (data?.runStats) setStateCounts(data.runStats.current);
+  }, [agent]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([loadFirstPage(runFilter), refreshCounts()]);
+  }, [loadFirstPage, refreshCounts, runFilter]);
 
   const setRunFilter = useCallback(
     (filter: RunFilter) => {
@@ -174,14 +190,18 @@ export function useAgentDetail(
     return result.error === null;
   }, [agent]);
 
-  const deleteRun = useCallback(async (runId: string): Promise<{ error: string | null }> => {
-    const result = await apiDeleteRun(runId);
-    if (!result.error) {
-      setRuns((prev) => ({ ...prev, rows: prev.rows.filter((r) => r.id !== runId) }));
-      setRecentRuns((prev) => prev.filter((r) => r.id !== runId));
-    }
-    return result;
-  }, []);
+  const deleteRun = useCallback(
+    async (runId: string): Promise<{ error: string | null }> => {
+      const result = await apiDeleteRun(runId);
+      if (!result.error) {
+        setRuns((prev) => ({ ...prev, rows: prev.rows.filter((r) => r.id !== runId) }));
+        setRecentRuns((prev) => prev.filter((r) => r.id !== runId));
+        await refreshCounts();
+      }
+      return result;
+    },
+    [refreshCounts],
+  );
 
   const startRun = useCallback(
     async (
@@ -200,6 +220,7 @@ export function useAgentDetail(
     agent,
     runs,
     recentRuns,
+    stateCounts,
     runFilter,
     setRunFilter,
     loadMoreRuns,

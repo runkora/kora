@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { screen, waitFor } from '@testing-library/react';
+import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { renderWithProviders, server } from '@orbit/test-utils';
@@ -49,10 +49,11 @@ function renderTab(firstPage: ReturnType<typeof rawRuns>, nextCursor: string | n
       initialAgent={agent}
       initialRuns={rows}
       initialNextCursor={nextCursor}
+      initialStateCounts={COUNTS}
       initialError={null}
       initialStatus="success"
     >
-      <AgentRunsTab onStartRun={vi.fn()} stateCounts={COUNTS} />
+      <AgentRunsTab onStartRun={vi.fn()} />
     </AgentDetailProvider>,
   );
 }
@@ -104,6 +105,37 @@ describe('Agent runs tab', () => {
 
     await waitFor(() => expect(screen.getByText('Task 3')).toBeInTheDocument());
     expect(calls).toBe(2);
+  });
+
+  it('refreshes the counts after a run is deleted', async () => {
+    server.use(
+      http.delete('/api/agents/runs/:id', () => new HttpResponse(null, { status: 204 })),
+      http.get(`/api/agents/types/overview/${agent.slug}`, () =>
+        HttpResponse.json({
+          period: '7d',
+          runStats: {
+            total: 0,
+            triggered: 0,
+            completed: 0,
+            failed: 0,
+            durations: {},
+            current: { ...COUNTS, total: 11, by_state: { ...COUNTS.by_state, failed: 1 } },
+          },
+        }),
+      ),
+    );
+    renderTab(rawRuns(0, 2, 'failed'), null);
+    expect(screen.getByRole('button', { name: /Failed/ })).toHaveTextContent('3');
+
+    await userEvent.click(screen.getAllByRole('button', { name: 'Delete' })[0]);
+    const dialog = await screen.findByRole('dialog');
+    await userEvent.click(within(dialog).getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(screen.queryByText('Task 0')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Failed/ })).toHaveTextContent('2'),
+    );
+    expect(screen.getByRole('button', { name: /All/ })).toHaveTextContent('11');
   });
 
   it('filters on the server and counts from the server totals', async () => {

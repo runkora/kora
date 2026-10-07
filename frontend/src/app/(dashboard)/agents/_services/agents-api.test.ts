@@ -31,6 +31,13 @@ describe('fetchRunPage', () => {
     expect(page.data.map((r) => r.id)).toEqual(RAW_RUNS.slice(0, 2).map((r) => r.id));
   });
 
+  it('reports an unreadable body as an error so the caller can retry', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('{"data": [', { status: 200 }));
+    const page = await fetchRunPage('/api/agents/runs', AGENT_ROWS);
+    expect(page.error).toBe('The server sent an unreadable response.');
+    expect(page.nextCursor).toBeNull();
+  });
+
   it('reports the server message on failure', async () => {
     respond({ message: 'limit must be a positive integer' }, 400);
     const page = await fetchRunPage('/api/agents/runs', AGENT_ROWS);

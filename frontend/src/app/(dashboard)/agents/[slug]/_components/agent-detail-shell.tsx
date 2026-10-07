@@ -32,6 +32,7 @@ export function AgentDetailShell({
       initialAgent={initialAgent}
       initialRuns={initialRuns}
       initialNextCursor={initialNextCursor}
+      initialStateCounts={initialOverview?.runStats?.current ?? null}
       initialError={initialError}
       initialStatus={initialStatus}
     >

@@ -40,7 +40,7 @@ describe('useAgentDetail paging across a filter switch', () => {
       }),
     );
     const { result } = renderHook(() =>
-      useAgentDetail(agent, [row('a1')], 'ALL-C1', null, 'success'),
+      useAgentDetail(agent, [row('a1')], 'ALL-C1', null, null, 'success'),
     );
 
     act(() => result.current.setRunFilter('failed'));
@@ -73,7 +73,7 @@ describe('useAgentDetail paging across a filter switch', () => {
       }),
     );
     const { result } = renderHook(() =>
-      useAgentDetail(agent, [row('a1')], 'ALL-C1', null, 'success'),
+      useAgentDetail(agent, [row('a1')], 'ALL-C1', null, null, 'success'),
     );
 
     let stale!: Promise<void>;

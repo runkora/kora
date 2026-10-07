@@ -27,7 +27,7 @@ import type { RunRow } from '../../_types';
 import { StartedByCell } from './started-by-cell';
 
 /** How many runs a filter matches, from the server's counts; undefined without them. */
-function filterCount(counts: RunStateCounts | undefined, filter: RunFilter): number | undefined {
+function filterCount(counts: RunStateCounts | null, filter: RunFilter): number | undefined {
   if (!counts) return undefined;
   if (filter === 'all') return counts.total;
   return RUN_FILTER_STATES[filter].reduce((n, state) => n + (counts.by_state[state] ?? 0), 0);
@@ -68,13 +68,21 @@ function runStatusBadge(row: RunRow) {
 
 interface AgentRunsTabProps {
   onStartRun: () => void;
-  /** Every run of this agent counted by state, for the filter counts. */
-  stateCounts?: RunStateCounts;
 }
 
-export function AgentRunsTab({ onStartRun, stateCounts }: AgentRunsTabProps) {
-  const { agent, runs, runFilter, setRunFilter, loadMoreRuns, status, error, refresh, deleteRun } =
-    useAgentDetailContext();
+export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
+  const {
+    agent,
+    runs,
+    stateCounts,
+    runFilter,
+    setRunFilter,
+    loadMoreRuns,
+    status,
+    error,
+    refresh,
+    deleteRun,
+  } = useAgentDetailContext();
   const router = useRouter();
 
   const [deleteTarget, setDeleteTarget] = useState<RunRow | null>(null);

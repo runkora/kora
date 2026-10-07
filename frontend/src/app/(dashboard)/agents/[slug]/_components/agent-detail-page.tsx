@@ -237,10 +237,7 @@ export function AgentDetailPage({ initialOverview }: AgentDetailPageProps) {
           />
         </TabsContent>
         <TabsContent value="runs">
-          <AgentRunsTab
-            onStartRun={() => setStartRunOpen(true)}
-            stateCounts={overview?.runs?.current}
-          />
+          <AgentRunsTab onStartRun={() => setStartRunOpen(true)} />
         </TabsContent>
         <TabsContent value="configuration">
           <AgentConfigurationTab initialSection={configSection} />
