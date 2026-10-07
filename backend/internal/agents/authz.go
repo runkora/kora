@@ -201,9 +201,7 @@ func (a *Authz) canReadDelegatedRuns(ctx context.Context) (bool, error) {
 	return r.Allow, nil
 }
 
-// readableRunAgentTypes returns the IDs of the agent types in ats whose runs
-// the principal may read (agents:runs:<slug>:read), in one policy query, so
-// run reads can filter by them in SQL.
+// readableRunAgentTypes returns the IDs of the agent types in ats whose runs the principal may read (agents:runs:<slug>:read).
 func (a *Authz) readableRunAgentTypes(ctx context.Context, ats []AgentType) ([]string, error) {
 	if len(ats) == 0 {
 		return nil, nil

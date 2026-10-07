@@ -32,7 +32,6 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			if a.Cursor != "" {
 				q.Set("cursor", a.Cursor)
 			}
-			// A negative limit goes through so orbit-agents rejects it as it does for any caller.
 			if a.Limit != 0 {
 				q.Set("limit", strconv.Itoa(a.Limit))
 			}

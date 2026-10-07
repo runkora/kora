@@ -78,21 +78,15 @@ func appendScope(query string, args []any, scope RunScope) (string, []any) {
 
 // RunListQuery selects one page of runs, newest first.
 type RunListQuery struct {
+	// Scope is set by the service from the caller's grants; the repository applies it.
 	Scope RunScope
+	// AgentTypeID narrows the scope to one agent type; empty means all the caller may read.
+	AgentTypeID string
 	// States narrows to runs in these states; empty means every state.
 	States []RunState
 	// After is the previous page's cursor; nil is the first page.
 	After *runCursor
 	Limit int
-}
-
-// RunListParams is a caller's request for a page of runs.
-type RunListParams struct {
-	// AgentTypeID narrows to one agent type; empty means all the caller may read.
-	AgentTypeID string
-	States      []RunState
-	Cursor      *runCursor
-	Limit       int
 }
 
 // RunPage is a page of runs and the cursor of the next one, empty on the last page.

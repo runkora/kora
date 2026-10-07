@@ -200,7 +200,7 @@ func TestDelegatedRun_ListRunsVisibility(t *testing.T) {
 			f, _ := seed(t)
 			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
 
-			page, err := f.run.ListRuns(ctx, RunListParams{Limit: maxRunsLimit})
+			page, err := f.run.ListRuns(ctx, RunListQuery{Limit: maxRunsLimit})
 			runs := page.Runs
 			if err != nil {
 				t.Fatalf("ListRuns: %v", err)
@@ -226,7 +226,7 @@ func TestRunVisibility_FailClosedWithoutSubject(t *testing.T) {
 	seedDelegatedRun(t, repo, "run-empty", "", RunStateActive)
 	ctx := withRunCallerCtx(context.Background(), "t1", "")
 
-	page, err := f.run.ListRuns(ctx, RunListParams{Limit: maxRunsLimit})
+	page, err := f.run.ListRuns(ctx, RunListQuery{Limit: maxRunsLimit})
 	if err != nil {
 		t.Fatalf("ListRuns: %v", err)
 	}

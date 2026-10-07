@@ -28,11 +28,7 @@ type AgentTypeRepository interface {
 type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
-	// ListRuns returns up to q.Limit of a tenant's runs newest first, after
-	// q.After. q.Scope is applied in the query: only runs of q.Scope.AgentTypeIDs,
-	// and unless q.Scope.Vis.SeeAll, runs of delegated agent types only where
-	// created_by equals q.Scope.Vis.Subject (Decision 6 of
-	// docs/adr/2026-07-23-delegated-agent-identity.md).
+	// ListRuns returns up to q.Limit runs in q.Scope, newest first, after q.After.
 	ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error)
 	// CountRunOutcomes counts the completed and failed runs in scope that
 	// finished in [from, to).

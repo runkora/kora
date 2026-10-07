@@ -401,14 +401,12 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
-// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&limit=&cursor=.
-// It returns a page of runs and next_cursor, null on the last page. A limit
-// above the maximum is clamped to it and the applied limit is echoed back.
+// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&limit=&cursor=, clamping limit to maxRunsLimit.
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
 	// Tenant is derived from the verified platform claims; query-string is ignored.
-	p := RunListParams{AgentTypeID: q.Get("agent_type_id"), Limit: defaultRunsLimit}
+	p := RunListQuery{AgentTypeID: q.Get("agent_type_id"), Limit: defaultRunsLimit}
 	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
@@ -419,7 +417,7 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		p.Limit = min(n, maxRunsLimit)
 	}
 	var err error
-	if p.Cursor, err = decodeRunCursor(q.Get("cursor")); err != nil {
+	if p.After, err = decodeRunCursor(q.Get("cursor")); err != nil {
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", map[string]any{"field": "cursor"})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return

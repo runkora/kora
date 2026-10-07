@@ -347,11 +347,8 @@ func (s *RunService) GetRun(ctx context.Context, id string) (*Run, error) {
 	return run, nil
 }
 
-// ListRuns returns a page of the runs the principal in ctx may read, newest
-// first. Tenant comes from ctx claims. The agent-type read grant and the
-// delegated-run rule are both applied in the query, so every page is full
-// unless it is the last.
-func (s *RunService) ListRuns(ctx context.Context, p RunListParams) (RunPage, error) {
+// ListRuns returns a page of the runs the caller may read, newest first, with both visibility rules applied in SQL.
+func (s *RunService) ListRuns(ctx context.Context, p RunListQuery) (RunPage, error) {
 	tenantID := tenantFromContext(ctx)
 	ctx, span := agentsTracer.Start(ctx, "agents.ListRuns",
 		trace.WithAttributes(
@@ -369,7 +366,7 @@ func (s *RunService) ListRuns(ctx context.Context, p RunListParams) (RunPage, er
 	return page, err
 }
 
-func (s *RunService) listRuns(ctx context.Context, tenantID string, p RunListParams) (RunPage, error) {
+func (s *RunService) listRuns(ctx context.Context, tenantID string, p RunListQuery) (RunPage, error) {
 	scope, err := s.readableRunScope(ctx, tenantID)
 	if err != nil {
 		return RunPage{}, err
@@ -377,8 +374,11 @@ func (s *RunService) listRuns(ctx context.Context, tenantID string, p RunListPar
 	if p.AgentTypeID != "" {
 		scope.AgentTypeIDs = slices.DeleteFunc(scope.AgentTypeIDs, func(id string) bool { return id != p.AgentTypeID })
 	}
+	q := p
+	q.Scope = scope
 	// One row past the page says whether another page follows.
-	runs, err := s.repo.ListRuns(ctx, tenantID, RunListQuery{Scope: scope, States: p.States, After: p.Cursor, Limit: p.Limit + 1})
+	q.Limit = p.Limit + 1
+	runs, err := s.repo.ListRuns(ctx, tenantID, q)
 	if err != nil {
 		return RunPage{}, fmt.Errorf("list runs: %w", err)
 	}
