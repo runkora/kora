@@ -77,7 +77,7 @@ func emptyTurn(t *testing.T) []Event {
 	return []Event{
 		ev(t, EventTypeToolUse, ToolUsePayload{ID: "t1", Name: "Bash"}),
 		ev(t, EventTypeToolResult, ToolResultPayload{ToolUseID: "t1"}),
-		ev(t, EventTypeMessageComplete, MessageCompletePayload{Thinking: "<DSML tool call>"}),
+		ev(t, EventTypeMessageComplete, MessageCompletePayload{Thinking: "a tool call written as text"}),
 		ev(t, EventTypeMessageStop, nil),
 	}
 }
