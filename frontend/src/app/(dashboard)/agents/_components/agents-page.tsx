@@ -351,10 +351,7 @@ export function AgentsPage({ initialInsights }: AgentsPageProps) {
         />
       </Grid>
 
-      <RunningNowCard
-        runs={liveRuns}
-        counts={{ ...runCounts, total: live?.live ?? liveRuns.length }}
-      />
+      <RunningNowCard runs={liveRuns} counts={live ? { ...runCounts, total: live.live } : null} />
 
       {/* Section header */}
       <Stack direction="horizontal" align="baseline" gap="snug">

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -323,9 +324,9 @@ func TestHandleSendMessage_DelegatedReadHolderRefusal(t *testing.T) {
 	}
 }
 
-// ── Run outcomes use the list rule ──
+// ── Run outcomes use the list scope ──
 
-func TestRunOutcomes_UsesTheRunVisibilityRule(t *testing.T) {
+func TestRunOutcomes_UsesTheRunListScope(t *testing.T) {
 	for _, tc := range []struct {
 		subject string
 		want    RunVisibility
@@ -335,9 +336,11 @@ func TestRunOutcomes_UsesTheRunVisibilityRule(t *testing.T) {
 	} {
 		t.Run(tc.subject, func(t *testing.T) {
 			f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
+			seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper"})
 			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
-			if _, err := f.run.RunOutcomes(ctx, time.Time{}, time.Time{}); err != nil || repo.outcomesVis != tc.want {
-				t.Errorf("visibility %+v, %v; want %+v", repo.outcomesVis, err, tc.want)
+			want := RunScope{AgentTypeIDs: []string{"at-auto"}, Vis: tc.want}
+			if _, err := f.run.RunOutcomes(ctx, time.Time{}, time.Time{}); err != nil || !reflect.DeepEqual(repo.outcomesScope, want) {
+				t.Errorf("scope %+v, %v; want %+v", repo.outcomesScope, err, want)
 			}
 		})
 	}

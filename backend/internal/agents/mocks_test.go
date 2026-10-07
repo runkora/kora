@@ -54,7 +54,7 @@ type mockRepository struct {
 	listRunEventsErr       error
 	appendRunMessageErr    error
 
-	outcomesVis RunVisibility
+	outcomesScope RunScope
 
 	// Run stats: the canned result and the arguments the service passed.
 	statsResult  RunStats
@@ -240,8 +240,8 @@ func (m *mockRepository) runIdentityModeLocked(r *Run) IdentityMode {
 	return r.IdentityMode.OrDefault()
 }
 
-func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, vis RunVisibility, _, _ time.Time) (RunOutcomes, error) {
-	m.outcomesVis = vis
+func (m *mockRepository) CountRunOutcomes(_ context.Context, _ string, scope RunScope, _, _ time.Time) (RunOutcomes, error) {
+	m.outcomesScope = scope
 	return RunOutcomes{}, nil
 }
 

@@ -44,3 +44,20 @@ describe('RunningNowCard', () => {
     expect(screen.getByText(/Nothing is running/)).toBeInTheDocument();
   });
 });
+
+describe('RunningNowCard without server counts', () => {
+  it('counts the listed runs and leaves out the breakdown', () => {
+    const template = RUN_ROWS.find((r) => LIVE_RUN_STATES.includes(r.state))!;
+    renderWithProviders(
+      <RunningNowCard
+        runs={[
+          { ...template, id: 'a' },
+          { ...template, id: 'b' },
+        ]}
+        counts={null}
+      />,
+    );
+    expect(screen.getByText('2 runs in progress')).toBeInTheDocument();
+    expect(screen.queryByText(/running ·/)).not.toBeInTheDocument();
+  });
+});

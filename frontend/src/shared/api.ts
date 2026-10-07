@@ -460,11 +460,6 @@ export interface AgentTypesListResponse {
   data: AgentType[];
 }
 
-/** Top-level response from GET /agents/runs. */
-export interface RunsListResponse {
-  data: Run[];
-}
-
 /**
  * Agent-type 7-day token breakdown and spend.
  * Mirrors Go: inferencegw.AgentTypeUsage

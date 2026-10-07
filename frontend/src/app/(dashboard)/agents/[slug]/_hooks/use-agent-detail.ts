@@ -78,8 +78,9 @@ export function useAgentDetail(
   const [error, setError] = useState<string | null>(initialError);
   // Bumped by every first-page load, so a page requested under an older filter is dropped.
   const generation = useRef(0);
-  // Set synchronously, so a second click before the re-render does not fetch the same page twice.
-  const loadingMore = useRef(false);
+  // The generation a load more is running for. Set synchronously, so a second
+  // click before the re-render does not fetch the same page twice.
+  const loadingMore = useRef<number | null>(null);
 
   // Poll for state transitions while the agent type is provisioning.
   const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -106,6 +107,8 @@ export function useAgentDetail(
     async (filter: RunFilter) => {
       if (!agent) return;
       const gen = ++generation.current;
+      // The previous filter's cursor must not page the new one.
+      setRuns((prev) => ({ ...prev, nextCursor: null, loadingMore: false, loadMoreError: null }));
       setStatus('loading');
       setError(null);
       const result = await fetchAgentRuns(agent, {
@@ -141,16 +144,16 @@ export function useAgentDetail(
   );
 
   const loadMoreRuns = useCallback(async () => {
-    if (!agent || !runs.nextCursor || loadingMore.current) return;
-    loadingMore.current = true;
     const gen = generation.current;
+    if (!agent || !runs.nextCursor || loadingMore.current === gen) return;
+    loadingMore.current = gen;
     setRuns((prev) => ({ ...prev, loadingMore: true, loadMoreError: null }));
     const result = await fetchAgentRuns(agent, {
       states: RUN_FILTER_STATES[runFilter],
       limit: RUNS_PAGE_SIZE,
       cursor: runs.nextCursor,
     });
-    loadingMore.current = false;
+    if (loadingMore.current === gen) loadingMore.current = null;
     if (gen !== generation.current) return;
     setRuns((prev) =>
       result.error

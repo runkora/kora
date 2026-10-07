@@ -64,12 +64,18 @@ export function RunStateDot({ state: name }: { state: string }) {
 export interface RunningNowCardProps {
   /** The newest live runs, at most RUNNING_ROWS of them. */
   runs: RunRow[];
-  /** Every live run, counted by the server. */
-  counts: { running: number; starting: number; queued: number; total: number; longestMs: number };
+  /** Every live run, counted by the server; null when the counts could not be read. */
+  counts: {
+    running: number;
+    starting: number;
+    queued: number;
+    total: number;
+    longestMs: number;
+  } | null;
 }
 
 export function RunningNowCard({ runs, counts }: RunningNowCardProps) {
-  const { total } = counts;
+  const total = counts?.total ?? runs.length;
   const shown = Math.min(runs.length, RUNNING_ROWS);
 
   return (
@@ -82,7 +88,7 @@ export function RunningNowCard({ runs, counts }: RunningNowCardProps) {
             total > 0 ? `${total} ${total === 1 ? 'run' : 'runs'} in progress` : undefined
           }
           action={
-            total > 0 ? (
+            counts && total > 0 ? (
               <Stack gap="tight" align="end">
                 <Text size="caption" color="muted">
                   {counts.running} running · {counts.starting} starting · {counts.queued} queued

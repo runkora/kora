@@ -674,15 +674,15 @@ func hasSQLState(err error, code string) bool {
 
 // CountRunOutcomes counts completed and failed runs finished in [from, to), using
 // idx_runs_tenant_completed.
-func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error) {
-	query, args := appendVisibility(`
+func (r *PostgresRepository) CountRunOutcomes(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunOutcomes, error) {
+	query, args := appendScope(`
 		SELECT COUNT(*) FILTER (WHERE r.state = 'completed'),
 		       COUNT(*) FILTER (WHERE r.state = 'failed')
 		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id
 		WHERE r.tenant_id = $1
 		  AND r.completed_at >= $2 AND r.completed_at < $3
 		  AND r.state IN ('completed', 'failed')`,
-		[]any{tenantID, from, to}, vis)
+		[]any{tenantID, from, to}, scope)
 	var out RunOutcomes
 	err := r.pool.QueryRow(ctx, query, args...).Scan(&out.Completed, &out.Failed)
 	if err != nil {

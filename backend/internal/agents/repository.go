@@ -34,9 +34,9 @@ type RunRepository interface {
 	// created_by equals q.Scope.Vis.Subject (Decision 6 of
 	// docs/adr/2026-07-23-delegated-agent-identity.md).
 	ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error)
-	// CountRunOutcomes counts the completed and failed runs that finished in
-	// [from, to), under the delegated-run visibility rule.
-	CountRunOutcomes(ctx context.Context, tenantID string, vis RunVisibility, from, to time.Time) (RunOutcomes, error)
+	// CountRunOutcomes counts the completed and failed runs in scope that
+	// finished in [from, to).
+	CountRunOutcomes(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunOutcomes, error)
 	// RunStats returns the run counts and durations of the runs in scope for
 	// [from, to): runs created in the window are counted by trigger, runs
 	// finished in it by outcome and duration, and every run by current state.

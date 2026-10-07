@@ -416,13 +416,13 @@ func (s *RunService) RunOutcomes(ctx context.Context, from, to time.Time) (RunOu
 		trace.WithAttributes(attribute.String("tenant_id", tenantID)),
 	)
 	defer span.End()
-	vis, err := s.runVisibility(ctx)
+	scope, err := s.readableRunScope(ctx, tenantID)
 	if err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "run visibility")
+		span.SetStatus(codes.Error, "run scope")
 		return RunOutcomes{}, err
 	}
-	out, err := s.repo.CountRunOutcomes(ctx, tenantID, vis, from, to)
+	out, err := s.repo.CountRunOutcomes(ctx, tenantID, scope, from, to)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "count run outcomes")
