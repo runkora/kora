@@ -21,7 +21,7 @@ import type { DataTableColumn } from '@orbit/terra';
 import { ClampedList } from '@orbit/components';
 import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';
-import { EnvironmentFormModal } from './environment-form-modal';
+import { EnvironmentWizard } from './environment-wizard';
 import { imageProblem, sizeLabel } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
@@ -286,11 +286,10 @@ export function EnvironmentsPage({
         />
       )}
 
-      {/* Create / edit modal — keyed so its internal state resets per open. */}
+      {/* Create / edit wizard, keyed so its internal state resets per open. */}
       {formState && (
-        <EnvironmentFormModal
+        <EnvironmentWizard
           key={formState.environment?.id ?? 'create'}
-          open
           environment={formState.environment}
           connections={connections}
           images={images}
