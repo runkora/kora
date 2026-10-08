@@ -623,7 +623,7 @@ func setGuardrails(reg *Registry, g Guardrails) {
 // A sandbox no node can place names the scheduler's reason to the user and the agent.
 func TestProvisionSandbox_LostUnschedulableCarriesReason(t *testing.T) {
 	reason := "0/3 nodes are available: 3 Insufficient cpu."
-	n := &failingNotifier{failures: 100, failWith: fmt.Errorf("%w: %s", ErrSandboxUnschedulable, reason)}
+	n := &failingNotifier{failures: 100, failWith: &unschedulableError{reason: reason}}
 	reg, _ := newTestRegistry(t, n)
 	setGuardrails(reg, fastGuardrails())
 	hostSession(reg, "run-1")
@@ -637,5 +637,20 @@ func TestProvisionSandbox_LostUnschedulableCarriesReason(t *testing.T) {
 	}
 	if got := reg.sandboxLostMessage("run-1"); !strings.Contains(got, reason) {
 		t.Errorf("lost message = %q, want the scheduler's reason", got)
+	}
+}
+
+// The scheduler's reason survives wrapping and is read from the typed error, never from its text.
+func TestUnschedulableReason(t *testing.T) {
+	reason := "0/3 nodes are available: 3 Insufficient cpu."
+	wrapped := fmt.Errorf("%w: %w", ErrSandboxLost, fmt.Errorf("provision sandbox after 3 attempt(s): %w", &unschedulableError{reason: reason}))
+	if got := unschedulableReason(wrapped); got != reason {
+		t.Errorf("wrapped reason = %q, want %q", got, reason)
+	}
+	if !errors.Is(wrapped, ErrSandboxUnschedulable) {
+		t.Error("wrapped error does not match ErrSandboxUnschedulable")
+	}
+	if got := unschedulableReason(fmt.Errorf("%w: %s", ErrSandboxUnschedulable, reason)); got != "" {
+		t.Errorf("untyped reason = %q, want empty", got)
 	}
 }

@@ -238,11 +238,10 @@ func (reg *Registry) sandboxLostMessage(runID string) string {
 
 // unschedulableReason returns the scheduler's reason from a provision error, or "" when the pod was not unschedulable.
 func unschedulableReason(err error) string {
-	if err == nil || !errors.Is(err, ErrSandboxUnschedulable) {
-		return ""
+	if ue, ok := errors.AsType[*unschedulableError](err); ok {
+		return ue.reason
 	}
-	_, reason, _ := strings.Cut(err.Error(), ErrSandboxUnschedulable.Error()+": ")
-	return reason
+	return ""
 }
 
 // loopVerdict is what the loop guard decided about the latest event.

@@ -28,6 +28,13 @@ var ErrEnvironmentRejected = errors.New("environment refused")
 // ErrSandboxUnschedulable means no node could place the sandbox pod. Its message carries the scheduler's reason.
 var ErrSandboxUnschedulable = errors.New("no node can run the sandbox")
 
+// unschedulableError carries the scheduler's reason as a field, so callers read it without parsing error text.
+type unschedulableError struct{ reason string }
+
+func (e *unschedulableError) Error() string { return ErrSandboxUnschedulable.Error() + ": " + e.reason }
+
+func (e *unschedulableError) Is(target error) bool { return target == ErrSandboxUnschedulable }
+
 // Notifier delivers events to orbit-agents for live SSE fan-out and run
 // lifecycle callbacks.
 // Implementations are best-effort — errors are logged but never fatal.
@@ -213,7 +220,7 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead
 			case resp.StatusCode == http.StatusConflict:
 				return Sandbox{}, fmt.Errorf("%w: %s", ErrEnvironmentRejected, apiErr.Message)
 			case apiErr.Code == smclient.ErrCodeSandboxUnschedulable:
-				return Sandbox{}, fmt.Errorf("%w: %s", ErrSandboxUnschedulable, apiErr.Message)
+				return Sandbox{}, &unschedulableError{reason: apiErr.Message}
 			}
 		}
 		_ = n.sandboxClient.RecordError(span, errNotifierUnexpectedStatus)
