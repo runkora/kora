@@ -76,10 +76,24 @@ async function sendPage<T>(
     return { data: null, nextCursor: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) return { data: null, nextCursor: null, error: await errorMessage(res) };
-  const body = (await res.json().catch(() => null)) as {
-    data?: T;
-    next_cursor?: string | null;
-  } | null;
+
+  // A 200 whose body will not parse is a failure, not an empty page. Treating
+  // it as empty is indistinguishable from the end of history: the grid says
+  // "no deliveries" and Load more disappears, so a proxy returning an HTML
+  // error page silently truncates the list. An actually empty body still means
+  // an empty page.
+  const text = await res.text();
+  if (text.trim() === '') return { data: null, nextCursor: null, error: null };
+  let body: { data?: T; next_cursor?: string | null } | null;
+  try {
+    body = JSON.parse(text) as { data?: T; next_cursor?: string | null };
+  } catch {
+    return {
+      data: null,
+      nextCursor: null,
+      error: 'The server returned a response that could not be read.',
+    };
+  }
   return { data: body?.data ?? null, nextCursor: body?.next_cursor ?? null, error: null };
 }
 

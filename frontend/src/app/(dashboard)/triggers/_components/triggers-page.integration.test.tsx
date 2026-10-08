@@ -263,6 +263,32 @@ describe('TriggersPage deliveries paging', () => {
     expect(loadMoreButton()).not.toBeInTheDocument();
   });
 
+  it('discards the ERROR of a retired request, not just its rows', async () => {
+    // The rows were already guarded by the epoch; the error and the loading
+    // flag were not, so a request the re-seed retired could still paint its
+    // failure over a page that had loaded perfectly well, and hold Load more
+    // disabled while it was in flight.
+    const { rerender } = renderPage([serverRow('d1')], 'cursor-1');
+    await openDeliveriesTab();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    const inFlight = await request(0);
+
+    rerender(pageElement([serverRow('d9')], 'cursor-fresh'));
+    await waitFor(() => {
+      expect(visibleRowIds()).toEqual(['d9']);
+    });
+
+    inFlight.fail('deliveries backend is unavailable');
+    await settle();
+
+    // The fresh page loaded fine. Nothing about the retired request belongs
+    // on it: no error line, and Load more usable rather than stuck disabled.
+    expect(screen.queryByText('deliveries backend is unavailable')).not.toBeInTheDocument();
+    expect(visibleRowIds()).toEqual(['d9']);
+    expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled();
+  });
+
   it('surfaces a failed Load more and keeps the cursor so it cannot read as the end', async () => {
     renderPage([serverRow('d1')], 'cursor-1');
     await openDeliveriesTab();

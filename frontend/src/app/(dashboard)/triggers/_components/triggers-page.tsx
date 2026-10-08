@@ -72,6 +72,14 @@ interface DeliveryPageState {
   cursor: string | null;
   applied: string;
   epoch: number;
+  /**
+   * error and loading live here too, not in their own useState. A request the
+   * re-seed retired would otherwise still publish its error onto the fresh
+   * page and hold Load more disabled until it returned, which is the opposite
+   * of accepting or rejecting a response as a unit.
+   */
+  error: string | null;
+  loading: boolean;
 }
 
 export function TriggersPage({
@@ -128,9 +136,9 @@ export function TriggersPage({
     cursor: initialDeliveryCursor,
     applied: 'all',
     epoch: 0,
+    error: null,
+    loading: false,
   });
-  const [loadingDeliveries, setLoadingDeliveries] = useState(false);
-  const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
   // Only the newest request may write. Without this, changing the filter while a
   // Load more is in flight lets the older response append the previous filter's
@@ -149,38 +157,36 @@ export function TriggersPage({
   const fetchDeliveries = useCallback(
     async (status: string, cursor: string | null, epoch: number) => {
       const seq = ++requestSeq.current;
-      setDeliveryError(null);
-      setLoadingDeliveries(true);
+      setPage((cur) => (cur.epoch !== epoch ? cur : { ...cur, error: null, loading: true }));
       const res = await listDeliveries({
         status: status === 'all' ? undefined : [status],
         limit: DELIVERY_PAGE_SIZE,
         cursor,
       });
       if (requestSeq.current !== seq) return; // superseded; its writes are stale
-      setLoadingDeliveries(false);
-      if (res.error) {
-        // Clear the page rather than leave the previous filter's rows sitting
-        // under the new label. An empty list with an error says "could not
-        // load"; stale rows would claim to be the answer.
-        setDeliveryError(res.error);
-        if (cursor === null) {
-          setPage((cur) =>
-            cur.epoch !== epoch ? cur : { ...cur, rows: [], cursor: null, applied: status },
-          );
+      setPage((cur) => {
+        // A fresh server page landed while this was in flight; it owns the
+        // list, the error line and the loading state alike.
+        if (cur.epoch !== epoch) return cur;
+        if (res.error) {
+          // Clear the page rather than leave the previous filter's rows sitting
+          // under the new label. An empty list with an error says "could not
+          // load"; stale rows would claim to be the answer. A failed Load more
+          // keeps its rows and cursor, because the page it has is still true.
+          return cursor === null
+            ? { ...cur, loading: false, error: res.error, rows: [], cursor: null, applied: status }
+            : { ...cur, loading: false, error: res.error };
         }
-        return;
-      }
-      const rows = res.deliveries.map(toDeliveryRow);
-      setPage((cur) =>
-        cur.epoch !== epoch
-          ? cur // a fresh server page landed while this was in flight; it owns the list
-          : {
-              ...cur,
-              rows: cursor === null ? rows : [...cur.rows, ...rows],
-              cursor: res.nextCursor,
-              applied: status,
-            },
-      );
+        const rows = res.deliveries.map(toDeliveryRow);
+        return {
+          ...cur,
+          loading: false,
+          error: null,
+          rows: cursor === null ? rows : [...cur.rows, ...rows],
+          cursor: res.nextCursor,
+          applied: status,
+        };
+      });
     },
     [],
   );
@@ -196,17 +202,17 @@ export function TriggersPage({
   );
 
   const loadMoreDeliveries = useCallback(() => {
-    if (page.cursor === null || loadingDeliveries) return;
+    if (page.cursor === null || page.loading) return;
     void fetchDeliveries(page.applied, page.cursor, page.epoch);
-  }, [page.applied, page.cursor, page.epoch, loadingDeliveries, fetchDeliveries]);
+  }, [page.applied, page.cursor, page.epoch, page.loading, fetchDeliveries]);
 
   // A failed filter change leaves nothing to click: the rows and cursor are
   // gone, so there is no Load more, and re-picking the same option fires no
   // change event. Retry is the way back.
   const retryDeliveries = useCallback(() => {
-    if (loadingDeliveries) return;
+    if (page.loading) return;
     void fetchDeliveries(selectedStatus, null, page.epoch);
-  }, [selectedStatus, page.epoch, loadingDeliveries, fetchDeliveries]);
+  }, [selectedStatus, page.epoch, page.loading, fetchDeliveries]);
 
   // The server re-renders this page after a fire, redeliver or delete
   // (use-trigger-actions calls router.refresh so the new arrival shows up). A
@@ -231,9 +237,10 @@ export function TriggersPage({
       cursor: initialDeliveryCursor,
       applied: 'all',
       epoch: cur.epoch + 1,
+      error: null,
+      loading: false,
     }));
     setSelectedStatus('all');
-    setDeliveryError(null);
   }
 
   // A delivery's fan-out names the trigger; the run route is keyed by agent
@@ -406,27 +413,27 @@ export function TriggersPage({
           {/* Below the grid, because it extends the set the grid pages over
               rather than moving within it. Absent once the cursor is spent,
               which is how "that is all of them" is said. */}
-          {(page.cursor !== null || deliveryError !== null) && (
+          {(page.cursor !== null || page.error !== null) && (
             <Stack direction="horizontal" align="center" gap="snug">
               {page.cursor !== null && (
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={loadingDeliveries}
+                  disabled={page.loading}
                   onClick={loadMoreDeliveries}
                 >
-                  {loadingDeliveries ? 'Loading...' : 'Load more'}
+                  {page.loading ? 'Loading...' : 'Load more'}
                 </Button>
               )}
-              {deliveryError !== null && (
+              {page.error !== null && (
                 <>
                   <Text size="supporting" color="status-error">
-                    {deliveryError}
+                    {page.error}
                   </Text>
                   <Button
                     variant="outline"
                     size="sm"
-                    disabled={loadingDeliveries}
+                    disabled={page.loading}
                     onClick={retryDeliveries}
                   >
                     Retry
