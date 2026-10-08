@@ -474,7 +474,7 @@ func (reg *Registry) cachedSandbox(ctx context.Context, runID string) (string, b
 		return "", false, nil
 	}
 	if !endpointAlive(disk.Endpoint) {
-		reg.logger.Warn(ctx, "Cached sandbox endpoint is dead — re-provisioning",
+		reg.logger.Warn(ctx, "Cached sandbox endpoint is dead, re-provisioning",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "endpoint", Value: disk.Endpoint},
 		)
