@@ -17,7 +17,10 @@ import (
 
 type fakeExporter struct{ applied [][]export }
 
-func (f *fakeExporter) Apply(_ context.Context, e []export) error { f.applied = append(f.applied, e); return nil }
+func (f *fakeExporter) Apply(_ context.Context, e []export) error {
+	f.applied = append(f.applied, e)
+	return nil
+}
 
 type fakeMounter struct {
 	current    map[string]string
