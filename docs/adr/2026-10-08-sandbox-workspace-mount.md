@@ -97,13 +97,13 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D7. Export Restriction
 
-*   **One client node per folder (chosen):** Each folder is exported to the address of its session-manager's node only. Each client node gets its own read-only NFSv4 root that holds only the folders exported to it. The export also sets `secure`, but a pod can lower `net.ipv4.ip_unprivileged_port_start` and open a privileged port, so the node address is the only real check.
+*   **One client node per folder (chosen):** Each folder is exported to the address of its session-manager's node only. Each client node gets its own read-only NFSv4 root that holds only the folders exported to it. The export also sets `secure`. A pod can lower `net.ipv4.ip_unprivileged_port_start` and open a privileged port, and the node address is the only real check.
 *   **The exec token (rejected):** NFS with `sec=sys` cannot check a token.
 *   **Kerberos (rejected):** It needs a KDC and keytabs on every node.
 
 ### D8. User Mapping
 
-*   **Squash to the sandbox's user (chosen):** `all_squash` maps every client user, root included, to the sandbox pod's `runAsUser` and `runAsGroup`, 100 and 100. Both pods already run as 100:100. A sandbox that runs as root is not exported. The client mounts with `nosuid` and `nodev`.
+*   **Squash to the sandbox's user (chosen):** `all_squash` maps every client user, root included, to the sandbox pod's `runAsUser` and `runAsGroup`, 100 and 100. Both pods already run as 100:100. The agent does not export a sandbox that runs as root, and the client mounts with `nosuid` and `nodev`.
 *   **Pass client users through (rejected):** Root on the client node would act as root on the export.
 
 ### D9. NFS Version and Options
