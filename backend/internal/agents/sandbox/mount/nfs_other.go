@@ -19,7 +19,7 @@ func StartServer(context.Context, ServerConfig) (*Server, <-chan error, error) {
 }
 
 // Apply fails off Linux.
-func (*Server) Apply([]export) error { return errUnsupported }
+func (*Server) Apply(context.Context, []export) error { return errUnsupported }
 
 // Mounts fails off Linux.
 func (Client) Mounts() (map[string]string, error) { return nil, errUnsupported }

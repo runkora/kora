@@ -56,7 +56,7 @@ func TestAwaitSandboxFolder_MountArrives(t *testing.T) {
 	reg.folderWait = 5 * time.Second
 	go func() {
 		time.Sleep(400 * time.Millisecond)
-		_ = os.WriteFile(reg.mountInfo, []byte(fmt.Sprintf(folderLine, "pod-uid")), 0o600)
+		_ = os.WriteFile(reg.mountInfo, fmt.Appendf(nil, folderLine, "pod-uid"), 0o600)
 	}()
 	if err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); err != nil {
 		t.Errorf("awaitSandboxFolder: %v", err)

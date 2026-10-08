@@ -15,7 +15,7 @@ import (
 // exporter serves sandbox folders from this node.
 type exporter interface {
 	// Apply makes the node's exports exactly the given set.
-	Apply(exports []export) error
+	Apply(ctx context.Context, exports []export) error
 }
 
 // mounter mounts sandbox folders into session-manager volumes on this node.
@@ -53,7 +53,7 @@ func (a *Agent) Reconcile(ctx context.Context, sandboxes []*corev1.Pod, workspac
 		}
 	}
 	exports, targets := plan(a.cfg.Node, a.cfg.KubeletDir, pairs)
-	return errors.Join(a.exports.Apply(exports), a.syncMounts(ctx, targets))
+	return errors.Join(a.exports.Apply(ctx, exports), a.syncMounts(ctx, targets))
 }
 
 // wanted is a mount the node should hold.

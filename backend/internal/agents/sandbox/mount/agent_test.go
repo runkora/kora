@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,7 +17,7 @@ import (
 
 type fakeExporter struct{ applied [][]export }
 
-func (f *fakeExporter) Apply(e []export) error { f.applied = append(f.applied, e); return nil }
+func (f *fakeExporter) Apply(_ context.Context, e []export) error { f.applied = append(f.applied, e); return nil }
 
 type fakeMounter struct {
 	current    map[string]string
@@ -28,9 +29,7 @@ type fakeMounter struct {
 
 func (f *fakeMounter) Mounts() (map[string]string, error) {
 	out := map[string]string{}
-	for k, v := range f.current {
-		out[k] = v
-	}
+	maps.Copy(out, f.current)
 	return out, nil
 }
 

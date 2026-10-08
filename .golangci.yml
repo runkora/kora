@@ -51,9 +51,11 @@ linters:
 
     misspell:
       locale: US
-      # The Agent Client Protocol spells its stop reason "cancelled".
+      # The Agent Client Protocol spells its stop reason "cancelled". exportfs is
+      # the nfs-utils command that the sandbox-mount node agent runs.
       ignore-rules:
         - cancelled
+        - exportfs
 
     revive:
       confidence: 0.8

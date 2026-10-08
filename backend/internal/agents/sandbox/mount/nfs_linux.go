@@ -40,7 +40,7 @@ func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, 
 	}
 	if strings.TrimSpace(string(threads)) == "0" {
 		for _, f := range []string{"nfsv4gracetime", "nfsv4leasetime"} {
-			if err := os.WriteFile(filepath.Join(nfsdFS, f), []byte(strconv.Itoa(cfg.GraceSecs)), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(nfsdFS, f), []byte(strconv.Itoa(cfg.GraceSecs)), 0o600); err != nil {
 				return nil, nil, fmt.Errorf("set %s: %w", f, err)
 			}
 		}
@@ -49,7 +49,7 @@ func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, 
 		}
 	}
 	if !mounted(cfg.ExportRoot) {
-		if err := os.MkdirAll(cfg.ExportRoot, 0o755); err != nil {
+		if err := os.MkdirAll(cfg.ExportRoot, 0o750); err != nil {
 			return nil, nil, fmt.Errorf("create export root: %w", err)
 		}
 		if err := unix.Mount("kora-exports", cfg.ExportRoot, "tmpfs", unix.MS_NOSUID|unix.MS_NODEV|unix.MS_NOEXEC, "size=1m,mode=0755"); err != nil {
@@ -68,7 +68,7 @@ func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, 
 }
 
 // Apply binds each sandbox folder under its client's root and makes the export table exactly the given set.
-func (s *Server) Apply(exports []export) error {
+func (s *Server) Apply(ctx context.Context, exports []export) error {
 	lines := exportLines(s.cfg.ExportRoot, exports)
 	if slices.Equal(lines, s.last) {
 		return nil
@@ -85,7 +85,7 @@ func (s *Server) Apply(exports []export) error {
 		}
 		ok = append(ok, e)
 	}
-	if err := s.write(ok); err != nil {
+	if err := s.write(ctx, ok); err != nil {
 		return errors.Join(append(errs, err)...)
 	}
 	clients, _ := os.ReadDir(s.cfg.ExportRoot)
@@ -113,13 +113,13 @@ func (s *Server) Apply(exports []export) error {
 }
 
 // write replaces the exports table and syncs the kernel's export cache with it.
-func (s *Server) write(exports []export) error {
+func (s *Server) write(ctx context.Context, exports []export) error {
 	content := strings.Join(exportLines(s.cfg.ExportRoot, exports), "\n") + "\n"
-	if err := os.WriteFile(s.cfg.ExportsFile, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(s.cfg.ExportsFile, []byte(content), 0o600); err != nil {
 		return fmt.Errorf("write exports: %w", err)
 	}
 	// -r syncs the kernel's export cache with the table and drops removed exports.
-	if out, err := exec.Command("exportfs", "-ra").CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, "exportfs", "-ra").CombinedOutput(); err != nil {
 		return fmt.Errorf("exportfs: %w: %s", err, out)
 	}
 	return nil
@@ -136,7 +136,7 @@ func bindBeneath(kubeletDir, src, dst string) error {
 		return err
 	}
 	defer unix.Close(fd)
-	if err := os.MkdirAll(dst, 0o755); err != nil {
+	if err := os.MkdirAll(dst, 0o750); err != nil {
 		return err
 	}
 	return unix.Mount(fdPath(fd), dst, "", unix.MS_BIND, "")
@@ -245,4 +245,23 @@ func mounted(path string) bool {
 		return false
 	}
 	return slices.ContainsFunc(infos, func(m mountEntry) bool { return m.point == path })
+}
+
+// exportLines renders the exports table. Each client node gets its own NFSv4
+// root, read-only and holding only the folders exported to it, so a node never
+// sees another node's exports. Each folder is exported to its session-manager's
+// node only, with every client user mapped to the sandbox's user.
+func exportLines(root string, exports []export) []string {
+	var lines []string
+	roots := map[string]bool{}
+	for _, e := range exports {
+		if !roots[e.client] {
+			roots[e.client] = true
+			lines = append(lines, fmt.Sprintf("%s/%s %s(ro,secure,no_subtree_check,all_squash,fsid=0)", root, e.client, e.client))
+		}
+		lines = append(lines, fmt.Sprintf("%s/%s/%s %s(rw,async,secure,no_subtree_check,all_squash,anonuid=%d,anongid=%d,fsid=%s)",
+			root, e.client, e.name, e.client, e.uid, e.gid, e.name))
+	}
+	slices.Sort(lines)
+	return lines
 }

@@ -8,7 +8,7 @@ type ServerConfig struct {
 	// ExportRoot is the tmpfs that holds one directory per client node, the
 	// client's NFSv4 root, with one bind mount per folder exported to it.
 	ExportRoot string
-	// ExportsFile is the exports table exportfs reads.
+	// ExportsFile is the NFS exports table, /etc/exports by default.
 	ExportsFile string
 	// Threads is the number of nfsd threads to start.
 	Threads int
