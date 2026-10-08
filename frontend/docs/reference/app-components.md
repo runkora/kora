@@ -92,7 +92,7 @@ See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules arou
 
 ## ViewToggle
 
-**Promoted to Terra. Import:** `import { ViewToggle } from '@orbit/terra'`
+Import:** `import { ViewToggle } from '@orbit/terra'`
 
 **When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Terra `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs and the Marketplace overview use it.
 
