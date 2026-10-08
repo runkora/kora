@@ -241,8 +241,8 @@ func unschedulableReason(err error) string {
 	if err == nil || !errors.Is(err, ErrSandboxUnschedulable) {
 		return ""
 	}
-	msg := err.Error()
-	return strings.TrimPrefix(msg[strings.Index(msg, ErrSandboxUnschedulable.Error()):], ErrSandboxUnschedulable.Error()+": ")
+	_, reason, _ := strings.Cut(err.Error(), ErrSandboxUnschedulable.Error()+": ")
+	return reason
 }
 
 // loopVerdict is what the loop guard decided about the latest event.
