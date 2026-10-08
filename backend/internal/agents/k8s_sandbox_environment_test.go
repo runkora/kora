@@ -75,6 +75,12 @@ func TestSandboxPod_FromEnvironment(t *testing.T) {
 	}) {
 		t.Errorf("mounts = %+v, want the local disk at the run's local dir", c.VolumeMounts)
 	}
+	// /tmp is the sandbox's TMPDIR, on the local disk rather than the shared workspace volume.
+	if !slices.ContainsFunc(c.VolumeMounts, func(m corev1.VolumeMount) bool {
+		return m.Name == localDiskVolume && m.MountPath == "/tmp" && m.SubPath == ".tmp"
+	}) {
+		t.Errorf("mounts = %+v, want /tmp on the local disk", c.VolumeMounts)
+	}
 }
 
 // buildTestSandboxPod builds a sandbox pod from a spec the test knows is valid.

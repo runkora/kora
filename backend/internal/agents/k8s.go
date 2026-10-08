@@ -896,12 +896,8 @@ func sandboxContainerEnv(cfg K8sProvisionerConfig, kubeClusters []kubeconfig.Clu
 		// This run's exec token. The agent can read it, which grants nothing it
 		// does not already have; it cannot read another run's.
 		{Name: sandboxExecTokenEnv, Value: execToken},
-		// WORKSPACE is this run's subPath-scoped workspace (see sandboxVolumes/
-		// sandboxContainer). sandbox-exec uses it to derive a per-run HOME
-		// (mirroring orbit-session-runner's {workDir}/.runhome, see
-		// docs/adr/2026-06-04-per-session-home-isolation.md) so kubeconfig and
-		// tool caches (npm, pip, go, etc.) never land in the pod's shared
-		// default home.
+		// WORKSPACE is this run's subPath-scoped workspace. sandbox-exec derives
+		// the run's local dir from it for HOME and the caches.
 		{Name: "WORKSPACE", Value: workspaceDir},
 	}
 	// Git identity for commits the agent makes in the sandbox. Setting both
@@ -1044,8 +1040,10 @@ const (
 	scratchTmpVolume    = "scratch-tmp"
 	scratchVarTmpVolume = "scratch-var-tmp"
 	scratchHomeVolume   = "scratch-home"
-	// localDiskVolume holds the run's build caches and tool installs on the node's disk.
+	// localDiskVolume holds the sandbox's HOME, TMPDIR, build caches and tool installs on the node's disk.
 	localDiskVolume = "local-disk"
+	// localTmpSubPath is the local disk's directory mounted at /tmp.
+	localTmpSubPath = ".tmp"
 )
 
 // imageHomeDir is the orbit user's home in both images, used by tools that read it from passwd.
@@ -1095,14 +1093,15 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 	tmpSubPath, _ := filepath.Rel(workspacesRoot, runfs.TmpDir(workspaceDir))
 	mounts := []corev1.VolumeMount{
 		{Name: "workspaces", MountPath: workspaceDir, SubPath: runID},
-		// The run's TMPDIR at the agent pod's path, and at /tmp for tools that ignore TMPDIR.
+		// The agent pod's TMPDIR, for files its harness names in commands, such as the working directory file.
 		{Name: "workspaces", MountPath: runfs.TmpDir(workspaceDir), SubPath: tmpSubPath},
-		{Name: "workspaces", MountPath: "/tmp", SubPath: tmpSubPath},
 		// Writable paths outside the workspace under a read-only root, for tools that ignore HOME and TMPDIR.
 		{Name: scratchVarTmpVolume, MountPath: "/var/tmp"},
 		{Name: scratchHomeVolume, MountPath: imageHomeDir},
-		// The local disk sits at the agent pod's path on the shared volume. Both pods resolve the same caches.
+		// The sandbox's HOME, caches and installs. It sits at the agent pod's run local dir, so the PATH the agent replays finds the installs.
 		{Name: localDiskVolume, MountPath: runfs.LocalDir(workspaceDir)},
+		// The sandbox's TMPDIR, on the local disk with HOME.
+		{Name: localDiskVolume, MountPath: "/tmp", SubPath: localTmpSubPath},
 	}
 	if egressGatewayURL(cfg) != "" {
 		mounts = append(mounts,

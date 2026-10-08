@@ -36,10 +36,8 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 		"Retry the clone (with backoff)",
 		"verify the working copy is a real clone",
 		"## Workspace",
-		"Work only in your workspace `/workspaces/run-1` (also `$WORKSPACE`",
-		"`/workspaces/run-1/.runhome`",
-		"`$TMPDIR` (`/workspaces/.tmp/run-1`)",
-		"`/tmp` is not available",
+		"Work in your workspace `/workspaces/run-1` (also `$WORKSPACE`",
+		"`/tmp` is not available to your file tools",
 		"with your environment's package managers",
 		"land on the sandbox's local disk",
 		"mcp__runtime__list_environments",
@@ -101,5 +99,28 @@ func TestRenderCapabilitiesBrief_ExplainsEgressDenials(t *testing.T) {
 func TestRenderCapabilitiesBrief_OpenOmitsAllowlistHint(t *testing.T) {
 	if brief := renderCapabilitiesBrief(&EffectiveAccess{Open: true}, testWorkspaceDir); strings.Contains(brief, "egress allowlist") {
 		t.Error("open-egress brief mentions an allowlist")
+	}
+}
+
+// The brief is written before the agent provisions a sandbox, so it states the workspace rule for runs with and without one.
+func TestRenderCapabilitiesBrief_WorkspaceWithAndWithoutSandbox(t *testing.T) {
+	brief := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir)
+	for _, want := range []string{
+		// Without a sandbox and with one, the workspace is shared by Bash and the file tools.
+		"see the same files there, with or without a sandbox",
+		"Pass files between Bash and your file tools only through the workspace.",
+		// In a sandbox, ~ and $TMPDIR are local to it and Bash-only.
+		"`~` and `$TMPDIR` are scratch space for Bash. In a sandbox they are on the sandbox's local disk: your file tools cannot see them",
+		"a new or replaced sandbox starts with a fresh `~` and `$TMPDIR`",
+	} {
+		if !strings.Contains(brief, want) {
+			t.Errorf("brief missing %q", want)
+		}
+	}
+	// The agent pod's home and tmp paths are not shared with a sandbox, so the brief no longer names them.
+	for _, gone := range []string{".runhome", "/workspaces/.tmp/"} {
+		if strings.Contains(brief, gone) {
+			t.Errorf("brief names %q, which a sandbox does not share", gone)
+		}
 	}
 }

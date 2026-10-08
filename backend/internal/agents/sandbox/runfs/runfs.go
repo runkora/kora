@@ -1,6 +1,6 @@
-// Package runfs is where a run's files live on the shared workspace volume. The
-// agent pod and the sandbox use the same absolute paths, so a path one side
-// writes is the path the other side reads (docs/adr/2026-06-04-per-session-home-isolation.md).
+// Package runfs is where a run's files live. The agent pod and the sandbox see the
+// workspace and TmpDir at the same absolute paths on the shared workspace volume
+// (docs/adr/2026-06-04-per-session-home-isolation.md).
 package runfs
 
 import (
@@ -9,12 +9,12 @@ import (
 	"strings"
 )
 
-// HomeDir is the run's $HOME, inside its workspace.
+// HomeDir is the run's $HOME on the agent pod, inside its workspace. A sandbox uses LocalDir as $HOME.
 func HomeDir(workspace string) string {
 	return filepath.Join(workspace, ".runhome")
 }
 
-// TmpDir is the run's $TMPDIR. It sits beside the workspace, not in it: the agent
+// TmpDir is the run's $TMPDIR on the agent pod. It sits beside the workspace, not in it: the agent
 // can rename anything in its workspace, and a sandbox subPath it could swap for a
 // symlink to ".." would mount the whole volume.
 func TmpDir(workspace string) string {
@@ -22,7 +22,7 @@ func TmpDir(workspace string) string {
 }
 
 // LocalDir holds the run's build caches and tool installs, beside the workspace like TmpDir.
-// The sandbox mounts a node-local volume there; in the agent pod it is on the shared volume.
+// The sandbox mounts a node-local volume there and uses it as $HOME; in the agent pod it is on the shared volume.
 func LocalDir(workspace string) string {
 	return filepath.Join(filepath.Dir(workspace), ".runlocal", filepath.Base(workspace))
 }
