@@ -61,7 +61,7 @@ Claude uses a single `Bash` tool throughout. Routing is transparent — Claude n
 
 The agent container's `$SHELL` is set to `/usr/local/bin/orbit-shell`, a thin proxy binary baked into the agent image. On each Bash invocation, the proxy:
 
-1. Checks for `$WORKSPACE/.sandbox/endpoint` (a file written by session-manager when a sandbox is assigned)
+1. Checks for `$WORKSPACE/.sandbox-exec/endpoint` (a file written by session-manager when a sandbox is assigned)
 2. If absent: executes the command locally in the agent container
 3. If present: dials the gRPC endpoint in that file, streams the command, returns output
 

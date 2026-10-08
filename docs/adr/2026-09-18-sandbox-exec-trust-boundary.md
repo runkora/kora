@@ -15,7 +15,7 @@ A run executes across two pods in the tenant namespace. The agent pod is a State
 
 ### Background
 
-`sandbox-exec` has three callers. `orbit-shell` is wired in as the Claude Code shell through `CLAUDE_CODE_SHELL` and runs as a child of the agent subprocess, discovering the sandbox from `$WORKSPACE/.sandbox/endpoint`. The session registry dials the same port for the egress readiness canary. `orbit-runtime-mcp` reaches the sandbox indirectly, by asking `session-manager` to provision one.
+`sandbox-exec` has three callers. `orbit-shell` is wired in as the Claude Code shell through `CLAUDE_CODE_SHELL` and runs as a child of the agent subprocess, discovering the sandbox from `$WORKSPACE/.sandbox-exec/endpoint`. The session registry dials the same port for the egress readiness canary. `orbit-runtime-mcp` reaches the sandbox indirectly, by asking `session-manager` to provision one.
 
 The sandbox pod is SPIFFE-attested per run as `spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>/sandbox/<run-id>`. Port 50051 carries `traffic.sidecar.istio.io/excludeInboundPorts`, so inbound traffic on it does not pass through the mesh and no `AuthorizationPolicy` applies to it. The only sandbox-scoped `NetworkPolicy`, `sandbox-egress-to-gateway`, governs egress.
 
@@ -186,7 +186,7 @@ Confidentiality of both the token and the endpoint rests on Landlock, the same m
 
 - `orbit-agents` mints the token at sandbox provisioning and sets it on the sandbox pod. The provisioning response carries it to `session-manager`.
 - `sandbox-exec` compares the metadata value against its own environment with a constant-time comparison, and refuses the call when absent or different.
-- `session-manager` writes the token into the run's `.sandbox` directory with owner-only permissions, next to the endpoint, and `orbit-shell` sends it as gRPC metadata.
+- `session-manager` writes the token into the run's `.sandbox-exec` directory with owner-only permissions, next to the endpoint, and `orbit-shell` sends it as gRPC metadata.
 - Both interceptor surfaces are registered on the exec server, streaming and unary, so a unary RPC added later cannot land unauthenticated.
 - The session registry's egress canary sends the token it holds in memory.
 - The operator renders a sandbox ingress `NetworkPolicy` alongside `sandbox-egress-to-gateway`.

@@ -63,7 +63,7 @@ RUN apk add --no-cache ca-certificates bash git curl
 #   - So orbit-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
 #     basename via the symlink created below, and CLAUDE_CODE_SHELL points at it.
 # orbit-shell routes `-c` commands to the sandbox pod's gRPC exec server when
-# $WORKSPACE/.sandbox/endpoint exists, and otherwise execs the real /bin/bash
+# $WORKSPACE/.sandbox-exec/endpoint exists, and otherwise execs the real /bin/bash
 # (snapshot generation and any pre-provision commands run locally).
 ENV SHELL=/opt/orbit/shell/bash
 ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash

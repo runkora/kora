@@ -23,7 +23,7 @@ const runTokenHeader = "X-Orbit-Run-Token"
 // readable. On the workspace volume it also survives a pod restart, which is
 // what lets a restarted pod verify a caller at all.
 //
-// It sits outside .sandbox/ so an agent clearing its descriptor keeps the
+// It sits outside .sandbox-exec/ so an agent clearing its descriptor keeps the
 // ability to ask for a new one.
 func runTokenPath(workspaces, runID string) (string, bool) {
 	if !singleSegment(runID) {

@@ -353,7 +353,7 @@ type Sandbox struct {
 
 // ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 // given run, then writes the returned gRPC endpoint and exec token under
-// $workspaces/{runID}/.sandbox/ so orbit-shell can discover both.
+// $workspaces/{runID}/.sandbox-exec/ so orbit-shell can discover both.
 //
 // The token goes in the run's workspace because Landlock already confines each
 // agent to its own directory, putting a sibling run's token out of reach.
@@ -593,7 +593,7 @@ func (reg *Registry) sandboxPaths(runID string) (dir, endpointFile, tokenFile st
 	if !singleSegment(runID) {
 		return "", "", "", false
 	}
-	dir = filepath.Join(reg.workspaces, runID, ".sandbox")
+	dir = filepath.Join(reg.workspaces, runID, ".sandbox-exec")
 	return dir, filepath.Join(dir, "endpoint"), filepath.Join(dir, "exec-token"), true
 }
 
