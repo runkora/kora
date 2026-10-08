@@ -154,8 +154,9 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D17. Unreachable NFS Port
 
-*   **Check the port before mounting and report the reason (chosen):** Before each mount, the node agent on the session-manager's node opens a TCP connection to the port on the sandbox's node, with a 3 s timeout. When the connection fails, it writes the sandbox pod's UID and a message that names the port and both nodes to `.sandbox-mount/<run>` at the root of the session-manager's workspace volume. The session-manager ends its folder wait on a report for its sandbox, and the run's sandbox failure and the agent's tool error carry the message. Runs cannot write the volume root, and the agent writes the file through descriptors that refuse symlinks.
+*   **Check the port before mounting and report a reason code (chosen):** Before each mount, the node agent on the session-manager's node opens a TCP connection to the port on the sandbox's node, with a 3 s timeout. When the connection or the mount fails, it writes the sandbox pod's UID and a reason code to `.sandbox-mount/<run>` at the root of the session-manager's workspace volume, and its log names the port and both nodes. The session-manager maps the code to fixed text that names no node, address or port. When a report for its sandbox outlasts 10 s of the agent's retries, the session-manager ends its folder wait, and the run's sandbox failure and the agent's tool error carry that text. Runs cannot write the volume root, and the agent writes the file through descriptors that refuse symlinks.
 *   **Let the 60 s wait run out (rejected):** The failure would read as a timeout with no cause.
+*   **Put the nodes and the port in the run's message (rejected):** Anyone who can read the run would see node names and the cluster's network layout.
 *   **Annotate the sandbox pod (rejected):** The node agent would need write access to pods, and the session-manager has no Kubernetes API access.
 
 ---

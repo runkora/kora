@@ -154,41 +154,30 @@ func (a *Agent) syncMounts(ctx context.Context, targets []target) error {
 // mountOne checks the NFS port, mounts the folder and records it, and reports the
 // reason for the session-manager when either step fails.
 func (a *Agent) mountOne(ctx context.Context, path string, w wanted) error {
+	// The nodes and the port go to this agent's log for the operator. The run's report carries only a reason code.
 	if err := a.reach(ctx, net.JoinHostPort(w.serverIP, strconv.Itoa(a.cfg.Port))); err != nil {
-		msg := fmt.Sprintf("node %s cannot reach the NFS server on node %s on TCP port %d. Allow TCP %d from %s to %s.", w.clientNode, w.serverNode, a.cfg.Port, a.cfg.Port, w.clientNode, w.serverNode)
-		return errors.Join(fmt.Errorf("%s: %w", msg, err), a.report(w, msg))
+		msg := fmt.Sprintf("node %s cannot reach the NFS server on node %s on TCP port %d. Allow TCP %d from %s to %s", w.clientNode, w.serverNode, a.cfg.Port, a.cfg.Port, w.clientNode, w.serverNode)
+		return errors.Join(fmt.Errorf("%s: %w", msg, err), a.report(w, ReasonUnreachable))
 	}
 	if err := a.mounts.Mount(w.source, w.volumeDir, filepath.Join(w.runID, Dir)); err != nil {
-		reason := fmt.Sprintf("node %s could not mount the folder from node %s: %v.", w.clientNode, w.serverNode, unwrapErrno(err))
-		return errors.Join(fmt.Errorf("mount %s on %s: %w", w.source, path, err), a.report(w, reason))
+		return errors.Join(fmt.Errorf("node %s could not mount %s from node %s on %s: %w", w.clientNode, w.source, w.serverNode, path, err), a.report(w, ReasonMountFailed))
 	}
 	a.ledger.entries[path] = w.source
 	a.logger.Info(ctx, "Mounted sandbox folder", logging.Field{Key: "run_id", Value: w.runID}, logging.Field{Key: "source", Value: w.source})
 	return a.report(w, "")
 }
 
-// report records a mount failure for the run, prefixed with the sandbox pod's UID so a
-// report about an earlier sandbox is ignored. An empty message clears the report.
-func (a *Agent) report(w wanted, message string) error {
+// report records a mount failure reason for the run, prefixed with the sandbox pod's UID
+// so a report about an earlier sandbox is ignored. An empty reason clears the report.
+func (a *Agent) report(w wanted, reason string) error {
 	content := ""
-	if message != "" {
-		content = w.sandboxUID + "\n" + message + "\n"
+	if reason != "" {
+		content = w.sandboxUID + "\n" + reason + "\n"
 	}
 	if err := a.mounts.Report(w.volumeDir, w.runID, content); err != nil {
 		return fmt.Errorf("report mount state for run %s: %w", w.runID, err)
 	}
 	return nil
-}
-
-// unwrapErrno returns the innermost error, which for a failed mount is the errno text without paths or addresses.
-func unwrapErrno(err error) error {
-	for {
-		inner := errors.Unwrap(err)
-		if inner == nil {
-			return err
-		}
-		err = inner
-	}
 }
 
 // dialTCP reports whether a TCP connection to addr opens within a few seconds.

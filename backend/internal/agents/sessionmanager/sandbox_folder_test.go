@@ -117,33 +117,85 @@ func TestSandboxDescriptor_RefusesSymlinkOutOfWorkspace(t *testing.T) {
 	}
 }
 
-// A node agent report about this sandbox ends the wait at once with its reason.
+// A node agent report that stays through the grace period ends the wait with fixed text.
 // A report about an earlier sandbox of the run is ignored.
-func TestAwaitSandboxFolder_EndsOnNodeAgentReport(t *testing.T) {
+func TestAwaitSandboxFolder_EndsOnLastingReport(t *testing.T) {
 	reg := folderRegistry(t, "")
 	reg.workspaces = t.TempDir()
 	reg.folderWait = 5 * time.Second
+	reg.reportGrace = 300 * time.Millisecond
 	report := filepath.Join(reg.workspaces, sandboxmount.ReportDir, "run-1")
 	if err := os.MkdirAll(filepath.Dir(report), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	reason := "node b cannot reach the NFS server on node a on TCP port 20490. Allow TCP 20490 from b to a."
-	if err := os.WriteFile(report, []byte("old-uid\nstale\n"), 0o644); err != nil {
+	if err := os.WriteFile(report, []byte("old-uid\n"+sandboxmount.ReasonUnreachable+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := reg.mountFailure("run-1", "pod-uid"); got != "" {
 		t.Errorf("mountFailure with a stale report = %q", got)
 	}
-	if err := os.WriteFile(report, []byte("pod-uid\n"+reason+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(report, []byte("pod-uid\n"+sandboxmount.ReasonUnreachable+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now()
 	err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid")
-	if !errors.Is(err, errSandboxFolder) || !strings.Contains(err.Error(), "TCP port 20490") {
-		t.Errorf("err = %v, want the reported reason", err)
+	if !errors.Is(err, errSandboxFolder) || !strings.Contains(err.Error(), "cannot reach the NFS port on the sandbox node") {
+		t.Errorf("err = %v, want the fixed reason", err)
 	}
-	if time.Since(start) > time.Second {
-		t.Errorf("wait took %v, want it to end on the report", time.Since(start))
+	if took := time.Since(start); took < reg.reportGrace || took > 2*time.Second {
+		t.Errorf("wait took %v, want it to end after the grace period", took)
+	}
+}
+
+// A report the node agent clears on its next retry does not fail the sandbox: the mount that follows ends the wait.
+func TestAwaitSandboxFolder_IgnoresTransientReport(t *testing.T) {
+	reg := folderRegistry(t, "")
+	reg.workspaces = t.TempDir()
+	reg.folderWait = 5 * time.Second
+	reg.reportGrace = 2 * time.Second
+	report := filepath.Join(reg.workspaces, sandboxmount.ReportDir, "run-1")
+	if err := os.MkdirAll(filepath.Dir(report), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(report, []byte("pod-uid\n"+sandboxmount.ReasonUnreachable+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		_ = os.Remove(report)
+		_ = os.WriteFile(reg.mountInfo, fmt.Appendf(nil, "9 1 0:9 / %s rw - nfs4 10.0.0.1:/pod-uid rw\n", filepath.Join(reg.workspaces, "run-1", "sandbox")), 0o600)
+	}()
+	if err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); err != nil {
+		t.Errorf("awaitSandboxFolder: %v", err)
+	}
+}
+
+// The run sees fixed text for a report, never the report's own content, so no node,
+// address or port reaches the run even if the report carried one.
+func TestMountFailure_RunFacingTextNamesNoNode(t *testing.T) {
+	reg := folderRegistry(t, "")
+	reg.workspaces = t.TempDir()
+	report := filepath.Join(reg.workspaces, sandboxmount.ReportDir, "run-1")
+	if err := os.MkdirAll(filepath.Dir(report), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, content := range []string{
+		"pod-uid\n" + sandboxmount.ReasonUnreachable + "\n",
+		"pod-uid\n" + sandboxmount.ReasonMountFailed + "\n",
+		"pod-uid\nnode ip-10-0-2-36 at 10.0.2.36 refused TCP 20490 on /var/lib/kubelet/pods/x\n",
+	} {
+		if err := os.WriteFile(report, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got := reg.mountFailure("run-1", "pod-uid")
+		if got == "" {
+			t.Errorf("report %q gave no text", content)
+		}
+		for _, leak := range []string{"ip-10", "10.0.", "20490", "/var/lib", "node ip"} {
+			if strings.Contains(got, leak) {
+				t.Errorf("run-facing text %q names %q", got, leak)
+			}
+		}
 	}
 }
 
@@ -151,8 +203,8 @@ func TestAwaitSandboxFolder_EndsOnNodeAgentReport(t *testing.T) {
 func TestWriteSandboxError_FolderReason(t *testing.T) {
 	c := &Controller{logger: logging.NewLoggerWithOutput(io.Discard)}
 	rec := httptest.NewRecorder()
-	c.writeSandboxError(context.Background(), rec, "run-1", fmt.Errorf("%w: node b cannot reach the NFS server on node a on TCP port 20490", errSandboxFolder), "failed to provision sandbox")
-	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "TCP port 20490") {
+	c.writeSandboxError(context.Background(), rec, "run-1", fmt.Errorf("%w: %s", errSandboxFolder, mountFailureText[sandboxmount.ReasonUnreachable]), "failed to provision sandbox")
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "cannot reach the NFS port on the sandbox node") {
 		t.Errorf("response = %d %s, want 503 with the reason", rec.Code, rec.Body.String())
 	}
 }

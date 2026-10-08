@@ -278,9 +278,17 @@ func TestReconcile_ReportsUnreachableNFSPort(t *testing.T) {
 	if dialed != "10.0.0.1:20490" || len(m.mounted) != 0 {
 		t.Errorf("dialed %q, mounted %v", dialed, m.mounted)
 	}
-	want := string(sb.UID) + "\nnode node-b cannot reach the NFS server on node node-a on TCP port 20490. Allow TCP 20490 from node-b to node-a.\n"
-	if got := m.reports["run-1"]; got != want {
+	// The report carries a reason code only. The nodes and the port stay in the agent's error and log.
+	if got, want := m.reports["run-1"], string(sb.UID)+"\n"+ReasonUnreachable+"\n"; got != want {
 		t.Errorf("report = %q, want %q", got, want)
+	}
+	for _, leak := range []string{"node-a", "node-b", "10.0.0.1", "10.0.0.2", "20490"} {
+		if strings.Contains(m.reports["run-1"], leak) {
+			t.Errorf("report names %q", leak)
+		}
+	}
+	if !strings.Contains(err.Error(), "node node-b cannot reach the NFS server on node node-a") {
+		t.Errorf("err = %v, want the nodes named for the operator", err)
 	}
 
 	a.reach = func(context.Context, string) error { return nil }

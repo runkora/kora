@@ -166,7 +166,7 @@ Check each requirement before you turn the feature on:
 
 A platform that cannot meet these requirements leaves `sandboxMount.enabled` off. Sandboxes then work on the shared workspace volume.
 
-Before each mount the node agent checks that the session-manager's node can open the port on the sandbox's node. When it cannot, the sandbox fails to start, and its failure message names the port and both nodes.
+Before each mount the node agent checks that the session-manager's node can open the port on the sandbox's node. When the check keeps failing, the sandbox fails to start with the message that the node agent cannot reach the NFS port on the sandbox node. The node agent's log on the session-manager's node names the port and both nodes.
 
 The DaemonSet carries the tolerations of `agents.workloads.sandbox` and `agents.workloads.sessionManager`, and `sandboxMount.tolerations` adds more. The chart creates the namespace at the privileged Pod Security level. Set `sandboxMount.createNamespace: false` to use a namespace you manage that admits privileged pods.
 

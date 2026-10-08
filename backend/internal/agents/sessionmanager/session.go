@@ -141,10 +141,12 @@ type Registry struct {
 	guardrails  Guardrails
 	// mountInfo lists this container's mounts, where the node agent's sandbox folder mounts appear.
 	mountInfo string
-	// folderWait bounds the wait for a sandbox folder mount.
-	folderWait time.Duration
-	mu         sync.RWMutex
-	sessions   map[string]*session
+	// folderWait bounds the wait for a sandbox folder mount, and reportGrace how long
+	// a node agent failure report must stay before it ends the wait.
+	folderWait  time.Duration
+	reportGrace time.Duration
+	mu          sync.RWMutex
+	sessions    map[string]*session
 }
 
 // NewRegistry creates a session registry.
@@ -158,6 +160,7 @@ func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier
 		guardrails:  DefaultGuardrails(),
 		mountInfo:   "/proc/self/mountinfo",
 		folderWait:  sandboxFolderWait,
+		reportGrace: sandboxReportGrace,
 		sessions:    make(map[string]*session),
 	}
 }

@@ -29,6 +29,10 @@ const (
 	// per run whose folder could not be mounted: the sandbox pod's UID, then the reason.
 	// Runs cannot write the volume root.
 	ReportDir = ".sandbox-mount"
+	// ReasonUnreachable and ReasonMountFailed are the reasons a report carries. They
+	// name no node, address or port, and the session-manager maps them to fixed text.
+	ReasonUnreachable = "nfs-port-unreachable"
+	ReasonMountFailed = "mount-failed"
 	// workspaceClaimPrefix starts the name of a session-manager pod's workspace
 	// claim: the StatefulSet's volumeClaimTemplate name, then the pod name.
 	workspaceClaimPrefix = "workspaces-"
