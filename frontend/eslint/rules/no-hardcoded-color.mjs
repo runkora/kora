@@ -32,15 +32,15 @@ const rule = {
     docs: {
       description:
         'Disallow hardcoded colour literals (hex, oklch, rgb, hsl). ' +
-        'All colours must reference a Terra CSS variable so they respond to the active theme.',
+        'All colours must reference a Hades CSS variable so they respond to the active theme.',
     },
     messages: {
       noHardcodedColor:
         'Hardcoded colour value "{{value}}" is not allowed. ' +
-        'Use a Terra CSS variable — e.g. var(--color-foreground), var(--color-chart-1) — ' +
+        'Use a Hades CSS variable — e.g. var(--color-foreground), var(--color-chart-1) — ' +
         'or derive from one via color-mix(). ' +
         'Inline colour literals are not themed and break in light mode. ' +
-        'See frontend/src/packages/terra/src/tokens/tokens.css for the full token list.',
+        'See frontend/src/packages/hades/src/tokens/tokens.css for the full token list.',
     },
     schema: [],
   },

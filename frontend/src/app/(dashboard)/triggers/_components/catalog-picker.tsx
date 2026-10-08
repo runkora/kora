@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 3 — triggers-scoped. A button opening Terra's searchable catalog list
+ * @tier 3 — triggers-scoped. A button opening Hades' searchable catalog list
  * for one event type or field. Shared by the wizard, drawer and filter rows.
  */
 
@@ -14,8 +14,8 @@ import {
   PopoverTrigger,
   TemplateCatalogList,
   Text,
-} from '@orbit/terra';
-import type { TemplateCatalogEntry } from '@orbit/terra';
+} from '@orbit/hades';
+import type { TemplateCatalogEntry } from '@orbit/hades';
 
 interface CatalogPickerProps {
   /** The current choice; the placeholder shows when empty. */

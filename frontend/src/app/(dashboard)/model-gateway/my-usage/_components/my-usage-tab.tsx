@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Alert, Button, Icon, NativeSelect, Progress, Stack, Text } from '@orbit/terra';
+import { Alert, Button, Icon, NativeSelect, Progress, Stack, Text } from '@orbit/hades';
 import type { PAT } from '@orbit/shared/api';
 import { fmtCost } from '@orbit/utils';
 import { useAnalyticsMeContext } from '../../_context/analytics-context';

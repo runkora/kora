@@ -428,7 +428,7 @@ Three consequences for this PRD's scope, all deliberate:
 - **Triggers** — the existing feature, extended. *Status: exists, webhook-only.*
 - **Policy** — unchanged evaluation, but a denial must now always leave a record. *Status: exists.*
 - **Agent control plane** — unchanged dispatch target for all three kinds. *Status: exists.*
-- **Console (Terra)** — the Triggers page, redesigned. *Status: exists, to be extended.*
+- **Console (Hades)** — the Triggers page, redesigned. *Status: exists, to be extended.*
 
 ### External Dependencies
 

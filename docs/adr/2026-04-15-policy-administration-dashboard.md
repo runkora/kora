@@ -29,7 +29,7 @@ The frontend currently has a placeholder page at `/policy` wrapped in a `ScopeGu
 - Overview dashboard with aggregate stats and bundle sync status
 - Evaluate tool for inspecting effective permissions and dry-running policy checks
 - All pages use live API data — no mocked or hardcoded content
-- Follow established frontend patterns (model-gateway nested routes, Terra design system, BFF proxy)
+- Follow established frontend patterns (model-gateway nested routes, Hades design system, BFF proxy)
 
 ### Non-Goals
 
@@ -360,9 +360,9 @@ src/app/(dashboard)/policy/
     └── index.ts                  # UI-derived types (table rows, form state, etc.)
 ```
 
-### 4. Terra Design System Components
+### 4. Hades Design System Components
 
-Three new components added to the Terra package for reuse across features:
+Three new components added to the Hades package for reuse across features:
 
 #### 4a. ScopeChip
 
@@ -413,7 +413,7 @@ type GroupedPickerGroup = {
 
 Props: `groups: GroupedPickerGroup[]`, `selected: string[]`, `onChange: (values: string[]) => void`, `disabled?: boolean`, `placeholder?: string`
 
-The policy feature code in `_services/policy-client.ts` is responsible for fetching vocabulary from the BFF and transforming the `ScopeEntry[]` response into `GroupedPickerGroup[]` — grouping by `resource_type`, mapping `scope` to `value`, `description` to `description`, etc. This transformation is domain logic and belongs in the feature module, not in Terra.
+The policy feature code in `_services/policy-client.ts` is responsible for fetching vocabulary from the BFF and transforming the `ScopeEntry[]` response into `GroupedPickerGroup[]` — grouping by `resource_type`, mapping `scope` to `value`, `description` to `description`, etc. This transformation is domain logic and belongs in the feature module, not in Hades.
 
 ### 5. Type Ownership
 
@@ -583,7 +583,7 @@ The overview page displays stale bundles with a warning indicator. This is infor
 
 The implementation is structured in four phases. Each phase produces working, testable functionality. All phases use live API data.
 
-### Phase 1: Foundation (Backend Endpoints + BFF + Types + Terra Components)
+### Phase 1: Foundation (Backend Endpoints + BFF + Types + Hades Components)
 
 **Goal:** Establish all infrastructure before building any pages.
 
@@ -597,7 +597,7 @@ The implementation is structured in four phases. Each phase produces working, te
 8. **Frontend: BFF proxy route handlers** under `app/api/policy/`
 9. **Frontend: `APP_ROUTES.policy.*`** nested routes in `routes.ts`
 10. **Frontend: `POLICY_NAV`** sidebar nav group in `nav-entries.ts`
-11. **Frontend: Terra components** — `ScopeChip`, `PrincipalBadge`, `GroupedPicker`
+11. **Frontend: Hades components** — `ScopeChip`, `PrincipalBadge`, `GroupedPicker`
 12. **Frontend: Policy `_types/index.ts`** and `_services/` (server + client fetch helpers)
 
 ### Phase 2: Overview + Core CRUD (Overview + Grants + Roles)
@@ -653,7 +653,7 @@ The overview page is built first — it is the redirect target for `/policy` and
 ### Neutral
 
 - The BFF gains a fourth backend URL (`POLICY_SERVICE_URL`), consistent with existing pattern
-- Terra gains three new components, expanding the design system's scope
+- Hades gains three new components, expanding the design system's scope
 - The sidebar nav adds a new group with six items, matching the model-gateway group size
 
 ---
@@ -664,7 +664,7 @@ The overview page is built first — it is the redirect target for `/policy` and
 - [dynamic-route-scope-registration](2026-04-14-dynamic-route-scope-registration.md) — Dynamic route-scope registration
 - [frontend-policy-projection](2026-04-14-frontend-policy-projection.md) — Frontend policy projection via BFF
 - [browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) — Browser auth flow and BFF session architecture
-- [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) — Terra frontend design system
+- [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) — Hades frontend design system
 
 ---
 

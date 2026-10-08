@@ -3,23 +3,23 @@ const rule = {
     type: 'problem',
     docs: {
       description:
-        'Disallow raw <form>, <label>, <input>, and <output> elements. Use Terra form components.',
+        'Disallow raw <form>, <label>, <input>, and <output> elements. Use Hades form components.',
     },
     messages: {
       noRawForm:
-        'Raw <form> is not allowed. Use <Form> from @orbit/terra. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'Raw <form> is not allowed. Use <Form> from @orbit/hades. ' +
+        'See frontend/docs/reference/hades-design-system.md',
       noRawLabel:
-        'Raw <label> is not allowed. Use <Label> from @orbit/terra for text labels, ' +
+        'Raw <label> is not allowed. Use <Label> from @orbit/hades for text labels, ' +
         'or <Checkbox> for labeled checkbox inputs. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'See frontend/docs/reference/hades-design-system.md',
       noRawInput:
-        'Raw <input> is not allowed. Use <Input> from @orbit/terra for text inputs, ' +
+        'Raw <input> is not allowed. Use <Input> from @orbit/hades for text inputs, ' +
         'or <Checkbox> for checkbox inputs. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'See frontend/docs/reference/hades-design-system.md',
       noRawOutput:
-        'Raw <output> is not allowed. Use <Output> from @orbit/terra. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'Raw <output> is not allowed. Use <Output> from @orbit/hades. ' +
+        'See frontend/docs/reference/hades-design-system.md',
     },
     schema: [],
   },

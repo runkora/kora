@@ -1,7 +1,7 @@
 import { afterEach, describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Stack } from '@orbit/terra';
+import { Stack } from '@orbit/hades';
 import { UsedByList } from './used-by-list';
 
 const usages = ['alpha', 'bravo', 'charlie', 'delta', 'echo', 'foxtrot'].map((name) => ({

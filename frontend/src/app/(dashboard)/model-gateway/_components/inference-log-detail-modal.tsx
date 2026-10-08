@@ -9,7 +9,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { InferenceUsageRecord } from '../_types';
 import { fmtCost, fmtDate, fmtNum, fmtTime } from '@orbit/utils';
 import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';

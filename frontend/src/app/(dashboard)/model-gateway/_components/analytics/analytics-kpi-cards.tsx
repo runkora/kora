@@ -11,7 +11,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { AnalyticsKPIs } from '../../_types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

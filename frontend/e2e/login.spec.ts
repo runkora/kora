@@ -113,7 +113,7 @@ test.describe('/login', () => {
   test('renders the email sign-in form', async ({ page }) => {
     await page.goto('/login');
 
-    // Terra Card heading: "kora"
+    // Hades Card heading: "kora"
     await expect(page.getByRole('heading', { name: 'kora' })).toBeVisible();
 
     // Email input and submit button

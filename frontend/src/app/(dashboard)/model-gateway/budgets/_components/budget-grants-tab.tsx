@@ -3,8 +3,8 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@orbit/hades';
+import type { DataTableColumn } from '@orbit/hades';
 import { PrincipalBadge } from '@orbit/components';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';

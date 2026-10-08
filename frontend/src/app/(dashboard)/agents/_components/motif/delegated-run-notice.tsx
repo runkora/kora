@@ -6,8 +6,8 @@
  * properties; platform governance is not this surface's story. Mirrors the
  * PlannedLimits row motif: subtle card, flush content, separator-divided rows. */
 
-import { Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+import { Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 
 const NOTICE_ROWS: { icon: IconName; title: string; desc: string }[] = [
   {

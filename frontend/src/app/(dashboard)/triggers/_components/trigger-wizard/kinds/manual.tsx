@@ -18,7 +18,7 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import {
   VALID,
   deriveFieldKey,

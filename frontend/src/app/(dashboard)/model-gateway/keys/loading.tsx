@@ -13,7 +13,7 @@ import {
   Skeleton,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 function KeyCardSkeleton() {
   return (

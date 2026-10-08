@@ -59,7 +59,7 @@ The minimum widths plus the gaps and the row padding must fit inside the card:
 sum(min widths) + 14px x (columns - 1) + 32px  <=  card width
 ```
 
-Terra's grid uses a 14px gap between columns and 16px of padding on each side of a row. Design against iPad Air landscape (1180 x 820), where the card is about 930px wide. Every overflow found while writing this guide broke this sum. If the sum does not fit, reduce minimums or accept that columns shrink; do not let the table extend past the card.
+Hades' grid uses a 14px gap between columns and 16px of padding on each side of a row. Design against iPad Air landscape (1180 x 820), where the card is about 930px wide. Every overflow found while writing this guide broke this sum. If the sum does not fit, reduce minimums or accept that columns shrink; do not let the table extend past the card.
 
 ## Rule 5: Tables are full width
 
@@ -76,9 +76,9 @@ When the container is too narrow for every column at its minimum width (the Rule
 ## Rule 7: Anything that can grow must truncate and show its full value
 
 - **Plain text** truncates and shows the tooltip automatically.
-- **Badges and chips** need a definite width to truncate against. Use `TruncatingBadge` (`@orbit/terra`) or `ScopeChip` (`@orbit/components`). They give the badge a stretched, shrinkable wrapper and a truncating text span, with the full label as the tooltip.
+- **Badges and chips** need a definite width to truncate against. Use `TruncatingBadge` (`@orbit/hades`) or `ScopeChip` (`@orbit/components`). They give the badge a stretched, shrinkable wrapper and a truncating text span, with the full label as the tooltip.
 - **Never put a raw badge directly in a block-level cell.** It stretches to the cell's full width. Put it in a horizontal `Stack` (which `TruncatingBadge` assumes).
-- **Do not add truncation to a Terra primitive** such as `Badge`. The concern belongs in the component that composes it.
+- **Do not add truncation to a Hades primitive** such as `Badge`. The concern belongs in the component that composes it.
 
 ## Rule 8: Lists in cells clamp to two rows
 
@@ -139,8 +139,8 @@ Do this at two widths, with numbers, not by eye alone.
 | Piece                                                                                                | Location                                                                                  |
 | ---------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | `ScopeChip`, `ScopeChipList`, `ClampedList`, `scopeColumnFilter`, `PrincipalBadge`, `useClampedRows` | `src/components/` (import from `@orbit/components`)                                       |
-| `TruncatingBadge`                                                                                    | Terra: `src/packages/terra/src/components/truncating-badge/` (import from `@orbit/terra`) |
-| Cell clipping, minimum widths, searchable filter                                                     | `DataTable` in `src/packages/terra/src/components/data-table/`                            |
+| `TruncatingBadge`                                                                                    | Hades: `src/packages/hades/src/components/truncating-badge/` (import from `@orbit/hades`) |
+| Cell clipping, minimum widths, searchable filter                                                     | `DataTable` in `src/packages/hades/src/components/data-table/`                            |
 | Reference table                                                                                      | `src/app/(dashboard)/connections/_components/connections-page.tsx`                        |
 | Feature-scoped clamped list                                                                          | `src/app/(dashboard)/connections/_components/used-by-list.tsx`                            |
 

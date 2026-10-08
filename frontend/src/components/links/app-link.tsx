@@ -1,5 +1,5 @@
 import NextLink from 'next/link';
-import { Anchor, type AnchorProps } from '@orbit/terra';
+import { Anchor, type AnchorProps } from '@orbit/hades';
 import { type AppRoute } from '@orbit/lib/routing/routes';
 
 type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
@@ -18,7 +18,7 @@ type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
 /**
  * AppLink
  *
- * Composes Terra `Anchor` (styling) and Next.js `Link` (client-side routing)
+ * Composes Hades `Anchor` (styling) and Next.js `Link` (client-side routing)
  * for internal navigation.
  *
  * The `to` prop accepts only routes registered in `routes.ts` — an unrecognised

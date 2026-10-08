@@ -20,7 +20,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Alert, Button, Field, FieldError, Form, Input, Label, Text } from '@orbit/terra';
+import { Alert, Button, Field, FieldError, Form, Input, Label, Text } from '@orbit/hades';
 
 import {
   buildUserManager,

@@ -15,8 +15,8 @@ import {
   Stack,
   Text,
   FieldRow,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import {
   describeMatchCondition,
   matchConditionFrom,

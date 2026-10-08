@@ -17,7 +17,7 @@ import {
   Stack,
   StatusDot,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
 
 // ── Tree derivation (mirrors mcp-tools-fields grouping) ──────────────────────

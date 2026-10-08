@@ -4,7 +4,7 @@
  * trigger exists: the shared confirmation, then whatever the kind needs the
  * operator to take away before closing. */
 
-import { Button, Heading, Icon, Stack, Text } from '@orbit/terra';
+import { Button, Heading, Icon, Stack, Text } from '@orbit/hades';
 import type { DoneContentProps, TriggerKindDefinition, WizardContext, WizardState } from './types';
 
 export interface SuccessPanelProps {

@@ -48,7 +48,7 @@ export function relativeTime(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-/** The dot colour for a server's health status (Terra status tokens). */
+/** The dot colour for a server's health status (Hades status tokens). */
 export function statusColor(status: string): string {
   if (status === 'healthy') return 'var(--color-status-healthy)';
   if (status === 'stale') return 'var(--color-status-degraded)';

@@ -6,7 +6,7 @@
  * the delivery state of a message sent while the agent was working.
  */
 
-import { Stack, Text, ChatBubble } from '@orbit/terra';
+import { Stack, Text, ChatBubble } from '@orbit/hades';
 import type { HumanTurn } from '../_types';
 
 const DELIVERY_TEXT = {

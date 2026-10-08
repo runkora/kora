@@ -8,7 +8,7 @@
 
 import * as React from 'react';
 import type { Decorator } from '@storybook/react';
-import { PageLayout, TooltipProvider } from '@orbit/terra';
+import { PageLayout, TooltipProvider } from '@orbit/hades';
 import {
   DashboardHeader,
   DashboardSidebar,

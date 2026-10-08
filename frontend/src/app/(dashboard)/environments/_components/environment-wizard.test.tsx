@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { TooltipProvider } from '@orbit/terra';
+import { TooltipProvider } from '@orbit/hades';
 import type { EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 import { EnvironmentWizard, nameFromImage, stepForError } from './environment-wizard';
 import type { EnvironmentRow } from '../_types';

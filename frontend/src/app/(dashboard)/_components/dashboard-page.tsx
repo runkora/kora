@@ -25,7 +25,7 @@ import {
   TableRoot,
   TableRow,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { StatusBadge } from '@orbit/components';
 import { EventFeedItem } from './event-feed-item';
 import { APP_ROUTES } from '@orbit/lib/routing';

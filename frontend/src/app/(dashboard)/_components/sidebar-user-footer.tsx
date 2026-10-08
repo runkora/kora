@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@orbit/terra';
+import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing/routes';
 import { useLogout } from '@orbit/lib/use-logout';
 import { useSession } from './permissions-provider';
@@ -10,10 +10,10 @@ import { FitEmailText } from './fit-email-text';
 
 // ── Responsive shell selection ─────────────────────────────────────────────
 //
-// Terra components can't take a raw `className` outside the Terra package
-// (`no-terra-classname` ESLint rule, no exceptions), so the usual "render
+// Hades components can't take a raw `className` outside the Hades package
+// (`no-hades-classname` ESLint rule, no exceptions), so the usual "render
 // both, toggle with `hidden md:flex`" trick this codebase uses elsewhere
-// (e.g. `PageLayout`'s sidebar-vs-drawer switch, written *inside* Terra)
+// (e.g. `PageLayout`'s sidebar-vs-drawer switch, written *inside* Hades)
 // isn't available here. `useSyncExternalStore` is the correct alternative —
 // a `getServerSnapshot` keeps the first client render consistent with the
 // server, corrected once mounted (a one-time flash, not a hydration error).
@@ -240,7 +240,7 @@ function ConfirmLogoutBlock({ compact }: { compact: boolean }) {
  * sized to the footer's own height) — not modal, no scrim, dismissed by
  * outside-click or Escape.
  *
- * Mobile (<768px): the same trigger opens a `BottomSheet` (Terra) instead —
+ * Mobile (<768px): the same trigger opens a `BottomSheet` (Hades) instead —
  * fully modal, with its own drag-to-dismiss, close button, and back-button
  * integration.
  *

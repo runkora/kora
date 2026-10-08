@@ -9,7 +9,7 @@
  * full label as the tooltip.
  */
 import { ClampedList } from '@orbit/components';
-import { TruncatingBadge } from '@orbit/terra';
+import { TruncatingBadge } from '@orbit/hades';
 
 export interface BadgeListProps {
   values: readonly string[];

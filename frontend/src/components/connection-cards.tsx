@@ -21,7 +21,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type {
   ConnectionCatalogEntry,
   ConnectionQualifierEntry,
@@ -54,7 +54,7 @@ function actionScopePreview(connection: string, action: string, resources: strin
 /**
  * The resource scope block for a qualifier-capable connection: an all/selected
  * radio pair labeled from the adapter's qualifier dimension, and under
- * "Selected" a multiselect composed from existing Terra primitives, a Badge
+ * "Selected" a multiselect composed from existing Hades primitives, a Badge
  * chip per resource plus an Input for manual entry. The attachment is what
  * narrows an agent, so anything the upstream credential can reach is valid here.
  */

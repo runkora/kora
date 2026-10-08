@@ -1,7 +1,7 @@
 import type { InferenceUsageStatus } from '../_types';
 
 /**
- * Maps an InferenceUsageStatus value to the Badge variant expected by Terra.
+ * Maps an InferenceUsageStatus value to the Badge variant expected by Hades.
  *
  * - success           → 'healthy'  (green)
  * - policy_denied / auth_error → 'degraded' (yellow) — the request reached the

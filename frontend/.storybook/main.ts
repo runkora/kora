@@ -26,7 +26,7 @@ function readAllowedHosts(): string[] {
 
 const config: StorybookConfig = {
   stories: [
-    '../src/packages/terra/src/**/*.stories.@(ts|tsx)',
+    '../src/packages/hades/src/**/*.stories.@(ts|tsx)',
     '../src/components/**/*.stories.@(ts|tsx)',
     '../src/app/**/*.stories.@(ts|tsx)',
     './stories/**/*.stories.@(ts|tsx)',
@@ -38,7 +38,7 @@ const config: StorybookConfig = {
   },
   docs: { autodocs: 'tag' },
   core: { allowedHosts: readAllowedHosts() },
-  // Terra and the app each resolve their own recharts, and charts render blank
+  // Hades and the app each resolve their own recharts, and charts render blank
   // when the container and the chart come from different copies. One copy only.
   webpackFinal: async (webpackConfig) => {
     webpackConfig.resolve = {

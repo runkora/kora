@@ -9,7 +9,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { fmtUsd, fmtTokens, fmtNumCompact } from '@orbit/utils';
 import { StatRow } from './stat-row';
 

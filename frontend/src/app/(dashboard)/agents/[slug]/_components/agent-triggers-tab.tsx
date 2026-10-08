@@ -19,7 +19,7 @@ import {
   Text,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
 import type {
   TriggerCreateResult,

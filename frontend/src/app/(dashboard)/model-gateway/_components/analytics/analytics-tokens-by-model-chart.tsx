@@ -12,7 +12,7 @@ import {
   ChartTooltipContent,
   ChartLegendContent,
   type ChartConfig,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { AnalyticsModelTokenBucket } from '../../_types';
 
 // ── Palette ───────────────────────────────────────────────────────────────────

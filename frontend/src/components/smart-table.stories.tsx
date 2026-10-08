@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack, Text } from '@orbit/terra';
-import { Example, Option, OptionTable } from '../packages/terra/src/docs/story-ui';
+import { Stack, Text } from '@orbit/hades';
+import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { PreferencesProvider } from '../app/(dashboard)/_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../app/(dashboard)/_preferences/preferences.schema';
 import { SmartTable, type DataTableColumn } from './smart-table';

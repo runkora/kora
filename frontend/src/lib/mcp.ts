@@ -8,7 +8,7 @@
  * path: POST /v1/mcp/<server> (ADR 2026-06-29 Decision 5, per-server mounts) — a
  * client connects per server, not to one aggregate endpoint.
  */
-import type { IconName } from '@orbit/terra';
+import type { IconName } from '@orbit/hades';
 
 /** The `api.` host an MCP client uses to reach the gateway, derived from the dashboard origin. */
 export function mcpGatewayHost(): string {

@@ -1,6 +1,6 @@
 'use client';
 
-import { Stack, Text } from '@orbit/terra';
+import { Stack, Text } from '@orbit/hades';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

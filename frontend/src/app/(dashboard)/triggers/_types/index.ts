@@ -11,7 +11,7 @@
  * (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
  */
 
-import type { IconName } from '@orbit/terra';
+import type { IconName } from '@orbit/hades';
 import type {
   InputField,
   SenderRestriction,
@@ -486,7 +486,7 @@ export const DELIVERY_EXCERPT_MAX = 120;
  * `kind`; the panel shows the untrimmed form.
  *
  * Note: `text` for `excerpt` is derived from `payload_excerpt`, which is
- * untrusted webhook data — it is rendered through Terra `<Text>` (React-escaped),
+ * untrusted webhook data — it is rendered through Hades `<Text>` (React-escaped),
  * never as HTML.
  */
 export type DeliveryDetail =

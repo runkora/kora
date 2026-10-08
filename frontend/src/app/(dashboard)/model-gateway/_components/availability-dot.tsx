@@ -1,4 +1,4 @@
-import { StatusDot } from '@orbit/terra';
+import { StatusDot } from '@orbit/hades';
 import type { ModelStatus } from '../_types';
 
 interface AvailabilityDotProps {

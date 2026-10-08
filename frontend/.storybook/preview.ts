@@ -1,9 +1,9 @@
 import type { Decorator, Preview } from '@storybook/react';
-import '../src/packages/terra/src/tokens/tokens.css';
+import '../src/packages/hades/src/tokens/tokens.css';
 import './canvas.css';
 import './docs.css';
 
-// Sets the selected brand and theme on <html>, where Terra's token selectors apply.
+// Sets the selected brand and theme on <html>, where Hades' token selectors apply.
 const withBrand: Decorator = (Story, context) => {
   const { brand, theme } = context.globals;
   const root = document.documentElement;
@@ -39,7 +39,7 @@ const preview: Preview = {
   },
   initialGlobals: { brand: 'kora', theme: 'dark' },
   parameters: {
-    // The canvas uses Terra's background colour, so it changes with the brand and theme.
+    // The canvas uses Hades' background colour, so it changes with the brand and theme.
     backgrounds: { disabled: true },
     layout: 'padded',
     controls: {
@@ -53,7 +53,7 @@ const preview: Preview = {
         order: [
           'Kora',
           ['Brand', '*'],
-          'Terra',
+          'Hades',
           [
             'Overview',
             'Foundation',

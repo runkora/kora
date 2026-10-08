@@ -109,7 +109,7 @@ orbit/
 │   ├── go.mod
 │   └── go.sum
 │
-├── frontend/                         # Next.js app + Terra design system (see frontend/README.md)
+├── frontend/                         # Next.js app + Hades design system (see frontend/README.md)
 ├── charts/                           # Helm charts (platform + tenant)
 ├── config/dex/                       # Local Dex OIDC provider config
 ├── scripts/                          # auth-device.sh, setup helpers

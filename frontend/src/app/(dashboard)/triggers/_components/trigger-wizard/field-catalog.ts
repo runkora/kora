@@ -6,7 +6,7 @@
  */
 
 import { deriveFieldKey } from './wizard-state';
-import { parseTemplate, type TemplateCatalogEntry } from '@orbit/terra';
+import { parseTemplate, type TemplateCatalogEntry } from '@orbit/hades';
 import type { TriggerField } from '@orbit/shared/api';
 import type { FieldCatalogEntry, WizardField } from './types';
 
@@ -81,7 +81,7 @@ export function manualCatalog(fields: WizardField[]): FieldCatalogEntry[] {
   );
 }
 
-/** Adapts this wizard's catalog to Terra's TemplateField. */
+/** Adapts this wizard's catalog to Hades' TemplateField. */
 export function toTemplateCatalog(entries: FieldCatalogEntry[]): TemplateCatalogEntry[] {
   return entries.map((e) => ({
     token: e.token,

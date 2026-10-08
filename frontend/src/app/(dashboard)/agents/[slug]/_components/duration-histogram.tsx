@@ -3,7 +3,7 @@
 /** @tier 3 · agents/[slug]-scoped. Run counts by duration, with an overflow bar and a p95 marker when capped. */
 
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
-import { ChartContainer, Stack, Text, donutSegmentColor } from '@orbit/terra';
+import { ChartContainer, Stack, Text, donutSegmentColor } from '@orbit/hades';
 import { formatDuration } from '../../_types';
 import type { AgentRunStats } from '@orbit/shared/api';
 

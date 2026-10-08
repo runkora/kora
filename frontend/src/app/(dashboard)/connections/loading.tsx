@@ -10,7 +10,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 /**
  * The Connections page fetches the read-only connection catalog and per-connection

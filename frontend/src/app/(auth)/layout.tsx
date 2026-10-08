@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { Stack } from '@orbit/terra';
+import { Stack } from '@orbit/hades';
 
 /**
  * Auth layout — centered, no chrome.

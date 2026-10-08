@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Icon, Stack, Text } from '@orbit/terra';
+import { Button, Icon, Stack, Text } from '@orbit/hades';
 
 // ── Props (all fetched server-side, passed as serialisable data) ──────────────
 
@@ -601,7 +601,7 @@ function ResultCard({ children }: { children: React.ReactNode }) {
 }
 
 function Strong({ children }: { children: React.ReactNode }) {
-  // Inherit the surrounding sentence's size/line-height — otherwise Terra's Text
+  // Inherit the surrounding sentence's size/line-height — otherwise Hades' Text
   // default size makes bold words jump larger than the text around them.
   return (
     <Text

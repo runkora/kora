@@ -12,7 +12,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 /**
  * The dashboard home fetches agents, runs, connections, environments and

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '@orbit/terra';
-import { Example, Option, OptionTable } from '../packages/terra/src/docs/story-ui';
+import { Stack } from '@orbit/hades';
+import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { StatusBadge } from './status-badge';
 
 /**

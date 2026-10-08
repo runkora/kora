@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import type { McpCatalogTool } from '@orbit/shared/api';
-import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@orbit/terra';
+import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@orbit/hades';
 import {
   MCP_CLIENTS,
   buildMcpConfig,
@@ -17,7 +17,7 @@ import { buildDomainGroups, relativeTime, serverRollupScope, statusColor } from 
 import { ServerAvatar } from './server-avatar';
 import { ConfigBlock } from './config-block';
 
-// Terra caption/micro variants are leading-none; the spec composed these labels
+// Hades caption/micro variants are leading-none; the spec composed these labels
 // on the default 1.5 line box. `lineHeight` is kept inline where the line box
 // height is load-bearing for the surrounding layout (stacked rows, chip rows).
 // Font sizes 13/15/17/26px sit more than a sub-pixel from any Text/Heading

@@ -1,4 +1,4 @@
-# Terra Reusable Wizard Flow — Product Requirements Document
+# Hades Reusable Wizard Flow — Product Requirements Document
 
 **Status:** In Review  
 **Created:** 2026-08-03  
@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-kora now has two wizard flows — the agent builder and the trigger wizard — both built from the same structural pattern but implemented independently at Tier 3. The agent builder ADR noted explicitly that the shell was intended to be reused the moment a second builder-shaped flow adopted it; the trigger wizard is that second flow. This PRD ratifies the promotion: a set of Terra Tier 1 components covering the wizard chrome, the step rail, and the review summary card, so that the next wizard composes the pattern from the design system rather than reconstructing it by hand.
+kora now has two wizard flows — the agent builder and the trigger wizard — both built from the same structural pattern but implemented independently at Tier 3. The agent builder ADR noted explicitly that the shell was intended to be reused the moment a second builder-shaped flow adopted it; the trigger wizard is that second flow. This PRD ratifies the promotion: a set of Hades Tier 1 components covering the wizard chrome, the step rail, and the review summary card, so that the next wizard composes the pattern from the design system rather than reconstructing it by hand.
 
 ---
 
@@ -24,7 +24,7 @@ Both the agent builder (`agents/_components/builder/`) and the trigger wizard (`
 - A step rail built from `StepDot` and `StepConnector`, with steps rendered as ghost tile buttons, a `done ? check : index` inside each dot, a disabled-past-`maxVisited` rule, and a fixed info card at the bottom.
 - A review step composed of `ReviewGroup` cards — `Card > CardHeader (icon + title + Edit button) > CardContent (key/value rows separated by Separators)` — one card per preceding wizard step.
 
-None of this lives in Terra. The step rail is written twice as `StepRail` (agents) and `WizardRail` (triggers). `ReviewGroup` is a private function in each feature's `step-review.tsx`. The overall modal chrome — header, progress strip, two-column layout, footer — is embedded in each feature's modal component. The row type is named differently (`{ k, v }` vs `{ key, value }`), and the triggers version has a `children` slot the agents version lacks.
+None of this lives in Hades. The step rail is written twice as `StepRail` (agents) and `WizardRail` (triggers). `ReviewGroup` is a private function in each feature's `step-review.tsx`. The overall modal chrome — header, progress strip, two-column layout, footer — is embedded in each feature's modal component. The row type is named differently (`{ k, v }` vs `{ key, value }`), and the triggers version has a `children` slot the agents version lacks.
 
 ### User Pain Points
 
@@ -42,21 +42,21 @@ kora's builder-modal pattern is now established as the right shape for multi-ste
 
 ### Primary Goals
 
-1. Promote the wizard chrome, step rail, and review summary card to Terra Tier 1 as a single compound component: `import { Wizard } from '@orbit/terra'`.
+1. Promote the wizard chrome, step rail, and review summary card to Hades Tier 1 as a single compound component: `import { Wizard } from '@orbit/hades'`.
 2. Migrate both existing wizards to consume the promoted components, eliminating the duplicated implementations.
 3. Ensure the promoted API is opinionated enough to keep future wizards visually consistent, without constraining how they manage state.
 
 ### Success Metrics
 
-- `StepRail`, `WizardRail`, and the private `ReviewGroup` functions in both feature directories are replaced by the Terra components, with no net change to the visual output.
-- A third wizard can be built by composing only Terra and Tier 2/3 components, without writing any structural chrome from scratch.
+- `StepRail`, `WizardRail`, and the private `ReviewGroup` functions in both feature directories are replaced by the Hades components, with no net change to the visual output.
+- A third wizard can be built by composing only Hades and Tier 2/3 components, without writing any structural chrome from scratch.
 - `pnpm lint && pnpm tsc --noEmit` pass with zero errors after migration.
 
 ### Non-Goals
 
 - **Wizard state management.** The hook-plus-context pattern the agent builder uses and the local `useState` pattern the trigger wizard uses are both correct for their cases. This PRD does not unify them.
 - **A new feature wizard.** This work is a promotion and migration, not a product feature. No new wizard is built here.
-- **The modal size itself.** `Modal size="builder"` already exists in Terra as a consequence of the agent builder ADR. This work sits inside it, not around it.
+- **The modal size itself.** `Modal size="builder"` already exists in Hades as a consequence of the agent builder ADR. This work sits inside it, not around it.
 - **KindPicker or SuccessPanel generalisation.** These are feature-specific screens within the trigger wizard and agent builder respectively, with no shared structure worth promoting yet.
 
 ---
@@ -64,7 +64,7 @@ kora's builder-modal pattern is now established as the right shape for multi-ste
 ## User Stories
 
 **As a** frontend developer building a new wizard-style flow,  
-**I want to** import a single `Wizard` compound component from Terra,  
+**I want to** import a single `Wizard` compound component from Hades,  
 **So that** I can compose a consistent multi-step builder without reconstructing the pattern, and the names alone communicate what each piece is for.
 
 **Acceptance Criteria:**
@@ -78,17 +78,17 @@ kora's builder-modal pattern is now established as the right shape for multi-ste
 - [ ] `Wizard.ReviewCard` renders a `Card` with icon, title, optional Edit action, key/value rows with `Separator` dividers, and an optional `children` slot for block-level content.
 - [ ] TypeScript enforces that `Wizard` receives a `rail` prop typed as `Wizard.Rail` (optional, not required when fullPage step is active).
 - [ ] All sub-components have co-located Storybook stories with autodocs.
-- [ ] The Terra reference doc (`frontend/docs/reference/terra-design-system.md`) and component placement doc (`frontend/docs/reference/component-placement.md`) are updated in the same change.
+- [ ] The Hades reference doc (`frontend/docs/reference/hades-design-system.md`) and component placement doc (`frontend/docs/reference/component-placement.md`) are updated in the same change.
 
 ---
 
 **As a** developer maintaining an existing wizard,  
-**I want to** migrate to the shared Terra components without any visible change,  
+**I want to** migrate to the shared Hades components without any visible change,  
 **So that** the migration is low-risk and reviewable as a straight substitution.
 
 **Acceptance Criteria:**
-- [ ] The agent builder's `StepRail` and `step-review.tsx`'s `ReviewGroup` are replaced by the Terra components.
-- [ ] The trigger wizard's `WizardRail` and `step-review.tsx`'s `ReviewGroup` are replaced by the Terra components.
+- [ ] The agent builder's `StepRail` and `step-review.tsx`'s `ReviewGroup` are replaced by the Hades components.
+- [ ] The trigger wizard's `WizardRail` and `step-review.tsx`'s `ReviewGroup` are replaced by the Hades components.
 - [ ] Screenshots before and after are indistinguishable (verified in local cluster, per `make cluster-update`).
 
 ---
@@ -160,7 +160,7 @@ A single compound component exported as `Wizard`, with static sub-components tha
 
 ### Migration
 
-Both existing implementations are replaced by the Terra components in the same change that introduces them, per the motif-component-promotion precedent. Row property names are normalised to `{ label, value, mono? }`.
+Both existing implementations are replaced by the Hades components in the same change that introduces them, per the motif-component-promotion precedent. Row property names are normalised to `{ label, value, mono? }`.
 
 ---
 
@@ -168,14 +168,14 @@ Both existing implementations are replaced by the Terra components in the same c
 
 ### In Scope
 
-- `Wizard` compound component in Terra, with sub-components `Header`, `Rail`, `Step`, `ReviewStep`, `ReviewCard`, and `Footer`.
+- `Wizard` compound component in Hades, with sub-components `Header`, `Rail`, `Step`, `ReviewStep`, `ReviewCard`, and `Footer`.
 - Co-located Storybook stories with autodocs for the compound component and each sub-component.
 - Migration of agents and triggers modal headers → `Wizard.Header`.
 - Migration of `agents/_components/builder/step-rail.tsx` → `Wizard.Rail`.
 - Migration of `agents/_components/builder/step-review.tsx`'s `ReviewGroup` → `Wizard.ReviewCard`.
 - Migration of `triggers/_components/trigger-wizard/wizard-rail.tsx` → `Wizard.Rail`.
 - Migration of `triggers/_components/trigger-wizard/step-review.tsx`'s `ReviewGroup` → `Wizard.ReviewCard`.
-- Updates to `frontend/docs/reference/terra-design-system.md` and `frontend/docs/reference/component-placement.md`.
+- Updates to `frontend/docs/reference/hades-design-system.md` and `frontend/docs/reference/component-placement.md`.
 
 ### Out of Scope
 
@@ -191,7 +191,7 @@ Both existing implementations are replaced by the Terra components in the same c
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] `Wizard` and all sub-components exported from `@orbit/terra`.
+- [ ] `Wizard` and all sub-components exported from `@orbit/hades`.
 - [ ] Each sub-component: `forwardRef`, `cva` variants where applicable, `data-slot`, `.displayName`, co-located story with `tags: ['autodocs']`.
 - [ ] `Wizard`'s `rail` prop typed as `React.ReactElement<WizardRailProps>` — passing non-Rail content is a TypeScript error.
 - [ ] Row property naming normalised to `{ label, value, mono? }` across both wizards.

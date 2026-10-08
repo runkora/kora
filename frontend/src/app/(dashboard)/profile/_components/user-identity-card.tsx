@@ -14,7 +14,7 @@ import {
   Icon,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { IronSession } from 'iron-session';
 import type { SessionPayload } from '@orbit/server/auth-config';
 

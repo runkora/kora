@@ -1,4 +1,4 @@
-import { Badge, Stack } from '@orbit/terra';
+import { Badge, Stack } from '@orbit/hades';
 import { providerLabel, providerTitle, providerBadgeVariant } from '../_utils/catalog-constants';
 
 interface ProviderBadgeProps {

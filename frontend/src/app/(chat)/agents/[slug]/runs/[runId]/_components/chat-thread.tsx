@@ -13,7 +13,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Button, Icon, Stack, Text, OrbitalLoader } from '@orbit/terra';
+import { Button, Icon, Stack, Text, OrbitalLoader } from '@orbit/hades';
 import { useRunContext } from '../_context/run-context';
 import { HumanTurnItem } from './human-turn';
 import { AgentTurnItem } from './agent-turn';

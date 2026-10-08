@@ -118,7 +118,7 @@ The template is kept with its placeholders as written. The named values follow i
 
 ## Decision
 
-**1C, 2B, 3B and 4B.** The console reuses Terra's existing picker (Decision 5).
+**1C, 2B, 3B and 4B.** The console reuses Hades' existing picker (Decision 5).
 
 ### Decision 1: Each provider supplies a schema; shared code builds the catalogue
 
@@ -282,14 +282,14 @@ The GitHub adapter implements `senderIdentifier`. `Login` is `sender.login`, low
 
 The API rejects a restriction on a trigger whose source's adapter does not implement `senderIdentifier`, and rejects associations outside the adapter's `Associations()`. Alertmanager does not implement it. The `event-types` responses carry the adapter's associations, empty when it identifies no sender, and the console builds the control from them. Listed logins are stored normalised.
 
-### Decision 5: The console reads the catalogue through Terra's existing picker
+### Decision 5: The console reads the catalogue through Hades' existing picker
 
-Terra's `TemplateCatalogList` is a searchable, grouped picker with keyboard navigation, and already backs `TemplateField`. Its `TemplateCatalogEntry` has `token`, `description`, `group` and `pattern`, which map from `Field` directly.
+Hades' `TemplateCatalogList` is a searchable, grouped picker with keyboard navigation, and already backs `TemplateField`. Its `TemplateCatalogEntry` has `token`, `description`, `group` and `pattern`, which map from `Field` directly.
 
 - **Event type:** a `Popover` with `TemplateCatalogList` over `declared` and `observed`, replacing `PROVIDER_EVENTS`.
 - **Prompt builder:** `TemplateField` gets its catalogue from the provider's fields endpoint for the chosen event type.
 - **Filter row:** a searchable field dropdown and a free-form value box. A `Popover` with `TemplateCatalogList` replaces the `NativeSelect` in `filter-rows-editor.tsx`, and the value box is unchanged.
-- **Pattern fields:** picking an entry such as `commonLabels.<name>` asks for the name in a Terra `Input` and produces `commonLabels.severity`.
+- **Pattern fields:** picking an entry such as `commonLabels.<name>` asks for the name in a Hades `Input` and produces `commonLabels.severity`.
 - **Enum hints:** for a field with `Enum`, the value box's placeholder lists the allowed values.
 - **Preview:** for webhook triggers, the template preview renders the data block form.
 

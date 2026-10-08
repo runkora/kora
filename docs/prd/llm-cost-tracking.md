@@ -340,7 +340,7 @@ Role-appropriate views surface cost data from the existing analytics endpoints. 
 - **Analytics Endpoints** (ADR-0043, fully implemented): `GET /v1/analytics`, `GET /v1/analytics/me`, `GET /v1/analytics/principals` are the API layer for all three dashboard scopes.
 - **Platform Token / Claims** (`internal/platform/token/claims.go`, fully implemented): `PrincipalType` and `TenantID` are used to scope budget checks.
 - **OTel Observability** (`internal/platform/observability/`, fully implemented): Wraps new operations with spans.
-- **Terra Design System** (fully implemented): All frontend cost dashboard components must use Terra primitives.
+- **Hades Design System** (fully implemented): All frontend cost dashboard components must use Hades primitives.
 
 ### External Dependencies
 

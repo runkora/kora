@@ -10,14 +10,14 @@ This guide covers how to run tests, how the test tiers work, and how to write ne
 # All frontend tests (unit + integration)
 make frontend-test
 
-# Unit tests only (Terra + app — fast, no MSW, no network)
+# Unit tests only (Hades + app — fast, no MSW, no network)
 make frontend-test-unit
 
 # Integration tests only (MSW-backed, BFF routes + components)
 make frontend-test-integration
 
-# Terra component tests only (fast inner loop when working on Terra)
-make frontend-test-terra
+# Hades component tests only (fast inner loop when working on Hades)
+make frontend-test-hades
 
 # E2E tests (Playwright — spins up the Next.js dev server)
 make frontend-test-e2e
@@ -35,12 +35,12 @@ Coverage HTML reports are written to `frontend/coverage/unit/` and `frontend/cov
 
 ### Tier 1: Unit Tests (`*.test.ts`, `*.test.tsx`)
 
-Pure-function and isolated-component tests with no network. Run under Vitest + jsdom (app) or happy-dom (Terra).
+Pure-function and isolated-component tests with no network. Run under Vitest + jsdom (app) or happy-dom (Hades).
 
 - **Location**: colocated with the file under test
-- **Config**: `vitest.config.unit.ts` (app), `vitest.config.ts` (Terra)
+- **Config**: `vitest.config.unit.ts` (app), `vitest.config.ts` (Hades)
 - **No** MSW, no `server` import, no async fetch
-- **Target**: pure utilities, routing helpers, Terra components in isolation
+- **Target**: pure utilities, routing helpers, Hades components in isolation
 
 ```ts
 // src/lib/routing/routes.test.ts
@@ -52,12 +52,12 @@ it('rejects an absolute URL', () => {
 });
 ```
 
-### Tier 2: Component Tests (Terra, `*.test.tsx`)
+### Tier 2: Component Tests (Hades, `*.test.tsx`)
 
-Terra components tested with `happy-dom` via their own `vitest.config.ts`. These tests live inside `src/packages/terra/` and run in complete isolation from the app.
+Hades components tested with `happy-dom` via their own `vitest.config.ts`. These tests live inside `src/packages/hades/` and run in complete isolation from the app.
 
 ```tsx
-// src/packages/terra/src/components/button/button.test.tsx
+// src/packages/hades/src/components/button/button.test.tsx
 import { render, screen } from '@testing-library/react';
 import { Button } from './button';
 
@@ -207,8 +207,8 @@ Coverage thresholds are **reporting-only**: they surface trends but never block 
 |------|-------|------------|-----------|---------|
 | App unit | 15% | 15% | 15% | 10% |
 | App integration | 15% | 15% | 15% | 10% |
-| Terra (vitest.config.ts) | n/a | n/a | n/a | n/a |
+| Hades (vitest.config.ts) | n/a | n/a | n/a | n/a |
 
-Phase 3 targets: App ≥ 45%, Terra ≥ 70%.
+Phase 3 targets: App ≥ 45%, Hades ≥ 70%.
 
 Coverage reports are uploaded as CI artifacts on every PR merge to `main`. A meaningful decline triggers a team review, not an automated block.

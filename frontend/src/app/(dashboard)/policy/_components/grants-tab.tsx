@@ -28,8 +28,8 @@ import {
   PageSectionHeader,
   EmptyState,
   ConfirmDialog,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import type {
