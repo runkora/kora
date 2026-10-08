@@ -823,7 +823,7 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 	})
 	if err != nil {
 		if reason := p.unschedulableReason(ctx, name, namespace); reason != "" {
-			return nil, fmt.Errorf("%w: %s: %w", errSandboxUnschedulable, reason, err)
+			return nil, &unschedulableError{reason: reason, err: err}
 		}
 		return nil, err
 	}
@@ -835,6 +835,20 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 
 // errSandboxUnschedulable reports a sandbox pod the scheduler could not place before the wait ended.
 var errSandboxUnschedulable = errors.New("sandbox pod unschedulable")
+
+// unschedulableError carries the scheduler's reason for a sandbox pod it could not place.
+type unschedulableError struct {
+	reason string
+	err    error
+}
+
+func (e *unschedulableError) Error() string {
+	return fmt.Sprintf("%s: %s: %v", errSandboxUnschedulable, e.reason, e.err)
+}
+
+func (e *unschedulableError) Is(target error) bool { return target == errSandboxUnschedulable }
+
+func (e *unschedulableError) Unwrap() error { return e.err }
 
 // unschedulableReason returns the scheduler's message for a pod it has not placed, or "" when it was placed.
 // The read survives the caller's cancelled context so a timed-out wait can still report why.

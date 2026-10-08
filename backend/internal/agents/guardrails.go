@@ -108,15 +108,21 @@ type SandboxGuardrails struct {
 // readyWaitMargin ends the pod wait before the session-manager's attempt does, so the attempt hears why.
 const readyWaitMargin = 5 * time.Second
 
-// ReadyWait is how long one provision waits for a sandbox pod: one attempt's share of the budget, less a margin.
-// It returns zero when the budget or the attempt count is unset.
+// ReadyWait is how long one provision waits for a sandbox pod: one attempt's share of the budget
+// left after the backoffs between attempts, less a margin. It returns zero when the budget or the attempt count is unset.
 func (g SandboxGuardrails) ReadyWait() time.Duration {
 	if g.ProvisionAttempts <= 0 || g.ProvisionBudgetSecs <= 0 {
 		return 0
 	}
-	share := time.Duration(g.ProvisionBudgetSecs) * time.Second / time.Duration(g.ProvisionAttempts)
+	left := time.Duration(g.ProvisionBudgetSecs) * time.Second
+	backoff := time.Duration(g.ProvisionBackoffSecs) * time.Second
+	for range g.ProvisionAttempts - 1 {
+		left -= backoff
+		backoff *= 2
+	}
+	share := left / time.Duration(g.ProvisionAttempts)
 	if share <= readyWaitMargin {
-		return share
+		return max(share, 0)
 	}
 	return share - readyWaitMargin
 }

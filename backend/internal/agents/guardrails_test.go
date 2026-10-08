@@ -105,15 +105,17 @@ func TestStartRun_SendsGuardrails(t *testing.T) {
 	}
 }
 
-// The pod wait ends inside one attempt's share of the budget, and an unset budget leaves the default.
+// The pod wait ends inside one attempt's share of the budget left after the backoffs. An unset budget leaves the default.
 func TestSandboxGuardrails_ReadyWait(t *testing.T) {
 	for _, tc := range []struct {
 		g    SandboxGuardrails
 		want time.Duration
 	}{
-		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBudgetSecs: 300}, 95 * time.Second},
-		{SandboxGuardrails{ProvisionAttempts: 1, ProvisionBudgetSecs: 320}, 315 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 5, ProvisionBudgetSecs: 300}, 90 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 30, ProvisionBudgetSecs: 300}, 65 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 1, ProvisionBackoffSecs: 5, ProvisionBudgetSecs: 320}, 315 * time.Second},
 		{SandboxGuardrails{ProvisionAttempts: 4, ProvisionBudgetSecs: 8}, 2 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 200, ProvisionBudgetSecs: 300}, 0},
 		{SandboxGuardrails{ProvisionBudgetSecs: 300}, 0},
 		{SandboxGuardrails{ProvisionAttempts: 3}, 0},
 	} {

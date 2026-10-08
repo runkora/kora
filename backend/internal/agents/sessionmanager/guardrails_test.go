@@ -190,6 +190,7 @@ type failingNotifier struct {
 	NoopNotifier
 	mu        sync.Mutex
 	failures  int
+	failWith  error // the error each failing attempt returns; nil returns a plain 500
 	calls     int
 	runErrors []RunErrorPayload
 	warnings  []GuardrailWarningPayload
@@ -201,6 +202,9 @@ func (n *failingNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, 
 	defer n.mu.Unlock()
 	n.calls++
 	if n.calls <= n.failures {
+		if n.failWith != nil {
+			return Sandbox{}, n.failWith
+		}
 		return Sandbox{}, errors.New("provision-sandbox returned 500")
 	}
 	// An address nothing listens on, so the egress canary fails at once.
@@ -508,7 +512,7 @@ func TestMarkSandboxLost_StaleEpochIsIgnored(t *testing.T) {
 	s := reg.sessions["run-1"]
 	epoch := s.sandboxEpoch.Load()
 	reg.userReplied(s)
-	if reg.markSandboxLost(context.Background(), s, 3, epoch) {
+	if reg.markSandboxLost(context.Background(), s, 3, "", epoch) {
 		t.Fatal("markSandboxLost claimed a loss from before the user replied")
 	}
 	if s.sandboxLost.Load() || len(n.runErrors) != 0 {
@@ -614,4 +618,24 @@ func TestRunGuardrails_WireMatchesTheClient(t *testing.T) {
 // setGuardrails replaces the registry's fallback thresholds for a test.
 func setGuardrails(reg *Registry, g Guardrails) {
 	reg.guardrails = g.withDefaults()
+}
+
+// A sandbox no node can place names the scheduler's reason to the user and the agent.
+func TestProvisionSandbox_LostUnschedulableCarriesReason(t *testing.T) {
+	reason := "0/3 nodes are available: 3 Insufficient cpu."
+	n := &failingNotifier{failures: 100, failWith: fmt.Errorf("%w: %s", ErrSandboxUnschedulable, reason)}
+	reg, _ := newTestRegistry(t, n)
+	setGuardrails(reg, fastGuardrails())
+	hostSession(reg, "run-1")
+	reg.sessions["run-1"].runner = newStubRunner(nil)
+
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); !errors.Is(err, ErrSandboxLost) {
+		t.Fatalf("err = %v, want ErrSandboxLost", err)
+	}
+	if len(n.runErrors) != 1 || !strings.Contains(n.runErrors[0].Message, reason) {
+		t.Fatalf("run errors = %v, want the scheduler's reason", n.runErrors)
+	}
+	if got := reg.sandboxLostMessage("run-1"); !strings.Contains(got, reason) {
+		t.Errorf("lost message = %q, want the scheduler's reason", got)
+	}
 }

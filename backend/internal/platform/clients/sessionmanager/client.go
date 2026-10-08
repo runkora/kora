@@ -28,6 +28,10 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
+// ErrCodeSandboxUnschedulable marks orbit-agents' 503 for a sandbox pod that no node could place.
+// The error message is the scheduler's reason.
+const ErrCodeSandboxUnschedulable = "sandbox_unschedulable"
+
 const (
 	tracerName    = "orbit.sessionmanager-client"
 	clientTimeout = 30 * time.Second

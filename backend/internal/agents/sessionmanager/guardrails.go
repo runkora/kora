@@ -174,6 +174,9 @@ func carrySandboxState(from, to *session) {
 	to.sandboxLost.Store(from.sandboxLost.Load())
 	to.guardrails = from.guardrails
 	to.lostAttempts.Store(from.lostAttempts.Load())
+	if reason, ok := from.lostReason.Load().(string); ok {
+		to.lostReason.Store(reason)
+	}
 }
 
 // userReplied lifts the guardrails' hold on a run: the user is back in the loop
@@ -190,13 +193,14 @@ func (reg *Registry) userReplied(s *session) {
 // the user, and a flag that makes further provision requests fail fast. It
 // does nothing, and reports false, when the user replied after the retries
 // began (epoch moved on): their reply lifted the block.
-func (reg *Registry) markSandboxLost(ctx context.Context, s *session, attempts int, epoch int64) bool {
+func (reg *Registry) markSandboxLost(ctx context.Context, s *session, attempts int, reason string, epoch int64) bool {
 	s.lostMu.Lock()
 	if s.sandboxEpoch.Load() != epoch {
 		s.lostMu.Unlock()
 		return false
 	}
 	s.lostAttempts.Store(int64(attempts))
+	s.lostReason.Store(reason)
 	first := !s.sandboxLost.Swap(true)
 	s.lostMu.Unlock()
 	if first {
@@ -209,11 +213,15 @@ func (reg *Registry) markSandboxLost(ctx context.Context, s *session, attempts i
 // and what to do next. It is the same text on both sides.
 func (reg *Registry) sandboxLostMessage(runID string) string {
 	attempts := reg.guardrails.SandboxProvisionAttempts
+	cause := ""
 	reg.mu.RLock()
 	if s, ok := reg.sessions[runID]; ok {
 		attempts = reg.limits(s).SandboxProvisionAttempts
 		if n := s.lostAttempts.Load(); n > 0 {
 			attempts = int(n)
+		}
+		if reason, ok := s.lostReason.Load().(string); ok && reason != "" {
+			cause = " The cluster has no node that can run it: " + reason
 		}
 	}
 	reg.mu.RUnlock()
@@ -222,10 +230,19 @@ func (reg *Registry) sandboxLostMessage(runID string) string {
 	if _, err := os.Stat(workspace); err != nil {
 		survived = workspace + " could not be found, so its files may be lost too."
 	}
-	return fmt.Sprintf("The sandbox for this run is gone and could not be re-provisioned after %d attempt(s). %s "+
+	return fmt.Sprintf("The sandbox for this run is gone and could not be re-provisioned after %d attempt(s).%s %s "+
 		"Files outside %s are lost. Shell commands and provision_sandbox will fail until the user replies: "+
 		"tell the user what you completed and what remains, then end your turn.",
-		attempts, survived, workspace)
+		attempts, cause, survived, workspace)
+}
+
+// unschedulableReason returns the scheduler's reason from a provision error, or "" when the pod was not unschedulable.
+func unschedulableReason(err error) string {
+	if err == nil || !errors.Is(err, ErrSandboxUnschedulable) {
+		return ""
+	}
+	msg := err.Error()
+	return strings.TrimPrefix(msg[strings.Index(msg, ErrSandboxUnschedulable.Error()):], ErrSandboxUnschedulable.Error()+": ")
 }
 
 // loopVerdict is what the loop guard decided about the latest event.

@@ -47,6 +47,21 @@ func TestHTTPNotifier_EnvironmentRejected(t *testing.T) {
 	}
 }
 
+// A 503 marked sandbox_unschedulable carries the scheduler's reason.
+func TestHTTPNotifier_SandboxUnschedulable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write([]byte(`{"code":"sandbox_unschedulable","message":"0/3 nodes are available: 3 Insufficient cpu."}`))
+	}))
+	defer srv.Close()
+	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+
+	_, err := n.ProvisionSandbox(context.Background(), "run-1", false, "", false)
+	if !errors.Is(err, ErrSandboxUnschedulable) || unschedulableReason(err) != "0/3 nodes are available: 3 Insufficient cpu." {
+		t.Fatalf("err = %v, reason %q, want ErrSandboxUnschedulable with the scheduler's reason", err, unschedulableReason(err))
+	}
+}
+
 // envNotifier refuses every provision and answers a replacement with a sandbox at a dead address.
 type envNotifier struct {
 	NoopNotifier
