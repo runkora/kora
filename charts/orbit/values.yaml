@@ -705,6 +705,43 @@ agents:
     affinity: {}
     topologySpreadConstraints: []
 
+# Node agent that gives each sandbox a working folder on its own local disk,
+# mounted into its session-manager pod at /workspaces/<run>/sandbox
+# (docs/adr/2026-10-08-sandbox-workspace-mount.md). The agent runs privileged in
+# the host network on every node. It exports the folder with the kernel NFS
+# server on the sandbox's node and mounts it on the session-manager's node.
+# Nodes need the kernel nfsd and NFSv4 client modules and must reach each other
+# on TCP 2049.
+sandboxMount:
+  # -- Run the node agent and give every new sandbox a local working folder.
+  enabled: false
+  # -- Namespace of the node agent. The system namespace's Pod Security level
+  # rejects privileged pods.
+  namespace: orbit-node
+  # -- Create the namespace at the privileged Pod Security level. Set false to
+  # use a namespace you manage.
+  createNamespace: true
+  # -- The kubelet's root directory on the nodes.
+  kubeletDir: /var/lib/kubelet
+  image:
+    registry: ""
+    repository: orbit-sandbox-mount
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  # -- Added to the tolerations of agents.workloads.sandbox and
+  # agents.workloads.sessionManager, which the agent always carries.
+  tolerations: []
+  nodeSelector: {}
+  affinity: {}
+  priorityClassName: ""
+
 policyService:
   image:
     registry: ""

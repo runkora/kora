@@ -1,0 +1,121 @@
+{{- if .Values.sandboxMount.enabled }}
+{{- /* Node agent for sandbox working folders (docs/adr/2026-10-08-sandbox-workspace-mount.md). */}}
+{{- $m := .Values.sandboxMount }}
+{{- if $m.createNamespace }}
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: {{ $m.namespace }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged
+    pod-security.kubernetes.io/audit: privileged
+---
+{{- end }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: orbit-sandbox-mount
+  namespace: {{ $m.namespace }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-mount
+---
+# Reads sandbox and session-manager pods, and sets the readiness condition of a
+# sandbox whose folder it mounted.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: orbit-sandbox-mount
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-mount
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods/status]
+    verbs: [patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: orbit-sandbox-mount
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-mount
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: orbit-sandbox-mount
+subjects:
+  - kind: ServiceAccount
+    name: orbit-sandbox-mount
+    namespace: {{ $m.namespace }}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: orbit-sandbox-mount
+  namespace: {{ $m.namespace }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox-mount
+spec:
+  selector:
+    matchLabels:
+      app: orbit-sandbox-mount
+  template:
+    metadata:
+      labels:
+        app: orbit-sandbox-mount
+      annotations:
+        sidecar.istio.io/inject: "false"
+    spec:
+      serviceAccountName: orbit-sandbox-mount
+      {{- include "orbit.imagePullSecrets" . | nindent 6 }}
+      # nfsd serves, and the NFS client connects, from the node's own address.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      {{- with $m.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      {{- with $m.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $m.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with concat $m.tolerations .Values.agents.workloads.sandbox.tolerations .Values.agents.workloads.sessionManager.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: sandbox-mount
+          image: {{ include "orbit.imageRef" (dict "root" $ "image" $m.image) | quote }}
+          imagePullPolicy: {{ $m.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+          env:
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+          # Mounting filesystems and starting the kernel NFS server need full privileges on the node.
+          securityContext:
+            privileged: true
+          resources:
+            {{- toYaml $m.resources | nindent 12 }}
+          volumeMounts:
+            # Bidirectional: mounts the agent makes here reach the host, and from there the session-manager pods.
+            - name: kubelet
+              mountPath: /var/lib/kubelet
+              mountPropagation: Bidirectional
+      volumes:
+        - name: kubelet
+          hostPath:
+            path: {{ $m.kubeletDir }}
+            type: Directory
+{{- end }}

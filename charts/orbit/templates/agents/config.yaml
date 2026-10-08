@@ -40,6 +40,7 @@ cmd/orbit-agents:
     sessionManager:
       authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
       nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
+    sandboxMount: {{ .Values.sandboxMount.enabled }}
 {{ include "orbit.observabilityConfigModule" . }}
 {{ include "orbit.storageConfigModule" . }}
 {{ include "orbit.tokenConfigModule" . }}
