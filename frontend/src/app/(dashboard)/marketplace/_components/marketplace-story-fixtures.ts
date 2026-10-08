@@ -18,7 +18,8 @@ export const marketplaceStorySkills: PackageOverview[] = [
   {
     slug: 'platform-engineering/skills/react-expert',
     title_of_package: 'React Expert',
-    description: 'Reviews React components for accessibility, state handling, and clear interfaces.',
+    description:
+      'Reviews React components for accessibility, state handling, and clear interfaces.',
   },
   {
     slug: 'platform-engineering/skills/react-reviewer',
