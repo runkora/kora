@@ -514,7 +514,7 @@ func (r *postgresRepository) GetDeliveryByProviderID(ctx context.Context, source
 	`, sourceID, providerDeliveryID)
 }
 
-func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
+func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error) {
 	columns := deliveryColumns
 	if filter.OmitPayload {
 		columns = deliveryColumnsNoPayload
@@ -548,14 +548,77 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 	if !filter.ReceivedBefore.IsZero() {
 		query += fmt.Sprintf(` AND received_at < $%d`, idx)
 		args = append(args, filter.ReceivedBefore)
+		idx++
 	}
-	query += ` ORDER BY received_at DESC`
+	if n := len(filter.Status); n > 0 {
+		// One value is emitted as scalar equality, not ANY. ANY over a
+		// parameter is a ScalarArrayOp, and pgx prepares statements, so after
+		// a few executions Postgres switches to a generic plan where the array
+		// contents are invisible: it drops idx_trigger_deliveries_tenant_status
+		// and filters over the tenant index instead. Measured on 300k rows, the
+		// ANY form discarded 101,898 rows by filter where the scalar form read
+		// 102 under an index condition. A single status is what the console
+		// sends, so it is the shape that has to hit the index.
+		if n == 1 {
+			query += fmt.Sprintf(` AND status = $%d`, idx)
+			args = append(args, filter.Status[0])
+		} else {
+			query += fmt.Sprintf(` AND status = ANY($%d)`, idx)
+			args = append(args, filter.Status)
+		}
+		idx++
+	}
+	if len(filter.Outcome) > 0 {
+		// A delivery matches when ANY of its fan-out rows holds one of these
+		// outcomes, so the filter is an EXISTS rather than a join: a join would
+		// multiply a delivery by its matching runs and corrupt both the page
+		// size and the cursor.
+		query += fmt.Sprintf(`
+		AND EXISTS (
+			SELECT 1 FROM trigger_delivery_runs dr
+			WHERE  dr.delivery_id = trigger_deliveries.id
+			  AND  dr.tenant_id   = $1
+			  AND  dr.status      = ANY($%d)`, idx)
+		args = append(args, filter.Outcome)
+		idx++
+		if filter.TriggerID != "" {
+			// In a per-trigger view the outcome shown is that trigger's own, so
+			// filtering on another trigger's outcome would contradict the column.
+			query += fmt.Sprintf(`
+			  AND  dr.trigger_id  = $%d`, idx)
+			args = append(args, filter.TriggerID)
+			idx++
+		}
+		query += `
+		)`
+	}
+	if c := filter.Cursor; c != nil {
+		// Row-tuple predicate gives a stable page boundary even when two
+		// deliveries share received_at. Strictly-less-than excludes the anchor
+		// row itself, so a page never repeats the row it started from.
+		query += fmt.Sprintf(` AND (received_at, id) < ($%d::timestamptz, $%d)`, idx, idx+1)
+		args = append(args, c.ReceivedAt, c.ID)
+		idx += 2
+	}
+	// id mirrors the cursor's tiebreaker: the ordering and the predicate have to
+	// agree or the keyset walks rows twice.
+	query += ` ORDER BY received_at DESC, id DESC`
 	// filter.Limit is already clamped by the service; the storage layer trusts
-	// its caller on business bounds and only refuses the nonsensical.
+	// its caller on business bounds and only refuses the nonsensical. One row
+	// beyond the page answers "is there more" without a COUNT(*) over the
+	// filtered set.
 	limit := max(filter.Limit, 1)
-	query += fmt.Sprintf(` LIMIT %d`, limit)
+	query += fmt.Sprintf(` LIMIT $%d`, idx)
+	args = append(args, limit+1)
 
-	return queryList(ctx, r.pool, "deliveries", scanDelivery, query, args...)
+	rows, err := queryList(ctx, r.pool, "deliveries", scanDelivery, query, args...)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(rows) > limit {
+		return rows[:limit], true, nil
+	}
+	return rows, false, nil
 }
 
 func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *DeliveryRun) error {

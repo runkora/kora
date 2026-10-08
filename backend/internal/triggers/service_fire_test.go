@@ -456,7 +456,7 @@ func TestDeliveryRuns_CaptureTriggerNameAndSurviveDeletion(t *testing.T) {
 	if err := deps.triggers.DeleteTrigger(ctx, testTenant, trig.ID); err != nil {
 		t.Fatalf("DeleteTrigger: %v", err)
 	}
-	listed, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{SourceID: src.ID})
+	listed, _, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{SourceID: src.ID})
 	if err != nil {
 		t.Fatalf("ListDeliveries: %v", err)
 	}
@@ -749,7 +749,7 @@ func TestListDeliveries_ReturnsCoalesceKeysAndSupersededBy(t *testing.T) {
 		t.Fatalf("InsertDeliveryRun: %v", err)
 	}
 
-	listed, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{SourceID: src.ID})
+	listed, _, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{SourceID: src.ID})
 	if err != nil {
 		t.Fatalf("ListDeliveries: %v", err)
 	}

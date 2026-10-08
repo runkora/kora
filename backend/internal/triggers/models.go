@@ -68,6 +68,55 @@ const (
 	RunStatusPaused     = "paused"     // the trigger was auto-paused when this fire arrived
 )
 
+// AllDeliveryStatuses lists every arrival-level status a delivery can hold.
+//
+// Derived from the constants above rather than re-listed, so the set a caller
+// may filter on and the set the pipeline can write cannot drift apart. The
+// trigger_deliveries_status_check constraint holds the same six values.
+func AllDeliveryStatuses() []string {
+	return []string{
+		StatusVerified,
+		StatusDispatched,
+		StatusSkipped,
+		StatusFailed,
+		StatusDuplicate,
+		StatusMissed,
+	}
+}
+
+// AllRunStatuses lists every per-trigger outcome a delivery's fan-out can
+// record. Derived from the constants above for the same reason as
+// AllDeliveryStatuses; the trigger_delivery_runs_status_check constraint holds
+// the same seven values.
+func AllRunStatuses() []string {
+	return []string{
+		RunStatusDispatched,
+		RunStatusFailed,
+		RunStatusFiltered,
+		RunStatusDenied,
+		RunStatusSuperseded,
+		RunStatusDropped,
+		RunStatusPaused,
+	}
+}
+
+// deliveryStatusSet and runStatusSet are the filterable values as sets, built
+// once from the same constants the All* slices return. validateDeliveryFilter
+// checks one value per query parameter and is on the read path, so it should
+// not rebuild a slice and scan it linearly for each.
+var (
+	deliveryStatusSet = newStringSet(AllDeliveryStatuses())
+	runStatusSet      = newStringSet(AllRunStatuses())
+)
+
+func newStringSet(values []string) map[string]bool {
+	set := make(map[string]bool, len(values))
+	for _, v := range values {
+		set[v] = true
+	}
+	return set
+}
+
 // TerminalRunStatuses are the per-trigger outcomes that mean no run will ever
 // start for this trigger and delivery. The console must show them as settled
 // rather than pending.

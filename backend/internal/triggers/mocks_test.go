@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -63,6 +64,11 @@ type mockRepository struct {
 	createTriggerErr  error
 	insertDeliveryErr error
 	listTriggersErr   error
+	// listDeliveriesErr and deliveryRunsErr make the two reads ListDeliveries
+	// depends on fail, so the service's error paths are reachable without a
+	// database that has to be broken on purpose.
+	listDeliveriesErr error
+	deliveryRunsErr   error
 }
 
 func newMockRepository() *mockRepository {
@@ -321,14 +327,40 @@ func (m *mockRepository) UpdateDeliveryOutcome(_ context.Context, id, status str
 	return nil
 }
 
-func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
+func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error) {
+	if m.listDeliveriesErr != nil {
+		return nil, false, m.listDeliveriesErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	var out []Delivery
 	for _, d := range m.deliveries {
-		if d.TenantID != tenantID || (filter.SourceID != "" && d.SourceID != filter.SourceID) {
+		if d.TenantID != tenantID {
 			continue
 		}
+		if filter.SourceID != "" && d.SourceID != filter.SourceID {
+			continue
+		}
+		if filter.Kind != "" && d.Kind != filter.Kind {
+			continue
+		}
+		// Postgres applies this against the delivery's own trigger_id; without it
+		// here a per-trigger listing would pass against every delivery in the
+		// tenant and a dropped predicate would be invisible to make check.
+		// trigger_id is nullable, and SQL's `trigger_id = $N` never matches NULL,
+		// so a delivery with no trigger drops out of a per-trigger listing here
+		// exactly as it does in Postgres.
+		if filter.TriggerID != "" && (d.TriggerID == nil || *d.TriggerID != filter.TriggerID) {
+			continue
+		}
+		if len(filter.Status) > 0 && !slices.Contains(filter.Status, d.Status) {
+			continue
+		}
+		if len(filter.Outcome) > 0 && !m.deliveryHasOutcome(d.ID, filter) {
+			continue
+		}
+		// Mirror "received_at >= $n" and "received_at < $n": after is inclusive,
+		// before is exclusive, so adjacent windows tile without overlapping.
 		if !filter.ReceivedAfter.IsZero() && d.ReceivedAt.Before(filter.ReceivedAfter) {
 			continue
 		}
@@ -337,11 +369,54 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 		}
 		cp := *d
 		if filter.OmitPayload {
+			// Mirror the NULL::bytea column: the excerpt and the fan-out stay.
 			cp.Payload = nil
 		}
 		out = append(out, cp)
 	}
-	return out, nil
+	// Mirror "ORDER BY received_at DESC, id DESC". m.deliveries keeps insertion
+	// order, so without this the mock's page boundaries would differ from
+	// Postgres and the cursor tests would pass against an order the database
+	// never returns.
+	sort.Slice(out, func(i, j int) bool {
+		if !out[i].ReceivedAt.Equal(out[j].ReceivedAt) {
+			return out[i].ReceivedAt.After(out[j].ReceivedAt)
+		}
+		return out[i].ID > out[j].ID
+	})
+	if c := filter.Cursor; c != nil {
+		// Mirror "(received_at, id) < (cursor.ReceivedAt, cursor.ID)".
+		kept := out[:0]
+		for _, d := range out {
+			if d.ReceivedAt.Before(c.ReceivedAt) || (d.ReceivedAt.Equal(c.ReceivedAt) && d.ID < c.ID) {
+				kept = append(kept, d)
+			}
+		}
+		out = kept
+	}
+	limit := max(filter.Limit, 1)
+	if len(out) > limit {
+		return out[:limit], true, nil
+	}
+	return out, false, nil
+}
+
+// deliveryHasOutcome mirrors the EXISTS over trigger_delivery_runs: a delivery
+// matches when ANY of its runs holds one of the wanted outcomes, narrowed to
+// one trigger when the filter names it.
+func (m *mockRepository) deliveryHasOutcome(deliveryID string, filter DeliveryFilter) bool {
+	for _, dr := range m.deliveryRuns {
+		if dr.DeliveryID != deliveryID {
+			continue
+		}
+		if filter.TriggerID != "" && dr.TriggerID != filter.TriggerID {
+			continue
+		}
+		if slices.Contains(filter.Outcome, dr.Status) {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *mockRepository) GetDelivery(_ context.Context, tenantID, id string) (*Delivery, error) {
@@ -379,6 +454,9 @@ func (m *mockRepository) InsertDeliveryRun(_ context.Context, r *DeliveryRun) er
 }
 
 func (m *mockRepository) ListDeliveryRunsForDeliveries(_ context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error) {
+	if m.deliveryRunsErr != nil {
+		return nil, m.deliveryRunsErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	want := map[string]bool{}

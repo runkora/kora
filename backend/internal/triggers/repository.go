@@ -2,6 +2,8 @@ package triggers
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 )
 
@@ -106,7 +108,10 @@ type DeliveryStore interface {
 	// the repeat is the entire point of writing it.
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
-	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
+	// ListDeliveries returns one keyset-paginated page, newest first, and
+	// whether another page follows. It fetches limit+1 rows to answer that
+	// without a COUNT(*) over the filtered set.
+	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error)
 	// GetDelivery returns one delivery, scoped to the tenant that owns it.
 	GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error)
 	// GetDeliveryByProviderID returns the original delivery for a provider's
@@ -258,6 +263,45 @@ type RetentionStore interface {
 	SetRetention(ctx context.Context, tenantID string, days int) error
 }
 
+// deliveryCursor is the keyset position of a deliveries page: the next page is
+// every row strictly older than this one. ReceivedAt alone is not a position,
+// because trigger_deliveries.received_at is not unique and a webhook burst
+// lands many rows on the same timestamp; the id breaks that tie so a page
+// boundary never drops or repeats a delivery.
+type deliveryCursor struct {
+	ReceivedAt time.Time
+	ID         string
+}
+
+// encode renders the cursor as the opaque "<RFC3339Nano>|<id>" value a client
+// echoes back as ?cursor=. Clients must treat it as opaque: the encoding is
+// ours to change.
+//
+// UTC is not cosmetic. pgx decodes timestamptz into the process's local zone,
+// so on a pod with TZ set the offset renders as "+05:30" and the "+" a client
+// echoes back in a query string decodes to a space, which fails to parse and
+// 400s every page after the first. Z has no such character.
+func (c deliveryCursor) encode() string {
+	return c.ReceivedAt.UTC().Format(time.RFC3339Nano) + "|" + c.ID
+}
+
+// parseDeliveryCursor reads the value a client echoed back. An empty string is
+// "first page", not an error.
+func parseDeliveryCursor(raw string) (*deliveryCursor, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	receivedAt, id, ok := strings.Cut(raw, "|")
+	if !ok || receivedAt == "" || id == "" {
+		return nil, fmt.Errorf("cursor %q: expected <timestamp>|<id>", raw)
+	}
+	t, err := time.Parse(time.RFC3339Nano, receivedAt)
+	if err != nil {
+		return nil, fmt.Errorf("cursor %q: %w", raw, err)
+	}
+	return &deliveryCursor{ReceivedAt: t, ID: id}, nil
+}
+
 // DeliveryFilter narrows a delivery listing. Empty/zero fields are ignored.
 type DeliveryFilter struct {
 	SourceID  string
@@ -270,7 +314,20 @@ type DeliveryFilter struct {
 	// OmitPayload leaves the full payload out of each delivery. The excerpt,
 	// outcomes and runs stay.
 	OmitPayload bool
-	Limit       int
+	// Status filters on the delivery's own arrival verdict (AllDeliveryStatuses).
+	// Several values are OR-ed together.
+	Status []string
+	// Outcome filters on the per-trigger fan-out (AllRunStatuses): a delivery
+	// matches when ANY of its runs holds one of these outcomes. When TriggerID
+	// is also set the match is narrowed to that trigger's own run, which is the
+	// outcome the console shows in a per-trigger view.
+	Outcome []string
+	Limit   int
+	// Cursor is the keyset position to read from; nil means the first page.
+	//
+	// It narrows WITHIN whatever window ReceivedBefore/ReceivedAfter describe:
+	// both constrain received_at, and the two compose rather than conflict.
+	Cursor *deliveryCursor
 }
 
 // PendingStats is a point-in-time view of the delivery queue.

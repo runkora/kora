@@ -82,7 +82,7 @@ type pipelineStore interface {
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	InsertScheduledDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
-	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
+	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error)
 	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
 	ListDeliveryKeysForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error)
 	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)

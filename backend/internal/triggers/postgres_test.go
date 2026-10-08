@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -310,7 +312,7 @@ func TestPostgres_DeliveryDedupAndOutcome(t *testing.T) {
 		t.Fatalf("UpdateDeliveryOutcome: %v", err)
 	}
 
-	list, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 10})
+	list, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 10})
 	if err != nil {
 		t.Fatalf("ListDeliveries: %v", err)
 	}
@@ -1798,7 +1800,7 @@ func TestPostgres_ListDeliveriesTimeAndPayload(t *testing.T) {
 	}
 	idsOf := func(f DeliveryFilter) []string {
 		f.SourceID, f.Limit = s.ID, 10
-		list, err := r.ListDeliveries(ctx, tenant, f)
+		list, _, err := r.ListDeliveries(ctx, tenant, f)
 		if err != nil {
 			t.Fatalf("ListDeliveries: %v", err)
 		}
@@ -1819,11 +1821,11 @@ func TestPostgres_ListDeliveriesTimeAndPayload(t *testing.T) {
 		t.Errorf("window = %v, want %v", got, ids[1:3])
 	}
 
-	full, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1})
+	full, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1})
 	if err != nil || len(full) != 1 || len(full[0].Payload) == 0 {
 		t.Fatalf("default listing = %+v, %v; want the payload", full, err)
 	}
-	slim, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1, OmitPayload: true})
+	slim, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1, OmitPayload: true})
 	if err != nil || len(slim) != 1 {
 		t.Fatalf("OmitPayload listing = %+v, %v", slim, err)
 	}
@@ -2339,5 +2341,531 @@ func TestPostgres_Admission_Coalesces(t *testing.T) {
 	first, _ := r.GetDelivery(ctx, tenant, ids[0])
 	if first.Status != StatusSkipped {
 		t.Errorf("superseded delivery status = %q, want skipped", first.Status)
+	}
+}
+
+// insertTestDelivery writes one delivery directly, so a test can control
+// received_at and id precisely. The repository has no "insert at a timestamp"
+// path, and the cursor's whole job is to behave when timestamps collide.
+func insertTestDelivery(t *testing.T, r *postgresRepository, tenant, id, status string, receivedAt time.Time) {
+	t.Helper()
+	_, err := r.pool.Exec(context.Background(), `
+		INSERT INTO trigger_deliveries (id, tenant_id, status, kind, received_at)
+		VALUES ($1, $2, $3, 'webhook', $4)`, id, tenant, status, receivedAt)
+	if err != nil {
+		t.Fatalf("insert delivery %s: %v", id, err)
+	}
+}
+
+// TestPostgres_ListDeliveriesCursorHandlesTimestampTies is the test the mock
+// cannot stand in for: it proves the real row-tuple predicate and ORDER BY
+// agree, so a page boundary that falls inside a group of deliveries sharing
+// received_at neither drops nor repeats a row.
+func TestPostgres_ListDeliveriesCursorHandlesTimestampTies(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	at := time.Now().UTC().Truncate(time.Microsecond)
+
+	// Four arrivals on one timestamp, the shape a webhook burst produces.
+	// Unique ids: trigger_deliveries_pkey is PRIMARY KEY (id) alone while the
+	// cleanup here is tenant-scoped, so a row left behind by an interrupted run
+	// would collide rather than fail honestly.
+	for range 4 {
+		insertTestDelivery(t, r, tenant, uuid.NewString(), StatusVerified, at)
+	}
+
+	seen := map[string]int{}
+	var cursor *deliveryCursor
+	for range 10 {
+		page, hasNext, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{Limit: 2, Cursor: cursor})
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		for _, d := range page {
+			seen[d.ID]++
+		}
+		if !hasNext {
+			break
+		}
+		last := page[len(page)-1]
+		cursor = &deliveryCursor{ReceivedAt: last.ReceivedAt, ID: last.ID}
+	}
+
+	if len(seen) != 4 {
+		t.Fatalf("want 4 distinct deliveries across the walk, got %d: %v", len(seen), seen)
+	}
+	for id, n := range seen {
+		if n != 1 {
+			t.Errorf("delivery %s returned %d times, want exactly 1", id, n)
+		}
+	}
+}
+
+// TestPostgres_ListDeliveriesFiltersByStatus proves the status predicate runs
+// in SQL, so paging applies to the filtered set rather than to a page that was
+// filtered afterwards.
+func TestPostgres_ListDeliveriesFiltersByStatus(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Microsecond)
+
+	okNewer, badNewer := uuid.NewString(), uuid.NewString()
+	okOlder, badOlder := uuid.NewString(), uuid.NewString()
+	insertTestDelivery(t, r, tenant, okNewer, StatusDispatched, base)
+	insertTestDelivery(t, r, tenant, badNewer, StatusFailed, base.Add(-time.Second))
+	insertTestDelivery(t, r, tenant, okOlder, StatusDispatched, base.Add(-2*time.Second))
+	insertTestDelivery(t, r, tenant, badOlder, StatusFailed, base.Add(-3*time.Second))
+
+	// Limit 1 with two matches: the second must be reachable by cursor, which
+	// only holds if the filter is inside the query.
+	page, hasNext, err := r.ListDeliveries(ctx, tenant,
+		DeliveryFilter{Status: []string{StatusFailed}, Limit: 1})
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	if len(page) != 1 || page[0].ID != badNewer {
+		t.Fatalf("want the newer failed delivery first, got %+v", page)
+	}
+	if !hasNext {
+		t.Fatal("want a second page of failed deliveries")
+	}
+
+	cursor := &deliveryCursor{ReceivedAt: page[0].ReceivedAt, ID: page[0].ID}
+	page2, _, err := r.ListDeliveries(ctx, tenant,
+		DeliveryFilter{Status: []string{StatusFailed}, Limit: 1, Cursor: cursor})
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	if len(page2) != 1 || page2[0].ID != badOlder {
+		t.Fatalf("want the older failed delivery on the second page, got %+v", page2)
+	}
+}
+
+// TestPostgres_ListDeliveriesStatusShapesAgree pins the optimisation in the
+// status branch: one value is emitted as scalar equality and several as ANY,
+// because ANY over a parameter is a ScalarArrayOp the generic plan cannot see
+// into, which costs the index. Two query shapes for one filter is only safe
+// while they return the same rows, so that is what this asserts.
+func TestPostgres_ListDeliveriesStatusShapesAgree(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Microsecond)
+
+	failed, dispatched, skipped := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	insertTestDelivery(t, r, tenant, failed, StatusFailed, base)
+	insertTestDelivery(t, r, tenant, dispatched, StatusDispatched, base.Add(-time.Second))
+	insertTestDelivery(t, r, tenant, skipped, StatusSkipped, base.Add(-2*time.Second))
+
+	ids := func(t *testing.T, filter DeliveryFilter) []string {
+		t.Helper()
+		page, _, err := r.ListDeliveries(ctx, tenant, filter)
+		if err != nil {
+			t.Fatalf("list: %v", err)
+		}
+		out := make([]string, len(page))
+		for i, d := range page {
+			out[i] = d.ID
+		}
+		return out
+	}
+
+	// One value: the scalar branch. It must select exactly that status.
+	if got := ids(t, DeliveryFilter{Status: []string{StatusFailed}, Limit: 10}); !slices.Equal(got, []string{failed}) {
+		t.Errorf("single status: want [%s], got %v", failed, got)
+	}
+
+	// The same single value expressed through the ANY branch by asking for it
+	// twice. Both shapes must agree, or the optimisation changed the answer.
+	if got := ids(t, DeliveryFilter{Status: []string{StatusFailed, StatusFailed}, Limit: 10}); !slices.Equal(got, []string{failed}) {
+		t.Errorf("duplicated status: want [%s], got %v", failed, got)
+	}
+
+	// Several values: the ANY branch, newest first.
+	want := []string{failed, dispatched}
+	if got := ids(t, DeliveryFilter{Status: []string{StatusFailed, StatusDispatched}, Limit: 10}); !slices.Equal(got, want) {
+		t.Errorf("multi status: want %v, got %v", want, got)
+	}
+}
+
+// TestPostgres_ListDeliveriesFiltersByOutcome proves the EXISTS over
+// trigger_delivery_runs selects deliveries without multiplying them: a join
+// would return one row per matching run and corrupt both the page and cursor.
+func TestPostgres_ListDeliveriesFiltersByOutcome(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	at := time.Now().UTC().Truncate(time.Microsecond)
+
+	fannedOut, quiet := uuid.NewString(), uuid.NewString()
+	insertTestDelivery(t, r, tenant, fannedOut, StatusDispatched, at)
+	insertTestDelivery(t, r, tenant, quiet, StatusSkipped, at.Add(-time.Second))
+
+	// Two runs on one delivery, both denied: a join would yield it twice.
+	for i, trig := range []string{"trig-1", "trig-2"} {
+		if err := r.InsertDeliveryRun(ctx, &DeliveryRun{
+			ID: uuid.NewString(), TenantID: tenant, DeliveryID: fannedOut,
+			TriggerID: trig, Status: RunStatusDenied,
+		}); err != nil {
+			t.Fatalf("insert run %d: %v", i, err)
+		}
+	}
+
+	page, _, err := r.ListDeliveries(ctx, tenant,
+		DeliveryFilter{Outcome: []string{RunStatusDenied}, Limit: 10})
+	if err != nil {
+		t.Fatalf("list: %v", err)
+	}
+	if len(page) != 1 {
+		t.Fatalf("want exactly 1 delivery (not one per matching run), got %d: %+v", len(page), page)
+	}
+	if page[0].ID != fannedOut {
+		t.Fatalf("want the delivery with a denied run, got %s", page[0].ID)
+	}
+
+	// An outcome nothing holds returns nothing, rather than everything.
+	none, _, err := r.ListDeliveries(ctx, tenant,
+		DeliveryFilter{Outcome: []string{RunStatusSuperseded}, Limit: 10})
+	if err != nil {
+		t.Fatalf("list superseded: %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("want no deliveries for an unheld outcome, got %+v", none)
+	}
+}
+
+// TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun pins the
+// per-trigger narrowing inside the outcome EXISTS, and the limit the surrounding
+// query puts on it.
+//
+// The narrowing is load-bearing, not redundant with the outer
+// trigger_deliveries.trigger_id predicate. A fanned-out delivery carries one
+// outcome row per trigger, so "this delivery has a failed run" and "the trigger
+// I am looking at failed" are different questions. Without the narrowing, trigA's
+// view would list this delivery because trigB failed on it, contradicting the
+// outcome the row itself shows.
+//
+// The rest documents what the narrowing cannot rescue. trigger_id on the
+// delivery is a single column, and UpdateDeliveryOutcome stamps it as
+// trigger_id = COALESCE($2, d.trigger_id): a non-nil write always wins, so the
+// stamp names whichever trigger dispatched LAST, and a nil write (the failure
+// path) leaves it alone. The outer predicate compares against that one stamp, so
+// every other trigger in the fan-out sees the delivery as absent however the
+// outcome filter is set. That is a defect in how trigger_id is stamped rather
+// than in this filter, and the behaviour is pinned here so a fix has to change
+// it deliberately.
+func TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	at := time.Now().UTC().Truncate(time.Microsecond)
+
+	// One arrival that fanned out to two triggers, plus a bystander arrival so
+	// an empty result can never be the whole tenant being empty.
+	delivery, bystander := uuid.NewString(), uuid.NewString()
+	insertTestDelivery(t, r, tenant, delivery, StatusDispatched, at)
+	insertTestDelivery(t, r, tenant, bystander, StatusSkipped, at.Add(-time.Second))
+
+	trigA, trigB := "trig-a-"+uuid.NewString()[:8], "trig-b-"+uuid.NewString()[:8]
+	runA := uuid.NewString()
+
+	// trigA started a run; trigB matched the same arrival and failed to
+	// dispatch. Both are rows the dispatcher writes, one per trigger.
+	for _, dr := range []*DeliveryRun{
+		{ID: uuid.NewString(), TenantID: tenant, DeliveryID: delivery,
+			TriggerID: trigA, Status: RunStatusDispatched, RunID: &runA},
+		{ID: uuid.NewString(), TenantID: tenant, DeliveryID: delivery,
+			TriggerID: trigB, Status: RunStatusFailed, Error: new("dispatch timeout")},
+	} {
+		if err := r.InsertDeliveryRun(ctx, dr); err != nil {
+			t.Fatalf("insert run for %s: %v", dr.TriggerID, err)
+		}
+	}
+
+	stamp := func(t *testing.T, label string) *string {
+		t.Helper()
+		d, err := r.GetDelivery(ctx, tenant, delivery)
+		if err != nil {
+			t.Fatalf("%s: get delivery: %v", label, err)
+		}
+		return d.TriggerID
+	}
+
+	// Only a successful dispatch names a trigger (service_dispatch.go), so the
+	// stamp lands on trigA.
+	if err := r.UpdateDeliveryOutcome(ctx, delivery, StatusDispatched, &trigA, &runA, nil); err != nil {
+		t.Fatalf("stamp trigA: %v", err)
+	}
+	// The failure path writes a nil trigger id, which COALESCE ignores: trigB
+	// failing does not move the stamp. This is the premise the filter rests on,
+	// so it is asserted rather than assumed.
+	if err := r.UpdateDeliveryOutcome(ctx, delivery, StatusFailed, nil, nil, new("dispatch timeout")); err != nil {
+		t.Fatalf("record trigB failure: %v", err)
+	}
+	if got := stamp(t, "after trigB failure"); got == nil || *got != trigA {
+		t.Fatalf("want the stamp left on %s after a nil-trigger write, got %v", trigA, deref(got))
+	}
+
+	ids := func(t *testing.T, label string, filter DeliveryFilter) []string {
+		t.Helper()
+		page, _, err := r.ListDeliveries(ctx, tenant, filter)
+		if err != nil {
+			t.Fatalf("%s: list: %v", label, err)
+		}
+		out := make([]string, len(page))
+		for i, d := range page {
+			out[i] = d.ID
+		}
+		return out
+	}
+
+	// The delivery does hold a failed run, so an unnarrowed outcome filter finds
+	// it. Without this the next assertion could pass on absence.
+	if got := ids(t, "outcome only", DeliveryFilter{
+		Outcome: []string{RunStatusFailed}, Limit: 10,
+	}); !slices.Equal(got, []string{delivery}) {
+		t.Fatalf("outcome alone: want [%s], got %v", delivery, got)
+	}
+
+	// The narrowing: adding trigA drops that same delivery, because the failed
+	// run is trigB's. Deleting `AND dr.trigger_id = $N` from the EXISTS makes
+	// this return the delivery instead.
+	if got := ids(t, "trigA failed", DeliveryFilter{
+		TriggerID: trigA, Outcome: []string{RunStatusFailed}, Limit: 10,
+	}); len(got) != 0 {
+		t.Errorf("trigA + failed: want no deliveries (trigA dispatched, trigB failed), got %v", got)
+	}
+
+	// trigA's own outcome still matches, so the emptiness above is the narrowing
+	// at work and not the trigger filter excluding everything.
+	if got := ids(t, "trigA dispatched", DeliveryFilter{
+		TriggerID: trigA, Outcome: []string{RunStatusDispatched}, Limit: 10,
+	}); !slices.Equal(got, []string{delivery}) {
+		t.Errorf("trigA + dispatched: want [%s], got %v", delivery, got)
+	}
+
+	// The limit. trigB genuinely has a failed run on this delivery, and asking
+	// for exactly that returns nothing: the outer predicate compares against the
+	// stamp, which names trigA.
+	if got := ids(t, "trigB failed", DeliveryFilter{
+		TriggerID: trigB, Outcome: []string{RunStatusFailed}, Limit: 10,
+	}); len(got) != 0 {
+		t.Errorf("trigB + failed: trigB's own failed run is unreachable today; got %v, "+
+			"which means the stamping changed and this test needs updating", got)
+	}
+	// Not the outcome filter's doing: trigB cannot see the delivery at all.
+	if got := ids(t, "trigB alone", DeliveryFilter{TriggerID: trigB, Limit: 10}); len(got) != 0 {
+		t.Errorf("trigB alone: want no deliveries under the unstamped trigger, got %v", got)
+	}
+
+	// Which trigger is reachable is decided by the last successful dispatch, not
+	// the first: re-stamping with trigB moves the whole view over and hides
+	// trigA's dispatched run, even though neither outcome row changed.
+	if err := r.UpdateDeliveryOutcome(ctx, delivery, StatusDispatched, &trigB, nil, nil); err != nil {
+		t.Fatalf("restamp trigB: %v", err)
+	}
+	if got := stamp(t, "after restamp"); got == nil || *got != trigB {
+		t.Fatalf("want a non-nil trigger write to take the stamp (%s), got %v", trigB, deref(got))
+	}
+	if got := ids(t, "trigA after restamp", DeliveryFilter{
+		TriggerID: trigA, Outcome: []string{RunStatusDispatched}, Limit: 10,
+	}); len(got) != 0 {
+		t.Errorf("trigA + dispatched after the stamp moved: want none, got %v", got)
+	}
+	if got := ids(t, "trigB after restamp", DeliveryFilter{
+		TriggerID: trigB, Outcome: []string{RunStatusFailed}, Limit: 10,
+	}); !slices.Equal(got, []string{delivery}) {
+		t.Errorf("trigB + failed after the stamp moved: want [%s], got %v", delivery, got)
+	}
+}
+
+// TestPostgres_ListDeliveriesKindAndStatusBindInOrder guards the placeholder
+// arithmetic. The kind branch builds $n and must advance the counter; before
+// this PR it did not, which was harmless only because kind was the last
+// predicate. Combining kind with a predicate that comes after it is what makes
+// a missing increment bind the wrong value to the wrong column.
+func TestPostgres_ListDeliveriesKindAndStatusBindInOrder(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	at := time.Now().UTC().Truncate(time.Microsecond)
+
+	want, wrongStatus := uuid.NewString(), uuid.NewString()
+	insertTestDelivery(t, r, tenant, want, StatusFailed, at)
+	insertTestDelivery(t, r, tenant, wrongStatus, StatusVerified, at.Add(-time.Second))
+
+	page, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{
+		Kind:   KindWebhook,
+		Status: []string{StatusFailed},
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("kind + status: %v", err)
+	}
+	got := make([]string, len(page))
+	for i, d := range page {
+		got[i] = d.ID
+	}
+	if !slices.Equal(got, []string{want}) {
+		t.Fatalf("kind + status: want [%s], got %v", want, got)
+	}
+
+	// A kind nothing was written under must select nothing, so the predicate is
+	// proven to be doing work rather than being ignored.
+	empty, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{
+		Kind:   KindScheduled,
+		Status: []string{StatusFailed},
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("other kind: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("other kind: want nothing, got %v", empty)
+	}
+}
+
+// A failed query must surface, not read as an empty page. An empty page is the
+// answer "nothing matched", which is a different and wrong claim.
+func TestPostgres_ListDeliveriesReportsAQueryFailure(t *testing.T) {
+	r, tenant := testRepo(t)
+	// Closing the pool is the cheapest honest way to make the driver fail.
+	r.pool.Close()
+
+	page, hasNext, err := r.ListDeliveries(context.Background(), tenant, DeliveryFilter{Limit: 10})
+	if err == nil {
+		t.Fatal("want an error from a closed pool, got nil")
+	}
+	if page != nil || hasNext {
+		t.Errorf("want no page alongside the error, got %v / hasNext=%v", page, hasNext)
+	}
+}
+
+// TestPostgres_FilterableStatusesMatchTheDatabase is the guard the Go-only
+// test cannot be. AllDeliveryStatuses and AllRunStatuses decide what a caller
+// may filter on, and validateDeliveryFilter is built from those same slices, so
+// a Go test feeding one into the other asserts only that a set contains itself.
+// Drop a value from the slice and the filter quietly starts rejecting it: the
+// package stays green while ?status=missed begins returning 400, and `missed`
+// is in the console's own status dropdown.
+//
+// The authority on what the pipeline can write is the column's CHECK
+// constraint, so that is what these compare against.
+func TestPostgres_FilterableStatusesMatchTheDatabase(t *testing.T) {
+	r, _ := testRepo(t)
+	ctx := context.Background()
+
+	// allowed reads the values a CHECK constraint of the form
+	// `status = ANY (ARRAY['a'::text, ...])` permits.
+	allowed := func(t *testing.T, constraint string) []string {
+		t.Helper()
+		var def string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = $1`,
+			constraint).Scan(&def); err != nil {
+			t.Fatalf("read %s: %v", constraint, err)
+		}
+		found := regexp.MustCompile(`'([^']+)'::text`).FindAllStringSubmatch(def, -1)
+		if len(found) == 0 {
+			t.Fatalf("%s: no values parsed out of %q", constraint, def)
+		}
+		out := make([]string, 0, len(found))
+		for _, m := range found {
+			out = append(out, m[1])
+		}
+		sort.Strings(out)
+		return out
+	}
+
+	for _, tc := range []struct {
+		name       string
+		constraint string
+		declared   []string
+	}{
+		{"delivery statuses", "trigger_deliveries_status_check", AllDeliveryStatuses()},
+		{"run outcomes", "trigger_delivery_runs_status_check", AllRunStatuses()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			declared := append([]string(nil), tc.declared...)
+			sort.Strings(declared)
+			if got := allowed(t, tc.constraint); !slices.Equal(declared, got) {
+				t.Errorf("filterable values have drifted from %s\n  Go declares: %v\n  DB allows:   %v",
+					tc.constraint, declared, got)
+			}
+		})
+	}
+}
+
+// TestPostgres_ListDeliveriesCursorWithinTimeWindow is the case neither change
+// covered on its own. #490 bounds received_at with ReceivedAfter/ReceivedBefore;
+// this PR walks received_at with a keyset cursor. Both constrain the same
+// column, they were written independently, and nothing asserted they compose.
+//
+// They must intersect, not fight: the window decides which rows exist and the
+// cursor decides where inside that window the page starts. The predicates are
+// also adjacent in the builder, so a placeholder slip between them would bind a
+// timestamp where a cursor belongs, which this would catch as wrong rows rather
+// than as a type error.
+func TestPostgres_ListDeliveriesCursorWithinTimeWindow(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	base := time.Now().UTC().Truncate(time.Microsecond)
+
+	// Six arrivals a minute apart, newest first: d0 .. d5.
+	ids := make([]string, 6)
+	for i := range ids {
+		ids[i] = uuid.NewString()
+		insertTestDelivery(t, r, tenant, ids[i], StatusFailed, base.Add(-time.Duration(i)*time.Minute))
+	}
+
+	// A window holding d1, d2, d3: after is inclusive, before is exclusive.
+	after := base.Add(-3 * time.Minute)
+	// A microsecond, not a nanosecond: timestamptz keeps microseconds, so a
+	// nanosecond is truncated away and the exclusive bound would drop d1.
+	before := base.Add(-time.Minute).Add(time.Microsecond)
+	window := func(cursor *deliveryCursor, limit int) DeliveryFilter {
+		return DeliveryFilter{
+			ReceivedAfter:  after,
+			ReceivedBefore: before,
+			Status:         []string{StatusFailed},
+			Limit:          limit,
+			Cursor:         cursor,
+		}
+	}
+
+	page1, hasNext, err := r.ListDeliveries(ctx, tenant, window(nil, 2))
+	if err != nil {
+		t.Fatalf("first page: %v", err)
+	}
+	got := []string{}
+	for _, d := range page1 {
+		got = append(got, d.ID)
+	}
+	if !slices.Equal(got, []string{ids[1], ids[2]}) {
+		t.Fatalf("first page: want d1,d2 inside the window, got %v", got)
+	}
+	if !hasNext {
+		t.Fatal("first page: want another page, d3 is still in the window")
+	}
+
+	// The cursor resumes inside the window, and must not escape it: d4 and d5
+	// are older than ReceivedAfter and must stay excluded.
+	cursor := &deliveryCursor{ReceivedAt: page1[1].ReceivedAt, ID: page1[1].ID}
+	page2, hasNext, err := r.ListDeliveries(ctx, tenant, window(cursor, 2))
+	if err != nil {
+		t.Fatalf("second page: %v", err)
+	}
+	got = got[:0]
+	for _, d := range page2 {
+		got = append(got, d.ID)
+	}
+	if !slices.Equal(got, []string{ids[3]}) {
+		t.Fatalf("second page: want only d3, the window's last row, got %v", got)
+	}
+	if hasNext {
+		t.Error("second page: want no further page, the window is exhausted")
+	}
+
+	// The newest row sits outside the window, so no cursor should ever reach it.
+	for _, d := range append(page1, page2...) {
+		if d.ID == ids[0] || d.ID == ids[4] || d.ID == ids[5] {
+			t.Errorf("delivery %s is outside the window but was returned", d.ID)
+		}
 	}
 }
