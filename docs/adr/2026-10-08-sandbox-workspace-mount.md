@@ -1,0 +1,202 @@
+# Sandbox Workspace Mount
+
+**Status:** Accepted  
+**Date:** 2026-10-08  
+**Deciders:** Justin Wilkin  
+**Technical Story:** [Sandbox Environments](2026-10-03-sandbox-environments.md)  
+
+---
+
+## Context
+
+The change touches _How does it connect?_ and _What can it access?_. It adds a node-to-node path that carries a sandbox's files to its session-manager pod, and it decides which node and which run can reach each sandbox's files. Agent identity, grants and the egress path stay as they are.
+
+Each run's workspace is a directory on the agent's workspace volume. The session-manager pod mounts the whole volume at `/workspaces`. It runs the harness in `/workspaces/<run>` (`backend/internal/agents/sessionmanager/runner_claude.go`). The sandbox pod mounts the same volume with `subPath: <run>` (`backend/internal/agents/k8s.go`). Bash runs in the sandbox through `orbit-shell`, and the harness's Read, Write and Edit run in the session-manager pod. A split placement needs a `ReadWriteMany` volume, and on AWS that volume is EFS.
+
+EFS costs about 3 ms per file operation, and package managers keep about 4 operations in flight. `pnpm install` took 30 minutes in prod. The same install took about 5 s on the sandbox's local disk.
+
+Kubernetes cannot add a volume to a running pod. The session-manager pod hosts many runs and starts before any of their sandboxes. A mount placed over the harness's working directory, or over its parent, after the harness starts fails silently: relative paths and child processes keep the covered directory. A mount on a subdirectory of the working directory works for Claude Code's Read, Write and Edit under Landlock. Claude Code 2.1.29x has no Glob or Grep tool, and search runs through Bash in the sandbox.
+
+Tenant namespaces enforce the restricted Pod Security level. A restricted pod cannot use a `hostPath` volume or run privileged.
+
+The first transport spike used `rclone serve sftp` and `rclone mount` over FUSE. It failed `pnpm install` twice, lost symlinks, returned `EIO` at close under concurrent writes, and blocked a reader for 4 minutes 20 seconds when the sandbox died.
+
+The kernel NFS spike ran on the local k3d cluster with a privileged host-network pod on each of two nodes and two restricted pods standing in for the session-manager and the sandbox:
+
+*   Mounting the `nfsd` filesystem from the privileged container loaded `nfsd` through the kernel's module autoloader, and the first client mount loaded `nfsv4`.
+*   An export whose NFSv4 pseudo-root falls on the container's overlayfs root fails with `ENOENT` for every path. A tmpfs root holding a bind mount of the sandbox folder works.
+*   A restricted pod with `mountPropagation: HostToContainer` on its PVC mount was admitted. A kernel NFS mount made on the host under that PVC's kubelet path appeared in the running container.
+*   Over NFS, small-file reads took 0.24 ms cold and 0.03 ms warm at the median, and creates took 0.27 ms. On local disk they took 0.004 ms and 0.015 ms.
+*   With default client caching, a file the sandbox created stayed invisible for 27 s after the reader had looked the name up. With `lookupcache=positive`, every change reached the other side within 5 ms.
+*   Both sides listed identical results in both directions after mkdir, rename, rename over a file, append, sparse write, fsync, mtime, symlink, hard link, chmod and delete.
+*   `pnpm install --frozen-lockfile` in `frontend/` took 4.51 s on the sandbox's local disk with an empty store and 1.83 s with a warm one. Run over the NFS mount, it completed in 16.06 s with the same 79,559 entries.
+*   With the server unreachable, `soft,timeo=20,retrans=1` returned `EIO` within 4 to 12 s for new operations and 16 s for a read in flight.
+*   A sandbox deleted mid-read, followed by a forced lazy unmount and an unexport, gave the reader `ESTALE` on its next read and a fresh read `ENOENT` at once.
+
+The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 with kernel 6.18. Bottlerocket's published 6.18 kernel configuration builds `nfsd` as a module. The spike did not confirm that the node image ships it.
+
+### Goals
+
+*   Package installs and builds run at local disk speed.
+*   The harness's Read, Write and Edit see the sandbox's files at the same path.
+*   A sandbox that goes away gives the harness errors.
+*   No run reaches another run's sandbox files.
+
+### Non-Goals
+
+*   Keeping a sandbox's files after the sandbox ends.
+*   Glob and Grep tools in the harness.
+
+---
+
+## Decision Drivers
+
+*   The session-manager pod stays at the restricted Pod Security level.
+*   The transport uses standard, maintained components.
+*   The chart stays generic for clusters that do not run the feature.
+
+---
+
+## Considered Options
+
+### D1. Where the Sandbox's Disk Appears
+
+*   **A subfolder of the workspace (chosen):** The sandbox's local disk appears at `/workspaces/<run>/sandbox` in both pods. The rest of the workspace stays on the shared volume.
+*   **The whole workspace (rejected):** A mount over the harness's working directory after start fails.
+*   **Restart the harness on the mount (rejected):** The new harness would run on the mount, and HOME, the MCP config and the exec token would have to move to the mounted side.
+
+### D2. Transport
+
+*   **Kernel NFS (chosen):** The kernel NFS server exports the sandbox folder, and the kernel NFS client mounts it.
+*   **rclone over FUSE (rejected):** It failed installs, symlinks and concurrent writes in the spike, and it hung readers when the sandbox died.
+*   **A filesystem written for kora (rejected):** A new network filesystem is a component that kora would have to maintain and harden.
+*   **FSx for OpenZFS (rejected):** Sandbox files are ephemeral, and FSx is billed AWS infrastructure.
+
+### D3. How the Mount Reaches the Running Session-Manager
+
+*   **Host propagation on the workspace mount (chosen):** The session-manager's existing workspace mount has no `subPath` and carries `mountPropagation: HostToContainer`. The node agent mounts on the host under the volume's kubelet path, and the mount appears in the container.
+*   **A CSI ephemeral volume from the node agent (rejected):** The restricted level admits `csi` volumes, but kora would ship and run a CSI driver for a propagation root that the existing volume already provides.
+*   **Mount inside the container's mount namespace (rejected):** The agent would need the host PID namespace and the harness's PID. A Go process cannot enter a mount namespace once it runs several threads.
+
+### D4. Node Agent
+
+*   **A new binary as a DaemonSet (chosen):** `backend/cmd/sandbox-mount` runs privileged in the host network on every node and acts on whichever side of a pair its node hosts.
+*   **Fold into the operator (rejected):** The operator is a cluster Deployment. Exports and mounts happen on specific nodes.
+*   **Fold into an existing sidecar (rejected):** Sidecars run in tenant pods at the restricted level.
+
+### D5. How Node Agents Learn What to Export and Mount
+
+*   **Pod watches with an annotation (chosen):** orbit-agents sets `orbit.io/workspace-pod` on the sandbox pod to the session-manager pod's name. Each node agent lists and watches sandbox pods and session-manager pods by label and reconciles on every change.
+*   **A new orbit-agents API (rejected):** It would add a caller, an authorization path and a port for data that the pods already carry.
+
+### D6. When the Agent Gets the Sandbox
+
+*   **The session-manager waits for the mount (chosen):** orbit-agents returns the sandbox pod's UID. The session-manager reads its own mountinfo and hands the sandbox over once `/workspaces/<run>/sandbox` is mounted from that pod. After 60 s the provision fails.
+*   **A readiness gate the node agent sets (rejected):** The node agent would need cluster-wide patch access to pod status.
+*   **No wait (rejected):** The agent's first writes would land on the shared volume under the folder the mount later covers.
+
+### D7. Export Restriction
+
+*   **One client node per folder (chosen):** Each folder is exported to the address of its session-manager's node only, from a privileged source port (`secure`). Each client node gets its own read-only NFSv4 root that holds only the folders exported to it.
+*   **The exec token (rejected):** NFS with `sec=sys` cannot check a token.
+*   **Kerberos (rejected):** It needs a KDC and keytabs on every node.
+
+### D8. User Mapping
+
+*   **Squash to the sandbox's user (chosen):** `all_squash` maps every client user, root included, to the sandbox pod's `runAsUser` and `runAsGroup`, 100 and 100. Both pods already run as 100:100.
+*   **Pass client users through (rejected):** Root on the client node would act as root on the export.
+
+### D9. NFS Version and Options
+
+*   **NFSv4.2 over TCP only, soft mounts (chosen):** `rpc.nfsd` runs with NFSv3 and UDP off, and `rpc.mountd` serves only the kernel's export cache. The client mounts with `vers=4.2,proto=tcp,soft,timeo=20,retrans=1,lookupcache=positive`. The grace and lease times are 10 s.
+*   **Hard mounts (rejected):** A lost server blocks the harness indefinitely.
+*   **Default caching (rejected):** A new file stayed hidden for 27 s.
+*   **`timeo=50,retrans=2` (rejected):** A lost server took 15 to 30 s per operation to surface.
+
+### D10. Lifecycle
+
+*   **Reconcile on pod state (chosen):** The node agent exports and mounts a running pair. It force-detaches the mount and drops the export as soon as the sandbox or the session-manager pod starts deleting, or the sandbox stops running. nfsd threads stay in the node's kernel across agent restarts, and the next agent rebuilds the exports.
+*   **Unexport only (rejected):** A reader would wait for the soft timeout.
+
+### D11. Co-located Sandboxes
+
+*   **NFS over the node's own address (chosen):** A sandbox on its session-manager's node is exported and mounted like any other.
+*   **A bind mount on the same node (rejected):** It is a second code path. A co-located install keeps its workspace on block storage and gains little.
+
+### D12. Path Resolution and Trust
+
+*   **Resolve beneath the kubelet directory, check ownership (chosen):** The node agent opens every export source and mount point with `openat2` beneath the kubelet directory, with `RESOLVE_BENEATH` and `RESOLVE_NO_SYMLINKS`, and mounts through the opened descriptor. It acts on a sandbox pod only when the pod carries its run's sandbox name `sandbox-<run>`, sits in the session-manager pod's namespace and mounts that pod's workspace claim.
+*   **Trust the annotation and the run label (rejected):** A pod could name another run, and a run could replace a path component with a symlink to a host path.
+
+### D13. Chart
+
+*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the `orbit-node` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on.
+*   **On by default (rejected):** Every install would need kernel NFS on its nodes and a privileged DaemonSet.
+*   **Under `agents` (rejected):** The release pins component digests from top-level image blocks only.
+
+### D14. HOME and TMPDIR
+
+*   **The sandbox's local disk (chosen):** `sandbox-exec` sets HOME to the run's local directory and TMPDIR to `/tmp`, both on the local disk. A new or replaced sandbox starts with an empty HOME and TMPDIR.
+*   **The workspace (rejected):** Tool caches and temporary files would stay on the shared volume.
+*   **pnpm's global virtual store (rejected):** With `enable_global_virtual_store` on, Next.js and vitest failed.
+
+### D15. Descriptor Folder
+
+*   **`.sandbox-exec/` (chosen):** The run's endpoint and exec token move from `$WORKSPACE/.sandbox/` to `$WORKSPACE/.sandbox-exec/`.
+*   **Keep `.sandbox/` (rejected):** It sits beside `sandbox/` and differs by one character.
+
+---
+
+## Decision
+
+Each sandbox will have a working folder on its local disk at `/workspaces/<run>/sandbox`, shared with its session-manager pod over kernel NFS by a privileged node agent.
+
+*   With `agents.sandboxMount` set, orbit-agents will mount the local disk's `sandbox` directory at `/workspaces/<run>/sandbox` in the sandbox pod, set `orbit.io/workspace-pod`, and give the session-manager's workspace mount `HostToContainer` propagation.
+*   On the sandbox's node, the node agent will bind the folder under `/exports/<client>/<pod UID>` and export it with `fsid=<pod UID>`.
+*   On the session-manager's node, it will mount `<sandbox node>:/<pod UID>` on the run's `sandbox` directory under the session-manager pod's volume.
+*   The capabilities brief will say: "Starting a sandbox gives you a working folder at `/workspaces/<run>/sandbox`. Do all your work there from then on: create and edit files, clone repos, install, build and run commands. Your file tools and the sandbox see the same files in that folder. The folder and its contents last as long as the sandbox."
+
+### Rationale
+
+None at this time.
+
+---
+
+## Consequences
+
+### Positive
+
+*   A clone, an install and a build in the sandbox folder run at the sandbox's local disk speed.
+*   Bash and the harness's file tools see the same files in the folder without copying.
+
+### Negative
+
+*   Every node runs a privileged host-network DaemonSet that can mount and export filesystems.
+*   The node agent holds cluster-wide list and watch access to pods.
+*   NFS cannot authenticate a caller. A workload in the host network of a client node, or one whose traffic the CNI masquerades to that node's address and which has no egress policy, can reach the folders exported to that node. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to port 2049.
+*   With `no_subtree_check`, root on a client node can craft file handles for files outside an export on the same filesystem.
+*   Nodes need the kernel `nfsd` and NFSv4 client modules and TCP 2049 between them. Whether Bottlerocket 1.66 and Amazon Linux 2023 ship `nfsd`, and whether Bottlerocket's SELinux policy allows the agent's mounts, is unverified.
+*   nfsd threads keep running on a node after the chart drops the DaemonSet, until the node restarts.
+*   A soft mount can return `EIO` to the harness when the sandbox's node stalls for more than a few seconds.
+*   The folder and its contents are lost when the sandbox ends. A file written to `sandbox/` after that lands on the shared volume.
+*   Turning the feature on changes the session-manager StatefulSet template and rolls existing session-manager pods.
+*   A sandbox whose folder is not mounted within 60 s fails to provision.
+
+### Neutral
+
+*   npm and yarn installs outside the sandbox folder stay on the shared volume.
+*   Codex and OpenCode harnesses were not exercised on the folder.
+
+---
+
+## Related Decisions
+
+*   [Sandbox Environments](2026-10-03-sandbox-environments.md), Amendment 3
+*   [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md), Amendment 3
+*   [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)
+*   [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md)
+*   [Agent Pod Egress Lockdown](2026-09-30-agent-pod-egress-lockdown.md)
+
+---
+
+**Last Updated:** 2026-10-08

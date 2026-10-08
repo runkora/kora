@@ -87,6 +87,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md)` · 2026-06-14
 - [Sandbox Environments](2026-10-03-sandbox-environments.md) — `Accepted (Amended 2026-10-08)` · 2026-10-03
 - [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) — `Accepted` · 2026-10-07
+- [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) — `Accepted` · 2026-10-08
 - [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — `Accepted` · 2026-05-11
 - [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted (Amended 2026-09-30)` · 2026-06-04
@@ -105,7 +106,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Run Activity Events](2026-09-29-run-activity-events.md) — `Accepted` · 2026-09-29
 - [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) — `Accepted` · 2026-05-11
 - [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) — `Accepted` · 2026-06-04
-- [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted (Amended 2026-09-29, 2026-09-30)` · 2026-06-04
+- [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) — `Accepted (Amended 2026-09-29, 2026-09-30, 2026-10-08)` · 2026-06-04
 - [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) — `Accepted` · 2026-06-04
 
 - [K8s Manifest Field Overrides via Environment Variables](2026-06-12-k8s-manifest-overrides-via-env-vars.md) — `Superseded by [manifest-patches-configmap](2026-09-15-manifest-patches-configmap.md)` · 2026-06-12
@@ -230,7 +231,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-13 | [Profile Page Architecture](2026-05-13-profile-page-architecture.md) | Proposed | — |
 | 2026-06-04 | [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) | Accepted | 0061 |
 | 2026-06-04 | [Service-Layer Authorization for orbit-agents](2026-06-04-orbit-agents-authorization-model.md) | Accepted | 0063 |
-| 2026-06-04 | [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) | Accepted (Amended 2026-09-29, 2026-09-30) | 0062 |
+| 2026-06-04 | [Agent Run Filesystem and Process Isolation](2026-06-04-per-session-home-isolation.md) | Accepted (Amended 2026-09-29, 2026-09-30, 2026-10-08) | 0062 |
 | 2026-06-04 | [Platform-wide Scope Enforcement Middleware](2026-06-04-platform-scope-enforcement-middleware.md) | Accepted | 0064 |
 | 2026-06-04 | [Codex Agent Runner](2026-06-04-codex-agent-runner.md) | Accepted (Amended 2026-09-29) | — |
 | 2026-06-04 | [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) | Accepted (Amended 2026-09-30) | — |
@@ -291,4 +292,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-03 | [Sandbox Environments](2026-10-03-sandbox-environments.md) | Accepted (Amended 2026-10-08) | — |
 | 2026-10-06 | [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) | Accepted | — |
 | 2026-10-07 | [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) | Accepted | — |
+| 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

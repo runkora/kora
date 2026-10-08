@@ -337,6 +337,15 @@ For the default maximum:
 *   istio-proxy on a sandbox pod is OOM-killed above 128Mi, and the sandbox loses its network until the proxy restarts.
 *   identity-proxy keeps its 200m limit and its measured throttling.
 
+## Amendment 3 (2026-10-08): The sandbox's local disk holds HOME, TMPDIR and its working folder
+
+**Status:** Accepted
+
+[Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) supersedes Decision 8 and the neutral consequence that `node_modules` stays on NFS.
+
+*   HOME and TMPDIR sit on the sandbox's local disk with the caches and tool installs. A new or replaced sandbox starts with an empty HOME and TMPDIR.
+*   With `sandboxMount.enabled`, the local disk also holds the sandbox's working folder at `/workspaces/<run>/sandbox`. The repository checkout and `node_modules` sit there for the life of the sandbox.
+
 ---
 
 ## Related Decisions
@@ -344,6 +353,7 @@ For the default maximum:
 *   [Agent sandbox toolchain and connectivity environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) (superseded)
 *   [Sandbox provisioning and shell proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)
 *   [Per-session home isolation](2026-06-04-per-session-home-isolation.md)
+*   [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md)
 *   [Database migrations](2026-09-10-database-migrations.md)
 *   [CRD-driven inference providers](2026-10-01-crd-inference-providers.md)
 
@@ -353,4 +363,4 @@ For the default maximum:
 
 ---
 
-**Last Updated:** 2026-10-08 (Amendment 2: sandbox resource requests)
+**Last Updated:** 2026-10-08 (Amendment 3: the sandbox's local disk holds HOME, TMPDIR and its working folder)

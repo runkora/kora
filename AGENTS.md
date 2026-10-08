@@ -182,7 +182,7 @@ kora follows a **feature-based architecture** with the repository pattern for da
 | `session-manager`                                                          | `cmd/session-manager/`   | Per-tenant runner for the agent (Claude Code) subprocess (port 8090)                                       |
 | `operator`                                                                 | `cmd/operator/`          | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars                                     |
 | `identity-proxy`                                                           | `cmd/identity-proxy/`    | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls                                  |
-| `sandbox-exec`, `orbit-runtime-mcp`, `orbit-shell`, `orbit-session-runner` | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper)                      |
+| `sandbox-exec`, `orbit-runtime-mcp`, `orbit-shell`, `orbit-session-runner`, `sandbox-mount` | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper, node agent for sandbox working folders) |
 | `example`                                                                  | `cmd/example/`           | Reference implementation (not production)                                                                  |
 
 > There is **no `cmd/orbit`** binary; the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
