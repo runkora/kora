@@ -140,8 +140,8 @@ func bindBeneath(kubeletDir, src, dst string) error {
 		return err
 	}
 	defer unix.Close(fd)
-	if err := makeExportDir(dst); err != nil {
-		return err
+	if derr := makeExportDir(dst); derr != nil {
+		return derr
 	}
 	target, err := openBeneath(filepath.Dir(filepath.Dir(dst)), dst)
 	if err != nil {
