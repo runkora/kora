@@ -25,6 +25,7 @@ type Config struct {
 		ExportsFile string `yaml:"exportsFile"`
 		Threads     int    `yaml:"threads"`
 		GraceSecs   int    `yaml:"graceSecs"`
+		Port        int    `yaml:"port"`
 	} `yaml:"server"`
 
 	Client struct {

@@ -13,6 +13,8 @@ server:
   exportRoot: /exports
   exportsFile: /etc/exports
   threads: 8
+  # nfsd's TCP port. NFS_PORT, set by the chart from sandboxMount.port, overrides it.
+  port: 20490
   # NFSv4 grace and lease time. The kernel minimum is 10.
   graceSecs: 10
 

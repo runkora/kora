@@ -8,6 +8,7 @@
 //
 // NODE_NAME is this node's name, set by the chart from the downward API.
 // KUBELET_DIR is the kubelet directory's path on the node, set by the chart.
+// NFS_PORT is nfsd's TCP port on every node, set by the chart.
 package main
 
 import (
@@ -16,6 +17,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 
 	"k8s.io/client-go/kubernetes"
@@ -55,6 +57,15 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 		return fmt.Errorf("kubernetes client: %w", err)
 	}
 
+	port := cfg.Server.Port
+	if v := os.Getenv("NFS_PORT"); v != "" {
+		p, perr := strconv.Atoi(v)
+		if perr != nil || p < 1 || p > 65535 {
+			return fmt.Errorf("NFS_PORT %q is not a TCP port", v)
+		}
+		port = p
+	}
+
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	server, mountd, err := mount.StartServer(ctx, mount.ServerConfig{
@@ -63,16 +74,17 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 		ExportsFile: cfg.Server.ExportsFile,
 		Threads:     cfg.Server.Threads,
 		GraceSecs:   cfg.Server.GraceSecs,
+		Port:        port,
 	})
 	if err != nil {
 		return fmt.Errorf("start NFS server: %w", err)
 	}
-	agentCfg := mount.Config{Node: node, KubeletDir: cfg.Node.KubeletDir, Resync: cfg.Resync(), Retry: cfg.Retry(), LedgerFile: cfg.Node.LedgerFile}
+	agentCfg := mount.Config{Node: node, KubeletDir: cfg.Node.KubeletDir, Resync: cfg.Resync(), Retry: cfg.Retry(), LedgerFile: cfg.Node.LedgerFile, Port: port}
 	hostKubeletDir := os.Getenv("KUBELET_DIR")
 	if hostKubeletDir == "" {
 		hostKubeletDir = cfg.Node.KubeletDir
 	}
-	client := mount.Client{KubeletDir: cfg.Node.KubeletDir, HostKubeletDir: hostKubeletDir, Options: cfg.Client.MountOptions}
+	client := mount.Client{KubeletDir: cfg.Node.KubeletDir, HostKubeletDir: hostKubeletDir, Port: port, Options: cfg.Client.MountOptions}
 	agent, err := mount.NewAgent(agentCfg, kube, server, client, logger)
 	if err != nil {
 		return err

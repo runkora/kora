@@ -48,15 +48,18 @@ const egressGatewayServiceName = "orbit-egress-gateway"
 // egress to the per-tenant gateway. Re-applied on every reconcile so a
 // gateway port/name change in config flows through to existing tenants.
 func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant *OrbitTenant) error {
-	ns := tenantNamespace(tenant)
+	return r.ensureNetworkPolicy(ctx, tenant, sandboxEgressPolicy(tenantNamespace(tenant), tenant.Name))
+}
 
-	desired := &networkingv1.NetworkPolicy{
+// sandboxEgressPolicy is the sandbox egress allowlist: DNS, istiod, identity, policy and the egress gateway.
+func sandboxEgressPolicy(ns, tenantName string) *networkingv1.NetworkPolicy {
+	return &networkingv1.NetworkPolicy{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      sandboxEgressPolicyName,
 			Namespace: ns,
 			Labels: map[string]string{
 				"app.kubernetes.io/managed-by": "orbit-operator",
-				"orbit.io/tenant":              tenant.Name,
+				"orbit.io/tenant":              tenantName,
 			},
 		},
 		Spec: networkingv1.NetworkPolicySpec{
@@ -192,8 +195,6 @@ func (r *TenantReconciler) ensureSandboxEgressPolicy(ctx context.Context, tenant
 			},
 		},
 	}
-
-	return r.ensureNetworkPolicy(ctx, tenant, desired)
 }
 
 // ensureSandboxIngressPolicy reconciles the NetworkPolicy that decides who may

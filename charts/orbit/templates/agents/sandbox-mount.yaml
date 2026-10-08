@@ -1,6 +1,9 @@
 {{- if .Values.sandboxMount.enabled }}
 {{- /* Node agent for sandbox working folders (docs/adr/2026-10-08-sandbox-workspace-mount.md). */}}
 {{- $m := .Values.sandboxMount }}
+{{- if or (lt (int $m.port) 1) (gt (int $m.port) 65535) }}
+  {{- fail "sandboxMount.port must be a TCP port" }}
+{{- end }}
 {{- if $m.createNamespace }}
 apiVersion: v1
 kind: Namespace
@@ -106,6 +109,8 @@ spec:
                   fieldPath: spec.nodeName
             - name: KUBELET_DIR
               value: {{ $m.kubeletDir | quote }}
+            - name: NFS_PORT
+              value: {{ $m.port | int | toString | quote }}
           # Mounting filesystems and starting the kernel NFS server need full privileges on the node.
           securityContext:
             privileged: true

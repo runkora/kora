@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -107,5 +108,38 @@ func TestChartSandboxMountDisabledByDefault(t *testing.T) {
 	}
 	if agentsSandboxMount(t, out) {
 		t.Error("orbit-agents sandboxMount = true by default")
+	}
+}
+
+// The node agent receives sandboxMount.port, 20490 by default, and the chart refuses a value that is not a TCP port.
+func TestChartSandboxMountPort(t *testing.T) {
+	for values, want := range map[string]string{
+		"sandboxMount:\n  enabled: true\n":                "20490",
+		"sandboxMount:\n  enabled: true\n  port: 31049\n": "31049",
+	} {
+		out := renderChart(t, values, "--show-only", "templates/agents/sandbox-mount.yaml")
+		var got string
+		for doc := range strings.SplitSeq(out, "\n---\n") {
+			var ds appsv1.DaemonSet
+			if err := yaml.Unmarshal([]byte(doc), &ds); err != nil || ds.Kind != "DaemonSet" {
+				continue
+			}
+			for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
+				if e.Name == "NFS_PORT" {
+					got = e.Value
+				}
+			}
+		}
+		if got != want {
+			t.Errorf("values %q: NFS_PORT = %q, want %q", values, got, want)
+		}
+	}
+	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")
+	if _, err := exec.LookPath("helm"); err != nil {
+		t.Skip("helm not installed")
+	}
+	out, err := exec.Command("helm", "template", "orbit", chart, "-n", "orbit-system", "-f", filepath.Join(chart, "ci", "default-values.yaml"), "--set", "sandboxMount.enabled=true", "--set", "sandboxMount.port=70000").CombinedOutput()
+	if err == nil || !strings.Contains(string(out), "sandboxMount.port must be a TCP port") {
+		t.Errorf("port 70000 rendered: %v\n%s", err, out)
 	}
 }
