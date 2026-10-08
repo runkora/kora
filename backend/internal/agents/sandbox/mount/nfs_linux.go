@@ -79,7 +79,7 @@ func (s *Server) Apply(exports []export) error {
 	for _, e := range exports {
 		dst := filepath.Join(s.cfg.ExportRoot, e.name)
 		keep[dst] = true
-		if err := bindBeneath(e.path, dst); err != nil {
+		if err := bindBeneath(s.cfg.KubeletDir, e.path, dst); err != nil {
 			errs = append(errs, fmt.Errorf("bind %s: %w", e.path, err))
 			continue
 		}
@@ -119,13 +119,13 @@ func (s *Server) write(exports []export) error {
 	return nil
 }
 
-// bindBeneath bind-mounts src on dst. src is opened without following symlinks
-// below the kubelet's pod directory, so a pod cannot point it elsewhere.
-func bindBeneath(src, dst string) error {
+// bindBeneath bind-mounts src on dst. src is resolved beneath the kubelet
+// directory without following any symlink, so a pod cannot point it elsewhere.
+func bindBeneath(kubeletDir, src, dst string) error {
 	if mounted(dst) {
 		return nil
 	}
-	fd, err := openBeneath(filepath.Dir(src), filepath.Base(src))
+	fd, err := openBeneath(kubeletDir, src)
 	if err != nil {
 		return err
 	}
@@ -153,7 +153,8 @@ func (c Client) Mounts() (map[string]string, error) {
 }
 
 // Resolve finds the volume of the session-manager pod that holds the run's directory.
-// CSI volumes keep their files under a mount subdirectory.
+// CSI volumes keep their files under a mount subdirectory. Each candidate is checked
+// beneath the kubelet directory without following symlinks.
 func (c Client) Resolve(workspaceUID, runID string) (string, error) {
 	vols, err := filepath.Glob(filepath.Join(c.KubeletDir, "pods", workspaceUID, "volumes", "*", "*"))
 	if err != nil {
@@ -161,7 +162,8 @@ func (c Client) Resolve(workspaceUID, runID string) (string, error) {
 	}
 	for _, v := range vols {
 		for _, dir := range []string{filepath.Join(v, "mount"), v} {
-			if fi, err := os.Lstat(filepath.Join(dir, runID)); err == nil && fi.IsDir() {
+			if fd, err := openBeneath(c.KubeletDir, filepath.Join(dir, runID)); err == nil {
+				_ = unix.Close(fd)
 				return dir, nil
 			}
 		}
@@ -169,10 +171,10 @@ func (c Client) Resolve(workspaceUID, runID string) (string, error) {
 	return "", fmt.Errorf("no volume of pod %s holds run %s", workspaceUID, runID)
 }
 
-// Mount mounts the NFS source on rel beneath volumeDir. The mount point is
-// opened without following symlinks, so the agent cannot redirect it.
+// Mount mounts the NFS source on rel beneath volumeDir. The mount point is resolved
+// beneath the kubelet directory without following symlinks, so the agent cannot redirect it.
 func (c Client) Mount(source, volumeDir, rel string) error {
-	fd, err := openBeneath(volumeDir, rel)
+	fd, err := openBeneath(c.KubeletDir, filepath.Join(volumeDir, rel))
 	if err != nil {
 		return err
 	}
@@ -190,19 +192,24 @@ func (c Client) Unmount(path string) error {
 	return err
 }
 
-// openBeneath opens rel under dir as an O_PATH directory, refusing symlinks and any escape from dir.
-func openBeneath(dir, rel string) (int, error) {
-	root, err := unix.Open(dir, unix.O_PATH|unix.O_DIRECTORY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return -1, fmt.Errorf("open %s: %w", dir, err)
+// openBeneath opens path, which must lie under root, as an O_PATH directory. Every
+// component below root is resolved without following symlinks and cannot escape root.
+func openBeneath(root, path string) (int, error) {
+	rel, err := filepath.Rel(root, path)
+	if err != nil || !filepath.IsLocal(rel) {
+		return -1, fmt.Errorf("%s is not beneath %s", path, root)
 	}
-	defer unix.Close(root)
-	fd, err := unix.Openat2(root, rel, &unix.OpenHow{
+	dir, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return -1, fmt.Errorf("open %s: %w", root, err)
+	}
+	defer unix.Close(dir)
+	fd, err := unix.Openat2(dir, rel, &unix.OpenHow{
 		Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
 		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
 	})
 	if err != nil {
-		return -1, fmt.Errorf("open %s beneath %s: %w", rel, dir, err)
+		return -1, fmt.Errorf("open %s beneath %s: %w", rel, root, err)
 	}
 	return fd, nil
 }

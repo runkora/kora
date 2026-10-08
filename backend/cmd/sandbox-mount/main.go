@@ -57,6 +57,7 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	server, mountd, err := mount.StartServer(ctx, mount.ServerConfig{
+		KubeletDir:  cfg.Node.KubeletDir,
 		ExportRoot:  cfg.Server.ExportRoot,
 		ExportsFile: cfg.Server.ExportsFile,
 		Threads:     cfg.Server.Threads,

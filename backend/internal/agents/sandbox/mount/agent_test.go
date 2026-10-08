@@ -147,6 +147,21 @@ func TestReconcile_IgnoresUnpairedSandboxes(t *testing.T) {
 	}
 }
 
+// A sandbox names its session-manager pod by name only, so it never pairs with a same-named pod in another tenant's namespace.
+func TestReconcile_DoesNotPairAcrossNamespaces(t *testing.T) {
+	m := &fakeMounter{current: map[string]string{}, volumeDir: "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount"}
+	a, e, s := newTestAgent("node-b", m)
+	other := workspacePod("node-b", "10.0.0.2")
+	other.Namespace = "other-tenant"
+
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-b", "10.0.0.2")}, lookup(other)); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(e.applied[0]) != 0 || len(m.mounted) != 0 || len(s.patched) != 0 {
+		t.Errorf("applied %v, mounted %v, patched %v, want nothing", e.applied, m.mounted, s.patched)
+	}
+}
+
 // A workspace that cannot be resolved yet is reported, and the sandbox is not marked mounted.
 func TestReconcile_ReportsUnresolvedWorkspace(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}, resolveErr: errors.New("not yet")}

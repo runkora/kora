@@ -2,6 +2,9 @@ package mount
 
 // ServerConfig holds the kernel NFS server settings.
 type ServerConfig struct {
+	// KubeletDir is where the node's kubelet directory is mounted in the agent's container.
+	// Export paths are resolved beneath it.
+	KubeletDir string
 	// ExportRoot is the tmpfs that holds one bind mount per export. It is the NFSv4 root.
 	ExportRoot string
 	// ExportsFile is the exports table exportfs reads.

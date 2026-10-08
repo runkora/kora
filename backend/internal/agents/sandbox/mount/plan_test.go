@@ -19,6 +19,9 @@ func sandboxPod(node, hostIP string) *corev1.Pod {
 		Spec: corev1.PodSpec{
 			NodeName:        node,
 			SecurityContext: &corev1.PodSecurityContext{RunAsUser: &uid, RunAsGroup: &gid},
+			Volumes: []corev1.Volume{{Name: "workspaces", VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-agent-0"},
+			}}},
 		},
 		Status: corev1.PodStatus{Phase: corev1.PodRunning, HostIP: hostIP},
 	}
@@ -75,6 +78,13 @@ func TestPlan_SkipsUnusablePods(t *testing.T) {
 		"run ID escapes":       func(sb, _ *corev1.Pod) { sb.Labels[RunIDLabel] = "../other" },
 		"run ID dot-dot":       func(sb, _ *corev1.Pod) { sb.Labels[RunIDLabel] = ".." },
 		"no run ID":            func(sb, _ *corev1.Pod) { delete(sb.Labels, RunIDLabel) },
+		// A pod labelled with another run's ID does not carry that run's sandbox name.
+		"claims another run": func(sb, _ *corev1.Pod) { sb.Labels[RunIDLabel] = "run-2" },
+		// A pod that names a session-manager whose workspace claim it does not mount.
+		"another workspace":  func(_, ws *corev1.Pod) { ws.Name = "agent-1" },
+		"no workspace claim": func(sb, _ *corev1.Pod) { sb.Spec.Volumes = nil },
+		// A session-manager pod in another tenant's namespace.
+		"another namespace": func(_, ws *corev1.Pod) { ws.Namespace = "other-tenant" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -26,7 +26,14 @@ const (
 	// both pods see at /workspaces/<run>/sandbox.
 	Volume = "local-disk"
 	Dir    = "sandbox"
+	// workspaceClaimPrefix starts the name of a session-manager pod's workspace
+	// claim: the StatefulSet's volumeClaimTemplate name, then the pod name.
+	workspaceClaimPrefix = "workspaces-"
 )
+
+// SandboxPodName is the name orbit-agents gives a run's sandbox pod. Names are
+// unique in a namespace, so at most one pod can claim a run's folder.
+func SandboxPodName(runID string) string { return "sandbox-" + runID }
 
 // export is one sandbox folder this node serves.
 type export struct {
@@ -63,7 +70,7 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 	var targets []target
 	for _, p := range pairs {
 		runID := p.sandbox.Labels[RunIDLabel]
-		if !live(p.sandbox) || !live(p.workspace) || !singleSegment(runID) || p.sandbox.Status.HostIP == "" || p.workspace.Status.HostIP == "" {
+		if !live(p.sandbox) || !live(p.workspace) || !singleSegment(runID) || !owns(p, runID) || p.sandbox.Status.HostIP == "" || p.workspace.Status.HostIP == "" {
 			continue
 		}
 		name := string(p.sandbox.UID)
@@ -88,6 +95,19 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 		}
 	}
 	return exports, targets
+}
+
+// owns reports a sandbox pod built for this run and this session-manager pod: it
+// carries the run's sandbox name, sits in the session-manager's namespace, and
+// mounts that pod's workspace claim. A pod that claims another run's folder, or
+// another session-manager's workspace, gets nothing.
+func owns(p pair, runID string) bool {
+	if p.sandbox.Name != SandboxPodName(runID) || p.sandbox.Namespace != p.workspace.Namespace {
+		return false
+	}
+	return slices.ContainsFunc(p.sandbox.Spec.Volumes, func(v corev1.Volume) bool {
+		return v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == workspaceClaimPrefix+p.workspace.Name
+	})
 }
 
 // live reports a running pod that is not being deleted.
