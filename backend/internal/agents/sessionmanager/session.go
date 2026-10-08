@@ -426,11 +426,8 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	reg.sandboxStatus(ctx, runID, SandboxPhasePodReady, started, "")
 
 	// The agent's file tools reach the sandbox folder only once the node agent has mounted it.
-	if sandbox.Folder != "" {
-		if err := reg.awaitSandboxFolder(ctx, runID, sandbox.Folder); err != nil {
-			reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "the sandbox folder was not mounted in time")
-			return "", err
-		}
+	if err := reg.awaitFolderOrFail(ctx, runID, sandbox.Folder, started); err != nil {
+		return "", err
 	}
 
 	// Gate on egress readiness before handing the endpoint to the agent.

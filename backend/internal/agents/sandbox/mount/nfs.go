@@ -14,6 +14,8 @@ type ServerConfig struct {
 	Threads int
 	// GraceSecs sets the NFSv4 grace and lease times before nfsd starts.
 	GraceSecs int
+	// Port is the TCP port nfsd listens on.
+	Port int
 }
 
 // Client mounts sandbox folders with the kernel NFS client.
@@ -22,6 +24,8 @@ type Client struct {
 	KubeletDir string
 	// HostKubeletDir is the kubelet directory's path on the node.
 	HostKubeletDir string
-	// Options are the NFS mount options. The server address is added per mount.
+	// Port is the TCP port of the nfsd it mounts from.
+	Port int
+	// Options are the NFS mount options. The server address and port are added per mount.
 	Options string
 }

@@ -31,6 +31,15 @@ type fakeMounter struct {
 	unmounted  []string
 	released   []string
 	sources    map[string]bool
+	reports    map[string]string
+}
+
+func (f *fakeMounter) Report(_, runID, content string) error {
+	if f.reports == nil {
+		f.reports = map[string]string{}
+	}
+	f.reports[runID] = content
+	return nil
 }
 
 func (f *fakeMounter) Mounts() (map[string]string, error) {
@@ -68,7 +77,8 @@ func newTestAgent(t *testing.T, node string, m *fakeMounter, recorded map[string
 	}
 	maps.Copy(l.entries, recorded)
 	e := &fakeExporter{}
-	return &Agent{cfg: Config{Node: node, KubeletDir: "/k"}, exports: e, mounts: m, ledger: l, logger: logging.NewLoggerWithOutput(io.Discard)}, e
+	reach := func(context.Context, string) error { return nil }
+	return &Agent{cfg: Config{Node: node, KubeletDir: "/k", Port: 20490}, exports: e, mounts: m, ledger: l, reach: reach, logger: logging.NewLoggerWithOutput(io.Discard)}, e
 }
 
 func lookup(pods ...*corev1.Pod) []*corev1.Pod { return pods }
@@ -249,5 +259,35 @@ func TestReconcile_ReleasesCopiesUnderDyingSandboxes(t *testing.T) {
 	// The agent's own mounts, including one this pass unmounted, and nothing else.
 	if !m.sources["10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002"] || !m.sources["10.0.0.1:/gone"] || len(m.sources) != 2 {
 		t.Errorf("release sources = %v, want the agent's own mounts", m.sources)
+	}
+}
+
+// When the NFS port on the sandbox's node cannot be reached, nothing is mounted and the run's
+// report names the port and both nodes. A later successful mount clears the report.
+func TestReconcile_ReportsUnreachableNFSPort(t *testing.T) {
+	m := &fakeMounter{current: map[string]string{}, volumeDir: testVolume}
+	a, _ := newTestAgent(t, "node-b", m, nil)
+	var dialed string
+	a.reach = func(_ context.Context, addr string) error { dialed = addr; return errors.New("i/o timeout") }
+	sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-b", "10.0.0.2")
+
+	err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws))
+	if err == nil || !strings.Contains(err.Error(), "TCP port 20490") {
+		t.Errorf("err = %v, want the port named", err)
+	}
+	if dialed != "10.0.0.1:20490" || len(m.mounted) != 0 {
+		t.Errorf("dialed %q, mounted %v", dialed, m.mounted)
+	}
+	want := string(sb.UID) + "\nnode node-b cannot reach the NFS server on node node-a on TCP port 20490. Allow TCP 20490 from node-b to node-a.\n"
+	if got := m.reports["run-1"]; got != want {
+		t.Errorf("report = %q, want %q", got, want)
+	}
+
+	a.reach = func(context.Context, string) error { return nil }
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws)); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(m.mounted) != 1 || m.reports["run-1"] != "" {
+		t.Errorf("mounted %v, report %q, want a mount and a cleared report", m.mounted, m.reports["run-1"])
 	}
 }

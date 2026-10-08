@@ -42,13 +42,23 @@ func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("read nfsd threads: %w", err)
 	}
-	if strings.TrimSpace(string(threads)) == "0" {
+	ports, _ := os.ReadFile(filepath.Join(nfsdFS, "portlist"))
+	running := strings.TrimSpace(string(threads)) != "0"
+	if running && !slices.Contains(strings.Fields(string(ports)), strconv.Itoa(cfg.Port)) {
+		// nfsd from an earlier agent listens on another port. Stop it to start on the configured one.
+		if err := os.WriteFile(filepath.Join(nfsdFS, "threads"), []byte("0"), 0o600); err != nil {
+			return nil, nil, fmt.Errorf("stop nfsd: %w", err)
+		}
+		running = false
+	}
+	if !running {
 		for _, f := range []string{"nfsv4gracetime", "nfsv4leasetime"} {
 			if err := os.WriteFile(filepath.Join(nfsdFS, f), []byte(strconv.Itoa(cfg.GraceSecs)), 0o600); err != nil {
 				return nil, nil, fmt.Errorf("set %s: %w", f, err)
 			}
 		}
-		if out, err := exec.CommandContext(ctx, "rpc.nfsd", "-N", "3", "-V", "4.2", "--no-udp", strconv.Itoa(cfg.Threads)).CombinedOutput(); err != nil {
+		args := []string{"-N", "3", "-V", "4.2", "--no-udp", "-p", strconv.Itoa(cfg.Port), strconv.Itoa(cfg.Threads)}
+		if out, err := exec.CommandContext(ctx, "rpc.nfsd", args...).CombinedOutput(); err != nil {
 			return nil, nil, fmt.Errorf("start nfsd: %w: %s", err, out)
 		}
 	}
@@ -219,7 +229,68 @@ func (c Client) Mount(source, volumeDir, rel string) error {
 	defer unix.Close(fd)
 	host := strings.Trim(source[:strings.LastIndex(source, ":")], "[]")
 	// nosuid and nodev keep setuid files and device nodes in a sandbox folder inert in the session-manager.
-	return unix.Mount(source, threadFdPath(fd), "nfs4", unix.MS_NOSUID|unix.MS_NODEV, c.Options+",addr="+host)
+	opts := fmt.Sprintf("%s,port=%d,addr=%s", c.Options, c.Port, host)
+	return unix.Mount(source, threadFdPath(fd), "nfs4", unix.MS_NOSUID|unix.MS_NODEV, opts)
+}
+
+// Report writes or, for empty content, removes the run's file in the volume's
+// report directory. Every step goes through descriptors opened without following
+// symlinks, and the file is replaced by a rename.
+func (c Client) Report(volumeDir, runID, content string) error {
+	vol, err := openBeneath(c.KubeletDir, volumeDir)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(vol)
+	if content == "" {
+		dir, oerr := openAt(vol, ReportDir)
+		if errors.Is(oerr, unix.ENOENT) {
+			return nil
+		}
+		if oerr != nil {
+			return oerr
+		}
+		defer unix.Close(dir)
+		return ignoreMissing(unix.Unlinkat(dir, runID, 0))
+	}
+	if merr := unix.Mkdirat(vol, ReportDir, 0o755); merr != nil && !errors.Is(merr, unix.EEXIST) {
+		return fmt.Errorf("create %s: %w", ReportDir, merr)
+	}
+	dir, err := openAt(vol, ReportDir)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(dir)
+	tmp := runID + ".tmp"
+	_ = ignoreMissing(unix.Unlinkat(dir, tmp, 0))
+	fd, err := unix.Openat(dir, tmp, unix.O_CREAT|unix.O_EXCL|unix.O_WRONLY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0o644)
+	if err != nil {
+		return fmt.Errorf("create report: %w", err)
+	}
+	_, werr := unix.Write(fd, []byte(content))
+	if cerr := unix.Close(fd); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		return fmt.Errorf("write report: %w", werr)
+	}
+	return unix.Renameat(dir, tmp, dir, runID)
+}
+
+// openAt opens the directory name under dirfd without following symlinks.
+func openAt(dirfd int, name string) (int, error) {
+	return unix.Openat2(dirfd, name, &unix.OpenHow{
+		Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
+		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
+	})
+}
+
+// ignoreMissing treats a file that is already gone as removed.
+func ignoreMissing(err error) error {
+	if errors.Is(err, unix.ENOENT) {
+		return nil
+	}
+	return err
 }
 
 // Unmount force-detaches the mount. Readers blocked on a dead server get an error.

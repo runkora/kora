@@ -199,3 +199,38 @@ func TestCopiesUnder(t *testing.T) {
 		t.Errorf("copiesUnder = %+v, want %+v", got, want)
 	}
 }
+
+// The report lands in the volume's report directory, is replaced by later writes, and is removed by an empty one.
+// A report directory the run replaced with a symlink is refused.
+func TestReport(t *testing.T) {
+	kubelet := t.TempDir()
+	vol := filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~local-volume", "pv")
+	mkdirs(t, vol)
+	c := Client{KubeletDir: kubelet}
+	for _, content := range []string{"uid-1\nfirst\n", "uid-2\nsecond\n"} {
+		if err := c.Report(vol, "run-1", content); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := os.ReadFile(filepath.Join(vol, ReportDir, "run-1"))
+	if err != nil || string(got) != "uid-2\nsecond\n" {
+		t.Errorf("report = %q, %v", got, err)
+	}
+	if err := c.Report(vol, "run-1", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(vol, ReportDir, "run-1")); !os.IsNotExist(err) {
+		t.Errorf("report still present: %v", err)
+	}
+
+	outside := t.TempDir()
+	vol2 := filepath.Join(kubelet, "pods", "ws2", "volumes", "kubernetes.io~local-volume", "pv")
+	mkdirs(t, vol2)
+	symlink(t, outside, filepath.Join(vol2, ReportDir))
+	if err := c.Report(vol2, "run-1", "uid\nx\n"); err == nil {
+		t.Error("Report wrote through a symlinked report directory")
+	}
+	if entries, _ := os.ReadDir(outside); len(entries) != 0 {
+		t.Errorf("files written outside: %v", entries)
+	}
+}

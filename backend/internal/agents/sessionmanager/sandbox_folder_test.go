@@ -5,11 +5,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	sandboxmount "github.com/clear-route/orbit/internal/agents/sandbox/mount"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -110,5 +114,45 @@ func TestSandboxDescriptor_RefusesSymlinkOutOfWorkspace(t *testing.T) {
 	}
 	if got, _ := os.ReadFile(victim); string(got) != "run 2 data" {
 		t.Errorf("victim file = %q, want it untouched", got)
+	}
+}
+
+// A node agent report about this sandbox ends the wait at once with its reason.
+// A report about an earlier sandbox of the run is ignored.
+func TestAwaitSandboxFolder_EndsOnNodeAgentReport(t *testing.T) {
+	reg := folderRegistry(t, "")
+	reg.workspaces = t.TempDir()
+	reg.folderWait = 5 * time.Second
+	report := filepath.Join(reg.workspaces, sandboxmount.ReportDir, "run-1")
+	if err := os.MkdirAll(filepath.Dir(report), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	reason := "node b cannot reach the NFS server on node a on TCP port 20490. Allow TCP 20490 from b to a."
+	if err := os.WriteFile(report, []byte("old-uid\nstale\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := reg.mountFailure("run-1", "pod-uid"); got != "" {
+		t.Errorf("mountFailure with a stale report = %q", got)
+	}
+	if err := os.WriteFile(report, []byte("pod-uid\n"+reason+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid")
+	if !errors.Is(err, errSandboxFolder) || !strings.Contains(err.Error(), "TCP port 20490") {
+		t.Errorf("err = %v, want the reported reason", err)
+	}
+	if time.Since(start) > time.Second {
+		t.Errorf("wait took %v, want it to end on the report", time.Since(start))
+	}
+}
+
+// A folder mount failure reaches the agent with its reason, not the generic provision failure.
+func TestWriteSandboxError_FolderReason(t *testing.T) {
+	c := &Controller{logger: logging.NewLoggerWithOutput(io.Discard)}
+	rec := httptest.NewRecorder()
+	c.writeSandboxError(context.Background(), rec, "run-1", fmt.Errorf("%w: node b cannot reach the NFS server on node a on TCP port 20490", errSandboxFolder), "failed to provision sandbox")
+	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "TCP port 20490") {
+		t.Errorf("response = %d %s, want 503 with the reason", rec.Code, rec.Body.String())
 	}
 }

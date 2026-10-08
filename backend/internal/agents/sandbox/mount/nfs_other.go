@@ -33,5 +33,8 @@ func (Client) Mount(string, string, string) error { return errUnsupported }
 // Release fails off Linux.
 func (Client) Release([]string, map[string]bool) error { return errUnsupported }
 
+// Report fails off Linux.
+func (Client) Report(string, string, string) error { return errUnsupported }
+
 // Unmount fails off Linux.
 func (Client) Unmount(string) error { return errUnsupported }

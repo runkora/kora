@@ -676,6 +676,10 @@ func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWrite
 	case errors.Is(err, ErrSandboxLost):
 		apiErr := api.ServiceUnavailableError(runErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	case errors.Is(err, errSandboxFolder):
+		// The node agent's reason names nodes and the NFS port, which the operator needs to act on.
+		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 	case errors.Is(err, ErrEnvironmentRejected):
 		apiErr := api.ConflictError(api.ErrCodeConflict, strings.TrimPrefix(err.Error(), ErrEnvironmentRejected.Error()+": "), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)

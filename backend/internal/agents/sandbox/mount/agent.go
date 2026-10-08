@@ -5,7 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"path/filepath"
+	"strconv"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -31,6 +34,9 @@ type mounter interface {
 	Unmount(path string) error
 	// Release detaches propagated copies of the given sources' mounts below the given pods' directories.
 	Release(podUIDs []string, sources map[string]bool) error
+	// Report records why the run's folder could not be mounted, for the session-manager
+	// to show, in the volume's report directory. An empty message clears it.
+	Report(volumeDir, runID, message string) error
 }
 
 // Agent reconciles the node's exports and mounts with the sandbox pods.
@@ -40,7 +46,9 @@ type Agent struct {
 	exports exporter
 	mounts  mounter
 	ledger  *ledger
-	logger  logging.Logger
+	// reach checks a TCP connection to the NFS server before a mount.
+	reach  func(ctx context.Context, addr string) error
+	logger logging.Logger
 }
 
 // Reconcile exports and mounts every sandbox folder the given pods call for on
@@ -133,18 +141,70 @@ func (a *Agent) syncMounts(ctx context.Context, targets []target) error {
 			errs = append(errs, fmt.Errorf("%w: %s holds %s", errForeignMount, path, foreign))
 			continue
 		}
-		if err := a.mounts.Mount(w.source, w.volumeDir, filepath.Join(w.runID, Dir)); err != nil {
-			errs = append(errs, fmt.Errorf("mount %s on %s: %w", w.source, path, err))
-			continue
+		if err := a.mountOne(ctx, path, w); err != nil {
+			errs = append(errs, err)
 		}
-		a.ledger.entries[path] = w.source
-		a.logger.Info(ctx, "Mounted sandbox folder", logging.Field{Key: "run_id", Value: w.runID}, logging.Field{Key: "source", Value: w.source})
 	}
 	if err := a.ledger.save(); err != nil {
 		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
+
+// mountOne checks the NFS port, mounts the folder and records it, and reports the
+// reason for the session-manager when either step fails.
+func (a *Agent) mountOne(ctx context.Context, path string, w wanted) error {
+	if err := a.reach(ctx, net.JoinHostPort(w.serverIP, strconv.Itoa(a.cfg.Port))); err != nil {
+		msg := fmt.Sprintf("node %s cannot reach the NFS server on node %s on TCP port %d. Allow TCP %d from %s to %s.", w.clientNode, w.serverNode, a.cfg.Port, a.cfg.Port, w.clientNode, w.serverNode)
+		return errors.Join(fmt.Errorf("%s: %w", msg, err), a.report(w, msg))
+	}
+	if err := a.mounts.Mount(w.source, w.volumeDir, filepath.Join(w.runID, Dir)); err != nil {
+		reason := fmt.Sprintf("node %s could not mount the folder from node %s: %v.", w.clientNode, w.serverNode, unwrapErrno(err))
+		return errors.Join(fmt.Errorf("mount %s on %s: %w", w.source, path, err), a.report(w, reason))
+	}
+	a.ledger.entries[path] = w.source
+	a.logger.Info(ctx, "Mounted sandbox folder", logging.Field{Key: "run_id", Value: w.runID}, logging.Field{Key: "source", Value: w.source})
+	return a.report(w, "")
+}
+
+// report records a mount failure for the run, prefixed with the sandbox pod's UID so a
+// report about an earlier sandbox is ignored. An empty message clears the report.
+func (a *Agent) report(w wanted, message string) error {
+	content := ""
+	if message != "" {
+		content = w.sandboxUID + "\n" + message + "\n"
+	}
+	if err := a.mounts.Report(w.volumeDir, w.runID, content); err != nil {
+		return fmt.Errorf("report mount state for run %s: %w", w.runID, err)
+	}
+	return nil
+}
+
+// unwrapErrno returns the innermost error, which for a failed mount is the errno text without paths or addresses.
+func unwrapErrno(err error) error {
+	for {
+		inner := errors.Unwrap(err)
+		if inner == nil {
+			return err
+		}
+		err = inner
+	}
+}
+
+// dialTCP reports whether a TCP connection to addr opens within a few seconds.
+func dialTCP(ctx context.Context, addr string) error {
+	ctx, cancel := context.WithTimeout(ctx, reachTimeout)
+	defer cancel()
+	var d net.Dialer
+	conn, err := d.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return err
+	}
+	return conn.Close()
+}
+
+// reachTimeout bounds the reachability check before a mount.
+const reachTimeout = 3 * time.Second
 
 // errForeignMount reports a mount the agent did not make at a path it would mount on.
 var errForeignMount = errors.New("a mount the node agent did not make is in the way")

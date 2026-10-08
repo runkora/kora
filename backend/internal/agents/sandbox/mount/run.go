@@ -32,6 +32,8 @@ type Config struct {
 	Retry time.Duration
 	// LedgerFile records the mounts the agent made. It must sit where no pod can write.
 	LedgerFile string
+	// Port is the TCP port nfsd listens on, on every node.
+	Port int
 }
 
 // NewAgent returns an agent that serves exports and mounts on this node.
@@ -46,6 +48,7 @@ func NewAgent(cfg Config, kube kubernetes.Interface, exports exporter, mounts mo
 		exports: exports,
 		mounts:  mounts,
 		ledger:  l,
+		reach:   dialTCP,
 		logger:  logger,
 	}, nil
 }

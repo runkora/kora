@@ -25,6 +25,10 @@ const (
 	// both pods see at /workspaces/<run>/sandbox.
 	Volume = "local-disk"
 	Dir    = "sandbox"
+	// ReportDir, in the root of a session-manager's workspace volume, holds one file
+	// per run whose folder could not be mounted: the sandbox pod's UID, then the reason.
+	// Runs cannot write the volume root.
+	ReportDir = ".sandbox-mount"
 	// workspaceClaimPrefix starts the name of a session-manager pod's workspace
 	// claim: the StatefulSet's volumeClaimTemplate name, then the pod name.
 	workspaceClaimPrefix = "workspaces-"
@@ -53,6 +57,12 @@ type target struct {
 	runID        string
 	// source is the NFS source, server:/name.
 	source string
+	// serverIP and serverNode are the sandbox's node, clientNode the session-manager's.
+	serverIP   string
+	serverNode string
+	clientNode string
+	// sandboxUID is the sandbox pod's UID, which a failure report carries.
+	sandboxUID string
 }
 
 // pair is a sandbox pod and the session-manager pod its annotation names.
@@ -87,6 +97,10 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 				workspaceUID: string(p.workspace.UID),
 				runID:        runID,
 				source:       hostForSource(p.sandbox.Status.HostIP) + ":/" + name,
+				serverIP:     p.sandbox.Status.HostIP,
+				serverNode:   p.sandbox.Spec.NodeName,
+				clientNode:   p.workspace.Spec.NodeName,
+				sandboxUID:   name,
 			})
 		}
 	}
