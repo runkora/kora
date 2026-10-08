@@ -140,9 +140,10 @@ describe('listDeliveries (browser client)', () => {
     });
   });
 
-  // A 200 that is not JSON (an HTML error page from a proxy, say). The page is
-  // empty and there is nothing to report, but JSON.parse must not escape.
-  it('resolves with an empty page when a 200 body is not JSON', async () => {
+  // A 200 that is not JSON (an HTML error page from a proxy, say). Reporting it
+  // as an empty page would be indistinguishable from the end of history, so the
+  // grid would say "no deliveries" and hide Load more on a truncated list.
+  it('reports an error when a 200 body is not JSON, rather than an empty page', async () => {
     server.use(
       http.get(BFF, () =>
         HttpResponse.text('<html><body>gateway</body></html>', {
@@ -154,7 +155,7 @@ describe('listDeliveries (browser client)', () => {
     await expect(listDeliveries()).resolves.toEqual({
       deliveries: [],
       nextCursor: null,
-      error: null,
+      error: 'The server returned a response that could not be read.',
     });
   });
 
