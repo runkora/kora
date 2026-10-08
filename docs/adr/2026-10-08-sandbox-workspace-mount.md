@@ -185,6 +185,8 @@ None at this time.
 *   The folder and its contents are lost when the sandbox ends. A file written to `sandbox/` after that lands on the shared volume.
 *   Turning the feature on changes the session-manager StatefulSet template and rolls existing session-manager pods.
 *   A sandbox whose folder is not mounted within 60 s fails to provision.
+*   The export admits the session-manager node's `status.hostIP` only. A node whose NFS client connects from another address, such as on a second interface, is refused.
+*   One reconcile loop serves the node. A mount to an unreachable sandbox node holds up the node's other changes for the soft timeout.
 *   While the node agent is down, a deleting pod that holds a propagated copy stays in Terminating until the agent returns or the other runs' folders on its node are unmounted.
 
 ### Neutral
