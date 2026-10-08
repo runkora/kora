@@ -152,20 +152,28 @@ func TestResolve_SkipsScratchVolumes(t *testing.T) {
 	}
 }
 
-// Unmount resolves the mount point beneath the kubelet directory without following symlinks.
-// A run that swaps a path component for a symlink to a host directory gets no unmount there.
-func TestUnmount_DoesNotFollowSwappedSymlink(t *testing.T) {
+// Every unmount resolves the parent of its target from a descriptor on the root
+// without following symlinks. A run that swaps a path component for a symlink to
+// a host directory, between the agent reading mountinfo and unmounting, gets a
+// refusal: the agent never unmounts anything outside the volume.
+func TestUnmountBeneath_RefusesSwappedSymlink(t *testing.T) {
 	kubelet := t.TempDir()
 	outside := t.TempDir()
 	vol := filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~local-volume", "pv")
-	mkdirs(t, vol, filepath.Join(outside, "sandbox"))
-	symlink(t, outside, filepath.Join(vol, "run-1"))
-	// The open fails, and the fallback umount2 with UMOUNT_NOFOLLOW finds no mount: nothing outside is touched.
-	if err := (Client{KubeletDir: kubelet}).Unmount(filepath.Join(vol, "run-1", "sandbox")); err != nil && !errors.Is(err, unix.EPERM) {
-		t.Errorf("Unmount = %v", err)
+	mkdirs(t, filepath.Join(vol, "run-1", "sandbox"), filepath.Join(outside, "sandbox"))
+	// The run directory the agent mounted on is replaced by a symlink to a host directory.
+	if err := os.Rename(filepath.Join(vol, "run-1"), filepath.Join(vol, "run-1.old")); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := openBeneath(kubelet, filepath.Join(vol, "run-1", "sandbox")); err == nil {
-		t.Error("openBeneath followed the swapped symlink")
+	symlink(t, outside, filepath.Join(vol, "run-1"))
+
+	err := unmountBeneath(kubelet, filepath.Join(vol, "run-1", "sandbox"), unix.MNT_DETACH)
+	if !errors.Is(err, unix.ELOOP) {
+		t.Errorf("unmountBeneath through a swapped symlink = %v, want ELOOP from openat2", err)
+	}
+	// The same refusal holds for the client's unmount, which goes through unmountBeneath.
+	if err := (Client{KubeletDir: kubelet}).Unmount(filepath.Join(vol, "run-1", "sandbox")); !errors.Is(err, unix.ELOOP) {
+		t.Errorf("Client.Unmount through a swapped symlink = %v, want ELOOP", err)
 	}
 }
 

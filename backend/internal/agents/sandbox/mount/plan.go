@@ -5,7 +5,9 @@
 package mount
 
 import (
+	"net"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -65,7 +67,7 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 	var targets []target
 	for _, p := range pairs {
 		runID := p.sandbox.Labels[RunIDLabel]
-		if !live(p.sandbox) || !live(p.workspace) || !singleSegment(runID) || !owns(p, runID) || p.sandbox.Status.HostIP == "" || p.workspace.Status.HostIP == "" {
+		if !live(p.sandbox) || !live(p.workspace) || !singleSegment(runID) || !owns(p, runID) || !isIP(p.sandbox.Status.HostIP) || !isIP(p.workspace.Status.HostIP) || !podUID.MatchString(string(p.sandbox.UID)) {
 			continue
 		}
 		name := string(p.sandbox.UID)
@@ -103,6 +105,13 @@ func owns(p pair, runID string) bool {
 		return v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == workspaceClaimPrefix+p.workspace.Name
 	})
 }
+
+// podUID matches a Kubernetes UID. It names the export directory, the fsid and an
+// exports table entry, so nothing else may reach those.
+var podUID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// isIP reports a literal IP address. Node addresses name export directories and exports table entries.
+func isIP(s string) bool { return net.ParseIP(s) != nil }
 
 // live reports a running pod that is not being deleted.
 func live(pod *corev1.Pod) bool {

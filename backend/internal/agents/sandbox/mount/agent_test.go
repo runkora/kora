@@ -87,11 +87,11 @@ func TestReconcile_MountsSandbox(t *testing.T) {
 	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws)); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if len(m.mounted) != 1 || m.mounted[0] != "10.0.0.1:/sb-uid "+testTarget {
+	if len(m.mounted) != 1 || m.mounted[0] != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001 "+testTarget {
 		t.Errorf("mounted = %v", m.mounted)
 	}
 	saved, err := loadLedger(a.ledger.file)
-	if err != nil || saved.entries[testTarget] != "10.0.0.1:/sb-uid" {
+	if err != nil || saved.entries[testTarget] != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001" {
 		t.Errorf("saved ledger = %+v, %v, want the new mount", saved, err)
 	}
 
@@ -107,8 +107,8 @@ func TestReconcile_MountsSandbox(t *testing.T) {
 // A recorded mount whose sandbox is deleting, or that no pod asks for any more, is unmounted and forgotten.
 func TestReconcile_UnmountsGoneSandboxes(t *testing.T) {
 	old := testVolume + "/run-9/sandbox"
-	m := &fakeMounter{current: map[string]string{testTarget: "10.0.0.1:/sb-uid", old: "10.0.0.1:/old"}, volumeDir: testVolume}
-	a, _ := newTestAgent(t, "node-b", m, map[string]string{testTarget: "10.0.0.1:/sb-uid", old: "10.0.0.1:/old"})
+	m := &fakeMounter{current: map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001", old: "10.0.0.1:/old"}, volumeDir: testVolume}
+	a, _ := newTestAgent(t, "node-b", m, map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001", old: "10.0.0.1:/old"})
 	sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-b", "10.0.0.2")
 	now := metav1.Now()
 	sb.DeletionTimestamp = &now
@@ -129,7 +129,7 @@ func TestReconcile_RemountsReplacedSandbox(t *testing.T) {
 	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2"))); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if len(m.unmounted) != 1 || len(m.mounted) != 1 || m.current[testTarget] != "10.0.0.1:/sb-uid" || a.ledger.entries[testTarget] != "10.0.0.1:/sb-uid" {
+	if len(m.unmounted) != 1 || len(m.mounted) != 1 || m.current[testTarget] != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001" || a.ledger.entries[testTarget] != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001" {
 		t.Errorf("unmounted %v, mounted %v, current %v, ledger %v", m.unmounted, m.mounted, m.current, a.ledger.entries)
 	}
 }
@@ -139,12 +139,12 @@ func TestReconcile_RemountsReplacedSandbox(t *testing.T) {
 // copies the host propagates into other binds of the volume.
 func TestReconcile_LeavesMountsItDidNotMake(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{
-		testTarget:                    "10.0.0.1:/sb-uid",
+		testTarget:                    "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001",
 		testVolume + "/run-2/sandbox": "10.0.0.1:/forged-uid",
-		"/k/pods/other/volumes/kubernetes.io~nfs/sandbox":                 "nas:/export",
-		"/k/pods/sb-uid/volumes/kubernetes.io~csi/pv/mount/run-1/sandbox": "10.0.0.1:/sb-uid",
+		"/k/pods/other/volumes/kubernetes.io~nfs/sandbox":                                               "nas:/export",
+		"/k/pods/0d6f0f3e-1111-4a8b-9c2d-000000000001/volumes/kubernetes.io~csi/pv/mount/run-1/sandbox": "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001",
 	}, volumeDir: testVolume}
-	a, _ := newTestAgent(t, "node-b", m, map[string]string{testTarget: "10.0.0.1:/sb-uid"})
+	a, _ := newTestAgent(t, "node-b", m, map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001"})
 
 	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2"))); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -230,11 +230,11 @@ func TestReconcile_ReportsUnresolvedWorkspace(t *testing.T) {
 // A sandbox on this node that is deleting or finished has the copies of the agent's own mounts
 // under its volume binds released. A live sandbox and a sandbox on another node do not.
 func TestReconcile_ReleasesCopiesUnderDyingSandboxes(t *testing.T) {
-	m := &fakeMounter{current: map[string]string{testTarget: "10.0.0.1:/live"}, volumeDir: testVolume}
-	a, _ := newTestAgent(t, "node-a", m, map[string]string{testTarget: "10.0.0.1:/live"})
+	m := &fakeMounter{current: map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002"}, volumeDir: testVolume}
+	a, _ := newTestAgent(t, "node-a", m, map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002"})
 	now := metav1.Now()
 	deleting, finished, live, elsewhere := sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-b", "10.0.0.2")
-	deleting.UID, finished.UID, live.UID, elsewhere.UID = "deleting", "finished", "live", "elsewhere"
+	deleting.UID, finished.UID, live.UID, elsewhere.UID = "deleting", "finished", "0d6f0f3e-1111-4a8b-9c2d-000000000002", "elsewhere"
 	deleting.DeletionTimestamp = &now
 	finished.Status.Phase = corev1.PodSucceeded
 	elsewhere.DeletionTimestamp = &now
@@ -245,7 +245,7 @@ func TestReconcile_ReleasesCopiesUnderDyingSandboxes(t *testing.T) {
 	if strings.Join(m.released, ",") != "deleting,finished" {
 		t.Errorf("released = %v, want deleting and finished", m.released)
 	}
-	if !m.sources["10.0.0.1:/live"] || len(m.sources) != 1 {
+	if !m.sources["10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002"] || len(m.sources) != 1 {
 		t.Errorf("release sources = %v, want only the agent's own mount", m.sources)
 	}
 }

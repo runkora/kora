@@ -101,7 +101,7 @@ func (s *Server) Apply(ctx context.Context, exports []export) error {
 			if keep[dst] {
 				continue
 			}
-			if err := unix.Unmount(dst, unix.MNT_DETACH); err != nil && !errors.Is(err, unix.EINVAL) {
+			if err := unmountBeneath(s.cfg.ExportRoot, dst, unix.MNT_DETACH); err != nil {
 				errs = append(errs, fmt.Errorf("unbind %s: %w", dst, err))
 				continue
 			}
@@ -143,7 +143,12 @@ func bindBeneath(kubeletDir, src, dst string) error {
 	if err := makeExportDir(dst); err != nil {
 		return err
 	}
-	return unix.Mount(fdPath(fd), dst, "", unix.MS_BIND, "")
+	target, err := openBeneath(filepath.Dir(filepath.Dir(dst)), dst)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(target)
+	return unix.Mount(threadFdPath(fd), threadFdPath(target), "", unix.MS_BIND, "")
 }
 
 // makeExportDir creates a bind mount point and its client root. Both are 0755: an
@@ -213,30 +218,27 @@ func (c Client) Mount(source, volumeDir, rel string) error {
 	}
 	defer unix.Close(fd)
 	host := strings.Trim(source[:strings.LastIndex(source, ":")], "[]")
-	return unix.Mount(source, fdPath(fd), "nfs4", 0, c.Options+",addr="+host)
+	return unix.Mount(source, threadFdPath(fd), "nfs4", 0, c.Options+",addr="+host)
 }
 
 // Unmount force-detaches the mount. Readers blocked on a dead server get an error.
-//
-// The mount point is opened beneath the kubelet directory without following
-// symlinks, checked to be NFS, and unmounted through that descriptor. When the
-// server is gone and the open fails, umount2 on the path with UMOUNT_NOFOLLOW is
-// the fallback. It does not revalidate the mount point and refuses a final symlink.
 func (c Client) Unmount(path string) error {
-	fd, err := openBeneath(c.KubeletDir, path)
+	return unmountBeneath(c.KubeletDir, path, unix.MNT_FORCE|unix.MNT_DETACH)
+}
+
+// unmountBeneath detaches the mount at path, which must lie under root. The parent
+// directory is opened from a descriptor on root with RESOLVE_BENEATH and
+// RESOLVE_NO_SYMLINKS, and umount2 names the last component through that
+// descriptor with UMOUNT_NOFOLLOW. No component of path is followed as a symlink,
+// and umount2 does not revalidate the mount point, so a dead NFS server does not
+// block it.
+func unmountBeneath(root, path string, flags int) error {
+	parent, err := openBeneath(root, filepath.Dir(path))
 	if err != nil {
-		return ignoreGone(unix.Unmount(path, unix.MNT_FORCE|unix.MNT_DETACH|unix.UMOUNT_NOFOLLOW))
+		return err
 	}
-	defer unix.Close(fd)
-	var st unix.Statfs_t
-	if err := unix.Fstatfs(fd, &st); err != nil {
-		return fmt.Errorf("statfs %s: %w", path, err)
-	}
-	if st.Type != unix.NFS_SUPER_MAGIC {
-		// Nothing of ours is mounted there any more.
-		return nil
-	}
-	return ignoreGone(unix.Unmount(fdPath(fd), unix.MNT_FORCE|unix.MNT_DETACH))
+	defer unix.Close(parent)
+	return ignoreGone(unix.Unmount(threadFdPath(parent)+"/"+filepath.Base(path), flags|unix.UMOUNT_NOFOLLOW))
 }
 
 // ignoreGone treats a mount that is already gone as unmounted.
@@ -294,16 +296,11 @@ func releaseCopy(kubeletDir string, p propagated) error {
 	if perr := unix.Mount("", threadFdPath(parent), "", unix.MS_PRIVATE, ""); perr != nil {
 		return fmt.Errorf("make %s private: %w", p.parentPoint, perr)
 	}
-	child, err := openBeneath(kubeletDir, p.point)
-	if err != nil {
-		return ignoreGone(unix.Unmount(p.point, unix.MNT_DETACH|unix.UMOUNT_NOFOLLOW))
-	}
-	defer unix.Close(child)
-	return ignoreGone(unix.Unmount(threadFdPath(child), unix.MNT_DETACH))
+	return unmountBeneath(kubeletDir, p.point, unix.MNT_DETACH)
 }
 
-// threadFdPath is fdPath for a thread in another mount namespace, where /proc/self
-// may not name this thread's view.
+// threadFdPath is the magic link the kernel resolves to the directory fd refers to.
+// It names the calling thread, which also holds in the node's mount namespace.
 func threadFdPath(fd int) string { return "/proc/thread-self/fd/" + strconv.Itoa(fd) }
 
 // inHostMountNS runs fn on an OS thread that has joined the mount namespace of
@@ -354,9 +351,6 @@ func openBeneath(root, path string) (int, error) {
 	}
 	return fd, nil
 }
-
-// fdPath is the magic link mount(2) resolves to the directory fd refers to.
-func fdPath(fd int) string { return "/proc/self/fd/" + strconv.Itoa(fd) }
 
 func mountInfo() ([]mountEntry, error) {
 	f, err := os.Open("/proc/self/mountinfo")

@@ -12,7 +12,7 @@ func sandboxPod(node, hostIP string) *corev1.Pod {
 	uid, gid := int64(100), int64(100)
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: "sandbox-run-1", Namespace: "tenant", UID: types.UID("sb-uid"),
+			Name: "sandbox-run-1", Namespace: "tenant", UID: types.UID("0d6f0f3e-1111-4a8b-9c2d-000000000001"),
 			Labels:      map[string]string{RunIDLabel: "run-1"},
 			Annotations: map[string]string{WorkspacePodAnnotation: "agent-0"},
 		},
@@ -40,7 +40,7 @@ func TestPlan_SplitsRolesByNode(t *testing.T) {
 	pairs := []pair{{sandbox: sandboxPod("node-a", "10.0.0.1"), workspace: workspacePod("node-b", "10.0.0.2")}}
 
 	exports, targets := plan("node-a", "/var/lib/kubelet", pairs)
-	want := export{name: "sb-uid", path: "/var/lib/kubelet/pods/sb-uid/volumes/kubernetes.io~empty-dir/local-disk/sandbox", client: "10.0.0.2", uid: 100, gid: 100}
+	want := export{name: "0d6f0f3e-1111-4a8b-9c2d-000000000001", path: "/var/lib/kubelet/pods/0d6f0f3e-1111-4a8b-9c2d-000000000001/volumes/kubernetes.io~empty-dir/local-disk/sandbox", client: "10.0.0.2", uid: 100, gid: 100}
 	if len(exports) != 1 || exports[0] != want {
 		t.Errorf("node-a exports = %+v, want %+v", exports, want)
 	}
@@ -52,7 +52,7 @@ func TestPlan_SplitsRolesByNode(t *testing.T) {
 	if len(exports) != 0 {
 		t.Errorf("node-b exports = %+v, want none", exports)
 	}
-	if len(targets) != 1 || targets[0].source != "10.0.0.1:/sb-uid" || targets[0].workspaceUID != "ws-uid" || targets[0].runID != "run-1" {
+	if len(targets) != 1 || targets[0].source != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001" || targets[0].workspaceUID != "ws-uid" || targets[0].runID != "run-1" {
 		t.Errorf("node-b targets = %+v", targets)
 	}
 }
@@ -110,7 +110,26 @@ func TestPlan_RequiresRunAs(t *testing.T) {
 
 func TestPlan_BracketsIPv6Source(t *testing.T) {
 	_, targets := plan("node-b", "/k", []pair{{sandbox: sandboxPod("node-a", "fd00::1"), workspace: workspacePod("node-b", "fd00::2")}})
-	if len(targets) != 1 || targets[0].source != "[fd00::1]:/sb-uid" {
+	if len(targets) != 1 || targets[0].source != "[fd00::1]:/0d6f0f3e-1111-4a8b-9c2d-000000000001" {
 		t.Errorf("targets = %+v", targets)
+	}
+}
+
+// A pod UID or node address that is not well formed never reaches the exports table, where it could add entries or options.
+func TestPlan_RejectsMalformedExportFields(t *testing.T) {
+	cases := map[string]func(sb, ws *corev1.Pod){
+		"UID with a newline": func(sb, _ *corev1.Pod) { sb.UID = "0d6f0f3e-1111-4a8b-9c2d-000000000001\n/ *(rw,no_root_squash)" },
+		"UID path":           func(sb, _ *corev1.Pod) { sb.UID = "../../etc" },
+		"client with an ACL": func(_, ws *corev1.Pod) { ws.Status.HostIP = "10.0.0.2 *(rw)" },
+		"server not an IP":   func(sb, _ *corev1.Pod) { sb.Status.HostIP = "evil.example.com" },
+	}
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-a", "10.0.0.1")
+			mutate(sb, ws)
+			if exports, targets := plan("node-a", "/k", []pair{{sandbox: sb, workspace: ws}}); len(exports) != 0 || len(targets) != 0 {
+				t.Errorf("exports = %+v, targets = %+v, want none", exports, targets)
+			}
+		})
 	}
 }
