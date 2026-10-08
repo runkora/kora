@@ -22,7 +22,6 @@ import {
   dispatchDuration,
   isRedeliverable,
   failureSummary,
-  matchesStatusFilter,
   type DeliveryRow,
 } from './index';
 import { makeDelivery } from './fixtures';
@@ -120,27 +119,6 @@ describe('deliveryDetail excerpt truncation', () => {
       expect(detail.text).toBe(`${'x'.repeat(DELIVERY_EXCERPT_MAX)}…`);
       expect(detail.text).toHaveLength(DELIVERY_EXCERPT_MAX + 1); // +1 for the ellipsis glyph
     }
-  });
-});
-
-describe('matchesStatusFilter (client-side OR semantics)', () => {
-  it('keeps a row whose status is the single selected status', () => {
-    expect(matchesStatusFilter(row({ status: 'failed' }), new Set(['failed']))).toBe(true);
-  });
-
-  it('drops a row whose status is not selected', () => {
-    expect(matchesStatusFilter(row({ status: 'verified' }), new Set(['failed']))).toBe(false);
-  });
-
-  it('keeps rows matching any of multiple selected statuses (OR)', () => {
-    const selected = new Set(['dispatched', 'failed']);
-    expect(matchesStatusFilter(row({ status: 'dispatched' }), selected)).toBe(true);
-    expect(matchesStatusFilter(row({ status: 'failed' }), selected)).toBe(true);
-    expect(matchesStatusFilter(row({ status: 'skipped' }), selected)).toBe(false);
-  });
-
-  it('drops everything against an empty selection (DataTable skips filtering, so this path is the safe default)', () => {
-    expect(matchesStatusFilter(row({ status: 'failed' }), new Set())).toBe(false);
   });
 });
 

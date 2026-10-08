@@ -15,6 +15,8 @@ interface DeliveryListProps {
   /** Which delivery's payload is open, if any. */
   expandedId: string | null;
   onToggleExpanded: (id: string | null) => void;
+  /** Maps a trigger to its agent slug so a run id can link to that run. */
+  resolveAgentSlug?: (triggerId: string) => string | undefined;
   /** Replays a delivery. Absent for read-only callers. */
   onRedeliver?: (
     delivery: DeliveryRow,
@@ -37,6 +39,7 @@ export function DeliveryList({
   triggerId,
   expandedId,
   onToggleExpanded,
+  resolveAgentSlug,
   onRedeliver,
 }: DeliveryListProps) {
   return (
@@ -105,7 +108,12 @@ export function DeliveryList({
               <>
                 <Separator />
                 <Stack padding="cozy">
-                  <DeliveryDetail delivery={d} triggerId={triggerId} onRedeliver={onRedeliver} />
+                  <DeliveryDetail
+                    delivery={d}
+                    triggerId={triggerId}
+                    resolveAgentSlug={resolveAgentSlug}
+                    onRedeliver={onRedeliver}
+                  />
                 </Stack>
               </>
             )}

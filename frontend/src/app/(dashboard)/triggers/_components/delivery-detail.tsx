@@ -4,7 +4,9 @@
  * there was one, the payload that arrived, and the run it started. */
 
 import { useState } from 'react';
-import { Button, Callout, CodeBlock, SectionLabel, Stack, Text } from '@orbit/hades';
+import { Anchor, Button, Callout, CodeBlock, SectionLabel, Stack, Text } from '@orbit/hades';
+import Link from 'next/link';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import {
   coalesceKeyText,
   coalesceKeysFor,
@@ -43,6 +45,16 @@ export interface DeliveryDetailProps {
    */
   triggerId?: string;
   /**
+   * Maps a trigger to the agent whose runs it starts, so a run id can link to
+   * that run's page. The delivery's fan-out names the trigger, not the agent,
+   * and the run route is keyed by agent slug.
+   *
+   * Optional on purpose: a caller without the triggers list omits it and the
+   * run renders as plain text, exactly as before. A link that cannot be built
+   * is never a broken link.
+   */
+  resolveAgentSlug?: (triggerId: string) => string | undefined;
+  /**
    * Replays the delivery, resolving with the new delivery's id or an error.
    * Absent for read-only callers, where no Redeliver is offered at all.
    */
@@ -52,10 +64,42 @@ export interface DeliveryDetailProps {
 }
 
 /**
+ * One run id, linked to its run when the owning agent can be resolved.
+ *
+ * The link is composed from Anchor + next/link rather than AppLink because
+ * AppLink only accepts the static routes in APP_ROUTES; this is the same
+ * composition AppLink uses internally. Without a slug the id still renders, as
+ * text: a link that cannot be built is better absent than broken.
+ */
+function RunRef({ runId, agentSlug }: { runId: string; agentSlug: string | undefined }) {
+  if (agentSlug === undefined) {
+    return (
+      <Text mono size="caption" color="accent">
+        {runId}
+      </Text>
+    );
+  }
+  return (
+    <Anchor asChild size="inherit">
+      <Link href={APP_ROUTES.agents.run(agentSlug, runId)}>
+        <Text mono size="caption" color="accent">
+          {runId}
+        </Text>
+      </Link>
+    </Anchor>
+  );
+}
+
+/**
  * The detail body for one delivery, shared by the trigger drawer's inline
  * expansion and the platform Deliveries panel so the two cannot drift.
  */
-export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDetailProps) {
+export function DeliveryDetail({
+  delivery,
+  triggerId,
+  resolveAgentSlug,
+  onRedeliver,
+}: DeliveryDetailProps) {
   const [redelivering, setRedelivering] = useState(false);
   const [redeliverError, setRedeliverError] = useState<string | null>(null);
   const [replayId, setReplayId] = useState<string | null>(null);
@@ -70,6 +114,31 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
   // the panel saying nothing on exactly the deliveries opened to ask why.
   const error = outcome?.error ?? (outcome === undefined ? delivery.error : null);
   const runId = outcome?.runId ?? (triggerId === undefined ? delivery.runId : null);
+  // The run belongs to whichever trigger started it: this trigger in a scoped
+  // view, otherwise the one fan-out row that actually produced a run.
+  const runTriggerId =
+    outcome?.triggerId ?? delivery.runs.find((r) => r.runId === runId)?.triggerId;
+  const runSlug = runTriggerId === undefined ? undefined : resolveAgentSlug?.(runTriggerId);
+
+  // One delivery can match several triggers and start a run for each. A
+  // per-trigger view answers "what happened for me" and shows only that run;
+  // the unscoped panel is asked "what did this arrival do", so every run it
+  // started is worth reaching.
+  const fanOutRuns = triggerId === undefined ? delivery.runs.filter((r) => r.runId !== null) : [];
+
+  // The run shown inline when there is exactly one. delivery.run_id and the
+  // fan-out are written by separate statements in service_dispatch, so a read
+  // between them sees a fan-out run with no delivery-level run id. Reading
+  // only delivery.runId there would render the run nowhere: the list above
+  // needs two to appear, and the cluster below needs runId.
+  const soleRun = runId ?? (fanOutRuns.length === 1 ? fanOutRuns[0]?.runId : null) ?? null;
+  const soleRunSlug = runId != null ? runSlug : resolveAgentSlug?.(fanOutRuns[0]?.triggerId ?? '');
+
+  // Exactly one run is shown inline; several are listed above instead. "No run
+  // started" has to agree with both, or the panel claims nothing ran while
+  // listing what did.
+  const showRunCluster = soleRun != null && fanOutRuns.length <= 1;
+  const showNoRunText = soleRun == null && fanOutRuns.length === 0;
 
   // Replay is a recovery action, so it is offered only where there is something
   // to recover. A dispatched delivery already did its work; replaying it would
@@ -212,18 +281,43 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
 
       {/* The run line, and the replay that only makes sense once something
           arrived to replay. */}
-      {(runId != null || canRedeliver) && (
-        <Stack direction="horizontal" align="center" justify="between" gap="snug">
-          {runId != null ? (
+      {fanOutRuns.length > 1 && (
+        <Stack gap="tight">
+          <Text mono size="micro" color="subtle">
+            runs
+          </Text>
+          {fanOutRuns.map((r) => (
+            <Stack key={r.runId} direction="horizontal" align="center" gap="tight">
+              <Text size="caption" color="muted" truncate>
+                {r.triggerName || r.triggerId}
+              </Text>
+              <RunRef runId={r.runId as string} agentSlug={resolveAgentSlug?.(r.triggerId)} />
+            </Stack>
+          ))}
+        </Stack>
+      )}
+
+      {(showRunCluster || showNoRunText || canRedeliver) && (
+        // Guarded on what actually renders, not on runId: a fan-out of several
+        // runs with nothing to replay has no children here at all, and guarding
+        // on runId would emit an empty row that still takes a gap of space.
+        // When only Redeliver remains, justify puts it on the right rather than
+        // an empty element holding the left half.
+        <Stack
+          direction="horizontal"
+          align="center"
+          justify={showRunCluster || showNoRunText ? 'between' : 'end'}
+          gap="snug"
+        >
+          {showRunCluster && (
             <Stack direction="horizontal" align="center" gap="tight">
               <Text mono size="micro" color="subtle">
                 run
               </Text>
-              <Text mono size="caption" color="accent">
-                {runId}
-              </Text>
+              <RunRef runId={soleRun} agentSlug={soleRunSlug} />
             </Stack>
-          ) : (
+          )}
+          {showNoRunText && (
             <Text size="caption" color="subtle">
               No run started for this delivery.
             </Text>

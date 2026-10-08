@@ -29,6 +29,8 @@ export interface DeliveryDetailPanelProps {
    * page navigates to Triggers.
    */
   onOpenTrigger?: (triggerId: string) => void;
+  /** Maps a trigger to its agent slug so a run id can link to that run. */
+  resolveAgentSlug?: (triggerId: string) => string | undefined;
 }
 
 /**
@@ -41,6 +43,7 @@ export function DeliveryDetailPanel({
   onClose,
   onRedeliver,
   onOpenTrigger,
+  resolveAgentSlug,
 }: DeliveryDetailPanelProps) {
   // Read once into a const so the narrowing survives into the click handler.
   const triggerId = delivery.triggerId;
@@ -59,7 +62,11 @@ export function DeliveryDetailPanel({
               {formatTimestampUtc(delivery.receivedAt)}
             </Text>
           </Stack>
-          <DeliveryDetail delivery={delivery} onRedeliver={onRedeliver} />
+          <DeliveryDetail
+            delivery={delivery}
+            resolveAgentSlug={resolveAgentSlug}
+            onRedeliver={onRedeliver}
+          />
           {triggerId !== null && onOpenTrigger !== undefined && (
             <Stack direction="horizontal" justify="end">
               <Button variant="ghost" size="xs" onClick={() => onOpenTrigger(triggerId)}>

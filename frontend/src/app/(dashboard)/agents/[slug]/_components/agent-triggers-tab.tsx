@@ -253,6 +253,8 @@ export function AgentTriggersTab() {
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
+          // Every trigger on this tab belongs to the agent whose page it is.
+          resolveAgentSlug={(id) => triggers.find((t) => t.id === id)?.agentSlug}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);

@@ -226,17 +226,42 @@ export async function schedulePreview(
   });
 }
 
+/**
+ * One page of deliveries, newest first.
+ *
+ * `nextCursor` is the opaque value to echo back as `cursor` for the following
+ * page; it is null on the last page. `status` and `outcome` repeat rather than
+ * taking a comma list, which is what a multi-select filter sends.
+ */
+export interface DeliveryPage {
+  deliveries: TriggerDelivery[];
+  nextCursor: string | null;
+}
+
 export async function listDeliveries(
   accessToken: string,
-  opts: { sourceId?: string; limit?: number } = {},
-): Promise<TriggerDelivery[]> {
+  opts: {
+    sourceId?: string;
+    triggerId?: string;
+    kind?: string;
+    status?: string[];
+    outcome?: string[];
+    limit?: number;
+    cursor?: string | null;
+  } = {},
+): Promise<DeliveryPage> {
   const qs = new URLSearchParams();
   if (opts.sourceId) qs.set('source_id', opts.sourceId);
+  if (opts.triggerId) qs.set('trigger_id', opts.triggerId);
+  if (opts.kind) qs.set('kind', opts.kind);
+  for (const s of opts.status ?? []) qs.append('status', s);
+  for (const o of opts.outcome ?? []) qs.append('outcome', o);
   if (opts.limit) qs.set('limit', String(opts.limit));
+  if (opts.cursor) qs.set('cursor', opts.cursor);
   const q = qs.toString();
-  const body = await request<{ deliveries?: TriggerDelivery[] }>(
+  const body = await request<{ deliveries?: TriggerDelivery[]; next_cursor?: string | null }>(
     `/trigger-deliveries${q ? `?${q}` : ''}`,
     accessToken,
   );
-  return body?.deliveries ?? [];
+  return { deliveries: body?.deliveries ?? [], nextCursor: body?.next_cursor ?? null };
 }

@@ -3,7 +3,7 @@
 /** @tier 3 — triggers-scoped. Platform-wide Triggers control surface:
  * Sources / Triggers / Deliveries. */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
@@ -31,7 +31,8 @@ import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import { matchesStatusFilter } from '../_types';
+import { toDeliveryRow, DELIVERY_PAGE_SIZE } from '../_types';
+import { listDeliveries } from '../_services/triggers-api';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 
@@ -39,6 +40,12 @@ interface TriggersPageProps {
   sources: SourceRow[];
   triggers: TriggerRow[];
   deliveries: DeliveryRow[];
+  /**
+   * Cursor for the page after `deliveries`, or null when the first page is all
+   * there is. Comes from the same server fetch, so the first Load more does not
+   * have to re-read page one to discover where it ended.
+   */
+  initialDeliveryCursor?: string | null;
   agents: AgentOption[];
   error: string | null;
 }
@@ -54,7 +61,27 @@ const DELIVERY_STATUS_OPTIONS = [
   { value: 'missed', label: 'Missed' },
 ];
 
-export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
+/**
+ * The deliveries list as one value: the rows on screen, the cursor that
+ * continues them, the filter they actually are, and the epoch that says which
+ * server page they belong to. They change together, so a response is accepted
+ * or rejected as a unit rather than leaving the four half-updated.
+ */
+interface DeliveryPageState {
+  rows: DeliveryRow[];
+  cursor: string | null;
+  applied: string;
+  epoch: number;
+}
+
+export function TriggersPage({
+  sources,
+  triggers,
+  deliveries,
+  initialDeliveryCursor = null,
+  agents,
+  error,
+}: TriggersPageProps) {
   const router = useRouter();
   const ingestHost = ingestHostFromWindow();
 
@@ -83,15 +110,137 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     [triggers, kindFilter],
   );
 
-  // ── Deliveries: status filter ─────────────────────────────────────────────────
-  const [deliveryStatus, setDeliveryStatus] = useState('all');
+  // ── Deliveries: status filter and paging ──────────────────────────────────────
+  //
+  // The filter and the page both belong to the server now: filtering in the
+  // browser could only ever narrow the rows already loaded, so "failed" meant
+  // "failed among the most recent page", and older failures were unreachable.
+  // The grid keeps its own page controls; this list is the set they page over,
+  // and Load more extends it.
+  //
+  // selectedStatus is what the control shows; page.applied is what the rows on
+  // screen actually are. They differ while a request is in flight, and keeping
+  // them apart stops the grid relabelling the previous filter's rows as the new
+  // filter's answer.
+  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [page, setPage] = useState<DeliveryPageState>({
+    rows: deliveries,
+    cursor: initialDeliveryCursor,
+    applied: 'all',
+    epoch: 0,
+  });
+  const [loadingDeliveries, setLoadingDeliveries] = useState(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
 
-  const visibleDeliveries = useMemo(
-    () =>
-      deliveryStatus === 'all'
-        ? deliveries
-        : deliveries.filter((d) => matchesStatusFilter(d, new Set([deliveryStatus]))),
-    [deliveries, deliveryStatus],
+  // Only the newest request may write. Without this, changing the filter while a
+  // Load more is in flight lets the older response append the previous filter's
+  // rows and overwrite the new filter's cursor, after which every further page
+  // walks the wrong keyset.
+  const requestSeq = useRef(0);
+
+  // rows, cursor and applied move together, in one state object with an epoch,
+  // because a response has to be accepted or rejected as a unit. The epoch is
+  // what the render-phase re-seed below bumps, and comparing it inside the
+  // updater is the only place the CURRENT value is readable: a ref cannot be
+  // written during render and a closure captured at request time is stale by
+  // definition. Without it a Load more that overlaps a refresh appends the old
+  // filter's rows onto the new server page and installs the old keyset's
+  // cursor, which leaves the deliveries in between permanently unreachable.
+  const fetchDeliveries = useCallback(
+    async (status: string, cursor: string | null, epoch: number) => {
+      const seq = ++requestSeq.current;
+      setDeliveryError(null);
+      setLoadingDeliveries(true);
+      const res = await listDeliveries({
+        status: status === 'all' ? undefined : [status],
+        limit: DELIVERY_PAGE_SIZE,
+        cursor,
+      });
+      if (requestSeq.current !== seq) return; // superseded; its writes are stale
+      setLoadingDeliveries(false);
+      if (res.error) {
+        // Clear the page rather than leave the previous filter's rows sitting
+        // under the new label. An empty list with an error says "could not
+        // load"; stale rows would claim to be the answer.
+        setDeliveryError(res.error);
+        if (cursor === null) {
+          setPage((cur) =>
+            cur.epoch !== epoch ? cur : { ...cur, rows: [], cursor: null, applied: status },
+          );
+        }
+        return;
+      }
+      const rows = res.deliveries.map(toDeliveryRow);
+      setPage((cur) =>
+        cur.epoch !== epoch
+          ? cur // a fresh server page landed while this was in flight; it owns the list
+          : {
+              ...cur,
+              rows: cursor === null ? rows : [...cur.rows, ...rows],
+              cursor: res.nextCursor,
+              applied: status,
+            },
+      );
+    },
+    [],
+  );
+
+  // A new filter is a new query, not a narrowing of what is on screen, so it
+  // reads from the start rather than from the current cursor.
+  const applyDeliveryStatus = useCallback(
+    (next: string) => {
+      setSelectedStatus(next);
+      void fetchDeliveries(next, null, page.epoch);
+    },
+    [fetchDeliveries, page.epoch],
+  );
+
+  const loadMoreDeliveries = useCallback(() => {
+    if (page.cursor === null || loadingDeliveries) return;
+    void fetchDeliveries(page.applied, page.cursor, page.epoch);
+  }, [page.applied, page.cursor, page.epoch, loadingDeliveries, fetchDeliveries]);
+
+  // A failed filter change leaves nothing to click: the rows and cursor are
+  // gone, so there is no Load more, and re-picking the same option fires no
+  // change event. Retry is the way back.
+  const retryDeliveries = useCallback(() => {
+    if (loadingDeliveries) return;
+    void fetchDeliveries(selectedStatus, null, page.epoch);
+  }, [selectedStatus, page.epoch, loadingDeliveries, fetchDeliveries]);
+
+  // The server re-renders this page after a fire, redeliver or delete
+  // (use-trigger-actions calls router.refresh so the new arrival shows up). A
+  // prop read once at mount would never see it, so the accumulated list is
+  // re-seeded whenever a new server page arrives.
+  //
+  // This is React's "adjust state when a prop changes" pattern, done during
+  // render rather than in an effect: an effect would paint the stale list first
+  // and is what the repo's no-setState-in-effect rule exists to prevent.
+  //
+  // Re-seeding also drops back to All. The alternative, re-running the active
+  // filter, means a second round trip before the row the user just created can
+  // appear, and they refreshed precisely to see it.
+  const [serverPage, setServerPage] = useState(deliveries);
+  if (serverPage !== deliveries) {
+    setServerPage(deliveries);
+    // Bumping the epoch retires any request still in flight: its updater sees a
+    // different epoch and returns the state untouched, so the fresh server page
+    // keeps the list rather than having the old filter's rows appended to it.
+    setPage((cur) => ({
+      rows: deliveries,
+      cursor: initialDeliveryCursor,
+      applied: 'all',
+      epoch: cur.epoch + 1,
+    }));
+    setSelectedStatus('all');
+    setDeliveryError(null);
+  }
+
+  // A delivery's fan-out names the trigger; the run route is keyed by agent
+  // slug. The page already has every trigger, so the lookup is local.
+  const agentSlugForTrigger = useCallback(
+    (id: string) => triggers.find((t) => t.id === id)?.agentSlug,
+    [triggers],
   );
 
   const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
@@ -233,8 +382,8 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
             quickFilters={
               <NativeSelect
                 aria-label="Filter deliveries by status"
-                value={deliveryStatus}
-                onChange={(e) => setDeliveryStatus(e.target.value)}
+                value={selectedStatus}
+                onChange={(e) => applyDeliveryStatus(e.target.value)}
               >
                 <option value="all">All statuses</option>
                 {DELIVERY_STATUS_OPTIONS.map((o) => (
@@ -244,16 +393,48 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                 ))}
               </NativeSelect>
             }
-            resetKey={deliveryStatus}
-            deliveries={visibleDeliveries}
+            resetKey={page.applied}
+            deliveries={page.rows}
             sourceName={sourceName}
             onOpen={setDetailDelivery}
             emptyMessage={
-              deliveries.length === 0
+              page.applied === 'all'
                 ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
-                : `No ${deliveryStatus === 'all' ? '' : deliveryStatus + ' '}deliveries.`
+                : `No ${page.applied} deliveries.`
             }
           />
+          {/* Below the grid, because it extends the set the grid pages over
+              rather than moving within it. Absent once the cursor is spent,
+              which is how "that is all of them" is said. */}
+          {(page.cursor !== null || deliveryError !== null) && (
+            <Stack direction="horizontal" align="center" gap="snug">
+              {page.cursor !== null && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={loadingDeliveries}
+                  onClick={loadMoreDeliveries}
+                >
+                  {loadingDeliveries ? 'Loading...' : 'Load more'}
+                </Button>
+              )}
+              {deliveryError !== null && (
+                <>
+                  <Text size="supporting" color="status-error">
+                    {deliveryError}
+                  </Text>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={loadingDeliveries}
+                    onClick={retryDeliveries}
+                  >
+                    Retry
+                  </Button>
+                </>
+              )}
+            </Stack>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -264,6 +445,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
+          resolveAgentSlug={agentSlugForTrigger}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);

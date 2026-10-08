@@ -54,6 +54,35 @@ async function send<T>(
   return { data: body?.data ?? null, error: null };
 }
 
+/**
+ * send for a paginated list: the same envelope and the same error-as-value
+ * contract, plus the cursor that belongs to the page.
+ *
+ * send<T> deliberately returns only `data`, because every other list here is
+ * whole. A page is not: `next_cursor` describes the request, not any row in it,
+ * so it needs its own way out.
+ */
+async function sendPage<T>(
+  url: string,
+  init?: RequestInit,
+): Promise<
+  | { data: T | null; nextCursor: string | null; error: null }
+  | { data: null; nextCursor: null; error: string }
+> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    return { data: null, nextCursor: null, error: 'Network error: could not reach the server.' };
+  }
+  if (!res.ok) return { data: null, nextCursor: null, error: await errorMessage(res) };
+  const body = (await res.json().catch(() => null)) as {
+    data?: T;
+    next_cursor?: string | null;
+  } | null;
+  return { data: body?.data ?? null, nextCursor: body?.next_cursor ?? null, error: null };
+}
+
 /** A JSON request body, with the header that says so. */
 function json(method: string, payload: unknown): RequestInit {
   return {
@@ -82,14 +111,29 @@ export async function listTriggers(
   return { triggers: res.data ?? [], error: res.error };
 }
 
-export async function listDeliveries(): Promise<{
+/**
+ * One page of deliveries. `cursor` is the value returned as `nextCursor` by the
+ * previous call; omit it for the first page. `nextCursor` is null once there is
+ * nothing more to load, which is what hides the "Load more" control.
+ */
+export async function listDeliveries(
+  opts: { status?: string[]; outcome?: string[]; limit?: number; cursor?: string | null } = {},
+): Promise<{
   deliveries: TriggerDelivery[];
+  nextCursor: string | null;
   error: string | null;
 }> {
-  const res = await send<TriggerDelivery[]>(ApiRoute.triggerDeliveries.list(), {
-    cache: 'no-store',
-  });
-  return { deliveries: res.data ?? [], error: res.error };
+  const qs = new URLSearchParams();
+  for (const s of opts.status ?? []) qs.append('status', s);
+  for (const o of opts.outcome ?? []) qs.append('outcome', o);
+  if (opts.limit) qs.set('limit', String(opts.limit));
+  if (opts.cursor) qs.set('cursor', opts.cursor);
+  const q = qs.toString();
+  const res = await sendPage<TriggerDelivery[]>(
+    `${ApiRoute.triggerDeliveries.list()}${q ? `?${q}` : ''}`,
+    { cache: 'no-store' },
+  );
+  return { deliveries: res.data ?? [], nextCursor: res.nextCursor, error: res.error };
 }
 
 // ── Sources ─────────────────────────────────────────────────────────────────
