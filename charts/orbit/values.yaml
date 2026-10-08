@@ -632,11 +632,12 @@ agents:
       cpu: "2"
       memory: 4Gi
       disk: 10Gi
-    # -- Largest size an environment may request.
+    # -- Largest size an environment may request. The default accepts only the
+    # default size. Raise it to what a sandbox node holds: see the deployment guide.
     maxSize:
-      cpu: "8"
-      memory: 16Gi
-      disk: 50Gi
+      cpu: "2"
+      memory: 4Gi
+      disk: 10Gi
   # Sandbox image settings (docs/adr/2026-10-03-sandbox-environments.md). Platform teams
   # register their own images as SandboxImage resources in tenant namespaces.
   sandboxImages:
@@ -689,16 +690,11 @@ agents:
     # -- The placeholder's PriorityClass value. Stays below real pods at 0, or it
     # competes with the sandbox it exists for instead of yielding to it.
     priority: -10
-    # -- Capacity each placeholder reserves, and the size a node is fitted to. At
-    # or above a sandbox pod's total requests, sidecars included, or the sandbox
-    # taking the capacity will not fit on the node that was holding it.
-    resources:
-      requests:
-        cpu: "1"
-        memory: 4Gi
-      limits:
-        cpu: "1"
-        memory: 4Gi
+    # -- Capacity each placeholder reserves, and the size a node is fitted to.
+    # Empty reserves one default sandbox pod: `agents.environments.defaultSize`,
+    # 1Gi of scratch disk and `operator.injection.sandboxSidecars`. A value here
+    # replaces that and must cover a sandbox pod's total requests.
+    resources: {}
     # -- Applied to the `capacity` placeholder. kora's own selector labels win on
     # a collision.
     podLabels: {}

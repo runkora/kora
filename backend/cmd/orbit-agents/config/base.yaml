@@ -44,9 +44,9 @@ agents:
       memory: 4Gi
       disk: 10Gi
     maxSize:
-      cpu: "8"
-      memory: 16Gi
-      disk: 50Gi
+      cpu: "2"
+      memory: 4Gi
+      disk: 10Gi
   # Pull secrets for the images above, rendered by the chart.
   imagePullSecrets: []
   maxConcurrentRunsPerPod: 10
