@@ -3,11 +3,12 @@ package mount
 import (
 	"bufio"
 	"io"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
 
-// parseMountInfo reads the mount point, filesystem type and source from one /proc/self/mountinfo line.
+// parseMountInfo reads the mount and parent IDs, mount point, filesystem type and source from one /proc/self/mountinfo line.
 func parseMountInfo(line string) (mountEntry, bool) {
 	before, after, ok := strings.Cut(line, " - ")
 	if !ok {
@@ -17,7 +18,33 @@ func parseMountInfo(line string) (mountEntry, bool) {
 	if len(pre) < 5 || len(post) < 2 {
 		return mountEntry{}, false
 	}
-	return mountEntry{point: unescape(pre[4]), fstype: post[0], source: unescape(post[1])}, true
+	return mountEntry{id: pre[0], parent: pre[1], point: unescape(pre[4]), fstype: post[0], source: unescape(post[1])}, true
+}
+
+// propagated is a copy of a sandbox folder mount, and the mount it sits on.
+type propagated struct{ point, parentPoint string }
+
+// copiesUnder returns the sandbox folder mounts below the given pod directories,
+// with the mounts they sit on. These are copies the host propagated into other
+// binds of a session-manager's volume, such as a co-located sandbox pod's.
+func copiesUnder(entries []mountEntry, podDirs []string) []propagated {
+	points := make(map[string]string, len(entries))
+	for _, e := range entries {
+		points[e.id] = e.point
+	}
+	var out []propagated
+	for _, e := range entries {
+		if e.fstype != "nfs4" || filepath.Base(e.point) != Dir {
+			continue
+		}
+		for _, dir := range podDirs {
+			if strings.HasPrefix(e.point, dir) && points[e.parent] != "" {
+				out = append(out, propagated{point: e.point, parentPoint: points[e.parent]})
+				break
+			}
+		}
+	}
+	return out
 }
 
 // SourceAt returns the source of the topmost mount at point in a mountinfo
@@ -34,7 +61,7 @@ func SourceAt(mountinfo io.Reader, point string) string {
 }
 
 // mountEntry is one line of /proc/self/mountinfo.
-type mountEntry struct{ point, fstype, source string }
+type mountEntry struct{ id, parent, point, fstype, source string }
 
 // unescape decodes the octal escapes mountinfo uses for spaces, tabs, newlines and backslashes.
 func unescape(s string) string {

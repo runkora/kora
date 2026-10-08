@@ -28,6 +28,12 @@ type fakeMounter struct {
 	resolveErr error
 	mounted    []string
 	unmounted  []string
+	released   []string
+}
+
+func (f *fakeMounter) Release(uids []string) error {
+	f.released = append(f.released, uids...)
+	return nil
 }
 
 func (f *fakeMounter) Mounts() (map[string]string, error) {
@@ -173,5 +179,25 @@ func TestReconcile_IgnoresMountsOutsideLocalWorkspaces(t *testing.T) {
 	}
 	if len(m.unmounted) != 0 || len(m.mounted) != 0 {
 		t.Errorf("unmounted %v, mounted %v, want neither", m.unmounted, m.mounted)
+	}
+}
+
+// A sandbox on this node that is deleting or finished has the copies under its volume binds released.
+// A live sandbox and a sandbox on another node do not.
+func TestReconcile_ReleasesCopiesUnderDyingSandboxes(t *testing.T) {
+	m := &fakeMounter{current: map[string]string{}, volumeDir: "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount"}
+	a, _ := newTestAgent("node-a", m)
+	now := metav1.Now()
+	deleting, finished, live, elsewhere := sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-b", "10.0.0.2")
+	deleting.UID, finished.UID, live.UID, elsewhere.UID = "deleting", "finished", "live", "elsewhere"
+	deleting.DeletionTimestamp = &now
+	finished.Status.Phase = corev1.PodSucceeded
+	elsewhere.DeletionTimestamp = &now
+
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{deleting, finished, live, elsewhere}, nil); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if strings.Join(m.released, ",") != "deleting,finished" {
+		t.Errorf("released = %v, want deleting and finished", m.released)
 	}
 }

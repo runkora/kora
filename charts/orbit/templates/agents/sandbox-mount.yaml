@@ -77,6 +77,8 @@ spec:
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
       # nfsd serves, and the NFS client connects, from the node's own address.
       hostNetwork: true
+      # The agent joins the node's mount namespace through PID 1 to release mount copies under dying pods.
+      hostPID: true
       dnsPolicy: ClusterFirstWithHostNet
       {{- with $m.priorityClassName }}
       priorityClassName: {{ . }}
@@ -102,6 +104,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: KUBELET_DIR
+              value: {{ $m.kubeletDir | quote }}
           # Mounting filesystems and starting the kernel NFS server need full privileges on the node.
           securityContext:
             privileged: true

@@ -7,6 +7,7 @@
 // and the mount propagates into the running container.
 //
 // NODE_NAME is this node's name, set by the chart from the downward API.
+// KUBELET_DIR is the kubelet directory's path on the node, set by the chart.
 package main
 
 import (
@@ -67,7 +68,11 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 		return fmt.Errorf("start NFS server: %w", err)
 	}
 	agentCfg := mount.Config{Node: node, KubeletDir: cfg.Node.KubeletDir, Resync: cfg.Resync(), Retry: cfg.Retry()}
-	client := mount.Client{KubeletDir: cfg.Node.KubeletDir, Options: cfg.Client.MountOptions}
+	hostKubeletDir := os.Getenv("KUBELET_DIR")
+	if hostKubeletDir == "" {
+		hostKubeletDir = cfg.Node.KubeletDir
+	}
+	client := mount.Client{KubeletDir: cfg.Node.KubeletDir, HostKubeletDir: hostKubeletDir, Options: cfg.Client.MountOptions}
 	agent := mount.NewAgent(agentCfg, kube, server, client, logger)
 	logger.Info(ctx, "sandbox-mount started", logging.Field{Key: "node", Value: node})
 

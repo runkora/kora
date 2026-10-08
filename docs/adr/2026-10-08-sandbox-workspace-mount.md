@@ -76,7 +76,7 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 *   **Host propagation on the workspace mount (chosen):** The session-manager's existing workspace mount has no `subPath` and carries `mountPropagation: HostToContainer`. The node agent mounts on the host under the volume's kubelet path, and the mount appears in the container.
 *   **A CSI ephemeral volume from the node agent (rejected):** The restricted level admits `csi` volumes, but kora would ship and run a CSI driver for a propagation root that the existing volume already provides.
-*   **Mount inside the container's mount namespace (rejected):** The agent would need the host PID namespace and the harness's PID. A Go process cannot enter a mount namespace once it runs several threads.
+*   **Mount inside the container's mount namespace (rejected):** The agent would have to find a process of each session-manager container and enter its mount namespace for every mount and unmount, and again after every pod restart.
 
 ### D4. Node Agent
 
@@ -91,7 +91,7 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D6. When the Agent Gets the Sandbox
 
-*   **The session-manager waits for the mount (chosen):** orbit-agents returns the sandbox pod's UID. The session-manager reads its own mountinfo and hands the sandbox over once `/workspaces/<run>/sandbox` is mounted from that pod. After 60 s the provision fails.
+*   **The session-manager waits for the mount (chosen):** orbit-agents returns the sandbox pod's UID. The session-manager reads its own mountinfo and hands the sandbox over once `/workspaces/<run>/sandbox` is mounted from that pod. After 60 s the provision fails. The UID is kept in `.sandbox-exec/folder`, and a restarted session-manager waits again before it reuses the sandbox.
 *   **A readiness gate the node agent sets (rejected):** The node agent would need cluster-wide patch access to pod status.
 *   **No wait (rejected):** The agent's first writes would land on the shared volume under the folder the mount later covers.
 
@@ -116,6 +116,7 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 ### D10. Lifecycle
 
 *   **Reconcile on pod state (chosen):** The node agent exports and mounts a running pair. It force-detaches the mount and drops the export as soon as the sandbox or the session-manager pod starts deleting, or the sandbox stops running. nfsd threads stay in the node's kernel across agent restarts, and the next agent rebuilds the exports.
+*   **Release propagated copies under dying pods (chosen):** The host propagates each mount to every bind of the same volume on the node, a co-located sandbox pod's included. The agent manages only the mounts under session-manager pods' volumes. For a sandbox pod on its node that is deleting or finished, it joins the node's mount namespace, makes the pod's volume bind private and detaches the copies under it. Unmount propagation follows the parent mount's peers. Detaching a copy without the first step removes the original.
 *   **Unexport only (rejected):** A reader would wait for the soft timeout.
 
 ### D11. Co-located Sandboxes
@@ -130,13 +131,13 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D13. Chart
 
-*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the `orbit-node` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on.
+*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the host network and the host PID namespace in the `orbit-node` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on.
 *   **On by default (rejected):** Every install would need kernel NFS on its nodes and a privileged DaemonSet.
 *   **Under `agents` (rejected):** The release pins component digests from top-level image blocks only.
 
 ### D14. HOME and TMPDIR
 
-*   **The sandbox's local disk (chosen):** `sandbox-exec` sets HOME to the run's local directory and TMPDIR to `/tmp`, both on the local disk. A new or replaced sandbox starts with an empty HOME and TMPDIR.
+*   **The sandbox's local disk (chosen):** `sandbox-exec` sets HOME to the run's local directory and TMPDIR to `/tmp`. Both are directories on the local disk beside the working folder. A new or replaced sandbox starts with an empty HOME and TMPDIR.
 *   **The workspace (rejected):** Tool caches and temporary files would stay on the shared volume.
 *   **pnpm's global virtual store (rejected):** With `enable_global_virtual_store` on, Next.js and vitest failed.
 
@@ -171,7 +172,7 @@ None at this time.
 
 ### Negative
 
-*   Every node runs a privileged host-network DaemonSet that can mount and export filesystems.
+*   Every node runs a privileged DaemonSet in the host network and host PID namespace that can mount and export filesystems.
 *   The node agent holds cluster-wide list and watch access to pods.
 *   NFS cannot authenticate a caller. A workload in the host network of a client node, or one whose traffic the CNI masquerades to that node's address and which has no egress policy, can reach the folders exported to that node. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to port 2049.
 *   With `no_subtree_check`, root on a client node can craft file handles for files outside an export on the same filesystem.
@@ -181,6 +182,7 @@ None at this time.
 *   The folder and its contents are lost when the sandbox ends. A file written to `sandbox/` after that lands on the shared volume.
 *   Turning the feature on changes the session-manager StatefulSet template and rolls existing session-manager pods.
 *   A sandbox whose folder is not mounted within 60 s fails to provision.
+*   While the node agent is down, a deleting pod that holds a propagated copy stays in Terminating until the agent returns or the other runs' folders on its node are unmounted.
 
 ### Neutral
 

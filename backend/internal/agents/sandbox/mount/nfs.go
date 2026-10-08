@@ -20,6 +20,8 @@ type ServerConfig struct {
 type Client struct {
 	// KubeletDir is where the node's kubelet directory is mounted in the agent's container.
 	KubeletDir string
+	// HostKubeletDir is the kubelet directory's path on the node.
+	HostKubeletDir string
 	// Options are the NFS mount options. The server address is added per mount.
 	Options string
 }

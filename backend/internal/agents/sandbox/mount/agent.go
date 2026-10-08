@@ -30,6 +30,8 @@ type mounter interface {
 	Mount(source, volumeDir, rel string) error
 	// Unmount detaches the mount at path, failing any I/O still in flight on it.
 	Unmount(path string) error
+	// Release detaches propagated copies of folder mounts below the given pods' directories.
+	Release(podUIDs []string) error
 }
 
 // Agent reconciles the node's exports and mounts with the sandbox pods.
@@ -63,7 +65,20 @@ func (a *Agent) Reconcile(ctx context.Context, sandboxes, workspaces []*corev1.P
 		}
 	}
 	exports, targets := plan(a.cfg.Node, a.cfg.KubeletDir, pairs)
-	return errors.Join(a.exports.Apply(ctx, exports), a.syncMounts(ctx, targets, owned))
+	return errors.Join(a.exports.Apply(ctx, exports), a.syncMounts(ctx, targets, owned), a.mounts.Release(dying(a.cfg.Node, sandboxes)))
+}
+
+// dying returns the UIDs of the sandbox pods on node that are deleting or finished.
+// The host propagated other runs' folder mounts into their volume binds, and
+// kubelet cannot tear those binds down until the copies are released.
+func dying(node string, sandboxes []*corev1.Pod) []string {
+	var uids []string
+	for _, sb := range sandboxes {
+		if sb.Spec.NodeName == node && !live(sb) && sb.Status.Phase != corev1.PodPending {
+			uids = append(uids, string(sb.UID))
+		}
+	}
+	return uids
 }
 
 // wanted is a mount the node should hold.

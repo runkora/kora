@@ -80,7 +80,7 @@ agents:
 		t.Errorf("namespace labels = %v, want enforce=privileged", ns.Labels)
 	}
 	spec := ds.Spec.Template.Spec
-	if ds.Namespace != "orbit-node" || !spec.HostNetwork || len(spec.Containers) != 1 {
+	if ds.Namespace != "orbit-node" || !spec.HostNetwork || !spec.HostPID || len(spec.Containers) != 1 {
 		t.Fatalf("DaemonSet = %+v", ds.ObjectMeta)
 	}
 	c := spec.Containers[0]

@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -222,6 +223,72 @@ func (c Client) Unmount(path string) error {
 		return nil
 	}
 	return err
+}
+
+// Release detaches the sandbox folder copies that the host propagated below the
+// given pod directories, without touching the originals. Unmount propagation
+// follows the parent mount's peers, so each parent is made private first. The
+// work runs in the node's mount namespace, where kubelet sees the copies.
+func (c Client) Release(podUIDs []string) error {
+	if len(podUIDs) == 0 {
+		return nil
+	}
+	dirs := make([]string, 0, len(podUIDs))
+	for _, uid := range podUIDs {
+		dirs = append(dirs, filepath.Join(c.HostKubeletDir, "pods", uid)+"/")
+	}
+	return inHostMountNS(func() error {
+		f, err := os.Open("/proc/thread-self/mountinfo")
+		if err != nil {
+			return err
+		}
+		var entries []mountEntry
+		sc := bufio.NewScanner(f)
+		for sc.Scan() {
+			if e, ok := parseMountInfo(sc.Text()); ok {
+				entries = append(entries, e)
+			}
+		}
+		_ = f.Close()
+		var errs []error
+		for _, p := range copiesUnder(entries, dirs) {
+			if err := unix.Mount("", p.parentPoint, "", unix.MS_PRIVATE, ""); err != nil {
+				errs = append(errs, fmt.Errorf("make %s private: %w", p.parentPoint, err))
+				continue
+			}
+			if err := unix.Unmount(p.point, unix.MNT_DETACH); err != nil && !errors.Is(err, unix.EINVAL) {
+				errs = append(errs, fmt.Errorf("detach %s: %w", p.point, err))
+			}
+		}
+		return errors.Join(errs...)
+	})
+}
+
+// inHostMountNS runs fn on an OS thread that has joined the mount namespace of
+// the node's init process. The thread is never returned to the Go scheduler,
+// so it ends with the goroutine and no other goroutine runs in that namespace.
+func inHostMountNS(fn func() error) error {
+	errc := make(chan error, 1)
+	go func() {
+		runtime.LockOSThread()
+		// setns into a mount namespace needs a thread that does not share its filesystem attributes.
+		if err := unix.Unshare(unix.CLONE_FS); err != nil {
+			errc <- fmt.Errorf("unshare filesystem attributes: %w", err)
+			return
+		}
+		fd, err := unix.Open("/proc/1/ns/mnt", unix.O_RDONLY|unix.O_CLOEXEC, 0)
+		if err != nil {
+			errc <- fmt.Errorf("open node mount namespace: %w", err)
+			return
+		}
+		defer unix.Close(fd)
+		if err := unix.Setns(fd, unix.CLONE_NEWNS); err != nil {
+			errc <- fmt.Errorf("join node mount namespace: %w", err)
+			return
+		}
+		errc <- fn()
+	}()
+	return <-errc
 }
 
 // openBeneath opens path, which must lie under root, as an O_PATH directory. Every
