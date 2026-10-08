@@ -126,8 +126,9 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D12. Path Resolution and Trust
 
-*   **Resolve beneath the kubelet directory, check ownership (chosen):** The node agent opens every export source and mount point with `openat2` beneath the kubelet directory, with `RESOLVE_BENEATH` and `RESOLVE_NO_SYMLINKS`, and mounts through the opened descriptor. It acts on a sandbox pod only when the pod carries its run's sandbox name `sandbox-<run>`, sits in the session-manager pod's namespace and mounts that pod's workspace claim.
+*   **Resolve beneath the kubelet directory, check ownership, keep a ledger (chosen):** The node agent opens every export source, mount point and unmount target with `openat2` beneath the kubelet directory, with `RESOLVE_BENEATH` and `RESOLVE_NO_SYMLINKS`, and mounts, unmounts and changes propagation through the opened descriptor. A failed open on a dead server falls back to `umount2` with `UMOUNT_NOFOLLOW`. It acts on a sandbox pod only when the pod carries its run's sandbox name `sandbox-<run>`, sits in the session-manager pod's namespace and mounts that pod's workspace claim. It records each mount it makes, by path and source, in a ledger under the kubelet's plugin directory. It unmounts only what the ledger lists and mountinfo still shows with the same source, and it never mounts over a mount it did not make.
 *   **Trust the annotation and the run label (rejected):** A pod could name another run, and a run could replace a path component with a symlink to a host path.
+*   **Recognize mounts by path and file system type (rejected):** An unrelated NFS volume at a matching path would be unmounted.
 
 ### D13. Chart
 
