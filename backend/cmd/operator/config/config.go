@@ -109,6 +109,16 @@ type Injection struct {
 	BundlePollingMinDelay int                         `yaml:"bundlePollingMinDelay"`
 	BundlePollingMaxDelay int                         `yaml:"bundlePollingMaxDelay"`
 	OPAResources          corev1.ResourceRequirements `yaml:"opaResources"`
+
+	// SandboxSidecars pins each sidecar on sandbox pods: its requests equal its limits.
+	SandboxSidecars SandboxSidecars `yaml:"sandboxSidecars"`
+}
+
+// SandboxSidecars holds the resources of each sidecar on a sandbox pod.
+type SandboxSidecars struct {
+	IstioProxy    corev1.ResourceList `yaml:"istioProxy"`
+	IdentityProxy corev1.ResourceList `yaml:"identityProxy"`
+	OPA           corev1.ResourceList `yaml:"opa"`
 }
 
 // PodSecurity holds the Pod Security Admission levels for tenant namespaces.
