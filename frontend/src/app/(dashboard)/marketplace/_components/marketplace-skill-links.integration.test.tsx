@@ -103,4 +103,28 @@ describe('Skill links of the overview', () => {
 
     expect(push).toHaveBeenCalledWith(SKILL_URL);
   });
+
+  it('card view: Tab moves focus to the Skill link', async () => {
+    renderInMarketplace(<MarketplaceSkillGrid />);
+
+    const user = userEvent.setup();
+    await user.tab();
+
+    expect(screen.getByRole('link', { name: /React Reviewer/ })).toHaveFocus();
+  });
+
+  it('list view: Enter on a focused row opens the Skill URL with the browse values', async () => {
+    const push = vi.fn();
+    vi.mocked(useRouter).mockReturnValue({ push } as unknown as ReturnType<typeof useRouter>);
+
+    renderInMarketplace(<MarketplaceSkillList />);
+
+    screen.getByRole('row', { name: 'Open React Reviewer' }).focus();
+
+    const user = userEvent.setup();
+    await user.keyboard('{Enter}');
+
+    expect(push).toHaveBeenCalledTimes(1);
+    expect(push).toHaveBeenCalledWith(SKILL_URL);
+  });
 });

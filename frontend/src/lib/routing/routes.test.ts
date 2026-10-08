@@ -15,6 +15,10 @@ describe('APP_ROUTES', () => {
     expect(url.search).toBe('');
     expect(url.hash).toBe('');
   });
+
+  it('overview is the bare Marketplace path', () => {
+    expect(APP_ROUTES.marketplace.overview).toBe('/marketplace');
+  });
   // APP_ROUTES is `as const` — TypeScript enforces value types at every call
   // site, so asserting individual string values against themselves adds no
   // signal. The only structural invariant the type system cannot enforce is

@@ -53,6 +53,18 @@ describe('ApiRoute', () => {
       expect(url.searchParams.has('query')).toBe(false);
       expect(url.searchParams.has('marketplace')).toBe(false);
     });
+
+    it('starts with /api', () => {
+      expect(
+        ApiRoute.marketplaceSkills.GET({
+          marketplace: '',
+          query: '',
+          page: 1,
+          pageSize: 24,
+          sort: 'name-asc',
+        }),
+      ).toMatch(/^\/api\//);
+    });
   });
   describe('discover', () => {
     it('PATH returns a path with no query string', () => {

@@ -6,7 +6,7 @@
  * shared open/close state is exercised end to end (toggle, aria-expanded, and
  * the accessible-label swap).
  */
-import { afterEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@orbit/test-utils';
@@ -16,6 +16,12 @@ import { DashboardHeader } from './dashboard-header';
 vi.mock('next/navigation', () => ({
   usePathname: vi.fn().mockReturnValue('/'),
 }));
+
+import { usePathname } from 'next/navigation';
+
+beforeEach(() => {
+  vi.mocked(usePathname).mockReturnValue('/');
+});
 
 function renderHeader() {
   return renderWithProviders(
