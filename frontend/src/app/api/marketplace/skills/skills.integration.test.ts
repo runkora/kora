@@ -96,4 +96,33 @@ describe('GET /api/marketplace/skills', () => {
     expect(await response.json()).toEqual({ code: 'cancelled', message: 'Request cancelled' });
     expect(mocks.fetchSkills).not.toHaveBeenCalled();
   });
+
+  it('forwards the session access token to the Marketplace client, not a hardcoded value', async () => {
+    mocks.getSession.mockResolvedValue({ accessToken: 'distinct-access-token' });
+
+    await GET(request());
+
+    // loadMarketplaceOverview calls fetchMarketplaces first, with the access
+    // token as its first argument, before it ever calls fetchSkills.
+    expect(mocks.fetchMarketplaces).toHaveBeenCalledWith(
+      'distinct-access-token',
+      expect.any(AbortSignal),
+    );
+  });
+
+  it('forwards the request signal to the Marketplace client so it can observe cancellation', async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    // Unlike the "maps cancellation to 499" test above, fetchMarketplaces is
+    // not made to reject here, so the request runs to completion. This
+    // isolates the one behavior under test: the route hands its (aborted)
+    // req.signal down to the client, which is what lets the client itself
+    // detect and react to a cancellation.
+    await GET(request('?marketplace=Core', controller.signal));
+
+    const [, signalArg] = mocks.fetchMarketplaces.mock.calls[0];
+    expect(signalArg).toBeInstanceOf(AbortSignal);
+    expect(signalArg.aborted).toBe(true);
+  });
 });

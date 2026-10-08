@@ -27,4 +27,8 @@ describe('marketplace.lastSelected', () => {
       serializeSparse({ ...PREFERENCE_DEFAULTS, marketplace: { lastSelected: 'ClearRoute Core' } }),
     ).toEqual({ marketplace: { lastSelected: 'ClearRoute Core' } });
   });
+
+  it('defaults lastSelected to an empty string', () => {
+    expect(PREFERENCE_DEFAULTS.marketplace.lastSelected).toBe('');
+  });
 });

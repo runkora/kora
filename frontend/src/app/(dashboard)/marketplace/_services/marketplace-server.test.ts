@@ -78,4 +78,28 @@ describe('loadMarketplaceOverview Marketplace choice', () => {
 
     expect(overview.browse.marketplace).toBe('ClearRoute Core');
   });
+
+  it('sorts Marketplaces alphabetically', async () => {
+    saveMarketplace('');
+
+    const overview = await loadOverview(DEFAULT_BROWSE);
+
+    expect(overview.marketplaces.map((m) => m.name)).toEqual([
+      'ClearRoute Core',
+      'ClearRoute Platform',
+      'Partner Reference',
+      'Platform Engineering',
+    ]);
+  });
+
+  it('falls back to the first Marketplace for an unknown name in the URL', async () => {
+    saveMarketplace('');
+
+    const overview = await loadOverview({
+      ...DEFAULT_BROWSE,
+      marketplace: 'Nonexistent Marketplace',
+    });
+
+    expect(overview.browse.marketplace).toBe('ClearRoute Core');
+  });
 });
