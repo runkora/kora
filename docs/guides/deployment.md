@@ -115,24 +115,37 @@ Each placeholder reserves one default sandbox pod: the default size, 1Gi of disk
 
 To keep an image pulled on a pool that does not scale to zero, set `warm` on its `SandboxImage`.
 
-#### Sandbox working folders
+#### Scale-out sandboxes
 
-On a network filesystem, package installs and builds on the shared workspace are slow. Set `sandboxMount.enabled` to give every sandbox a working folder on its own local disk at `/workspaces/<run>/sandbox`. The agent's file tools and the sandbox see the same files in that folder, and the capabilities brief tells the agent to do its work there. The folder and its contents last as long as the sandbox.
+A scale-out install runs sandboxes on their own node pool. It turns on two settings together: a `ReadWriteMany` workspace and the sandbox working folder.
 
 ```yaml
+agents:
+  workspace:
+    storageClassName: shared-files   # a ReadWriteMany StorageClass
+    accessModes:
+      - ReadWriteMany
+  workloads:
+    sandbox:
+      nodeSelector: { workload-tier: orbit-sandbox }
 sandboxMount:
   enabled: true
 ```
 
-The node agent `orbit-sandbox-mount` runs as a privileged DaemonSet in the host network, in the `sandboxMount.namespace` namespace (`orbit-node` by default). On the sandbox's node it exports the folder with the kernel NFS server to the session-manager's node only. On the session-manager's node it mounts the export into the running session-manager pod. The session-manager hands a new sandbox to the agent once its folder is mounted. The nodes need:
+The workspace volume holds each run's files on a network filesystem, where package installs and builds are slow. With `sandboxMount.enabled`, every sandbox gets a working folder on its own local disk at `/workspaces/<run>/sandbox`, and the capabilities brief tells the agent to do its work there. The agent's file tools and the sandbox see the same files in that folder. The folder and its contents last as long as the sandbox.
 
-*   The kernel `nfsd` and NFSv4 client modules, which the node agent loads on demand.
-*   TCP 2049 open from the nodes that run session-managers to the nodes that run sandboxes. Restrict the port to node addresses in your node firewall or security groups.
-*   The kubelet root directory at `sandboxMount.kubeletDir`, by default `/var/lib/kubelet`.
+The node agent `orbit-sandbox-mount` runs as a privileged DaemonSet in the `sandboxMount.namespace` namespace (`orbit-node` by default). On the sandbox's node it exports the folder with the kernel NFS server to the session-manager's node only. On the session-manager's node it mounts the export into the running session-manager pod. The session-manager hands a new sandbox to the agent once its folder is mounted. The cluster needs:
+
+*   A node kernel with the NFS server and NFSv4 client modules. The node agent loads them on demand.
+*   Admission for a privileged DaemonSet that uses the host network and the host PID namespace.
+*   TCP `sandboxMount.port`, 20490 by default, reachable from the nodes that run session-managers to the nodes that run sandboxes. NFS uses only this port, with no rpcbind or mountd port. Restrict it to node addresses in your node firewall.
+*   The kubelet root directory at `sandboxMount.kubeletDir` (default `/var/lib/kubelet`).
+
+Before each mount the node agent checks that the session-manager's node can open the port on the sandbox's node. When it cannot, the sandbox fails to start, and its failure message names the port and both nodes.
 
 The DaemonSet carries the tolerations of `agents.workloads.sandbox` and `agents.workloads.sessionManager`, and `sandboxMount.tolerations` adds more. The chart creates the namespace at the privileged Pod Security level. Set `sandboxMount.createNamespace: false` to use a namespace you manage that admits privileged pods.
 
-NFS cannot check a caller's identity. Each folder is exported only to its session-manager's node address. A pod can open a privileged source port, so the node address is the only check. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to port 2049. Another workload can still reach the export as the node if it runs in the host network, or if your CNI masquerades pod traffic to node addresses and that workload has no egress policy. Keep host network access to trusted system workloads, and deny other workloads egress to node addresses on TCP 2049.
+NFS cannot check a caller's identity. Each folder is exported only to its session-manager's node address. A pod can open a privileged source port, and the node address is the only check. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to `sandboxMount.port`. Another workload can still reach the export as the node if it runs in the host network, or if your CNI masquerades pod traffic to node addresses and that workload has no egress policy. Keep host network access to trusted system workloads, and deny other workloads egress to node addresses on `sandboxMount.port`.
 
 ### Sandbox images and environments
 

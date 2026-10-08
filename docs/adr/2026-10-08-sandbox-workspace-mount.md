@@ -132,7 +132,7 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D13. Chart
 
-*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the host network and the host PID namespace in the `orbit-node` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on.
+*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the host network and the host PID namespace in the `orbit-node` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on. The deployment guide's scale-out section turns it on with a `ReadWriteMany` workspace.
 *   **On by default (rejected):** Every install would need kernel NFS on its nodes and a privileged DaemonSet.
 *   **Under `agents` (rejected):** The release pins component digests from top-level image blocks only.
 
@@ -146,6 +146,17 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 *   **`.sandbox-exec/` (chosen):** The run's endpoint and exec token move from `$WORKSPACE/.sandbox/` to `$WORKSPACE/.sandbox-exec/`.
 *   **Keep `.sandbox/` (rejected):** It sits beside `sandbox/` and differs by one character.
+
+### D16. NFS Port
+
+*   **A configurable port above 1024, default 20490 (chosen):** `sandboxMount.port` sets the port. nfsd starts with `rpc.nfsd -p <port>`, and the client mounts with `port=<port>`. NFSv4 needs no rpcbind and no mountd port. A deployed cluster's node security group allows node-to-node TCP on 53, 4244 and 1025 to 65535, and blocks 2049.
+*   **The standard port 2049 (rejected):** Node firewalls that open only unprivileged ports between nodes block it.
+
+### D17. Unreachable NFS Port
+
+*   **Check the port before mounting and report the reason (chosen):** Before each mount, the node agent on the session-manager's node opens a TCP connection to the port on the sandbox's node, with a 3 s timeout. When the connection fails, it writes the sandbox pod's UID and a message that names the port and both nodes to `.sandbox-mount/<run>` at the root of the session-manager's workspace volume. The session-manager ends its folder wait on a report for its sandbox, and the run's sandbox failure and the agent's tool error carry the message. Runs cannot write the volume root, and the agent writes the file through descriptors that refuse symlinks.
+*   **Let the 60 s wait run out (rejected):** The failure would read as a timeout with no cause.
+*   **Annotate the sandbox pod (rejected):** The node agent would need write access to pods, and the session-manager has no Kubernetes API access.
 
 ---
 
@@ -175,11 +186,11 @@ None at this time.
 
 *   Every node runs a privileged DaemonSet in the host network and host PID namespace that can mount and export filesystems.
 *   The node agent holds cluster-wide list and watch access to pods.
-*   NFS cannot authenticate a caller. A workload in the host network of a client node, or one whose traffic the CNI masquerades to that node's address and which has no egress policy, can reach the folders exported to that node. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to port 2049.
+*   NFS cannot authenticate a caller. A workload in the host network of a client node, or one whose traffic the CNI masquerades to that node's address and which has no egress policy, can reach the folders exported to that node. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to the NFS port.
 *   With `no_subtree_check`, root on a client node can craft file handles for files outside an export on the same filesystem.
 *   The agent unmounts by name after it reads mountinfo. A workload that can write the workspace volume's root can exchange two run directories in that window and have the wrong folder detached. The harness cannot write the volume root under Landlock, and the sandbox sees only its own run directory.
 *   The agent watches pods in every namespace. Anyone who can create pods in a namespace can build a sandbox and session-manager pair there and have the agent export and mount their own pod's folder, inside that namespace only.
-*   Nodes need the kernel `nfsd` and NFSv4 client modules and TCP 2049 between them. Whether Bottlerocket 1.66 and Amazon Linux 2023 ship `nfsd`, and whether Bottlerocket's SELinux policy allows the agent's mounts, is unverified.
+*   Nodes need the kernel `nfsd` and NFSv4 client modules, and session-manager nodes need TCP `sandboxMount.port` to sandbox nodes. Whether Bottlerocket 1.66 and Amazon Linux 2023 ship `nfsd`, and whether Bottlerocket's SELinux policy allows the agent's mounts, is unverified.
 *   nfsd threads keep running on a node after the chart drops the DaemonSet, until the node restarts.
 *   A soft mount can return `EIO` to the harness when the sandbox's node stalls for more than a few seconds.
 *   The folder and its contents are lost when the sandbox ends. A file written to `sandbox/` after that lands on the shared volume.

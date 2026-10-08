@@ -30,7 +30,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `orbit-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
 | `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
 | `orbit-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
-| `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `2049` (host network) | none |
+| `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `20490` (host network, `sandboxMount.port`) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
