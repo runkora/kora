@@ -31,24 +31,3 @@ func TestSourceAt(t *testing.T) {
 		t.Errorf("SourceAt unmounted = %q", got)
 	}
 }
-
-// Only sandbox folder mounts below the given pod directories are copies to release, each with the mount it sits on.
-func TestCopiesUnder(t *testing.T) {
-	info := strings.Join([]string{
-		"10 1 0:1 / /k/pods/sb-a/volumes/kubernetes.io~local-volume/pv rw shared:5 - ext4 /dev/vdb1 rw",
-		"11 10 0:2 / /k/pods/sb-a/volumes/kubernetes.io~local-volume/pv/run-b/sandbox rw shared:9 - nfs4 10.0.0.1:/sb-b rw",
-		"20 1 0:1 / /k/pods/ws/volumes/kubernetes.io~local-volume/pv rw shared:5 - ext4 /dev/vdb1 rw",
-		"21 20 0:2 / /k/pods/ws/volumes/kubernetes.io~local-volume/pv/run-b/sandbox rw shared:9 - nfs4 10.0.0.1:/sb-b rw",
-		"30 1 0:3 / /k/pods/sb-a/volumes/kubernetes.io~nfs/data rw - nfs4 nas:/data rw",
-	}, "\n")
-	var entries []mountEntry
-	for _, l := range strings.Split(info, "\n") {
-		e, _ := parseMountInfo(l)
-		entries = append(entries, e)
-	}
-	got := copiesUnder(entries, []string{"/k/pods/sb-a/"})
-	want := []propagated{{point: "/k/pods/sb-a/volumes/kubernetes.io~local-volume/pv/run-b/sandbox", parentPoint: "/k/pods/sb-a/volumes/kubernetes.io~local-volume/pv"}}
-	if len(got) != 1 || got[0] != want[0] {
-		t.Errorf("copiesUnder = %+v, want %+v", got, want)
-	}
-}

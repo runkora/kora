@@ -4,6 +4,8 @@ app:
 node:
   # Where the chart mounts the node's kubelet directory in the container.
   kubeletDir: /var/lib/kubelet
+  # The mounts the agent made, in the kubelet's plugin directory where no pod can write.
+  ledgerFile: /var/lib/kubelet/plugins/orbit-sandbox-mount/mounts.json
   resyncSecs: 30
   retrySecs: 2
 

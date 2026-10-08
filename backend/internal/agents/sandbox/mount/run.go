@@ -30,17 +30,24 @@ type Config struct {
 	Resync time.Duration
 	// Retry is how soon the agent reconciles again after a failure.
 	Retry time.Duration
+	// LedgerFile records the mounts the agent made. It must sit where no pod can write.
+	LedgerFile string
 }
 
 // NewAgent returns an agent that serves exports and mounts on this node.
-func NewAgent(cfg Config, kube kubernetes.Interface, exports exporter, mounts mounter, logger logging.Logger) *Agent {
+func NewAgent(cfg Config, kube kubernetes.Interface, exports exporter, mounts mounter, logger logging.Logger) (*Agent, error) {
+	l, err := loadLedger(cfg.LedgerFile)
+	if err != nil {
+		return nil, err
+	}
 	return &Agent{
 		cfg:     cfg,
 		kube:    kube,
 		exports: exports,
 		mounts:  mounts,
+		ledger:  l,
 		logger:  logger,
-	}
+	}, nil
 }
 
 // Run reconciles on every pod change and on the resync interval until ctx ends.

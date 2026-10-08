@@ -67,13 +67,16 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 	if err != nil {
 		return fmt.Errorf("start NFS server: %w", err)
 	}
-	agentCfg := mount.Config{Node: node, KubeletDir: cfg.Node.KubeletDir, Resync: cfg.Resync(), Retry: cfg.Retry()}
+	agentCfg := mount.Config{Node: node, KubeletDir: cfg.Node.KubeletDir, Resync: cfg.Resync(), Retry: cfg.Retry(), LedgerFile: cfg.Node.LedgerFile}
 	hostKubeletDir := os.Getenv("KUBELET_DIR")
 	if hostKubeletDir == "" {
 		hostKubeletDir = cfg.Node.KubeletDir
 	}
 	client := mount.Client{KubeletDir: cfg.Node.KubeletDir, HostKubeletDir: hostKubeletDir, Options: cfg.Client.MountOptions}
-	agent := mount.NewAgent(agentCfg, kube, server, client, logger)
+	agent, err := mount.NewAgent(agentCfg, kube, server, client, logger)
+	if err != nil {
+		return err
+	}
 	logger.Info(ctx, "sandbox-mount started", logging.Field{Key: "node", Value: node})
 
 	done := make(chan error, 1)

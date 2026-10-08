@@ -164,7 +164,7 @@ func (c Client) Mounts() (map[string]string, error) {
 	pods := filepath.Join(c.KubeletDir, "pods") + "/"
 	out := map[string]string{}
 	for _, m := range infos {
-		if m.fstype == "nfs4" && strings.HasPrefix(m.point, pods) && filepath.Base(m.point) == Dir {
+		if strings.HasPrefix(m.point, pods) && filepath.Base(m.point) == Dir {
 			out[m.point] = m.source
 		}
 	}
@@ -217,8 +217,30 @@ func (c Client) Mount(source, volumeDir, rel string) error {
 }
 
 // Unmount force-detaches the mount. Readers blocked on a dead server get an error.
+//
+// The mount point is opened beneath the kubelet directory without following
+// symlinks, checked to be NFS, and unmounted through that descriptor. When the
+// server is gone and the open fails, umount2 on the path with UMOUNT_NOFOLLOW is
+// the fallback. It does not revalidate the mount point and refuses a final symlink.
 func (c Client) Unmount(path string) error {
-	err := unix.Unmount(path, unix.MNT_FORCE|unix.MNT_DETACH)
+	fd, err := openBeneath(c.KubeletDir, path)
+	if err != nil {
+		return ignoreGone(unix.Unmount(path, unix.MNT_FORCE|unix.MNT_DETACH|unix.UMOUNT_NOFOLLOW))
+	}
+	defer unix.Close(fd)
+	var st unix.Statfs_t
+	if err := unix.Fstatfs(fd, &st); err != nil {
+		return fmt.Errorf("statfs %s: %w", path, err)
+	}
+	if st.Type != unix.NFS_SUPER_MAGIC {
+		// Nothing of ours is mounted there any more.
+		return nil
+	}
+	return ignoreGone(unix.Unmount(fdPath(fd), unix.MNT_FORCE|unix.MNT_DETACH))
+}
+
+// ignoreGone treats a mount that is already gone as unmounted.
+func ignoreGone(err error) error {
 	if errors.Is(err, unix.EINVAL) || errors.Is(err, unix.ENOENT) {
 		return nil
 	}
@@ -229,7 +251,7 @@ func (c Client) Unmount(path string) error {
 // given pod directories, without touching the originals. Unmount propagation
 // follows the parent mount's peers, so each parent is made private first. The
 // work runs in the node's mount namespace, where kubelet sees the copies.
-func (c Client) Release(podUIDs []string) error {
+func (c Client) Release(podUIDs []string, sources map[string]bool) error {
 	if len(podUIDs) == 0 {
 		return nil
 	}
@@ -251,18 +273,38 @@ func (c Client) Release(podUIDs []string) error {
 		}
 		_ = f.Close()
 		var errs []error
-		for _, p := range copiesUnder(entries, dirs) {
-			if err := unix.Mount("", p.parentPoint, "", unix.MS_PRIVATE, ""); err != nil {
-				errs = append(errs, fmt.Errorf("make %s private: %w", p.parentPoint, err))
-				continue
-			}
-			if err := unix.Unmount(p.point, unix.MNT_DETACH); err != nil && !errors.Is(err, unix.EINVAL) {
-				errs = append(errs, fmt.Errorf("detach %s: %w", p.point, err))
+		for _, p := range copiesUnder(entries, dirs, sources) {
+			if err := releaseCopy(c.HostKubeletDir, p); err != nil {
+				errs = append(errs, err)
 			}
 		}
 		return errors.Join(errs...)
 	})
 }
+
+// releaseCopy makes the copy's parent private and detaches the copy. Both are
+// opened beneath the kubelet directory without following symlinks and changed
+// through their descriptors.
+func releaseCopy(kubeletDir string, p propagated) error {
+	parent, err := openBeneath(kubeletDir, p.parentPoint)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(parent)
+	if perr := unix.Mount("", threadFdPath(parent), "", unix.MS_PRIVATE, ""); perr != nil {
+		return fmt.Errorf("make %s private: %w", p.parentPoint, perr)
+	}
+	child, err := openBeneath(kubeletDir, p.point)
+	if err != nil {
+		return ignoreGone(unix.Unmount(p.point, unix.MNT_DETACH|unix.UMOUNT_NOFOLLOW))
+	}
+	defer unix.Close(child)
+	return ignoreGone(unix.Unmount(threadFdPath(child), unix.MNT_DETACH))
+}
+
+// threadFdPath is fdPath for a thread in another mount namespace, where /proc/self
+// may not name this thread's view.
+func threadFdPath(fd int) string { return "/proc/thread-self/fd/" + strconv.Itoa(fd) }
 
 // inHostMountNS runs fn on an OS thread that has joined the mount namespace of
 // the node's init process. The thread is never returned to the Go scheduler,
@@ -357,4 +399,31 @@ func exportLines(root string, exports []export) []string {
 	}
 	slices.Sort(lines)
 	return lines
+}
+
+// propagated is a copy of a sandbox folder mount, and the mount it sits on.
+type propagated struct{ point, parentPoint string }
+
+// copiesUnder returns the sandbox folder mounts below the given pod directories,
+// with the mounts they sit on. These are copies the host propagated into other
+// binds of a session-manager's volume, such as a co-located sandbox pod's.
+// Only copies of the given sources, which are the node agent's own mounts, count.
+func copiesUnder(entries []mountEntry, podDirs []string, sources map[string]bool) []propagated {
+	points := make(map[string]string, len(entries))
+	for _, e := range entries {
+		points[e.id] = e.point
+	}
+	var out []propagated
+	for _, e := range entries {
+		if e.fstype != "nfs4" || filepath.Base(e.point) != Dir || !sources[e.source] {
+			continue
+		}
+		for _, dir := range podDirs {
+			if strings.HasPrefix(e.point, dir) && points[e.parent] != "" {
+				out = append(out, propagated{point: e.point, parentPoint: points[e.parent]})
+				break
+			}
+		}
+	}
+	return out
 }

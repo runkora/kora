@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"slices"
-	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
@@ -22,7 +20,7 @@ type exporter interface {
 
 // mounter mounts sandbox folders into session-manager volumes on this node.
 type mounter interface {
-	// Mounts returns the sandbox folder mounts on the node, keyed by mount point, with their sources.
+	// Mounts returns every mount at a sandbox folder path on the node, keyed by mount point, with its source.
 	Mounts() (map[string]string, error)
 	// Resolve returns the directory of the session-manager pod's volume that holds the run's workspace.
 	Resolve(workspaceUID, runID string) (string, error)
@@ -30,8 +28,8 @@ type mounter interface {
 	Mount(source, volumeDir, rel string) error
 	// Unmount detaches the mount at path, failing any I/O still in flight on it.
 	Unmount(path string) error
-	// Release detaches propagated copies of folder mounts below the given pods' directories.
-	Release(podUIDs []string) error
+	// Release detaches propagated copies of the given sources' mounts below the given pods' directories.
+	Release(podUIDs []string, sources map[string]bool) error
 }
 
 // Agent reconciles the node's exports and mounts with the sandbox pods.
@@ -40,6 +38,7 @@ type Agent struct {
 	kube    kubernetes.Interface
 	exports exporter
 	mounts  mounter
+	ledger  *ledger
 	logger  logging.Logger
 }
 
@@ -47,12 +46,8 @@ type Agent struct {
 // this node, and removes the rest.
 func (a *Agent) Reconcile(ctx context.Context, sandboxes, workspaces []*corev1.Pod) error {
 	byName := make(map[string]*corev1.Pod, len(workspaces))
-	var owned []string
 	for _, ws := range workspaces {
 		byName[ws.Namespace+"/"+ws.Name] = ws
-		if ws.Spec.NodeName == a.cfg.Node {
-			owned = append(owned, filepath.Join(a.cfg.KubeletDir, "pods", string(ws.UID), "volumes")+"/")
-		}
 	}
 	var pairs []pair
 	for _, sb := range sandboxes {
@@ -65,7 +60,7 @@ func (a *Agent) Reconcile(ctx context.Context, sandboxes, workspaces []*corev1.P
 		}
 	}
 	exports, targets := plan(a.cfg.Node, a.cfg.KubeletDir, pairs)
-	return errors.Join(a.exports.Apply(ctx, exports), a.syncMounts(ctx, targets, owned), a.mounts.Release(dying(a.cfg.Node, sandboxes)))
+	return errors.Join(a.exports.Apply(ctx, exports), a.syncMounts(ctx, targets), a.mounts.Release(dying(a.cfg.Node, sandboxes), a.ledger.sources()))
 }
 
 // dying returns the UIDs of the sandbox pods on node that are deleting or finished.
@@ -88,18 +83,18 @@ type wanted struct {
 }
 
 // syncMounts unmounts what is no longer wanted, then mounts what is missing. It
-// manages only mounts under the volumes of session-manager pods on this node.
-// The host propagates each mount to every bind of the same volume on the node,
-// such as a co-located sandbox pod's, and those copies go when the original does.
-func (a *Agent) syncMounts(ctx context.Context, targets []target, owned []string) error {
+// touches only the mounts its ledger lists with the source mountinfo shows, and
+// it never mounts over a mount it did not make. Copies the host propagates into
+// other binds of the same volume carry the same source at other paths. They go
+// when the original does.
+func (a *Agent) syncMounts(ctx context.Context, targets []target) error {
 	all, err := a.mounts.Mounts()
 	if err != nil {
 		return fmt.Errorf("read mounts: %w", err)
 	}
-	current := map[string]string{}
-	for path, source := range all {
-		if slices.ContainsFunc(owned, func(prefix string) bool { return strings.HasPrefix(path, prefix) }) {
-			current[path] = source
+	for path, source := range a.ledger.snapshot() {
+		if all[path] != source {
+			delete(a.ledger.entries, path)
 		}
 	}
 	var errs []error
@@ -112,7 +107,7 @@ func (a *Agent) syncMounts(ctx context.Context, targets []target, owned []string
 		}
 		want[filepath.Join(dir, t.runID, Dir)] = wanted{target: t, volumeDir: dir}
 	}
-	for path, source := range current {
+	for path, source := range a.ledger.snapshot() {
 		if w, ok := want[path]; ok && w.source == source {
 			continue
 		}
@@ -120,18 +115,30 @@ func (a *Agent) syncMounts(ctx context.Context, targets []target, owned []string
 			errs = append(errs, fmt.Errorf("unmount %s: %w", path, err))
 			continue
 		}
-		delete(current, path)
+		delete(a.ledger.entries, path)
+		delete(all, path)
 		a.logger.Info(ctx, "Unmounted sandbox folder", logging.Field{Key: "path", Value: path}, logging.Field{Key: "source", Value: source})
 	}
 	for path, w := range want {
-		if _, ok := current[path]; ok {
+		if a.ledger.entries[path] == w.source {
+			continue
+		}
+		if foreign, ok := all[path]; ok {
+			errs = append(errs, fmt.Errorf("%w: %s holds %s", errForeignMount, path, foreign))
 			continue
 		}
 		if err := a.mounts.Mount(w.source, w.volumeDir, filepath.Join(w.runID, Dir)); err != nil {
 			errs = append(errs, fmt.Errorf("mount %s on %s: %w", w.source, path, err))
 			continue
 		}
+		a.ledger.entries[path] = w.source
 		a.logger.Info(ctx, "Mounted sandbox folder", logging.Field{Key: "run_id", Value: w.runID}, logging.Field{Key: "source", Value: w.source})
+	}
+	if err := a.ledger.save(); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }
+
+// errForeignMount reports a mount the agent did not make at a path it would mount on.
+var errForeignMount = errors.New("a mount the node agent did not make is in the way")

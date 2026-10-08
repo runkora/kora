@@ -3,11 +3,14 @@
 package mount
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"golang.org/x/sys/unix"
 )
 
 func mkdirs(t *testing.T, dirs ...string) {
@@ -146,5 +149,45 @@ func TestResolve_SkipsScratchVolumes(t *testing.T) {
 	mkdirs(t, filepath.Join(scratch, "run-1"), filepath.Join(pv, "run-1"))
 	if got, err := (Client{KubeletDir: kubelet}).Resolve("ws", "run-1"); err != nil || got != pv {
 		t.Errorf("Resolve = %q, %v, want %q", got, err, pv)
+	}
+}
+
+// Unmount resolves the mount point beneath the kubelet directory without following symlinks.
+// A run that swaps a path component for a symlink to a host directory gets no unmount there.
+func TestUnmount_DoesNotFollowSwappedSymlink(t *testing.T) {
+	kubelet := t.TempDir()
+	outside := t.TempDir()
+	vol := filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~local-volume", "pv")
+	mkdirs(t, vol, filepath.Join(outside, "sandbox"))
+	symlink(t, outside, filepath.Join(vol, "run-1"))
+	// The open fails, and the fallback umount2 with UMOUNT_NOFOLLOW finds no mount: nothing outside is touched.
+	if err := (Client{KubeletDir: kubelet}).Unmount(filepath.Join(vol, "run-1", "sandbox")); err != nil && !errors.Is(err, unix.EPERM) {
+		t.Errorf("Unmount = %v", err)
+	}
+	if _, err := openBeneath(kubelet, filepath.Join(vol, "run-1", "sandbox")); err == nil {
+		t.Error("openBeneath followed the swapped symlink")
+	}
+}
+
+// Only sandbox folder mounts below the given pod directories are copies to release, each with the mount it sits on.
+func TestCopiesUnder(t *testing.T) {
+	info := strings.Join([]string{
+		"10 1 0:1 / /k/pods/sb-a/volumes/kubernetes.io~local-volume/pv rw shared:5 - ext4 /dev/vdb1 rw",
+		"11 10 0:2 / /k/pods/sb-a/volumes/kubernetes.io~local-volume/pv/run-b/sandbox rw shared:9 - nfs4 10.0.0.1:/sb-b rw",
+		"20 1 0:1 / /k/pods/ws/volumes/kubernetes.io~local-volume/pv rw shared:5 - ext4 /dev/vdb1 rw",
+		"21 20 0:2 / /k/pods/ws/volumes/kubernetes.io~local-volume/pv/run-b/sandbox rw shared:9 - nfs4 10.0.0.1:/sb-b rw",
+		"30 1 0:3 / /k/pods/sb-a/volumes/kubernetes.io~nfs/data rw - nfs4 nas:/data rw",
+		// A lookalike the agent did not make: right place and name, a source not in its ledger.
+		"31 10 0:4 / /k/pods/sb-a/volumes/kubernetes.io~local-volume/pv/run-c/sandbox rw - nfs4 10.0.0.1:/forged rw",
+	}, "\n")
+	var entries []mountEntry
+	for _, l := range strings.Split(info, "\n") {
+		e, _ := parseMountInfo(l)
+		entries = append(entries, e)
+	}
+	got := copiesUnder(entries, []string{"/k/pods/sb-a/"}, map[string]bool{"10.0.0.1:/sb-b": true})
+	want := []propagated{{point: "/k/pods/sb-a/volumes/kubernetes.io~local-volume/pv/run-b/sandbox", parentPoint: "/k/pods/sb-a/volumes/kubernetes.io~local-volume/pv"}}
+	if len(got) != 1 || got[0] != want[0] {
+		t.Errorf("copiesUnder = %+v, want %+v", got, want)
 	}
 }

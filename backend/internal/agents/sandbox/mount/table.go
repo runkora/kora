@@ -3,7 +3,6 @@ package mount
 import (
 	"bufio"
 	"io"
-	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -19,32 +18,6 @@ func parseMountInfo(line string) (mountEntry, bool) {
 		return mountEntry{}, false
 	}
 	return mountEntry{id: pre[0], parent: pre[1], point: unescape(pre[4]), fstype: post[0], source: unescape(post[1])}, true
-}
-
-// propagated is a copy of a sandbox folder mount, and the mount it sits on.
-type propagated struct{ point, parentPoint string }
-
-// copiesUnder returns the sandbox folder mounts below the given pod directories,
-// with the mounts they sit on. These are copies the host propagated into other
-// binds of a session-manager's volume, such as a co-located sandbox pod's.
-func copiesUnder(entries []mountEntry, podDirs []string) []propagated {
-	points := make(map[string]string, len(entries))
-	for _, e := range entries {
-		points[e.id] = e.point
-	}
-	var out []propagated
-	for _, e := range entries {
-		if e.fstype != "nfs4" || filepath.Base(e.point) != Dir {
-			continue
-		}
-		for _, dir := range podDirs {
-			if strings.HasPrefix(e.point, dir) && points[e.parent] != "" {
-				out = append(out, propagated{point: e.point, parentPoint: points[e.parent]})
-				break
-			}
-		}
-	}
-	return out
 }
 
 // SourceAt returns the source of the topmost mount at point in a mountinfo

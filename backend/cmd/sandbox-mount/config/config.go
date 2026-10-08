@@ -17,6 +17,7 @@ type Config struct {
 		KubeletDir string `yaml:"kubeletDir"`
 		ResyncSecs int    `yaml:"resyncSecs"`
 		RetrySecs  int    `yaml:"retrySecs"`
+		LedgerFile string `yaml:"ledgerFile"`
 	} `yaml:"node"`
 
 	Server struct {
