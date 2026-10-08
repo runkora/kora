@@ -144,9 +144,12 @@ func TestListDeliveriesAcceptsEveryDeclaredStatusAndOutcome(t *testing.T) {
 	svc, _ := newTestService(t)
 	ctx := context.Background()
 
-	// Guards the issue's own mistake: it listed four of the seven outcomes.
-	// Deriving the sets from the constants means the filter can never accept
-	// fewer values than the pipeline can write.
+	// Deriving the sets from the constants means the filter accepts whatever
+	// the constants declare. Note what this canNOT catch: dropping a value from
+	// AllDeliveryStatuses drops it from the validator too, so this stays green
+	// while ?status=<that value> starts 400ing. The drift that actually matters
+	// is against the column's CHECK constraint, which is what
+	// TestPostgres_FilterableStatusesMatchTheDatabase pins.
 	if _, _, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{Status: AllDeliveryStatuses()}); err != nil {
 		t.Errorf("every declared delivery status should be filterable: %v", err)
 	}

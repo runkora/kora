@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 
 // The drawer reads the source's schema catalogue from the API.
 const api = vi.hoisted(() => ({
@@ -30,8 +32,8 @@ beforeEach(() => {
 });
 
 import { TriggerDrawer } from './trigger-drawer';
-import type { SourceRow, TriggerRow } from '../_types';
-import { makeTrigger } from '../_types/fixtures';
+import type { DeliveryRow, SourceRow, TriggerRow } from '../_types';
+import { makeDelivery, makeTrigger } from '../_types/fixtures';
 
 /** The drawer tests want a stored condition and a template worth displaying. */
 function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
@@ -55,12 +57,16 @@ const SOURCES: SourceRow[] = [
   },
 ];
 
-function renderDrawer(row: TriggerRow, onEdit?: () => Promise<string | null>) {
+function renderDrawer(
+  row: TriggerRow,
+  onEdit?: () => Promise<string | null>,
+  deliveries: DeliveryRow[] = [],
+) {
   return render(
     <TriggerDrawer
       trigger={row}
       sources={SOURCES}
-      deliveries={[]}
+      deliveries={deliveries}
       ingestHost="orbit.local.clearroute.io:8443"
       onClose={vi.fn()}
       onToggleEnabled={vi.fn()}
@@ -397,5 +403,51 @@ describe('ephemeral state is scoped to the open trigger', () => {
     expect(screen.queryByText('secret-for-A')).toBeNull();
     expect(screen.getByText('shown once at creation')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
+  });
+});
+
+describe('run links', () => {
+  // The drawer is the fourth surface that shows a delivery, and it resolves the
+  // slug straight off the trigger it is scoped to rather than searching a list.
+  // Nothing asserted that wiring, so deleting the prop left the whole triggers
+  // suite green while the run silently became plain text here only.
+  const dispatched = (): DeliveryRow =>
+    makeDelivery({
+      id: 'd-1',
+      receivedAt: '2026-07-28T09:00:00Z',
+      triggerId: 't1',
+      runId: 'run-7',
+      status: 'dispatched',
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'gh-push',
+          runId: 'run-7',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:01Z',
+        },
+      ],
+    });
+
+  it('links the run to the agent that owns this trigger', async () => {
+    renderDrawer(trigger({ id: 't1', agentSlug: 'coder' }), undefined, [dispatched()]);
+    // The drawer opens on Overview; the deliveries live behind their own tab,
+    // and the Radix tab only activates under userEvent.
+    await userEvent.click(screen.getByRole('tab', { name: 'Deliveries' }));
+    await userEvent.click(screen.getByRole('button', { name: /payload for delivery d-1/i }));
+    expect(screen.getByRole('link', { name: 'run-7' })).toHaveAttribute(
+      'href',
+      '/agents/coder/runs/run-7',
+    );
+  });
+
+  it('renders the run as text when the trigger has no agent slug', async () => {
+    renderDrawer(trigger({ id: 't1', agentSlug: '' }), undefined, [dispatched()]);
+    // The drawer opens on Overview; the deliveries live behind their own tab,
+    // and the Radix tab only activates under userEvent.
+    await userEvent.click(screen.getByRole('tab', { name: 'Deliveries' }));
+    await userEvent.click(screen.getByRole('button', { name: /payload for delivery d-1/i }));
+    expect(screen.queryByRole('link', { name: 'run-7' })).toBeNull();
   });
 });

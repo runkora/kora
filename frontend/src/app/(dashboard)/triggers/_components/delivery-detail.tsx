@@ -72,7 +72,10 @@ export interface DeliveryDetailProps {
  * text: a link that cannot be built is better absent than broken.
  */
 function RunRef({ runId, agentSlug }: { runId: string; agentSlug: string | undefined }) {
-  if (agentSlug === undefined) {
+  // Empty counts as unresolved, not just undefined. agent_slug is NOT NULL but
+  // not non-empty, and a blank one builds "/agents//runs/<id>", which is the
+  // broken link this fallback exists to avoid rather than a missing one.
+  if (agentSlug === undefined || agentSlug === '') {
     return (
       <Text mono size="caption" color="accent">
         {runId}
