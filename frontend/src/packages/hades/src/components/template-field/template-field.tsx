@@ -57,7 +57,7 @@ export interface TemplateFieldProps {
    * "Fields for push deliveries". Makes a narrowed catalog say why.
    */
   catalogLabel?: string;
-  /** @internal Used for internal Terra composition via cn(). */
+  /** @internal Used for internal Hades composition via cn(). */
   className?: string;
 }
 
