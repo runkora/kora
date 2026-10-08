@@ -979,6 +979,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, errSandboxUnschedulable) {
+			// No node can take the pod yet. The session-manager retries, and the agent reads the scheduler's reason.
+			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil), nil)
+			return
+		}
 		if errors.Is(err, errSandboxImagePending) {
 			// The operator has not read the image yet. The session-manager retries.
 			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil), nil)

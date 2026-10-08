@@ -233,11 +233,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		DefaultEnvironmentSize:  sizes.Default,
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
-		SandboxGuardrails: agents.SandboxGuardrails{
-			ProvisionAttempts:    cfg.Agents.Guardrails.SandboxProvisionAttempts,
-			ProvisionBackoffSecs: cfg.Agents.Guardrails.SandboxProvisionBackoffSecs,
-			ProvisionBudgetSecs:  cfg.Agents.Guardrails.SandboxProvisionBudgetSecs,
-		},
+		SandboxGuardrails:       sandboxGuardrails(cfg),
 	}, logger)
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{
@@ -287,6 +283,15 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		catalogController,
 	)
 	return server, repo, atSvc, runSvc, draftSvc, nil
+}
+
+// sandboxGuardrails reads the install's sandbox provisioning settings.
+func sandboxGuardrails(cfg *agentsConfig.Config) agents.SandboxGuardrails {
+	return agents.SandboxGuardrails{
+		ProvisionAttempts:    cfg.Agents.Guardrails.SandboxProvisionAttempts,
+		ProvisionBackoffSecs: cfg.Agents.Guardrails.SandboxProvisionBackoffSecs,
+		ProvisionBudgetSecs:  cfg.Agents.Guardrails.SandboxProvisionBudgetSecs,
+	}
 }
 
 // environmentSizes converts the configured environment sizes.

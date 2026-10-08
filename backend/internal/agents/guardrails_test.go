@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -101,5 +102,23 @@ func TestStartRun_SendsGuardrails(t *testing.T) {
 	}
 	if got := sm.sessions[0].Guardrails; got != want {
 		t.Errorf("run guardrails = %+v, want %+v", got, want)
+	}
+}
+
+// The pod wait ends inside one attempt's share of the budget, and an unset budget leaves the default.
+func TestSandboxGuardrails_ReadyWait(t *testing.T) {
+	for _, tc := range []struct {
+		g    SandboxGuardrails
+		want time.Duration
+	}{
+		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBudgetSecs: 300}, 95 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 1, ProvisionBudgetSecs: 320}, 315 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 4, ProvisionBudgetSecs: 8}, 2 * time.Second},
+		{SandboxGuardrails{ProvisionBudgetSecs: 300}, 0},
+		{SandboxGuardrails{ProvisionAttempts: 3}, 0},
+	} {
+		if got := tc.g.ReadyWait(); got != tc.want {
+			t.Errorf("%+v: ReadyWait = %s, want %s", tc.g, got, tc.want)
+		}
 	}
 }

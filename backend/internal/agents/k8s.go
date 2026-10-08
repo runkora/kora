@@ -75,7 +75,9 @@ type K8sProvisionerConfig struct {
 	SandboxImage string
 	// DefaultEnvironmentSize sizes rendered previews.
 	DefaultEnvironmentSize EnvironmentSize
-	SandboxGRPCPort        int32
+	// SandboxReadyWait bounds the wait for a sandbox pod to become ready. Zero uses defaultSandboxReadyWait.
+	SandboxReadyWait time.Duration
+	SandboxGRPCPort  int32
 	// GitAuthorName/GitAuthorEmail set the git identity for commits the agent
 	// makes in the sandbox (GIT_AUTHOR_*/GIT_COMMITTER_*). Empty = leave unset.
 	GitAuthorName  string
@@ -789,13 +791,18 @@ func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace str
 	return nil
 }
 
+// defaultSandboxReadyWait bounds the pod wait when the install sets no provision guardrails.
+const defaultSandboxReadyWait = 240 * time.Second
+
 // waitForPodReady polls until the pod is Ready, returning the ready pod.
-// Respects the deadline on ctx (the session-manager enforces 300s). The poll
-// budget allows for a cold sandbox-exec image pull on a fresh orbit node plus
-// istio/sidecar startup; keep it below the session-manager client timeout.
+// The wait ends inside the session-manager's attempt, so a pod that never schedules reports why.
 func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace string) (*corev1.Pod, error) {
+	timeout := p.cfg.SandboxReadyWait
+	if timeout <= 0 {
+		timeout = defaultSandboxReadyWait
+	}
 	var ready *corev1.Pod
-	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, 240*time.Second, true, func(ctx context.Context) (bool, error) {
+	err := wait.PollUntilContextTimeout(ctx, 3*time.Second, timeout, true, func(ctx context.Context) (bool, error) {
 		pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
 		if apierrors.IsNotFound(err) {
 			return false, nil
@@ -815,12 +822,35 @@ func (p *K8sProvisioner) waitForPodReady(ctx context.Context, name, namespace st
 		return false, nil
 	})
 	if err != nil {
+		if reason := p.unschedulableReason(ctx, name, namespace); reason != "" {
+			return nil, fmt.Errorf("%w: %s: %w", errSandboxUnschedulable, reason, err)
+		}
 		return nil, err
 	}
 	if ready.Status.PodIP == "" {
 		return nil, fmt.Errorf("pod ready but no IP assigned")
 	}
 	return ready, nil
+}
+
+// errSandboxUnschedulable reports a sandbox pod the scheduler could not place before the wait ended.
+var errSandboxUnschedulable = errors.New("sandbox pod unschedulable")
+
+// unschedulableReason returns the scheduler's message for a pod it has not placed, or "" when it was placed.
+// The read survives the caller's cancelled context so a timed-out wait can still report why.
+func (p *K8sProvisioner) unschedulableReason(ctx context.Context, name, namespace string) string {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	for _, cond := range pod.Status.Conditions {
+		if cond.Type == corev1.PodScheduled && cond.Status == corev1.ConditionFalse {
+			return cond.Message
+		}
+	}
+	return ""
 }
 
 // sandboxContainerEnv builds the env block for the sandbox-exec container.
@@ -1114,8 +1144,8 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 	}, nil
 }
 
-// sandboxResources limits the sandbox to its environment's size, local disk included in ephemeral storage.
-// The fixed requests stay within a small environment's limits.
+// sandboxResources reserves the environment's size for the sandbox, with requests equal to limits.
+// Ephemeral storage adds the scratch allowance to the local disk.
 func sandboxResources(size EnvironmentSize) (corev1.ResourceRequirements, error) {
 	var cpu, memory, disk resource.Quantity
 	for _, d := range []struct {
@@ -1131,25 +1161,12 @@ func sandboxResources(size EnvironmentSize) (corev1.ResourceRequirements, error)
 	}
 	ephemeral := resource.MustParse(appEphemeralLimit)
 	ephemeral.Add(disk)
-	requests := corev1.ResourceList{
-		corev1.ResourceCPU:              minQuantity(resource.MustParse("100m"), cpu),
-		corev1.ResourceMemory:           minQuantity(resource.MustParse("256Mi"), memory),
-		corev1.ResourceEphemeralStorage: resource.MustParse(appEphemeralRequest),
-	}
 	limits := corev1.ResourceList{
 		corev1.ResourceCPU:              cpu,
 		corev1.ResourceMemory:           memory,
 		corev1.ResourceEphemeralStorage: ephemeral,
 	}
-	return corev1.ResourceRequirements{Requests: requests, Limits: limits}, nil
-}
-
-// minQuantity is the smaller of a and b.
-func minQuantity(a, b resource.Quantity) resource.Quantity {
-	if a.Cmp(b) > 0 {
-		return b
-	}
-	return a
+	return corev1.ResourceRequirements{Requests: limits.DeepCopy(), Limits: limits}, nil
 }
 
 // errSandboxSize reports an environment size that is not a quantity.

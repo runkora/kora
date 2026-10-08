@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -230,6 +231,19 @@ func TestListRunEnvironments_NoneAttached(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Slug != DefaultEnvironmentName || got[0].Image != si.BaseName || !got[0].Default {
 		t.Errorf("environments = %+v, want the built-in default on kora-base", got)
+	}
+}
+
+// A sandbox the scheduler cannot place is a 503 that carries the scheduler's reason.
+func TestHandleProvisionSandbox_UnschedulableIs503WithReason(t *testing.T) {
+	c, repo, k8s, _ := newTestController(t)
+	seedEnvironments(t, repo, k8s)
+	k8s.provisionSandboxErr = fmt.Errorf("wait for sandbox pod ready: %w: 0/3 nodes are available: 3 Insufficient cpu.", errSandboxUnschedulable)
+
+	w := httptest.NewRecorder()
+	c.handleProvisionSandbox(w, callbackReq(http.MethodPost, "/internal/runs/run-1/provision-sandbox", `{"environment":"go"}`))
+	if w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "Insufficient cpu") {
+		t.Errorf("status %d body %s, want 503 with the scheduler's reason", w.Code, w.Body.String())
 	}
 }
 
