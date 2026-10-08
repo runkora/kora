@@ -141,6 +141,31 @@ The node agent `orbit-sandbox-mount` runs as a privileged DaemonSet in the `sand
 *   TCP `sandboxMount.port`, 20490 by default, reachable from the nodes that run session-managers to the nodes that run sandboxes. NFS uses only this port, with no rpcbind or mountd port. Restrict it to node addresses in your node firewall.
 *   The kubelet root directory at `sandboxMount.kubeletDir` (default `/var/lib/kubelet`).
 
+Check each requirement before you turn the feature on:
+
+1.  **Check Privileged Admission:** Create the node agent's namespace at the privileged Pod Security level, then run a server-side dry run of a privileged pod in it. The API server and any admission policy accept the pod when the platform admits the node agent. Delete the namespace afterwards, or keep it and set `sandboxMount.createNamespace: false`.
+
+    ```bash
+    kubectl create namespace orbit-node
+    kubectl label namespace orbit-node pod-security.kubernetes.io/enforce=privileged
+    kubectl -n orbit-node run privileged-check --image=busybox --restart=Never --dry-run=server \
+      --overrides='{"spec":{"hostNetwork":true,"hostPID":true,"containers":[{"name":"privileged-check","image":"busybox","securityContext":{"privileged":true}}]}}'
+    ```
+
+2.  **Check the NFS Server Module:** Load the module from a privileged debug pod on a sandbox node. A zero exit status means the node kernel has the NFS server.
+
+    ```bash
+    kubectl debug node/<sandbox-node> -it --profile=sysadmin --image=busybox -- chroot /host modprobe nfsd
+    ```
+
+3.  **Check the NFS Port:** Open a TCP connection from a session-manager node to the configured port on a sandbox node's address. A debug pod on a node runs in its host network. A refused connection means the port is reachable and nothing listens on it yet. A timeout means a firewall drops the port.
+
+    ```bash
+    kubectl debug node/<session-manager-node> -it --image=busybox -- nc -z -v -w 3 <sandbox-node-address> 20490
+    ```
+
+A platform that cannot meet these requirements leaves `sandboxMount.enabled` off. Sandboxes then work on the shared workspace volume.
+
 Before each mount the node agent checks that the session-manager's node can open the port on the sandbox's node. When it cannot, the sandbox fails to start, and its failure message names the port and both nodes.
 
 The DaemonSet carries the tolerations of `agents.workloads.sandbox` and `agents.workloads.sessionManager`, and `sandboxMount.tolerations` adds more. The chart creates the namespace at the privileged Pod Security level. Set `sandboxMount.createNamespace: false` to use a namespace you manage that admits privileged pods.
