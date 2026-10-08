@@ -218,7 +218,8 @@ func (c Client) Mount(source, volumeDir, rel string) error {
 	}
 	defer unix.Close(fd)
 	host := strings.Trim(source[:strings.LastIndex(source, ":")], "[]")
-	return unix.Mount(source, threadFdPath(fd), "nfs4", 0, c.Options+",addr="+host)
+	// nosuid and nodev keep setuid files and device nodes in a sandbox folder inert in the session-manager.
+	return unix.Mount(source, threadFdPath(fd), "nfs4", unix.MS_NOSUID|unix.MS_NODEV, c.Options+",addr="+host)
 }
 
 // Unmount force-detaches the mount. Readers blocked on a dead server get an error.
