@@ -234,6 +234,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
 		SandboxGuardrails:       sandboxGuardrails(cfg),
+		SandboxMount:            cfg.Agents.SandboxMount,
 	}, logger)
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{

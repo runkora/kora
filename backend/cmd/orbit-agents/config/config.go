@@ -113,6 +113,10 @@ type Config struct {
 			// other runs. Zero disables the cap.
 			NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 		} `yaml:"sessionManager"`
+		// SandboxMount gives each sandbox a working folder on its local disk at
+		// /workspaces/<run>/sandbox, mounted into the session-manager pod by the
+		// sandbox-mount node agent (docs/adr/2026-10-08-sandbox-workspace-mount.md).
+		SandboxMount bool `yaml:"sandboxMount"`
 	} `yaml:"agents"`
 }
 
