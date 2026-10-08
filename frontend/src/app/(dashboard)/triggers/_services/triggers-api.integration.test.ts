@@ -159,6 +159,46 @@ describe('listDeliveries (browser client)', () => {
     });
   });
 
+  // The header of triggers-api.ts promises these functions never throw, and
+  // every caller relies on it: an escaping rejection skips the completion
+  // handler entirely, so Load more stays on a disabled "Loading..." with no
+  // error line and therefore no Retry. res.text() rejects when the body fails
+  // after the headers arrived, which a plain `await` would let through.
+  it('reports an error rather than throwing when the body fails mid-stream', async () => {
+    server.use(
+      http.get(BFF, () => {
+        const stream = new ReadableStream({
+          start(controller) {
+            controller.enqueue(new TextEncoder().encode('{"data":[{"id":"d-1"}'));
+            controller.error(new Error('connection reset while reading body'));
+          },
+        });
+        return new HttpResponse(stream, {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }),
+    );
+
+    await expect(listDeliveries()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      error: 'The server returned a response that could not be read.',
+    });
+  });
+
+  // A zero-length 200 is the same class of gateway artefact as the HTML error
+  // page: the route always writes a body, so an empty one is not "no rows".
+  it('reports an error for a zero-length 200 rather than an empty page', async () => {
+    server.use(http.get(BFF, () => new HttpResponse(null, { status: 200 })));
+
+    await expect(listDeliveries()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      error: 'The server returned a response that could not be read.',
+    });
+  });
+
   it('resolves with a network-error message when the request cannot be made', async () => {
     server.use(http.get(BFF, () => HttpResponse.error()));
 
