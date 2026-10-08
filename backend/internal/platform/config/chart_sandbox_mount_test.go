@@ -8,6 +8,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/yaml"
 
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
@@ -50,6 +51,7 @@ agents:
 	}
 	var ds appsv1.DaemonSet
 	var ns corev1.Namespace
+	var role rbacv1.ClusterRole
 	for doc := range strings.SplitSeq(out, "\n---\n") {
 		var meta struct{ Kind string }
 		if err := yaml.Unmarshal([]byte(doc), &meta); err != nil {
@@ -60,11 +62,19 @@ agents:
 			if err := yaml.Unmarshal([]byte(doc), &ds); err != nil {
 				t.Fatal(err)
 			}
+		case meta.Kind == "ClusterRole" && strings.Contains(doc, "name: orbit-sandbox-mount"):
+			if err := yaml.Unmarshal([]byte(doc), &role); err != nil {
+				t.Fatal(err)
+			}
 		case meta.Kind == "Namespace" && strings.Contains(doc, "name: orbit-node"):
 			if err := yaml.Unmarshal([]byte(doc), &ns); err != nil {
 				t.Fatal(err)
 			}
 		}
+	}
+	// The node agent reads pods and nothing else.
+	if len(role.Rules) != 1 || strings.Join(role.Rules[0].Resources, ",") != "pods" || strings.Join(role.Rules[0].Verbs, ",") != "list,watch" || strings.Join(role.Rules[0].APIGroups, ",") != "" {
+		t.Errorf("ClusterRole rules = %+v, want list and watch on pods only", role.Rules)
 	}
 	if ns.Labels["pod-security.kubernetes.io/enforce"] != "privileged" {
 		t.Errorf("namespace labels = %v, want enforce=privileged", ns.Labels)

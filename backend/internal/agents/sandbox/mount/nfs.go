@@ -5,7 +5,8 @@ type ServerConfig struct {
 	// KubeletDir is where the node's kubelet directory is mounted in the agent's container.
 	// Export paths are resolved beneath it.
 	KubeletDir string
-	// ExportRoot is the tmpfs that holds one bind mount per export. It is the NFSv4 root.
+	// ExportRoot is the tmpfs that holds one directory per client node, the
+	// client's NFSv4 root, with one bind mount per folder exported to it.
 	ExportRoot string
 	// ExportsFile is the exports table exportfs reads.
 	ExportsFile string

@@ -139,8 +139,12 @@ type Registry struct {
 	summarizer  *summarizer
 	idleTimeout time.Duration
 	guardrails  Guardrails
-	mu          sync.RWMutex
-	sessions    map[string]*session
+	// mountInfo lists this container's mounts, where the node agent's sandbox folder mounts appear.
+	mountInfo string
+	// folderWait bounds the wait for a sandbox folder mount.
+	folderWait time.Duration
+	mu         sync.RWMutex
+	sessions   map[string]*session
 }
 
 // NewRegistry creates a session registry.
@@ -152,6 +156,8 @@ func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier
 		summarizer:  newSummarizer(logger),
 		idleTimeout: idleTimeout,
 		guardrails:  DefaultGuardrails(),
+		mountInfo:   "/proc/self/mountinfo",
+		folderWait:  sandboxFolderWait,
 		sessions:    make(map[string]*session),
 	}
 }
@@ -349,6 +355,9 @@ type Sandbox struct {
 	// CanaryHost is a host the agent may reach, probed before the sandbox is
 	// handed over. Empty when the agent has none, which skips the probe.
 	CanaryHost string `json:"canary_host,omitempty"`
+	// Folder is the sandbox pod's UID when the node agent mounts the sandbox's
+	// working folder into this pod. Empty when there is no folder to wait for.
+	Folder string `json:"folder,omitempty"`
 }
 
 // ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
@@ -425,6 +434,14 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	}
 
 	reg.sandboxStatus(ctx, runID, SandboxPhasePodReady, started, "")
+
+	// The agent's file tools reach the sandbox folder only once the node agent has mounted it.
+	if sandbox.Folder != "" {
+		if err := reg.awaitSandboxFolder(ctx, runID, sandbox.Folder); err != nil {
+			reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "the sandbox folder was not mounted in time")
+			return "", err
+		}
+	}
 
 	// Gate on egress readiness before handing the endpoint to the agent.
 	// The sandbox pod is Running (gRPC exec accepting connections) but the

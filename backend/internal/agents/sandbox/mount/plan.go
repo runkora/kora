@@ -17,9 +17,6 @@ const (
 	// WorkspacePodAnnotation on a sandbox pod names the session-manager pod, in
 	// the same namespace, whose workspace receives the sandbox's folder.
 	WorkspacePodAnnotation = "orbit.io/workspace-pod"
-	// MountedCondition is the sandbox pod's readiness gate. The node agent sets
-	// it once the folder is mounted, so a sandbox is never ready without it.
-	MountedCondition corev1.PodConditionType = "orbit.io/workspace-mounted"
 	// RunIDLabel carries the sandbox's run ID, which names its workspace directory.
 	RunIDLabel = "orbit.io/run-id"
 	// Volume is the sandbox pod's local disk, and Dir is the folder in it that
@@ -49,8 +46,6 @@ type export struct {
 
 // target is one sandbox folder this node mounts into a session-manager pod.
 type target struct {
-	// sandbox is the sandbox pod, whose readiness condition the mount satisfies.
-	sandbox *corev1.Pod
 	// workspaceUID is the session-manager pod's UID, which locates its volumes.
 	workspaceUID string
 	runID        string
@@ -87,7 +82,6 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 		}
 		if p.workspace.Spec.NodeName == node {
 			targets = append(targets, target{
-				sandbox:      p.sandbox,
 				workspaceUID: string(p.workspace.UID),
 				runID:        runID,
 				source:       hostForSource(p.sandbox.Status.HostIP) + ":/" + name,
@@ -135,11 +129,4 @@ func hostForSource(ip string) string {
 		return "[" + ip + "]"
 	}
 	return ip
-}
-
-// mountedTrue reports whether the pod already carries a true MountedCondition.
-func mountedTrue(pod *corev1.Pod) bool {
-	return slices.ContainsFunc(pod.Status.Conditions, func(c corev1.PodCondition) bool {
-		return c.Type == MountedCondition && c.Status == corev1.ConditionTrue
-	})
 }

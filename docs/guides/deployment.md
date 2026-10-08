@@ -115,6 +115,25 @@ Each placeholder reserves one default sandbox pod: the default size, 1Gi of disk
 
 To keep an image pulled on a pool that does not scale to zero, set `warm` on its `SandboxImage`.
 
+#### Sandbox working folders
+
+On a network filesystem, package installs and builds on the shared workspace are slow. Set `sandboxMount.enabled` to give every sandbox a working folder on its own local disk at `/workspaces/<run>/sandbox`. The agent's file tools and the sandbox see the same files in that folder, and the capabilities brief tells the agent to do its work there. The folder and its contents last as long as the sandbox.
+
+```yaml
+sandboxMount:
+  enabled: true
+```
+
+The node agent `orbit-sandbox-mount` runs as a privileged DaemonSet in the host network, in the `sandboxMount.namespace` namespace (`orbit-node` by default). On the sandbox's node it exports the folder with the kernel NFS server to the session-manager's node only. On the session-manager's node it mounts the export into the running session-manager pod. The session-manager hands a new sandbox to the agent once its folder is mounted. The nodes need:
+
+*   The kernel `nfsd` and NFSv4 client modules, which the node agent loads on demand.
+*   TCP 2049 open from the nodes that run session-managers to the nodes that run sandboxes. Restrict the port to node addresses in your node firewall or security groups.
+*   The kubelet root directory at `sandboxMount.kubeletDir`, by default `/var/lib/kubelet`.
+
+The DaemonSet carries the tolerations of `agents.workloads.sandbox` and `agents.workloads.sessionManager`, and `sandboxMount.tolerations` adds more. The chart creates the namespace at the privileged Pod Security level. Set `sandboxMount.createNamespace: false` to use a namespace you manage that admits privileged pods.
+
+NFS cannot check a caller's identity. Each folder is exported only to its session-manager's node address, from a privileged source port. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to port 2049. Another workload can still reach the export as the node if it runs in the host network, or if your CNI masquerades pod traffic to node addresses and that workload has no egress policy. Keep host network access to trusted system workloads, and deny other workloads egress to node addresses on TCP 2049.
+
 ### Sandbox images and environments
 
 A sandbox runs the image of its environment. kora publishes the base image `kora-sandbox-base` with the general command-line tools, Go and Python. Platform teams build their own images `FROM` it and register each one as a `SandboxImage` in the tenant namespace:
@@ -177,7 +196,7 @@ agents:
     maxSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
 ```
 
-`disk` sizes a node-local volume in each sandbox that holds the Go, npm and pip caches and user-level tool installs. The repository checkout stays on the shared workspace.
+`disk` sizes a node-local volume in each sandbox that holds its `HOME`, `TMPDIR`, the Go, npm and pip caches, user-level tool installs and, with `sandboxMount.enabled`, its working folder.
 
 A sandbox reserves its size. Its CPU, memory and ephemeral-storage requests equal its limits, and its sidecars add `operator.injection.sandboxSidecars` on top. The default `maxSize` equals the default size. Raise `maxSize` to what one sandbox node holds:
 

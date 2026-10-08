@@ -1002,6 +1002,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		"endpoint":    sandbox.Endpoint,
 		"exec_token":  sandbox.ExecToken,
 		"canary_host": sandbox.CanaryHost,
+		"folder":      sandbox.Folder,
 	})
 }
 

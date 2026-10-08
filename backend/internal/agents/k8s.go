@@ -399,6 +399,9 @@ type Sandbox struct {
 	CanaryHost string `json:"canary_host,omitempty"`
 	// Created reports that this call started the pod. It is false for a reused live pod.
 	Created bool `json:"-"`
+	// Folder is the sandbox pod's UID when the node agent mounts its working folder. The
+	// session-manager waits for a mount from that pod. Empty when SandboxMount is off.
+	Folder string `json:"folder,omitempty"`
 }
 
 // SandboxSpec is what the run's environment decides about its sandbox pod.
@@ -527,7 +530,11 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		span.SetStatus(codes.Error, ErrEnvironmentSwitch.Error())
 		return Sandbox{}, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, spec.Environment)
 	}
-	return Sandbox{Endpoint: endpoint, ExecToken: liveToken, Created: created}, nil
+	sandbox := Sandbox{Endpoint: endpoint, ExecToken: liveToken, Created: created}
+	if p.cfg.SandboxMount {
+		sandbox.Folder = string(ready.UID)
+	}
+	return sandbox, nil
 }
 
 // errSandboxUnusable reports a sandbox pod that exists but cannot serve the
@@ -673,12 +680,9 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		pullSecrets = append(pullSecrets, spec.PullSecret)
 	}
 
-	var gates []corev1.PodReadinessGate
 	if p.cfg.SandboxMount {
-		// The node agent mounts the sandbox folder into this session-manager pod, and the
-		// sandbox is not ready until the mount is in place.
+		// The node agent mounts the sandbox folder into this session-manager pod.
 		annotations[sandboxmount.WorkspacePodAnnotation] = fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal)
-		gates = []corev1.PodReadinessGate{{ConditionType: sandboxmount.MountedCondition}}
 	}
 
 	pod := &corev1.Pod{
@@ -699,7 +703,6 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 			SecurityContext:    restrictedPodSecurityContext(),
 			Volumes:            sandboxVolumes(workspacesPVC, p.cfg, spec.Size),
 			Containers:         []corev1.Container{container},
-			ReadinessGates:     gates,
 		},
 	}
 

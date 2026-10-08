@@ -22,8 +22,9 @@ metadata:
     {{- include "orbit.labels" . | nindent 4 }}
     app.kubernetes.io/component: sandbox-mount
 ---
-# Reads sandbox and session-manager pods, and sets the readiness condition of a
-# sandbox whose folder it mounted.
+# The node agent only reads pods. It needs every namespace and node: a sandbox
+# and its session-manager pod run on different nodes, and each node agent acts
+# on whichever side it hosts.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -32,12 +33,10 @@ metadata:
     {{- include "orbit.labels" . | nindent 4 }}
     app.kubernetes.io/component: sandbox-mount
 rules:
+  # The agent's two informers list and watch sandbox and session-manager pods.
   - apiGroups: [""]
     resources: [pods]
-    verbs: [get, list, watch]
-  - apiGroups: [""]
-    resources: [pods/status]
-    verbs: [patch]
+    verbs: [list, watch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

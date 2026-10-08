@@ -30,10 +30,11 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `orbit-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
 | `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
 | `orbit-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
+| `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `2049` (host network) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
-> The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
+> The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. With `sandboxMount.enabled`, `sandbox-mount` shares the sandbox's local folder with the session-manager pod ([sandbox-workspace-mount](adr/2026-10-08-sandbox-workspace-mount.md)). See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
 
 ### Feature packages (`backend/internal/`)
 
@@ -80,6 +81,7 @@ orbit/
 │   │   ├── orbit-runtime-mcp/        # stdio MCP server (no config/)
 │   │   ├── orbit-shell/              # $SHELL shim (no config/)
 │   │   ├── orbit-session-runner/     # isolation wrapper (no config/)
+│   │   ├── sandbox-mount/            # node agent for sandbox working folders
 │   │   └── example/                  # Reference binary
 │   │
 │   ├── internal/

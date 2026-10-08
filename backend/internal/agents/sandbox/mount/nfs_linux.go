@@ -67,7 +67,7 @@ func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, 
 	return s, done, nil
 }
 
-// Apply binds each sandbox folder under the export root and makes the export table exactly the given set.
+// Apply binds each sandbox folder under its client's root and makes the export table exactly the given set.
 func (s *Server) Apply(exports []export) error {
 	lines := exportLines(s.cfg.ExportRoot, exports)
 	if slices.Equal(lines, s.last) {
@@ -77,7 +77,7 @@ func (s *Server) Apply(exports []export) error {
 	keep := make(map[string]bool, len(exports))
 	var ok []export
 	for _, e := range exports {
-		dst := filepath.Join(s.cfg.ExportRoot, e.name)
+		dst := filepath.Join(s.cfg.ExportRoot, e.client, e.name)
 		keep[dst] = true
 		if err := bindBeneath(s.cfg.KubeletDir, e.path, dst); err != nil {
 			errs = append(errs, fmt.Errorf("bind %s: %w", e.path, err))
@@ -88,17 +88,23 @@ func (s *Server) Apply(exports []export) error {
 	if err := s.write(ok); err != nil {
 		return errors.Join(append(errs, err)...)
 	}
-	entries, _ := os.ReadDir(s.cfg.ExportRoot)
-	for _, ent := range entries {
-		dst := filepath.Join(s.cfg.ExportRoot, ent.Name())
-		if keep[dst] {
-			continue
+	clients, _ := os.ReadDir(s.cfg.ExportRoot)
+	for _, c := range clients {
+		clientDir := filepath.Join(s.cfg.ExportRoot, c.Name())
+		names, _ := os.ReadDir(clientDir)
+		for _, n := range names {
+			dst := filepath.Join(clientDir, n.Name())
+			if keep[dst] {
+				continue
+			}
+			if err := unix.Unmount(dst, unix.MNT_DETACH); err != nil && !errors.Is(err, unix.EINVAL) {
+				errs = append(errs, fmt.Errorf("unbind %s: %w", dst, err))
+				continue
+			}
+			_ = os.Remove(dst)
 		}
-		if err := unix.Unmount(dst, unix.MNT_DETACH); err != nil && !errors.Is(err, unix.EINVAL) {
-			errs = append(errs, fmt.Errorf("unbind %s: %w", dst, err))
-			continue
-		}
-		_ = os.Remove(dst)
+		// Removes the client's root once nothing is exported to it. A non-empty directory stays.
+		_ = os.Remove(clientDir)
 	}
 	if len(errs) == 0 {
 		s.last = lines

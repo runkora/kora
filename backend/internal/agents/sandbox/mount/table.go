@@ -1,34 +1,31 @@
 package mount
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 	"slices"
 	"strconv"
 	"strings"
 )
 
-// exportLines renders the exports table. The export root is the NFSv4 pseudo-root,
-// read-only and listed for every client. Each sandbox folder is exported to its
-// session-manager's node only, with every client user mapped to the sandbox's user.
+// exportLines renders the exports table. Each client node gets its own NFSv4
+// root, read-only and holding only the folders exported to it, so a node never
+// sees another node's exports. Each folder is exported to its session-manager's
+// node only, with every client user mapped to the sandbox's user.
 func exportLines(root string, exports []export) []string {
-	if len(exports) == 0 {
-		return nil
-	}
-	var clients, lines []string
+	var lines []string
+	roots := map[string]bool{}
 	for _, e := range exports {
-		if !slices.Contains(clients, e.client) {
-			clients = append(clients, e.client)
+		if !roots[e.client] {
+			roots[e.client] = true
+			lines = append(lines, fmt.Sprintf("%s/%s %s(ro,secure,no_subtree_check,all_squash,fsid=0)", root, e.client, e.client))
 		}
-		lines = append(lines, fmt.Sprintf("%s/%s %s(rw,async,secure,no_subtree_check,all_squash,anonuid=%d,anongid=%d,fsid=%s)",
-			root, e.name, e.client, e.uid, e.gid, e.name))
+		lines = append(lines, fmt.Sprintf("%s/%s/%s %s(rw,async,secure,no_subtree_check,all_squash,anonuid=%d,anongid=%d,fsid=%s)",
+			root, e.client, e.name, e.client, e.uid, e.gid, e.name))
 	}
-	slices.Sort(clients)
 	slices.Sort(lines)
-	rootLine := root
-	for _, c := range clients {
-		rootLine += " " + c + "(ro,secure,no_subtree_check,all_squash,fsid=0)"
-	}
-	return append([]string{rootLine}, lines...)
+	return lines
 }
 
 // parseMountInfo reads the mount point, filesystem type and source from one /proc/self/mountinfo line.
@@ -42,6 +39,19 @@ func parseMountInfo(line string) (mountEntry, bool) {
 		return mountEntry{}, false
 	}
 	return mountEntry{point: unescape(pre[4]), fstype: post[0], source: unescape(post[1])}, true
+}
+
+// SourceAt returns the source of the topmost mount at point in a mountinfo
+// listing, or an empty string when nothing is mounted there.
+func SourceAt(mountinfo io.Reader, point string) string {
+	var source string
+	sc := bufio.NewScanner(mountinfo)
+	for sc.Scan() {
+		if m, ok := parseMountInfo(sc.Text()); ok && m.point == point {
+			source = m.source
+		}
+	}
+	return source
 }
 
 // mountEntry is one line of /proc/self/mountinfo.

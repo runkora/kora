@@ -48,16 +48,9 @@ func (f *fakeMounter) Unmount(path string) error {
 	return nil
 }
 
-type fakeStatus struct{ patched []string }
-
-func (f *fakeStatus) PatchStatus(_ context.Context, ns, name string, patch []byte) error {
-	f.patched = append(f.patched, ns+"/"+name+" "+string(patch))
-	return nil
-}
-
-func newTestAgent(node string, m *fakeMounter) (*Agent, *fakeExporter, *fakeStatus) {
-	e, s := &fakeExporter{}, &fakeStatus{}
-	return &Agent{cfg: Config{Node: node, KubeletDir: "/k"}, exports: e, mounts: m, status: s, logger: logging.NewLoggerWithOutput(io.Discard)}, e, s
+func newTestAgent(node string, m *fakeMounter) (*Agent, *fakeExporter) {
+	e := &fakeExporter{}
+	return &Agent{cfg: Config{Node: node, KubeletDir: "/k"}, exports: e, mounts: m, logger: logging.NewLoggerWithOutput(io.Discard)}, e
 }
 
 func lookup(pods ...*corev1.Pod) func(string, string) *corev1.Pod {
@@ -73,10 +66,10 @@ func lookup(pods ...*corev1.Pod) func(string, string) *corev1.Pod {
 
 const testTarget = "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount/run-1/sandbox"
 
-// A new sandbox is mounted under the session-manager's volume and marked mounted.
-func TestReconcile_MountsAndMarksSandbox(t *testing.T) {
+// A new sandbox is mounted under the session-manager's volume, once.
+func TestReconcile_MountsSandbox(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}, volumeDir: "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount"}
-	a, _, s := newTestAgent("node-b", m)
+	a, _ := newTestAgent("node-b", m)
 	sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-b", "10.0.0.2")
 
 	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws)); err != nil {
@@ -85,18 +78,14 @@ func TestReconcile_MountsAndMarksSandbox(t *testing.T) {
 	if len(m.mounted) != 1 || m.mounted[0] != "10.0.0.1:/sb-uid "+testTarget {
 		t.Errorf("mounted = %v", m.mounted)
 	}
-	if len(s.patched) != 1 || !strings.HasPrefix(s.patched[0], "tenant/sandbox-run-1 ") || !strings.Contains(s.patched[0], `"type":"orbit.io/workspace-mounted","status":"True"`) {
-		t.Errorf("patched = %v", s.patched)
-	}
 
-	// A second pass with the condition set and the mount in place changes nothing.
-	sb.Status.Conditions = []corev1.PodCondition{{Type: MountedCondition, Status: corev1.ConditionTrue}}
+	// A second pass with the mount in place changes nothing.
 	m.mounted = nil
 	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws)); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if len(m.mounted) != 0 || len(m.unmounted) != 0 || len(s.patched) != 1 {
-		t.Errorf("second pass mounted %v, unmounted %v, patched %v", m.mounted, m.unmounted, s.patched)
+	if len(m.mounted) != 0 || len(m.unmounted) != 0 {
+		t.Errorf("second pass mounted %v, unmounted %v", m.mounted, m.unmounted)
 	}
 }
 
@@ -106,7 +95,7 @@ func TestReconcile_UnmountsGoneSandboxes(t *testing.T) {
 		testTarget: "10.0.0.1:/sb-uid",
 		"/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount/run-9/sandbox": "10.0.0.1:/old",
 	}, volumeDir: "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount"}
-	a, _, _ := newTestAgent("node-b", m)
+	a, _ := newTestAgent("node-b", m)
 	sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-b", "10.0.0.2")
 	now := metav1.Now()
 	sb.DeletionTimestamp = &now
@@ -122,7 +111,7 @@ func TestReconcile_UnmountsGoneSandboxes(t *testing.T) {
 // A replacement sandbox for the same run has a new UID: the old mount comes off before the new one goes on.
 func TestReconcile_RemountsReplacedSandbox(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{testTarget: "10.0.0.1:/old-uid"}, volumeDir: "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount"}
-	a, _, _ := newTestAgent("node-b", m)
+	a, _ := newTestAgent("node-b", m)
 
 	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2"))); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -135,7 +124,7 @@ func TestReconcile_RemountsReplacedSandbox(t *testing.T) {
 // A sandbox whose session-manager pod is gone, or that names none, is neither exported nor mounted.
 func TestReconcile_IgnoresUnpairedSandboxes(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}}
-	a, e, _ := newTestAgent("node-a", m)
+	a, e := newTestAgent("node-a", m)
 	unannotated := sandboxPod("node-a", "10.0.0.1")
 	delete(unannotated.Annotations, WorkspacePodAnnotation)
 
@@ -150,28 +139,28 @@ func TestReconcile_IgnoresUnpairedSandboxes(t *testing.T) {
 // A sandbox names its session-manager pod by name only, so it never pairs with a same-named pod in another tenant's namespace.
 func TestReconcile_DoesNotPairAcrossNamespaces(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}, volumeDir: "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount"}
-	a, e, s := newTestAgent("node-b", m)
+	a, e := newTestAgent("node-b", m)
 	other := workspacePod("node-b", "10.0.0.2")
 	other.Namespace = "other-tenant"
 
 	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-b", "10.0.0.2")}, lookup(other)); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
-	if len(e.applied[0]) != 0 || len(m.mounted) != 0 || len(s.patched) != 0 {
-		t.Errorf("applied %v, mounted %v, patched %v, want nothing", e.applied, m.mounted, s.patched)
+	if len(e.applied[0]) != 0 || len(m.mounted) != 0 {
+		t.Errorf("applied %v, mounted %v, want nothing", e.applied, m.mounted)
 	}
 }
 
-// A workspace that cannot be resolved yet is reported, and the sandbox is not marked mounted.
+// A workspace that cannot be resolved yet is reported and nothing is mounted.
 func TestReconcile_ReportsUnresolvedWorkspace(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}, resolveErr: errors.New("not yet")}
-	a, _, s := newTestAgent("node-b", m)
+	a, _ := newTestAgent("node-b", m)
 
 	err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2")))
 	if err == nil || !strings.Contains(err.Error(), "not yet") {
 		t.Errorf("err = %v, want the resolve error", err)
 	}
-	if len(s.patched) != 0 {
-		t.Errorf("patched = %v, want none", s.patched)
+	if len(m.mounted) != 0 {
+		t.Errorf("mounted = %v, want none", m.mounted)
 	}
 }

@@ -7,7 +7,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
@@ -40,7 +39,6 @@ func NewAgent(cfg Config, kube kubernetes.Interface, exports exporter, mounts mo
 		kube:    kube,
 		exports: exports,
 		mounts:  mounts,
-		status:  podStatus{kube},
 		logger:  logger,
 	}
 }
@@ -106,12 +104,4 @@ func poke(wake chan struct{}) {
 	case wake <- struct{}{}:
 	default:
 	}
-}
-
-// podStatus patches pod status through the API server.
-type podStatus struct{ kube kubernetes.Interface }
-
-func (p podStatus) PatchStatus(ctx context.Context, namespace, name string, patch []byte) error {
-	_, err := p.kube.CoreV1().Pods(namespace).Patch(ctx, name, types.StrategicMergePatchType, patch, metav1.PatchOptions{}, "status")
-	return err
 }

@@ -2,14 +2,11 @@ package mount
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -33,18 +30,12 @@ type mounter interface {
 	Unmount(path string) error
 }
 
-// statusPatcher sets a condition on a sandbox pod.
-type statusPatcher interface {
-	PatchStatus(ctx context.Context, namespace, name string, patch []byte) error
-}
-
 // Agent reconciles the node's exports and mounts with the sandbox pods.
 type Agent struct {
 	cfg     Config
 	kube    kubernetes.Interface
 	exports exporter
 	mounts  mounter
-	status  statusPatcher
 	logger  logging.Logger
 }
 
@@ -71,7 +62,7 @@ type wanted struct {
 	volumeDir string
 }
 
-// syncMounts unmounts what is no longer wanted, then mounts what is missing and marks each sandbox mounted.
+// syncMounts unmounts what is no longer wanted, then mounts what is missing.
 func (a *Agent) syncMounts(ctx context.Context, targets []target) error {
 	current, err := a.mounts.Mounts()
 	if err != nil {
@@ -99,32 +90,14 @@ func (a *Agent) syncMounts(ctx context.Context, targets []target) error {
 		a.logger.Info(ctx, "Unmounted sandbox folder", logging.Field{Key: "path", Value: path}, logging.Field{Key: "source", Value: source})
 	}
 	for path, w := range want {
-		if _, ok := current[path]; !ok {
-			if err := a.mounts.Mount(w.source, w.volumeDir, filepath.Join(w.runID, Dir)); err != nil {
-				errs = append(errs, fmt.Errorf("mount %s on %s: %w", w.source, path, err))
-				continue
-			}
-			a.logger.Info(ctx, "Mounted sandbox folder", logging.Field{Key: "run_id", Value: w.runID}, logging.Field{Key: "source", Value: w.source})
+		if _, ok := current[path]; ok {
+			continue
 		}
-		if !mountedTrue(w.sandbox) {
-			if err := a.status.PatchStatus(ctx, w.sandbox.Namespace, w.sandbox.Name, mountedPatch(time.Now())); err != nil {
-				errs = append(errs, fmt.Errorf("mark sandbox %s/%s mounted: %w", w.sandbox.Namespace, w.sandbox.Name, err))
-			}
+		if err := a.mounts.Mount(w.source, w.volumeDir, filepath.Join(w.runID, Dir)); err != nil {
+			errs = append(errs, fmt.Errorf("mount %s on %s: %w", w.source, path, err))
+			continue
 		}
+		a.logger.Info(ctx, "Mounted sandbox folder", logging.Field{Key: "run_id", Value: w.runID}, logging.Field{Key: "source", Value: w.source})
 	}
 	return errors.Join(errs...)
-}
-
-// mountedPatch is the strategic merge patch that sets MountedCondition to true.
-func mountedPatch(now time.Time) []byte {
-	type condition struct {
-		Type               corev1.PodConditionType `json:"type"`
-		Status             corev1.ConditionStatus  `json:"status"`
-		LastTransitionTime metav1.Time             `json:"lastTransitionTime"`
-	}
-	patch := map[string]any{"status": map[string]any{"conditions": []condition{{
-		Type: MountedCondition, Status: corev1.ConditionTrue, LastTransitionTime: metav1.NewTime(now),
-	}}}}
-	data, _ := json.Marshal(patch)
-	return data
 }

@@ -16,16 +16,13 @@ func sandboxMountProvisioner(enabled bool) *K8sProvisioner {
 	return p
 }
 
-// With the node agent enabled, the sandbox names its session-manager pod, waits on the mount
-// through a readiness gate, and mounts its local disk's working folder inside the workspace.
+// With the node agent enabled, the sandbox names its session-manager pod and mounts its
+// local disk's working folder inside the workspace.
 func TestSandboxPod_SandboxMount(t *testing.T) {
 	pod := buildTestSandboxPod(sandboxMountProvisioner(true), Run{ID: "run-1", PodOrdinal: 2}, "coder", "orbit-tenant-acme", testSandboxSpec(), "token")
 
 	if got := pod.Annotations[sandboxmount.WorkspacePodAnnotation]; got != "coder-2" {
 		t.Errorf("workspace pod annotation = %q, want coder-2", got)
-	}
-	if !slices.Equal(pod.Spec.ReadinessGates, []corev1.PodReadinessGate{{ConditionType: sandboxmount.MountedCondition}}) {
-		t.Errorf("readiness gates = %+v", pod.Spec.ReadinessGates)
 	}
 	if pod.Name != sandboxmount.SandboxPodName("run-1") {
 		t.Errorf("pod name = %q", pod.Name)
@@ -43,11 +40,11 @@ func TestSandboxPod_SandboxMount(t *testing.T) {
 	}
 }
 
-// Without the node agent nothing waits on a mount, and no folder sits in the workspace.
+// Without the node agent no session-manager is named, and no folder sits in the workspace.
 func TestSandboxPod_NoSandboxMount(t *testing.T) {
 	pod := buildTestSandboxPod(sandboxMountProvisioner(false), Run{ID: "run-1"}, "coder", "orbit-tenant-acme", testSandboxSpec(), "token")
-	if _, ok := pod.Annotations[sandboxmount.WorkspacePodAnnotation]; ok || len(pod.Spec.ReadinessGates) != 0 {
-		t.Errorf("annotations %v, gates %+v, want neither", pod.Annotations, pod.Spec.ReadinessGates)
+	if _, ok := pod.Annotations[sandboxmount.WorkspacePodAnnotation]; ok {
+		t.Errorf("annotations %v, want no workspace pod", pod.Annotations)
 	}
 	for _, m := range pod.Spec.Containers[0].VolumeMounts {
 		if strings.HasSuffix(m.MountPath, "/sandbox") {
