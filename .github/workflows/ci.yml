@@ -51,6 +51,7 @@ jobs:
               - 'deploy/reference/**'
               - 'backend/internal/operator/**'
               - 'backend/internal/agents/k8s*.go'
+              - 'backend/internal/platform/config/**'
               - 'Makefile'
               - '.github/actions/**'
               - '.github/workflows/ci.yml'
