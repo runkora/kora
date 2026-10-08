@@ -531,7 +531,8 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 		return Sandbox{}, fmt.Errorf("%w; call replace_environment to switch to %q", ErrEnvironmentSwitch, spec.Environment)
 	}
 	sandbox := Sandbox{Endpoint: endpoint, ExecToken: liveToken, Created: created}
-	if p.cfg.SandboxMount {
+	// A pod created before the feature was on has no folder, and nothing will mount it.
+	if p.cfg.SandboxMount && ready.Annotations[sandboxmount.WorkspacePodAnnotation] != "" {
 		sandbox.Folder = string(ready.UID)
 	}
 	return sandbox, nil
@@ -1061,6 +1062,9 @@ const (
 	localDiskVolume = sandboxmount.Volume
 	// localTmpSubPath is the local disk's directory mounted at /tmp.
 	localTmpSubPath = ".tmp"
+	// localHomeSubPath is the local disk's directory mounted as HOME. It sits beside
+	// the working folder, so clearing HOME leaves the agent's work in place.
+	localHomeSubPath = "home"
 )
 
 // imageHomeDir is the orbit user's home in both images, used by tools that read it from passwd.
@@ -1116,7 +1120,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 		{Name: scratchVarTmpVolume, MountPath: "/var/tmp"},
 		{Name: scratchHomeVolume, MountPath: imageHomeDir},
 		// The sandbox's HOME, caches and installs. It sits at the agent pod's run local dir, so the PATH the agent replays finds the installs.
-		{Name: localDiskVolume, MountPath: runfs.LocalDir(workspaceDir)},
+		{Name: localDiskVolume, MountPath: runfs.LocalDir(workspaceDir), SubPath: localHomeSubPath},
 		// The sandbox's TMPDIR, on the local disk with HOME.
 		{Name: localDiskVolume, MountPath: "/tmp", SubPath: localTmpSubPath},
 	}

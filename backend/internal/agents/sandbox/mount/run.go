@@ -62,13 +62,6 @@ func (a *Agent) Run(ctx context.Context) error {
 	}
 	sandboxLister := sandboxes.Core().V1().Pods().Lister()
 	workspaceLister := workspaces.Core().V1().Pods().Lister()
-	workspace := func(namespace, name string) *corev1.Pod {
-		pod, err := workspaceLister.Pods(namespace).Get(name)
-		if err != nil {
-			return nil
-		}
-		return pod
-	}
 
 	timer := time.NewTimer(0)
 	defer timer.Stop()
@@ -81,8 +74,12 @@ func (a *Agent) Run(ctx context.Context) error {
 		}
 		next := a.cfg.Resync
 		pods, err := sandboxLister.List(labels.Everything())
+		var agents []*corev1.Pod
 		if err == nil {
-			err = a.Reconcile(ctx, pods, workspace)
+			agents, err = workspaceLister.List(labels.Everything())
+		}
+		if err == nil {
+			err = a.Reconcile(ctx, pods, agents)
 		}
 		if err != nil {
 			a.logger.Warn(ctx, "Sandbox folder reconcile incomplete", logging.Field{Key: "error", Value: err.Error()})

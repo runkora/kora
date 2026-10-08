@@ -120,3 +120,31 @@ func TestExportLines(t *testing.T) {
 		t.Errorf("empty exportLines = %v, want nil", lines)
 	}
 }
+
+// The client root and the mount point are searchable by the squashed user the NFS client acts as.
+func TestMakeExportDir_SearchableByAll(t *testing.T) {
+	dst := filepath.Join(t.TempDir(), "10.0.0.2", "pod-uid")
+	if err := makeExportDir(dst); err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range []string{filepath.Dir(dst), dst} {
+		fi, err := os.Stat(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fi.Mode().Perm()&0o005 != 0o005 {
+			t.Errorf("%s mode %v, want world read and search", d, fi.Mode().Perm())
+		}
+	}
+}
+
+// Resolve does not take the mount into a scratch volume that holds a directory named for the run.
+func TestResolve_SkipsScratchVolumes(t *testing.T) {
+	kubelet := t.TempDir()
+	scratch := filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~empty-dir", "scratch-tmp")
+	pv := filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~local-volume", "pv")
+	mkdirs(t, filepath.Join(scratch, "run-1"), filepath.Join(pv, "run-1"))
+	if got, err := (Client{KubeletDir: kubelet}).Resolve("ws", "run-1"); err != nil || got != pv {
+		t.Errorf("Resolve = %q, %v, want %q", got, err, pv)
+	}
+}

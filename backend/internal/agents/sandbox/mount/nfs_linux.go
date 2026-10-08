@@ -21,8 +21,11 @@ const nfsdFS = "/proc/fs/nfsd"
 
 // Server exports sandbox folders with the kernel NFS server.
 type Server struct {
-	cfg  ServerConfig
-	last []string
+	cfg ServerConfig
+	// last is the table written by the previous Apply. Nil until the first
+	// Apply, which always writes, so exports left by an earlier agent are dropped.
+	last    []string
+	applied bool
 }
 
 // StartServer starts nfsd and mountd. mountd runs until ctx ends, and its exit is reported on the returned channel.
@@ -70,7 +73,7 @@ func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, 
 // Apply binds each sandbox folder under its client's root and makes the export table exactly the given set.
 func (s *Server) Apply(ctx context.Context, exports []export) error {
 	lines := exportLines(s.cfg.ExportRoot, exports)
-	if slices.Equal(lines, s.last) {
+	if s.applied && slices.Equal(lines, s.last) {
 		return nil
 	}
 	var errs []error
@@ -107,7 +110,7 @@ func (s *Server) Apply(ctx context.Context, exports []export) error {
 		_ = os.Remove(clientDir)
 	}
 	if len(errs) == 0 {
-		s.last = lines
+		s.last, s.applied = lines, true
 	}
 	return errors.Join(errs...)
 }
@@ -136,10 +139,19 @@ func bindBeneath(kubeletDir, src, dst string) error {
 		return err
 	}
 	defer unix.Close(fd)
-	if err := os.MkdirAll(dst, 0o750); err != nil {
+	if err := makeExportDir(dst); err != nil {
 		return err
 	}
 	return unix.Mount(fdPath(fd), dst, "", unix.MS_BIND, "")
+}
+
+// makeExportDir creates a bind mount point and its client root. Both are 0755: an
+// NFS client walks them as the squashed user.
+func makeExportDir(dst string) error {
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		return err
+	}
+	return os.Chmod(filepath.Dir(dst), 0o755)
 }
 
 // Mounts returns the sandbox folder mounts under the kubelet's pod directory.
@@ -167,6 +179,9 @@ func (c Client) Resolve(workspaceUID, runID string) (string, error) {
 		return "", err
 	}
 	for _, v := range vols {
+		if !persistentPlugin(filepath.Base(filepath.Dir(v))) {
+			continue
+		}
 		for _, dir := range []string{filepath.Join(v, "mount"), v} {
 			if fd, err := openBeneath(c.KubeletDir, filepath.Join(dir, runID)); err == nil {
 				_ = unix.Close(fd)
@@ -175,6 +190,17 @@ func (c Client) Resolve(workspaceUID, runID string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no volume of pod %s holds run %s", workspaceUID, runID)
+}
+
+// persistentPlugin reports a volume plugin directory that can hold the workspace
+// claim. The pod's scratch and projected volumes are skipped, so a run directory
+// planted in the pod's /tmp cannot take the mount.
+func persistentPlugin(dir string) bool {
+	switch dir {
+	case "kubernetes.io~empty-dir", "kubernetes.io~projected", "kubernetes.io~configmap", "kubernetes.io~secret", "kubernetes.io~downward-api":
+		return false
+	}
+	return true
 }
 
 // Mount mounts the NFS source on rel beneath volumeDir. The mount point is resolved

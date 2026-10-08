@@ -358,6 +358,13 @@ linters:
           - gocritic
         text: "ruleguard: execution error: used Run\\(\\) with an empty rule set"
 
+      # The sandbox-mount node agent's export directories are walked by NFS
+      # clients as the squashed user, so they must be world-searchable (0755).
+      - path: "internal/agents/sandbox/mount/nfs_linux.go"
+        linters:
+          - gosec
+        text: "G301"
+
       # platform/api/response.go contains the canonical implementations of
       # DecodeJSON and JSON — they are permitted to use json.NewDecoder(r.Body)
       # and w.WriteHeader directly because they ARE the abstractions the rule

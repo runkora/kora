@@ -12,6 +12,9 @@ import (
 	sandboxmount "github.com/clear-route/orbit/internal/agents/sandbox/mount"
 )
 
+// sandboxFolderFile in the sandbox descriptor folder holds the UID of the sandbox pod whose folder is mounted.
+const sandboxFolderFile = "folder"
+
 // errSandboxFolder reports a sandbox whose working folder the node agent did not mount in time.
 var errSandboxFolder = errors.New("sandbox folder not mounted")
 

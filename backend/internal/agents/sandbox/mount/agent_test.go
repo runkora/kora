@@ -55,16 +55,7 @@ func newTestAgent(node string, m *fakeMounter) (*Agent, *fakeExporter) {
 	return &Agent{cfg: Config{Node: node, KubeletDir: "/k"}, exports: e, mounts: m, logger: logging.NewLoggerWithOutput(io.Discard)}, e
 }
 
-func lookup(pods ...*corev1.Pod) func(string, string) *corev1.Pod {
-	return func(ns, name string) *corev1.Pod {
-		for _, p := range pods {
-			if p.Namespace == ns && p.Name == name {
-				return p
-			}
-		}
-		return nil
-	}
-}
+func lookup(pods ...*corev1.Pod) []*corev1.Pod { return pods }
 
 const testTarget = "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount/run-1/sandbox"
 
@@ -164,5 +155,23 @@ func TestReconcile_ReportsUnresolvedWorkspace(t *testing.T) {
 	}
 	if len(m.mounted) != 0 {
 		t.Errorf("mounted = %v, want none", m.mounted)
+	}
+}
+
+// Copies of a mount that the host propagates to other binds of the volume, such as a co-located
+// sandbox pod's, and NFS mounts of unrelated pods are left alone.
+func TestReconcile_IgnoresMountsOutsideLocalWorkspaces(t *testing.T) {
+	m := &fakeMounter{current: map[string]string{
+		testTarget: "10.0.0.1:/sb-uid",
+		"/k/pods/sb-uid/volumes/kubernetes.io~csi/pv/mount/run-1/sandbox": "10.0.0.1:/sb-uid",
+		"/k/pods/other/volumes/kubernetes.io~nfs/sandbox":                 "nas:/export",
+	}, volumeDir: "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount"}
+	a, _ := newTestAgent("node-b", m)
+
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2"))); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	if len(m.unmounted) != 0 || len(m.mounted) != 0 {
+		t.Errorf("unmounted %v, mounted %v, want neither", m.unmounted, m.mounted)
 	}
 }

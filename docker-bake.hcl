@@ -335,6 +335,7 @@ group "default" {
     "orbit-mcp",
     "orbit-runtime-mcp",
     "orbit-session-manager",
+    "orbit-sandbox-mount",
     "kora-sandbox-base",
     "kora-sandbox-go",
     "kora-sandbox-python",

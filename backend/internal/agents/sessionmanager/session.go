@@ -395,20 +395,10 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	defer s.provisionMu.Unlock()
 
 	// A named environment or a replacement always asks orbit-agents.
-	if disk, ok := reg.sandboxFromDisk(runID); ok && environment == "" && !replace {
-		cached, token := disk.Endpoint, disk.ExecToken
-		if endpointAlive(cached) {
-			reg.logger.Info(ctx, "Sandbox endpoint cache hit",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "endpoint", Value: cached},
-			)
-			reg.rememberSandbox(runID, Sandbox{Endpoint: cached, ExecToken: token})
-			return cached, nil
+	if environment == "" && !replace {
+		if endpoint, ok, err := reg.cachedSandbox(ctx, runID); err != nil || ok {
+			return endpoint, err
 		}
-		reg.logger.Warn(ctx, "Cached sandbox endpoint is dead — re-provisioning",
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "endpoint", Value: cached},
-		)
 	}
 
 	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
@@ -476,6 +466,34 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	return sandbox.Endpoint, nil
 }
 
+// cachedSandbox returns the run's sandbox from its descriptor when that sandbox
+// still answers, after its folder is mounted. ok is false when there is none.
+func (reg *Registry) cachedSandbox(ctx context.Context, runID string) (string, bool, error) {
+	disk, ok := reg.sandboxFromDisk(runID)
+	if !ok {
+		return "", false, nil
+	}
+	if !endpointAlive(disk.Endpoint) {
+		reg.logger.Warn(ctx, "Cached sandbox endpoint is dead — re-provisioning",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "endpoint", Value: disk.Endpoint},
+		)
+		return "", false, nil
+	}
+	// After a restart of this pod the node agent mounts the folder again. Wait for it.
+	if disk.Folder != "" {
+		if err := reg.awaitSandboxFolder(ctx, runID, disk.Folder); err != nil {
+			return "", false, err
+		}
+	}
+	reg.logger.Info(ctx, "Sandbox endpoint cache hit",
+		logging.Field{Key: "run_id", Value: runID},
+		logging.Field{Key: "endpoint", Value: disk.Endpoint},
+	)
+	reg.rememberSandbox(runID, disk)
+	return disk.Endpoint, true, nil
+}
+
 // ListEnvironments returns orbit-agents' list of the environments the run's agent may use.
 func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error) {
 	reg.mu.RLock()
@@ -498,6 +516,17 @@ func writeSandboxDescriptor(dir, tokenFile, endpointFile string, sandbox Sandbox
 	}
 	if err := os.WriteFile(endpointFile, []byte(sandbox.Endpoint), 0o600); err != nil {
 		return fmt.Errorf("write endpoint: %w", err)
+	}
+	// The folder's sandbox pod UID, so a restarted session-manager can wait for its mount.
+	folderFile := filepath.Join(dir, sandboxFolderFile)
+	if sandbox.Folder == "" {
+		if err := os.Remove(folderFile); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove sandbox folder record: %w", err)
+		}
+		return nil
+	}
+	if err := os.WriteFile(folderFile, []byte(sandbox.Folder), 0o600); err != nil {
+		return fmt.Errorf("write sandbox folder record: %w", err)
 	}
 	return nil
 }
@@ -626,7 +655,7 @@ func (reg *Registry) sandboxFromDisk(runID string) (Sandbox, bool) {
 	if endpoint == "" || token == "" {
 		return Sandbox{}, false
 	}
-	return Sandbox{Endpoint: endpoint, ExecToken: token}, true
+	return Sandbox{Endpoint: endpoint, ExecToken: token, Folder: readTrimmed(filepath.Join(filepath.Dir(endpointFile), sandboxFolderFile))}, true
 }
 
 // readTrimmed returns the file's trimmed contents, or empty if it cannot be read.

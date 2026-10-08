@@ -62,3 +62,25 @@ func TestAwaitSandboxFolder_MountArrives(t *testing.T) {
 		t.Errorf("awaitSandboxFolder: %v", err)
 	}
 }
+
+// The descriptor records the folder's sandbox pod, so a restarted session-manager can wait for the mount again.
+func TestSandboxDescriptor_RecordsFolder(t *testing.T) {
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), nil, time.Minute)
+	dir, endpoint, token, ok := reg.sandboxPaths("run-1")
+	if !ok {
+		t.Fatal("sandboxPaths refused run-1")
+	}
+	if err := writeSandboxDescriptor(dir, token, endpoint, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok", Folder: "pod-uid"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, ok := reg.sandboxFromDisk("run-1"); !ok || got.Folder != "pod-uid" {
+		t.Errorf("sandboxFromDisk = %+v, %v, want folder pod-uid", got, ok)
+	}
+	// A sandbox without a folder clears the record left by an earlier one.
+	if err := writeSandboxDescriptor(dir, token, endpoint, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok"}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := reg.sandboxFromDisk("run-1"); got.Folder != "" {
+		t.Errorf("folder = %q after a sandbox without one", got.Folder)
+	}
+}
