@@ -132,7 +132,7 @@ The node agent `orbit-sandbox-mount` runs as a privileged DaemonSet in the host 
 
 The DaemonSet carries the tolerations of `agents.workloads.sandbox` and `agents.workloads.sessionManager`, and `sandboxMount.tolerations` adds more. The chart creates the namespace at the privileged Pod Security level. Set `sandboxMount.createNamespace: false` to use a namespace you manage that admits privileged pods.
 
-NFS cannot check a caller's identity. Each folder is exported only to its session-manager's node address, from a privileged source port. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to port 2049. Another workload can still reach the export as the node if it runs in the host network, or if your CNI masquerades pod traffic to node addresses and that workload has no egress policy. Keep host network access to trusted system workloads, and deny other workloads egress to node addresses on TCP 2049.
+NFS cannot check a caller's identity. Each folder is exported only to its session-manager's node address. A pod can open a privileged source port, so the node address is the only check. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to port 2049. Another workload can still reach the export as the node if it runs in the host network, or if your CNI masquerades pod traffic to node addresses and that workload has no egress policy. Keep host network access to trusted system workloads, and deny other workloads egress to node addresses on TCP 2049.
 
 ### Sandbox images and environments
 

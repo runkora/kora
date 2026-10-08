@@ -67,7 +67,7 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 	var targets []target
 	for _, p := range pairs {
 		runID := p.sandbox.Labels[RunIDLabel]
-		if !live(p.sandbox) || !live(p.workspace) || !singleSegment(runID) || !owns(p, runID) || !isIP(p.sandbox.Status.HostIP) || !isIP(p.workspace.Status.HostIP) || !podUID.MatchString(string(p.sandbox.UID)) {
+		if !live(p.sandbox) || !live(p.workspace) || !singleSegment(runID) || !owns(p, runID) || !isIP(p.sandbox.Status.HostIP) || !isIP(p.workspace.Status.HostIP) || !podUID.MatchString(string(p.sandbox.UID)) || !podUID.MatchString(string(p.workspace.UID)) {
 			continue
 		}
 		name := string(p.sandbox.UID)
@@ -118,10 +118,11 @@ func live(pod *corev1.Pod) bool {
 	return pod.DeletionTimestamp == nil && pod.Status.Phase == corev1.PodRunning
 }
 
-// runAs returns the pod-level user and group the sandbox writes as. The export maps every client user to them.
+// runAs returns the pod-level user and group the sandbox writes as. The export maps
+// every client user to them, so root is refused.
 func runAs(pod *corev1.Pod) (int64, int64, bool) {
 	sc := pod.Spec.SecurityContext
-	if sc == nil || sc.RunAsUser == nil || sc.RunAsGroup == nil {
+	if sc == nil || sc.RunAsUser == nil || sc.RunAsGroup == nil || *sc.RunAsUser == 0 || *sc.RunAsGroup == 0 {
 		return 0, 0, false
 	}
 	return *sc.RunAsUser, *sc.RunAsGroup, true

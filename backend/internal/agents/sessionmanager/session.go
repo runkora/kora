@@ -507,25 +507,38 @@ func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.R
 
 // writeSandboxDescriptor writes the exec token, then the endpoint: orbit-shell
 // keys off the endpoint, so it never sees one whose token is still missing.
+//
+// The files are written through an os.Root on the run's workspace. The run can
+// write its descriptor folder, and a symlink it plants there that leads out of
+// its workspace is refused, so this pod's writes never land in another run.
 func writeSandboxDescriptor(dir, tokenFile, endpointFile string, sandbox Sandbox) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+		return fmt.Errorf("create run workspace: %w", err)
+	}
+	root, err := os.OpenRoot(filepath.Dir(dir))
+	if err != nil {
+		return fmt.Errorf("open run workspace: %w", err)
+	}
+	defer root.Close()
+	name := filepath.Base(dir)
+	if err := root.MkdirAll(name, 0o700); err != nil {
 		return fmt.Errorf("create sandbox dir: %w", err)
 	}
-	if err := os.WriteFile(tokenFile, []byte(sandbox.ExecToken), 0o600); err != nil {
+	if err := root.WriteFile(filepath.Join(name, filepath.Base(tokenFile)), []byte(sandbox.ExecToken), 0o600); err != nil {
 		return fmt.Errorf("write exec token: %w", err)
 	}
-	if err := os.WriteFile(endpointFile, []byte(sandbox.Endpoint), 0o600); err != nil {
+	if err := root.WriteFile(filepath.Join(name, filepath.Base(endpointFile)), []byte(sandbox.Endpoint), 0o600); err != nil {
 		return fmt.Errorf("write endpoint: %w", err)
 	}
 	// The folder's sandbox pod UID, so a restarted session-manager can wait for its mount.
-	folderFile := filepath.Join(dir, sandboxFolderFile)
+	folderFile := filepath.Join(name, sandboxFolderFile)
 	if sandbox.Folder == "" {
-		if err := os.Remove(folderFile); err != nil && !os.IsNotExist(err) {
+		if err := root.Remove(folderFile); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove sandbox folder record: %w", err)
 		}
 		return nil
 	}
-	if err := os.WriteFile(folderFile, []byte(sandbox.Folder), 0o600); err != nil {
+	if err := root.WriteFile(folderFile, []byte(sandbox.Folder), 0o600); err != nil {
 		return fmt.Errorf("write sandbox folder record: %w", err)
 	}
 	return nil
@@ -651,16 +664,24 @@ func (reg *Registry) sandboxFromDisk(runID string) (Sandbox, bool) {
 	if !ok {
 		return Sandbox{}, false
 	}
-	endpoint, token := readTrimmed(endpointFile), readTrimmed(tokenFile)
+	dir := filepath.Dir(endpointFile)
+	root, err := os.OpenRoot(filepath.Dir(dir))
+	if err != nil {
+		return Sandbox{}, false
+	}
+	defer root.Close()
+	read := func(file string) string { return readTrimmedIn(root, filepath.Join(filepath.Base(dir), file)) }
+	endpoint, token := read(filepath.Base(endpointFile)), read(filepath.Base(tokenFile))
 	if endpoint == "" || token == "" {
 		return Sandbox{}, false
 	}
-	return Sandbox{Endpoint: endpoint, ExecToken: token, Folder: readTrimmed(filepath.Join(filepath.Dir(endpointFile), sandboxFolderFile))}, true
+	return Sandbox{Endpoint: endpoint, ExecToken: token, Folder: read(sandboxFolderFile)}, true
 }
 
-// readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
-func readTrimmed(path string) string {
-	data, err := os.ReadFile(path)
+// readTrimmedIn returns the trimmed contents of a file under root, or empty if it
+// cannot be read. A symlink out of root reads as empty.
+func readTrimmedIn(root *os.Root, name string) string {
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return ""
 	}

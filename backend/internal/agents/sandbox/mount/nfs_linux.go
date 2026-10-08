@@ -275,11 +275,14 @@ func (c Client) Release(podUIDs []string, sources map[string]bool) error {
 		}
 		_ = f.Close()
 		var errs []error
-		for _, p := range copiesUnder(entries, dirs, sources) {
-			if err := releaseCopy(c.HostKubeletDir, p); err != nil {
-				errs = append(errs, err)
+		for _, dir := range dirs {
+			for _, p := range copiesUnder(entries, []string{dir}, sources) {
+				if err := releaseCopy(c.HostKubeletDir, dir, p); err != nil {
+					errs = append(errs, err)
+				}
 			}
 		}
+
 		return errors.Join(errs...)
 	})
 }
@@ -287,7 +290,11 @@ func (c Client) Release(podUIDs []string, sources map[string]bool) error {
 // releaseCopy makes the copy's parent private and detaches the copy. Both are
 // opened beneath the kubelet directory without following symlinks and changed
 // through their descriptors.
-func releaseCopy(kubeletDir string, p propagated) error {
+func releaseCopy(kubeletDir, podDir string, p propagated) error {
+	// Only a mount inside the dying pod's own directory is made private.
+	if !strings.HasPrefix(p.parentPoint, podDir) {
+		return fmt.Errorf("copy %s sits on %s, outside %s", p.point, p.parentPoint, podDir)
+	}
 	parent, err := openBeneath(kubeletDir, p.parentPoint)
 	if err != nil {
 		return err
@@ -334,7 +341,7 @@ func inHostMountNS(fn func() error) error {
 // component below root is resolved without following symlinks and cannot escape root.
 func openBeneath(root, path string) (int, error) {
 	rel, err := filepath.Rel(root, path)
-	if err != nil || !filepath.IsLocal(rel) {
+	if err != nil || rel == "." || !filepath.IsLocal(rel) {
 		return -1, fmt.Errorf("%s is not beneath %s", path, root)
 	}
 	dir, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)

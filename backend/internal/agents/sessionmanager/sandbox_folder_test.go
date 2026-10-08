@@ -84,3 +84,31 @@ func TestSandboxDescriptor_RecordsFolder(t *testing.T) {
 		t.Errorf("folder = %q after a sandbox without one", got.Folder)
 	}
 }
+
+// A descriptor file the run replaced with a symlink out of its workspace is refused,
+// so the session-manager never writes into another run's files.
+func TestSandboxDescriptor_RefusesSymlinkOutOfWorkspace(t *testing.T) {
+	workspaces := t.TempDir()
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), workspaces, nil, time.Minute)
+	victim := filepath.Join(workspaces, "run-2", "notes.txt")
+	if err := os.MkdirAll(filepath.Dir(victim), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(victim, []byte("run 2 data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir, endpoint, token, _ := reg.sandboxPaths("run-1")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, sandboxFolderFile)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeSandboxDescriptor(dir, token, endpoint, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok", Folder: "pod-uid"}); err == nil {
+		t.Error("writeSandboxDescriptor wrote through a symlink out of the workspace")
+	}
+	if got, _ := os.ReadFile(victim); string(got) != "run 2 data" {
+		t.Errorf("victim file = %q, want it untouched", got)
+	}
+}

@@ -97,13 +97,13 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D7. Export Restriction
 
-*   **One client node per folder (chosen):** Each folder is exported to the address of its session-manager's node only, from a privileged source port (`secure`). Each client node gets its own read-only NFSv4 root that holds only the folders exported to it.
+*   **One client node per folder (chosen):** Each folder is exported to the address of its session-manager's node only. Each client node gets its own read-only NFSv4 root that holds only the folders exported to it. The export also sets `secure`, but a pod can lower `net.ipv4.ip_unprivileged_port_start` and open a privileged port, so the node address is the only real check.
 *   **The exec token (rejected):** NFS with `sec=sys` cannot check a token.
 *   **Kerberos (rejected):** It needs a KDC and keytabs on every node.
 
 ### D8. User Mapping
 
-*   **Squash to the sandbox's user (chosen):** `all_squash` maps every client user, root included, to the sandbox pod's `runAsUser` and `runAsGroup`, 100 and 100. Both pods already run as 100:100.
+*   **Squash to the sandbox's user (chosen):** `all_squash` maps every client user, root included, to the sandbox pod's `runAsUser` and `runAsGroup`, 100 and 100. Both pods already run as 100:100. A sandbox that runs as root is not exported. The client mounts with `nosuid` and `nodev`.
 *   **Pass client users through (rejected):** Root on the client node would act as root on the export.
 
 ### D9. NFS Version and Options
@@ -177,6 +177,8 @@ None at this time.
 *   The node agent holds cluster-wide list and watch access to pods.
 *   NFS cannot authenticate a caller. A workload in the host network of a client node, or one whose traffic the CNI masquerades to that node's address and which has no egress policy, can reach the folders exported to that node. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to port 2049.
 *   With `no_subtree_check`, root on a client node can craft file handles for files outside an export on the same filesystem.
+*   The agent unmounts by name after it reads mountinfo. A workload that can write the workspace volume's root can exchange two run directories in that window and have the wrong folder detached. The harness cannot write the volume root under Landlock, and the sandbox sees only its own run directory.
+*   The agent watches pods in every namespace. Anyone who can create pods in a namespace can build a sandbox and session-manager pair there and have the agent export and mount their own pod's folder, inside that namespace only.
 *   Nodes need the kernel `nfsd` and NFSv4 client modules and TCP 2049 between them. Whether Bottlerocket 1.66 and Amazon Linux 2023 ship `nfsd`, and whether Bottlerocket's SELinux policy allows the agent's mounts, is unverified.
 *   nfsd threads keep running on a node after the chart drops the DaemonSet, until the node restarts.
 *   A soft mount can return `EIO` to the harness when the sandbox's node stalls for more than a few seconds.

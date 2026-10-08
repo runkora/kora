@@ -29,7 +29,7 @@ func sandboxPod(node, hostIP string) *corev1.Pod {
 
 func workspacePod(node, hostIP string) *corev1.Pod {
 	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{Name: "agent-0", Namespace: "tenant", UID: types.UID("ws-uid")},
+		ObjectMeta: metav1.ObjectMeta{Name: "agent-0", Namespace: "tenant", UID: types.UID("0d6f0f3e-1111-4a8b-9c2d-0000000000aa")},
 		Spec:       corev1.PodSpec{NodeName: node},
 		Status:     corev1.PodStatus{Phase: corev1.PodRunning, HostIP: hostIP},
 	}
@@ -52,7 +52,7 @@ func TestPlan_SplitsRolesByNode(t *testing.T) {
 	if len(exports) != 0 {
 		t.Errorf("node-b exports = %+v, want none", exports)
 	}
-	if len(targets) != 1 || targets[0].source != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001" || targets[0].workspaceUID != "ws-uid" || targets[0].runID != "run-1" {
+	if len(targets) != 1 || targets[0].source != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001" || targets[0].workspaceUID != "0d6f0f3e-1111-4a8b-9c2d-0000000000aa" || targets[0].runID != "run-1" {
 		t.Errorf("node-b targets = %+v", targets)
 	}
 }
@@ -122,6 +122,7 @@ func TestPlan_RejectsMalformedExportFields(t *testing.T) {
 		"UID path":           func(sb, _ *corev1.Pod) { sb.UID = "../../etc" },
 		"client with an ACL": func(_, ws *corev1.Pod) { ws.Status.HostIP = "10.0.0.2 *(rw)" },
 		"server not an IP":   func(sb, _ *corev1.Pod) { sb.Status.HostIP = "evil.example.com" },
+		"workspace UID path": func(_, ws *corev1.Pod) { ws.UID = "../*" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -131,5 +132,15 @@ func TestPlan_RejectsMalformedExportFields(t *testing.T) {
 				t.Errorf("exports = %+v, targets = %+v, want none", exports, targets)
 			}
 		})
+	}
+}
+
+// A sandbox that runs as root is not exported: every client user would act as root on the folder.
+func TestPlan_RefusesRootSandbox(t *testing.T) {
+	sb := sandboxPod("node-a", "10.0.0.1")
+	root := int64(0)
+	sb.Spec.SecurityContext.RunAsUser = &root
+	if exports, _ := plan("node-a", "/k", []pair{{sandbox: sb, workspace: workspacePod("node-b", "10.0.0.2")}}); len(exports) != 0 {
+		t.Errorf("exports = %+v, want none", exports)
 	}
 }
