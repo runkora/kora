@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 
 	corev1 "k8s.io/api/core/v1"
@@ -60,7 +61,12 @@ func (a *Agent) Reconcile(ctx context.Context, sandboxes, workspaces []*corev1.P
 		}
 	}
 	exports, targets := plan(a.cfg.Node, a.cfg.KubeletDir, pairs)
-	return errors.Join(a.exports.Apply(ctx, exports), a.syncMounts(ctx, targets), a.mounts.Release(dying(a.cfg.Node, sandboxes), a.ledger.sources()))
+	// Release matches the sources held before this pass too. An unmount here removes
+	// a copy from every bind still sharing propagation, and one made private earlier keeps it.
+	sources := a.ledger.sources()
+	syncErr := a.syncMounts(ctx, targets)
+	maps.Copy(sources, a.ledger.sources())
+	return errors.Join(a.exports.Apply(ctx, exports), syncErr, a.mounts.Release(dying(a.cfg.Node, sandboxes), sources))
 }
 
 // dying returns the UIDs of the sandbox pods on node that are deleting or finished.

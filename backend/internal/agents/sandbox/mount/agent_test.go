@@ -230,8 +230,9 @@ func TestReconcile_ReportsUnresolvedWorkspace(t *testing.T) {
 // A sandbox on this node that is deleting or finished has the copies of the agent's own mounts
 // under its volume binds released. A live sandbox and a sandbox on another node do not.
 func TestReconcile_ReleasesCopiesUnderDyingSandboxes(t *testing.T) {
-	m := &fakeMounter{current: map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002"}, volumeDir: testVolume}
-	a, _ := newTestAgent(t, "node-a", m, map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002"})
+	gone := testVolume + "/run-9/sandbox"
+	m := &fakeMounter{current: map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002", gone: "10.0.0.1:/gone"}, volumeDir: testVolume}
+	a, _ := newTestAgent(t, "node-a", m, map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002", gone: "10.0.0.1:/gone"})
 	now := metav1.Now()
 	deleting, finished, live, elsewhere := sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-a", "10.0.0.1"), sandboxPod("node-b", "10.0.0.2")
 	deleting.UID, finished.UID, live.UID, elsewhere.UID = "deleting", "finished", "0d6f0f3e-1111-4a8b-9c2d-000000000002", "elsewhere"
@@ -245,7 +246,8 @@ func TestReconcile_ReleasesCopiesUnderDyingSandboxes(t *testing.T) {
 	if strings.Join(m.released, ",") != "deleting,finished" {
 		t.Errorf("released = %v, want deleting and finished", m.released)
 	}
-	if !m.sources["10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002"] || len(m.sources) != 1 {
-		t.Errorf("release sources = %v, want only the agent's own mount", m.sources)
+	// The agent's own mounts, including one this pass unmounted, and nothing else.
+	if !m.sources["10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000002"] || !m.sources["10.0.0.1:/gone"] || len(m.sources) != 2 {
+		t.Errorf("release sources = %v, want the agent's own mounts", m.sources)
 	}
 }
