@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+#
+# sandbox-mount node agent (docs/adr/2026-10-08-sandbox-workspace-mount.md): the
+# Go binary plus nfs-utils for the kernel NFS server's rpc.nfsd, rpc.mountd and exportfs.
+
+# ── Build stage ───────────────────────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS builder
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    go mod download && go mod verify
+
+COPY . .
+
+ARG TARGETOS TARGETARCH
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -o /orbit ./cmd/sandbox-mount
+
+# ── Runtime stage ─────────────────────────────────────────────────────────────
+FROM alpine:3.23@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
+
+# Runs as root: the agent mounts filesystems and starts the kernel NFS server.
+RUN apk add --no-cache nfs-utils && mkdir -p /var/lib/nfs /exports
+
+WORKDIR /app
+COPY --from=builder /app/cmd/sandbox-mount/config/base.yaml ./cmd/sandbox-mount/config/base.yaml
+COPY --from=builder /orbit ./orbit
+
+ENTRYPOINT ["/app/orbit"]

@@ -481,7 +481,7 @@ dev-cluster-down: ## Tear down the local k3d cluster
 REDEPLOY_PLATFORM_SERVICES := \
 	identity identity-proxy inference-gateway policy-service policy-gateway \
 	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers migrate operator \
-	session-manager sandbox-base
+	session-manager sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
 # Services with a long-lived orbit-system workload that `cluster-update` rolls
@@ -605,7 +605,7 @@ BAKE_PLATFORM_IMAGES := \
 	orbit-identity orbit-identity-proxy orbit-inference-gateway \
 	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
 	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers orbit-migrate \
-	orbit-operator orbit-session-manager kora-sandbox-base
+	orbit-operator orbit-session-manager orbit-sandbox-mount kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
 redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
@@ -886,6 +886,10 @@ redeploy-example: ## Redeploy the example tenant workload (default tenant=exampl
 .PHONY: redeploy-session-manager
 redeploy-session-manager: ## Redeploy session-manager (statefulset, default tenant=example, override with TENANT=… SLUG=…)
 	@bash scripts/cluster/redeploy.sh session-manager $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-sandbox-mount
+redeploy-sandbox-mount: ## Redeploy the sandbox-mount node agent (rolled by re-applying the orbit release)
+	@bash scripts/cluster/redeploy.sh sandbox-mount $(REDEPLOY_FLAGS)
 
 .PHONY: redeploy-sandbox-base
 redeploy-sandbox-base: ## Build + push the sandbox base image (no rollout; picked up by the next sandbox)

@@ -185,6 +185,20 @@ target "orbit-session-manager" {
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-session-manager:${IMAGE_TAG}"]
 }
 
+target "orbit-sandbox-mount" {
+  context    = "./backend"
+  dockerfile = "Dockerfile.sandbox-mount"
+  pull       = true
+  labels = {
+    "org.opencontainers.image.title" = "orbit-sandbox-mount"
+    "org.opencontainers.image.description" = "kora node agent that shares each sandbox's local folder with its session-manager pod over kernel NFS"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-sandbox-mount:${IMAGE_TAG}"]
+}
+
 target "kora-sandbox-base" {
   context    = "./backend"
   dockerfile = "Dockerfile.sandbox-exec"

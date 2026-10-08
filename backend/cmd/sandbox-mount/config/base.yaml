@@ -1,0 +1,23 @@
+app:
+  version: "0.1.0"
+
+node:
+  # Where the chart mounts the node's kubelet directory in the container.
+  kubeletDir: /var/lib/kubelet
+  resyncSecs: 30
+  retrySecs: 2
+
+server:
+  exportRoot: /exports
+  exportsFile: /etc/exports
+  threads: 8
+  # NFSv4 grace and lease time. The kernel minimum is 10.
+  graceSecs: 10
+
+client:
+  # soft and the short timeout turn a lost server into an I/O error within seconds.
+  # lookupcache=positive shows a file the sandbox creates at once, even after a failed lookup of that name.
+  mountOptions: vers=4.2,proto=tcp,soft,timeo=20,retrans=1,lookupcache=positive
+
+observability:
+  serviceName: orbit-sandbox-mount

@@ -267,6 +267,19 @@ restart=true
 tenant_default=example
 EOF
       ;;
+    sandbox-mount)
+      # A chart DaemonSet in its own namespace, rolled by re-applying the orbit release.
+      cat <<'EOF'
+dockerfile=backend/Dockerfile.sandbox-mount
+context=backend
+build_arg=
+image=orbit-sandbox-mount
+values_key=agents.sandboxMount
+namespace=
+workload=release
+restart=true
+EOF
+      ;;
     sandbox-base)
       # Sandbox pods are created on demand and have no long-lived workload. The
       # operator resolves the new digest and the next sandbox picks it up.
@@ -301,6 +314,7 @@ migrate             (hook Job; re-applies the orbit release so the schema migrat
 operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
+sandbox-mount       (node agent DaemonSet; re-applies the orbit release)
 sandbox-base        (build-only; picked up by next sandbox)
 EOF
 }
