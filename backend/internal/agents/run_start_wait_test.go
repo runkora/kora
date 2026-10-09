@@ -2,9 +2,10 @@ package agents
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"net"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -70,9 +71,9 @@ func (s *scriptedSM) CreateSession(ctx context.Context, url string, req sessionm
 func TestStartRun_RetriesSessionOnTransportErrors(t *testing.T) {
 	f, _, sm := startWaitService(t)
 	script := &scriptedSM{mockSMClient: sm, errs: []error{
-		errors.New("dial tcp: lookup bot-0.bot: no such host"),
-		errors.New("dial tcp 10.0.0.1:8090: connect: connection refused"),
-		fmt.Errorf("%w: status 503: not ready", sessionmanager.ErrUnexpectedStatus),
+		&net.DNSError{Err: "no such host", Name: "bot-0.bot", IsNotFound: true},
+		&net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED},
+		&sessionmanager.StatusError{StatusCode: 503, Err: fmt.Errorf("%w: status 503", sessionmanager.ErrUnexpectedStatus)},
 	}}
 	f.run.sm = script
 
@@ -84,11 +85,11 @@ func TestStartRun_RetriesSessionOnTransportErrors(t *testing.T) {
 	}
 }
 
-// A rejection by the pod is not retried.
+// A rejection by the pod is not retried, even when its body mentions 503.
 func TestStartRun_DoesNotRetryRejectedSession(t *testing.T) {
 	f, _, sm := startWaitService(t)
 	script := &scriptedSM{mockSMClient: sm, errs: []error{
-		fmt.Errorf("%w: status 400: bad", sessionmanager.ErrUnexpectedStatus),
+		&sessionmanager.StatusError{StatusCode: 400, Err: fmt.Errorf("%w: status 400: status 503", sessionmanager.ErrUnexpectedStatus)},
 	}}
 	f.run.sm = script
 
@@ -104,7 +105,7 @@ func TestStartRun_DoesNotRetryRejectedSession(t *testing.T) {
 func TestStartRun_ConflictOnRetryIsSuccess(t *testing.T) {
 	f, _, sm := startWaitService(t)
 	script := &scriptedSM{mockSMClient: sm, errs: []error{
-		errors.New("lookup bot-0.bot: no such host"),
+		&net.DNSError{Err: "no such host", Name: "bot-0.bot", IsNotFound: true},
 		fmt.Errorf("%w: status 409", sessionmanager.ErrSessionConflict),
 	}}
 	f.run.sm = script
@@ -133,7 +134,7 @@ func TestStartRun_SessionRetryBudgetExpires(t *testing.T) {
 	f, _, sm := startWaitService(t)
 	errs := make([]error, 1000)
 	for i := range errs {
-		errs[i] = errors.New("lookup bot-0.bot: no such host")
+		errs[i] = &net.DNSError{Err: "no such host", Name: "bot-0.bot", IsNotFound: true}
 	}
 	f.run.sm = &scriptedSM{mockSMClient: sm, errs: errs}
 

@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"slices"
 	"strings"
+	"syscall"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -209,8 +211,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	// One budget covers the pod readiness wait and the session retries.
-	budget := s.startBudget()
-	waitCtx, cancelWait := context.WithTimeout(ctx, budget)
+	waitCtx, cancelWait := context.WithTimeout(ctx, s.startBudget())
 	defer cancelWait()
 	podOrdinal, err := s.providePod(waitCtx, span, at, namespace)
 	if err != nil {
@@ -281,9 +282,6 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		smReq.Model = *at.ModelID
 	}
 	if err := s.createSessionWithRetry(waitCtx, podURL, smReq); err != nil {
-		if waitCtx.Err() != nil && ctx.Err() == nil {
-			err = fmt.Errorf("agent pod not ready after %s: %w", budget, err)
-		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create session")
 		return nil, fmt.Errorf("create session on pod %d: %w", podOrdinal, err)
@@ -992,11 +990,6 @@ func (s *RunService) providePod(ctx context.Context, span trace.Span, at *AgentT
 // is Ready, or the StatefulSet is still rolling out a changed template, it
 // waits until one is or ctx ends.
 func (s *RunService) selectPod(ctx context.Context, at *AgentType) (int, error) {
-	counts, err := s.repo.ActiveRunsPerPod(ctx, at.ID)
-	if err != nil {
-		return 0, err
-	}
-
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	replicaCount, err := s.k8s.ReplicaCount(ctx, at.Slug, namespace)
 	if err != nil {
@@ -1008,6 +1001,11 @@ func (s *RunService) selectPod(ctx context.Context, at *AgentType) (int, error) 
 
 	var best, bestCount int
 	err = s.pollUntil(ctx, func() (bool, error) {
+		// Re-read on each pass: runs may start while this one waits.
+		counts, cerr := s.repo.ActiveRunsPerPod(ctx, at.ID)
+		if cerr != nil {
+			return false, cerr
+		}
 		ready, rerr := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
 		if rerr != nil {
 			return false, fmt.Errorf("list ready pods: %w", rerr)
@@ -1103,8 +1101,11 @@ func (s *RunService) createSessionWithRetry(ctx context.Context, podURL string, 
 			return false, err
 		}
 	})
-	if err != nil && lastErr != nil && errors.Is(err, ctx.Err()) {
-		return fmt.Errorf("%w (last error: %v)", err, lastErr)
+	if err != nil && errors.Is(err, context.DeadlineExceeded) {
+		err = fmt.Errorf("agent pod not ready after %s: %w", s.startBudget(), err)
+		if lastErr != nil {
+			err = fmt.Errorf("%w (last error: %w)", err, lastErr)
+		}
 	}
 	return err
 }
@@ -1112,18 +1113,15 @@ func (s *RunService) createSessionWithRetry(ctx context.Context, podURL string, 
 // isRetryableSessionError reports whether err means the pod was unreachable or
 // not yet serving, as opposed to a request the pod rejected.
 func isRetryableSessionError(err error) bool {
-	if errors.Is(err, sessionmanager.ErrUnexpectedStatus) {
-		return strings.Contains(err.Error(), "status 503")
-	}
 	if errors.Is(err, sessionmanager.ErrSessionConflict) {
 		return false
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
+	var statusErr *sessionmanager.StatusError
+	if errors.As(err, &statusErr) {
+		return statusErr.StatusCode == http.StatusServiceUnavailable
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "no such host") || strings.Contains(msg, "connection refused")
+	var netErr net.Error
+	return errors.As(err, &netErr) || errors.Is(err, syscall.ECONNREFUSED)
 }
 
 // StartReaper runs a background goroutine that periodically marks runs stuck in

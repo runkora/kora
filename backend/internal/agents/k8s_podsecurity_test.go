@@ -6,11 +6,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
@@ -406,5 +408,58 @@ func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
 	}
 	if img := got.Spec.Template.Spec.Containers[0].Image; img == "old" {
 		t.Errorf("unpinned image stayed %q; want the rendered image", img)
+	}
+}
+
+func TestReadyOrdinals(t *testing.T) {
+	const ns, slug = "orbit-tenant-acme", "coder"
+	sel := map[string]string{"app": slug}
+	ss := func(gen, observed int64, rev string) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns, Generation: gen},
+			Spec:       appsv1.StatefulSetSpec{Selector: &metav1.LabelSelector{MatchLabels: sel}},
+			Status:     appsv1.StatefulSetStatus{ObservedGeneration: observed, UpdateRevision: rev},
+		}
+	}
+	pod := func(name, rev string, ready, deleting bool) *corev1.Pod {
+		st := corev1.ConditionFalse
+		if ready {
+			st = corev1.ConditionTrue
+		}
+		p := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{
+				"app": slug, appsv1.ControllerRevisionHashLabelKey: rev,
+			}},
+			Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
+		}
+		if deleting {
+			now := metav1.Now()
+			p.DeletionTimestamp = &now
+		}
+		return p
+	}
+	for _, tc := range []struct {
+		name string
+		objs []runtime.Object
+		want []int
+	}{
+		{"no statefulset", nil, nil},
+		{"generation not observed", []runtime.Object{ss(2, 1, "r2"), pod("coder-0", "r2", true, false)}, nil},
+		{"not ready", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", false, false)}, nil},
+		{"old revision", []runtime.Object{ss(2, 2, "r2"), pod("coder-0", "r1", true, false)}, nil},
+		{"terminating", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", true, true)}, nil},
+		{"ready current", []runtime.Object{ss(1, 1, "r1"), pod("coder-1", "r1", true, false), pod("coder-0", "r1", true, false), pod("coder-2", "r1", false, false)}, []int{0, 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := podSecurityProvisioner()
+			p.client = fake.NewSimpleClientset(tc.objs...)
+			got, err := p.ReadyOrdinals(context.Background(), slug, ns)
+			if err != nil {
+				t.Fatalf("ReadyOrdinals: %v", err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
