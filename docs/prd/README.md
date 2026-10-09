@@ -50,4 +50,5 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Prometheus Metrics Endpoints](prometheus-metrics-endpoints.md) | Approved | [prometheus-metrics-endpoints](../adr/2026-10-06-prometheus-metrics-endpoints.md) |
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
+| [White-labelling](white-labelling.md) | Draft | TBD |
 
