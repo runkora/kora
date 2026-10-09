@@ -22,6 +22,7 @@ const MAIN_NAV: NavEntry[] = [
   { label: 'Agents', href: APP_ROUTES.agents.list, icon: 'bot' },
   { label: 'Connections', href: APP_ROUTES.connections, icon: 'network' },
   { label: 'MCP Servers', href: APP_ROUTES.mcpGateway.servers, icon: 'server' },
+  { label: 'Marketplace', href: APP_ROUTES.marketplace.list, icon: 'box', requiredScope: 'marketplace:read' },
   { label: 'Environments', href: APP_ROUTES.environments, icon: 'layers' },
   {
     label: 'Triggers',

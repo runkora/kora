@@ -241,7 +241,7 @@ func (c *Crawler) fetchSkill(ctx context.Context, token string, source Marketpla
 	}
 
 	return Skill{
-		Slug:        source.Org + "/" + source.Repo + "/" + skillName,
+		Slug:        source.Org + ":" + source.Repo + ":" + skillName,
 		Name:        frontmatter.Name,
 		Description: frontmatter.Description,
 		Skill:       skillFile,

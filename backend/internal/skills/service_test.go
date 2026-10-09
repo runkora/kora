@@ -72,7 +72,7 @@ func newTestService(cache *fakeCache, crawler *fakeCrawler) *Service {
 func makeSkills(names ...string) []Skill {
 	out := make([]Skill, len(names))
 	for i, n := range names {
-		out[i] = Skill{Slug: "test-marketplace/repo/" + n, Name: n, Description: n + " desc", Documents: []SkillFile{}}
+		out[i] = Skill{Slug: "org:repo:" + n, Name: n, Description: n + " desc", Documents: []SkillFile{}}
 	}
 	return out
 }

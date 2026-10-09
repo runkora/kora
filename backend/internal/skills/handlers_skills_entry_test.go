@@ -109,21 +109,21 @@ type handlerFixture struct {
 func handlerSkills() []Skill {
 	return []Skill{
 		{
-			Slug:        "internal-org/internal-repo/react-expert",
+			Slug:        "internal-org:internal-repo:react-expert",
 			Name:        "React Expert",
 			Description: "React development",
 			Skill:       SkillFile{Path: "plugins/web/skills/react-expert/SKILL.md", Name: "SKILL.md", Content: "private skill body"},
 			Documents:   []SkillFile{},
 		},
 		{
-			Slug:        "internal-org/internal-repo/react-testing",
+			Slug:        "internal-org:internal-repo:react-testing",
 			Name:        "React Testing",
 			Description: "React tests",
 			Skill:       SkillFile{Path: "skills/react-testing/SKILL.md", Name: "SKILL.md", Content: "testing skill body"},
 			Documents:   []SkillFile{{Path: "skills/react-testing/resources/example.md", Name: "example.md", Content: "resource body"}},
 		},
 		{
-			Slug:        "internal-org/internal-repo/go-expert",
+			Slug:        "internal-org:internal-repo:go-expert",
 			Name:        "Go Expert",
 			Description: "Go development",
 			Skill:       SkillFile{Path: "skills/go-expert/SKILL.md", Name: "SKILL.md", Content: "go skill body"},
@@ -433,7 +433,7 @@ func TestControllerAuthorization(t *testing.T) {
 				fixture := newHandlerController(true)
 				eval := &handlerEvaluator{allow: tc.allow, err: tc.policyErr}
 				svc := NewService(fixture.registry, fixture.cache, fixture.crawler, logger)
-				c := NewController(logger, svc, fixture.registry, verifier, eval, "/v1")
+				c := NewController(logger, svc, fixture.registry, verifier, eval, "/v1", "")
 				server := api.NewAPI(context.Background(), logger).Server(context.Background(), 0, "/v1", nil, c)
 				r := httptest.NewRequest(http.MethodGet, "/v1"+target, nil)
 				if tc.auth != "" {
