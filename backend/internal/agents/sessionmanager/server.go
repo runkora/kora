@@ -539,14 +539,6 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Set before the message is sent, so the turn it starts ends under the new timeout.
-	if req.IdleTimeoutSecs > 0 {
-		if err := c.registry.SetIdleTimeout(runID, idleTimeoutFromSecs(req.IdleTimeoutSecs)); err != nil {
-			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
-			return
-		}
-	}
 	if err := c.registry.Send(ctx, runID, req.Content); err != nil {
 		if errors.Is(err, ErrSessionNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
@@ -556,6 +548,15 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send message", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
+	}
+	// Only a delivered message changes the timeout. The turn it starts is far from over.
+	if req.IdleTimeoutSecs > 0 {
+		if err := c.registry.SetIdleTimeout(runID, idleTimeoutFromSecs(req.IdleTimeoutSecs)); err != nil {
+			c.logger.Warn(ctx, "Failed to apply the idle timeout after a message",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
 	}
 
 	api.NoBody(w, http.StatusAccepted)

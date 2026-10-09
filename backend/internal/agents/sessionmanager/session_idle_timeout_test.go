@@ -3,6 +3,9 @@ package sessionmanager
 import (
 	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -14,8 +17,24 @@ import (
 // runner does while subagents or background commands run.
 type workRunner struct {
 	*scriptRunner
-	work atomic.Int64
+	work    atomic.Int64
+	changed chan struct{}
 }
+
+func newWorkRunner() *workRunner {
+	return &workRunner{scriptRunner: newScriptRunner(), changed: make(chan struct{}, 1)}
+}
+
+// setWork reports a new count, as the CLI's background_tasks_changed does.
+func (r *workRunner) setWork(n int64) {
+	r.work.Store(n)
+	select {
+	case r.changed <- struct{}{}:
+	default:
+	}
+}
+
+func (r *workRunner) WorkChanged() <-chan struct{} { return r.changed }
 
 func (r *workRunner) InFlightWork() int { return int(r.work.Load()) }
 
@@ -146,7 +165,7 @@ func TestInterrupt_ResumedSessionKeepsSwitchedTimeout(t *testing.T) {
 // active until they end, however short the timeout.
 func TestDrain_WorkInFlightKeepsRunActive(t *testing.T) {
 	reg, n := newRegistryFor(t, 40*time.Millisecond)
-	r := &workRunner{scriptRunner: newScriptRunner()}
+	r := newWorkRunner()
 	r.work.Store(2)
 	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -162,7 +181,7 @@ func TestDrain_WorkInFlightKeepsRunActive(t *testing.T) {
 	}
 
 	// The work ends, the agent wakes and finishes its turn: now it is idle.
-	r.work.Store(0)
+	r.setWork(0)
 	endTurn(t, r.scriptRunner)
 	if !completesWithin(n, time.Second) {
 		t.Fatal("the session did not close once the work ended")
@@ -193,5 +212,88 @@ func TestIdleTimeoutFromSecs(t *testing.T) {
 		if got := idleTimeoutFromSecs(secs); got != want {
 			t.Errorf("idleTimeoutFromSecs(%d) = %s, want %s", secs, got, want)
 		}
+	}
+}
+
+// The last task ends and the agent starts no turn: the run goes idle after the
+// grace, so it does not wait for the reaper.
+func TestDrain_IdleAfterWorkEndsWithNoNewTurn(t *testing.T) {
+	reg, n := newRegistryFor(t, 40*time.Millisecond)
+	reg.workGrace = 30 * time.Millisecond
+	r := newWorkRunner()
+	r.work.Store(1)
+	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	endTurn(t, r.scriptRunner)
+	waitFor(t, "turn held", func() bool { _, evs := n.snapshot(); return len(evs) == 2 })
+
+	r.setWork(0)
+	if !completesWithin(n, time.Second) {
+		t.Fatal("the session never went idle after its work ended")
+	}
+	if calls, _ := n.snapshot(); len(calls) == 0 || calls[0] != "idle" {
+		t.Errorf("state calls = %v, want the run idled first", calls)
+	}
+}
+
+// A task ends and the agent wakes to read the result: the new turn within the
+// grace means the run never flaps to idle.
+func TestDrain_NewTurnWithinGraceKeepsRunActive(t *testing.T) {
+	reg, n := newRegistryFor(t, 40*time.Millisecond)
+	reg.workGrace = 150 * time.Millisecond
+	r := newWorkRunner()
+	r.work.Store(1)
+	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
+	endTurn(t, r.scriptRunner)
+	waitFor(t, "turn held", func() bool { _, evs := n.snapshot(); return len(evs) == 2 })
+
+	r.setWork(0)
+	pushEvent(t, r.scriptRunner, EventTypeTextDelta)
+	if completesWithin(n, 400*time.Millisecond) {
+		t.Fatal("the session closed while the agent was working on the result")
+	}
+	if calls, _ := n.snapshot(); len(calls) != 0 {
+		t.Errorf("state calls = %v, want none", calls)
+	}
+}
+
+// The timeout moves only with a delivered message: a failed send leaves a
+// trigger run on its own timeout.
+func TestHandleSendMessage_IdleTimeoutAppliesOnlyWhenDelivered(t *testing.T) {
+	tests := []struct {
+		name    string
+		sendErr error
+		want    time.Duration
+	}{
+		{name: "delivered", want: 20 * time.Minute},
+		{name: "send failed", sendErr: io.ErrClosedPipe, want: 5 * time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg, _ := newRegistryFor(t, time.Hour)
+			r := newScriptRunner()
+			r.sendErr = tt.sendErr
+			if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r, IdleTimeout: 5 * time.Minute}); err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
+			ctrl := &Controller{logger: logging.NewLoggerWithOutput(io.Discard), registry: reg}
+
+			req := httptest.NewRequest(http.MethodPost, "/session/run-1/messages", strings.NewReader(`{"content":"hi","idle_timeout_secs":1200}`))
+			req.SetPathValue("runID", "run-1")
+			req.Header.Set("Content-Type", "application/json")
+			ctrl.handleSendMessage(httptest.NewRecorder(), req)
+
+			reg.mu.RLock()
+			got := time.Duration(reg.sessions["run-1"].idleTimeout.Load())
+			reg.mu.RUnlock()
+			if got != tt.want {
+				t.Errorf("idle timeout = %s, want %s", got, tt.want)
+			}
+		})
 	}
 }

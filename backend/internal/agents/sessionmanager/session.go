@@ -112,7 +112,11 @@ type session struct {
 	idleTimeout atomic.Int64
 	// wake tells drain a message was sent, so the idle timer stops before the
 	// turn's first event: a provider retrying for minutes emits no turn activity.
-	wake chan struct{}
+	wake chan wakeKind
+	// held is set when a turn ended with work in flight, so no idle timer is armed.
+	// activity counts the turn events seen, to tell a quiet session from a waking one.
+	held     atomic.Bool
+	activity atomic.Int64
 	// sandbox is this run's descriptor, once provisioned. Kept in memory because
 	// the copy in the workspace is one the agent can delete.
 	sandbox atomic.Value // Sandbox
@@ -152,8 +156,10 @@ type Registry struct {
 	// a node agent failure report must stay before it ends the wait.
 	folderWait  time.Duration
 	reportGrace time.Duration
-	mu          sync.RWMutex
-	sessions    map[string]*session
+	// workGrace is workIdleGrace, a field so tests can shorten it.
+	workGrace time.Duration
+	mu        sync.RWMutex
+	sessions  map[string]*session
 }
 
 // NewRegistry creates a session registry.
@@ -168,6 +174,7 @@ func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier
 		mountInfo:   "/proc/self/mountinfo",
 		folderWait:  sandboxFolderWait,
 		reportGrace: sandboxReportGrace,
+		workGrace:   workIdleGrace,
 		sessions:    make(map[string]*session),
 	}
 }
@@ -195,7 +202,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		runCtx:       runCtx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
-		wake:         make(chan struct{}, 1),
+		wake:         make(chan wakeKind, 1),
 		model:        cfg.Model,
 		inferenceURL: cfg.InferenceURL,
 		guardrails:   cfg.Guardrails,
@@ -272,7 +279,7 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 		return err
 	}
 	select {
-	case s.wake <- struct{}{}:
+	case s.wake <- wakeMessage:
 	default:
 	}
 	reg.userReplied(s)
@@ -889,6 +896,8 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 		}
 	}
 
+	go reg.watchWork(ctx, s)
+
 	events := s.runner.Events()
 	for {
 		select {
@@ -925,8 +934,8 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 			reg.pushEvent(ctx, cfg.RunID, s.labelGuardStop(ev))
 			reg.applyLoopGuard(ctx, s, ev)
 
-		case <-s.wake:
-			disarmIdle()
+		case kind := <-s.wake:
+			handleWake(kind, armIdle, disarmIdle)
 
 		case <-idleTimerC:
 			reg.logger.Info(ctx, "Session idle timeout — closing",
@@ -982,7 +991,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 					logging.Field{Key: "error", Value: startErr.Error()},
 				)
 			} else {
-				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
+				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan wakeKind, 1)}
 				newS.idleTimeout.Store(s.idleTimeout.Load())
 				newS.isIdle.Store(true)
 				newS.stoppedByUser.Store(true)
@@ -1113,6 +1122,64 @@ func (s *session) noteStop(t EventType) {
 type workReporter interface {
 	// InFlightWork is the number of subagents and background tasks still running.
 	InFlightWork() int
+	// WorkChanged signals, without blocking the runner, that the count changed.
+	WorkChanged() <-chan struct{}
+}
+
+// wakeKind says why drain was woken outside the event stream.
+type wakeKind int
+
+const (
+	// wakeMessage: a message was sent, so the turn it starts stops the idle timer.
+	wakeMessage wakeKind = iota
+	// wakeRearm: the work that held the session active has ended and the agent
+	// has not started a new turn, so the session is idle after all.
+	wakeRearm
+)
+
+// handleWake acts on a wake: a message disarms the idle timer, a rearm arms it.
+func handleWake(kind wakeKind, armIdle, disarmIdle func()) {
+	if kind == wakeRearm {
+		armIdle()
+		return
+	}
+	disarmIdle()
+}
+
+// workIdleGrace is how long the agent gets to start a new turn after its last
+// subagent or background task ends. It normally does at once, to read the result.
+const workIdleGrace = 10 * time.Second
+
+// watchWork arms the idle timer for a session held active by work in flight once
+// that work has ended and the agent has not started a turn within the grace. A
+// runner that does not report work has nothing to watch.
+func (reg *Registry) watchWork(ctx context.Context, s *session) {
+	r, ok := s.runner.(workReporter)
+	if !ok {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-r.WorkChanged():
+		}
+		if !s.held.Load() || r.InFlightWork() > 0 {
+			continue
+		}
+		seen := s.activity.Load()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(reg.workGrace):
+		}
+		if s.held.Load() && r.InFlightWork() == 0 && s.activity.Load() == seen {
+			select {
+			case s.wake <- wakeRearm:
+			default:
+			}
+		}
+	}
 }
 
 // holdForWork reports whether the agent ended its turn with subagents or

@@ -96,6 +96,7 @@ type ClaudeRunner struct {
 	capturedSessionID string          // set once from the system/init event
 	sessionIDMu       sync.Mutex      // protects capturedSessionID
 	interrupted       atomic.Bool     // true after Interrupt() — suppresses error events
+	workChanged       chan struct{}   // signaled on each background_tasks_changed
 	backgroundTasks   atomic.Int64    // live, non-ambient background tasks (subagents, shell commands) the CLI last reported
 	turnEnded         atomic.Bool     // true once message_stop closed the turn; a stop after that has nothing to cut
 }
@@ -106,8 +107,9 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 		cfg.BinaryPath = "claude"
 	}
 	return &ClaudeRunner{
-		cfg:    cfg,
-		events: make(chan Event, 64),
+		cfg:         cfg,
+		events:      make(chan Event, 64),
+		workChanged: make(chan struct{}, 1),
 	}
 }
 
@@ -927,7 +929,14 @@ func (r *ClaudeRunner) setBackgroundTasks(tasks []claudeBackgroundTask) {
 		}
 	}
 	r.backgroundTasks.Store(n)
+	select {
+	case r.workChanged <- struct{}{}:
+	default:
+	}
 }
+
+// WorkChanged signals that the count of work in flight was reported; see InFlightWork.
+func (r *ClaudeRunner) WorkChanged() <-chan struct{} { return r.workChanged }
 
 // InFlightWork is the number of subagents and background commands still running.
 // The agent ends its turn while they run and resumes when one finishes, so the
