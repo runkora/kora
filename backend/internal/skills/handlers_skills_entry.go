@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/clear-route/orbit/internal/platform/api"
@@ -29,7 +30,13 @@ type Controller struct {
 	middleware mw.MiddlewareHandler
 }
 
-// NewController protects every route with authentication and marketplace:read.
+func localAuthBypassEnabled() bool {
+	return os.Getenv("APP_ENV") == "local" &&
+		os.Getenv("LOCAL_AUTH_BYPASS") == "true"
+}
+
+// NewController protects every route with authentication and marketplace:read,
+// except when the explicit local-development bypass is enabled.
 func NewController(
 	logger logging.Logger,
 	service *Service,
@@ -38,23 +45,41 @@ func NewController(
 	eval policy.Evaluator,
 	basePath string,
 ) *Controller {
-	if verifier == nil || eval == nil {
-		panic("skills controller requires a token verifier and policy evaluator")
-	}
 	if basePath == "/" {
 		basePath = ""
 	}
 
-	return &Controller{
+	controller := &Controller{
 		service:  service,
 		registry: registry,
 		logger:   logger,
-		middleware: mw.MiddlewareChain(
-			mw.AuthMiddleware(verifier, logger),
-			mw.DelegationMiddleware(logger, verifier),
-			mw.ScopeEnforcementMiddleware(eval, MarketplaceRoutes(basePath), basePath, logger),
-		),
 	}
+
+	if localAuthBypassEnabled() {
+		logger.Info(context.Background(),
+			"local authentication bypass enabled; using tenant-a")
+		controller.middleware = func(next http.Handler) http.Handler {
+			return next
+		}
+		return controller
+	}
+
+	if verifier == nil || eval == nil {
+		panic("skills controller requires a token verifier and policy evaluator")
+	}
+
+	controller.middleware = mw.MiddlewareChain(
+		mw.AuthMiddleware(verifier, logger),
+		mw.DelegationMiddleware(logger, verifier),
+		mw.ScopeEnforcementMiddleware(
+			eval,
+			MarketplaceRoutes(basePath),
+			basePath,
+			logger,
+		),
+	)
+
+	return controller
 }
 
 // MarketplaceRoutes declares the scope required by all three marketplace routes.
@@ -111,7 +136,12 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := c.service.ListSkills(ctx, tenantID, r.PathValue("marketplaceName"), r.URL.Query().Get("search"))
+	result, err := c.service.ListSkills(
+		ctx,
+		tenantID,
+		r.PathValue("marketplaceName"),
+		r.URL.Query().Get("search"),
+	)
 	if err != nil {
 		c.respondError(w, r, err)
 		return
@@ -129,12 +159,21 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 
 	skillName := r.PathValue("skillName")
 	if skillName == "" || skillName == "." || skillName == ".." || strings.Contains(skillName, "/") {
-		apiErr := api.ValidationError(api.ErrCodeInvalidField, "skillName must be a single directory name", nil)
+		apiErr := api.ValidationError(
+			api.ErrCodeInvalidField,
+			"skillName must be a single directory name",
+			nil,
+		)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
-	skill, err := c.service.GetSkill(ctx, tenantID, r.PathValue("marketplaceName"), skillName)
+	skill, err := c.service.GetSkill(
+		ctx,
+		tenantID,
+		r.PathValue("marketplaceName"),
+		skillName,
+	)
 	if err != nil {
 		c.respondError(w, r, err)
 		return
@@ -143,11 +182,19 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, skill)
 }
 
-// tenantID always comes from verified platform claims, never request parameters.
+// tenantID comes from verified platform claims, except in explicit local testing.
 func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if localAuthBypassEnabled() {
+		return "tenant-a", true
+	}
+
 	claims, ok := token.ClaimsFromContext(r.Context())
 	if !ok || claims == nil || claims.Orbit.TenantID == "" {
-		apiErr := api.UnauthorizedError(api.ErrCodeUnauthorized, "tenant-scoped platform token required", nil)
+		apiErr := api.UnauthorizedError(
+			api.ErrCodeUnauthorized,
+			"tenant-scoped platform token required",
+			nil,
+		)
 		api.ErrorResponse(r.Context(), w, c.logger, apiErr, nil)
 		return "", false
 	}
@@ -161,9 +208,15 @@ func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err er
 		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "marketplace not found", nil)
 	case errors.Is(err, ErrSkillNotFound):
 		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "skill not found", nil)
-	case errors.Is(err, ErrRedisUnavailable), errors.Is(err, ghclient.ErrUnavailable),
-		errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		apiErr = api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "marketplace is temporarily unavailable", nil)
+	case errors.Is(err, ErrRedisUnavailable),
+		errors.Is(err, ghclient.ErrUnavailable),
+		errors.Is(err, context.Canceled),
+		errors.Is(err, context.DeadlineExceeded):
+		apiErr = api.ServiceUnavailableError(
+			api.ErrCodeServiceUnavailable,
+			"marketplace is temporarily unavailable",
+			nil,
+		)
 	default:
 		apiErr = api.InternalError(api.ErrCodeInternalError, "failed to read marketplace", nil)
 	}

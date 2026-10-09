@@ -21,6 +21,9 @@ type PolicyConfig struct {
 	// Used for route registration at startup.
 	// e.g. http://orbit-policy-service.orbit-system.svc
 	PolicyServiceURL string `yaml:"policyServiceURL"`
+	// LocalPolicyRegistrationBypass disables policy-service route registration
+	// for local development only.
+	LocalPolicyRegistrationBypass bool `yaml:"-"`
 }
 
 // BundlePollInterval returns the configured poll interval, defaulting to 30s.
@@ -98,6 +101,9 @@ func (c *Config) CacheTTL() time.Duration {
 // must be present at boot; missing values return an error so the readiness
 // probe fails fast rather than surfacing a 5xx on the first user request.
 func (c *Config) ApplyEnvOverrides() error {
+	c.Policy.LocalPolicyRegistrationBypass =
+		os.Getenv("LOCAL_POLICY_REGISTRATION_BYPASS") == "true"
+
 	dir := os.Getenv("ORBIT_MARKETPLACE_SOURCES_CONFIG")
 	if dir == "" {
 		return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")

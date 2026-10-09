@@ -152,6 +152,15 @@ func initControllers(ctx context.Context, logger logging.Logger, redis *storage.
 // routescopes.KeepRegistered, which owns the initial registration and the
 // periodic self-heal loop.
 func initScopeRegistration(logger logging.Logger) func(context.Context) error {
+
+	if sc.Current.Policy.LocalPolicyRegistrationBypass {
+		logger.Info(context.Background(),
+			"skipping policy route registration for local development")
+		return func(context.Context) error {
+			return nil
+		}
+	}
+
 	client := routescopes.NewClient(sc.Current.Policy.PolicyServiceURL, logger)
 
 	return func(registerCtx context.Context) error {
