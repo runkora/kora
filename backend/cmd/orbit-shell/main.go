@@ -33,6 +33,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -78,10 +79,10 @@ func readSandbox() sandbox {
 	if workspace == "" {
 		return sandbox{}
 	}
-	dir := filepath.Join(workspace, ".sandbox-exec")
+	dir := filepath.Join(workspace, runfs.ExecDir)
 	return sandbox{
-		endpoint: readTrimmed(filepath.Join(dir, "endpoint")),
-		token:    readTrimmed(filepath.Join(dir, "exec-token")),
+		endpoint: readTrimmed(filepath.Join(dir, runfs.EndpointFile)),
+		token:    readTrimmed(filepath.Join(dir, runfs.ExecTokenFile)),
 	}
 }
 

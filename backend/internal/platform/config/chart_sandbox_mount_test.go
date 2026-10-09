@@ -13,26 +13,27 @@ import (
 	"sigs.k8s.io/yaml"
 
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
+	sandboxMountConfig "github.com/clear-route/orbit/cmd/sandbox-mount/config"
 	"github.com/clear-route/orbit/internal/platform/config"
 )
 
-// agentsSandboxMount loads orbit-agents' sandboxMount setting from the rendered chart.
-func agentsSandboxMount(t *testing.T, rendered string) bool {
+// loadRendered loads a service's config with the file the rendered chart mounts for it.
+func loadRendered[T any](t *testing.T, rendered, module string) *T {
 	t.Helper()
 	for _, root := range writeMountedConfig(t, rendered) {
-		if _, err := os.Stat(filepath.Join(root, "cmd", "orbit-agents.yaml")); err != nil {
+		if _, err := os.Stat(filepath.Join(root, module+".yaml")); err != nil {
 			continue
 		}
 		config.SetOverlayRoot(root)
-		cfg, err := config.LoadService[agentsConfig.Config]("cmd/orbit-agents", "production")
+		cfg, err := config.LoadService[T](module, "production")
 		config.SetOverlayRoot("/etc/orbit/config")
 		if err != nil {
 			t.Fatal(err)
 		}
-		return cfg.Agents.SandboxMount
+		return cfg
 	}
-	t.Fatal("no workload mounts the orbit-agents config")
-	return false
+	t.Fatalf("no workload mounts the %s config", module)
+	return nil
 }
 
 // Enabled, the chart runs the node agent privileged in the host network in a privileged
@@ -47,7 +48,7 @@ agents:
     sessionManager:
       tolerations: [{key: agents, operator: Exists}]
 `)
-	if !agentsSandboxMount(t, out) {
+	if !loadRendered[agentsConfig.Config](t, out, "cmd/orbit-agents").Agents.SandboxMount {
 		t.Error("orbit-agents sandboxMount = false, want true")
 	}
 	var ds appsv1.DaemonSet
@@ -88,8 +89,8 @@ agents:
 	if c.SecurityContext == nil || c.SecurityContext.Privileged == nil || !*c.SecurityContext.Privileged {
 		t.Error("node agent is not privileged")
 	}
-	if len(c.VolumeMounts) != 1 || c.VolumeMounts[0].MountPath != "/var/lib/kubelet" || *c.VolumeMounts[0].MountPropagation != corev1.MountPropagationBidirectional {
-		t.Errorf("volume mounts = %+v", c.VolumeMounts)
+	if len(c.VolumeMounts) != 2 || c.VolumeMounts[0].MountPath != "/var/lib/kubelet" || *c.VolumeMounts[0].MountPropagation != corev1.MountPropagationBidirectional {
+		t.Errorf("volume mounts = %+v, want the kubelet directory and the config files", c.VolumeMounts)
 	}
 	var keys []string
 	for _, tol := range spec.Tolerations {
@@ -106,32 +107,25 @@ func TestChartSandboxMountDisabledByDefault(t *testing.T) {
 	if strings.Contains(out, "orbit-sandbox-mount") {
 		t.Error("default chart renders the node agent")
 	}
-	if agentsSandboxMount(t, out) {
+	if loadRendered[agentsConfig.Config](t, out, "cmd/orbit-agents").Agents.SandboxMount {
 		t.Error("orbit-agents sandboxMount = true by default")
 	}
 }
 
-// The node agent receives sandboxMount.port, 20490 by default, and the chart refuses a value that is not a TCP port.
-func TestChartSandboxMountPort(t *testing.T) {
-	for values, want := range map[string]string{
-		"sandboxMount:\n  enabled: true\n":                "20490",
-		"sandboxMount:\n  enabled: true\n  port: 31049\n": "31049",
+// The node agent's config carries sandboxMount.port, 20490 by default, and
+// sandboxMount.kubeletDir. The chart refuses a port that is not a TCP port.
+func TestChartSandboxMountConfig(t *testing.T) {
+	for values, want := range map[string]int{
+		"sandboxMount:\n  enabled: true\n":                                       20490,
+		"sandboxMount:\n  enabled: true\n  port: 31049\n  kubeletDir: /data/k\n": 31049,
 	} {
-		out := renderChart(t, values, "--show-only", "templates/agents/sandbox-mount.yaml")
-		var got string
-		for doc := range strings.SplitSeq(out, "\n---\n") {
-			var ds appsv1.DaemonSet
-			if err := yaml.Unmarshal([]byte(doc), &ds); err != nil || ds.Kind != "DaemonSet" {
-				continue
-			}
-			for _, e := range ds.Spec.Template.Spec.Containers[0].Env {
-				if e.Name == "NFS_PORT" {
-					got = e.Value
-				}
-			}
+		cfg := loadRendered[sandboxMountConfig.Config](t, renderChart(t, values), "cmd/sandbox-mount")
+		wantDir := "/var/lib/kubelet"
+		if want != 20490 {
+			wantDir = "/data/k"
 		}
-		if got != want {
-			t.Errorf("values %q: NFS_PORT = %q, want %q", values, got, want)
+		if cfg.Server.Port != want || cfg.Node.HostKubeletDir != wantDir || cfg.Node.KubeletDir != "/var/lib/kubelet" {
+			t.Errorf("values %q: port %d, host kubelet dir %q, kubelet dir %q", values, cfg.Server.Port, cfg.Node.HostKubeletDir, cfg.Node.KubeletDir)
 		}
 	}
 	chart := filepath.Join("..", "..", "..", "..", "charts", "orbit")

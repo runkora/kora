@@ -16,23 +16,23 @@ func sandboxMountProvisioner(enabled bool) *K8sProvisioner {
 	return p
 }
 
-// With the node agent enabled, the sandbox names its session-manager pod and mounts its
-// local disk's working folder inside the workspace.
+// With the node agent enabled, the sandbox mounts its local disk's working folder
+// inside the workspace. Its workspace claim names its session-manager pod.
 func TestSandboxPod_SandboxMount(t *testing.T) {
 	pod := buildTestSandboxPod(sandboxMountProvisioner(true), Run{ID: "run-1", PodOrdinal: 2}, "coder", "orbit-tenant-acme", testSandboxSpec(), "token")
 
-	if got := pod.Annotations[sandboxfolder.WorkspacePodAnnotation]; got != "coder-2" {
-		t.Errorf("workspace pod annotation = %q, want coder-2", got)
+	if pod.Name != "sandbox-run-1" || pod.Labels[sandboxfolder.RunIDLabel] != "run-1" || pod.Labels[sandboxfolder.RoleLabel] != "sandbox" {
+		t.Errorf("pod %q labels %v, want sandbox-run-1 with the run and role labels", pod.Name, pod.Labels)
 	}
-	if pod.Name != sandboxfolder.SandboxPodName("run-1") {
-		t.Errorf("pod name = %q", pod.Name)
+	if !hasFolderMount(pod) {
+		t.Error("hasFolderMount = false for a sandbox with the folder mount")
 	}
 	if !slices.ContainsFunc(pod.Spec.Containers[0].VolumeMounts, func(m corev1.VolumeMount) bool {
 		return m.Name == localDiskVolume && m.MountPath == "/workspaces/run-1/sandbox" && m.SubPath == "sandbox"
 	}) {
 		t.Errorf("mounts = %+v, want the local disk's sandbox folder at /workspaces/run-1/sandbox", pod.Spec.Containers[0].VolumeMounts)
 	}
-	// The node agent accepts only a sandbox that mounts its session-manager's workspace claim.
+	// The node agent finds the session-manager pod through this claim.
 	if !slices.ContainsFunc(pod.Spec.Volumes, func(v corev1.Volume) bool {
 		return v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == "workspaces-coder-2"
 	}) {
@@ -40,11 +40,11 @@ func TestSandboxPod_SandboxMount(t *testing.T) {
 	}
 }
 
-// Without the node agent no session-manager is named, and no folder sits in the workspace.
+// Without the node agent no folder sits in the workspace.
 func TestSandboxPod_NoSandboxMount(t *testing.T) {
 	pod := buildTestSandboxPod(sandboxMountProvisioner(false), Run{ID: "run-1"}, "coder", "orbit-tenant-acme", testSandboxSpec(), "token")
-	if _, ok := pod.Annotations[sandboxfolder.WorkspacePodAnnotation]; ok {
-		t.Errorf("annotations %v, want no workspace pod", pod.Annotations)
+	if hasFolderMount(pod) {
+		t.Error("hasFolderMount = true without the node agent")
 	}
 	for _, m := range pod.Spec.Containers[0].VolumeMounts {
 		if strings.HasSuffix(m.MountPath, "/sandbox") {

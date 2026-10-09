@@ -3,12 +3,13 @@
 package mount
 
 import (
-	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
 
 func sandboxPod(node, hostIP string) *corev1.Pod {
@@ -16,12 +17,14 @@ func sandboxPod(node, hostIP string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "sandbox-run-1", Namespace: "tenant", UID: types.UID("0d6f0f3e-1111-4a8b-9c2d-000000000001"),
-			Labels:      map[string]string{folder.RunIDLabel: "run-1"},
-			Annotations: map[string]string{folder.WorkspacePodAnnotation: "agent-0"},
+			Labels: map[string]string{folder.RunIDLabel: "run-1"},
 		},
 		Spec: corev1.PodSpec{
 			NodeName:        node,
 			SecurityContext: &corev1.PodSecurityContext{RunAsUser: &uid, RunAsGroup: &gid},
+			Containers: []corev1.Container{{Name: "sandbox-exec", VolumeMounts: []corev1.VolumeMount{
+				{Name: folder.Volume, MountPath: "/workspaces/run-1/sandbox", SubPath: folder.Dir},
+			}}},
 			Volumes: []corev1.Volume{{Name: "workspaces", VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-agent-0"},
 			}}},

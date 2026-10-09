@@ -13,13 +13,14 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // Pod selectors for the two sides of a mount.
 const (
-	sandboxSelector   = "orbit.io/role=sandbox"
-	workspaceSelector = "orbit.io/managed-agent=true"
+	sandboxSelector   = folder.RoleLabel + "=" + folder.RoleSandbox
+	workspaceSelector = folder.ManagedAgentLabel + "=true"
 )
 
 // Config holds the node agent's settings.

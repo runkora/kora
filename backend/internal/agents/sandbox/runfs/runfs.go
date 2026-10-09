@@ -9,6 +9,22 @@ import (
 	"strings"
 )
 
+// The sandbox descriptor: the folder in a run's workspace that the session-manager
+// writes and orbit-shell reads, and the files in it.
+const (
+	ExecDir       = ".sandbox-exec"
+	EndpointFile  = "endpoint"
+	ExecTokenFile = "exec-token"
+	// FolderFile holds the UID of the sandbox pod whose working folder is mounted.
+	FolderFile = "folder"
+)
+
+// IsRunID reports a run ID that is one plain path component, so it names
+// exactly one directory under the workspaces root.
+func IsRunID(s string) bool {
+	return s != "" && s != "." && filepath.IsLocal(s) && !strings.ContainsAny(s, `/\`)
+}
+
 // HomeDir is the run's $HOME on the agent pod, inside its workspace. A sandbox uses LocalDir as $HOME.
 func HomeDir(workspace string) string {
 	return filepath.Join(workspace, ".runhome")

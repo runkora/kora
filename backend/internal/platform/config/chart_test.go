@@ -19,6 +19,7 @@ import (
 	triggersConfig "github.com/clear-route/orbit/cmd/orbit-triggers/config"
 	policyGatewayConfig "github.com/clear-route/orbit/cmd/policy-gateway/config"
 	policyServiceConfig "github.com/clear-route/orbit/cmd/policy-service/config"
+	sandboxMountConfig "github.com/clear-route/orbit/cmd/sandbox-mount/config"
 	toolGatewayConfig "github.com/clear-route/orbit/cmd/tool-gateway/config"
 	"github.com/clear-route/orbit/internal/identity"
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -38,6 +39,7 @@ var moduleLoaders = map[string]func() error{
 	"cmd/orbit-triggers":    loadService[triggersConfig.Config]("cmd/orbit-triggers"),
 	"cmd/policy-gateway":    loadService[policyGatewayConfig.Config]("cmd/policy-gateway"),
 	"cmd/policy-service":    loadService[policyServiceConfig.Config]("cmd/policy-service"),
+	"cmd/sandbox-mount":     loadService[sandboxMountConfig.Config]("cmd/sandbox-mount"),
 	"cmd/tool-gateway":      loadService[toolGatewayConfig.Config]("cmd/tool-gateway"),
 
 	"internal/identity": func() error {

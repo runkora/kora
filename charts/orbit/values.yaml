@@ -740,9 +740,16 @@ sandboxMount:
   # -- Added to the tolerations of agents.workloads.sandbox and
   # agents.workloads.sessionManager, which the agent always carries.
   tolerations: []
+  # -- The agent must run on every node that hosts sandboxes or session-manager
+  # pods, so global.nodeSelector and global.affinity do not apply to it.
   nodeSelector: {}
   affinity: {}
+  # -- Falls back to global.priorityClassName.
   priorityClassName: ""
+  # -- Raw config merged last over the agent's rendered config file, keyed by
+  # config module. Keys follow the Go config struct; an unknown key fails startup.
+  # e.g. {cmd/sandbox-mount: {node: {resyncSecs: 60}}}
+  configOverrides: {}
 
 policyService:
   image:

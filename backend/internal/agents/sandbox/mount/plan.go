@@ -16,11 +16,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 )
-
-// workspaceClaimPrefix starts the name of a session-manager pod's workspace claim:
-// the StatefulSet's volumeClaimTemplate name, then the pod name.
-const workspaceClaimPrefix = "workspaces-"
 
 // export is one sandbox folder this node serves.
 type export struct {
@@ -49,7 +46,7 @@ type target struct {
 	sandboxUID string
 }
 
-// pair is a sandbox pod and the session-manager pod its annotation names.
+// pair is a sandbox pod and the session-manager pod its workspace claim names.
 type pair struct {
 	sandbox   *corev1.Pod
 	workspace *corev1.Pod
@@ -61,7 +58,7 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 	var targets []target
 	for _, p := range pairs {
 		runID := p.sandbox.Labels[folder.RunIDLabel]
-		if !live(p.sandbox) || !live(p.workspace) || !singleSegment(runID) || !owns(p, runID) || !isIP(p.sandbox.Status.HostIP) || !isIP(p.workspace.Status.HostIP) || !podUID.MatchString(string(p.sandbox.UID)) || !podUID.MatchString(string(p.workspace.UID)) {
+		if !live(p.sandbox) || !live(p.workspace) || !runfs.IsRunID(runID) || !owns(p, runID) || !isIP(p.sandbox.Status.HostIP) || !isIP(p.workspace.Status.HostIP) || !podUID.MatchString(string(p.sandbox.UID)) || !podUID.MatchString(string(p.workspace.UID)) {
 			continue
 		}
 		name := string(p.sandbox.UID)
@@ -91,17 +88,37 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 	return exports, targets
 }
 
+// workspaceOf returns the session-manager pod whose workspace the sandbox shares
+// its folder with: the pod named by its one workspace claim. A sandbox without
+// the folder mount, or with no single workspace claim, shares nothing.
+func workspaceOf(sb *corev1.Pod) (string, bool) {
+	if !slices.ContainsFunc(sb.Spec.Containers, func(c corev1.Container) bool {
+		return slices.ContainsFunc(c.VolumeMounts, func(m corev1.VolumeMount) bool { return folder.IsFolderMount(m.Name, m.SubPath) })
+	}) {
+		return "", false
+	}
+	var pods []string
+	for _, v := range sb.Spec.Volumes {
+		if v.PersistentVolumeClaim == nil {
+			continue
+		}
+		if pod, ok := folder.WorkspacePod(v.PersistentVolumeClaim.ClaimName); ok {
+			pods = append(pods, pod)
+		}
+	}
+	if len(pods) != 1 {
+		return "", false
+	}
+	return pods[0], true
+}
+
 // owns reports a sandbox pod built for this run and this session-manager pod: it
 // carries the run's sandbox name, sits in the session-manager's namespace, and
-// mounts that pod's workspace claim. A pod that claims another run's folder, or
-// another session-manager's workspace, gets nothing.
+// its one workspace claim is that pod's. A pod that claims another run's folder,
+// or another session-manager's workspace, gets nothing.
 func owns(p pair, runID string) bool {
-	if p.sandbox.Name != folder.SandboxPodName(runID) || p.sandbox.Namespace != p.workspace.Namespace {
-		return false
-	}
-	return slices.ContainsFunc(p.sandbox.Spec.Volumes, func(v corev1.Volume) bool {
-		return v.PersistentVolumeClaim != nil && v.PersistentVolumeClaim.ClaimName == workspaceClaimPrefix+p.workspace.Name
-	})
+	ws, ok := workspaceOf(p.sandbox)
+	return ok && ws == p.workspace.Name && p.sandbox.Name == folder.SandboxPodName(runID) && p.sandbox.Namespace == p.workspace.Namespace
 }
 
 // podUID matches a Kubernetes UID. It names the export directory, the fsid and an
@@ -124,11 +141,6 @@ func runAs(pod *corev1.Pod) (int64, int64, bool) {
 		return 0, 0, false
 	}
 	return *sc.RunAsUser, *sc.RunAsGroup, true
-}
-
-// singleSegment reports a run ID that is one plain path component.
-func singleSegment(s string) bool {
-	return s != "" && s != "." && s != ".." && !strings.ContainsAny(s, `/\`) && filepath.IsLocal(s)
 }
 
 // hostForSource brackets an IPv6 address for an NFS source.

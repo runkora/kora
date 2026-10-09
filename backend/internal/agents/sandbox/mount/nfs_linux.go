@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +15,8 @@ import (
 	"strings"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
 
 const nfsdFS = "/proc/fs/nfsd"
@@ -78,7 +79,10 @@ func startNfsd(ctx context.Context, cfg ServerConfig) error {
 	if err != nil {
 		return fmt.Errorf("read nfsd threads: %w", err)
 	}
-	ports, _ := os.ReadFile(filepath.Join(nfsdFS, "portlist"))
+	ports, err := os.ReadFile(filepath.Join(nfsdFS, "portlist"))
+	if err != nil {
+		return fmt.Errorf("read nfsd ports: %w", err)
+	}
 	running := strings.TrimSpace(string(threads)) != "0"
 	if running && !slices.Contains(strings.Fields(string(ports)), strconv.Itoa(cfg.Port)) {
 		// nfsd from an earlier agent listens on another port. Stop it to start on the configured one.
@@ -144,10 +148,28 @@ func (s *Server) Apply(ctx context.Context, exports []export) error {
 	if err := s.write(ctx, ok); err != nil {
 		return errors.Join(append(errs, err)...)
 	}
-	clients, _ := os.ReadDir(s.cfg.ExportRoot)
+	errs = append(errs, s.unbindStale(keep)...)
+	if len(errs) == 0 {
+		s.last, s.applied = lines, true
+	}
+	return errors.Join(errs...)
+}
+
+// unbindStale removes every export bind not in keep, then each client's root
+// once nothing is exported to it.
+func (s *Server) unbindStale(keep map[string]bool) []error {
+	var errs []error
+	clients, err := os.ReadDir(s.cfg.ExportRoot)
+	if err != nil {
+		return []error{fmt.Errorf("list export root: %w", err)}
+	}
 	for _, c := range clients {
 		clientDir := filepath.Join(s.cfg.ExportRoot, c.Name())
-		names, _ := os.ReadDir(clientDir)
+		names, err := os.ReadDir(clientDir)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("list %s: %w", clientDir, err))
+			continue
+		}
 		for _, n := range names {
 			dst := filepath.Join(clientDir, n.Name())
 			if keep[dst] {
@@ -157,15 +179,16 @@ func (s *Server) Apply(ctx context.Context, exports []export) error {
 				errs = append(errs, fmt.Errorf("unbind %s: %w", dst, err))
 				continue
 			}
-			_ = os.Remove(dst)
+			if err := os.Remove(dst); err != nil {
+				errs = append(errs, fmt.Errorf("remove %s: %w", dst, err))
+			}
 		}
 		// Removes the client's root once nothing is exported to it. A non-empty directory stays.
-		_ = os.Remove(clientDir)
+		if err := os.Remove(clientDir); err != nil && !errors.Is(err, unix.ENOTEMPTY) && !errors.Is(err, unix.EEXIST) {
+			errs = append(errs, fmt.Errorf("remove %s: %w", clientDir, err))
+		}
 	}
-	if len(errs) == 0 {
-		s.last, s.applied = lines, true
-	}
-	return errors.Join(errs...)
+	return errs
 }
 
 // write replaces the exports table and syncs the kernel's export cache with it.
@@ -443,22 +466,22 @@ func inHostMountNS(fn func() error) error {
 	return <-errc
 }
 
+// errNotBeneath reports a path outside the root it must be resolved under.
+var errNotBeneath = errors.New("path is not beneath its root")
+
 // openBeneath opens path, which must lie under root, as an O_PATH directory. Every
 // component below root is resolved without following symlinks and cannot escape root.
 func openBeneath(root, path string) (int, error) {
 	rel, err := filepath.Rel(root, path)
 	if err != nil || rel == "." || !filepath.IsLocal(rel) {
-		return -1, fmt.Errorf("%s is not beneath %s", path, root)
+		return -1, fmt.Errorf("%w: %s under %s", errNotBeneath, path, root)
 	}
 	dir, err := unix.Open(root, unix.O_PATH|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
 	if err != nil {
 		return -1, fmt.Errorf("open %s: %w", root, err)
 	}
 	defer unix.Close(dir)
-	fd, err := unix.Openat2(dir, rel, &unix.OpenHow{
-		Flags:   unix.O_PATH | unix.O_DIRECTORY | unix.O_CLOEXEC,
-		Resolve: unix.RESOLVE_BENEATH | unix.RESOLVE_NO_SYMLINKS | unix.RESOLVE_NO_MAGICLINKS,
-	})
+	fd, err := openAt(dir, rel)
 	if err != nil {
 		return -1, fmt.Errorf("open %s beneath %s: %w", rel, root, err)
 	}

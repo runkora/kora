@@ -1,9 +1,17 @@
-{{- if .Values.sandboxMount.enabled }}
 {{- /* Node agent for sandbox working folders (docs/adr/2026-10-08-sandbox-workspace-mount.md). */}}
+{{- define "orbit.sandboxMount.configModules" -}}
+cmd/sandbox-mount:
+  node:
+    hostKubeletDir: {{ .Values.sandboxMount.kubeletDir | toJson }}
+  server:
+    port: {{ .Values.sandboxMount.port | int }}
+{{- end }}
+{{- if .Values.sandboxMount.enabled }}
 {{- $m := .Values.sandboxMount }}
 {{- if or (lt (int $m.port) 1) (gt (int $m.port) 65535) }}
   {{- fail "sandboxMount.port must be a TCP port" }}
 {{- end }}
+{{- $config := dict "root" $ "name" "sandboxMount" "configMap" "orbit-sandbox-mount-config" "modules" (include "orbit.sandboxMount.configModules" . | fromYaml) }}
 {{- if $m.createNamespace }}
 apiVersion: v1
 kind: Namespace
@@ -22,8 +30,7 @@ metadata:
   name: orbit-sandbox-mount
   namespace: {{ $m.namespace }}
   labels:
-    {{- include "orbit.labels" . | nindent 4 }}
-    app.kubernetes.io/component: sandbox-mount
+    {{- include "orbit.sandboxMount.labels" . | nindent 4 }}
 ---
 # The node agent only reads pods. It needs every namespace and node: a sandbox
 # and its session-manager pod run on different nodes, and each node agent acts
@@ -33,8 +40,7 @@ kind: ClusterRole
 metadata:
   name: orbit-sandbox-mount
   labels:
-    {{- include "orbit.labels" . | nindent 4 }}
-    app.kubernetes.io/component: sandbox-mount
+    {{- include "orbit.sandboxMount.labels" . | nindent 4 }}
 rules:
   # The agent's two informers list and watch sandbox and session-manager pods.
   - apiGroups: [""]
@@ -46,8 +52,7 @@ kind: ClusterRoleBinding
 metadata:
   name: orbit-sandbox-mount
   labels:
-    {{- include "orbit.labels" . | nindent 4 }}
-    app.kubernetes.io/component: sandbox-mount
+    {{- include "orbit.sandboxMount.labels" . | nindent 4 }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
@@ -57,24 +62,39 @@ subjects:
     name: orbit-sandbox-mount
     namespace: {{ $m.namespace }}
 ---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-sandbox-mount-config
+  namespace: {{ $m.namespace }}
+  labels:
+    {{- include "orbit.sandboxMount.labels" . | nindent 4 }}
+data:
+  {{- range $module, $content := include "orbit.configModules" $config | fromYaml }}
+  {{ $module | replace "/" "." }}.yaml: |
+    {{- toYaml $content | nindent 4 }}
+  {{- end }}
+---
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: orbit-sandbox-mount
   namespace: {{ $m.namespace }}
   labels:
-    {{- include "orbit.labels" . | nindent 4 }}
-    app.kubernetes.io/component: sandbox-mount
+    {{- include "orbit.sandboxMount.labels" . | nindent 4 }}
 spec:
   selector:
     matchLabels:
-      app: orbit-sandbox-mount
+      {{- include "orbit.sandboxMount.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: orbit-sandbox-mount
+        {{- include "orbit.sandboxMount.labels" . | nindent 8 }}
+        {{- include "orbit.sandboxMount.selectorLabels" . | nindent 8 }}
       annotations:
         sidecar.istio.io/inject: "false"
+        # Restarts the agent when its config changes.
+        checksum/config: {{ include "orbit.configModules" $config | sha256sum }}
     spec:
       serviceAccountName: orbit-sandbox-mount
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
@@ -83,7 +103,7 @@ spec:
       # The agent joins the node's mount namespace through PID 1 to release mount copies under dying pods.
       hostPID: true
       dnsPolicy: ClusterFirstWithHostNet
-      {{- with $m.priorityClassName }}
+      {{- with ($m.priorityClassName | default .Values.global.priorityClassName) }}
       priorityClassName: {{ . }}
       {{- end }}
       {{- with $m.nodeSelector }}
@@ -101,16 +121,12 @@ spec:
       containers:
         - name: sandbox-mount
           image: {{ include "orbit.imageRef" (dict "root" $ "image" $m.image) | quote }}
-          imagePullPolicy: {{ $m.image.pullPolicy | default .Values.global.imagePullPolicy | default "IfNotPresent" }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "sandboxMount") }}
           env:
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            - name: KUBELET_DIR
-              value: {{ $m.kubeletDir | quote }}
-            - name: NFS_PORT
-              value: {{ $m.port | int | toString | quote }}
           # Mounting filesystems and starting the kernel NFS server need full privileges on the node.
           securityContext:
             privileged: true
@@ -121,7 +137,9 @@ spec:
             - name: kubelet
               mountPath: /var/lib/kubelet
               mountPropagation: Bidirectional
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}
       volumes:
+        {{- include "orbit.configVolume" $config | nindent 8 }}
         - name: kubelet
           hostPath:
             path: {{ $m.kubeletDir }}

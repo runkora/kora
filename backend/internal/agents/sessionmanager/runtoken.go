@@ -7,7 +7,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 )
 
 // runTokenHeader carries the run's own credential on the /internal routes.
@@ -26,22 +27,10 @@ const runTokenHeader = "X-Orbit-Run-Token"
 // It sits outside .sandbox-exec/ so an agent clearing its descriptor keeps the
 // ability to ask for a new one.
 func runTokenPath(workspaces, runID string) (string, bool) {
-	if !singleSegment(runID) {
+	if !runfs.IsRunID(runID) {
 		return "", false
 	}
 	return filepath.Join(workspaces, runID, ".orbit", "run-token"), true
-}
-
-// singleSegment reports whether runID names one directory under the workspaces
-// root. filepath.IsLocal rejects anything that escapes the root, and the rest
-// pins it to a single component, since a run's files live directly under it.
-// "." is local and its own base, so it is excluded by name: it would resolve to
-// the root itself.
-func singleSegment(runID string) bool {
-	return runID != "" && runID != "." &&
-		filepath.IsLocal(runID) &&
-		!strings.ContainsRune(runID, filepath.Separator) &&
-		runID == filepath.Base(runID)
 }
 
 // mintRunToken returns the run's token, generating and storing one on first

@@ -13,9 +13,11 @@ import (
 )
 
 const (
-	// WorkspacePodAnnotation on a sandbox pod names the session-manager pod, in
-	// the same namespace, whose workspace receives the sandbox's folder.
-	WorkspacePodAnnotation = "orbit.io/workspace-pod"
+	// RoleLabel set to RoleSandbox marks a sandbox pod, and ManagedAgentLabel set to
+	// "true" marks a session-manager pod. The node agent watches pods by them.
+	RoleLabel         = "orbit.io/role"
+	RoleSandbox       = "sandbox"
+	ManagedAgentLabel = "orbit.io/managed-agent"
 	// RunIDLabel carries the sandbox's run ID, which names its workspace directory.
 	RunIDLabel = "orbit.io/run-id"
 	// Volume is the sandbox pod's local disk, and Dir is the folder in it that
@@ -32,9 +34,29 @@ const (
 	ReasonMountFailed = "mount-failed"
 )
 
+// workspaceClaimPrefix starts a session-manager pod's workspace claim name: the
+// StatefulSet's volumeClaimTemplate name, then the pod name.
+const workspaceClaimPrefix = "workspaces-"
+
 // SandboxPodName is the name orbit-agents gives a run's sandbox pod. Names are
 // unique in a namespace, so at most one pod can claim a run's folder.
 func SandboxPodName(runID string) string { return "sandbox-" + runID }
+
+// WorkspaceClaim is the name of a session-manager pod's workspace claim.
+func WorkspaceClaim(podName string) string { return workspaceClaimPrefix + podName }
+
+// WorkspacePod returns the session-manager pod whose workspace claim this is.
+func WorkspacePod(claim string) (string, bool) {
+	pod, ok := strings.CutPrefix(claim, workspaceClaimPrefix)
+	if !ok || pod == "" {
+		return "", false
+	}
+	return pod, true
+}
+
+// IsFolderMount reports the sandbox container's mount of its working folder: the
+// local disk's Dir subdirectory. A sandbox pod without it has no folder to share.
+func IsFolderMount(volume, subPath string) bool { return volume == Volume && subPath == Dir }
 
 // MountEntry is one line of a mountinfo listing.
 type MountEntry struct {

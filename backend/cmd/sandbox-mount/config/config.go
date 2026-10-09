@@ -9,15 +9,12 @@ import (
 
 // Config holds the node agent's settings, loaded from cmd/sandbox-mount/config/{base,env}.yaml.
 type Config struct {
-	App struct {
-		Version string `yaml:"version"`
-	} `yaml:"app"`
-
 	Node struct {
-		KubeletDir string `yaml:"kubeletDir"`
-		ResyncSecs int    `yaml:"resyncSecs"`
-		RetrySecs  int    `yaml:"retrySecs"`
-		LedgerFile string `yaml:"ledgerFile"`
+		KubeletDir     string `yaml:"kubeletDir"`
+		HostKubeletDir string `yaml:"hostKubeletDir"`
+		ResyncSecs     int    `yaml:"resyncSecs"`
+		RetrySecs      int    `yaml:"retrySecs"`
+		LedgerFile     string `yaml:"ledgerFile"`
 	} `yaml:"node"`
 
 	Server struct {
@@ -32,10 +29,6 @@ type Config struct {
 	Client struct {
 		MountOptions string `yaml:"mountOptions"`
 	} `yaml:"client"`
-
-	Observability struct {
-		ServiceName string `yaml:"serviceName"`
-	} `yaml:"observability"`
 }
 
 // Resync is how often the agent reconciles without a pod event.

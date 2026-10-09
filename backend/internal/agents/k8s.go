@@ -532,7 +532,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	}
 	sandbox := Sandbox{Endpoint: endpoint, ExecToken: liveToken, Created: created}
 	// A pod created before the feature was on has no folder, and nothing will mount it.
-	if p.cfg.SandboxMount && ready.Annotations[sandboxfolder.WorkspacePodAnnotation] != "" {
+	if p.cfg.SandboxMount && hasFolderMount(ready) {
 		sandbox.Folder = string(ready.UID)
 	}
 	return sandbox, nil
@@ -623,9 +623,9 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		return nil, err
 	}
 	podName := sandboxfolder.SandboxPodName(run.ID)
-	// PVC name follows StatefulSet volumeClaimTemplate convention:
-	// {volumeName}-{statefulSetName}-{ordinal}
-	workspacesPVC := fmt.Sprintf("workspaces-%s-%d", agentTypeSlug, run.PodOrdinal)
+	// The session-manager pod {slug}-{ordinal} whose workspace this sandbox mounts.
+	sessionManagerPod := fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal)
+	workspacesPVC := sandboxfolder.WorkspaceClaim(sessionManagerPod)
 
 	// Labels carry the pod's identity for the operator pod webhook and SPIRE.
 	//   - orbit.io/role=sandbox: namespace-policy targeting and the future
@@ -645,9 +645,9 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	// sandbox the same outbound enforcement chain as the agent StatefulSet
 	// pod. Without injection the credential broker would be unreachable.
 	labels := map[string]string{
-		"orbit.io/role":       "sandbox",
-		"orbit.io/run-id":     run.ID,
-		"orbit.io/agent-slug": agentTypeSlug,
+		sandboxfolder.RoleLabel:  sandboxfolder.RoleSandbox,
+		sandboxfolder.RunIDLabel: run.ID,
+		"orbit.io/agent-slug":    agentTypeSlug,
 	}
 
 	// Sandbox-exec is a gRPC server on port 50051 with no other inbound or
@@ -681,11 +681,6 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		pullSecrets = append(pullSecrets, spec.PullSecret)
 	}
 
-	if p.cfg.SandboxMount {
-		// The node agent mounts the sandbox folder into this session-manager pod.
-		annotations[sandboxfolder.WorkspacePodAnnotation] = fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal)
-	}
-
 	pod := &corev1.Pod{
 		TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Pod"},
 		ObjectMeta: metav1.ObjectMeta{
@@ -715,10 +710,23 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	// workspace attaches to one node, and this sandbox mounts the workspace of
 	// session-manager pod {slug}-{ordinal}.
 	if !p.cfg.Workspace.crossesNodes() {
-		requireCoLocation(&pod.Spec, fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal))
+		requireCoLocation(&pod.Spec, sessionManagerPod)
 	}
 
 	return pod, nil
+}
+
+// hasFolderMount reports a sandbox pod whose container mounts its working folder.
+func hasFolderMount(pod *corev1.Pod) bool {
+	for _, c := range pod.Spec.Containers {
+		if c.Name != sandboxContainerName {
+			continue
+		}
+		return slices.ContainsFunc(c.VolumeMounts, func(m corev1.VolumeMount) bool {
+			return sandboxfolder.IsFolderMount(m.Name, m.SubPath)
+		})
+	}
+	return false
 }
 
 // imagePullSecretRefs turns configured Secret names into pod references, or
@@ -2118,10 +2126,10 @@ func agentTypeLabels(at AgentType) map[string]string {
 
 func podLabels(at AgentType) map[string]string {
 	return map[string]string{
-		"app":                    at.Slug,
-		"orbit.io/agent-type":    at.ID,
-		"orbit.io/tenant":        at.TenantID,
-		"orbit.io/managed-agent": "true",
+		"app":                           at.Slug,
+		"orbit.io/agent-type":           at.ID,
+		"orbit.io/tenant":               at.TenantID,
+		sandboxfolder.ManagedAgentLabel: "true",
 		// slug used so the SPIFFE ID is human-readable:
 		// spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>
 		"spiffe.io/agent":                  at.Slug,

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -33,7 +34,7 @@ const folderLine = "9 1 0:9 / /workspaces/run-1/sandbox rw - nfs4 10.0.0.1:/%s r
 // The wait ends once the run's folder is mounted from this sandbox pod.
 func TestAwaitSandboxFolder_Mounted(t *testing.T) {
 	reg := folderRegistry(t, "1 0 0:1 / /workspaces rw - ext4 /dev/vdb1 rw\n"+fmt.Sprintf(folderLine, "pod-uid"))
-	if err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); err != nil {
+	if _, err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); err != nil {
 		t.Errorf("awaitSandboxFolder: %v", err)
 	}
 }
@@ -47,7 +48,7 @@ func TestAwaitSandboxFolder_WrongSourceTimesOut(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			reg := folderRegistry(t, info)
-			if err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); !errors.Is(err, errSandboxFolder) {
+			if _, err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); !errors.Is(err, errSandboxFolder) {
 				t.Errorf("err = %v, want errSandboxFolder", err)
 			}
 		})
@@ -62,7 +63,7 @@ func TestAwaitSandboxFolder_MountArrives(t *testing.T) {
 		time.Sleep(400 * time.Millisecond)
 		_ = os.WriteFile(reg.mountInfo, fmt.Appendf(nil, folderLine, "pod-uid"), 0o600)
 	}()
-	if err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); err != nil {
+	if _, err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); err != nil {
 		t.Errorf("awaitSandboxFolder: %v", err)
 	}
 }
@@ -70,18 +71,18 @@ func TestAwaitSandboxFolder_MountArrives(t *testing.T) {
 // The descriptor records the folder's sandbox pod, so a restarted session-manager can wait for the mount again.
 func TestSandboxDescriptor_RecordsFolder(t *testing.T) {
 	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), nil, time.Minute)
-	dir, endpoint, token, ok := reg.sandboxPaths("run-1")
+	dir, ok := reg.runDir("run-1")
 	if !ok {
-		t.Fatal("sandboxPaths refused run-1")
+		t.Fatal("runDir refused run-1")
 	}
-	if err := writeSandboxDescriptor(dir, token, endpoint, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok", Folder: "pod-uid"}); err != nil {
+	if err := writeSandboxDescriptor(dir, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok", Folder: "pod-uid"}); err != nil {
 		t.Fatal(err)
 	}
 	if got, ok := reg.sandboxFromDisk("run-1"); !ok || got.Folder != "pod-uid" {
 		t.Errorf("sandboxFromDisk = %+v, %v, want folder pod-uid", got, ok)
 	}
 	// A sandbox without a folder clears the record left by an earlier one.
-	if err := writeSandboxDescriptor(dir, token, endpoint, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok"}); err != nil {
+	if err := writeSandboxDescriptor(dir, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok"}); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := reg.sandboxFromDisk("run-1"); got.Folder != "" {
@@ -101,15 +102,15 @@ func TestSandboxDescriptor_RefusesSymlinkOutOfWorkspace(t *testing.T) {
 	if err := os.WriteFile(victim, []byte("run 2 data"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dir, endpoint, token, _ := reg.sandboxPaths("run-1")
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	dir, _ := reg.runDir("run-1")
+	if err := os.MkdirAll(filepath.Join(dir, runfs.ExecDir), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(victim, filepath.Join(dir, sandboxFolderFile)); err != nil {
+	if err := os.Symlink(victim, filepath.Join(dir, runfs.ExecDir, runfs.FolderFile)); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := writeSandboxDescriptor(dir, token, endpoint, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok", Folder: "pod-uid"}); err == nil {
+	if err := writeSandboxDescriptor(dir, Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "tok", Folder: "pod-uid"}); err == nil {
 		t.Error("writeSandboxDescriptor wrote through a symlink out of the workspace")
 	}
 	if got, _ := os.ReadFile(victim); string(got) != "run 2 data" {
@@ -138,7 +139,7 @@ func TestAwaitSandboxFolder_EndsOnLastingReport(t *testing.T) {
 		t.Fatal(err)
 	}
 	start := time.Now()
-	err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid")
+	_, err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid")
 	if !errors.Is(err, errSandboxFolder) || !strings.Contains(err.Error(), "cannot reach the NFS port on the sandbox node") {
 		t.Errorf("err = %v, want the fixed reason", err)
 	}
@@ -165,7 +166,7 @@ func TestAwaitSandboxFolder_IgnoresTransientReport(t *testing.T) {
 		_ = os.Remove(report)
 		_ = os.WriteFile(reg.mountInfo, fmt.Appendf(nil, "9 1 0:9 / %s rw - nfs4 10.0.0.1:/pod-uid rw\n", filepath.Join(reg.workspaces, "run-1", "sandbox")), 0o600)
 	}()
-	if err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); err != nil {
+	if _, err := reg.awaitSandboxFolder(context.Background(), "run-1", "pod-uid"); err != nil {
 		t.Errorf("awaitSandboxFolder: %v", err)
 	}
 }

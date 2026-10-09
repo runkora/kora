@@ -17,6 +17,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -404,7 +405,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		}
 	}
 
-	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
+	runDir, pathsOK := reg.runDir(runID)
 	if !pathsOK {
 		return "", fmt.Errorf("run id %q is not a single path segment", runID)
 	}
@@ -455,7 +456,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		// agent can still run local-only work. The agent will retry git operations
 		// on its own if they fail.
 	}
-	if err := writeSandboxDescriptor(sandboxDir, tokenFile, endpointFile, sandbox); err != nil {
+	if err := writeSandboxDescriptor(runDir, sandbox); err != nil {
 		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "sandbox provisioning failed")
 		return "", err
 	}
@@ -482,7 +483,7 @@ func (reg *Registry) cachedSandbox(ctx context.Context, runID string) (string, b
 	}
 	// After a restart of this pod the node agent mounts the folder again. Wait for it.
 	if disk.Folder != "" {
-		if err := reg.awaitSandboxFolder(ctx, runID, disk.Folder); err != nil {
+		if _, err := reg.awaitSandboxFolder(ctx, runID, disk.Folder); err != nil {
 			return "", false, err
 		}
 	}
@@ -511,27 +512,26 @@ func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.R
 // The files are written through an os.Root on the run's workspace. The run can
 // write its descriptor folder, and a symlink it plants there that leads out of
 // its workspace is refused, so this pod's writes never land in another run.
-func writeSandboxDescriptor(dir, tokenFile, endpointFile string, sandbox Sandbox) error {
-	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {
+func writeSandboxDescriptor(runDir string, sandbox Sandbox) error {
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
 		return fmt.Errorf("create run workspace: %w", err)
 	}
-	root, err := os.OpenRoot(filepath.Dir(dir))
+	root, err := os.OpenRoot(runDir)
 	if err != nil {
 		return fmt.Errorf("open run workspace: %w", err)
 	}
 	defer root.Close()
-	name := filepath.Base(dir)
-	if err := root.MkdirAll(name, 0o700); err != nil {
+	if err := root.MkdirAll(runfs.ExecDir, 0o700); err != nil {
 		return fmt.Errorf("create sandbox dir: %w", err)
 	}
-	if err := root.WriteFile(filepath.Join(name, filepath.Base(tokenFile)), []byte(sandbox.ExecToken), 0o600); err != nil {
+	if err := root.WriteFile(filepath.Join(runfs.ExecDir, runfs.ExecTokenFile), []byte(sandbox.ExecToken), 0o600); err != nil {
 		return fmt.Errorf("write exec token: %w", err)
 	}
-	if err := root.WriteFile(filepath.Join(name, filepath.Base(endpointFile)), []byte(sandbox.Endpoint), 0o600); err != nil {
+	if err := root.WriteFile(filepath.Join(runfs.ExecDir, runfs.EndpointFile), []byte(sandbox.Endpoint), 0o600); err != nil {
 		return fmt.Errorf("write endpoint: %w", err)
 	}
 	// The folder's sandbox pod UID, so a restarted session-manager can wait for its mount.
-	folderFile := filepath.Join(name, sandboxFolderFile)
+	folderFile := filepath.Join(runfs.ExecDir, runfs.FolderFile)
 	if sandbox.Folder == "" {
 		if err := root.Remove(folderFile); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("remove sandbox folder record: %w", err)
@@ -644,38 +644,34 @@ func (reg *Registry) Sandbox(ctx context.Context, runID string) (Sandbox, bool, 
 	return sandbox, true, nil
 }
 
-// sandboxPaths returns where the run's sandbox descriptor lives, so the reader
-// and the writer cannot drift apart on the layout. ok is false for a run ID
-// that is not a single path segment; the segment used is the one filepath.Base
-// produced, so no caller's string can widen the path.
-func (reg *Registry) sandboxPaths(runID string) (dir, endpointFile, tokenFile string, ok bool) {
-	if !singleSegment(runID) {
-		return "", "", "", false
+// runDir returns the run's workspace directory, where its sandbox descriptor
+// lives. ok is false for a run ID that is not a single path segment.
+func (reg *Registry) runDir(runID string) (string, bool) {
+	if !runfs.IsRunID(runID) {
+		return "", false
 	}
-	dir = filepath.Join(reg.workspaces, runID, ".sandbox-exec")
-	return dir, filepath.Join(dir, "endpoint"), filepath.Join(dir, "exec-token"), true
+	return filepath.Join(reg.workspaces, runID), true
 }
 
 // sandboxFromDisk reads the run's sandbox descriptor out of its workspace.
 // Both halves or neither: an endpoint without its token cannot be used, and a
 // half-written descriptor must not read as a usable sandbox.
 func (reg *Registry) sandboxFromDisk(runID string) (Sandbox, bool) {
-	_, endpointFile, tokenFile, ok := reg.sandboxPaths(runID)
+	dir, ok := reg.runDir(runID)
 	if !ok {
 		return Sandbox{}, false
 	}
-	dir := filepath.Dir(endpointFile)
-	root, err := os.OpenRoot(filepath.Dir(dir))
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return Sandbox{}, false
 	}
 	defer root.Close()
-	read := func(file string) string { return readTrimmedIn(root, filepath.Join(filepath.Base(dir), file)) }
-	endpoint, token := read(filepath.Base(endpointFile)), read(filepath.Base(tokenFile))
+	read := func(file string) string { return readTrimmedIn(root, filepath.Join(runfs.ExecDir, file)) }
+	endpoint, token := read(runfs.EndpointFile), read(runfs.ExecTokenFile)
 	if endpoint == "" || token == "" {
 		return Sandbox{}, false
 	}
-	return Sandbox{Endpoint: endpoint, ExecToken: token, Folder: read(sandboxFolderFile)}, true
+	return Sandbox{Endpoint: endpoint, ExecToken: token, Folder: read(runfs.FolderFile)}, true
 }
 
 // readTrimmedIn returns the trimmed contents of a file under root, or empty if it

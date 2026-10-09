@@ -5,7 +5,6 @@ package mount
 import (
 	"context"
 	"errors"
-	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"io"
 	"maps"
 	"path/filepath"
@@ -15,6 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -211,14 +211,21 @@ func TestReconcile_DoesNotPairAcrossNamespaces(t *testing.T) {
 	}
 }
 
-// A sandbox whose session-manager pod is gone, or that names none, is neither exported nor mounted.
+// A sandbox whose session-manager pod is gone, that has no folder mount, or that
+// mounts more than one workspace claim, is neither exported nor mounted.
 func TestReconcile_IgnoresUnpairedSandboxes(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}}
 	a, e := newTestAgent(t, "node-a", m, nil)
-	unannotated := sandboxPod("node-a", "10.0.0.1")
-	delete(unannotated.Annotations, folder.WorkspacePodAnnotation)
+	noFolder := sandboxPod("node-a", "10.0.0.1")
+	noFolder.Spec.Containers = nil
+	twoClaims := sandboxPod("node-a", "10.0.0.1")
+	twoClaims.Spec.Volumes = append(twoClaims.Spec.Volumes, corev1.Volume{Name: "other", VolumeSource: corev1.VolumeSource{
+		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-agent-1"},
+	}})
+	ws := workspacePod("node-a", "10.0.0.1")
+	ws.Name = "agent-1"
 
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1"), unannotated}, lookup()); err != nil {
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1"), noFolder, twoClaims}, lookup(ws)); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(e.applied) != 1 || len(e.applied[0]) != 0 || len(m.mounted) != 0 {

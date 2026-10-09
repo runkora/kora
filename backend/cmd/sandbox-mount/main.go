@@ -9,8 +9,6 @@
 // and the mount propagates into the running container.
 //
 // NODE_NAME is this node's name, set by the chart from the downward API.
-// KUBELET_DIR is the kubelet directory's path on the node, set by the chart.
-// NFS_PORT is nfsd's TCP port on every node, set by the chart.
 package main
 
 import (
@@ -19,7 +17,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 
 	"k8s.io/client-go/kubernetes"
@@ -29,6 +26,9 @@ import (
 	"github.com/clear-route/orbit/internal/agents/sandbox/mount"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
+
+// errBadPort reports a configured nfsd port outside the TCP range.
+var errBadPort = errors.New("not a TCP port")
 
 func main() {
 	os.Exit(mainRun())
@@ -60,12 +60,8 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 	}
 
 	port := cfg.Server.Port
-	if v := os.Getenv("NFS_PORT"); v != "" {
-		p, perr := strconv.Atoi(v)
-		if perr != nil || p < 1 || p > 65535 {
-			return fmt.Errorf("NFS_PORT %q is not a TCP port", v)
-		}
-		port = p
+	if port < 1 || port > 65535 {
+		return fmt.Errorf("%w: server.port %d", errBadPort, port)
 	}
 
 	ctx, cancel := context.WithCancel(ctx)
@@ -83,11 +79,7 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 		return fmt.Errorf("start NFS server: %w", err)
 	}
 	agentCfg := mount.Config{Node: node, KubeletDir: cfg.Node.KubeletDir, Resync: cfg.Resync(), Retry: cfg.Retry(), LedgerFile: cfg.Node.LedgerFile, Port: port}
-	hostKubeletDir := os.Getenv("KUBELET_DIR")
-	if hostKubeletDir == "" {
-		hostKubeletDir = cfg.Node.KubeletDir
-	}
-	client := mount.Client{KubeletDir: cfg.Node.KubeletDir, HostKubeletDir: hostKubeletDir, Port: port, Options: cfg.Client.MountOptions}
+	client := mount.Client{KubeletDir: cfg.Node.KubeletDir, HostKubeletDir: cfg.Node.HostKubeletDir, Port: port, Options: cfg.Client.MountOptions}
 	agent, err := mount.NewAgent(agentCfg, kube, server, client, logger)
 	if err != nil {
 		return err

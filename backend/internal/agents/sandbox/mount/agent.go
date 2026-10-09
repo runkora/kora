@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"maps"
 	"net"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -63,8 +63,8 @@ func (a *Agent) Reconcile(ctx context.Context, sandboxes, workspaces []*corev1.P
 	}
 	var pairs []pair
 	for _, sb := range sandboxes {
-		name := sb.Annotations[folder.WorkspacePodAnnotation]
-		if name == "" {
+		name, ok := workspaceOf(sb)
+		if !ok {
 			continue
 		}
 		if ws := byName[sb.Namespace+"/"+name]; ws != nil {

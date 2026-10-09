@@ -44,3 +44,21 @@ func TestInstallEnv(t *testing.T) {
 		}
 	}
 }
+
+func TestIsRunID(t *testing.T) {
+	for id, want := range map[string]bool{
+		"0d6f0f3e-1111-4a8b-9c2d-000000000001": true,
+		"run-1":                                true,
+		"":                                     false,
+		".":                                    false,
+		"..":                                   false,
+		"a/b":                                  false,
+		`a\b`:                                  false,
+		"/abs":                                 false,
+		"../other":                             false,
+	} {
+		if got := IsRunID(id); got != want {
+			t.Errorf("IsRunID(%q) = %v, want %v", id, got, want)
+		}
+	}
+}

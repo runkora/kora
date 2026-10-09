@@ -4,7 +4,6 @@ package mount
 
 import (
 	"errors"
-	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +11,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
 
 func mkdirs(t *testing.T, dirs ...string) {

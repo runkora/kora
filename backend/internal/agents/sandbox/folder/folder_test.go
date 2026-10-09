@@ -29,3 +29,15 @@ func TestSourceAt(t *testing.T) {
 		t.Errorf("SourceAt unmounted = %q", got)
 	}
 }
+
+func TestWorkspaceClaim(t *testing.T) {
+	if got := WorkspaceClaim("coder-2"); got != "workspaces-coder-2" {
+		t.Errorf("WorkspaceClaim = %q", got)
+	}
+	for claim, want := range map[string]string{"workspaces-coder-2": "coder-2", "workspaces-": "", "scratch": ""} {
+		got, ok := WorkspacePod(claim)
+		if got != want || ok != (want != "") {
+			t.Errorf("WorkspacePod(%q) = %q, %v, want %q", claim, got, ok, want)
+		}
+	}
+}

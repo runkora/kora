@@ -12,21 +12,18 @@ import (
 	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
 
-// sandboxFolderFile in the sandbox descriptor folder holds the UID of the sandbox pod whose folder is mounted.
-const sandboxFolderFile = "folder"
-
 // awaitFolderOrFail waits for the sandbox's folder when it has one, and records a
 // failed provision with the node agent's reason, or the timeout.
 func (reg *Registry) awaitFolderOrFail(ctx context.Context, runID, podUID string, started time.Time) error {
 	if podUID == "" {
 		return nil
 	}
-	err := reg.awaitSandboxFolder(ctx, runID, podUID)
+	reason, err := reg.awaitSandboxFolder(ctx, runID, podUID)
 	if err == nil {
 		return nil
 	}
 	msg := "the sandbox folder was not mounted in time"
-	if reason := reg.mountFailure(runID, podUID); reason != "" {
+	if reason != "" {
 		msg = "the sandbox folder could not be mounted: " + reason
 	}
 	reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg)
@@ -72,8 +69,9 @@ var mountFailureText = map[string]string{
 // sandbox pod with the given UID (docs/adr/2026-10-08-sandbox-workspace-mount.md).
 // A mount left from a replaced sandbox has another source and does not count.
 // When the node agent keeps reporting why it cannot mount this sandbox's folder,
-// the wait ends with that reason once the report outlasts sandboxReportGrace.
-func (reg *Registry) awaitSandboxFolder(ctx context.Context, runID, podUID string) error {
+// the wait ends with that reason once the report outlasts sandboxReportGrace. A
+// failed wait returns the last reason the node agent reported, or empty.
+func (reg *Registry) awaitSandboxFolder(ctx context.Context, runID, podUID string) (string, error) {
 	point := filepath.Join(reg.workspaces, runID, sandboxfolder.Dir)
 	ctx, cancel := context.WithTimeout(ctx, reg.folderWait)
 	defer cancel()
@@ -85,22 +83,24 @@ func (reg *Registry) awaitSandboxFolder(ctx context.Context, runID, podUID strin
 			source := sandboxfolder.SourceAt(f, point)
 			_ = f.Close()
 			if strings.HasSuffix(source, ":/"+podUID) {
-				return nil
+				return "", nil
 			}
 		}
-		if reason := reg.mountFailure(runID, podUID); reason == "" {
+		reason := reg.mountFailure(runID, podUID)
+		switch {
+		case reason == "":
 			reportedAt = time.Time{}
-		} else if reportedAt.IsZero() {
+		case reportedAt.IsZero():
 			reportedAt = time.Now()
-		} else if time.Since(reportedAt) >= reg.reportGrace {
-			return fmt.Errorf("%w: %s", errSandboxFolder, reason)
+		case time.Since(reportedAt) >= reg.reportGrace:
+			return reason, fmt.Errorf("%w: %s", errSandboxFolder, reason)
 		}
 		select {
 		case <-ctx.Done():
-			if reason := reg.mountFailure(runID, podUID); reason != "" {
-				return fmt.Errorf("%w: %s", errSandboxFolder, reason)
+			if reason != "" {
+				return reason, fmt.Errorf("%w: %s", errSandboxFolder, reason)
 			}
-			return fmt.Errorf("%w at %s: %w", errSandboxFolder, point, ctx.Err())
+			return "", fmt.Errorf("%w at %s: %w", errSandboxFolder, point, ctx.Err())
 		case <-tick.C:
 		}
 	}
