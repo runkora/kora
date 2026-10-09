@@ -219,6 +219,19 @@ operator:
         limits:
           cpu: 250m
           memory: 128Mi
+    # -- Resources of each sidecar on a sandbox pod, set as both requests and
+    # limits so the pod reserves what it can use. An environment's size is what
+    # the sandbox's own container gets, and these sit on top of it.
+    sandboxSidecars:
+      istioProxy:
+        cpu: 200m
+        memory: 128Mi
+      identityProxy:
+        cpu: 200m
+        memory: 64Mi
+      opa:
+        cpu: 500m
+        memory: 128Mi
   # Pod Security Admission labels set on every tenant namespace.
   tenantPodSecurity:
     enforce: restricted

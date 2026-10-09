@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -248,4 +249,58 @@ func containerNames(pod *corev1.Pod) []string {
 
 func containsArg(args []string, want string) bool {
 	return slices.Contains(args, want)
+}
+
+// A sandbox pod's sidecars reserve what they can use. An agent pod keeps the usual resources.
+func TestMutate_PinsSandboxSidecars(t *testing.T) {
+	m := testMutator()
+	m.Config.IdentityProxyResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+	}
+	m.Config.SandboxSidecars = SandboxSidecars{
+		IstioProxy:    corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
+		IdentityProxy: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m"), corev1.ResourceMemory: resource.MustParse("64Mi")},
+		OPA:           corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
+	}
+	containerOf := func(pod *corev1.Pod, name string) corev1.Container {
+		for _, c := range pod.Spec.Containers {
+			if c.Name == name {
+				return c
+			}
+		}
+		t.Fatalf("no %s container", name)
+		return corev1.Container{}
+	}
+
+	sandbox := sandboxLikePod()
+	if err := m.mutate(sandbox, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	for name, cpu := range map[string]string{containerIdentityProxy: "200m", containerOPA: "500m"} {
+		r := containerOf(sandbox, name).Resources
+		if r.Requests.Cpu().String() != cpu || r.Limits.Cpu().String() != cpu || r.Requests.Memory().Cmp(*r.Limits.Memory()) != 0 {
+			t.Errorf("%s resources = %+v, want requests equal to limits at %s CPU", name, r, cpu)
+		}
+	}
+	for key, want := range map[string]string{
+		podAnnotationProxyCPU: "200m", podAnnotationProxyCPULimit: "200m",
+		podAnnotationProxyMemory: "128Mi", podAnnotationProxyMemoryLimit: "128Mi",
+	} {
+		if got := sandbox.Annotations[key]; got != want {
+			t.Errorf("annotation %s = %q, want %q", key, got, want)
+		}
+	}
+
+	agent := sandboxLikePod()
+	agent.Labels = map[string]string{}
+	if err := m.mutate(agent, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	if r := containerOf(agent, containerIdentityProxy).Resources; r.Requests.Cpu().String() != "50m" {
+		t.Errorf("agent identity-proxy requests = %+v, want the usual 50m", r.Requests)
+	}
+	if _, ok := agent.Annotations[podAnnotationProxyCPU]; ok {
+		t.Errorf("agent pod carries %s, want no istio-proxy pin", podAnnotationProxyCPU)
+	}
 }

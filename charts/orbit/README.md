@@ -340,6 +340,7 @@ Kubernetes: `>=1.34.0-0`
 | operator.injection.opa.resources.limits.memory | string | `"128Mi"` |  |
 | operator.injection.opa.resources.requests.cpu | string | `"50m"` |  |
 | operator.injection.opa.resources.requests.memory | string | `"64Mi"` |  |
+| operator.injection.sandboxSidecars | object | `{"identityProxy":{"cpu":"200m","memory":"64Mi"},"istioProxy":{"cpu":"200m","memory":"128Mi"},"opa":{"cpu":"500m","memory":"128Mi"}}` | Resources of each sidecar on a sandbox pod, set as both requests and limits so the pod reserves what it can use. An environment's size is what the sandbox's own container gets, and these sit on top of it. |
 | operator.leaderElection | bool | `true` |  |
 | operator.nodeSelector | object | `{}` |  |
 | operator.podAnnotations | object | `{}` |  |
