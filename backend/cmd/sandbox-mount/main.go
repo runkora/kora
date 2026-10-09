@@ -1,3 +1,5 @@
+//go:build linux
+
 // Command sandbox-mount is the node agent that shares each sandbox's local
 // folder with its session-manager pod (docs/adr/2026-10-08-sandbox-workspace-mount.md).
 //

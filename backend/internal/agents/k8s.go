@@ -14,8 +14,8 @@ import (
 
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
+	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
-	sandboxmount "github.com/clear-route/orbit/internal/agents/sandbox/mount"
 	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -532,7 +532,7 @@ func (p *K8sProvisioner) ProvisionSandbox(ctx context.Context, run Run, agentTyp
 	}
 	sandbox := Sandbox{Endpoint: endpoint, ExecToken: liveToken, Created: created}
 	// A pod created before the feature was on has no folder, and nothing will mount it.
-	if p.cfg.SandboxMount && ready.Annotations[sandboxmount.WorkspacePodAnnotation] != "" {
+	if p.cfg.SandboxMount && ready.Annotations[sandboxfolder.WorkspacePodAnnotation] != "" {
 		sandbox.Folder = string(ready.UID)
 	}
 	return sandbox, nil
@@ -622,7 +622,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 	if err != nil {
 		return nil, err
 	}
-	podName := sandboxmount.SandboxPodName(run.ID)
+	podName := sandboxfolder.SandboxPodName(run.ID)
 	// PVC name follows StatefulSet volumeClaimTemplate convention:
 	// {volumeName}-{statefulSetName}-{ordinal}
 	workspacesPVC := fmt.Sprintf("workspaces-%s-%d", agentTypeSlug, run.PodOrdinal)
@@ -683,7 +683,7 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 
 	if p.cfg.SandboxMount {
 		// The node agent mounts the sandbox folder into this session-manager pod.
-		annotations[sandboxmount.WorkspacePodAnnotation] = fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal)
+		annotations[sandboxfolder.WorkspacePodAnnotation] = fmt.Sprintf("%s-%d", agentTypeSlug, run.PodOrdinal)
 	}
 
 	pod := &corev1.Pod{
@@ -794,7 +794,7 @@ func (p *K8sProvisioner) DeleteSandbox(ctx context.Context, runID, namespace str
 	)
 	defer span.End()
 
-	podName := sandboxmount.SandboxPodName(runID)
+	podName := sandboxfolder.SandboxPodName(runID)
 	p.logger.Info(ctx, "Deleting sandbox pod",
 		logging.Field{Key: "run_id", Value: runID},
 		logging.Field{Key: "pod", Value: podName},
@@ -1059,7 +1059,7 @@ const (
 	scratchVarTmpVolume = "scratch-var-tmp"
 	scratchHomeVolume   = "scratch-home"
 	// localDiskVolume holds the sandbox's HOME, TMPDIR, build caches, tool installs and its working folder on the node's disk.
-	localDiskVolume = sandboxmount.Volume
+	localDiskVolume = sandboxfolder.Volume
 	// localTmpSubPath is the local disk's directory mounted at /tmp.
 	localTmpSubPath = ".tmp"
 	// localHomeSubPath is the local disk's directory mounted as HOME. It sits beside
@@ -1126,7 +1126,7 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 	}
 	if cfg.SandboxMount {
 		// The working folder, which the node agent mounts at the same path in the session-manager pod.
-		mounts = append(mounts, corev1.VolumeMount{Name: localDiskVolume, MountPath: filepath.Join(workspaceDir, sandboxmount.Dir), SubPath: sandboxmount.Dir})
+		mounts = append(mounts, corev1.VolumeMount{Name: localDiskVolume, MountPath: filepath.Join(workspaceDir, sandboxfolder.Dir), SubPath: sandboxfolder.Dir})
 	}
 	if egressGatewayURL(cfg) != "" {
 		mounts = append(mounts,
@@ -2149,7 +2149,7 @@ func (p *K8sProvisioner) SandboxEnvironment(ctx context.Context, runID, namespac
 
 // sandboxPod returns the run's sandbox pod, or nil when there is none.
 func (p *K8sProvisioner) sandboxPod(ctx context.Context, runID, namespace string) (*corev1.Pod, error) {
-	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, sandboxmount.SandboxPodName(runID), metav1.GetOptions{})
+	pod, err := p.client.CoreV1().Pods(namespace).Get(ctx, sandboxfolder.SandboxPodName(runID), metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
 		return nil, nil
 	}

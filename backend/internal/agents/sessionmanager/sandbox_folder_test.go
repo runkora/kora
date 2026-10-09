@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	sandboxmount "github.com/clear-route/orbit/internal/agents/sandbox/mount"
+	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -124,17 +124,17 @@ func TestAwaitSandboxFolder_EndsOnLastingReport(t *testing.T) {
 	reg.workspaces = t.TempDir()
 	reg.folderWait = 5 * time.Second
 	reg.reportGrace = 300 * time.Millisecond
-	report := filepath.Join(reg.workspaces, sandboxmount.ReportDir, "run-1")
+	report := filepath.Join(reg.workspaces, sandboxfolder.ReportDir, "run-1")
 	if err := os.MkdirAll(filepath.Dir(report), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(report, []byte("old-uid\n"+sandboxmount.ReasonUnreachable+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(report, []byte("old-uid\n"+sandboxfolder.ReasonUnreachable+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := reg.mountFailure("run-1", "pod-uid"); got != "" {
 		t.Errorf("mountFailure with a stale report = %q", got)
 	}
-	if err := os.WriteFile(report, []byte("pod-uid\n"+sandboxmount.ReasonUnreachable+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(report, []byte("pod-uid\n"+sandboxfolder.ReasonUnreachable+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	start := time.Now()
@@ -153,11 +153,11 @@ func TestAwaitSandboxFolder_IgnoresTransientReport(t *testing.T) {
 	reg.workspaces = t.TempDir()
 	reg.folderWait = 5 * time.Second
 	reg.reportGrace = 2 * time.Second
-	report := filepath.Join(reg.workspaces, sandboxmount.ReportDir, "run-1")
+	report := filepath.Join(reg.workspaces, sandboxfolder.ReportDir, "run-1")
 	if err := os.MkdirAll(filepath.Dir(report), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(report, []byte("pod-uid\n"+sandboxmount.ReasonUnreachable+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(report, []byte("pod-uid\n"+sandboxfolder.ReasonUnreachable+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	go func() {
@@ -175,13 +175,13 @@ func TestAwaitSandboxFolder_IgnoresTransientReport(t *testing.T) {
 func TestMountFailure_RunFacingTextNamesNoNode(t *testing.T) {
 	reg := folderRegistry(t, "")
 	reg.workspaces = t.TempDir()
-	report := filepath.Join(reg.workspaces, sandboxmount.ReportDir, "run-1")
+	report := filepath.Join(reg.workspaces, sandboxfolder.ReportDir, "run-1")
 	if err := os.MkdirAll(filepath.Dir(report), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, content := range []string{
-		"pod-uid\n" + sandboxmount.ReasonUnreachable + "\n",
-		"pod-uid\n" + sandboxmount.ReasonMountFailed + "\n",
+		"pod-uid\n" + sandboxfolder.ReasonUnreachable + "\n",
+		"pod-uid\n" + sandboxfolder.ReasonMountFailed + "\n",
 		"pod-uid\nnode ip-10-0-2-36 at 10.0.2.36 refused TCP 20490 on /var/lib/kubelet/pods/x\n",
 	} {
 		if err := os.WriteFile(report, []byte(content), 0o644); err != nil {
@@ -203,7 +203,7 @@ func TestMountFailure_RunFacingTextNamesNoNode(t *testing.T) {
 func TestWriteSandboxError_FolderReason(t *testing.T) {
 	c := &Controller{logger: logging.NewLoggerWithOutput(io.Discard)}
 	rec := httptest.NewRecorder()
-	c.writeSandboxError(context.Background(), rec, "run-1", fmt.Errorf("%w: %s", errSandboxFolder, mountFailureText[sandboxmount.ReasonUnreachable]), "failed to provision sandbox")
+	c.writeSandboxError(context.Background(), rec, "run-1", fmt.Errorf("%w: %s", errSandboxFolder, mountFailureText[sandboxfolder.ReasonUnreachable]), "failed to provision sandbox")
 	if rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "cannot reach the NFS port on the sandbox node") {
 		t.Errorf("response = %d %s, want 503 with the reason", rec.Code, rec.Body.String())
 	}

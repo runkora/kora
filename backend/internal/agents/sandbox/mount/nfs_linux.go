@@ -3,10 +3,10 @@
 package mount
 
 import (
-	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -214,15 +214,15 @@ func makeExportDir(dst string) error {
 
 // Mounts returns the sandbox folder mounts under the kubelet's pod directory.
 func (c Client) Mounts() (map[string]string, error) {
-	infos, err := mountInfo()
+	infos, err := readMountInfo("/proc/self/mountinfo")
 	if err != nil {
 		return nil, err
 	}
 	pods := filepath.Join(c.KubeletDir, "pods") + "/"
 	out := map[string]string{}
 	for _, m := range infos {
-		if strings.HasPrefix(m.point, pods) && filepath.Base(m.point) == Dir {
-			out[m.point] = m.source
+		if strings.HasPrefix(m.Point, pods) && filepath.Base(m.Point) == folder.Dir {
+			out[m.Point] = m.Source
 		}
 	}
 	return out, nil
@@ -285,7 +285,7 @@ func (c Client) Report(volumeDir, runID, content string) error {
 	}
 	defer unix.Close(vol)
 	if content == "" {
-		dir, oerr := openAt(vol, ReportDir)
+		dir, oerr := openAt(vol, folder.ReportDir)
 		if errors.Is(oerr, unix.ENOENT) {
 			return nil
 		}
@@ -295,10 +295,10 @@ func (c Client) Report(volumeDir, runID, content string) error {
 		defer unix.Close(dir)
 		return ignoreMissing(unix.Unlinkat(dir, runID, 0))
 	}
-	if merr := unix.Mkdirat(vol, ReportDir, 0o755); merr != nil && !errors.Is(merr, unix.EEXIST) {
-		return fmt.Errorf("create %s: %w", ReportDir, merr)
+	if merr := unix.Mkdirat(vol, folder.ReportDir, 0o755); merr != nil && !errors.Is(merr, unix.EEXIST) {
+		return fmt.Errorf("create %s: %w", folder.ReportDir, merr)
 	}
-	dir, err := openAt(vol, ReportDir)
+	dir, err := openAt(vol, folder.ReportDir)
 	if err != nil {
 		return err
 	}
@@ -376,18 +376,10 @@ func (c Client) Release(podUIDs []string, sources map[string]bool) error {
 		dirs = append(dirs, filepath.Join(c.HostKubeletDir, "pods", uid)+"/")
 	}
 	return inHostMountNS(func() error {
-		f, err := os.Open("/proc/thread-self/mountinfo")
+		entries, err := readMountInfo("/proc/thread-self/mountinfo")
 		if err != nil {
 			return err
 		}
-		var entries []mountEntry
-		sc := bufio.NewScanner(f)
-		for sc.Scan() {
-			if e, ok := parseMountInfo(sc.Text()); ok {
-				entries = append(entries, e)
-			}
-		}
-		_ = f.Close()
 		var errs []error
 		for _, dir := range dirs {
 			for _, p := range copiesUnder(entries, []string{dir}, sources) {
@@ -473,28 +465,23 @@ func openBeneath(root, path string) (int, error) {
 	return fd, nil
 }
 
-func mountInfo() ([]mountEntry, error) {
-	f, err := os.Open("/proc/self/mountinfo")
+// readMountInfo lists the mounts in a mountinfo file.
+func readMountInfo(path string) ([]folder.MountEntry, error) {
+	f, err := os.Open(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	defer f.Close()
-	var out []mountEntry
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		if m, ok := parseMountInfo(sc.Text()); ok {
-			out = append(out, m)
-		}
-	}
-	return out, sc.Err()
+	return folder.ReadMountInfo(f)
 }
 
+// mounted reports whether a mount sits at path in this container.
 func mounted(path string) bool {
-	infos, err := mountInfo()
+	infos, err := readMountInfo("/proc/self/mountinfo")
 	if err != nil {
 		return false
 	}
-	return slices.ContainsFunc(infos, func(m mountEntry) bool { return m.point == path })
+	return slices.ContainsFunc(infos, func(m folder.MountEntry) bool { return m.Point == path })
 }
 
 // exportLines renders the exports table. Each client node gets its own NFSv4
@@ -523,19 +510,19 @@ type propagated struct{ point, parentPoint string }
 // with the mounts they sit on. These are copies the host propagated into other
 // binds of a session-manager's volume, such as a co-located sandbox pod's.
 // Only copies of the given sources, which are the node agent's own mounts, count.
-func copiesUnder(entries []mountEntry, podDirs []string, sources map[string]bool) []propagated {
+func copiesUnder(entries []folder.MountEntry, podDirs []string, sources map[string]bool) []propagated {
 	points := make(map[string]string, len(entries))
 	for _, e := range entries {
-		points[e.id] = e.point
+		points[e.ID] = e.Point
 	}
 	var out []propagated
 	for _, e := range entries {
-		if e.fstype != "nfs4" || filepath.Base(e.point) != Dir || !sources[e.source] {
+		if e.FSType != "nfs4" || filepath.Base(e.Point) != folder.Dir || !sources[e.Source] {
 			continue
 		}
 		for _, dir := range podDirs {
-			if strings.HasPrefix(e.point, dir) && points[e.parent] != "" {
-				out = append(out, propagated{point: e.point, parentPoint: points[e.parent]})
+			if strings.HasPrefix(e.Point, dir) && points[e.Parent] != "" {
+				out = append(out, propagated{point: e.Point, parentPoint: points[e.Parent]})
 				break
 			}
 		}

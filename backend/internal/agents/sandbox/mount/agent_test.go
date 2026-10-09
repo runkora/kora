@@ -1,8 +1,11 @@
+//go:build linux
+
 package mount
 
 import (
 	"context"
 	"errors"
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"io"
 	"maps"
 	"path/filepath"
@@ -213,7 +216,7 @@ func TestReconcile_IgnoresUnpairedSandboxes(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}}
 	a, e := newTestAgent(t, "node-a", m, nil)
 	unannotated := sandboxPod("node-a", "10.0.0.1")
-	delete(unannotated.Annotations, WorkspacePodAnnotation)
+	delete(unannotated.Annotations, folder.WorkspacePodAnnotation)
 
 	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1"), unannotated}, lookup()); err != nil {
 		t.Fatalf("Reconcile: %v", err)
@@ -279,7 +282,7 @@ func TestReconcile_ReportsUnreachableNFSPort(t *testing.T) {
 		t.Errorf("dialed %q, mounted %v", dialed, m.mounted)
 	}
 	// The report carries a reason code only. The nodes and the port stay in the agent's error and log.
-	if got, want := m.reports["run-1"], string(sb.UID)+"\n"+ReasonUnreachable+"\n"; got != want {
+	if got, want := m.reports["run-1"], string(sb.UID)+"\n"+folder.ReasonUnreachable+"\n"; got != want {
 		t.Errorf("report = %q, want %q", got, want)
 	}
 	for _, leak := range []string{"node-a", "node-b", "10.0.0.1", "10.0.0.2", "20490"} {

@@ -1,3 +1,5 @@
+//go:build linux
+
 package mount
 
 // ServerConfig holds the kernel NFS server settings.

@@ -1,9 +1,12 @@
+//go:build linux
+
 package mount
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"maps"
 	"net"
 	"path/filepath"
@@ -60,7 +63,7 @@ func (a *Agent) Reconcile(ctx context.Context, sandboxes, workspaces []*corev1.P
 	}
 	var pairs []pair
 	for _, sb := range sandboxes {
-		name := sb.Annotations[WorkspacePodAnnotation]
+		name := sb.Annotations[folder.WorkspacePodAnnotation]
 		if name == "" {
 			continue
 		}
@@ -119,7 +122,7 @@ func (a *Agent) syncMounts(ctx context.Context, targets []target) error {
 			errs = append(errs, fmt.Errorf("resolve workspace of run %s: %w", t.runID, err))
 			continue
 		}
-		want[filepath.Join(dir, t.runID, Dir)] = wanted{target: t, volumeDir: dir}
+		want[filepath.Join(dir, t.runID, folder.Dir)] = wanted{target: t, volumeDir: dir}
 	}
 	for path, source := range a.ledger.snapshot() {
 		if w, ok := want[path]; ok && w.source == source {
@@ -157,10 +160,10 @@ func (a *Agent) mountOne(ctx context.Context, path string, w wanted) error {
 	// The nodes and the port go to this agent's log for the operator. The run's report carries only a reason code.
 	if err := a.reach(ctx, net.JoinHostPort(w.serverIP, strconv.Itoa(a.cfg.Port))); err != nil {
 		msg := fmt.Sprintf("node %s cannot reach the NFS server on node %s on TCP port %d. Allow TCP %d from %s to %s", w.clientNode, w.serverNode, a.cfg.Port, a.cfg.Port, w.clientNode, w.serverNode)
-		return errors.Join(fmt.Errorf("%s: %w", msg, err), a.report(w, ReasonUnreachable))
+		return errors.Join(fmt.Errorf("%s: %w", msg, err), a.report(w, folder.ReasonUnreachable))
 	}
-	if err := a.mounts.Mount(w.source, w.volumeDir, filepath.Join(w.runID, Dir)); err != nil {
-		return errors.Join(fmt.Errorf("node %s could not mount %s from node %s on %s: %w", w.clientNode, w.source, w.serverNode, path, err), a.report(w, ReasonMountFailed))
+	if err := a.mounts.Mount(w.source, w.volumeDir, filepath.Join(w.runID, folder.Dir)); err != nil {
+		return errors.Join(fmt.Errorf("node %s could not mount %s from node %s on %s: %w", w.clientNode, w.source, w.serverNode, path, err), a.report(w, folder.ReasonMountFailed))
 	}
 	a.ledger.entries[path] = w.source
 	a.logger.Info(ctx, "Mounted sandbox folder", logging.Field{Key: "run_id", Value: w.runID}, logging.Field{Key: "source", Value: w.source})

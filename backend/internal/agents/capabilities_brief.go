@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	sandboxmount "github.com/clear-route/orbit/internal/agents/sandbox/mount"
+	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
 
 // renderCapabilitiesBrief renders the "Runtime environment" section appended to
@@ -80,7 +80,7 @@ func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string, sandb
 	b.WriteString("Work in your workspace `" + workspaceDir + "` (also `$WORKSPACE`, your working directory). Bash and your file tools see the same files there, with or without a sandbox, and they persist for the whole run, including across a sandbox restart. Pass files between Bash and your file tools only through the workspace.\n")
 	if sandboxFolder {
 		// The sandbox's local disk, mounted into the agent pod by the sandbox-mount node agent.
-		b.WriteString("Starting a sandbox gives you a working folder at `" + filepath.Join(workspaceDir, sandboxmount.Dir) + "`. Do all your work there from then on: create and edit files, clone repos, install, build and run commands. Your file tools and the sandbox see the same files in that folder. The folder and its contents last as long as the sandbox.\n")
+		b.WriteString("Starting a sandbox gives you a working folder at `" + filepath.Join(workspaceDir, sandboxfolder.Dir) + "`. Do all your work there from then on: create and edit files, clone repos, install, build and run commands. Your file tools and the sandbox see the same files in that folder. The folder and its contents last as long as the sandbox.\n")
 	}
 	b.WriteString("Your home directory `~` and `$TMPDIR` are scratch space for Bash. In a sandbox they are on the sandbox's local disk: your file tools cannot see them, and a new or replaced sandbox starts with a fresh `~` and `$TMPDIR`. ")
 	b.WriteString("`/tmp` is not available to your file tools. Clone repositories, and write generated files and request bodies, into the workspace.\n")

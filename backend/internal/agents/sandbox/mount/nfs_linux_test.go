@@ -4,6 +4,7 @@ package mount
 
 import (
 	"errors"
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"os"
 	"path/filepath"
 	"slices"
@@ -188,10 +189,9 @@ func TestCopiesUnder(t *testing.T) {
 		// A lookalike the agent did not make: right place and name, a source not in its ledger.
 		"31 10 0:4 / /k/pods/sb-a/volumes/kubernetes.io~local-volume/pv/run-c/sandbox rw - nfs4 10.0.0.1:/forged rw",
 	}, "\n")
-	var entries []mountEntry
-	for _, l := range strings.Split(info, "\n") {
-		e, _ := parseMountInfo(l)
-		entries = append(entries, e)
+	entries, err := folder.ReadMountInfo(strings.NewReader(info))
+	if err != nil {
+		t.Fatal(err)
 	}
 	got := copiesUnder(entries, []string{"/k/pods/sb-a/"}, map[string]bool{"10.0.0.1:/sb-b": true})
 	want := []propagated{{point: "/k/pods/sb-a/volumes/kubernetes.io~local-volume/pv/run-b/sandbox", parentPoint: "/k/pods/sb-a/volumes/kubernetes.io~local-volume/pv"}}
@@ -212,21 +212,21 @@ func TestReport(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, err := os.ReadFile(filepath.Join(vol, ReportDir, "run-1"))
+	got, err := os.ReadFile(filepath.Join(vol, folder.ReportDir, "run-1"))
 	if err != nil || string(got) != "uid-2\nsecond\n" {
 		t.Errorf("report = %q, %v", got, err)
 	}
 	if err := c.Report(vol, "run-1", ""); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(vol, ReportDir, "run-1")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(vol, folder.ReportDir, "run-1")); !os.IsNotExist(err) {
 		t.Errorf("report still present: %v", err)
 	}
 
 	outside := t.TempDir()
 	vol2 := filepath.Join(kubelet, "pods", "ws2", "volumes", "kubernetes.io~local-volume", "pv")
 	mkdirs(t, vol2)
-	symlink(t, outside, filepath.Join(vol2, ReportDir))
+	symlink(t, outside, filepath.Join(vol2, folder.ReportDir))
 	if err := c.Report(vol2, "run-1", "uid\nx\n"); err == nil {
 		t.Error("Report wrote through a symlinked report directory")
 	}

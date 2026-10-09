@@ -1,6 +1,9 @@
+//go:build linux
+
 package mount
 
 import (
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -13,8 +16,8 @@ func sandboxPod(node, hostIP string) *corev1.Pod {
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: "sandbox-run-1", Namespace: "tenant", UID: types.UID("0d6f0f3e-1111-4a8b-9c2d-000000000001"),
-			Labels:      map[string]string{RunIDLabel: "run-1"},
-			Annotations: map[string]string{WorkspacePodAnnotation: "agent-0"},
+			Labels:      map[string]string{folder.RunIDLabel: "run-1"},
+			Annotations: map[string]string{folder.WorkspacePodAnnotation: "agent-0"},
 		},
 		Spec: corev1.PodSpec{
 			NodeName:        node,
@@ -75,11 +78,11 @@ func TestPlan_SkipsUnusablePods(t *testing.T) {
 		"sandbox pending":      func(sb, _ *corev1.Pod) { sb.Status.Phase = corev1.PodPending },
 		"sandbox failed":       func(sb, _ *corev1.Pod) { sb.Status.Phase = corev1.PodFailed },
 		"workspace no host IP": func(_, ws *corev1.Pod) { ws.Status.HostIP = "" },
-		"run ID escapes":       func(sb, _ *corev1.Pod) { sb.Labels[RunIDLabel] = "../other" },
-		"run ID dot-dot":       func(sb, _ *corev1.Pod) { sb.Labels[RunIDLabel] = ".." },
-		"no run ID":            func(sb, _ *corev1.Pod) { delete(sb.Labels, RunIDLabel) },
+		"run ID escapes":       func(sb, _ *corev1.Pod) { sb.Labels[folder.RunIDLabel] = "../other" },
+		"run ID dot-dot":       func(sb, _ *corev1.Pod) { sb.Labels[folder.RunIDLabel] = ".." },
+		"no run ID":            func(sb, _ *corev1.Pod) { delete(sb.Labels, folder.RunIDLabel) },
 		// A pod labelled with another run's ID does not carry that run's sandbox name.
-		"claims another run": func(sb, _ *corev1.Pod) { sb.Labels[RunIDLabel] = "run-2" },
+		"claims another run": func(sb, _ *corev1.Pod) { sb.Labels[folder.RunIDLabel] = "run-2" },
 		// A pod that names a session-manager whose workspace claim it does not mount.
 		"another workspace":  func(_, ws *corev1.Pod) { ws.Name = "agent-1" },
 		"no workspace claim": func(sb, _ *corev1.Pod) { sb.Spec.Volumes = nil },

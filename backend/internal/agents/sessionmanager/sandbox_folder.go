@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	sandboxmount "github.com/clear-route/orbit/internal/agents/sandbox/mount"
+	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
 
 // sandboxFolderFile in the sandbox descriptor folder holds the UID of the sandbox pod whose folder is mounted.
@@ -37,7 +37,7 @@ func (reg *Registry) awaitFolderOrFail(ctx context.Context, runID, podUID string
 // mounting the run's folder from the given sandbox pod, or empty. A report about
 // another sandbox is ignored, and the report's own text never reaches the run.
 func (reg *Registry) mountFailure(runID, podUID string) string {
-	data, err := os.ReadFile(filepath.Join(reg.workspaces, sandboxmount.ReportDir, runID))
+	data, err := os.ReadFile(filepath.Join(reg.workspaces, sandboxfolder.ReportDir, runID))
 	if err != nil {
 		return ""
 	}
@@ -48,7 +48,7 @@ func (reg *Registry) mountFailure(runID, podUID string) string {
 	if text, ok := mountFailureText[strings.TrimSpace(code)]; ok {
 		return text
 	}
-	return mountFailureText[sandboxmount.ReasonMountFailed]
+	return mountFailureText[sandboxfolder.ReasonMountFailed]
 }
 
 // errSandboxFolder reports a sandbox whose working folder the node agent did not mount in time.
@@ -64,8 +64,8 @@ const (
 
 // mountFailureText is what the run sees for each reason the node agent reports. It names no node, address or port.
 var mountFailureText = map[string]string{
-	sandboxmount.ReasonUnreachable: "the node agent cannot reach the NFS port on the sandbox node",
-	sandboxmount.ReasonMountFailed: "the node agent could not mount the sandbox folder",
+	sandboxfolder.ReasonUnreachable: "the node agent cannot reach the NFS port on the sandbox node",
+	sandboxfolder.ReasonMountFailed: "the node agent could not mount the sandbox folder",
 }
 
 // awaitSandboxFolder waits until the run's sandbox folder is mounted from the
@@ -74,7 +74,7 @@ var mountFailureText = map[string]string{
 // When the node agent keeps reporting why it cannot mount this sandbox's folder,
 // the wait ends with that reason once the report outlasts sandboxReportGrace.
 func (reg *Registry) awaitSandboxFolder(ctx context.Context, runID, podUID string) error {
-	point := filepath.Join(reg.workspaces, runID, sandboxmount.Dir)
+	point := filepath.Join(reg.workspaces, runID, sandboxfolder.Dir)
 	ctx, cancel := context.WithTimeout(ctx, reg.folderWait)
 	defer cancel()
 	tick := time.NewTicker(sandboxFolderPoll)
@@ -82,7 +82,7 @@ func (reg *Registry) awaitSandboxFolder(ctx context.Context, runID, podUID strin
 	var reportedAt time.Time
 	for {
 		if f, err := os.Open(reg.mountInfo); err == nil {
-			source := sandboxmount.SourceAt(f, point)
+			source := sandboxfolder.SourceAt(f, point)
 			_ = f.Close()
 			if strings.HasSuffix(source, ":/"+podUID) {
 				return nil

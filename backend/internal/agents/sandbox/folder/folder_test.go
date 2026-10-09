@@ -1,19 +1,17 @@
-package mount
+package folder
 
 import (
 	"strings"
 	"testing"
 )
 
-func TestParseMountInfo(t *testing.T) {
-	line := `6275 7156 0:1649 / /var/lib/kubelet/pods/u/volumes/kubernetes.io~local-volume/pv\040x/run/sandbox rw,relatime shared:903 - nfs4 172.19.0.7:/run rw,vers=4.2,soft`
-	got, ok := parseMountInfo(line)
-	want := mountEntry{id: "6275", parent: "7156", point: "/var/lib/kubelet/pods/u/volumes/kubernetes.io~local-volume/pv x/run/sandbox", fstype: "nfs4", source: "172.19.0.7:/run"}
-	if !ok || got != want {
-		t.Errorf("parseMountInfo = %+v, %v, want %+v", got, ok, want)
-	}
-	if _, ok := parseMountInfo("garbage"); ok {
-		t.Error("parseMountInfo accepted a line without a separator")
+func TestReadMountInfo(t *testing.T) {
+	info := `6275 7156 0:1649 / /var/lib/kubelet/pods/u/volumes/kubernetes.io~local-volume/pv\040x/run/sandbox rw,relatime shared:903 - nfs4 172.19.0.7:/run rw,vers=4.2,soft
+garbage`
+	got, err := ReadMountInfo(strings.NewReader(info))
+	want := MountEntry{ID: "6275", Parent: "7156", Point: "/var/lib/kubelet/pods/u/volumes/kubernetes.io~local-volume/pv x/run/sandbox", FSType: "nfs4", Source: "172.19.0.7:/run"}
+	if err != nil || len(got) != 1 || got[0] != want {
+		t.Errorf("ReadMountInfo = %+v, %v, want only %+v", got, err, want)
 	}
 }
 

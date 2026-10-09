@@ -1,3 +1,5 @@
+//go:build linux
+
 // Package mount shares a sandbox's local folder with its session-manager pod
 // over kernel NFS (docs/adr/2026-10-08-sandbox-workspace-mount.md). orbit-agents
 // marks the sandbox pod, and the node agent on each node exports or mounts the
@@ -12,35 +14,13 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
 
-// The contract between orbit-agents, which builds the pods, and the node agent.
-const (
-	// WorkspacePodAnnotation on a sandbox pod names the session-manager pod, in
-	// the same namespace, whose workspace receives the sandbox's folder.
-	WorkspacePodAnnotation = "orbit.io/workspace-pod"
-	// RunIDLabel carries the sandbox's run ID, which names its workspace directory.
-	RunIDLabel = "orbit.io/run-id"
-	// Volume is the sandbox pod's local disk, and Dir is the folder in it that
-	// both pods see at /workspaces/<run>/sandbox.
-	Volume = "local-disk"
-	Dir    = "sandbox"
-	// ReportDir, in the root of a session-manager's workspace volume, holds one file
-	// per run whose folder could not be mounted: the sandbox pod's UID, then the reason.
-	// Runs cannot write the volume root.
-	ReportDir = ".sandbox-mount"
-	// ReasonUnreachable and ReasonMountFailed are the reasons a report carries. They
-	// name no node, address or port, and the session-manager maps them to fixed text.
-	ReasonUnreachable = "nfs-port-unreachable"
-	ReasonMountFailed = "mount-failed"
-	// workspaceClaimPrefix starts the name of a session-manager pod's workspace
-	// claim: the StatefulSet's volumeClaimTemplate name, then the pod name.
-	workspaceClaimPrefix = "workspaces-"
-)
-
-// SandboxPodName is the name orbit-agents gives a run's sandbox pod. Names are
-// unique in a namespace, so at most one pod can claim a run's folder.
-func SandboxPodName(runID string) string { return "sandbox-" + runID }
+// workspaceClaimPrefix starts the name of a session-manager pod's workspace claim:
+// the StatefulSet's volumeClaimTemplate name, then the pod name.
+const workspaceClaimPrefix = "workspaces-"
 
 // export is one sandbox folder this node serves.
 type export struct {
@@ -80,7 +60,7 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 	var exports []export
 	var targets []target
 	for _, p := range pairs {
-		runID := p.sandbox.Labels[RunIDLabel]
+		runID := p.sandbox.Labels[folder.RunIDLabel]
 		if !live(p.sandbox) || !live(p.workspace) || !singleSegment(runID) || !owns(p, runID) || !isIP(p.sandbox.Status.HostIP) || !isIP(p.workspace.Status.HostIP) || !podUID.MatchString(string(p.sandbox.UID)) || !podUID.MatchString(string(p.workspace.UID)) {
 			continue
 		}
@@ -89,7 +69,7 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 			if uid, gid, ok := runAs(p.sandbox); ok {
 				exports = append(exports, export{
 					name:   name,
-					path:   filepath.Join(kubeletDir, "pods", name, "volumes", "kubernetes.io~empty-dir", Volume, Dir),
+					path:   filepath.Join(kubeletDir, "pods", name, "volumes", "kubernetes.io~empty-dir", folder.Volume, folder.Dir),
 					client: p.workspace.Status.HostIP,
 					uid:    uid,
 					gid:    gid,
@@ -116,7 +96,7 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 // mounts that pod's workspace claim. A pod that claims another run's folder, or
 // another session-manager's workspace, gets nothing.
 func owns(p pair, runID string) bool {
-	if p.sandbox.Name != SandboxPodName(runID) || p.sandbox.Namespace != p.workspace.Namespace {
+	if p.sandbox.Name != folder.SandboxPodName(runID) || p.sandbox.Namespace != p.workspace.Namespace {
 		return false
 	}
 	return slices.ContainsFunc(p.sandbox.Spec.Volumes, func(v corev1.Volume) bool {
