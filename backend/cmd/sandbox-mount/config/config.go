@@ -26,6 +26,7 @@ type Config struct {
 		Threads     int    `yaml:"threads"`
 		GraceSecs   int    `yaml:"graceSecs"`
 		Port        int    `yaml:"port"`
+		TrackingDir string `yaml:"trackingDir"`
 	} `yaml:"server"`
 
 	Client struct {

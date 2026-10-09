@@ -15,6 +15,8 @@ server:
   threads: 8
   # nfsd's TCP port. NFS_PORT, set by the chart from sandboxMount.port, overrides it.
   port: 20490
+  # nfsdcld's client records, in the kubelet's plugin directory so they outlive the agent's container.
+  trackingDir: /var/lib/kubelet/plugins/orbit-sandbox-mount/nfsdcld
   # NFSv4 grace and lease time. The kernel minimum is 10.
   graceSecs: 10
 

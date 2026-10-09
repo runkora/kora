@@ -75,6 +75,7 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 		Threads:     cfg.Server.Threads,
 		GraceSecs:   cfg.Server.GraceSecs,
 		Port:        port,
+		TrackingDir: cfg.Server.TrackingDir,
 	})
 	if err != nil {
 		return fmt.Errorf("start NFS server: %w", err)
@@ -98,8 +99,8 @@ func run(ctx context.Context, cfg *sandboxMountConfig.Config, logger logging.Log
 		if ctx.Err() != nil {
 			return nil
 		}
-		// The agent cannot serve exports without mountd. Exiting restarts the container.
-		return fmt.Errorf("mountd exited: %w", err)
+		// The agent cannot serve exports without mountd and nfsdcld. Exiting restarts the container.
+		return fmt.Errorf("NFS daemon exited: %w", err)
 	case err := <-done:
 		return err
 	}

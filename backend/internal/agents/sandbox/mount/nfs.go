@@ -16,6 +16,8 @@ type ServerConfig struct {
 	GraceSecs int
 	// Port is the TCP port nfsd listens on.
 	Port int
+	// TrackingDir holds nfsdcld's client records. It must outlive the agent's container.
+	TrackingDir string
 }
 
 // Client mounts sandbox folders with the kernel NFS client.

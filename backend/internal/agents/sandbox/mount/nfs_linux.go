@@ -29,8 +29,15 @@ type Server struct {
 	applied bool
 }
 
-// StartServer starts nfsd and mountd. mountd runs until ctx ends, and its exit is reported on the returned channel.
-// nfsd threads belong to the node's kernel and keep serving across agent restarts.
+// rpcPipefs is where nfsdcld and the kernel exchange client records.
+const rpcPipefs = "/var/lib/nfs/rpc_pipefs"
+
+// StartServer starts nfsdcld, nfsd and mountd. nfsdcld and mountd run until ctx
+// ends, and the first of them to exit is reported on the returned channel. nfsd
+// threads belong to the node's kernel and keep serving across agent restarts.
+//
+// nfsdcld records NFSv4 clients in cfg.TrackingDir. Without it, nfsd cannot let
+// clients reclaim their state after it restarts, and their locks are lost.
 func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, error) {
 	if !mounted(nfsdFS) {
 		// Mounting the nfsd filesystem loads the nfsd module through the kernel's autoloader.
@@ -38,29 +45,12 @@ func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, 
 			return nil, nil, fmt.Errorf("mount nfsd filesystem: %w", err)
 		}
 	}
-	threads, err := os.ReadFile(filepath.Join(nfsdFS, "threads"))
+	cld, err := startTracking(ctx, cfg.TrackingDir)
 	if err != nil {
-		return nil, nil, fmt.Errorf("read nfsd threads: %w", err)
+		return nil, nil, err
 	}
-	ports, _ := os.ReadFile(filepath.Join(nfsdFS, "portlist"))
-	running := strings.TrimSpace(string(threads)) != "0"
-	if running && !slices.Contains(strings.Fields(string(ports)), strconv.Itoa(cfg.Port)) {
-		// nfsd from an earlier agent listens on another port. Stop it to start on the configured one.
-		if err := os.WriteFile(filepath.Join(nfsdFS, "threads"), []byte("0"), 0o600); err != nil {
-			return nil, nil, fmt.Errorf("stop nfsd: %w", err)
-		}
-		running = false
-	}
-	if !running {
-		for _, f := range []string{"nfsv4gracetime", "nfsv4leasetime"} {
-			if err := os.WriteFile(filepath.Join(nfsdFS, f), []byte(strconv.Itoa(cfg.GraceSecs)), 0o600); err != nil {
-				return nil, nil, fmt.Errorf("set %s: %w", f, err)
-			}
-		}
-		args := []string{"-N", "3", "-V", "4.2", "--no-udp", "-p", strconv.Itoa(cfg.Port), strconv.Itoa(cfg.Threads)}
-		if out, err := exec.CommandContext(ctx, "rpc.nfsd", args...).CombinedOutput(); err != nil {
-			return nil, nil, fmt.Errorf("start nfsd: %w: %s", err, out)
-		}
+	if err := startNfsd(ctx, cfg); err != nil {
+		return nil, nil, err
 	}
 	if !mounted(cfg.ExportRoot) {
 		if err := os.MkdirAll(cfg.ExportRoot, 0o750); err != nil {
@@ -76,9 +66,61 @@ func StartServer(ctx context.Context, cfg ServerConfig) (*Server, <-chan error, 
 	if err := mountd.Start(); err != nil {
 		return nil, nil, fmt.Errorf("start mountd: %w", err)
 	}
-	done := make(chan error, 1)
-	go func() { done <- mountd.Wait() }()
+	done := make(chan error, 2)
+	go func() { done <- fmt.Errorf("mountd: %w", mountd.Wait()) }()
+	go func() { done <- fmt.Errorf("nfsdcld: %w", cld.Wait()) }()
 	return s, done, nil
+}
+
+// startNfsd starts nfsd on cfg.Port unless it already runs there. nfsd on another port is stopped first.
+func startNfsd(ctx context.Context, cfg ServerConfig) error {
+	threads, err := os.ReadFile(filepath.Join(nfsdFS, "threads"))
+	if err != nil {
+		return fmt.Errorf("read nfsd threads: %w", err)
+	}
+	ports, _ := os.ReadFile(filepath.Join(nfsdFS, "portlist"))
+	running := strings.TrimSpace(string(threads)) != "0"
+	if running && !slices.Contains(strings.Fields(string(ports)), strconv.Itoa(cfg.Port)) {
+		// nfsd from an earlier agent listens on another port. Stop it to start on the configured one.
+		if err := os.WriteFile(filepath.Join(nfsdFS, "threads"), []byte("0"), 0o600); err != nil {
+			return fmt.Errorf("stop nfsd: %w", err)
+		}
+		running = false
+	}
+	if !running {
+		for _, f := range []string{"nfsv4gracetime", "nfsv4leasetime"} {
+			if err := os.WriteFile(filepath.Join(nfsdFS, f), []byte(strconv.Itoa(cfg.GraceSecs)), 0o600); err != nil {
+				return fmt.Errorf("set %s: %w", f, err)
+			}
+		}
+		args := []string{"-N", "3", "-V", "4.2", "--no-udp", "-p", strconv.Itoa(cfg.Port), strconv.Itoa(cfg.Threads)}
+		if out, err := exec.CommandContext(ctx, "rpc.nfsd", args...).CombinedOutput(); err != nil {
+			return fmt.Errorf("start nfsd: %w: %s", err, out)
+		}
+	}
+	return nil
+}
+
+// startTracking mounts rpc_pipefs and starts nfsdcld before nfsd starts, so nfsd
+// finds its client tracking daemon when it initializes.
+func startTracking(ctx context.Context, dir string) (*exec.Cmd, error) {
+	if err := os.MkdirAll(rpcPipefs, 0o755); err != nil {
+		return nil, fmt.Errorf("create rpc_pipefs mount point: %w", err)
+	}
+	if !mounted(rpcPipefs) {
+		if err := unix.Mount("sunrpc", rpcPipefs, "rpc_pipefs", 0, ""); err != nil {
+			return nil, fmt.Errorf("mount rpc_pipefs: %w", err)
+		}
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("create nfsdcld state directory: %w", err)
+	}
+	cld := exec.CommandContext(ctx, "nfsdcld", "-F", "-p", rpcPipefs, "-s", dir)
+	cld.Stdout, cld.Stderr = os.Stdout, os.Stderr
+	if err := cld.Start(); err != nil {
+		return nil, fmt.Errorf("start nfsdcld: %w", err)
+	}
+	return cld, nil
 }
 
 // Apply binds each sandbox folder under its client's root and makes the export table exactly the given set.
