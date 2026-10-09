@@ -1,11 +1,11 @@
 /**
- * A mock of the agent run page (top bar, reasoning, tool calls, reply box) assembled from Terra
+ * A mock of the agent run page (top bar, reasoning, tool calls, reply box) assembled from Hades
  * parts. No shipped component renders it yet; it shows how a run is meant to read.
  */
 
 import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
-import type { IconName } from '@orbit/terra';
+import type { IconName } from '@orbit/hades';
 import {
   Badge,
   Button,
@@ -26,7 +26,7 @@ import {
   Text,
   Textarea,
   TypingIndicator,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -496,7 +496,7 @@ const TOOLS = {
     args: { file: 'package.json' },
     status: 'done' as const,
     timing: '0.1s',
-    result: '42 lines: next.js 15, typescript, @orbit/terra',
+    result: '42 lines: next.js 15, typescript, @orbit/hades',
   },
   grep: {
     id: 't3',
@@ -592,8 +592,8 @@ function RunLayout({ isLive }: { isLive?: boolean }) {
 // ── Meta ──────────────────────────────────────────────────────────────────────
 
 /**
- * A mock of the agent run page assembled from Terra parts. The local helpers (RunTopbar,
- * ReasoningRow, ToolCard, turns, InputArea) are compositions of Terra components, not shipped UI.
+ * A mock of the agent run page assembled from Hades parts. The local helpers (RunTopbar,
+ * ReasoningRow, ToolCard, turns, InputArea) are compositions of Hades components, not shipped UI.
  */
 const meta: Meta = {
   tags: ['autodocs'],

@@ -2,7 +2,7 @@
 
 /** @tier 3 — dashboard-scoped. Light/dark theme toggle via next-themes. */
 import { useTheme } from 'next-themes';
-import { Button, Icon } from '@orbit/terra';
+import { Button, Icon } from '@orbit/hades';
 
 // Both buttons render; globals.css shows the one matching [data-theme] so the
 // control is correct at first paint without waiting for hydration.

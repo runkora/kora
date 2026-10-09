@@ -1077,9 +1077,9 @@ frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
 	@echo "$(COLOR_GREEN)✓ Frontend formatting OK$(COLOR_RESET)"
 
 .PHONY: frontend-test-unit
-frontend-test-unit: ## Run frontend unit tests (Terra first, then app)
+frontend-test-unit: ## Run frontend unit tests (Hades first, then app)
 	@echo "$(COLOR_YELLOW)Running frontend unit tests...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
 	@cd $(FRONTEND_DIR) && pnpm run test:unit
 	@echo "$(COLOR_GREEN)✓ Frontend unit tests passed$(COLOR_RESET)"
 
@@ -1089,11 +1089,11 @@ frontend-test-integration: ## Run frontend integration tests (MSW + jsdom)
 	@cd $(FRONTEND_DIR) && pnpm run test:integration
 	@echo "$(COLOR_GREEN)✓ Frontend integration tests passed$(COLOR_RESET)"
 
-.PHONY: frontend-test-terra
-frontend-test-terra: ## Run Terra component unit tests in isolation (happy-dom)
-	@echo "$(COLOR_YELLOW)Running Terra unit tests...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
-	@echo "$(COLOR_GREEN)✓ Terra unit tests passed$(COLOR_RESET)"
+.PHONY: frontend-test-hades
+frontend-test-hades: ## Run Hades component unit tests in isolation (happy-dom)
+	@echo "$(COLOR_YELLOW)Running Hades unit tests...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	@echo "$(COLOR_GREEN)✓ Hades unit tests passed$(COLOR_RESET)"
 
 .PHONY: frontend-test-e2e
 frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
@@ -1114,7 +1114,7 @@ frontend-clean: ## Remove frontend build artifacts and installed dependencies
 	@echo "$(COLOR_GREEN)✓ Frontend cleaned$(COLOR_RESET)"
 
 .PHONY: frontend-storybook
-frontend-storybook: ## Start Storybook — Terra + App/Shared components (port 6006)
+frontend-storybook: ## Start Storybook — Hades + App/Shared components (port 6006)
 	@echo "$(COLOR_YELLOW)Starting Storybook...$(COLOR_RESET)"
 	@cd $(FRONTEND_DIR) && pnpm storybook
 
@@ -1124,10 +1124,10 @@ frontend-storybook-build: ## Build Storybook as a static site
 	@cd $(FRONTEND_DIR) && pnpm build-storybook
 	@echo "$(COLOR_GREEN)✓ Storybook built$(COLOR_RESET)"
 
-.PHONY: frontend-storybook-terra
-frontend-storybook-terra: ## Start Terra-isolated Storybook (Terra package only, port 6006)
-	@echo "$(COLOR_YELLOW)Starting Terra-isolated Storybook...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra storybook
+.PHONY: frontend-storybook-hades
+frontend-storybook-hades: ## Start Hades-isolated Storybook (Hades package only, port 6006)
+	@echo "$(COLOR_YELLOW)Starting Hades-isolated Storybook...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades storybook
 
 # ===========================================
 # Cleanup

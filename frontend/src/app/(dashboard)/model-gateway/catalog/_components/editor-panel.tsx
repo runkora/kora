@@ -21,7 +21,7 @@ import {
   Toggle,
   Icon,
   ConfirmDialog,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';

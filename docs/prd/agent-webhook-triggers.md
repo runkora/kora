@@ -195,7 +195,7 @@ Implementation follows existing frontend precedents: the per-agent tab mirrors t
 - Templated-prompt run initiation via a new non-interactive run path; the run executes under the webhook source's mapped identity.
 - Durable delivery log + query API.
 - Platform-admin authorization gate on all source/trigger management.
-- REST API + management UI (Terra).
+- REST API + management UI (Hades).
 
 ### Out of Scope
 
@@ -273,7 +273,7 @@ Implementation follows existing frontend precedents: the per-agent tab mirrors t
 - **Identity & token (`internal/platform/token`)** — each webhook source is mapped to a platform identity at registration; triggered runs execute under it. *Status: principal types exist (`SERVICE`, `PAT`, etc.); the source→identity mapping is net-new.*
 - **Policy (`policy-service` / PEP)** — authorizes trigger management (platform admin) and bounds triggered-run scope. *Status: exists.*
 - **Egress credential broker (`internal/credentials`)** — used by the triggered run for outbound calls; not modified by this feature. *Status: shipped.*
-- **Frontend (Terra)** — management UI. *Status: exists.*
+- **Frontend (Hades)** — management UI. *Status: exists.*
 
 ### External Dependencies
 

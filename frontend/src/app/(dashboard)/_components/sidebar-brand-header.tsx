@@ -1,4 +1,4 @@
-import { KoraLogo, Stack } from '@orbit/terra';
+import { KoraLogo, Stack } from '@orbit/hades';
 import type { ReactNode } from 'react';
 
 /**

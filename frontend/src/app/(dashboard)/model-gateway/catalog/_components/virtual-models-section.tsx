@@ -12,7 +12,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';

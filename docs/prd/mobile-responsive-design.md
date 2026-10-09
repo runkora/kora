@@ -42,12 +42,12 @@ The `PageLayout` component renders a fixed 240 px sidebar that is always visible
 1. Make the full dashboard shell usable on phones (375 px viewport and above).
 2. Make the full dashboard shell comfortable on tablets (768 px viewport and above).
 3. Preserve the existing desktop layout (1 024 px+) without regression.
-4. Add a collapsible/drawer sidebar pattern driven by Terra components.
+4. Add a collapsible/drawer sidebar pattern driven by Hades components.
 
 ### Success Metrics
 
 - All pages render without horizontal scroll on a 390 px iPhone 14 viewport.
-- All interactive touch targets meet the WCAG 2.5.5 AAA minimum of 44 × 44 px. **(Deferred — icon-only buttons remain at Terra's 36 px `size="icon"`; bumping this is a Terra-wide change tracked as a follow-up. See the ADR Success Metrics note.)**
+- All interactive touch targets meet the WCAG 2.5.5 AAA minimum of 44 × 44 px. **(Deferred — icon-only buttons remain at Hades' 36 px `size="icon"`; bumping this is a Hades-wide change tracked as a follow-up. See the ADR Success Metrics note.)**
 - All existing desktop Playwright/Storybook tests continue to pass.
 - Lighthouse mobile score improves from current baseline.
 
@@ -57,7 +57,7 @@ The `PageLayout` component renders a fixed 240 px sidebar that is always visible
 - Offline support or PWA features.
 - Mobile-specific push notifications.
 - Redesigning the visual language or color system.
-- Rewriting or replacing the Terra design system from scratch.
+- Rewriting or replacing the Hades design system from scratch.
 
 ---
 
@@ -93,7 +93,7 @@ The `PageLayout` component renders a fixed 240 px sidebar that is always visible
 
 **Acceptance Criteria:**
 - [ ] The start-run modal is fully usable at 390 px (form fields, dropdowns, submit).
-- [ ] ~~All modal dialogs have at least 44 px touch targets for primary actions.~~ **(Deferred — Terra-wide touch-target review; icon buttons currently 36 px.)**
+- [ ] ~~All modal dialogs have at least 44 px touch targets for primary actions.~~ **(Deferred — Hades-wide touch-target review; icon buttons currently 36 px.)**
 
 ### Secondary User Stories
 
@@ -121,7 +121,7 @@ The solution is **progressive enhancement of the existing layout system** rather
 
 4. **Data tables mobile treatment** — the `DataTable` component already renders in a horizontally scrollable container (`TableRoot` carries `overflow-x-auto`). We make the locked column sticky (`sticky left-0`) so users can scroll right and still see what row they are on.
 
-5. **Touch targets** — _Deferred._ Auditing and expanding icon-button sizes to a 44 px minimum is a Terra-wide change (every `size="icon"` button in the app) and is tracked as a follow-up rather than forked locally in this pass.
+5. **Touch targets** — _Deferred._ Auditing and expanding icon-button sizes to a 44 px minimum is a Hades-wide change (every `size="icon"` button in the app) and is tracked as a follow-up rather than forked locally in this pass.
 
 ### User Experience
 
@@ -143,7 +143,7 @@ The solution is **progressive enhancement of the existing layout system** rather
 
 ### Key Components
 
-- **`PageLayout` (Terra Tier 1)**: Add responsive sidebar classes and a mobile drawer slot.
+- **`PageLayout` (Hades Tier 1)**: Add responsive sidebar classes and a mobile drawer slot.
 - **`DashboardHeader`**: Add hamburger button visible only on mobile; wire to sidebar context.
 - **`MobileSidebarDrawer` (new Tier 3)**: Slide-in overlay sidebar for mobile.
 - **`useSidebarState` hook (new Tier 3)**: Shared open/close state between the header toggle and drawer.
@@ -156,10 +156,10 @@ The solution is **progressive enhancement of the existing layout system** rather
 
 ### In Scope
 
-- `PageLayout` Terra component: responsive sidebar breakpoints + mobile drawer support.
+- `PageLayout` Hades component: responsive sidebar breakpoints + mobile drawer support.
 - `DashboardHeader`: hamburger button (mobile only).
 - All `(dashboard)` pages: grid column audit and responsive fix-ups.
-- `DataTable` Terra component: horizontal scroll wrapper + sticky locked column.
+- `DataTable` Hades component: horizontal scroll wrapper + sticky locked column.
 - Modal components: ensure full-width layout on mobile.
 - Touch target audit for all primary interactive elements.
 
@@ -168,7 +168,7 @@ The solution is **progressive enhancement of the existing layout system** rather
 - The `(chat)` layout — separate layout group, addressed in a follow-on PR.
 - Auth/login pages — already single-column and mobile-friendly.
 - Backend or API changes.
-- New Terra components beyond what is strictly required.
+- New Hades components beyond what is strictly required.
 - Advanced gestures (swipe to open sidebar).
 
 ### Future Considerations
@@ -194,7 +194,7 @@ The solution is **progressive enhancement of the existing layout system** rather
 
 **Should Have (P1):**
 - [ ] Tablet (768 px) sidebar collapses to icon-rail or stays full-width with labels.
-- [ ] ~~All touch targets ≥ 44 × 44 px on mobile.~~ **(Deferred — Terra-wide touch-target review; icon buttons currently 36 px.)**
+- [ ] ~~All touch targets ≥ 44 × 44 px on mobile.~~ **(Deferred — Hades-wide touch-target review; icon buttons currently 36 px.)**
 - [ ] Page header breadcrumbs truncate gracefully on narrow viewports.
 - [ ] Modal dialogs are full-width on mobile.
 
@@ -223,7 +223,7 @@ The solution is **progressive enhancement of the existing layout system** rather
 
 ### Internal Dependencies
 
-- **Terra design system** (`src/packages/terra/`): `PageLayout`, `Stack`, `Grid`, `DataTable`, `Modal` require modification or extension. Changes require human approval per the Terra contribution policy.
+- **Hades design system** (`src/packages/hades/`): `PageLayout`, `Stack`, `Grid`, `DataTable`, `Modal` require modification or extension. Changes require human approval per the Hades contribution policy.
 - **`DashboardHeader`** and **`DashboardSidebar`**: Client components wired together via a new context.
 
 ### External Dependencies
@@ -237,11 +237,11 @@ The solution is **progressive enhancement of the existing layout system** rather
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| Terra lint rules reject raw HTML in new components | High | High | Use Terra primitives (`Stack`, `Grid`, etc.) exclusively; no raw divs or nav elements |
+| Hades lint rules reject raw HTML in new components | High | High | Use Hades primitives (`Stack`, `Grid`, etc.) exclusively; no raw divs or nav elements |
 | Sticky column in DataTable conflicts with existing shadow/z-index | Medium | Medium | Test across Chrome, Firefox, Safari; adjust z-index tokens if needed |
 | Sidebar drawer adds re-render overhead on desktop | Low | Low | Drawer is conditionally rendered only at `< md` breakpoint; no cost on desktop |
-| ESLint `no-terra-classname` blocks responsive Tailwind on Terra components | Medium | Medium | Use Terra's responsive props (Responsive<> types) — not className |
-| Icon-rail sidebar changes Terra API surface area | Medium | Low | Implement icon-rail as a Tier 3 overlay, not modifying Terra Navigation directly |
+| ESLint `no-hades-classname` blocks responsive Tailwind on Hades components | Medium | Medium | Use Hades' responsive props (Responsive<> types) — not className |
+| Icon-rail sidebar changes Hades API surface area | Medium | Low | Implement icon-rail as a Tier 3 overlay, not modifying Hades Navigation directly |
 
 ---
 
@@ -254,14 +254,14 @@ Build a completely separate `(mobile-dashboard)` layout route group rendered onl
 **Why not chosen:**
 - Doubles the UI surface area to maintain.
 - Server-side UA sniffing is fragile and SSR-incompatible with CDN caching.
-- Does not benefit from the Terra design system's existing responsive primitives.
+- Does not benefit from the Hades design system's existing responsive primitives.
 
 ### Alternative 2: Third-party responsive sidebar library
 
 Adopt a library such as shadcn-sidebar or cmdk for the mobile drawer.
 
 **Why not chosen:**
-- kora forbids raw HTML imports and has strict Terra-only JSX rules. Bringing in a third-party sidebar would require numerous eslint-disable exemptions or rewriting the library into Terra-compatible primitives — more work than the in-house solution.
+- kora forbids raw HTML imports and has strict Hades-only JSX rules. Bringing in a third-party sidebar would require numerous eslint-disable exemptions or rewriting the library into Hades-compatible primitives — more work than the in-house solution.
 
 ---
 
@@ -306,7 +306,7 @@ Adopt a library such as shadcn-sidebar or cmdk for the mobile drawer.
 ### Related Documents
 
 - [ADR-2026-06-19](../adr/2026-06-19-mobile-responsive-design.md) — Architecture decision for responsive design implementation
-- [Terra Design System Reference](../../frontend/docs/reference/terra-design-system.md)
+- [Hades Design System Reference](../../frontend/docs/reference/hades-design-system.md)
 - [Component Placement Guide](../../frontend/docs/reference/component-placement.md)
 
 ### Glossary

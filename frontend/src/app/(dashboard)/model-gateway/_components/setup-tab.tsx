@@ -30,7 +30,7 @@ import {
   TabsContent,
   Text,
   Callout,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { ScopeChip } from '@orbit/components';
 import { GATEWAY_BASE_URL_FALLBACK, gatewayBaseUrlFromWindow } from '../_utils';
 

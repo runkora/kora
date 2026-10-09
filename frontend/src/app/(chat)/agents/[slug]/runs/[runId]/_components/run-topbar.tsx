@@ -7,7 +7,7 @@
 
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import { Stack, Text, Button, Badge, StatusDot, Toggle } from '@orbit/terra';
+import { Stack, Text, Button, Badge, StatusDot, Toggle } from '@orbit/hades';
 import { fmtUsd, fmtTokens } from '@orbit/utils';
 import { useRunContext } from '../_context/run-context';
 

@@ -6,7 +6,7 @@
  * data block.
  */
 
-import { CodeBlock, SectionLabel, Stack } from '@orbit/terra';
+import { CodeBlock, SectionLabel, Stack } from '@orbit/hades';
 import { dataBlockPreview } from './trigger-wizard/field-catalog';
 
 interface DataBlockPreviewProps {

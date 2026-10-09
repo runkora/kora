@@ -10,7 +10,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 export default function GrantsLoading() {
   return (

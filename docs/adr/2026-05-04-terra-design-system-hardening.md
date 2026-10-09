@@ -1,23 +1,23 @@
-# Terra Design System Hardening
+# Hades Design System Hardening
 
 **Status:** Accepted
 **Date:** 2026-05-04
 **Last Updated:** 2026-04-24
 **Deciders:** Engineering Team
-**Technical Story:** [Terra Design System Hardening PRD](../prd/terra-design-system-hardening.md) — closing remaining escape hatches in the Terra design system through ESLint coverage extension, prop interface whitelisting, `style` prop removal from `Text`/`StatusDot`, and `FormField` accessibility auto-wiring.
+**Technical Story:** [Hades Design System Hardening PRD](../prd/terra-design-system-hardening.md) — closing remaining escape hatches in the Hades design system through ESLint coverage extension, prop interface whitelisting, `style` prop removal from `Text`/`StatusDot`, and `FormField` accessibility auto-wiring.
 
 ---
 
 ## Context
 
-[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) established the Terra design system (`@orbit/terra`) as the mandatory UI primitive layer for the kora frontend. [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) extended enforcement with a suite of custom ESLint rules and expanded Terra's component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
+[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) established the Hades design system (`@orbit/hades`) as the mandatory UI primitive layer for the kora frontend. [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) extended enforcement with a suite of custom ESLint rules and expanded Hades' component catalogue to eliminate recurring inline patterns across the product. The result of those two phases is a frontend that passes `pnpm lint && pnpm tsc --noEmit` with zero errors and has nine active custom ESLint rules preventing the most common escape hatches.
 
 However, a clean lint report is not the same as a fully hardened design system. The following structural gaps remain after Phase 1:
 
 ### Remaining Escape Hatches
 
 **Prop surface leakage via `Omit<React.HTMLAttributes>` blacklisting.**
-All 35 Terra components use `Omit<React.HTMLAttributes<HTMLElement>, 'style' | 'color'>` (or similar) to remove specific props from the native HTML attribute set. The remaining native props — including `id`, `tabIndex`, `role`, `data-*` attributes, and many others — are inherited silently. This blacklist approach means the component's public API is implicitly defined by subtraction from the entire HTML spec rather than explicit declaration. Every time a new HTML attribute becomes problematic (e.g. `enterKeyHint`, `inert`), a human must notice and add it to every component's Omit.
+All 35 Hades components use `Omit<React.HTMLAttributes<HTMLElement>, 'style' | 'color'>` (or similar) to remove specific props from the native HTML attribute set. The remaining native props — including `id`, `tabIndex`, `role`, `data-*` attributes, and many others — are inherited silently. This blacklist approach means the component's public API is implicitly defined by subtraction from the entire HTML spec rather than explicit declaration. Every time a new HTML attribute becomes problematic (e.g. `enterKeyHint`, `inert`), a human must notice and add it to every component's Omit.
 
 **`style` prop still accepted by `Text` and `StatusDot`.**
 `TextProps` and `StatusDotProps` include `style` in their inherited props (it is not in their Omit sets). This directly contradicts the design principle established in Phase 1 — where `Stack` and `Icon` had `style` removed — and means text and status content can still be styled with arbitrary inline CSS bypassing the token system.
@@ -25,11 +25,11 @@ All 35 Terra components use `Omit<React.HTMLAttributes<HTMLElement>, 'style' | '
 **Raw `<button>`, `<code>`, and conditionally-exempted `<section>` elements not blocked.**
 The existing `no-raw-inline-elements` rule covers `<span>`, `<strong>`, `<b>`, `<em>`, and related text formatting elements but does not cover `<code>`, `<kbd>`, `<samp>`, or `<var>`. The `no-raw-layout-elements` rule blocks `<section>` only when it carries a Tailwind layout class, not unconditionally. There is no rule at all covering `<button>`. All three element families have known occurrences in the app codebase and have been observed as agent workaround patterns.
 
-**`FormField` context not consumed by Terra inputs.**
-The `FormField` component establishes a React context (via `useFormField()`) that is intended to auto-wire `id`, `aria-describedby`, and `aria-invalid` onto the enclosed input element. None of the three Terra input components (`Input`, `Textarea`, `NativeSelect`) currently call `useFormField()`. The accessibility guarantee documented in `terra-design-system.md` is therefore not delivered — callers must thread `id` and aria attributes manually or they are absent from the DOM.
+**`FormField` context not consumed by Hades inputs.**
+The `FormField` component establishes a React context (via `useFormField()`) that is intended to auto-wire `id`, `aria-describedby`, and `aria-invalid` onto the enclosed input element. None of the three Hades input components (`Input`, `Textarea`, `NativeSelect`) currently call `useFormField()`. The accessibility guarantee documented in `hades-design-system.md` is therefore not delivered — callers must thread `id` and aria attributes manually or they are absent from the DOM.
 
 **Inconsistent `as`/`asChild` element-override API.**
-Different Terra components use different mechanisms to let callers change the rendered HTML element: some expose `as?: 'span' | 'li' | ...`, some expose `asChild?: boolean`, and some expose both. There is no documented rule for which pattern to use in which situation, making the API surface unpredictable for both human and AI-assisted development.
+Different Hades components use different mechanisms to let callers change the rendered HTML element: some expose `as?: 'span' | 'li' | ...`, some expose `asChild?: boolean`, and some expose both. There is no documented rule for which pattern to use in which situation, making the API surface unpredictable for both human and AI-assisted development.
 
 ### Background
 
@@ -37,15 +37,15 @@ The root cause of these gaps is that Phase 1 focused on establishing the enforce
 
 ### Goals
 
-- Define the canonical prop interface pattern for Terra components going forward (whitelist)
+- Define the canonical prop interface pattern for Hades components going forward (whitelist)
 - Specify how `style` is to be removed from `Text` and `StatusDot`
 - Define which additional raw HTML elements are blocked and the ESLint rule implementation strategy for each
 - Specify how `FormField` auto-wiring is implemented in `Input`, `Textarea`, `NativeSelect`
-- Define the canonical `as`/`asChild` rule across all Terra components
+- Define the canonical `as`/`asChild` rule across all Hades components
 
 ### Non-Goals
 
-- New Terra component additions not directly required by the above
+- New Hades component additions not directly required by the above
 - Visual or token design decisions
 - Backend architecture changes
 - Chart/data-visualisation component strategy
@@ -58,7 +58,7 @@ The root cause of these gaps is that Phase 1 focused on establishing the enforce
 * **Consistency with established precedent**: `Stack` and `Icon` already had `style` removed from their public APIs in Phase 1. `Text` and `StatusDot` must follow the same pattern to avoid a two-tier design system where some primitives are hardened and others are not.
 * **Inverted default (whitelist over blacklist)**: In a security-oriented system, safe default + explicit opt-in is always preferable to permissive default + opt-out. The prop whitelisting decision applies the same principle to the component API surface.
 * **Accessibility correctness**: `FormField` context exists specifically to eliminate the manual `id`/aria attribute threading that developers routinely skip. If the inputs don't consume the context, the feature is documented but non-functional — actively misleading.
-* **AI-agent code quality**: The ESLint rule messages are the primary mechanism by which AI agents (Forge, v0.dev) learn what the correct pattern is. A rule that says "don't use `<button>`" with no guidance produces unhelpful output; a rule that says "use `<Button>` from `@orbit/terra`" produces correct first-pass output.
+* **AI-agent code quality**: The ESLint rule messages are the primary mechanism by which AI agents (Forge, v0.dev) learn what the correct pattern is. A rule that says "don't use `<button>`" with no guidance produces unhelpful output; a rule that says "use `<Button>` from `@orbit/hades`" produces correct first-pass output.
 * **Reviewability**: A component `Props` interface with 40 inherited native HTML props is not reviewable in a PR. An explicit 8-prop whitelist is.
 
 ---
@@ -80,7 +80,7 @@ The root cause of these gaps is that Phase 1 focused on establishing the enforce
 
 ### Option A2: Prop interface — Explicit whitelisting (chosen)
 
-**Description:** Each Terra component's exported `Props` interface is a handwritten, explicit type that lists only the props the component intentionally accepts. The internal component implementation uses `React.ComponentPropsWithoutRef<'element'>` for DOM forwarding as before; only the public-facing type changes.
+**Description:** Each Hades component's exported `Props` interface is a handwritten, explicit type that lists only the props the component intentionally accepts. The internal component implementation uses `React.ComponentPropsWithoutRef<'element'>` for DOM forwarding as before; only the public-facing type changes.
 
 **Pros:**
 - The public API is self-documenting and reviewable
@@ -94,7 +94,7 @@ The root cause of these gaps is that Phase 1 focused on establishing the enforce
 - Some props (`className`, `ref`, `children`, `data-*` attributes) need careful handling — they must be explicitly carried forward
 
 **Handling of cross-cutting props under Option A2:**
-- `className`: included in internal implementations (needed for `cn()` merging), excluded from public `Props` (already banned by `no-terra-classname` ESLint rule)
+- `className`: included in internal implementations (needed for `cn()` merging), excluded from public `Props` (already banned by `no-hades-classname` ESLint rule)
 - `ref`: handled by `React.forwardRef` wrapper, not part of `Props` interface
 - `children`: included explicitly where applicable
 - `data-*` attributes: `data-slot` included explicitly for ShadCN sub-component composition; other `data-*` attributes not included unless a component has a specific need
@@ -105,7 +105,7 @@ The root cause of these gaps is that Phase 1 focused on establishing the enforce
 
 ### Option B1: `style` removal — ESLint-only enforcement
 
-**Description:** Add `style` to a new or extended ESLint rule that detects `style` prop usage on Terra components, rather than removing it from the TypeScript interface.
+**Description:** Add `style` to a new or extended ESLint rule that detects `style` prop usage on Hades components, rather than removing it from the TypeScript interface.
 
 **Pros:**
 - No TypeScript interface changes required
@@ -169,7 +169,7 @@ The root cause of these gaps is that Phase 1 focused on establishing the enforce
 **Cons:**
 - Requires a non-trivial architectural change to `FormField`
 - `cloneElement` is discouraged in modern React and does not work with Server Components
-- DOM manipulation is fragile and not compatible with the Terra `React.forwardRef` convention
+- DOM manipulation is fragile and not compatible with the Hades `React.forwardRef` convention
 - Out of scope for this phase; this is a future architecture consideration
 
 ### Option D2: FormField auto-wiring — Context consumer in input components (chosen)
@@ -220,8 +220,8 @@ const noRawInteractiveElements = {
           context.report({
             node,
             message:
-              'Use <Button> from @orbit/terra instead of a raw <button>. ' +
-              'See frontend/docs/golden-paths/terra-design-system.md.',
+              'Use <Button> from @orbit/hades instead of a raw <button>. ' +
+              'See frontend/docs/reference/hades-design-system.md.',
           })
         }
       },
@@ -230,13 +230,13 @@ const noRawInteractiveElements = {
 }
 ```
 
-Applied to `src/**/*.tsx` excluding `src/packages/terra/**`. Added to the `no-terra-disable-comment` TERRA_RULES set.
+Applied to `src/**/*.tsx` excluding `src/packages/hades/**`. Added to the `no-hades-disable-comment` HADES_RULES set.
 
-**Pre-activation migration:** Search for `<button` in `src/**/*.tsx` (excluding terra). Migrate each occurrence to `<Button>` from `@orbit/terra`. Verify variant mapping (if the raw button used custom classes to achieve a ghost/outline/destructive appearance, map to the appropriate `variant` prop).
+**Pre-activation migration:** Search for `<button` in `src/**/*.tsx` (excluding hades). Migrate each occurrence to `<Button>` from `@orbit/hades`. Verify variant mapping (if the raw button used custom classes to achieve a ghost/outline/destructive appearance, map to the appropriate `variant` prop).
 
 #### A2. Extend rule: `local/no-raw-inline-elements`
 
-Add `'code'`, `'kbd'`, `'samp'`, `'var'` to the blocked element set in `no-raw-inline-elements`. Update the error message to include: `"Use <Code> from @orbit/terra for inline code, keyboard input, and sample output."` The `Code` component in Terra accepts a `variant` prop (`"inline"` | `"bare"`) for the two common use cases.
+Add `'code'`, `'kbd'`, `'samp'`, `'var'` to the blocked element set in `no-raw-inline-elements`. Update the error message to include: `"Use <Code> from @orbit/hades for inline code, keyboard input, and sample output."` The `Code` component in Hades accepts a `variant` prop (`"inline"` | `"bare"`) for the two common use cases.
 
 **Pre-activation migration:**
 - `vocabulary-tab.tsx`: replace raw `<code>` elements with `<Code variant="inline">` or `<Code variant="bare">` as appropriate
@@ -253,9 +253,9 @@ if (SEMANTIC_ELEMENTS.has(name)) {
 }
 ```
 
-Change to: report unconditionally for `section` (and any other semantic element where Terra provides a direct equivalent). Elements like `nav`, `header`, `footer`, `aside`, `article`, `main` which do not yet have Terra wrappers should continue to be blocked only when carrying a layout class (to avoid blocking legitimate semantic markup in edge cases).
+Change to: report unconditionally for `section` (and any other semantic element where Hades provides a direct equivalent). Elements like `nav`, `header`, `footer`, `aside`, `article`, `main` which do not yet have Hades wrappers should continue to be blocked only when carrying a layout class (to avoid blocking legitimate semantic markup in edge cases).
 
-The decision on `section` specifically: Terra has a `components/section/` directory. `<section>` without a layout class is still a raw HTML element in product code and must use the Terra wrapper. Block unconditionally.
+The decision on `section` specifically: Hades has a `components/section/` directory. `<section>` without a layout class is still a raw HTML element in product code and must use the Hades wrapper. Block unconditionally.
 
 ### Track B — `style` prop removal
 
@@ -296,10 +296,10 @@ The exact set of forwarded HTML props must be determined by the call-site audit.
 
 ### Track C — Prop interface whitelisting
 
-For each of the 35 Terra components:
+For each of the 35 Hades components:
 
 1. Read the current `Props` interface and note the Omit set.
-2. Search for all usages of the component across `src/**/*.tsx` (excluding terra).
+2. Search for all usages of the component across `src/**/*.tsx` (excluding hades).
 3. Collect the union of all props actually passed by callers.
 4. Construct a new explicit `Props` interface containing: (a) all component-specific props, (b) all props from step 3, (c) standard cross-cutting props (`id`, `children`, `className` internal, common aria attributes) as appropriate for the element type.
 5. Remove the `Omit<React.HTMLAttributes, ...>` extension.
@@ -309,7 +309,7 @@ For each of the 35 Terra components:
 
 | Prop | Rule |
 |------|------|
-| `className` | Include in internal implementation for `cn()`; **exclude from public Props** (banned by `no-terra-classname`) |
+| `className` | Include in internal implementation for `cn()`; **exclude from public Props** (banned by `no-hades-classname`) |
 | `style` | **Never include** in public Props |
 | `ref` | Handled by `React.forwardRef`; not part of Props interface |
 | `children` | Include explicitly where the component accepts children |
@@ -342,7 +342,7 @@ export const Input = React.forwardRef<HTMLInputElement, InputProps>(
 
 The `??` (nullish coalescing) merge order ensures explicitly passed props always win over context values. `useFormField()` must return `undefined` for all values when called outside a `FormField` provider (use a default context value of `{}`).
 
-**Storybook story:** Add a `FormField` + `Input` story under `Terra/FormField` that demonstrates:
+**Storybook story:** Add a `FormField` + `Input` story under `Hades/FormField` that demonstrates:
 - `id` auto-wired from FormField
 - `aria-describedby` pointing to the description element
 - `aria-invalid` set to `true` when the field has an error
@@ -354,17 +354,17 @@ The `??` (nullish coalescing) merge order ensures explicitly passed props always
 
 ### Track E — `as`/`asChild` documentation
 
-Add a decision table to `frontend/docs/golden-paths/terra-design-system.md`:
+Add a decision table to `frontend/docs/reference/hades-design-system.md`:
 
 | Use case | Pattern | Example |
 |----------|---------|---------|
 | Render `Text` as a different phrasing element | `as` prop with string union | `<Text as="span">` |
-| Render any Terra component as a custom React component | `asChild` + single child | `<Button asChild><Link href="...">...</Link></Button>` |
+| Render any Hades component as a custom React component | `asChild` + single child | `<Button asChild><Link href="...">...</Link></Button>` |
 | Render a layout element (`Stack`, `Grid`) as a semantic HTML element | `asChild` + semantic element child | `<Stack asChild><nav>...</nav></Stack>` |
 
-**Rule:** No Terra component other than `Text` should expose a string `as` prop. All element-override use cases other than `Text`'s phrasing-content list use `asChild`.
+**Rule:** No Hades component other than `Text` should expose a string `as` prop. All element-override use cases other than `Text`'s phrasing-content list use `asChild`.
 
-**Audit:** Inspect all Terra components for `as?: ...` props that are not on `Text`. Any found must be converted to `asChild` with migration of call sites.
+**Audit:** Inspect all Hades components for `as?: ...` props that are not on `Text`. Any found must be converted to `asChild` with migration of call sites.
 
 ---
 
@@ -372,11 +372,11 @@ Add a decision table to `frontend/docs/golden-paths/terra-design-system.md`:
 
 ### Positive
 
-- Every Terra component's public API is fully auditable from its `Props` interface alone — no tracing through `Omit` chains.
-- `style` becomes structurally impossible to pass to any Terra component — TypeScript compile error at the call site, not a lint warning.
+- Every Hades component's public API is fully auditable from its `Props` interface alone — no tracing through `Omit` chains.
+- `style` becomes structurally impossible to pass to any Hades component — TypeScript compile error at the call site, not a lint warning.
 - `<button>`, `<code>`, `<kbd>`, `<samp>`, `<var>`, and unconditional `<section>` are blocked in product code, eliminating the remaining known agent workaround patterns.
 - `FormField` delivers its documented accessibility guarantee automatically; callers who follow the documented pattern get correct `id`/aria wiring without manual threading.
-- The `as`/`asChild` API is consistent and documented; AI agents generating Terra usage will produce correct first-pass output.
+- The `as`/`asChild` API is consistent and documented; AI agents generating Hades usage will produce correct first-pass output.
 
 ### Negative
 
@@ -387,7 +387,7 @@ Add a decision table to `frontend/docs/golden-paths/terra-design-system.md`:
 ### Neutral
 
 - The `useFormField()` integration changes the `id` and `aria-*` resolution order on `Input`, `Textarea`, and `NativeSelect`. Callers who already pass `id` explicitly are unaffected (explicit props win via `??`). Callers who do not pass `id` and are not inside a `FormField` are also unaffected (`useFormField()` returns `undefined`, which is the same as the current behaviour of no `id`).
-- The `as`/`asChild` documentation change affects only documentation and any Terra components found to have an incorrect string `as` prop. Product code using `asChild` is unaffected.
+- The `as`/`asChild` documentation change affects only documentation and any Hades components found to have an incorrect string `as` prop. Product code using `asChild` is unaffected.
 
 ---
 
@@ -395,10 +395,10 @@ Add a decision table to `frontend/docs/golden-paths/terra-design-system.md`:
 
 ### Success Metrics
 
-- `pnpm tsc --noEmit` emits zero errors and zero of those errors relate to Terra component prop types
+- `pnpm tsc --noEmit` emits zero errors and zero of those errors relate to Hades component prop types
 - `pnpm lint` emits zero errors
-- `grep -r "Omit<React.HTMLAttributes" frontend/src/packages/terra/src` returns zero matches
-- `grep -r 'style=' frontend/src/packages/terra/src/components/typography` returns zero matches in `TextProps`
+- `grep -r "Omit<React.HTMLAttributes" frontend/src/packages/hades/src` returns zero matches
+- `grep -r 'style=' frontend/src/packages/hades/src/components/typography` returns zero matches in `TextProps`
 - Storybook a11y check passes on `FormField` + `Input` story
 
 ### Monitoring
@@ -410,7 +410,7 @@ Add a decision table to `frontend/docs/golden-paths/terra-design-system.md`:
 
 ## Related Decisions
 
-- [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) — Original Terra design system decision; this ADR extends its enforcement model
+- [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) — Original Hades design system decision; this ADR extends its enforcement model
 - [frontend-component-consolidation](2026-05-04-frontend-component-consolidation.md) — Phase 1 ESLint rule framework and component catalogue expansion; this ADR builds on its enforcement infrastructure
 
 ---
@@ -420,8 +420,8 @@ Add a decision table to `frontend/docs/golden-paths/terra-design-system.md`:
 - `terra-style-removal-plan.md` (repo root) — Per-file migration plan for `style` prop removal
 - `frontend-lint-remediation-progress.md` (repo root) — Phase 1 progress tracker
 - `frontend/eslint.config.mjs` — Current ESLint rule implementations
-- `frontend/docs/golden-paths/terra-design-system.md` — Terra component usage reference
-- `frontend/src/packages/terra/src/components/` — 35 component directories to be migrated
+- `frontend/docs/reference/hades-design-system.md` — Hades component usage reference
+- `frontend/src/packages/hades/src/components/` — 35 component directories to be migrated
 
 ---
 
@@ -432,6 +432,6 @@ Add a decision table to `frontend/docs/golden-paths/terra-design-system.md`:
 2. Track B (`style` removal) follows naturally once the `terra-style-removal-plan.md` call sites are confirmed.
 3. Track C (whitelisting) should be done last — it is the most mechanical and can be reviewed as a single large PR per component family (typography, layout, interactive, feedback, etc.) to keep individual PRs reviewable.
 
-**`Code` component note:** Terra's existing `Code` component renders a `<code>` element. The `no-raw-inline-elements` extension blocks `<code>` in product code but Terra's own implementation is excluded from the rule scope (`src/packages/terra/**` is excluded from all product-code rules). No change to the `Code` component itself is required.
+**`Code` component note:** Hades' existing `Code` component renders a `<code>` element. The `no-raw-inline-elements` extension blocks `<code>` in product code but Hades' own implementation is excluded from the rule scope (`src/packages/hades/**` is excluded from all product-code rules). No change to the `Code` component itself is required.
 
 **Last Updated:** 2026-04-24

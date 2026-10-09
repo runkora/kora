@@ -33,9 +33,9 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Model Cost Visibility](model-cost-visibility.md) | Approved | [model-cost-visibility](../adr/2026-06-22-model-cost-visibility.md) |
 | [MCP / Tool Gateway](mcp-tool-gateway.md) | Approved | [mcp-server-registration-and-introspection](../adr/2026-06-29-mcp-server-registration-and-introspection.md), [mcp-tool-gateway](../adr/2026-06-29-mcp-tool-gateway.md), [mcp-oauth-authentication](../adr/2026-06-29-mcp-oauth-authentication.md) |
 | [kora MCP](orbit-mcp.md) | Approved | [orbit-mcp](../adr/2026-06-30-orbit-mcp.md) |
-| [Terra Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
-| [Terra Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |
-| [Terra Reusable Wizard Flow](terra-reusable-wizard-flow.md) | In Review | [terra-wizard-component](../adr/2026-08-03-terra-wizard-component.md) |
+| [Hades Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
+| [Hades Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |
+| [Hades Reusable Wizard Flow](terra-reusable-wizard-flow.md) | In Review | [terra-wizard-component](../adr/2026-08-03-terra-wizard-component.md) |
 | [Frontend Component Consolidation](frontend-component-consolidation.md) | Implemented | [frontend-component-consolidation](../adr/2026-05-04-frontend-component-consolidation.md) |
 | [Semantic HTML Consolidation](semantic-html-consolidation.md) | Implemented | [semantic-html-consolidation](../adr/2026-05-04-semantic-html-consolidation.md) |
 | [Frontend Test Strategy](frontend-test-strategy.md) | Implemented | [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) |

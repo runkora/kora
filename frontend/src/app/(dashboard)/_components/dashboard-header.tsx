@@ -3,7 +3,7 @@
 import { useSyncExternalStore } from 'react';
 
 import { usePathname } from 'next/navigation';
-import { Badge, Button, Icon, Show, Stack, Text } from '@orbit/terra';
+import { Badge, Button, Icon, Show, Stack, Text } from '@orbit/hades';
 import { ThemeToggle } from './theme-toggle';
 import { useSidebarState } from './sidebar-state';
 import { mcpGatewayHost } from '@orbit/lib/mcp';

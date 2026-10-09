@@ -1,4 +1,4 @@
-import { Card, CardContent, Grid, Skeleton, Stack } from '@orbit/terra';
+import { Card, CardContent, Grid, Skeleton, Stack } from '@orbit/hades';
 
 /**
  * The MCP servers page fetches the tenant-visible server catalog in one server

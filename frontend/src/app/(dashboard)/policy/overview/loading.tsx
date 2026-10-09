@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle, Grid, Skeleton, Stack } from '@orbit/terra';
+import { Card, CardContent, CardHeader, CardTitle, Grid, Skeleton, Stack } from '@orbit/hades';
 
 function KPISkeleton() {
   return (

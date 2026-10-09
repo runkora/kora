@@ -1,7 +1,7 @@
 import 'server-only';
 import { redirect } from 'next/navigation';
 
-import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@orbit/terra';
+import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@orbit/hades';
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { mcpConsentToken } from '@orbit/server/mcp-consent';

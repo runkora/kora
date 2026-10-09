@@ -5,7 +5,7 @@
  * Everything kind-specific comes from the registry in ./kinds. */
 
 import { useCallback, useMemo, useState } from 'react';
-import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@orbit/terra';
+import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@orbit/hades';
 import { KindPicker } from './kind-picker';
 import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';

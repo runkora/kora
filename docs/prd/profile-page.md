@@ -218,7 +218,7 @@ The profile page displays three cards in a single-column layout:
 
 ### Internal Dependencies
 
-- **Terra Design System** (`@orbit/terra`): Popover, Card, Badge, Stack, Text, Skeleton, Icon components (all exist)
+- **Hades Design System** (`@orbit/hades`): Popover, Card, Badge, Stack, Text, Skeleton, Icon components (all exist)
 - **Session infrastructure** (`@orbit/server/session`): `getSession()` server-side, `useSession()` client-side (exists)
 - **Policy evaluate/explain endpoint**: `GET /api/policy/evaluate/explain` (exists)
 - **Identity users endpoint**: `GET /identity/users/{id}` (exists)
@@ -320,7 +320,7 @@ The profile page displays three cards in a single-column layout:
 
 ### References
 
-- [Terra Design System](../prd/design-system.md) - Component library used for all UI elements
+- [Hades Design System](../prd/design-system.md) - Component library used for all UI elements
 - [Browser Auth Flow](../prd/browser-auth-flow.md) - OIDC authentication flow and session model
 
 ### Glossary

@@ -13,8 +13,8 @@ import {
   Stack,
   Text,
   Toggle,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import {
   LOOP_GUARDRAIL_DEFAULTS,
   loopGuardrailErrors,

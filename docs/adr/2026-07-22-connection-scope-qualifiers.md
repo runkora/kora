@@ -40,7 +40,7 @@ An admin attaching a connector to an agent can choose *which actions* but not *o
 - More than one qualifier segment per scope (e.g. AWS `account` + `region` simultaneously). The grammar reserves exactly one segment in v1; a second axis is a future amendment with its own ordering argument.
 - Choosing the AWS qualifier axis — named here only as the motivating future instance.
 - Qualifier-aware **tool** scoping in the MCP gateway — this ADR is about connection (egress credential) scopes.
-- A new Terra multiselect atom. The attachment UI (defined in Surfaces below) composes existing Terra primitives at Tier 2; promoting a generic multiselect into Terra is a separate proposal through the ui-component process if the composition earns it.
+- A new Hades multiselect atom. The attachment UI (defined in Surfaces below) composes existing Hades primitives at Tier 2; promoting a generic multiselect into Hades is a separate proposal through the ui-component process if the composition earns it.
 
 ---
 
@@ -151,12 +151,12 @@ Kubernetes cluster-scoped resources (nodes, namespaces themselves, discovery) cl
 
 ### Surfaces
 
-Defined here, not deferred, so the mechanism ships with its UI. All attachment surfaces already share one component — `ConnectionCards` (`src/components/connection-cards.tsx`, Tier 2), the motif's collapsible tri-state connection cards rendered by the agent builder's Tools step, the agent detail Configuration tab, and the environments form. One extension to that component covers every attachment surface; no new page and no new Terra component.
+Defined here, not deferred, so the mechanism ships with its UI. All attachment surfaces already share one component — `ConnectionCards` (`src/components/connection-cards.tsx`, Tier 2), the motif's collapsible tri-state connection cards rendered by the agent builder's Tools step, the agent detail Configuration tab, and the environments form. One extension to that component covers every attachment surface; no new page and no new Hades component.
 
 **Attachment time — the `ConnectionCards` extension:**
 
 - For a connection whose adapter declares a qualifier dimension, the expanded card gains a **resource scope block** between the card header and the action rows, visible once the connection is selected. It follows the motif's radio pattern: two options, labeled from the adapter's qualifier metadata — **"All repositories"** (default; likewise "All namespaces" for `kubernetes`) and **"Selected repositories"**. The component reads the dimension's name from adapter metadata and stays adapter-generic.
-- Choosing "Selected" reveals a multiselect **composed from existing Terra primitives** (`Popover` + `Input` filter + `Checkbox` rows + `Badge` chips) — Terra has no multiselect atom, and this composition stays Tier 2; if it proves generically reusable, promotion goes through the ui-component approval process separately, not assumed here.
+- Choosing "Selected" reveals a multiselect **composed from existing Hades primitives** (`Popover` + `Input` filter + `Checkbox` rows + `Badge` chips) — Hades has no multiselect atom, and this composition stays Tier 2; if it proves generically reusable, promotion goes through the ui-component approval process separately, not assumed here.
 - The multiselect is fed **lazily** (on first open) by the brokered enumeration endpoint, offering the intersection of the live upstream listing and the connection's ceiling. Manual entry is permitted (GitOps-managed grants may reference resources the enumeration call cannot see; structural validation still applies), with manually entered values not present in the enumeration visually flagged.
 - **Scope previews tell the truth**, per the motif's existing rule (each action row already shows its compiled `connection:<name>:<action>` string in mono): under "All", rows keep the unqualified form; under a selection, rows show the qualified form (`connection:github-main:issues:orbit:read`), expanding one preview line per selected resource or a count when the selection is large. The card's summary line gains the qualifier state ("2 repositories").
 - **Baseline actions** (`metadata:read`, `cluster:read`) render as an implied, non-uncheckable row marked "added automatically", so the compiled grant never contains a scope the admin didn't see.

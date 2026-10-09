@@ -11,14 +11,14 @@
 
 `frontend/src/app/(dashboard)/agents/new/_components/create-agent-form.tsx` is a 585-line client component holding fifteen `useState` calls and firing four raw `fetch` calls from four separate `useEffect`s (`:113-153`) for models, tool scopes, connectors, and MCP tools. All four swallow their failures: three as `.catch(() => undefined)`, and the fourth as an empty block whose comment states the consequence plainly, *"silently leave empty, user sees disabled select"* (`:121-123`). A failed load is therefore indistinguishable from an empty catalogue, and the user cannot tell "no models enabled" from "the request failed". It is the only page in the agents feature that does not follow `frontend/docs/golden-paths/frontend-state-pattern.md`; every other surface (`use-agents.ts`, `use-agent-detail.ts`, `use-agent-settings.ts`) uses the hook plus context composition with an RSC prefetch.
 
-The [PRD](../prd/agent-builder.md) replaces that form with a five-step builder. The design is specified by a mockup that imports Terra's own token stylesheet, so its colours, radii, and fonts are already token-true. What it does not settle:
+The [PRD](../prd/agent-builder.md) replaces that form with a five-step builder. The design is specified by a mockup that imports Hades' own token stylesheet, so its colours, radii, and fonts are already token-true. What it does not settle:
 
-1. **The mockup sets type and spacing off Terra's scale** (13.5px, 12.5px, 11.5px type; 13px/15px padding) where Terra's roles are 14/12/11px on a 4px grid.
+1. **The mockup sets type and spacing off Hades' scale** (13.5px, 12.5px, 11.5px type; 13px/15px padding) where Hades' roles are 14/12/11px on a 4px grid.
 2. **The mockup is dark-only** and hardcodes `#fff` and `#0c0d10` in places. Light mode is live (`[data-theme='light']` in `tokens.css:138`, `src/components/theme-toggle.tsx`), and it flips the accent hue from 8 to 167, so the accent is a different colour in each theme.
-3. **Terra cannot express the design.** There is no radio group and no collapsible, `Card` has no selected state, and `StepDot`/`StepConnector` exist for exactly this kind of rail but only vary on `accent | surface` and a fixed `bg-border`, so neither can show pending, current, and complete.
-4. **The builder is a modal, and Terra has no modal that size.** `MODAL_SIZE` is `max-w-sm | max-w-md | max-w-lg` (`modal.tsx:13-17`), the largest being 512px, and the modal root carries no height constraint: it centres and grows with its content (`modal.tsx:96-99`). The design is 1200x840, with its own header, a rail, and a content column that scroll independently.
+3. **Hades cannot express the design.** There is no radio group and no collapsible, `Card` has no selected state, and `StepDot`/`StepConnector` exist for exactly this kind of rail but only vary on `accent | surface` and a fixed `bg-border`, so neither can show pending, current, and complete.
+4. **The builder is a modal, and Hades has no modal that size.** `MODAL_SIZE` is `max-w-sm | max-w-md | max-w-lg` (`modal.tsx:13-17`), the largest being 512px, and the modal root carries no height constraint: it centres and grows with its content (`modal.tsx:96-99`). The design is 1200x840, with its own header, a rail, and a content column that scroll independently.
 
-The mockup also contained a creativity slider. The PRD cuts it: Claude Code, the default framework, exposes no sampling flag, and no runner passes one for any framework today. That was the only `type="range"` in the design, so a Terra `Slider` is not required and is not built.
+The mockup also contained a creativity slider. The PRD cuts it: Claude Code, the default framework, exposes no sampling flag, and no runner passes one for any framework today. That was the only `type="range"` in the design, so a Hades `Slider` is not required and is not built.
 
 [Delegated agent identity](../prd/delegated-agent-identity.md) is being designed separately. The identity model selector is therefore out of scope here, and step 1 ships without it.
 
@@ -30,7 +30,7 @@ The mockup also contained a creativity slider. The PRD cuts it: Claude Code, the
 
 Keep one scrolling form and restyle it.
 
-- Cheapest, no new Terra components.
+- Cheapest, no new Hades components.
 - Does not deliver the PRD: no review before create, no ordering, no progressive disclosure, so governance decisions stay as weightless as the display name.
 - Leaves the state and error handling untouched, which is the underlying defect.
 
@@ -48,7 +48,7 @@ A modal launched from anywhere in the dashboard, backed by a draft record, with 
 
 - Brings the last non-conforming page in the feature onto the hook plus context pattern and removes the swallowed errors.
 - Introduces the modal-over-context pattern the flow depends on.
-- Most work, and requires Terra changes plus a new backend table.
+- Most work, and requires Hades changes plus a new backend table.
 - Gives up the RSC prefetch that the rest of the feature uses, because a layout-mounted modal cannot have one (§3).
 
 ---
@@ -126,20 +126,20 @@ Catalogues therefore load when the builder first opens:
 
 This is still the fix for the defect in the Context. The problem today is not that fetching happens on the client, it is that four unguarded `useEffect` fetches swallow their errors into empty controls. One load, owned by the hook, with a status per catalogue, surfaces a failure on the step that needs it. The cost against a route-based prefetch is a brief load when the builder opens, paid once rather than on every dashboard page.
 
-### 4. Fidelity: the design's structure, Terra's scale
+### 4. Fidelity: the design's structure, Hades' scale
 
-Layout, colour, structure, and behaviour follow the mockup. Type snaps to Terra's role scale and spacing to the 4px grid: 13.5px becomes `supporting` (14px), 11.5px becomes `micro` (11px), 13px/15px padding becomes `cozy`/`comfortable`. The differences are sub-pixel and no magic numbers enter the components.
+Layout, colour, structure, and behaviour follow the mockup. Type snaps to Hades' role scale and spacing to the 4px grid: 13.5px becomes `supporting` (14px), 11.5px becomes `micro` (11px), 13px/15px padding becomes `cozy`/`comfortable`. The differences are sub-pixel and no magic numbers enter the components.
 
 Every value comes from a token, so both themes work. The builder will not be pink in light mode, because the light accent is hue 167. That is existing product behaviour the mockup does not depict.
 
-### 5. Terra changes
+### 5. Hades changes
 
 All domain-agnostic, therefore Tier 1.
 
 | Change | Kind | Why |
 |---|---|---|
 | `Modal` gains a builder size and an explicit height | Extension | The largest modal is 512px wide and the root has no height constraint, so it centres and grows with content. The builder is 1200x840 with a rail and a content column that scroll independently, so it needs a size step above `lg` and a height it can fill, with the scrolling happening inside the step content rather than the page. `ModalBody`'s `max-h-[60vh]` is opt-in via `constrained` and is simply not used. |
-| `RadioGroup`, `RadioGroupItem` | New, Radix-backed | Framework, model, and environment selection are single-select and Terra has no radio at all. Adds `@radix-ui/react-radio-group`. |
+| `RadioGroup`, `RadioGroupItem` | New, Radix-backed | Framework, model, and environment selection are single-select and Hades has no radio at all. Adds `@radix-ui/react-radio-group`. |
 | `Collapsible` | New, Radix-backed | The tool tree expands per server. Adds `@radix-ui/react-collapsible`. |
 | `Card` gains `selected` | Extension | The selected card is `border-accent` over `bg-accent/10`. `Card` already carries `interactive`, and `Button` already carries `selected`, so this matches both. Preferred over a new component, per the guidance to extend by props. |
 | `StepDot` gains `state`, `StepConnector` gains `complete` | Extension | `state: 'pending' \| 'current' \| 'complete'` gives the rail its three appearances; `complete` tints the connector above a finished step. Both exist for this pattern and only lack the state axis. |
@@ -153,7 +153,7 @@ No `Slider`, which existed only for the cut creativity control. Building it woul
 
 ### 6. Feature-scoped compositions stay Tier 3
 
-The step rail, tool tree, guardrail rows, planned block, and review summary live under `agents/_components/builder/`. Each composes Terra primitives and needs no raw elements, so none forces a Terra change. All are single-consumer and kora-domain-aware, which is Tier 3 by the decision tree in `component-placement.md`.
+The step rail, tool tree, guardrail rows, planned block, and review summary live under `agents/_components/builder/`. Each composes Hades primitives and needs no raw elements, so none forces a Hades change. All are single-consumer and kora-domain-aware, which is Tier 3 by the decision tree in `component-placement.md`.
 
 ### 7. Environment moves to Tools and access
 
@@ -191,9 +191,9 @@ A sweep deletes drafts older than 30 days. This is new work; `StartReaper` reaps
 
 Tests asserting: a draft holds no grant and provisions no workload (which holds structurally, so the test guards the boundary rather than a branch), two drafts may carry the same slug, a draft does not block a real agent from taking that slug, a caller cannot read another caller's draft, and `created_by` cannot be set through the API.
 
-### 2. Terra
+### 2. Hades
 
-`src/packages/terra/src/components/radio-group/`, `collapsible/`, plus edits to `modal/`, `card/`, `step-dot/`, `progress/`. Each new component: `forwardRef`, `cva` variant maps with static class strings, `data-slot`, `displayName`, a colocated `*.stories.tsx` with `tags: ['autodocs']`, and an export from `src/index.ts`. `frontend/docs/reference/component-placement.md` is updated in the same change, per its Implementation Rule 9.
+`src/packages/hades/src/components/radio-group/`, `collapsible/`, plus edits to `modal/`, `card/`, `step-dot/`, `progress/`. Each new component: `forwardRef`, `cva` variant maps with static class strings, `data-slot`, `displayName`, a colocated `*.stories.tsx` with `tags: ['autodocs']`, and an export from `src/index.ts`. `frontend/docs/reference/component-placement.md` is updated in the same change, per its Implementation Rule 9.
 
 ### 3. Frontend
 
@@ -240,7 +240,7 @@ If the draft delete fails after a successful create, the draft lingers and is re
 - Drafts are durable and portable across devices, and a draft cannot hold access or reach Kubernetes because it is not an agent type, rather than because every path remembers to check.
 - `agent_types` is untouched. No migration alters a constraint protecting live agents, and nothing in the existing provisioning, grant, or run paths has to learn about drafts.
 - Governance decisions get proportionate weight. Tool grants are no longer a flat list at the same size as the description.
-- Terra gains a radio group, a collapsible, and a modal that can host a real task, all of which are absences unrelated to this feature.
+- Hades gains a radio group, a collapsible, and a modal that can host a real task, all of which are absences unrelated to this feature.
 - Nothing is created without a review, which is the cheapest available control on over-scoping.
 
 **Bad**
@@ -265,6 +265,6 @@ If the draft delete fails after a successful create, the draft lingers and is re
 
 The mockup is preserved at `.scratch/mockups/Agent Builder.html`. It is a bundled page; the readable source is the `__bundler/template` script block, carrying the full markup and the component logic including the tool tree's tri-state selection rules.
 
-Its embedded copy of Terra's tokens is a dark-only snapshot predating the light theme and the `--terra-bg-step-*` offsets. Read it for design intent, not as a token reference. `src/packages/terra/src/tokens/tokens.css` is the source of truth.
+Its embedded copy of Hades' tokens is a dark-only snapshot predating the light theme and the `--hades-bg-step-*` offsets. Read it for design intent, not as a token reference. `src/packages/hades/src/tokens/tokens.css` is the source of truth.
 
 The modal-over-context pattern introduced here is intended to be reused. If a second builder-shaped flow adopts it, the shell is the part worth promoting out of the agents feature.

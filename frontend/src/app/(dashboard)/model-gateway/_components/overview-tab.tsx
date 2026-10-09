@@ -25,7 +25,7 @@ import {
   Stack,
   StatusDot,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import Link from 'next/link';
 import { fmtCost, fmtNumCompact, fmtTime, fmtDateAxis } from '@orbit/utils';
@@ -65,7 +65,7 @@ function pctDelta(curr: number, prev: number): number {
   return prev > 0 ? ((curr - prev) / prev) * 100 : 0;
 }
 
-// ── Chart Colors (Terra tokens) ───────────────────────────────────────────────
+// ── Chart Colors (Hades tokens) ───────────────────────────────────────────────
 
 const COLORS = {
   accent: 'var(--color-accent)',

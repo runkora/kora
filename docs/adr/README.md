@@ -118,10 +118,10 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) — `Accepted (Amended 2026-10-06)` · 2026-06-23
 - [Agent Builder](2026-07-17-agent-builder.md) — `Accepted` · 2026-07-17
 - [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) — `Accepted` · 2026-07-17
-- [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) — `Accepted` · 2026-07-17
+- [Motif Component Promotion into Hades](2026-07-17-motif-component-promotion.md) — `Accepted` · 2026-07-17
 - [Alertmanager Webhook Adapter](2026-07-21-alertmanager-webhook-adapter.md) — `Accepted (curated fields and sub-decision 3 superseded in part 2026-09-29)` · 2026-07-21
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
-- [Terra Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
+- [Hades Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
 - [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Proposed` · 2026-09-18
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
@@ -152,9 +152,9 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 ### Frontend & Design System
 
 - [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) — `Accepted` · 2026-03-17
-- [Terra Frontend Design System](2026-03-25-terra-frontend-design-system.md) — `Accepted` · 2026-03-25
+- [Hades Frontend Design System](2026-03-25-terra-frontend-design-system.md) — `Accepted` · 2026-03-25
 - [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) — `Accepted` · 2026-05-04
-- [Terra Design System Hardening](2026-05-04-terra-design-system-hardening.md) — `Accepted` · 2026-05-04
+- [Hades Design System Hardening](2026-05-04-terra-design-system-hardening.md) — `Accepted` · 2026-05-04
 - [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) — `Accepted` · 2026-05-04
 - [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) — `Accepted` · 2026-05-08
 - [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) — `Accepted` · 2026-06-19
@@ -187,7 +187,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-03-19 | [Multi-Service Backend Deployment Structure](2026-03-19-multi-service-backend-deployment-structure.md) | Accepted | 0020 |
 | 2026-03-21 | [Envoy ext_proc Sidecar for Transparent Platform Token Injection](2026-03-21-envoy-ext-proc-sidecar-token-injection.md) | Accepted | 0021 |
 | 2026-03-21 | [OpenTelemetry Observability Discipline](2026-03-21-opentelemetry-observability-discipline.md) | Accepted | 0022 |
-| 2026-03-25 | [Terra Frontend Design System](2026-03-25-terra-frontend-design-system.md) | Accepted | 0021 |
+| 2026-03-25 | [Hades Frontend Design System](2026-03-25-terra-frontend-design-system.md) | Accepted | 0021 |
 | 2026-03-31 | [Helm Chart Distribution and GitOps Repository Structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) | Accepted | 0027 |
 | 2026-03-31 | [OIDC Client Secret Projection for Confidential Tenants](2026-03-31-oidc-client-secret-projection-for-confidential-tenants.md) | Accepted | 0029 |
 | 2026-03-31 | [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md) | Superseded | 0028 |
@@ -213,7 +213,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-03 | [Embeddings and Responses API Endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) | Accepted | 0045 |
 | 2026-05-04 | [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) | Accepted | 0046 |
 | 2026-05-04 | [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) | Accepted | 0048 |
-| 2026-05-04 | [Terra Design System Hardening](2026-05-04-terra-design-system-hardening.md) | Accepted | 0047 |
+| 2026-05-04 | [Hades Design System Hardening](2026-05-04-terra-design-system-hardening.md) | Accepted | 0047 |
 | 2026-05-08 | [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) | Accepted | 0049 |
 | 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted | 0049 |
 | 2026-05-11 | [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) | Accepted | 0054 |
@@ -256,12 +256,12 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-06 | [Kubernetes Connection — `kubernetes` Adapter and Per-Connection Gateway CA Trust](2026-07-06-kubernetes-connection-bearer-adapter-and-gateway-ca-trust.md) | Proposed | — |
 | 2026-07-17 | [Agent Builder](2026-07-17-agent-builder.md) | Accepted | — |
 | 2026-07-17 | [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) | Accepted | — |
-| 2026-07-17 | [Motif Component Promotion into Terra](2026-07-17-motif-component-promotion.md) | Accepted | — |
+| 2026-07-17 | [Motif Component Promotion into Hades](2026-07-17-motif-component-promotion.md) | Accepted | — |
 | 2026-07-22 | [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) | Accepted | — |
 | 2026-07-22 | [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) | Accepted | — |
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
-| 2026-08-03 | [Terra Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
+| 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |

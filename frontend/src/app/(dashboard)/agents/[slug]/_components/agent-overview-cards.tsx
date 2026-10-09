@@ -4,8 +4,8 @@
 
 import { useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge, Card, CardContent, CardHeader, DataTable, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { Badge, Card, CardContent, CardHeader, DataTable, Stack, Text } from '@orbit/hades';
+import type { DataTableColumn } from '@orbit/hades';
 import { ScopeChip } from '@orbit/components';
 import { fmtDate } from '@orbit/utils';
 import { APP_ROUTES } from '@orbit/lib/routing';

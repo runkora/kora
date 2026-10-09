@@ -73,9 +73,9 @@ jobs:
       - name: Install dependencies
         run: cd frontend && pnpm install --frozen-lockfile
 
-      # Terra has its own vitest config; the app's unit config excludes src/packages/**.
-      - name: Terra component tests
-        run: cd frontend && pnpm --filter @orbit/terra run test:unit
+      # Hades has its own vitest config; the app's unit config excludes src/packages/**.
+      - name: Hades component tests
+        run: cd frontend && pnpm --filter @orbit/hades run test:unit
 
       - name: Unit tests
         run: cd frontend && pnpm run test:coverage:unit

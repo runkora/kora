@@ -15,8 +15,8 @@ import {
   StatusDot,
   Text,
   Wizard,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { fetchAgentType } from '../../_services/agents-api';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';

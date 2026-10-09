@@ -11,9 +11,9 @@
  * that many rows at the width the list is given.
  *
  * @promote-to-tier-1 if: a second surface outside the dashboard needs it; it is
- * a Terra candidate, which needs human approval before any Terra change.
+ * a Hades candidate, which needs human approval before any Hades change.
  */
-import { Button, Grid, Popover, PopoverContent, PopoverTrigger, Stack, Text } from '@orbit/terra';
+import { Button, Grid, Popover, PopoverContent, PopoverTrigger, Stack, Text } from '@orbit/hades';
 import { Fragment, type ReactNode } from 'react';
 import { CLAMP_TRIGGER_ATTR, useClampedRows } from './use-clamped-rows';
 

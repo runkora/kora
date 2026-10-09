@@ -18,7 +18,7 @@ import {
   SectionLabel,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { StepComponentProps, TriggerWizardAgent } from './types';
 
 function initial(agent: TriggerWizardAgent): string {

@@ -16,8 +16,8 @@ import {
   Stack,
   Text,
   EmptyState,
-} from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+} from '@orbit/hades';
+import type { DataTableColumn } from '@orbit/hades';
 import Link from 'next/link';
 import { StatusBadge } from '@orbit/components';
 import type { AgentInsightsResponse, AgentTypeUsage } from '@orbit/shared/api';

@@ -16,15 +16,15 @@ import {
   Stack,
   Text,
   EmptyState,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope, statusColor } from '../_types';
-import type { IconName } from '@orbit/terra';
+import type { IconName } from '@orbit/hades';
 import { ServerAvatar } from './server-avatar';
 import { BuildConfigPanel } from './build-config-panel';
 
-// Terra caption/micro variants are leading-none; the spec composed some labels
+// Hades caption/micro variants are leading-none; the spec composed some labels
 // on the default 1.5 line box. `lineHeight` is kept inline where the line box
 // height is load-bearing for the surrounding layout. Font sizes 13/15px sit
 // more than a sub-pixel from any Text variant, so those spec values are kept.
@@ -306,7 +306,7 @@ export function McpServersPage({ servers, error }: McpServersPageProps) {
             borderRadius: 'var(--radius-full)',
             // Card subtle = surface-elevated; the spec tray floats one step higher.
             background: 'var(--color-surface-overlay)',
-            // Terra is flat (ADR SD-3, no shadow tokens), but the tray floats over
+            // Hades is flat (ADR SD-3, no shadow tokens), but the tray floats over
             // page content and needs a drop for legibility; expressed through the
             // overlay scrim token rather than a raw colour.
             boxShadow: '0 12px 32px var(--color-overlay)',

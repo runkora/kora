@@ -15,13 +15,13 @@ import {
   Stack,
   StatusDot,
   Text,
-} from '@orbit/terra';
-import type { BadgeProps, StatusDotProps } from '@orbit/terra';
+} from '@orbit/hades';
+import type { BadgeProps, StatusDotProps } from '@orbit/hades';
 import type { EffectiveAccess } from '@orbit/shared/api';
 
 // ── Provenance model ────────────────────────────────────────────────────────────
 // Three sources contribute hosts to the resolved union. Each gets a distinct,
-// subtle Terra accent (StatusDot status + matching Badge variant) so a chip's
+// subtle Hades accent (StatusDot status + matching Badge variant) so a chip's
 // origin is legible at a glance without inventing raw colours.
 
 type Source = 'egress' | 'environment' | 'connectors';

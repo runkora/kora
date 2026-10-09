@@ -382,7 +382,7 @@ The "Effective Price" column header in all three pricing tables (provider catalo
 - **Provider catalog and models tab:** "The per-1M token price for a standard text request, after any platform overrides are applied."
 - **Virtual models catalog:** "The lowest per-1M token price across all token-priced enabled routes, after overrides. Routes without token pricing are excluded."
 
-The strings are set as `headerTooltip` on the column definition and rendered by an optional `headerTooltip?: string` field added to `DataTableColumn` in Terra. Updating the strings is a frontend-only change with no backend impact.
+The strings are set as `headerTooltip` on the column definition and rendered by an optional `headerTooltip?: string` field added to `DataTableColumn` in Hades. Updating the strings is a frontend-only change with no backend impact.
 
 ---
 
@@ -420,7 +420,7 @@ All new fields are optional (`?`), consistent with `omitempty` on the backend.
 
 **`DataTable` — `headerTooltip`:**
 
-`DataTableColumn` gains `headerTooltip?: string`. The Terra `DataTable` renders an inline `<Icon name="info" size="2xs">` wrapped in a `<Tooltip>` when the field is set. The "Effective Price" column in all three pricing tables uses this field with the following strings:
+`DataTableColumn` gains `headerTooltip?: string`. The Hades `DataTable` renders an inline `<Icon name="info" size="2xs">` wrapped in a `<Tooltip>` when the field is set. The "Effective Price" column in all three pricing tables uses this field with the following strings:
 
 - `provider-catalog-section.tsx` and `models-tab.tsx`: `"The per-1M token price for a standard text request, after any platform overrides are applied."`
 - `virtual-models-section.tsx`: `"The lowest per-1M token price across all token-priced enabled routes, after overrides. Routes without token pricing are excluded."`

@@ -1,6 +1,6 @@
 'use client';
 
-import { Grid, Heading, Stack, Text } from '@orbit/terra';
+import { Grid, Heading, Stack, Text } from '@orbit/hades';
 import { StatCards } from './stat-cards';
 import { SpendChart } from './spend-chart';
 import { TokensChart } from './tokens-chart';

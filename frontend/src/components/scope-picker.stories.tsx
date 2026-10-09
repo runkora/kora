@@ -2,8 +2,8 @@
 
 import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
-import { Stack } from '@orbit/terra';
-import { Example, Option, OptionTable } from '../packages/terra/src/docs/story-ui';
+import { Stack } from '@orbit/hades';
+import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { ScopePicker } from './scope-picker';
 
 /**

@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, CardTitle, Skeleton, Stack } from '@orbit/terra';
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Stack } from '@orbit/hades';
 
 export default function ProfileLoading() {
   return (

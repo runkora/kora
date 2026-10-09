@@ -5,8 +5,8 @@
  * placeholder and catalog, so the field markup, ids and constraints exist once
  * and a new kind cannot render them differently by accident. */
 
-import { FormField, Input, TemplateField } from '@orbit/terra';
-import type { TemplateCatalogEntry } from '@orbit/terra';
+import { FormField, Input, TemplateField } from '@orbit/hades';
+import type { TemplateCatalogEntry } from '@orbit/hades';
 
 interface TriggerNameFieldProps {
   value: string;

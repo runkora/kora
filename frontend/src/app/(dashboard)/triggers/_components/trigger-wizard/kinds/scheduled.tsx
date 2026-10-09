@@ -22,7 +22,7 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import {
   FREQS,
   INTERVAL_PRESETS,

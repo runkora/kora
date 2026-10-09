@@ -18,7 +18,7 @@ import {
   CardDescription,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { AnalyticsCostByModel } from '../../_types';
 
 const COLORS = {

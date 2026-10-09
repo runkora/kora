@@ -11,7 +11,7 @@ import {
   Stack,
   Text,
   Textarea,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { AGENT_SLUG_RULE, SLUG_RE } from '../../_hooks/use-agent-builder';
 import { IdentityModeCards } from '../motif/identity-mode-cards';

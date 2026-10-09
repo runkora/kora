@@ -4,7 +4,7 @@
  * there was one, the payload that arrived, and the run it started. */
 
 import { useState } from 'react';
-import { Button, Callout, CodeBlock, SectionLabel, Stack, Text } from '@orbit/terra';
+import { Button, Callout, CodeBlock, SectionLabel, Stack, Text } from '@orbit/hades';
 import { failureSummary, isRedeliverable } from '../_types';
 import type { DeliveryRow } from '../_types';
 

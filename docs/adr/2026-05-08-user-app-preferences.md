@@ -300,13 +300,13 @@ Error behaviour:
 
 #### Table Column Visibility
 
-Column visibility is built into an app-level `DataTable` wrapper component that sits over Terra's underlying table primitive. `tableId` is a required prop on the wrapper; it connects to `usePreferences` internally and manages column visibility. Terra has no awareness of preferences — the wrapper is the app-level concern. Every table in the application that uses the wrapper gets preference-backed column visibility automatically, with no additional wiring required.
+Column visibility is built into an app-level `DataTable` wrapper component that sits over Hades' underlying table primitive. `tableId` is a required prop on the wrapper; it connects to `usePreferences` internally and manages column visibility. Hades has no awareness of preferences — the wrapper is the app-level concern. Every table in the application that uses the wrapper gets preference-backed column visibility automatically, with no additional wiring required.
 
 The `tables.columns` key in the preferences document is typed as `Record<string, Record<string, boolean>>`. The wrapper component is the enforcement boundary; no enumeration of known table IDs is required at the schema level.
 
 #### Period Selector
 
-The `PeriodSelector` is an app-level component wrapping Terra's period button controls (7d/30d/90d). It accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). It connects to `usePreferences` internally using that key — Terra has no awareness of preferences. All period selectors in the application use this component; the preference behaviour is implicit in using it.
+The `PeriodSelector` is an app-level component wrapping Hades' period button controls (7d/30d/90d). It accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). It connects to `usePreferences` internally using that key — Hades has no awareness of preferences. All period selectors in the application use this component; the preference behaviour is implicit in using it.
 
 ---
 

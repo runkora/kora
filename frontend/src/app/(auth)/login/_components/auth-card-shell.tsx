@@ -4,7 +4,7 @@
  * The panel is hidden on small screens, where the logo moves into the form column.
  */
 import type { ReactNode } from 'react';
-import { Card, CardFooter, Heading, KoraLogo, Show, Stack, Text } from '@orbit/terra';
+import { Card, CardFooter, Heading, KoraLogo, Show, Stack, Text } from '@orbit/hades';
 
 const PANEL_GRADIENT =
   'linear-gradient(25deg, color-mix(in oklch, var(--color-border-accent) 55%, var(--color-surface-elevated)) 0%, var(--color-surface-elevated) 55%, var(--color-surface) 100%)';

@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 
-import { Icon, NavItem, Navigation, Stack, Text } from '@orbit/terra';
+import { Icon, NavItem, Navigation, Stack, Text } from '@orbit/hades';
 import { hasScope } from '@orbit/lib/permissions';
 import { NAV_GROUPS } from '../_utils';
 import { useSession } from './permissions-provider';

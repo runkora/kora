@@ -24,7 +24,7 @@ import {
   TableHead,
   TableCell,
   Icon,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { fmtDate, fmtDateTime } from '@orbit/utils';
 import Link from 'next/link';

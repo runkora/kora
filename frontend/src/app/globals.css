@@ -1,7 +1,7 @@
 /**
- * Terra design tokens
+ * Hades design tokens
  * ─────────────────────────────────────────────────────────────────────────────
- * This single @import pulls in the entire Terra token sheet, which itself
+ * This single @import pulls in the entire Hades token sheet, which itself
  * contains `@import 'tailwindcss'` — making it the single entry point for
  * the Tailwind v4 CSS engine. Do not add a separate `@import 'tailwindcss'`
  * anywhere in this file.
@@ -10,9 +10,9 @@
  * ─────────────────────────────────────────────────────────────────────────────
  * You might expect to write:
  *
- *   @import '@orbit/terra/src/tokens/tokens.css';   ← DOES NOT WORK
+ *   @import '@orbit/hades/src/tokens/tokens.css';   ← DOES NOT WORK
  *
- * This silently no-ops even though transpilePackages: ['@orbit/terra'] is set
+ * This silently no-ops even though transpilePackages: ['@orbit/hades'] is set
  * in next.config.ts (which does work for JS/TS imports). The reason is that
  * @tailwindcss/postcss resolves CSS @import paths using PostCSS's filesystem
  * resolver — not Node.js module resolution. PostCSS does not follow pnpm
@@ -35,18 +35,18 @@
  * ─────────────────────────────────────────────────────────────────────────────
  *   This file  →  frontend/src/app/globals.css
  *   ../        →  frontend/src/
- *   packages/terra/src/tokens/tokens.css  →  the real file on disk
+ *   packages/hades/src/tokens/tokens.css  →  the real file on disk
  *
- *   (node_modules/@orbit/terra is a pnpm symlink → ../../src/packages/terra)
+ *   (node_modules/@orbit/hades is a pnpm symlink → ../../src/packages/hades)
  */
-@import '../packages/terra/src/tokens/tokens.css';
+@import '../packages/hades/src/tokens/tokens.css';
 
 /**
- * Tell Tailwind v4 to scan Terra component sources for class names.
+ * Tell Tailwind v4 to scan Hades component sources for class names.
  * Path is relative to this file (frontend/src/app/globals.css).
- * `../` → frontend/src/, then packages/terra/src contains all components.
+ * `../` → frontend/src/, then packages/hades/src contains all components.
  */
-@source "../packages/terra/src";
+@source "../packages/hades/src";
 
 [data-theme-switch='light'] {
   display: none;
@@ -97,7 +97,7 @@ body {
  * movement or scale). Closing is instant (no exit animation), so there is no
  * corresponding "out" keyframe — the panels simply unmount. Applied via
  * inline `style.animation` (see `sidebar-user-footer.tsx`), not a class —
- * Terra components can't take a `className` outside the Terra package, and
+ * Hades components can't take a `className` outside the Hades package, and
  * the reduced-motion check is done in JS there instead of a media query, so
  * only the keyframe itself needs to live here.
  */

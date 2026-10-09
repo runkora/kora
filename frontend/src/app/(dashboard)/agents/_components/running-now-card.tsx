@@ -19,8 +19,8 @@ import {
   TableRoot,
   TableRow,
   Text,
-} from '@orbit/terra';
-import type { StatusDotProps } from '@orbit/terra';
+} from '@orbit/hades';
+import type { StatusDotProps } from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { RUNNING_ROWS } from '../_lib/spend';
 import { formatDuration, formatRelativeTime } from '../_types';

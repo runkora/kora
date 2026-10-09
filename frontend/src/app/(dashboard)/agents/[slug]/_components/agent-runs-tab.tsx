@@ -12,10 +12,10 @@ import {
   Text,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
-import type { DataTableColumn } from '@orbit/terra';
+import type { DataTableColumn } from '@orbit/hades';
 import { StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { RunStateCounts } from '@orbit/shared/api';
@@ -235,7 +235,7 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
     [agent, router],
   );
 
-  // No paddingTop on the root: Terra's TabsContent already provides the
+  // No paddingTop on the root: Hades' TabsContent already provides the
   // uniform gap below the tab rail; adding more here doubled it on this tab.
   return (
     <Stack gap="snug">

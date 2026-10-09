@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 · agents/[slug]-scoped. Renders an agent's markdown instructions in Terra text, with the numbers of ordered lists drawn in React. */
+/** @tier 3 · agents/[slug]-scoped. Renders an agent's markdown instructions in Hades text, with the numbers of ordered lists drawn in React. */
 
 import { Children, createContext, isValidElement, useContext } from 'react';
 import type { ElementType, ReactNode } from 'react';
@@ -18,7 +18,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 /** Line height of preformatted text, shared by the Raw view and code blocks. */
 export const CODE_LINE_HEIGHT = 1.6;

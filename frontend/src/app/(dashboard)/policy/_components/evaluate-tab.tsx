@@ -17,7 +17,7 @@ import {
   Stack,
   Text,
   Icon,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type {
   CheckResponse,
   CheckSimulateRequest,

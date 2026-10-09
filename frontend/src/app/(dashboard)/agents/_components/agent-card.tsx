@@ -14,7 +14,7 @@ import {
   Progress,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { StatusBadge } from '@orbit/components';
 import { fmtUsd } from '@orbit/utils';
 import type { AgentTypeUsage } from '@orbit/shared/api';
