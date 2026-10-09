@@ -105,14 +105,11 @@ agents:
     mode: capacity
     replicas: 1
     priority: -10          # below real agent workloads
-    resources:             # reserved per replica
-      requests: { cpu: "1", memory: 4Gi }
-      limits: { cpu: "1", memory: 4Gi }
 ```
 
 Placement of sandbox warmers follows `agents.workloads.sandbox`.
 
-`resources` is the capacity each placeholder reserves on a node. Leave at default, or raise to hold a larger warm node for a heavier sandbox image.
+Each placeholder reserves one default sandbox pod: the default size, 1Gi of disk and the sandbox sidecars. Set `resources` to reserve a different amount. It must cover a sandbox pod's total requests.
 
 `replicas` is how many warm nodes you need.
 
@@ -177,10 +174,18 @@ An environment combines a sandbox image with a size, egress hosts and connectors
 agents:
   environments:
     defaultSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
-    maxSize: { cpu: "8", memory: 16Gi, disk: 50Gi }
+    maxSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
 ```
 
 `disk` sizes a node-local volume in each sandbox that holds the Go, npm and pip caches and user-level tool installs. The repository checkout stays on the shared workspace.
+
+A sandbox reserves its size. Its CPU, memory and ephemeral-storage requests equal its limits, and its sidecars add `operator.injection.sandboxSidecars` on top. The default `maxSize` equals the default size. Raise `maxSize` to what one sandbox node holds:
+
+- `maxSize.cpu` plus the sidecar CPU must fit the node's allocatable CPU less its DaemonSet requests.
+- `maxSize.memory` plus the sidecar memory must fit the node's allocatable memory less its DaemonSet requests.
+- `maxSize.disk` plus 1Gi must fit the node's allocatable ephemeral storage.
+
+`kubectl describe node <node>` lists a node's allocatable resources and the requests of its pods. A run on a size that no node holds fails with the scheduler's reason.
 
 The operator needs `agents.sandboxImages.registryPorts` for a registry on a port other than 443. `agents.sandboxImages.registryMirrors` maps a registry host in image references to the host the operator reads from, as the nodes' registry mirrors do. A mirror given as `http://host` is read over plain HTTP, such as the local k3d registry.
 
