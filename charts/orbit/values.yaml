@@ -1,0 +1,792 @@
+# Required: global.trustDomain, frontendHost.
+# Requires externally managed Istio, SPIRE, PostgreSQL, and Redis.
+
+global:
+  # Shared by SPIRE, Istio and Orbit. Required.
+  trustDomain: ""
+
+  # Namespace Orbit runs in. Empty means the release namespace.
+  systemNamespace: ""
+
+  # Registry prefix for every Orbit image. Overridable per component.
+  imageRegistry: ghcr.io/clear-route
+
+  # Image tag for every Orbit image. Empty uses the chart appVersion. Local
+  # development sets this to pin a pushed tag; a release stamps digests instead.
+  imageTag: ""
+
+  # Service config shared by every component. A component overrides in its own
+  # config block; otherwise it inherits these.
+  logFormat: json
+  postgres:
+    sslMode: require
+    captureQueryText: false
+  observability:
+    # The collector's gRPC URL, e.g. http://otel-collector.observability.svc:4317.
+    # The scheme sets the transport: http:// is plaintext, https:// is TLS.
+    # Empty exports no traces or metrics.
+    otlpEndpoint: ""
+    # Fraction of root traces sampled, 0.0 to 1.0.
+    samplingRate: ""
+    # The namespace running that collector, when it runs in this cluster.
+    # Setting it opens the egress the export needs, on the endpoint's port, and
+    # only takes effect while networkPolicy.enabled is true. For a collector
+    # outside the cluster, leave this empty and add its CIDR and port to
+    # networkPolicy.externalServices instead.
+    collectorNamespace: ""
+
+  # Pull secrets applied to Orbit and tenant workloads. Kubernetes convention:
+  # a list of {name: <secret-name>} objects.
+  imagePullSecrets: []
+
+  # IfNotPresent for released, digest-pinned images. Always for local development.
+  imagePullPolicy: IfNotPresent
+
+  # Defaults for every Orbit workload. Overridable per component.
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+
+# The external frontend host, e.g. orbit.example.com. The API host is
+# api.<frontendHost> (ADR 2026-07-04). Required.
+frontendHost: ""
+
+# Trusted-host allowlist for OAuth discovery metadata (ADR 2026-07-04).
+# Canonical (api.) host first. Empty disables validation.
+publicHosts: []
+
+# Non-secret platform config rendered into the orbit-config ConfigMap, and the
+# name of the Secret every service reads.
+config:
+  db:
+    host: ""
+    port: 5432
+    name: orbit
+    user: orbit
+  redis:
+    host: ""
+    port: 6379
+  # Holds DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY,
+  # ORBIT_TRIGGERS_ENCRYPTION_KEY. Not created by the chart.
+  platformSecretName: orbit-secrets
+
+istio:
+  namespace: istio-system
+  # Empty means the default revision: namespaces get istio-injection=enabled.
+  # A revision name labels istio.io/rev instead.
+  revision: ""
+  # ALLOW_ANY or REGISTRY_ONLY. REGISTRY_ONLY needs the ServiceEntries this
+  # chart renders for the external hosts it knows about (Bedrock, Postgres, Redis).
+  outboundTrafficPolicy: ALLOW_ANY
+
+# The SPIRE deployment Orbit registers into.
+spire:
+  # Class the spire-controller-manager serves. A mismatch means Orbit's
+  # ClusterSPIFFEIDs are ignored.
+  className: spire-system-spire
+
+# SPIFFE-dependent resources: DestinationRule SANs, AuthorizationPolicies.
+# Always on in a supported install.
+platform:
+  spiffe:
+    enabled: true
+
+networkPolicy:
+  # Enforce default-deny network policies.
+  enabled: true
+  # Outside networkPolicy.enabled default-deny; a managed DB or Redis subnet.
+  externalServices: []
+  # Permit kube-apiserver access to the admission webhook.
+  apiServerCIDRs:
+    - 0.0.0.0/0
+
+gateway:
+  # Set false to use an existing Istio Gateway (see deploy/reference/values/gateway-byo.yaml).
+  create: true
+  name: orbit-gateway
+  ports:
+    http: 80
+    https: 443
+  tls:
+    # HTTPS with HTTP-to-HTTPS redirect. Needs a kubernetes.io/tls Secret named
+    # credentialName, in the namespace the gateway pods run in.
+    enabled: false
+    credentialName: orbit-gateway-tls
+  # Kubernetes Ingress in front of the Istio gateway Service (Traefik, ALB).
+  # TLS terminates there; API routes force x-forwarded-proto=https.
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    tls: []
+  # With gateway.create=false: where the existing gateway pods run and their
+  # selector, for gateway-level OPA and the admitting network policy.
+  byo:
+    namespace: ""
+    selector:
+      app: istio-ingressgateway
+
+# Values for the ingressGateway subchart (upstream istio/gateway) when
+# gateway.create is true. The SPIRE wiring is what lets DestinationRules and
+# gateway-level OPA pin the proxy by SPIFFE identity instead of an istiod cert.
+ingressGateway:
+  name: orbit-gateway
+  service:
+    type: LoadBalancer
+  labels:
+    app: orbit-gateway
+    istio: orbit-gateway
+    # Matches the system-component registration for spiffe://<td>/system/ingress-gateway.
+    spiffe.io/component: ingress-gateway
+  env:
+    PILOT_CERT_PROVIDER: spire
+    SPIFFE_ENDPOINT_SOCKET: unix:///run/secrets/workload-spiffe-uds/socket
+  volumes:
+    - name: workload-socket
+      csi:
+        driver: csi.spiffe.io
+        readOnly: true
+  volumeMounts:
+    - name: workload-socket
+      mountPath: /run/secrets/workload-spiffe-uds
+      readOnly: true
+  autoscaling:
+    enabled: false
+  podAnnotations:
+    inject.istio.io/templates: gateway
+    sidecar.istio.io/inject: "true"
+  securityContext:
+    runAsNonRoot: true
+    seccompProfile:
+      type: RuntimeDefault
+  containerSecurityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop: [ALL]
+    readOnlyRootFilesystem: true
+
+operator:
+  image:
+    registry: ""
+    repository: orbit-operator
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  # Keep two replicas so admission remains available during a pod failure.
+  replicas: 2
+  podDisruptionBudget:
+    enabled: true
+    minAvailable: 1
+  leaderElection: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  # Containers the webhook injects into every tenant pod. Images come from
+  # identityProxy.image and opaGateway.image, same as the system pods.
+  injection:
+    opa:
+      logLevel: info
+      bundlePolling:
+        minDelaySeconds: 30
+        maxDelaySeconds: 60
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 250m
+          memory: 128Mi
+  # Pod Security Admission labels set on every tenant namespace.
+  tenantPodSecurity:
+    enforce: restricted
+    warn: restricted
+    audit: restricted
+  preflight:
+    # Preflight fails on an istiod outside this list. Release automation stamps it.
+    supportedIstioMinors: ["1.29", "1.28"]
+    intervalSeconds: 300
+
+# Identity-proxy sidecar: services carry their own platform token when calling
+# other Orbit services.
+identityProxy:
+  image:
+    registry: ""
+    repository: orbit-identity-proxy
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 64Mi
+
+# Schema migration Job, run as a pre-install and pre-upgrade hook before any
+# workload rolls (docs/adr/2026-09-10-database-migrations.md).
+migrate:
+  image:
+    registry: ""
+    repository: orbit-migrate
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  # Must stay below the Helm timeout (helm's default is 300s) or Helm fails the
+  # release while the Job is still applying and the next upgrade deletes it
+  # mid-flight.
+  activeDeadlineSeconds: 240
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  config: {}
+
+identity:
+  image:
+    registry: ""
+    repository: orbit-identity
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  hostAliases: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  config:
+    redisTLSEnabled: "true"
+    accessTokenTtlMinutes: 15
+  # Operator-owned ConfigMaps and Secrets identity reads. Mounts are optional:
+  # identity starts before any tenant exists.
+  tenantsConfigMap: orbit-tenants
+  clientSecretsSecret: orbit-tenant-oidc-secrets
+  oauthClientsConfigMap: orbit-tenant-oauth-clients
+
+inferenceGateway:
+  image:
+    registry: ""
+    repository: orbit-inference-gateway
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    # e.g. eks.amazonaws.com/role-arn for Bedrock access via IRSA.
+    annotations: {}
+  config: {}
+  # AWS Bedrock providers. Each entry registers provider "bedrock:<alias>".
+  # Credentials come from the pod's cloud identity, never from values.
+  bedrock:
+    accounts: []
+    # - alias: aus
+    #   region: ap-southeast-2
+
+orbitMcp:
+  image:
+    registry: ""
+    repository: orbit-mcp
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  register: true
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  config: {}
+
+toolGateway:
+  image:
+    registry: ""
+    repository: orbit-tool-gateway
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 250m
+      memory: 128Mi
+  # Request-path proxy replicas. The publisher runs one.
+  proxyReplicas: 1
+  httpPort: 8096
+  mcpServersConfigMapName: orbit-mcp-servers
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  config: {}
+
+frontend:
+  image:
+    registry: ""
+    repository: orbit-frontend
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  # In-cluster URLs the BFF calls. Empty derives from the release namespace.
+  config:
+    orbitApiUrl: ""
+    orbitTriggersUrl: ""
+    inferenceGatewayUrl: ""
+    policyGatewayUrl: ""
+    policyServiceUrl: ""
+    orbitAgentsUrl: ""
+    toolGatewayUrl: ""
+    nextPublicAppUrl: ""
+  # Holds BFF_SESSION_SECRET.
+  existingSecret: orbit-frontend-secrets
+  # Kubernetes Ingress straight to the frontend Service, for an edge that is
+  # not the Istio gateway.
+  ingress:
+    enabled: false
+    className: ""
+    annotations: {}
+    hosts: []
+    tls: []
+
+agents:
+  image:
+    registry: ""
+    repository: orbit-agents
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  config:
+    # Images orbit-agents runs in tenant namespaces. Empty resolves to
+    # <global.imageRegistry>/orbit-session-manager and orbit-sandbox-exec at
+    # global.imageTag, falling back to the chart appVersion when it is empty.
+    sessionManagerImage: ""
+    sandboxImage: ""
+    sandboxGitAuthorName: ""
+    sandboxGitAuthorEmail: ""
+  # Per-agent AuthorizationPolicy restricting the session-manager port to the
+  # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
+  authorizationPolicy:
+    enabled: true
+  tenantConnectionsConfigMapName: orbit-tenant-connections
+  # Kustomize patches applied to the resources orbit-agents provisions in
+  # tenant namespaces: StatefulSet, PersistentVolumeClaim (the StatefulSet's
+  # workspace template), Service, ServiceAccount, HorizontalPodAutoscaler,
+  # PodDisruptionBudget and the sandbox Pod. Each value is one kustomize
+  # `patches:` entry and needs target.kind; keys sort into apply order.
+  # Patches that change a resource's identity, security context or the
+  # sandbox workspace mount are rejected at startup.
+  #
+  # Example, pinning agent pods to a node pool:
+  #   manifestPatches:
+  #     50-nodeselector:
+  #       target:
+  #         kind: StatefulSet
+  #       patch: |
+  #         apiVersion: apps/v1
+  #         kind: StatefulSet
+  #         metadata:
+  #           name: any
+  #         spec:
+  #           template:
+  #             spec:
+  #               nodeSelector:
+  #                 disktype: ssd
+  manifestPatches: {}
+  # Customisation for the workloads orbit-agents provisions in tenant
+  # namespaces. Applied before manifestPatches, so a patch still wins on a
+  # field both set. See docs/adr/2026-09-16-first-class-workload-placement.md.
+  #
+  # Identity labels (spiffe.io/agent, orbit.io/tenant, orbit.io/agent-type,
+  # orbit.io/role and the rest), the mesh annotations, security context and
+  # service account name stay platform-owned: podLabels or podAnnotations that
+  # collide with them fail orbit-agents at startup.
+  workloads:
+    # Applied to the session-manager pods and sandbox pods alike.
+    common:
+      podLabels: {}
+      podAnnotations: {}
+    # Session-manager pods multiplex an agent's sessions and are long-lived.
+    sessionManager:
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: []
+      priorityClassName: ""
+      podLabels: {}
+      podAnnotations: {}
+      serviceAccount:
+        # Cloud identity for the agent (eks.amazonaws.com/role-arn,
+        # iam.gke.io/gcp-service-account). Sandbox pods run under the tenant's
+        # default ServiceAccount and never receive these.
+        annotations: {}
+    # Sandbox pods are per-run, bursty, and execute the agent's own code. Giving
+    # them their own pool keeps a heavy sandbox off the nodes serving live
+    # sessions. A sandbox mounts its session-manager's workspace, so placing
+    # them apart requires a ReadWriteMany workspace below.
+    sandbox:
+      nodeSelector: {}
+      tolerations: []
+      affinity: {}
+      topologySpreadConstraints: []
+      priorityClassName: ""
+      podLabels: {}
+      podAnnotations: {}
+  # The agent workspace volume, mounted by the session-manager and by every
+  # sandbox of that agent's runs. Empty keeps the cluster's default
+  # StorageClass. A StatefulSet's volumeClaimTemplates are immutable and its
+  # claims outlive it, so changing these affects agents created afterwards.
+  workspace:
+    storageClassName: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 10Gi
+  # Warm-start for sandboxes, so a run does not wait for a node to boot and the
+  # sandbox image to pull. Placement follows agents.workloads.sandbox, so the
+  # pool is configured once; the keys below override it.
+  sandboxWarming:
+    # -- Warm-start strategy. `none` accepts cold starts. `image` runs a DaemonSet
+    # caching the sandbox image on the nodes it runs on, worth it only where those
+    # nodes outlive individual sandboxes. `capacity` runs a low-priority
+    # placeholder holding a node open with the image already cached, the choice
+    # for a pool that scales to zero.
+    mode: none
+    # -- `capacity` mode. Nodes held warm. Above one, placeholders repel each
+    # other by hostname so they land on separate nodes; set `affinity` with your
+    # own podAntiAffinity to replace that.
+    replicas: 1
+    # -- The placeholder's PriorityClass value. Stays below real pods at 0, or it
+    # competes with the sandbox it exists for instead of yielding to it.
+    priority: -10
+    # -- Capacity each placeholder reserves, and the size a node is fitted to. At
+    # or above a sandbox pod's total requests, sidecars included, or the sandbox
+    # taking the capacity will not fit on the node that was holding it.
+    resources:
+      requests:
+        cpu: "1"
+        memory: 4Gi
+      limits:
+        cpu: "1"
+        memory: 4Gi
+    # -- Applied to whichever workload the mode runs. Orbit's own selector labels
+    # win on a collision.
+    podLabels: {}
+    # -- Applied to whichever workload the mode runs. `capacity` already carries
+    # the Karpenter and Cluster Autoscaler annotations that keep a held node
+    # from being scaled away; set them here to override.
+    podAnnotations: {}
+    nodeSelector: {}
+    tolerations: []
+    affinity: {}
+    topologySpreadConstraints: []
+
+policyService:
+  image:
+    registry: ""
+    repository: orbit-policy-service
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  # -- Operator-owned tenant registry ConfigMap; the gateway bundle lists every tenant in it.
+  tenantsConfigMap: orbit-tenants
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  config: {}
+
+policyGateway:
+  image:
+    registry: ""
+    repository: orbit-policy-gateway
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 128Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  config: {}
+
+skillsService:
+  image:
+    registry: ""
+    repository: orbit-skills-service
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+
+triggers:
+  image:
+    registry: ""
+    repository: orbit-triggers
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  config: {}
+  authorizationPolicy:
+    enabled: true
+    systemPrincipals:
+      - frontend
+      - orbit-mcp
+      - ingress-gateway
+    # Mesh identities without an Orbit registration. Orbit's own gateway is
+    # registered as a system component; an existing gateway goes here as
+    # ns/<namespace>/sa/<serviceaccount>.
+    meshPrincipals: []
+
+egressGateway:
+  # Extra outbound TCP ports the gateway may dial when brokering a connection.
+  # It reaches 443 already; anything else has to be opened deliberately, since
+  # this is the one component that holds credentials for every upstream. A
+  # Kubernetes API server conventionally listens on 6443, so a kubernetes
+  # Connection needs that port here before the gateway can reach it.
+  upstreamPorts: []
+  # The Envoy filter that tunnels every sandbox connection into the egress
+  # gateway. Independent of networkPolicy.enabled: on a CNI without
+  # NetworkPolicy support this is the control that still holds.
+  transparentEgress:
+    enabled: true
+  image:
+    registry: ""
+    repository: orbit-egress-gateway
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}
+  extraEnv: []
+  extraVolumes: []
+  extraVolumeMounts: []
+  serviceAccount:
+    annotations: {}
+  # CONNECT port sandboxes use as HTTPS_PROXY. Must match
+  # cmd/egress-gateway/config/base.yaml server.httpPort and the sandbox
+  # NetworkPolicy.
+  connectPort: 8085
+  adminPort: 8086
+  tenantCASecretName: orbit-tenant-cas
+  connectionSecretName: orbit-tenant-connection-secrets
+  tenantConnectionsConfigMapName: orbit-tenant-connections
+  config: {}
+
+# Gateway-level OPA (ADR 2026-04-27): ext_authz for every request entering
+# through the Istio gateway.
+opaGateway:
+  image:
+    registry: docker.io
+    repository: openpolicyagent/opa
+    tag: 1.15.2-envoy-static
+    digest: ""
+    pullPolicy: ""
+  replicas: 2
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+  topologySpreadConstraints: []
+  priorityClassName: ""
+  podAnnotations: {}
+  podLabels: {}

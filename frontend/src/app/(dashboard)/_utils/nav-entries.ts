@@ -35,6 +35,7 @@ const MAIN_NAV: NavEntry[] = [
     requiredScope: 'platform:connections:read',
   },
   { label: 'MCP Servers', href: APP_ROUTES.mcpGateway.servers, icon: 'server' },
+  { label: 'Marketplace', href: APP_ROUTES.marketplace.list, icon: 'box', requiredScope: 'marketplace:read' },
   { label: 'Environments', href: APP_ROUTES.environments, icon: 'layers' },
   { label: 'Marketplace', href: APP_ROUTES.marketplace.overview, icon: 'box' },
   {

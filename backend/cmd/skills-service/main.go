@@ -95,7 +95,11 @@ func initObservability(ctx context.Context, logger logging.Logger) (func(), erro
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), sc.Current.ShutdownTimeout())
 		defer cancel()
 		if err := shutdown(shutdownCtx); err != nil {
-			logger.Error(shutdownCtx, "error shutting down observability", logging.Field{Key: "error", Value: err.Error()})
+			logger.Error(
+				shutdownCtx,
+				"error shutting down observability",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
 		}
 	}, nil
 }
@@ -126,23 +130,46 @@ func initRegistry(_ context.Context, logger logging.Logger) (*skills.Registry, e
 	return skills.NewRegistry(sc.Current.Marketplace.SourcesConfigPath, logger)
 }
 
-func initControllers(ctx context.Context, logger logging.Logger, redis *storage.RedisClient, registry *skills.Registry) ([]api.Controller, error) {
+func initControllers(
+	ctx context.Context,
+	logger logging.Logger,
+	redis *storage.RedisClient,
+	registry *skills.Registry,
+) ([]api.Controller, error) {
 	installationID, err := strconv.ParseInt(sc.Current.GitHub.InstallationID, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid GITHUB_APP_INSTALLATION_ID: %w", err)
 	}
 
 	gh := ghclient.NewClient(sc.Current.GitHub.APIBaseURL, logger)
-	tokens := skills.NewTokenProvider(gh, sc.Current.GitHub.AppID, installationID, sc.Current.GitHub.PrivateKeyPath)
+	tokens := skills.NewTokenProvider(
+		gh,
+		sc.Current.GitHub.AppID,
+		installationID,
+		sc.Current.GitHub.PrivateKeyPath,
+	)
 	crawler := skills.NewCrawler(gh, tokens, logger)
 	cache := skills.NewCache(redis, sc.Current.CacheTTL())
 
-	pol := policy.NewEvaluator(sc.Current.Policy.BundleEndpoint, sc.Current.Policy.BundlePollInterval(), logger)
+	pol := policy.NewEvaluator(
+		sc.Current.Policy.BundleEndpoint,
+		sc.Current.Policy.BundlePollInterval(),
+		logger,
+	)
 	pol.Start(ctx)
 
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 	svc := skills.NewService(registry, cache, crawler, logger)
-	controller := skills.NewController(logger, svc, registry, verifier, pol, sc.Current.Server.BasePath)
+
+	controller := skills.NewController(
+		logger,
+		svc,
+		registry,
+		verifier,
+		pol,
+		sc.Current.Server.BasePath,
+		"tenant-a",
+	)
 
 	return []api.Controller{controller}, nil
 }
@@ -155,15 +182,29 @@ func initScopeRegistration(logger logging.Logger) func(context.Context) error {
 	client := routescopes.NewClient(sc.Current.Policy.PolicyServiceURL, logger)
 
 	return func(registerCtx context.Context) error {
-		scopedRoutes := routescopes.FilterScopedRoutes(skills.MarketplaceRoutes(sc.Current.Server.BasePath))
-		if err := client.Register(registerCtx, "skills-service", scopedRoutes, skills.MarketplaceScopes()); err != nil {
+		scopedRoutes := routescopes.FilterScopedRoutes(
+			skills.MarketplaceRoutes(sc.Current.Server.BasePath),
+		)
+
+		if err := client.Register(
+			registerCtx,
+			"skills-service",
+			scopedRoutes,
+			skills.MarketplaceScopes(),
+		); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
+
 		return nil
 	}
 }
 
-func initServer(ctx context.Context, logger logging.Logger, redis *storage.RedisClient, registry *skills.Registry) (*http.Server, func(context.Context) error, error) {
+func initServer(
+	ctx context.Context,
+	logger logging.Logger,
+	redis *storage.RedisClient,
+	registry *skills.Registry,
+) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	controllers, err := initControllers(ctx, logger, redis, registry)
@@ -171,7 +212,11 @@ func initServer(ctx context.Context, logger logging.Logger, redis *storage.Redis
 		return nil, nil, err
 	}
 
-	register := initScopeRegistration(logger)
+	var register func(context.Context) error
+
+	if sc.Current.Policy.RegisterRoutes {
+		register = initScopeRegistration(logger)
+	}
 
 	server := apiServer.Server(
 		ctx,
@@ -187,27 +232,46 @@ func initServer(ctx context.Context, logger logging.Logger, redis *storage.Redis
 	return server, register, nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, register func(context.Context) error) int {
+func run(
+	ctx context.Context,
+	logger logging.Logger,
+	server *http.Server,
+	register func(context.Context) error,
+) int {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
 	serverErr := make(chan error, 1)
+
 	go func() {
-		logger.Info(ctx, "starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		logger.Info(
+			ctx,
+			"starting HTTP server",
+			logging.Field{Key: "addr", Value: server.Addr},
+		)
+
+		if err := server.ListenAndServe(); err != nil &&
+			!errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 			return
 		}
+
 		serverErr <- nil
 	}()
 
-	// Register now and keep the vocabulary alive across policy-service restarts.
-	go routescopes.KeepRegistered(ctx, logger, "skills-service", register)
+	if register != nil {
+		// Register now and keep the vocabulary alive across policy-service restarts.
+		go routescopes.KeepRegistered(ctx, logger, "skills-service", register)
+	}
 
 	select {
 	case err := <-serverErr:
 		if err != nil {
-			logger.Error(ctx, "failed to start server", logging.Field{Key: "error", Value: err.Error()})
+			logger.Error(
+				ctx,
+				"failed to start server",
+				logging.Field{Key: "error", Value: err.Error()},
+			)
 			return 1
 		}
 	case <-quit:
@@ -218,7 +282,11 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 	defer cancel()
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
-		logger.Error(ctx, "server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
+		logger.Error(
+			ctx,
+			"server forced to shutdown",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
 	}
 
 	logger.Info(ctx, "skills-service shutdown complete")

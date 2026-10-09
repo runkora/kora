@@ -144,13 +144,31 @@ func (s *Service) ListSkills(ctx context.Context, tenantID, marketplaceName, sea
 // GetSkill finds a skill by its folder name (the last segment of its slug).
 // The URL path uses the folder name, not the display name.
 func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceName, skillName string) (Skill, error) {
+	sources := s.registry.ListSources(tenantID)
+
+	var source MarketplaceSource
+	found := 0
+
+	for _, src := range sources {
+		if marketplaceSlug(src.Name) == marketplaceName {
+			source = src
+			found++
+		}
+	}
+
+	if found != 1 {
+		return Skill{}, ErrMarketplaceNotFound
+	}
+
 	skills, err := s.resolve(ctx, tenantID, marketplaceName)
 	if err != nil {
 		return Skill{}, err
 	}
 
+	expectedSlug := source.Org + ":" + source.Repo + ":" + skillName
+
 	for _, sk := range skills {
-		if strings.HasSuffix(sk.Slug, "/"+skillName) {
+		if sk.Slug == expectedSlug {
 			sk.Slug = ""
 			return sk, nil
 		}

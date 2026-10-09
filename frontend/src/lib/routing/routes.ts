@@ -41,6 +41,12 @@ export const APP_ROUTES = {
   connections: '/connections',
   environments: '/environments',
   triggers: '/triggers',
+  marketplace: {
+    list: '/marketplace' as const,
+    skills: (marketplace: string) => `/marketplace/${encodeURIComponent(marketplace)}` as const,
+    skill: (marketplace: string, skill: string) =>
+      `/marketplace/${encodeURIComponent(marketplace)}/${encodeURIComponent(skill)}` as const,
+  },
   mcpGateway: {
     servers: '/mcp-gateway',
     server: (slug: string) => `/mcp-gateway/${slug}` as const,

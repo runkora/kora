@@ -430,7 +430,7 @@ func TestCrawlParallel(t *testing.T) {
 
 		want := []Skill{
 			{
-				Slug:        "org/repo/skill-a",
+				Slug:        "org:repo:skill-a",
 				Name:        "Skill A",
 				Description: "First skill",
 				Skill: SkillFile{
@@ -445,7 +445,7 @@ func TestCrawlParallel(t *testing.T) {
 				},
 			},
 			{
-				Slug:        "org/repo/skill-b",
+				Slug:        "org:repo:skill-b",
 				Name:        "Skill B",
 				Description: "Second skill",
 				Skill: SkillFile{
@@ -479,8 +479,8 @@ func TestCrawlParallel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Crawl: %v", err)
 		}
-		if len(got) != 1 || got[0].Slug != "org/repo/good-skill" {
-			t.Errorf("Crawl = %#v, want only org/repo/good-skill", got)
+		if len(got) != 1 || got[0].Slug != "org:repo:good-skill" {
+			t.Errorf("Crawl = %#v, want only org:repo:good-skill", got)
 		}
 		if !strings.Contains(logs.String(), "skipping skill") || !strings.Contains(logs.String(), `"skillName":"bad-skill"`) {
 			t.Errorf("no warning for the skipped skill; logs:\n%s", logs.String())
@@ -508,7 +508,7 @@ func TestCrawlParallel(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Crawl: %v", err)
 		}
-		if len(got) != 1 || got[0].Slug != "org/repo/good-skill" {
+		if len(got) != 1 || got[0].Slug != "org:repo:good-skill" {
 			t.Errorf("Crawl = %#v, want only org/repo/good-skill", got)
 		}
 	})
