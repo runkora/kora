@@ -320,7 +320,7 @@ func TestProvisionSandbox_ReportsPhases(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(ws, "run-1"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(ws, "run-1", ".sandbox"), nil, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(ws, "run-1", ".sandbox-exec"), nil, 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); err == nil {

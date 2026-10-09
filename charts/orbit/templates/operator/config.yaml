@@ -8,6 +8,13 @@ The preflight helm test mounts the same ConfigMap.
 {{- with (.Values.agents.workloads.sandbox.priorityClassName | default .Values.agents.priorityClassName | default .Values.global.priorityClassName) }}
 {{- $_ := set $placement "priorityClassName" . }}
 {{- end }}
+{{- /* A sandbox sidecar without both values would be left unpinned. */}}
+{{- range $name := list "istioProxy" "identityProxy" "opa" }}
+{{- $r := index ($.Values.operator.injection.sandboxSidecars | default dict) $name | default dict }}
+{{- if not (and $r.cpu $r.memory) }}
+{{- fail (printf "operator.injection.sandboxSidecars.%s must set both cpu and memory" $name) }}
+{{- end }}
+{{- end }}
 cmd/operator:
   operator:
     leaderElection: {{ .Values.operator.leaderElection }}
@@ -32,6 +39,7 @@ cmd/operator:
       bundlePollingMinDelay: {{ .Values.operator.injection.opa.bundlePolling.minDelaySeconds | int }}
       bundlePollingMaxDelay: {{ .Values.operator.injection.opa.bundlePolling.maxDelaySeconds | int }}
       opaResources: {{ .Values.operator.injection.opa.resources | toJson }}
+      sandboxSidecars: {{ .Values.operator.injection.sandboxSidecars | toJson }}
     podSecurity:
       enforce: {{ .Values.operator.tenantPodSecurity.enforce | toJson }}
       warn: {{ .Values.operator.tenantPodSecurity.warn | toJson }}

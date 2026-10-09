@@ -30,21 +30,11 @@ func main() {
 		port = "50051"
 	}
 
-	// Per-run HOME: this run's sandbox pod is mounted with SubPath: runID (see
-	// internal/agents/k8s.go sandboxContainer), scoping WORKSPACE to this run's
-	// own directory. Mirroring orbit-session-runner's {workDir}/.runhome
-	// (docs/adr/2026-06-04-per-session-home-isolation.md), overriding HOME here
-	// keeps kubeconfig and tool caches (npm, pip, go, etc.) inside that scoped
-	// directory instead of the pod's shared default home.
+	// HOME, TMPDIR and caches go to this sandbox's local disk, off the shared workspace volume
+	// (docs/adr/2026-10-08-sandbox-workspace-mount.md).
 	if err := setRunHome(); err != nil {
-		// Not fatal, and not an isolation risk: a failure here just leaves HOME at
-		// the container's default (/home/orbit), which is on this pod's own
-		// ephemeral filesystem, not the shared workspaces PVC — it cannot expose
-		// or collide with another run's data. The SubPath mount (sandboxContainer
-		// in internal/agents/k8s.go) is the actual isolation boundary and is
-		// unaffected by this fallback; the only consequence is that tool caches
-		// (npm, pip, go, etc.) land in the pod's default home instead of the
-		// scoped workspace, which is a cleanup/reuse concern, not a security one.
+		// Not fatal: HOME stays at the image's home, a pod-local scratch volume.
+		// The workspace SubPath mount is the isolation boundary, and this fallback does not touch it.
 		log.Printf("sandbox-exec: run home not set, falling back to default HOME: %v", err)
 	}
 
@@ -267,18 +257,21 @@ func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r int
 	done <- nil
 }
 
-// setRunHome points HOME and TMPDIR at the agent pod's paths, and installs and caches at the run's node-local dir.
+// sandboxTmpDir is the sandbox's TMPDIR. The pod mounts the local disk there.
+const sandboxTmpDir = "/tmp"
+
+// setRunHome points HOME, TMPDIR, installs and caches at the sandbox's local disk.
 // It does nothing when WORKSPACE is unset (local/dev invocation).
 func setRunHome() error {
 	workspace := os.Getenv("WORKSPACE")
 	if workspace == "" {
 		return nil
 	}
-	home := runfs.HomeDir(workspace)
+	home := runfs.LocalDir(workspace)
 	if err := os.MkdirAll(home, 0o700); err != nil {
 		return fmt.Errorf("create run home: %w", err)
 	}
-	env := append([]string{"HOME=" + home, "TMPDIR=" + runfs.TmpDir(workspace)}, runfs.InstallEnv(runfs.LocalDir(workspace), os.Getenv("PATH"))...)
+	env := append([]string{"HOME=" + home, "TMPDIR=" + sandboxTmpDir}, runfs.InstallEnv(home, os.Getenv("PATH"))...)
 	for _, e := range env {
 		key, value, _ := strings.Cut(e, "=")
 		if err := os.Setenv(key, value); err != nil {

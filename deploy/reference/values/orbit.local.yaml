@@ -53,6 +53,10 @@ agents:
     registryPorts:
       - 5000
 
+# The k3d node kernel loads nfsd and the NFS client on demand.
+sandboxMount:
+  enabled: true
+
 operator:
   replicas: 1
   leaderElection: false

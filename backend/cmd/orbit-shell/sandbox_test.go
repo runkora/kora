@@ -13,7 +13,7 @@ func TestReadSandbox(t *testing.T) {
 	write := func(t *testing.T, files map[string]string) string {
 		t.Helper()
 		ws := t.TempDir()
-		dir := filepath.Join(ws, ".sandbox")
+		dir := filepath.Join(ws, ".sandbox-exec")
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
@@ -195,7 +195,7 @@ func TestSandboxCallbacks_SendTheRunToken(t *testing.T) {
 			defer srv.Close()
 
 			ws := t.TempDir()
-			if err := os.MkdirAll(filepath.Join(ws, ".sandbox"), 0o700); err != nil {
+			if err := os.MkdirAll(filepath.Join(ws, ".sandbox-exec"), 0o700); err != nil {
 				t.Fatal(err)
 			}
 			t.Setenv("WORKSPACE", ws)

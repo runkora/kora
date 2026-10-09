@@ -105,3 +105,31 @@ install:
 		t.Errorf("bundled node = %+v", n)
 	}
 }
+
+// Sandbox sidecar resources decode from the chart's rendered JSON.
+func TestSandboxSidecars_DecodeFromYAML(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "cmd/operator/config"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	body := `install:
+  injection:
+    sandboxSidecars: {"istioProxy":{"cpu":"200m","memory":"128Mi"},"identityProxy":{"cpu":"200m","memory":"64Mi"},"opa":{"cpu":"500m","memory":"128Mi"}}
+`
+	if err := os.WriteFile(filepath.Join(dir, "cmd/operator/config/base.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(dir)
+
+	cfg, err := config.LoadService[Config]("cmd/operator", "production")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	sc := cfg.Install.Injection.SandboxSidecars
+	if sc.IstioProxy.Cpu().String() != "200m" || sc.IdentityProxy.Memory().String() != "64Mi" || sc.OPA.Cpu().String() != "500m" {
+		t.Errorf("sandboxSidecars = %+v", sc)
+	}
+}

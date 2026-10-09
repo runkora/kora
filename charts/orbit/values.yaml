@@ -219,6 +219,19 @@ operator:
         limits:
           cpu: 250m
           memory: 128Mi
+    # -- Resources of each sidecar on a sandbox pod, set as both requests and
+    # limits so the pod reserves what it can use. An environment's size is what
+    # the sandbox's own container gets, and these sit on top of it.
+    sandboxSidecars:
+      istioProxy:
+        cpu: 200m
+        memory: 128Mi
+      identityProxy:
+        cpu: 200m
+        memory: 64Mi
+      opa:
+        cpu: 500m
+        memory: 128Mi
   # Pod Security Admission labels set on every tenant namespace.
   tenantPodSecurity:
     enforce: restricted
@@ -612,18 +625,18 @@ agents:
       - ReadWriteOnce
     size: 10Gi
   # Default and maximum environment sizes in Kubernetes quantities.
-  # disk is the sandbox's local volume for build caches and tool installs.
+  # disk sizes the sandbox's local volume for its HOME, TMPDIR, caches, tool
+  # installs and, with sandboxMount.enabled, its working folder.
   environments:
     # -- Size for an environment that sets none, and for the built-in default.
     defaultSize:
       cpu: "2"
       memory: 4Gi
       disk: 10Gi
-    # -- Largest size an environment may request.
-    maxSize:
-      cpu: "8"
-      memory: 16Gi
-      disk: 50Gi
+    # -- Largest size an environment may request. An unset field takes the
+    # value of `defaultSize`. Raise it to what a sandbox node holds: see the
+    # deployment guide.
+    maxSize: {}
   # Sandbox image settings (docs/adr/2026-10-03-sandbox-environments.md). Platform teams
   # register their own images as SandboxImage resources in tenant namespaces.
   sandboxImages:
@@ -676,16 +689,11 @@ agents:
     # -- The placeholder's PriorityClass value. Stays below real pods at 0, or it
     # competes with the sandbox it exists for instead of yielding to it.
     priority: -10
-    # -- Capacity each placeholder reserves, and the size a node is fitted to. At
-    # or above a sandbox pod's total requests, sidecars included, or the sandbox
-    # taking the capacity will not fit on the node that was holding it.
-    resources:
-      requests:
-        cpu: "1"
-        memory: 4Gi
-      limits:
-        cpu: "1"
-        memory: 4Gi
+    # -- Capacity each placeholder reserves, and the size a node is fitted to.
+    # Empty reserves one default sandbox pod: `agents.environments.defaultSize`,
+    # 1Gi of scratch disk and `operator.injection.sandboxSidecars`. A value here
+    # replaces that and must cover a sandbox pod's total requests.
+    resources: {}
     # -- Applied to the `capacity` placeholder. kora's own selector labels win on
     # a collision.
     podLabels: {}
@@ -697,6 +705,52 @@ agents:
     tolerations: []
     affinity: {}
     topologySpreadConstraints: []
+
+# Node agent that gives each sandbox a working folder on its own local disk,
+# mounted into its session-manager pod at /workspaces/<run>/sandbox
+# (docs/adr/2026-10-08-sandbox-workspace-mount.md). The agent runs privileged in
+# the host network on every node. It exports the folder with the kernel NFS
+# server on the sandbox's node and mounts it on the session-manager's node.
+# Nodes need the kernel nfsd and NFSv4 client modules, and session-manager nodes
+# must reach sandbox nodes on sandboxMount.port.
+sandboxMount:
+  # -- Run the node agent and give every new sandbox a local working folder.
+  enabled: false
+  # -- Namespace of the node agent. The system namespace's Pod Security level
+  # rejects privileged pods.
+  namespace: orbit-sandbox-mount
+  # -- Create the namespace at the privileged Pod Security level. Set false to
+  # use a namespace you manage.
+  createNamespace: true
+  # -- The kubelet's root directory on the nodes.
+  kubeletDir: /var/lib/kubelet
+  # -- TCP port nfsd listens on, on every node. NFSv4 only, with no rpcbind or mountd port.
+  port: 20490
+  image:
+    registry: ""
+    repository: orbit-sandbox-mount
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  # -- Added to the tolerations of agents.workloads.sandbox and
+  # agents.workloads.sessionManager, which the agent always carries.
+  tolerations: []
+  # -- The agent must run on every node that hosts sandboxes or session-manager
+  # pods, so global.nodeSelector and global.affinity do not apply to it.
+  nodeSelector: {}
+  affinity: {}
+  # -- Falls back to global.priorityClassName.
+  priorityClassName: ""
+  # -- Raw config merged last over the agent's rendered config file, keyed by
+  # config module. Keys follow the Go config struct; an unknown key fails startup.
+  # e.g. {cmd/sandbox-mount: {node: {resyncSecs: 60}}}
+  configOverrides: {}
 
 policyService:
   image:

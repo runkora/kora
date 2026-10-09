@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-03-sandbox-environments.md  (decision date + slug; no sequential number) -->
 
-**Status:** Accepted (Amended 2026-10-07)  
+**Status:** Accepted (Amended 2026-10-08)  
 **Date:** 2026-10-03  
 **Deciders:** Justin Wilkin  
 **Technical Story:** [Sandbox Environments PRD](../prd/sandbox-environments.md)  
@@ -266,6 +266,86 @@ For the API shape:
 *   A previous-release client that reads `name` as the identifier receives the display name. The two values match for every environment that existed before the upgrade.
 *   While the previous release's orbit-agents still serves requests during an upgrade, an update it handles writes the requested name into the slug column. The new release rejects slug changes once it serves every request.
 
+## Amendment 2 (2026-10-08): Sandbox resource requests
+
+**Status:** Accepted
+
+Touches none of the three questions. A sandbox keeps its identity, its grants and its egress path. The amendment sets how much node capacity a sandbox reserves.
+
+**Context.** Decision 5 states that the size sets CPU, memory and local disk. `sandboxResources` in `backend/internal/agents/k8s.go` uses the size as the limit and requests 100m CPU, 256Mi memory and 128Mi ephemeral storage. The injected sidecars request 200m CPU and 224Mi memory and can use up to 2.45 CPU and 1.2Gi. The sandbox pod is Burstable QoS. The scheduler and the autoscaler count a busy sandbox as 100m CPU, and the node overcommits.
+
+The 1m rates of 244 sandbox pods on a deployed cluster over 7 days show the following:
+
+*   `sandbox-exec` reached its 2 CPU limit and was throttled in 99% of CFS periods at its peak. Its working set reached 3.95Gi of a 4Gi limit.
+*   istio-proxy peaked at 81m CPU and 69Mi and was never throttled.
+*   identity-proxy peaked at 12m CPU and 10Mi and was throttled in 23% of periods at its 200m limit.
+*   opa peaked at 144m CPU and 27Mi and was throttled in 50% of periods at its 250m limit.
+
+On an idle local node with a 2 CPU limit and cold caches, `go build ./...` on `backend` took 90.9s and `go test ./internal/agents/...` took 32.1s. The same commands took 23.3s and 22.7s on an 18-core laptop.
+
+The default `maxSize` of 8 CPU and 16Gi exceeds what a 4 vCPU, 16GiB node can hold. A sandbox pod that cannot schedule fails at the end of the provision budget (`agents.guardrails.sandboxProvisionBudgetSecs`) with a generic timeout. Each retry reuses the Pending pod, and the cold path gets the whole budget.
+
+**Options.** For what the size means:
+
+*   **Reservation (chosen):** Requests equal limits for CPU, memory and ephemeral storage. The sandbox gets its size on a busy node, and the autoscaler sees its demand.
+*   **Ceiling (rejected):** Keep the fixed small requests. A busy node slows every sandbox on it, and memory pressure evicts a sandbox mid-run.
+*   **Reserved floor (rejected):** Request a fixed share of the size. The sandbox is predictable only up to the floor, and the node still overcommits above it.
+
+For what the size covers:
+
+*   **The agent's container (chosen):** `sandbox-exec` gets the full size, and the sidecars and the scratch volumes sit on top.
+*   **The whole pod (rejected):** The size would include the sidecars. orbit-agents would have to subtract sidecar resources that the operator webhook sets, and a small size would lose a large share to the sidecars.
+
+For the sidecars on sandbox pods:
+
+*   **Pin every sidecar (chosen):** istio-proxy, identity-proxy and opa get requests equal to limits, and the pod is Guaranteed QoS.
+*   **Pin istio-proxy only (rejected):** identity-proxy and opa would still overcommit the node, and the pod would stay Burstable.
+*   **Mesh defaults (rejected):** istio-proxy alone can use 1.9 CPU above its request.
+
+For an environment larger than any node:
+
+*   **Operator-set maximum (chosen):** `maxSize` stays the save-time check, and the timeout error carries the scheduler's reason.
+*   **Read nodes or the autoscaler (rejected):** orbit-agents would need cluster-wide read access to nodes or to autoscaler resources. A pool scaled to zero has no nodes to read, and an autoscaler can launch nodes larger than any that exist.
+*   **Detect unschedulable pods at run time (rejected):** An autoscaler leaves every new pod unschedulable until a node joins. Telling a pod that never fits from a pod that waits for a node needs autoscaler-specific signals.
+
+For the default maximum:
+
+*   **`maxSize` equals `defaultSize` (chosen):** The chart cannot know the operator's nodes. A node that runs the default sandbox runs every size the default install accepts.
+*   **A larger default (rejected):** The default install would accept sizes that never schedule on small nodes.
+
+**Decision.**
+
+*   `sandboxResources` will set the CPU and memory requests equal to the size. The ephemeral-storage request will equal its limit: the environment's disk plus 1Gi for the scratch volumes, the logs and the writable layer.
+*   The operator webhook will set the resources of the sidecars on pods with the sandbox role from new Helm values. The defaults will be 200m and 128Mi for istio-proxy, 200m and 64Mi for identity-proxy, and 500m and 128Mi for opa, with requests equal to limits. The webhook will set istio-proxy through the `sidecar.istio.io/proxyCPU`, `proxyCPULimit`, `proxyMemory` and `proxyMemoryLimit` annotations. Sidecars on agent pods keep their current resources.
+*   The default `maxSize` will equal `defaultSize`: 2 CPU, 4Gi memory and 10Gi disk.
+*   The deployment guide will state the sizing rule for `maxSize`: the size plus the sandbox sidecars and 1Gi of disk must fit a sandbox node's allocatable capacity after its DaemonSet requests.
+*   The headroom placeholder will request and limit `defaultSize` plus the sandbox sidecars, with ephemeral storage of `defaultSize.disk` plus 1Gi. A value in `agents.sandboxWarming.resources` will replace the derived value.
+*   orbit-agents will end each wait for a sandbox pod 5s before one attempt's share of the provision budget left after the backoffs between attempts. A wait that ends before the pod is ready will return 503 with the message of the pod's `PodScheduled` condition. The session-manager will carry that message into the run's failure event and into the message the agent reads when the sandbox is lost.
+*   The provision budget and its 300s default stay as they are.
+*   Existing environments keep their stored sizes.
+
+**Consequences.**
+
+*   A sandbox gets its full size on a busy node, and the autoscaler adds nodes for the demand that sandboxes declare.
+*   A sandbox is the last pod evicted under node memory pressure.
+*   opa on a sandbox pod gets twice its previous CPU limit.
+*   A run that cannot schedule reports the scheduler's reason.
+*   A default sandbox reserves 2.9 CPU and about 4.3Gi, and a 4 vCPU node holds one default sandbox.
+*   A sandbox holds its reservation while the agent waits on the model.
+*   A sandbox stays bound by its CPU limit. A larger size is the only way to make it faster.
+*   The default install accepts no size above `defaultSize` until the operator raises `maxSize`.
+*   istio-proxy on a sandbox pod is OOM-killed above 128Mi, and the sandbox loses its network until the proxy restarts.
+*   identity-proxy keeps its 200m limit and its measured throttling.
+
+## Amendment 3 (2026-10-08): The sandbox's local disk holds HOME, TMPDIR and its working folder
+
+**Status:** Accepted
+
+[Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) supersedes Decision 8 and the neutral consequence that `node_modules` stays on NFS.
+
+*   HOME and TMPDIR move to the sandbox's local disk, and a new or replaced sandbox starts with them empty.
+*   With `sandboxMount.enabled`, the local disk also holds the sandbox's working folder at `/workspaces/<run>/sandbox`. The repository checkout and `node_modules` sit there for the life of the sandbox.
+
 ---
 
 ## Related Decisions
@@ -273,6 +353,7 @@ For the API shape:
 *   [Agent sandbox toolchain and connectivity environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) (superseded)
 *   [Sandbox provisioning and shell proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md)
 *   [Per-session home isolation](2026-06-04-per-session-home-isolation.md)
+*   [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md)
 *   [Database migrations](2026-09-10-database-migrations.md)
 *   [CRD-driven inference providers](2026-10-01-crd-inference-providers.md)
 
@@ -282,4 +363,4 @@ For the API shape:
 
 ---
 
-**Last Updated:** 2026-10-07 (Amendment 1: environment names and slugs)
+**Last Updated:** 2026-10-08 (Amendment 3: the sandbox's local disk holds HOME, TMPDIR and its working folder)

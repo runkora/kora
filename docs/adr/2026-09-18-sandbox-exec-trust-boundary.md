@@ -15,7 +15,7 @@ A run executes across two pods in the tenant namespace. The agent pod is a State
 
 ### Background
 
-`sandbox-exec` has three callers. `orbit-shell` is wired in as the Claude Code shell through `CLAUDE_CODE_SHELL` and runs as a child of the agent subprocess, discovering the sandbox from `$WORKSPACE/.sandbox/endpoint`. The session registry dials the same port for the egress readiness canary. `orbit-runtime-mcp` reaches the sandbox indirectly, by asking `session-manager` to provision one.
+`sandbox-exec` has three callers. `orbit-shell` is wired in as the Claude Code shell through `CLAUDE_CODE_SHELL` and runs as a child of the agent subprocess, discovering the sandbox from `$WORKSPACE/.sandbox-exec/endpoint`. The session registry dials the same port for the egress readiness canary. `orbit-runtime-mcp` reaches the sandbox indirectly, by asking `session-manager` to provision one.
 
 The sandbox pod is SPIFFE-attested per run as `spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>/sandbox/<run-id>`. Port 50051 carries `traffic.sidecar.istio.io/excludeInboundPorts`, so inbound traffic on it does not pass through the mesh and no `AuthorizationPolicy` applies to it. The only sandbox-scoped `NetworkPolicy`, `sandbox-egress-to-gateway`, governs egress.
 
@@ -25,7 +25,7 @@ Per-session HOME isolation ([2026-06-04](2026-06-04-per-session-home-isolation.m
 
 `sandbox-exec` performs no caller authentication. `Execute` runs whatever command arrives, with no token, no transport security and no identity check. Any workload that can route to a sandbox pod IP on port 50051 executes commands inside that run's sandbox, under that run's egress posture and against that run's workspace.
 
-Codex and OpenCode compound it. Neither routes tool commands to the sandbox, so both execute in the `session-manager` container itself, without Landlock and without a PID namespace. A run under either framework can read every sibling run's `.sandbox/endpoint` file from the shared PVC and then execute in that sibling's sandbox, because nothing on the receiving side checks who is calling.
+Codex and OpenCode compound it. Neither routes tool commands to the sandbox, so both execute in the `session-manager` container itself, without Landlock and without a PID namespace. A run under either framework can read every sibling run's `.sandbox-exec/endpoint` file from the shared PVC and then execute in that sibling's sandbox, because nothing on the receiving side checks who is calling.
 
 Separately, `session-manager`'s loopback `/internal/runs/{id}/provision-sandbox` route provisions a sandbox for any run ID presented, without checking that the run is hosted on this pod.
 
@@ -186,7 +186,7 @@ Confidentiality of both the token and the endpoint rests on Landlock, the same m
 
 - `orbit-agents` mints the token at sandbox provisioning and sets it on the sandbox pod. The provisioning response carries it to `session-manager`.
 - `sandbox-exec` compares the metadata value against its own environment with a constant-time comparison, and refuses the call when absent or different.
-- `session-manager` writes the token into the run's `.sandbox` directory with owner-only permissions, next to the endpoint, and `orbit-shell` sends it as gRPC metadata.
+- `session-manager` writes the token into the run's `.sandbox-exec` directory with owner-only permissions, next to the endpoint, and `orbit-shell` sends it as gRPC metadata.
 - Both interceptor surfaces are registered on the exec server, streaming and unary, so a unary RPC added later cannot land unauthenticated.
 - The session registry's egress canary sends the token it holds in memory.
 - The operator renders a sandbox ingress `NetworkPolicy` alongside `sandbox-egress-to-gateway`.

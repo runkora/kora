@@ -112,6 +112,12 @@ target "orbit-session-manager" {
     "localhost:5001/orbit-session-manager:${GIT_SHA}",
   ]
 }
+target "orbit-sandbox-mount" {
+  tags = [
+    "localhost:5001/orbit-sandbox-mount:latest",
+    "localhost:5001/orbit-sandbox-mount:${GIT_SHA}",
+  ]
+}
 target "kora-sandbox-base" {
   args = {
     SANDBOX_BASE_VERSION = GIT_SHA
@@ -182,6 +188,7 @@ group "local-platform" {
     "orbit-migrate",
     "orbit-operator",
     "orbit-session-manager",
+    "orbit-sandbox-mount",
     "kora-sandbox-base",
   ]
 }

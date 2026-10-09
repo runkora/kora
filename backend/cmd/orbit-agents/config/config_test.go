@@ -23,7 +23,7 @@ func TestBaseDefaults_NoLocalRegistryOrTrustDomain(t *testing.T) {
 	if cfg.Kubernetes.SystemNamespace != "orbit-system" {
 		t.Errorf("systemNamespace = %q, want the orbit-system default", cfg.Kubernetes.SystemNamespace)
 	}
-	if e := cfg.Agents.Environments; e.DefaultSize != (EnvironmentSize{CPU: "2", Memory: "4Gi", Disk: "10Gi"}) || e.MaxSize != (EnvironmentSize{CPU: "8", Memory: "16Gi", Disk: "50Gi"}) {
+	if e := cfg.Agents.Environments; e.DefaultSize != (EnvironmentSize{CPU: "2", Memory: "4Gi", Disk: "10Gi"}) || e.MaxSize != e.DefaultSize {
 		t.Errorf("environments = %+v, want the documented default and maximum sizes", e)
 	}
 	if len(cfg.Agents.ImagePullSecrets) != 0 {

@@ -36,6 +36,8 @@ type RunServiceConfig struct {
 	ReaperInterval time.Duration
 	// DefaultEnvironmentSize sizes the built-in default environment.
 	DefaultEnvironmentSize EnvironmentSize
+	// SandboxMount tells the agent, in its brief, to work in the sandbox's local folder.
+	SandboxMount bool
 }
 
 // RunService is the single state machine authority for agent runs.
@@ -85,7 +87,7 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 	if access == nil {
 		return at.SystemPrompt
 	}
-	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID))
+	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID), s.cfg.SandboxMount)
 }
 
 // NewRunService creates a RunService with the given dependencies.

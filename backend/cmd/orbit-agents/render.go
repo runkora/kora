@@ -55,6 +55,7 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		SessionManagerImage:    cfg.Agents.SessionManagerImage,
 		SandboxImage:           cfg.Agents.SandboxImage,
 		DefaultEnvironmentSize: environmentSizes(cfg).Default,
+		SandboxReadyWait:       sandboxGuardrails(cfg).ReadyWait(),
 		// Not configurable: the operator's ingress NetworkPolicy admits this port,
 		// and a pod on a different one would be unreachable.
 		SandboxGRPCPort:            ports.SandboxExecGRPC,
@@ -67,6 +68,7 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
 		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
 		NodeMaxOldSpaceMB:          cfg.Agents.SessionManager.NodeMaxOldSpaceMB,
+		SandboxMount:               cfg.Agents.SandboxMount,
 		Patches:                    patches,
 	}
 }

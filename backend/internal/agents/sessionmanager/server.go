@@ -676,6 +676,10 @@ func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWrite
 	case errors.Is(err, ErrSandboxLost):
 		apiErr := api.ServiceUnavailableError(runErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	case errors.Is(err, errSandboxFolder):
+		// The reason is fixed text that names no node, address or port.
+		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 	case errors.Is(err, ErrEnvironmentRejected):
 		apiErr := api.ConflictError(api.ErrCodeConflict, strings.TrimPrefix(err.Error(), ErrEnvironmentRejected.Error()+": "), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)

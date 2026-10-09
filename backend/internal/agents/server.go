@@ -14,6 +14,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -979,6 +980,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if ue, ok := errors.AsType[*unschedulableError](err); ok {
+			// No node can take the pod yet. The session-manager retries and passes the scheduler's reason on.
+			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(sessionmanager.ErrCodeSandboxUnschedulable, ue.reason, nil), nil)
+			return
+		}
 		if errors.Is(err, errSandboxImagePending) {
 			// The operator has not read the image yet. The session-manager retries.
 			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil), nil)
@@ -992,11 +998,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// exec_token goes only to the session-manager that owns the run: the route is
 	// restricted to the agent pod by AuthorizationPolicy, and authorizeCallback
 	// has already bound the caller to this run.
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
-		"endpoint":    sandbox.Endpoint,
-		"exec_token":  sandbox.ExecToken,
-		"canary_host": sandbox.CanaryHost,
-	})
+	api.JSON(ctx, w, c.logger, http.StatusOK, sandbox)
 }
 
 // writeEnvironmentChoiceError answers a refused environment choice with a 409

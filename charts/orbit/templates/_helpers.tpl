@@ -543,6 +543,15 @@ app.kubernetes.io/component: triggers
 app: orbit-triggers
 {{- end }}
 
+{{- define "orbit.sandboxMount.labels" -}}
+{{ include "orbit.labels" . }}
+app.kubernetes.io/name: orbit-sandbox-mount
+app.kubernetes.io/component: sandbox-mount
+{{- end }}
+{{- define "orbit.sandboxMount.selectorLabels" -}}
+app: orbit-sandbox-mount
+{{- end }}
+
 {{/*
 Forces x-forwarded-proto: https on API routes. Only needed behind a
 TLS-terminating Ingress, where the gateway would otherwise stamp http and

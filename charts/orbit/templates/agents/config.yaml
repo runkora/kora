@@ -20,8 +20,11 @@ cmd/orbit-agents:
     sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default $sessionManager | toJson }}
     sandboxImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
     {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}
+    {{- /* An unset maxSize field takes the default size's value. */}}
+    {{- $default := .Values.agents.environments.defaultSize }}
+    {{- $max := .Values.agents.environments.maxSize | default dict }}
     environments:
-      {{- range $name, $size := dict "defaultSize" .Values.agents.environments.defaultSize "maxSize" .Values.agents.environments.maxSize }}
+      {{- range $name, $size := dict "defaultSize" $default "maxSize" (dict "cpu" ($max.cpu | default $default.cpu) "memory" ($max.memory | default $default.memory) "disk" ($max.disk | default $default.disk)) }}
       {{ $name }}:
         cpu: {{ $size.cpu | toString | toJson }}
         memory: {{ $size.memory | toString | toJson }}
@@ -37,6 +40,7 @@ cmd/orbit-agents:
     sessionManager:
       authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
       nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
+    sandboxMount: {{ .Values.sandboxMount.enabled }}
 {{ include "orbit.observabilityConfigModule" . }}
 {{ include "orbit.storageConfigModule" . }}
 {{ include "orbit.tokenConfigModule" . }}
