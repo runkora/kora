@@ -163,6 +163,10 @@ func TestUnmountBeneath_RefusesSwappedSymlink(t *testing.T) {
 	if !errors.Is(err, unix.ELOOP) {
 		t.Errorf("unmountBeneath through a swapped symlink = %v, want ELOOP from openat2", err)
 	}
+	// The client's unmount resolves the same way.
+	if err := (Client{KubeletDir: kubelet}).Unmount(filepath.Join(vol, "run-1", "sandbox")); !errors.Is(err, unix.ELOOP) {
+		t.Errorf("Client.Unmount through a swapped symlink = %v, want ELOOP", err)
+	}
 }
 
 // Only sandbox folder mounts below the given pod directories are copies to release, each with the mount it sits on.

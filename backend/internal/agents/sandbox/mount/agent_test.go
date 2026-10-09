@@ -194,17 +194,16 @@ func TestReconcile_ForgetsReplacedRecords(t *testing.T) {
 	}
 }
 
-// A sandbox pairs only with the session-manager pod its one workspace claim names, in
-// its own namespace. Otherwise nothing is exported or mounted on either node.
+// A sandbox pairs only with the session-manager pod its workspace volume's claim belongs
+// to, in its own namespace. Otherwise nothing is exported or mounted on either node.
 func TestReconcile_IgnoresUnpairedSandboxes(t *testing.T) {
 	cases := map[string]func(sb, ws *corev1.Pod){
 		"session-manager gone": func(_, ws *corev1.Pod) { ws.Name = "agent-1" },
 		"another namespace":    func(_, ws *corev1.Pod) { ws.Namespace = "other-tenant" },
 		"no folder mount":      func(sb, _ *corev1.Pod) { sb.Spec.Containers = nil },
-		"two workspace claims": func(sb, _ *corev1.Pod) {
-			sb.Spec.Volumes = append(sb.Spec.Volumes, corev1.Volume{Name: "other", VolumeSource: corev1.VolumeSource{
-				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-agent-1"},
-			}})
+		// Another volume's claim does not pair the sandbox with that claim's pod.
+		"claim in another volume": func(sb, _ *corev1.Pod) {
+			sb.Spec.Volumes[0].Name = "other"
 		},
 	}
 	for name, mutate := range cases {

@@ -1024,7 +1024,7 @@ const tenantCAVolumeName = "orbit-tenant-ca"
 func sandboxVolumes(workspacesPVC string, cfg K8sProvisionerConfig, size EnvironmentSize) []corev1.Volume {
 	vols := []corev1.Volume{
 		{
-			Name: "workspaces",
+			Name: sandboxfolder.WorkspaceVolume,
 			VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
 					ClaimName: workspacesPVC,
@@ -1121,9 +1121,9 @@ func sandboxContainer(cfg K8sProvisionerConfig, spec SandboxSpec, runID, execTok
 	workspaceDir := runWorkspaceDir(runID)
 	tmpSubPath, _ := filepath.Rel(workspacesRoot, runfs.TmpDir(workspaceDir))
 	mounts := []corev1.VolumeMount{
-		{Name: "workspaces", MountPath: workspaceDir, SubPath: runID},
+		{Name: sandboxfolder.WorkspaceVolume, MountPath: workspaceDir, SubPath: runID},
 		// The agent pod's TMPDIR, for files its harness names in commands, such as the working directory file.
-		{Name: "workspaces", MountPath: runfs.TmpDir(workspaceDir), SubPath: tmpSubPath},
+		{Name: sandboxfolder.WorkspaceVolume, MountPath: runfs.TmpDir(workspaceDir), SubPath: tmpSubPath},
 		// Writable paths outside the workspace under a read-only root, for tools that ignore HOME and TMPDIR.
 		{Name: scratchVarTmpVolume, MountPath: "/var/tmp"},
 		{Name: scratchHomeVolume, MountPath: imageHomeDir},
@@ -1728,7 +1728,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								},
 							},
 							VolumeMounts: []corev1.VolumeMount{
-								{Name: "workspaces", MountPath: workspacesRoot, MountPropagation: workspacePropagation(p.cfg)},
+								{Name: sandboxfolder.WorkspaceVolume, MountPath: workspacesRoot, MountPropagation: workspacePropagation(p.cfg)},
 								{Name: scratchTmpVolume, MountPath: "/tmp"},
 								{Name: scratchHomeVolume, MountPath: imageHomeDir},
 							},
@@ -1749,7 +1749,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
 				{
 					// Labeled so DeprovisionAgentType can select it by agent type.
-					ObjectMeta: metav1.ObjectMeta{Name: "workspaces", Labels: labels},
+					ObjectMeta: metav1.ObjectMeta{Name: sandboxfolder.WorkspaceVolume, Labels: labels},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						Resources: corev1.VolumeResourceRequirements{

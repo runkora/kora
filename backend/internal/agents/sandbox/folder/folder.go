@@ -34,9 +34,12 @@ const (
 	ReasonMountFailed = "mount-failed"
 )
 
+// WorkspaceVolume is the sandbox pod's volume for its session-manager's workspace claim.
+const WorkspaceVolume = "workspaces"
+
 // workspaceClaimPrefix starts a session-manager pod's workspace claim name: the
 // StatefulSet's volumeClaimTemplate name, then the pod name.
-const workspaceClaimPrefix = "workspaces-"
+const workspaceClaimPrefix = WorkspaceVolume + "-"
 
 // SandboxPodName is the name orbit-agents gives a run's sandbox pod. Names are
 // unique in a namespace, so at most one pod can claim a run's folder.

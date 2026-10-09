@@ -25,7 +25,7 @@ func sandboxPod(node, hostIP string) *corev1.Pod {
 			Containers: []corev1.Container{{Name: "sandbox-exec", VolumeMounts: []corev1.VolumeMount{
 				{Name: folder.Volume, MountPath: "/workspaces/run-1/sandbox", SubPath: folder.Dir},
 			}}},
-			Volumes: []corev1.Volume{{Name: "workspaces", VolumeSource: corev1.VolumeSource{
+			Volumes: []corev1.Volume{{Name: folder.WorkspaceVolume, VolumeSource: corev1.VolumeSource{
 				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-agent-0"},
 			}}},
 		},

@@ -89,33 +89,26 @@ func plan(node, kubeletDir string, pairs []pair) ([]export, []target) {
 }
 
 // workspaceOf returns the session-manager pod whose workspace the sandbox shares
-// its folder with: the pod named by its one workspace claim. A sandbox without
-// the folder mount, or with no single workspace claim, shares nothing.
+// its folder with: the pod its workspace volume's claim belongs to. A sandbox
+// without the folder mount or a workspace claim shares nothing.
 func workspaceOf(sb *corev1.Pod) (string, bool) {
 	if !slices.ContainsFunc(sb.Spec.Containers, func(c corev1.Container) bool {
 		return slices.ContainsFunc(c.VolumeMounts, func(m corev1.VolumeMount) bool { return folder.IsFolderMount(m.Name, m.SubPath) })
 	}) {
 		return "", false
 	}
-	var pods []string
 	for _, v := range sb.Spec.Volumes {
-		if v.PersistentVolumeClaim == nil {
-			continue
-		}
-		if pod, ok := folder.WorkspacePod(v.PersistentVolumeClaim.ClaimName); ok {
-			pods = append(pods, pod)
+		if v.Name == folder.WorkspaceVolume && v.PersistentVolumeClaim != nil {
+			return folder.WorkspacePod(v.PersistentVolumeClaim.ClaimName)
 		}
 	}
-	if len(pods) != 1 {
-		return "", false
-	}
-	return pods[0], true
+	return "", false
 }
 
 // owns reports a sandbox pod built for this run and this session-manager pod: it
 // carries the run's sandbox name, sits in the session-manager's namespace, and
-// its one workspace claim is that pod's. A pod that claims another run's folder,
-// or another session-manager's workspace, gets nothing.
+// its workspace volume claims that pod's workspace. A pod that claims another
+// run's folder, or another session-manager's workspace, gets nothing.
 func owns(p pair, runID string) bool {
 	ws, ok := workspaceOf(p.sandbox)
 	return ok && ws == p.workspace.Name && p.sandbox.Name == folder.SandboxPodName(runID) && p.sandbox.Namespace == p.workspace.Namespace
