@@ -47,6 +47,16 @@ var (
 	ErrUnexpectedStatus = errors.New("unexpected status from session-manager")
 )
 
+// StatusError carries the HTTP status of a response the pod rejected. It wraps
+// the sentinel, so errors.Is keeps working.
+type StatusError struct {
+	StatusCode int
+	Err        error
+}
+
+func (e *StatusError) Error() string { return e.Err.Error() }
+func (e *StatusError) Unwrap() error { return e.Err }
+
 // TokenFunc returns the caller's own platform token. orbit-agents supplies
 // identity.Client.SelfTokenSource(), which exchanges the pod's SPIRE SVID for a
 // SYSTEM token named "orbit-agents" and caches it until expiry — the same
@@ -156,7 +166,7 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 	case http.StatusConflict:
 		return c.HandleErrorResponse(span, resp, ErrSessionConflict)
 	default:
-		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+		return &StatusError{StatusCode: resp.StatusCode, Err: c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)}
 	}
 }
 

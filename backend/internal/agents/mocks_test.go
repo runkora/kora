@@ -521,6 +521,9 @@ type mockK8s struct {
 	deprovisionedAgentTypes []string
 	deletedSandboxes        []string
 	rolledOutSlugs          []string
+	// readyOrdinalsSeq scripts ReadyOrdinals results per call; the last repeats.
+	readyOrdinalsSeq [][]int
+	readyCalls       int
 
 	provisionAgentTypeErr   error
 	deprovisionAgentTypeErr error
@@ -563,6 +566,27 @@ func (m *mockK8s) DeprovisionAgentType(_ context.Context, at AgentType, _ string
 	m.deprovisionedAgentTypes = append(m.deprovisionedAgentTypes, at.ID)
 	m.mu.Unlock()
 	return nil
+}
+
+func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) ([]int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.readyCalls++
+	if m.readyOrdinalsSeq != nil {
+		if m.readyCalls <= len(m.readyOrdinalsSeq) {
+			return m.readyOrdinalsSeq[m.readyCalls-1], nil
+		}
+		return m.readyOrdinalsSeq[len(m.readyOrdinalsSeq)-1], nil
+	}
+	n := m.replicaCount
+	if n == 0 {
+		n = 1
+	}
+	out := make([]int, n)
+	for i := range out {
+		out[i] = i
+	}
+	return out, nil
 }
 
 func (m *mockK8s) ReplicaCount(_ context.Context, _, _ string) (int, error) {
