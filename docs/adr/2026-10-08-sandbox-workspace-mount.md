@@ -109,6 +109,8 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 ### D9. NFS Version and Options
 
 *   **NFSv4.2 over TCP only, soft mounts (chosen):** `rpc.nfsd` runs with NFSv3 and UDP off, and `rpc.mountd` serves only the kernel's export cache. The client mounts with `vers=4.2,proto=tcp,soft,timeo=20,retrans=1,lookupcache=positive`. The grace and lease times are 10 s.
+*   **Client tracking with nfsdcld (chosen):** The node agent mounts `rpc_pipefs` and starts `nfsdcld` before nfsd, with its records in the kubelet's plugin directory, and supervises it with mountd. After an nfsd restart, clients reclaim their open and lock state, and the grace period ends as soon as they finish.
+*   **No client tracking (rejected):** nfsd cannot verify reclaims. On the local cluster, an nfsd restart with a lock held left the client logging `lost 1 locks`.
 *   **Hard mounts (rejected):** A lost server blocks the harness indefinitely.
 *   **Default caching (rejected):** A new file stayed hidden for 27 s.
 *   **`timeo=50,retrans=2` (rejected):** A lost server took 15 to 30 s per operation to surface.
@@ -193,6 +195,7 @@ None at this time.
 *   The agent watches pods in every namespace. Anyone who can create pods in a namespace can build a sandbox and session-manager pair there and have the agent export and mount their own pod's folder, inside that namespace only.
 *   Nodes need the kernel `nfsd` and NFSv4 client modules, and session-manager nodes need TCP `sandboxMount.port` to sandbox nodes. Whether Bottlerocket 1.66 and Amazon Linux 2023 ship `nfsd`, and whether Bottlerocket's SELinux policy allows the agent's mounts, is unverified.
 *   nfsd threads keep running on a node after the chart drops the DaemonSet, until the node restarts.
+*   nfsd creates files from client writes with the SELinux label `data_t:s0`, without the sandbox's MCS categories. The sandbox still reads, writes and executes them, and other containers cannot reach the host path.
 *   A soft mount can return `EIO` to the harness when the sandbox's node stalls for more than a few seconds.
 *   The folder and its contents are lost when the sandbox ends. A file written to `sandbox/` after that lands on the shared volume.
 *   Turning the feature on changes the session-manager StatefulSet template and rolls existing session-manager pods.
