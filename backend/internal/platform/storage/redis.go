@@ -23,7 +23,13 @@ func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*Re
 		logging.Field{Key: "db", Value: cfg.DB},
 	)
 
+	tlsCfg, err := cfg.tlsConfig()
+	if err != nil {
+		return nil, fmt.Errorf("redis tls: %w", err)
+	}
+
 	opts := &redis.Options{
+		TLSConfig:       tlsCfg,
 		Addr:            fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Password:        cfg.Password,
 		DB:              cfg.DB,

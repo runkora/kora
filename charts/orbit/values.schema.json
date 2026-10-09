@@ -127,6 +127,20 @@
             },
             "port": {
               "type": "integer"
+            },
+            "tls": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "caSecret": {
+                  "type": "string"
+                },
+                "serverName": {
+                  "type": "string"
+                }
+              }
             }
           }
         },

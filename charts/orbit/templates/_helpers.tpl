@@ -312,6 +312,10 @@ data:
   {{- end }}
 {{- end }}
 
+{{- define "orbit.redisCAFile" -}}
+/etc/orbit/redis-ca/ca.crt
+{{- end }}
+
 {{- define "orbit.configVolume" -}}
 - name: config-files
   configMap:
@@ -321,12 +325,29 @@ data:
       - key: {{ $module | replace "/" "." }}.yaml
         path: {{ $module }}.yaml
       {{- end }}
+{{- with .root.Values.config.redis.tls }}
+{{- if and .enabled .caSecret }}
+- name: redis-ca
+  secret:
+    secretName: {{ .caSecret }}
+    items:
+      - key: ca.crt
+        path: ca.crt
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{- define "orbit.configVolumeMount" -}}
 - name: config-files
   mountPath: /etc/orbit/config
   readOnly: true
+{{- with .Values.config.redis.tls }}
+{{- if and .enabled .caSecret }}
+- name: redis-ca
+  mountPath: /etc/orbit/redis-ca
+  readOnly: true
+{{- end }}
+{{- end }}
 {{- end }}
 
 {{/*
@@ -355,6 +376,17 @@ internal/platform/storage:
   redis:
     host: {{ required "config.redis.host must be set" .Values.config.redis.host | toJson }}
     port: {{ .Values.config.redis.port | int }}
+    {{- with .Values.config.redis.tls }}
+    tlsEnabled: {{ eq (toString .enabled) "true" }}
+    {{- if .enabled }}
+    {{- if .serverName }}
+    serverName: {{ .serverName | toJson }}
+    {{- end }}
+    {{- if .caSecret }}
+    caFile: {{ include "orbit.redisCAFile" $ | toJson }}
+    {{- end }}
+    {{- end }}
+    {{- end }}
 {{- end }}
 
 {{- define "orbit.tokenConfigModule" -}}
