@@ -81,8 +81,16 @@ if k3d cluster list | awk '{print $1}' | grep -qx "${CLUSTER_NAME}"; then
   # k3d-config.yaml never reaches a cluster created before it. The charts
   # then refuse to render ("chart requires kubeVersion ..."). Catch the drift
   # here, where the fix is obvious, instead of in a Helm error.
-  running_image="$(docker inspect "k3d-${CLUSTER_NAME}-server-0" \
-    --format '{{.Config.Image}}' 2>/dev/null || echo unknown)"
+  server_node="k3d-${CLUSTER_NAME}-server-0"
+  if ! running_image="$(docker inspect "${server_node}" --format '{{.Config.Image}}' 2>/dev/null)" \
+    || [ -z "${running_image}" ]; then
+    # Not drift: the node cannot be inspected at all. Do not suggest `make
+    # reset` here; that would delete a cluster that may be healthy.
+    echo "  ERROR: cluster '${CLUSTER_NAME}' is registered with k3d but '${server_node}' cannot be inspected."
+    echo "  Check that Docker is running and the node exists:"
+    echo "    docker ps -a --filter name=k3d-${CLUSTER_NAME}"
+    exit 1
+  fi
   if [ -n "${PINNED_IMAGE}" ] && [ "${running_image}" != "${PINNED_IMAGE}" ]; then
     echo "  ERROR: cluster '${CLUSTER_NAME}' runs ${running_image}, but k3d-config.yaml pins ${PINNED_IMAGE}."
     echo "  The charts require the pinned Kubernetes minor, so deploys will fail until the cluster is recreated."
