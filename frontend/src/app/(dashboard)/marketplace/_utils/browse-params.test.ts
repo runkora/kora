@@ -17,6 +17,7 @@ import {
   buildOverviewUrl,
   buildSkillUrl,
   parseBrowseParams,
+  parseSkillSlug,
   recordToSearchParams,
   toResultState,
   toSearchQuery,
@@ -48,6 +49,29 @@ const PAGE_3_QUERY =
 const SLUG = 'platform-engineering/skills/react-reviewer';
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
+
+describe('parseSkillSlug', () => {
+  it.each([
+    'platform-engineering/skills/react-expert',
+    'org/repo/Skill name?query#fragment&value+extra',
+    'org/repo/literal%2Fand%20',
+    'org/repo/技能',
+  ])('restores the opaque identifier %s from its encoded route segment', (slug) => {
+    const url = new URL(buildSkillUrl(slug, DEFAULT_BROWSE), 'http://localhost');
+    const segments = url.pathname.slice('/marketplace/'.length).split('/');
+    expect(parseSkillSlug(segments)).toBe(slug);
+  });
+
+  it('accepts an existing link with separate path segments', () => {
+    expect(parseSkillSlug(['platform-engineering', 'skills', 'react-expert'])).toBe(
+      'platform-engineering/skills/react-expert',
+    );
+  });
+
+  it.each(['bad%', 'bad%ZZ', 'bad%E0%A4%A'])('rejects malformed encoding %s', (segment) => {
+    expect(parseSkillSlug([segment])).toBeNull();
+  });
+});
 
 describe('buildSkillUrl', () => {
   it('carries the browse values in the Skill URL', () => {

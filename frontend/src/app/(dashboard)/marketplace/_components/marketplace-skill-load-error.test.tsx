@@ -1,9 +1,8 @@
-/**
- * The "pending" state of the retry button depends on a real Next.js RSC
- * round trip and is covered in e2e, not here.
- */
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+'use client';
+
+import { Suspense, use, useEffect, useState } from 'react';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { act, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MarketplaceSkillLoadError } from './marketplace-skill-load-error';
 
@@ -12,7 +11,34 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: refreshMock }),
 }));
 
+function RefreshResult({ response }: { response: Promise<void> | null }) {
+  if (response) use(response);
+  return null;
+}
+
+/** Model refresh's suspending route update without mocking React's transition. */
+function RefreshHarness({ response }: { response: Promise<void> }) {
+  const [activeResponse, setActiveResponse] = useState<Promise<void> | null>(null);
+
+  useEffect(() => {
+    refreshMock.mockImplementation(() => setActiveResponse(response));
+  }, [response]);
+
+  return (
+    <>
+      <MarketplaceSkillLoadError />
+      <Suspense fallback={null}>
+        <RefreshResult response={activeResponse} />
+      </Suspense>
+    </>
+  );
+}
+
 describe('MarketplaceSkillLoadError', () => {
+  beforeEach(() => {
+    refreshMock.mockReset();
+  });
+
   it('shows the failed-load message and an enabled Try again button', () => {
     render(<MarketplaceSkillLoadError />);
     expect(
@@ -21,12 +47,34 @@ describe('MarketplaceSkillLoadError', () => {
     expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled();
   });
 
-  it('calls router.refresh() when Try again is clicked', async () => {
+  it('refreshes once and disables retry until the pending refresh finishes', async () => {
     const user = userEvent.setup();
-    render(<MarketplaceSkillLoadError />);
+    let finishRefresh!: () => void;
+    const response = new Promise<void>((resolve) => {
+      finishRefresh = resolve;
+    });
+    render(<RefreshHarness response={response} />);
+    const retry = screen.getByRole('button', { name: 'Try again' });
 
-    await user.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(retry).toBeEnabled();
+    await act(async () => {
+      await user.click(retry);
+    });
 
     expect(refreshMock).toHaveBeenCalledTimes(1);
+    expect(retry).toBeDisabled();
+
+    await act(async () => {
+      await user.click(retry);
+    });
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+    expect(retry).toBeDisabled();
+
+    await act(async () => {
+      finishRefresh();
+      await response;
+    });
+
+    expect(retry).toBeEnabled();
   });
 });
