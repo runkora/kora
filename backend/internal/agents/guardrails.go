@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 )
@@ -102,6 +103,28 @@ type SandboxGuardrails struct {
 	ProvisionAttempts    int
 	ProvisionBackoffSecs int
 	ProvisionBudgetSecs  int
+}
+
+// readyWaitMargin ends the pod wait before the session-manager's attempt does, so the attempt hears why.
+const readyWaitMargin = 5 * time.Second
+
+// ReadyWait is how long one provision waits for a sandbox pod: one attempt's share of the budget
+// left after the backoffs between attempts, less a margin. It returns zero when the budget or the attempt count is unset.
+func (g SandboxGuardrails) ReadyWait() time.Duration {
+	if g.ProvisionAttempts <= 0 || g.ProvisionBudgetSecs <= 0 {
+		return 0
+	}
+	left := time.Duration(g.ProvisionBudgetSecs) * time.Second
+	backoff := time.Duration(g.ProvisionBackoffSecs) * time.Second
+	for range g.ProvisionAttempts - 1 {
+		left -= backoff
+		backoff *= 2
+	}
+	share := left / time.Duration(g.ProvisionAttempts)
+	if share <= readyWaitMargin {
+		return max(share, 0)
+	}
+	return share - readyWaitMargin
 }
 
 // runGuardrails combines the install's sandbox settings with the agent type's

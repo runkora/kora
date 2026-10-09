@@ -112,10 +112,12 @@ type session struct {
 	// sandboxLost makes provision requests fail fast once the sandbox could not
 	// be replaced, until the user's next message. lostAttempts is how many
 	// attempts that took; sandboxEpoch counts user messages, so a retry that
-	// fails after the user replied does not re-block them.
+	// fails after the user replied does not re-block them. lostReason is the
+	// scheduler's reason when no node could place the sandbox.
 	guardrails   Guardrails // this run's thresholds, before the registry's fallback
 	sandboxLost  atomic.Bool
 	lostAttempts atomic.Int64
+	lostReason   atomic.Value // string
 	sandboxEpoch atomic.Int64
 	lostMu       sync.Mutex // orders userReplied against markSandboxLost
 	provisionMu  sync.Mutex
@@ -415,6 +417,9 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		if errors.Is(err, ErrEnvironmentRejected) {
 			msg = err.Error()
 		}
+		if reason := unschedulableReason(err); reason != "" {
+			msg = reason
+		}
 		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg)
 		return "", err
 	}
@@ -525,7 +530,7 @@ func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, envi
 	if runCtx.Err() != nil || errors.Is(err, ErrEnvironmentRejected) {
 		return Sandbox{}, err
 	}
-	if !reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts, epoch) {
+	if !reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts, unschedulableReason(err), epoch) {
 		return Sandbox{}, err
 	}
 	return Sandbox{}, fmt.Errorf("%w: %w", ErrSandboxLost, err)

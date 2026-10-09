@@ -12,6 +12,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
+	smclient "github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -23,6 +24,16 @@ var errNotifierUnexpectedStatus = errors.New("orbit-agents returned unexpected s
 // ErrEnvironmentRejected means orbit-agents refused the environment the agent
 // chose. Its message tells the agent why. Retrying does not help.
 var ErrEnvironmentRejected = errors.New("environment refused")
+
+// ErrSandboxUnschedulable means no node could place the sandbox pod. Its message carries the scheduler's reason.
+var ErrSandboxUnschedulable = errors.New("no node can run the sandbox")
+
+// unschedulableError carries the scheduler's reason as a field, so callers read it without parsing error text.
+type unschedulableError struct{ reason string }
+
+func (e *unschedulableError) Error() string { return ErrSandboxUnschedulable.Error() + ": " + e.reason }
+
+func (e *unschedulableError) Is(target error) bool { return target == ErrSandboxUnschedulable }
 
 // Notifier delivers events to orbit-agents for live SSE fan-out and run
 // lifecycle callbacks.
@@ -204,8 +215,13 @@ func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead
 		// The body is read once. A 409 is a refused environment choice whose message the agent reads.
 		body := n.sandboxClient.ReadErrorBody(span, resp)
 		var apiErr api.APIError
-		if resp.StatusCode == http.StatusConflict && json.Unmarshal([]byte(body), &apiErr) == nil && apiErr.Message != "" {
-			return Sandbox{}, fmt.Errorf("%w: %s", ErrEnvironmentRejected, apiErr.Message)
+		if json.Unmarshal([]byte(body), &apiErr) == nil && apiErr.Message != "" {
+			switch {
+			case resp.StatusCode == http.StatusConflict:
+				return Sandbox{}, fmt.Errorf("%w: %s", ErrEnvironmentRejected, apiErr.Message)
+			case apiErr.Code == smclient.ErrCodeSandboxUnschedulable:
+				return Sandbox{}, &unschedulableError{reason: apiErr.Message}
+			}
 		}
 		_ = n.sandboxClient.RecordError(span, errNotifierUnexpectedStatus)
 		return Sandbox{}, fmt.Errorf("%w: status %d: %s", errNotifierUnexpectedStatus, resp.StatusCode, body)

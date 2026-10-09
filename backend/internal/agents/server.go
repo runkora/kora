@@ -14,6 +14,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -977,6 +978,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			// succeeds once it has.
 			apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "sandbox pre-provision deferred: connection registry not resolved", map[string]any{"run_id": id})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
+		if ue, ok := errors.AsType[*unschedulableError](err); ok {
+			// No node can take the pod yet. The session-manager retries and passes the scheduler's reason on.
+			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(sessionmanager.ErrCodeSandboxUnschedulable, ue.reason, nil), nil)
 			return
 		}
 		if errors.Is(err, errSandboxImagePending) {
