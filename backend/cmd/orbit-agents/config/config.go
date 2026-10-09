@@ -85,6 +85,14 @@ type Config struct {
 			SandboxProvisionBackoffSecs int `yaml:"sandboxProvisionBackoffSecs"`
 			SandboxProvisionBudgetSecs  int `yaml:"sandboxProvisionBudgetSecs"`
 		} `yaml:"guardrails"`
+		// IdleTimeout is how long a run may sit idle before its session closes,
+		// by how the run started. Sent to the session-manager with each run.
+		IdleTimeout struct {
+			// ManualSecs applies to a run a person started, and to a trigger run once a person messages it.
+			ManualSecs int `yaml:"manualSecs"`
+			// TriggerSecs applies to a run a trigger started.
+			TriggerSecs int `yaml:"triggerSecs"`
+		} `yaml:"idleTimeout"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the orbit-tenant-connections
 		// ConfigMap. orbit-agents reads it to serve the read-only connection

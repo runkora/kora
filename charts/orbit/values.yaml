@@ -547,6 +547,14 @@ agents:
     sandboxProvisionBackoffSecs: 5
     # -- Seconds across all attempts. At most 320, so the agent's tools still hear the outcome.
     sandboxProvisionBudgetSecs: 300
+  # How long a run may sit idle after the agent's last turn before its session
+  # closes and the run completes. The run's origin picks the value; a person
+  # who messages a trigger run moves it to the manual one.
+  idleTimeout:
+    # -- Seconds a run a person started (dashboard or API) may stay idle.
+    manualSecs: 1200
+    # -- Seconds a run a trigger started may stay idle. Shorter, because nobody is watching it.
+    triggerSecs: 300
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
   authorizationPolicy:

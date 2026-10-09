@@ -690,11 +690,12 @@ func (m *mockK8s) RolloutStatefulSet(_ context.Context, slug, _ string) error {
 // ── mockSMClient ──────────────────────────────────────────────────────────────
 
 type mockSMClient struct {
-	mu              sync.Mutex
-	sessions        []sessionmanager.CreateSessionRequest
-	sentMessages    []string
-	closedSessions  []string
-	interruptedRuns []string
+	mu               sync.Mutex
+	sessions         []sessionmanager.CreateSessionRequest
+	sentMessages     []string
+	sentIdleTimeouts []int
+	closedSessions   []string
+	interruptedRuns  []string
 
 	createSessionErr    error
 	sendMessageErr      error
@@ -712,12 +713,13 @@ func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionman
 	return nil
 }
 
-func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string) error {
+func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string, idleTimeoutSecs int) error {
 	if m.sendMessageErr != nil {
 		return m.sendMessageErr
 	}
 	m.mu.Lock()
 	m.sentMessages = append(m.sentMessages, content)
+	m.sentIdleTimeouts = append(m.sentIdleTimeouts, idleTimeoutSecs)
 	m.mu.Unlock()
 	return nil
 }

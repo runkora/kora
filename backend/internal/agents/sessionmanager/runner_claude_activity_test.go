@@ -315,3 +315,42 @@ func TestTransform_StopOfAnAgentStartedTurn(t *testing.T) {
 		t.Fatalf("events = %v, want %v", got, want)
 	}
 }
+
+// background_tasks_changed carries the whole set of live background tasks, so
+// each event replaces the count. Ambient tasks are not work the agent waits on.
+func TestTransform_BackgroundTasksSetInFlightWork(t *testing.T) {
+	tests := []struct {
+		name  string
+		lines []string
+		want  int
+	}{
+		{name: "none reported", lines: nil, want: 0},
+		{
+			name:  "a subagent and a command in flight",
+			lines: []string{`{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a","task_type":"local_agent"},{"task_id":"b","task_type":"local_bash"}]}`},
+			want:  2,
+		},
+		{
+			name:  "ambient tasks are not counted",
+			lines: []string{`{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a","ambient":true},{"task_id":"b"}]}`},
+			want:  1,
+		},
+		{
+			name: "the last event replaces the set",
+			lines: []string{
+				`{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"a"}]}`,
+				`{"type":"system","subtype":"background_tasks_changed","tasks":[]}`,
+			},
+			want: 0,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newTestRunner()
+			runFixture(t, r, tt.lines...)
+			if got := r.InFlightWork(); got != tt.want {
+				t.Errorf("InFlightWork = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}
