@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
@@ -324,6 +326,54 @@ func (p *K8sProvisioner) ReplicaCount(ctx context.Context, slug, namespace strin
 		return 1, nil
 	}
 	return int(*ss.Spec.Replicas), nil
+}
+
+// ReadyOrdinals returns the ordinals of the StatefulSet's pods that are Ready
+// and match its update revision. While a template change is still being
+// observed or rolled out it returns none, so callers wait for the new pod.
+func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error) {
+	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
+	}
+	if ss.Status.ObservedGeneration < ss.Generation {
+		return nil, nil
+	}
+	sel := labels.SelectorFromSet(ss.Spec.Selector.MatchLabels).String()
+	pods, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
+	if err != nil {
+		return nil, fmt.Errorf("list pods for %s/%s: %w", namespace, slug, err)
+	}
+	var out []int
+	for _, pod := range pods.Items {
+		if pod.DeletionTimestamp != nil || !podReady(&pod) {
+			continue
+		}
+		if rev := ss.Status.UpdateRevision; rev != "" && pod.Labels[appsv1.ControllerRevisionHashLabelKey] != rev {
+			continue
+		}
+		n, ok := strings.CutPrefix(pod.Name, slug+"-")
+		if !ok {
+			continue
+		}
+		if ord, convErr := strconv.Atoi(n); convErr == nil {
+			out = append(out, ord)
+		}
+	}
+	sort.Ints(out)
+	return out, nil
+}
+
+func podReady(pod *corev1.Pod) bool {
+	for _, c := range pod.Status.Conditions {
+		if c.Type == corev1.PodReady {
+			return c.Status == corev1.ConditionTrue
+		}
+	}
+	return false
 }
 
 // WaitForStatefulSetReady polls until the StatefulSet for the given slug has at
@@ -1568,10 +1618,14 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	if err != nil {
 		return fmt.Errorf("get existing statefulset: %w", err)
 	}
+	// Only a deliberate local redeploy pin keeps the live image; otherwise the
+	// rendered image applies so an upgrade moves the agent to the release.
 	var liveImage string
-	for _, c := range existing.Spec.Template.Spec.Containers {
-		if c.Name == sessionManagerContainerName {
-			liveImage = c.Image
+	if existing.Annotations[annotationImagePinned] == "true" {
+		for _, c := range existing.Spec.Template.Spec.Containers {
+			if c.Name == sessionManagerContainerName {
+				liveImage = c.Image
+			}
 		}
 	}
 	existing.Spec.Template = ss.Spec.Template
@@ -1586,6 +1640,10 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	_, err = p.client.AppsV1().StatefulSets(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
 }
+
+// annotationImagePinned marks a StatefulSet whose session-manager image a local
+// redeploy pinned on purpose; ensureStatefulSet keeps the live image then.
+const annotationImagePinned = "orbit.io/session-manager-image-pinned"
 
 // sessionManagerContainerName is the session-manager container in every agent StatefulSet pod.
 const sessionManagerContainerName = "session-manager"

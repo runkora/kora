@@ -238,7 +238,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	const ns = "orbit-tenant-acme"
 	stale := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
@@ -288,7 +288,7 @@ func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	const ns = "orbit-tenant-acme"
 	stale := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -381,5 +381,30 @@ func TestRuntimePods_PeerMetadataInMeshOnly(t *testing.T) {
 		if !cfg.Hold || cfg.ProxyHeaders.MetadataExchangeHeaders.Mode != "IN_MESH" {
 			t.Errorf("%s proxy config = %+v", name, cfg)
 		}
+	}
+}
+
+// An unpinned StatefulSet moves to the rendered session-manager image on
+// reconcile, so a chart upgrade reaches existing agents.
+func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	const ns = "orbit-tenant-acme"
+	stale := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: sessionManagerContainerName, Image: "old"}},
+		}}},
+	}
+	p := podSecurityProvisioner()
+	p.client = fake.NewSimpleClientset(stale)
+	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}); err != nil {
+		t.Fatalf("ensureStatefulSet: %v", err)
+	}
+	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if img := got.Spec.Template.Spec.Containers[0].Image; img == "old" {
+		t.Errorf("unpinned image stayed %q; want the rendered image", img)
 	}
 }

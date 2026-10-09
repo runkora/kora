@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"slices"
 	"strings"
 	"time"
@@ -34,6 +35,13 @@ type RunServiceConfig struct {
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
+	// StartBudget bounds how long StartRun waits for a Ready agent pod and for
+	// the session to be accepted. Defaults to 3 minutes; the request deadline
+	// still wins when it is shorter.
+	StartBudget time.Duration
+	// StartPollInterval is the first wait between readiness checks and session
+	// retries; it doubles up to 10 seconds. Defaults to 2 seconds.
+	StartPollInterval time.Duration
 	// DefaultEnvironmentSize sizes the built-in default environment.
 	DefaultEnvironmentSize EnvironmentSize
 	// SandboxMount tells the agent, in its brief, to work in the sandbox's local folder.
@@ -200,7 +208,11 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	delegated := at.IsDelegated()
 
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	podOrdinal, err := s.providePod(ctx, span, at, namespace)
+	// One budget covers the pod readiness wait and the session retries.
+	budget := s.startBudget()
+	waitCtx, cancelWait := context.WithTimeout(ctx, budget)
+	defer cancelWait()
+	podOrdinal, err := s.providePod(waitCtx, span, at, namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +280,10 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	if at.ModelID != nil {
 		smReq.Model = *at.ModelID
 	}
-	if err := s.sm.CreateSession(ctx, podURL, smReq); err != nil {
+	if err := s.createSessionWithRetry(waitCtx, podURL, smReq); err != nil {
+		if waitCtx.Err() != nil && ctx.Err() == nil {
+			err = fmt.Errorf("agent pod not ready after %s: %w", budget, err)
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "create session")
 		return nil, fmt.Errorf("create session on pod %d: %w", podOrdinal, err)
@@ -963,6 +978,9 @@ func (s *RunService) providePod(ctx context.Context, span trace.Span, at *AgentT
 	}
 	podOrdinal, err := s.selectPod(ctx, at)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) {
+			err = fmt.Errorf("agent pod not ready after %s: %w", s.startBudget(), err)
+		}
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "select pod")
 		return 0, fmt.Errorf("select pod: %w", err)
@@ -970,7 +988,9 @@ func (s *RunService) providePod(ctx context.Context, span trace.Span, at *AgentT
 	return podOrdinal, nil
 }
 
-// selectPod picks the least-loaded pod ordinal for a new run.
+// selectPod picks the least-loaded Ready pod ordinal for a new run. When no pod
+// is Ready, or the StatefulSet is still rolling out a changed template, it
+// waits until one is or ctx ends.
 func (s *RunService) selectPod(ctx context.Context, at *AgentType) (int, error) {
 	counts, err := s.repo.ActiveRunsPerPod(ctx, at.ID)
 	if err != nil {
@@ -986,18 +1006,37 @@ func (s *RunService) selectPod(ctx context.Context, at *AgentType) (int, error) 
 		replicaCount = 1
 	}
 
-	best, bestCount := 0, -1
-	for i := range replicaCount {
-		c := counts[i]
-		if c >= at.MaxConcurrentRunsPerPod {
-			continue
+	var best, bestCount int
+	err = s.pollUntil(ctx, func() (bool, error) {
+		ready, rerr := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
+		if rerr != nil {
+			return false, fmt.Errorf("list ready pods: %w", rerr)
 		}
-		if bestCount < 0 || c < bestCount {
-			best, bestCount = i, c
+		best, bestCount = 0, -1
+		anyReady := false
+		for _, i := range ready {
+			if i >= replicaCount {
+				continue
+			}
+			anyReady = true
+			c := counts[i]
+			if c >= at.MaxConcurrentRunsPerPod {
+				continue
+			}
+			if bestCount < 0 || c < bestCount || (c == bestCount && i < best) {
+				best, bestCount = i, c
+			}
 		}
-	}
-	if bestCount < 0 {
-		return 0, fmt.Errorf("all pods at capacity (%d runs/pod)", at.MaxConcurrentRunsPerPod)
+		if !anyReady {
+			return false, nil
+		}
+		if bestCount < 0 {
+			return false, fmt.Errorf("all pods at capacity (%d runs/pod)", at.MaxConcurrentRunsPerPod)
+		}
+		return true, nil
+	})
+	if err != nil {
+		return 0, err
 	}
 	s.logger.Info(ctx, "Pod selected",
 		logging.Field{Key: "agent_type_id", Value: at.ID},
@@ -1006,6 +1045,85 @@ func (s *RunService) selectPod(ctx context.Context, at *AgentType) (int, error) 
 		logging.Field{Key: "max_runs_per_pod", Value: at.MaxConcurrentRunsPerPod},
 	)
 	return best, nil
+}
+
+const (
+	defaultStartBudget       = 3 * time.Minute
+	defaultStartPollInterval = 2 * time.Second
+	maxStartPollInterval     = 10 * time.Second
+)
+
+func (s *RunService) startBudget() time.Duration {
+	if s.cfg.StartBudget > 0 {
+		return s.cfg.StartBudget
+	}
+	return defaultStartBudget
+}
+
+// pollUntil calls check with exponential backoff until it reports done, returns
+// an error, or ctx ends. The context error is returned when ctx ends first.
+func (s *RunService) pollUntil(ctx context.Context, check func() (bool, error)) error {
+	delay := s.cfg.StartPollInterval
+	if delay <= 0 {
+		delay = defaultStartPollInterval
+	}
+	for {
+		done, err := check()
+		if err != nil || done {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+		delay = min(delay*2, maxStartPollInterval)
+	}
+}
+
+// createSessionWithRetry posts the session until the pod accepts it or ctx
+// ends. Transport errors and 503s are retried because the pod may still be
+// joining the headless Service. Sessions are keyed by run ID, so a conflict on
+// a retry means an earlier attempt landed and counts as success.
+func (s *RunService) createSessionWithRetry(ctx context.Context, podURL string, req sessionmanager.CreateSessionRequest) error {
+	attempts := 0
+	var lastErr error
+	err := s.pollUntil(ctx, func() (bool, error) {
+		attempts++
+		err := s.sm.CreateSession(ctx, podURL, req)
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, sessionmanager.ErrSessionConflict) && attempts > 1:
+			return true, nil
+		case isRetryableSessionError(err) && ctx.Err() == nil:
+			lastErr = err
+			return false, nil
+		default:
+			return false, err
+		}
+	})
+	if err != nil && lastErr != nil && errors.Is(err, ctx.Err()) {
+		return fmt.Errorf("%w (last error: %v)", err, lastErr)
+	}
+	return err
+}
+
+// isRetryableSessionError reports whether err means the pod was unreachable or
+// not yet serving, as opposed to a request the pod rejected.
+func isRetryableSessionError(err error) bool {
+	if errors.Is(err, sessionmanager.ErrUnexpectedStatus) {
+		return strings.Contains(err.Error(), "status 503")
+	}
+	if errors.Is(err, sessionmanager.ErrSessionConflict) {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no such host") || strings.Contains(msg, "connection refused")
 }
 
 // StartReaper runs a background goroutine that periodically marks runs stuck in

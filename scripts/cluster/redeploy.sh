@@ -367,6 +367,12 @@ pin_workload() {
     kubectl set image "$workload" \
       "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
       -n "$NAMESPACE"
+    # Mark an agent StatefulSet as pinned so the orbit-agents reconcile keeps
+    # this image instead of moving it to the release image.
+    if [ "$kind" = "statefulset" ]; then
+      kubectl annotate "$workload" orbit.io/session-manager-image-pinned=true \
+        --overwrite -n "$NAMESPACE"
+    fi
   else
     log "Restarting $workload in $NAMESPACE (digest unavailable)..."
     kubectl rollout restart "$workload" -n "$NAMESPACE"
