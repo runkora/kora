@@ -15,6 +15,7 @@ import type { BrowserContext } from '@playwright/test';
 
 const TEST_SESSION_SECRET = 'playwright-test-session-secret-32ch';
 const SESSION_COOKIE_NAME = 'orbit_session';
+const TEST_BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000';
 // Match the server's default maxAge (30 days). sealData takes ttl in seconds, not ms.
 const TTL_S = 30 * 24 * 60 * 60;
 
@@ -41,7 +42,7 @@ export async function injectSessionCookie(context: BrowserContext): Promise<void
     {
       name: SESSION_COOKIE_NAME,
       value: sealedSession,
-      url: 'http://localhost:3000',
+      url: TEST_BASE_URL,
       httpOnly: true,
       sameSite: 'Strict',
     },
@@ -65,7 +66,7 @@ export async function injectExpiredSessionCookie(context: BrowserContext): Promi
     {
       name: SESSION_COOKIE_NAME,
       value: sealedSession,
-      url: 'http://localhost:3000',
+      url: TEST_BASE_URL,
       httpOnly: true,
       sameSite: 'Strict',
     },

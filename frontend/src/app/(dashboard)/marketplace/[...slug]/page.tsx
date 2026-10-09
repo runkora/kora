@@ -4,7 +4,12 @@ import { getSession, isSessionValid } from '@orbit/server/session';
 import { loadSkillDetail } from '../_services/marketplace-server';
 import { MarketplaceSkillDetail } from '../_components/marketplace-skill-detail';
 import { MarketplaceSkillLoadError } from '../_components/marketplace-skill-load-error';
-import { buildOverviewUrl, parseBrowseParams, recordToSearchParams } from '../_utils/browse-params';
+import {
+  buildOverviewUrl,
+  parseBrowseParams,
+  parseSkillSlug,
+  recordToSearchParams,
+} from '../_utils/browse-params';
 
 interface SkillDetailPageProps {
   params: Promise<{ slug: string[] }>;
@@ -31,9 +36,10 @@ export default async function SkillDetailPage({ params, searchParams }: SkillDet
     );
   }
 
-  const result = await loadSkillDetail(session.accessToken, segments.join('/'));
+  const slug = parseSkillSlug(segments);
+  const result = slug === null ? null : await loadSkillDetail(session.accessToken, slug);
 
-  if (!result.ok && result.status === 404) {
+  if (!result || (!result.ok && result.status === 404)) {
     // No Skill has this slug.
     return (
       <Stack gap="comfortable">

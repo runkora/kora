@@ -61,7 +61,7 @@ export function MarketplacePagination() {
           </Stack>
         </Stack>
 
-        <Stack direction="horizontal" align="center" gap="snug">
+        <Stack direction="horizontal" align="center" gap="snug" wrap maxWidth="full">
           <Button
             variant="outline"
             size="sm"

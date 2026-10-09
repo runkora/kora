@@ -159,6 +159,16 @@ export function buildSkillUrl(slug: string, browse: MarketplaceBrowseParams): st
   return buildBrowseUrl(APP_ROUTES.marketplace.detail(slug), '', browse);
 }
 
+/** Reads the opaque Skill slug from Next.js's encoded catch-all path segments. */
+export function parseSkillSlug(segments: readonly string[]): string | null {
+  try {
+    // Decode once: a literal `%2F` in the backend identifier must stay literal.
+    return decodeURIComponent(segments.join('/'));
+  } catch {
+    return null;
+  }
+}
+
 /** Returns the URL of the overview with the given browse values, and no other query keys. */
 export function buildOverviewUrl(browse: MarketplaceBrowseParams): string {
   return buildBrowseUrl(APP_ROUTES.marketplace.overview, '', browse);
