@@ -74,8 +74,8 @@ type ClaudeRunnerConfig struct {
 // The subprocess is started with:
 //
 //	claude --print --output-format stream-json --input-format stream-json
-//	       --verbose --include-partial-messages --dangerously-skip-permissions
-//	       --settings <claudeAttributionSettings>
+//	       --verbose --include-partial-messages --permission-mode dontAsk
+//	       --settings <claudeSettings()>
 //	       [--resume ID] [--bare] [--model M]
 //	       --disallowedTools <claudeExcludedTools> [--append-system-prompt P]
 //
@@ -110,11 +110,51 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 	}
 }
 
-// claudeAttributionSettings disables Claude Code's own commit trailer and
-// pull-request footer. Orbit is the control plane of record for who ran an
-// agent and under what authority; a second, unverifiable identity string
-// baked into the subprocess's default settings would contradict that.
-const claudeAttributionSettings = `{"attribution":{"commit":"","pr":""}}`
+// claudeAllowAllHookOutput is the PreToolUse hook decision that approves every
+// tool call. In dontAsk mode Claude Code denies whatever is not approved and
+// never prompts, so this hook is what lets the agent use every tool, including
+// ones a later Claude Code release adds (an allow rule cannot say "all": it
+// rejects "*" and needs each tool named).
+const claudeAllowAllHookOutput = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}`
+
+// claudeAllowAllHookCommand prints claudeAllowAllHookOutput. printf is a
+// builtin of the POSIX shell Claude Code runs hooks with, so the hook needs no
+// binary or file in the image and nothing beyond what Landlock already permits.
+const claudeAllowAllHookCommand = "printf %s '" + claudeAllowAllHookOutput + "'"
+
+// claudeSettings returns the --settings JSON for a run. It:
+//
+//   - disables Claude Code's own commit trailer and pull-request footer. Orbit
+//     is the control plane of record for who ran an agent and under what
+//     authority; a second, unverifiable identity string baked into the
+//     subprocess's default settings would contradict that.
+//   - registers the allow-all PreToolUse hook that goes with --permission-mode
+//     dontAsk. Why not --dangerously-skip-permissions: that mode adds a passage
+//     to the system prompt steering the model to Bash for reading and editing
+//     files, so agents skipped Read, Edit and Write and never loaded nested
+//     CLAUDE.md files. Policy is still enforced at the egress gateway and the
+//     sidecars, not by Claude Code's permission prompts.
+func claudeSettings() string {
+	settings := map[string]any{
+		"attribution": map[string]string{"commit": "", "pr": ""},
+		"hooks": map[string]any{
+			"PreToolUse": []any{
+				map[string]any{
+					"matcher": "*",
+					"hooks": []any{
+						map[string]string{"type": "command", "command": claudeAllowAllHookCommand},
+					},
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(settings)
+	if err != nil {
+		// Unreachable: the value above holds only strings and maps.
+		panic(fmt.Sprintf("marshal claude settings: %v", err))
+	}
+	return string(data)
+}
 
 // buildFlags returns the Claude Code CLI flags for this runner configuration.
 // Extracted to keep Start() cyclomatic complexity within bounds.
@@ -125,8 +165,8 @@ func (r *ClaudeRunner) buildFlags() []string {
 		"--input-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
-		"--dangerously-skip-permissions",
-		"--settings", claudeAttributionSettings,
+		"--permission-mode", "dontAsk",
+		"--settings", claudeSettings(),
 	}
 	if r.cfg.ResumeSessionID != "" {
 		args = append(args, "--resume", r.cfg.ResumeSessionID)

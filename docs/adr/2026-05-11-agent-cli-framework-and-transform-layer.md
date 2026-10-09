@@ -36,7 +36,8 @@ claude \
   --input-format  stream-json \
   --verbose \
   --include-partial-messages \
-  --dangerously-skip-permissions \
+  --permission-mode dontAsk \
+  --settings '{"attribution":{...},"hooks":{"PreToolUse":[{"matcher":"*",...}]}}' \
   --no-session-persistence \
   --disallowedTools WebSearch,WebFetch,AskUserQuestion,PushNotification,DesignSync
 ```
@@ -48,7 +49,7 @@ claude \
 | `--input-format stream-json` | Accept JSON-formatted user messages on stdin; process stays alive between turns |
 | `--verbose` | **Required** alongside `--output-format stream-json` — omitting it causes a silent error |
 | `--include-partial-messages` | Emit `stream_event` deltas as they arrive (token-level text streaming) |
-| `--dangerously-skip-permissions` | Bypass interactive permission dialogs (required in unattended container) |
+| `--permission-mode dontAsk` | Never prompt: a call that is not approved is denied. The `PreToolUse` allow-all hook in `--settings` approves every tool. `--dangerously-skip-permissions` is not used: it adds a system prompt passage that steers the model to Bash for file work instead of Read, Edit and Write, and it keeps nested `CLAUDE.md` files from loading |
 | `--no-session-persistence` | Do not write session files to the working directory |
 | `--bare` | Minimal mode: no CLAUDE.md discovery, no OAuth/keychain reads, no auto-memory, no hooks. Off in containers (`claude.bare: false`) because it also caps the built-in tools at `Bash`, `Read` and `Edit` |
 | `--disallowedTools` | Remove the built-in tools that cannot work in a headless kora run (see Tool Restriction) |
@@ -59,7 +60,7 @@ claude \
 
 **`--bare` is off:** `--bare` disables OAuth and keychain reads, but it also caps the built-in tools at `Bash`, `Read` and `Edit`, so the session-manager runs with `claude.bare: false` in `config/base.yaml`. Containers authenticate via the `ANTHROPIC_API_KEY` env var either way.
 
-**`--dangerously-skip-permissions` refuses root:** The flag checks `process.getuid() === 0` and exits if running as root. The session-manager container runs as a non-root system user (`orbit`, UID 100).
+**Non-root:** `--dangerously-skip-permissions` refused to run as root (`process.getuid() === 0`). The runner no longer passes it, but the session-manager container still runs as a non-root system user (`orbit`, UID 100).
 
 **`system/init` emits once per turn, not once at startup:** Every user message causes Claude Code to emit a `{"type":"system","subtype":"init",...}` event. The transform layer ignores all `system` events.
 

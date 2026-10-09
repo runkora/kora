@@ -89,7 +89,7 @@ RUN ARCH=$(uname -m) && \
     mv /usr/local/bin/codex-${MUSL_ARCH}-unknown-linux-musl /usr/local/bin/codex && \
     chmod +x /usr/local/bin/codex
 
-# Non-root user: claude --dangerously-skip-permissions refuses to run as root.
+# Non-root user: the agent subprocess does not need root, so the container does not run as it.
 RUN addgroup -S orbit && adduser -S orbit -G orbit
 
 COPY --from=builder /configs/ ./

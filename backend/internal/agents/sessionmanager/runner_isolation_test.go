@@ -29,12 +29,82 @@ func TestBuildFlags_BaseFlags(t *testing.T) {
 		"--input-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
-		"--dangerously-skip-permissions",
 	}
 	for _, want := range always {
 		if !containsFlag(flags, want) {
 			t.Errorf("buildFlags() missing required flag %q; got %v", want, flags)
 		}
+	}
+}
+
+// bypassPermissions mode steers the model to Bash for file work, so agents skip
+// Read, Edit and Write. Runs use dontAsk plus an allow-all hook instead.
+func TestBuildFlags_DontAskMode(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(io.Discard),
+		RunID:  "run-1",
+	})
+	flags := r.buildFlags()
+	if containsFlag(flags, "--dangerously-skip-permissions") {
+		t.Errorf("buildFlags() must not pass --dangerously-skip-permissions; got %v", flags)
+	}
+	i := slices.Index(flags, "--permission-mode")
+	if i < 0 || i+1 >= len(flags) || flags[i+1] != "dontAsk" {
+		t.Errorf("buildFlags() must pass --permission-mode dontAsk; got %v", flags)
+	}
+}
+
+// dontAsk denies whatever is not approved, so the settings must carry a
+// PreToolUse hook matching every tool that approves the call.
+func TestBuildFlags_AllowAllHook(t *testing.T) {
+	r := NewClaudeRunner(ClaudeRunnerConfig{
+		Logger: logging.NewLoggerWithOutput(io.Discard),
+		RunID:  "run-1",
+	})
+	flags := r.buildFlags()
+	i := slices.Index(flags, "--settings")
+	if i < 0 || i+1 >= len(flags) {
+		t.Fatalf("buildFlags() missing --settings value; got %v", flags)
+	}
+	var settings struct {
+		Hooks struct {
+			PreToolUse []struct {
+				Matcher string `json:"matcher"`
+				Hooks   []struct {
+					Type    string `json:"type"`
+					Command string `json:"command"`
+				} `json:"hooks"`
+			} `json:"PreToolUse"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal([]byte(flags[i+1]), &settings); err != nil {
+		t.Fatalf("--settings value is not valid JSON: %v (%q)", err, flags[i+1])
+	}
+	pre := settings.Hooks.PreToolUse
+	if len(pre) != 1 || pre[0].Matcher != "*" || len(pre[0].Hooks) != 1 {
+		t.Fatalf("hooks.PreToolUse = %+v, want one entry with matcher \"*\" and one hook", pre)
+	}
+	hook := pre[0].Hooks[0]
+	if hook.Type != "command" {
+		t.Errorf("hook type = %q, want command", hook.Type)
+	}
+	// Run the hook as Claude Code does, through the POSIX shell, and check what
+	// it prints is the allow decision.
+	out, err := exec.Command("/bin/sh", "-c", hook.Command).Output()
+	if err != nil {
+		t.Fatalf("running hook command %q: %v", hook.Command, err)
+	}
+	var decision struct {
+		HookSpecificOutput struct {
+			HookEventName      string `json:"hookEventName"`
+			PermissionDecision string `json:"permissionDecision"`
+		} `json:"hookSpecificOutput"`
+	}
+	if err := json.Unmarshal(out, &decision); err != nil {
+		t.Fatalf("hook output is not valid JSON: %v (%q)", err, out)
+	}
+	if got := decision.HookSpecificOutput; got.HookEventName != "PreToolUse" || got.PermissionDecision != "allow" {
+		t.Errorf("hook output = %+v, want PreToolUse allow", got)
 	}
 }
 
