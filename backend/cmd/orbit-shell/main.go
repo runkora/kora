@@ -10,7 +10,7 @@ package main
 // "bash" basename symlink (/opt/orbit/shell/bash) and sets CLAUDE_CODE_SHELL to it.
 // This was validated empirically against the real claude binary.
 //
-// It checks $WORKSPACE/.sandbox/endpoint on every invocation:
+// It checks $WORKSPACE/.sandbox-exec/endpoint on every invocation:
 //   - absent  → exec the real local /bin/bash with the given args (snapshot generation
 //     and any pre-provision commands run in-pod)
 //   - present → dial the gRPC exec server in the sandbox pod and stream the command
@@ -33,6 +33,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -78,10 +79,10 @@ func readSandbox() sandbox {
 	if workspace == "" {
 		return sandbox{}
 	}
-	dir := filepath.Join(workspace, ".sandbox")
+	dir := filepath.Join(workspace, runfs.ExecDir)
 	return sandbox{
-		endpoint: readTrimmed(filepath.Join(dir, "endpoint")),
-		token:    readTrimmed(filepath.Join(dir, "exec-token")),
+		endpoint: readTrimmed(filepath.Join(dir, runfs.EndpointFile)),
+		token:    readTrimmed(filepath.Join(dir, runfs.ExecTokenFile)),
 	}
 }
 
@@ -244,7 +245,7 @@ func fetchSandbox() (sandbox, bool, error) {
 // reprovisionSandbox asks the session-manager to (re)provision the run's sandbox
 // and returns the fresh gRPC endpoint. The session-manager liveness-checks the
 // existing endpoint and replaces a dead sandbox, then rewrites
-// $WORKSPACE/.sandbox/endpoint, which we re-read here.
+// $WORKSPACE/.sandbox-exec/endpoint, which we re-read here.
 func reprovisionSandbox() (sandbox, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")

@@ -18,7 +18,7 @@ func TestReprovisionSandbox_RewritesAndReturnsEndpoint(t *testing.T) {
 		gotMethod, gotPath = r.Method, r.URL.Path
 		// Simulate the session-manager re-provisioning and rewriting the files
 		// that readSandbox() reads.
-		dir := filepath.Join(ws, ".sandbox")
+		dir := filepath.Join(ws, ".sandbox-exec")
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Errorf("mkdir: %v", err)
 		}

@@ -998,11 +998,7 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// exec_token goes only to the session-manager that owns the run: the route is
 	// restricted to the agent pod by AuthorizationPolicy, and authorizeCallback
 	// has already bound the caller to this run.
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
-		"endpoint":    sandbox.Endpoint,
-		"exec_token":  sandbox.ExecToken,
-		"canary_host": sandbox.CanaryHost,
-	})
+	api.JSON(ctx, w, c.logger, http.StatusOK, sandbox)
 }
 
 // writeEnvironmentChoiceError answers a refused environment choice with a 409

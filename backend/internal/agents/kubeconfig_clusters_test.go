@@ -140,8 +140,8 @@ func TestSandboxContainer_WorkspaceMountScopedToRunID(t *testing.T) {
 		}
 	}
 	wantMountPath := "/workspaces/" + runID
-	// /tmp is the run's own .tmp/{runID}, outside the directory the agent can rename.
-	want := map[string]string{wantMountPath: runID, "/tmp": ".tmp/" + runID, "/workspaces/.tmp/" + runID: ".tmp/" + runID}
+	// The agent pod's TMPDIR is the run's own .tmp/{runID}, outside the directory the agent can rename.
+	want := map[string]string{wantMountPath: runID, "/workspaces/.tmp/" + runID: ".tmp/" + runID}
 	if len(subPaths) != len(want) {
 		t.Errorf("workspaces mounts = %v, want %v", subPaths, want)
 	}

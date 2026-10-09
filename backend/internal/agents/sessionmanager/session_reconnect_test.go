@@ -68,7 +68,7 @@ func hostSession(reg *Registry, runID string) {
 // because ProvisionSandbox treats a missing token as a cache miss.
 func writeEndpoint(t *testing.T, workspaces, runID, endpoint string) string {
 	t.Helper()
-	dir := filepath.Join(workspaces, runID, ".sandbox")
+	dir := filepath.Join(workspaces, runID, ".sandbox-exec")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestSandbox_RemembersAcrossADeletedDescriptor(t *testing.T) {
 	}
 
 	// The agent deletes its own descriptor.
-	if err := os.RemoveAll(filepath.Join(ws, "run-1", ".sandbox")); err != nil {
+	if err := os.RemoveAll(filepath.Join(ws, "run-1", ".sandbox-exec")); err != nil {
 		t.Fatalf("remove descriptor: %v", err)
 	}
 

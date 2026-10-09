@@ -431,6 +431,24 @@ Kubernetes: `>=1.34.0-0`
 | policyService.tolerations | list | `[]` |  |
 | policyService.topologySpreadConstraints | list | `[]` |  |
 | publicHosts | list | `[]` |  |
+| sandboxMount.affinity | object | `{}` |  |
+| sandboxMount.configOverrides | object | `{}` | Raw config merged last over the agent's rendered config file, keyed by config module. Keys follow the Go config struct; an unknown key fails startup. e.g. {cmd/sandbox-mount: {node: {resyncSecs: 60}}} |
+| sandboxMount.createNamespace | bool | `true` | Create the namespace at the privileged Pod Security level. Set false to use a namespace you manage. |
+| sandboxMount.enabled | bool | `false` | Run the node agent and give every new sandbox a local working folder. |
+| sandboxMount.image.digest | string | `""` |  |
+| sandboxMount.image.pullPolicy | string | `""` |  |
+| sandboxMount.image.registry | string | `""` |  |
+| sandboxMount.image.repository | string | `"orbit-sandbox-mount"` |  |
+| sandboxMount.image.tag | string | `""` |  |
+| sandboxMount.kubeletDir | string | `"/var/lib/kubelet"` | The kubelet's root directory on the nodes. |
+| sandboxMount.namespace | string | `"orbit-sandbox-mount"` | Namespace of the node agent. The system namespace's Pod Security level rejects privileged pods. |
+| sandboxMount.nodeSelector | object | `{}` | The agent must run on every node that hosts sandboxes or session-manager pods, so global.nodeSelector and global.affinity do not apply to it. |
+| sandboxMount.port | int | `20490` | TCP port nfsd listens on, on every node. NFSv4 only, with no rpcbind or mountd port. |
+| sandboxMount.priorityClassName | string | `""` | Falls back to global.priorityClassName. |
+| sandboxMount.resources.limits.memory | string | `"128Mi"` |  |
+| sandboxMount.resources.requests.cpu | string | `"20m"` |  |
+| sandboxMount.resources.requests.memory | string | `"32Mi"` |  |
+| sandboxMount.tolerations | list | `[]` | Added to the tolerations of agents.workloads.sandbox and agents.workloads.sessionManager, which the agent always carries. |
 | spire.className | string | `"spire-system-spire"` |  |
 | toolGateway.affinity | object | `{}` |  |
 | toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |

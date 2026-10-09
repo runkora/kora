@@ -131,7 +131,7 @@ func TestReplaceEnvironment_WritesDescriptor(t *testing.T) {
 	if n.replaced != "node" {
 		t.Errorf("replaced into %q, want node", n.replaced)
 	}
-	token, err := os.ReadFile(filepath.Join(ws, "run-1", ".sandbox", "exec-token"))
+	token, err := os.ReadFile(filepath.Join(ws, "run-1", ".sandbox-exec", "exec-token"))
 	if err != nil || string(token) != "tok-new" {
 		t.Errorf("exec token = %q (%v), want the new sandbox's", token, err)
 	}

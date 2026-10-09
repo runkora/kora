@@ -1,6 +1,6 @@
 # Agent Run Filesystem and Process Isolation
 
-**Status:** Accepted (Amended 2026-09-29, 2026-09-30)
+**Status:** Accepted (Amended 2026-09-29, 2026-09-30, 2026-10-08)
 **Date:** 2026-06-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Agent self-assessment revealed all runs on the same session-manager pod share `$HOME`, the full pod filesystem, and the host PID namespace — giving every run read/write access to `~/.claude/` (session transcripts, memories) and the ability to read sibling processes' `/proc/<pid>/cmdline`, leaking workspace UUIDs, system prompts, model selections, and tool grants.
@@ -393,6 +393,18 @@ One agent pod per runtime, on kernel 6.8 (Landlock ABI 4), 2026-09-30.
 | Stop during a shell command, then a new message | Stopped and answered, with and without a sandbox | Stopped and answered, with and without a sandbox | Stopped and answered, with and without a sandbox |
 | Glob and grep tools | Not available in this Claude Code build ("No such tool available"), with the current rules too | Reads go through the shell | `ripgrep execution failed`, with and without a sandbox, as without this change |
 
+## Amendment 3 (2026-10-08): A sandbox keeps HOME and TMPDIR on its local disk
+
+**Status:** Accepted
+
+This amendment touches **What can it access?** only for where a sandbox's scratch files live. [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) supersedes the sandbox column of Amendment 1's layout table, its capabilities brief bullet and its third positive consequence:
+
+*   `$HOME` in the sandbox is the run's local directory on the sandbox's local disk. The agent pod keeps `/workspaces/{runID}/.runhome`.
+*   `$TMPDIR` and `/tmp` in the sandbox are on the sandbox's local disk. The agent pod's `$TMPDIR` stays at `/workspaces/.tmp/{runID}` and is still mounted in the sandbox at that path.
+*   Installs and caches in the sandbox sit under its local `$HOME`.
+*   The file tools cannot see the sandbox's `$HOME` and `$TMPDIR`. The capabilities brief tells the agent to pass files between Bash and its file tools through the workspace only.
+*   The sandbox descriptor moves from `$WORKSPACE/.sandbox/` to `$WORKSPACE/.sandbox-exec/`.
+
 ---
 
 ## Related Decisions
@@ -403,4 +415,4 @@ One agent pod per runtime, on kernel 6.8 (Landlock ABI 4), 2026-09-30.
 
 ---
 
-**Last Updated:** 2026-09-30
+**Last Updated:** 2026-10-08

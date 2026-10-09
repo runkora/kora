@@ -71,9 +71,15 @@ func TestSandboxPod_FromEnvironment(t *testing.T) {
 		t.Fatalf("local disk volume = %+v, want a 20Gi emptyDir", local)
 	}
 	if !slices.ContainsFunc(c.VolumeMounts, func(m corev1.VolumeMount) bool {
-		return m.Name == localDiskVolume && m.MountPath == runfs.LocalDir("/workspaces/run-1")
+		return m.Name == localDiskVolume && m.MountPath == runfs.LocalDir("/workspaces/run-1") && m.SubPath == "home"
 	}) {
-		t.Errorf("mounts = %+v, want the local disk at the run's local dir", c.VolumeMounts)
+		t.Errorf("mounts = %+v, want the local disk's home directory at the run's local dir", c.VolumeMounts)
+	}
+	// /tmp is the sandbox's TMPDIR, on the local disk rather than the shared workspace volume.
+	if !slices.ContainsFunc(c.VolumeMounts, func(m corev1.VolumeMount) bool {
+		return m.Name == localDiskVolume && m.MountPath == "/tmp" && m.SubPath == ".tmp"
+	}) {
+		t.Errorf("mounts = %+v, want /tmp on the local disk", c.VolumeMounts)
 	}
 }
 

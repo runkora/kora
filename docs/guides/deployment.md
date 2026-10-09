@@ -115,6 +115,62 @@ Each placeholder reserves one default sandbox pod: the default size, 1Gi of disk
 
 To keep an image pulled on a pool that does not scale to zero, set `warm` on its `SandboxImage`.
 
+#### Scale-out sandboxes
+
+A scale-out install runs sandboxes on their own node pool with a `ReadWriteMany` workspace. Package installs and builds are slow on the network filesystem behind that workspace. Set `sandboxMount.enabled` to give every sandbox a working folder on its node's local disk at `/workspaces/<run>/sandbox`. The agent's file tools and the sandbox see the same files in that folder, and the folder ends with the sandbox.
+
+```yaml
+agents:
+  workspace:
+    storageClassName: shared-files   # a ReadWriteMany StorageClass
+    accessModes:
+      - ReadWriteMany
+  workloads:
+    sandbox:
+      nodeSelector: { workload-tier: orbit-sandbox }
+sandboxMount:
+  enabled: true
+```
+
+The chart deploys the node agent `orbit-sandbox-mount` as a privileged DaemonSet in the `orbit-sandbox-mount` namespace. The agent exports each sandbox's folder with the kernel NFS server to its session-manager's node and mounts it into the running session-manager pod.
+
+The cluster must provide:
+
+*   A node kernel with the NFS server and NFSv4 client modules.
+*   Admission for a privileged pod that uses the host network and the host PID namespace.
+*   TCP `sandboxMount.port` (default 20490) open from session-manager nodes to sandbox nodes. NFS uses no other port.
+
+Check each requirement before you enable the feature:
+
+1.  **Check Privileged Admission:** Run a server-side dry run of a privileged pod in a namespace at the privileged Pod Security level.
+
+    ```bash
+    kubectl create namespace orbit-sandbox-mount
+    kubectl label namespace orbit-sandbox-mount pod-security.kubernetes.io/enforce=privileged
+    kubectl -n orbit-sandbox-mount run privileged-check --image=busybox --restart=Never --dry-run=server \
+      --overrides='{"spec":{"hostNetwork":true,"hostPID":true,"containers":[{"name":"privileged-check","image":"busybox","securityContext":{"privileged":true}}]}}'
+    ```
+
+2.  **Check the NFS Server Module:** Load the module on a sandbox node. A zero exit status means the kernel has the NFS server.
+
+    ```bash
+    kubectl debug node/<sandbox-node> -it --profile=sysadmin --image=busybox -- chroot /host modprobe nfsd
+    ```
+
+3.  **Check the NFS Port:** Connect from a session-manager node to the port on a sandbox node. A refused connection means the port is open. A timeout means a firewall drops it.
+
+    ```bash
+    kubectl debug node/<session-manager-node> -it --image=busybox -- nc -z -v -w 3 <sandbox-node-address> 20490
+    ```
+
+Leave `sandboxMount.enabled` off on a platform that fails a check. Sandboxes then work on the shared workspace volume.
+
+If the session-manager's node cannot reach the port, the sandbox fails to start with "the node agent cannot reach the NFS port on the sandbox node". The node agent's log on the session-manager's node lists the port and both nodes.
+
+The DaemonSet carries the sandbox and session-manager tolerations plus any in `sandboxMount.tolerations`. Set `sandboxMount.createNamespace: false` to run it in a namespace you manage.
+
+NFS does not authenticate callers. Each folder is exported only to its session-manager's node address, and the tenant NetworkPolicies deny agent and sandbox pods the NFS port. A host-network workload, or a pod whose traffic your CNI masquerades to the node address, can still reach the export. Restrict host network access to trusted system workloads, and deny other workloads egress to node addresses on `sandboxMount.port`.
+
 ### Sandbox images and environments
 
 A sandbox runs the image of its environment. kora publishes the base image `kora-sandbox-base` with the general command-line tools, Go and Python. Platform teams build their own images `FROM` it and register each one as a `SandboxImage` in the tenant namespace:
@@ -177,15 +233,19 @@ agents:
     maxSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
 ```
 
-`disk` sizes a node-local volume in each sandbox that holds the Go, npm and pip caches and user-level tool installs. The repository checkout stays on the shared workspace.
+`disk` sizes a node-local volume in each sandbox that holds its `HOME`, `TMPDIR`, the Go, npm and pip caches, user-level tool installs and, with `sandboxMount.enabled`, its working folder.
 
-A sandbox reserves its size. Its CPU, memory and ephemeral-storage requests equal its limits, and its sidecars add `operator.injection.sandboxSidecars` on top. The default `maxSize` equals the default size. Raise `maxSize` to what one sandbox node holds:
+The sandbox container gets exactly its environment's size. The pod also runs sidecars (`operator.injection.sandboxSidecars`, 900m CPU and 320Mi memory by default) and 1Gi of scratch disk on top of the size. `maxSize` starts equal to `defaultSize`. To offer larger sizes, set each `maxSize` field to the largest value that fits one sandbox node:
 
-- `maxSize.cpu` plus the sidecar CPU must fit the node's allocatable CPU less its DaemonSet requests.
-- `maxSize.memory` plus the sidecar memory must fit the node's allocatable memory less its DaemonSet requests.
-- `maxSize.disk` plus 1Gi must fit the node's allocatable ephemeral storage.
+```text
+maxSize.cpu    = node allocatable CPU     - DaemonSet CPU requests    - sidecar CPU
+maxSize.memory = node allocatable memory  - DaemonSet memory requests - sidecar memory
+maxSize.disk   = node allocatable ephemeral storage - 1Gi
+```
 
-`kubectl describe node <node>` lists a node's allocatable resources and the requests of its pods. A run on a size that no node holds fails with the scheduler's reason.
+For example, a node with 3900m CPU, 14Gi memory and 20Gi ephemeral storage allocatable, running DaemonSets that request 500m CPU and 1Gi memory, holds a sandbox of up to 2.5 CPU, 12.6Gi memory and 19Gi disk. Round each value down to a size you want to offer, such as `{ cpu: "2", memory: 12Gi, disk: 18Gi }`.
+
+`kubectl describe node <node>` shows the node's allocatable resources and the requests of the pods on it. A run on a size that fits no node fails with the scheduler's reason.
 
 The operator needs `agents.sandboxImages.registryPorts` for a registry on a port other than 443. `agents.sandboxImages.registryMirrors` maps a registry host in image references to the host the operator reads from, as the nodes' registry mirrors do. A mirror given as `http://host` is read over plain HTTP, such as the local k3d registry.
 

@@ -92,7 +92,7 @@ type environmentArgs struct {
 type sizeArg struct {
 	CPU    string `json:"cpu,omitempty" jsonschema:"CPU limit as a Kubernetes quantity (e.g. 2 or 500m)"`
 	Memory string `json:"memory,omitempty" jsonschema:"memory limit as a Kubernetes quantity (e.g. 4Gi)"`
-	Disk   string `json:"disk,omitempty" jsonschema:"local disk for build caches and tool installs (e.g. 10Gi)"`
+	Disk   string `json:"disk,omitempty" jsonschema:"local disk for HOME, TMPDIR, build caches, tool installs and the working folder, if any (e.g. 10Gi)"`
 }
 
 type replaceEnvironmentArgs struct {
