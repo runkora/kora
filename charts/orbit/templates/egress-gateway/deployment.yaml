@@ -57,7 +57,6 @@ spec:
           env:
             {{- toYaml . | nindent 12 }}
           {{- end }}
-          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
           ports:
             - name: connect
               containerPort: {{ .Values.egressGateway.connectPort }}

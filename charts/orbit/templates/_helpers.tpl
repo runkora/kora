@@ -273,12 +273,17 @@ CSI socket lands at the path the proxy checks for an external SDS socket.
 {{- end }}
 
 {{/*
-envFrom for the platform Secret every service reads.
+secretKeyRef env entries for the keys a service reads from the platform Secret,
+so a pod receives only those keys. Takes (dict "root" $ "keys" (list "DB_PASSWORD" ...)).
 */}}
-{{- define "orbit.platformEnvFrom" -}}
-envFrom:
-  - secretRef:
-      name: {{ .Values.config.platformSecretName }}
+{{- define "orbit.platformEnv" -}}
+{{- range .keys }}
+- name: {{ . }}
+  valueFrom:
+    secretKeyRef:
+      name: {{ $.root.Values.config.platformSecretName }}
+      key: {{ . }}
+{{- end }}
 {{- end }}
 
 {{/*

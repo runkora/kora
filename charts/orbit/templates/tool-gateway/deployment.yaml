@@ -46,11 +46,9 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "toolGateway") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
-          {{- with .Values.toolGateway.extraEnv }}
           env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
+            {{- include "orbit.platformEnv" (dict "root" $ "keys" (list "DB_PASSWORD" "REDIS_PASSWORD")) | nindent 12 }}
+            {{- include "orbit.extraEnv" (dict "root" $ "name" "toolGateway") | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.toolGateway.httpPort }}
