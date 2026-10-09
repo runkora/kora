@@ -135,7 +135,7 @@ The deployed cluster runs session-managers and sandboxes on Bottlerocket 1.66 wi
 
 ### D13. Chart
 
-*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the host network and the host PID namespace in the `orbit-node` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on. The deployment guide's scale-out section turns it on with a `ReadWriteMany` workspace.
+*   **A top-level `sandboxMount` block, off by default (chosen):** `sandboxMount.enabled` runs the DaemonSet in the host network and the host PID namespace in the `orbit-sandbox-mount` namespace, and the chart creates that namespace at the privileged Pod Security level. The DaemonSet carries the tolerations of both workloads, and its ClusterRole lists and watches pods. The local reference environment turns the feature on. The deployment guide's scale-out section turns it on with a `ReadWriteMany` workspace.
 *   **On by default (rejected):** Every install would need kernel NFS on its nodes and a privileged DaemonSet.
 *   **Under `agents` (rejected):** The release pins component digests from top-level image blocks only.
 

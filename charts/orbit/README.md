@@ -441,7 +441,7 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.image.repository | string | `"orbit-sandbox-mount"` |  |
 | sandboxMount.image.tag | string | `""` |  |
 | sandboxMount.kubeletDir | string | `"/var/lib/kubelet"` | The kubelet's root directory on the nodes. |
-| sandboxMount.namespace | string | `"orbit-node"` | Namespace of the node agent. The system namespace's Pod Security level rejects privileged pods. |
+| sandboxMount.namespace | string | `"orbit-sandbox-mount"` | Namespace of the node agent. The system namespace's Pod Security level rejects privileged pods. |
 | sandboxMount.nodeSelector | object | `{}` | The agent must run on every node that hosts sandboxes or session-manager pods, so global.nodeSelector and global.affinity do not apply to it. |
 | sandboxMount.port | int | `20490` | TCP port nfsd listens on, on every node. NFSv4 only, with no rpcbind or mountd port. |
 | sandboxMount.priorityClassName | string | `""` | Falls back to global.priorityClassName. |

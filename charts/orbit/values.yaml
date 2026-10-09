@@ -718,7 +718,7 @@ sandboxMount:
   enabled: false
   # -- Namespace of the node agent. The system namespace's Pod Security level
   # rejects privileged pods.
-  namespace: orbit-node
+  namespace: orbit-sandbox-mount
   # -- Create the namespace at the privileged Pod Security level. Set false to
   # use a namespace you manage.
   createNamespace: true

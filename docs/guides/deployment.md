@@ -132,7 +132,7 @@ sandboxMount:
   enabled: true
 ```
 
-The chart deploys the node agent `orbit-sandbox-mount` as a privileged DaemonSet in the `orbit-node` namespace. The agent exports each sandbox's folder with the kernel NFS server to its session-manager's node and mounts it into the running session-manager pod.
+The chart deploys the node agent `orbit-sandbox-mount` as a privileged DaemonSet in the `orbit-sandbox-mount` namespace. The agent exports each sandbox's folder with the kernel NFS server to its session-manager's node and mounts it into the running session-manager pod.
 
 The cluster must provide:
 
@@ -145,9 +145,9 @@ Check each requirement before you enable the feature:
 1.  **Check Privileged Admission:** Run a server-side dry run of a privileged pod in a namespace at the privileged Pod Security level.
 
     ```bash
-    kubectl create namespace orbit-node
-    kubectl label namespace orbit-node pod-security.kubernetes.io/enforce=privileged
-    kubectl -n orbit-node run privileged-check --image=busybox --restart=Never --dry-run=server \
+    kubectl create namespace orbit-sandbox-mount
+    kubectl label namespace orbit-sandbox-mount pod-security.kubernetes.io/enforce=privileged
+    kubectl -n orbit-sandbox-mount run privileged-check --image=busybox --restart=Never --dry-run=server \
       --overrides='{"spec":{"hostNetwork":true,"hostPID":true,"containers":[{"name":"privileged-check","image":"busybox","securityContext":{"privileged":true}}]}}'
     ```
 
