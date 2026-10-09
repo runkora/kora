@@ -55,17 +55,23 @@ func (g *emptyTurnGuard) observe(ev Event) emptyTurnVerdict {
 			g.output = false
 		}
 	case EventTypeRunError:
-		g.ended = true
-		var p RunErrorPayload
-		if json.Unmarshal(ev.Payload, &p) == nil && p.Code != "budget_exhausted" {
-			g.runError = &p
-		}
+		g.recordRunError(ev.Payload)
 	case EventTypeTurnStopped:
 		g.ended = true
 	case EventTypeMessageStop:
 		return g.endTurn()
 	}
 	return emptyTurnOK
+}
+
+// recordRunError ends the turn and keeps its run_error. A budget error is not
+// kept, because the drain loop already closes the session on it.
+func (g *emptyTurnGuard) recordRunError(payload json.RawMessage) {
+	g.ended = true
+	var p RunErrorPayload
+	if json.Unmarshal(payload, &p) == nil && p.Code != "budget_exhausted" {
+		g.runError = &p
+	}
 }
 
 func (g *emptyTurnGuard) endTurn() emptyTurnVerdict {

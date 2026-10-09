@@ -153,6 +153,9 @@ func TestDrain_EmptyTurnAfterRunErrorFailsTheRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("run did not fail after an empty turn that followed a run error")
 	}
+	if errs, _ := n.snapshot(); slices.Contains(errs, "subprocess_exit") || !slices.Contains(errs, "empty_response") {
+		t.Errorf("run errors = %q, want the turn's empty_response and no subprocess_exit", errs)
+	}
 	if sent := r.sentTexts(); len(sent) != 0 {
 		t.Errorf("sent = %q, want no re-prompt", sent)
 	}
