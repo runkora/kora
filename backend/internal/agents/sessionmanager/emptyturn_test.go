@@ -137,6 +137,27 @@ func TestDrain_TwoEmptyTurnsFailTheRun(t *testing.T) {
 	}
 }
 
+func TestDrain_EmptyTurnAfterRunErrorFailsTheRun(t *testing.T) {
+	_, r, n := startEmptyTurnSession(t)
+	push(r, []Event{
+		ev(t, EventTypeRunError, RunErrorPayload{Code: "empty_response", Message: "stream cut"}),
+		ev(t, EventTypeMessageComplete, MessageCompletePayload{}),
+		ev(t, EventTypeMessageStop, nil),
+	})
+
+	select {
+	case failed := <-n.completed:
+		if !failed {
+			t.Error("run completed, want failed")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("run did not fail after an empty turn that followed a run error")
+	}
+	if sent := r.sentTexts(); len(sent) != 0 {
+		t.Errorf("sent = %q, want no re-prompt", sent)
+	}
+}
+
 func TestDrain_TurnWithTextIsNotEmpty(t *testing.T) {
 	reg, r, n := startEmptyTurnSession(t)
 	push(r, textTurn(t))
@@ -167,6 +188,12 @@ func TestEmptyTurnGuard_Verdicts(t *testing.T) {
 		}, emptyTurnReprompt},
 		{"error turn", func(t *testing.T) []Event {
 			return []Event{ev(t, EventTypeRunError, RunErrorPayload{Code: "agent_error"}), stop(t)}
+		}, emptyTurnErrored},
+		{"error turn with partial text", func(t *testing.T) []Event {
+			return []Event{ev(t, EventTypeMessageComplete, MessageCompletePayload{Text: "part", Interrupted: true}), ev(t, EventTypeRunError, RunErrorPayload{Code: "agent_error"}), stop(t)}
+		}, emptyTurnOK},
+		{"budget turn", func(t *testing.T) []Event {
+			return []Event{ev(t, EventTypeRunError, RunErrorPayload{Code: "budget_exhausted"}), stop(t)}
 		}, emptyTurnOK},
 		{"stopped turn", func(t *testing.T) []Event {
 			return []Event{ev(t, EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"}), stop(t)}

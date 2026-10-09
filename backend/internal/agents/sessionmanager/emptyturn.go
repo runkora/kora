@@ -19,15 +19,17 @@ const (
 	emptyTurnOK emptyTurnVerdict = iota
 	emptyTurnReprompt
 	emptyTurnFail
+	emptyTurnErrored // the turn ended with a run_error and no output
 )
 
 // emptyTurnGuard finds turns whose last model response wrote no text and
 // called no tool. Some providers end a turn that way, which leaves the run idle
 // with no error. It reads the standard event stream, so it covers every runtime.
 type emptyTurnGuard struct {
-	output     bool // the model's current response wrote text or called a tool
-	ended      bool // the turn already ended with a run_error or a stop
-	reprompted bool // the previous turn ended empty and was re-prompted
+	output     bool             // the model's current response wrote text or called a tool
+	ended      bool             // the turn already ended with a run_error or a stop
+	runError   *RunErrorPayload // the turn's run_error, unless the budget ended it
+	reprompted bool             // the previous turn ended empty and was re-prompted
 }
 
 // observe records one event and returns the verdict at message_stop.
@@ -52,7 +54,13 @@ func (g *emptyTurnGuard) observe(ev Event) emptyTurnVerdict {
 		if json.Unmarshal(ev.Payload, &p) == nil && p.ParentToolUseID == "" {
 			g.output = false
 		}
-	case EventTypeRunError, EventTypeTurnStopped:
+	case EventTypeRunError:
+		g.ended = true
+		var p RunErrorPayload
+		if json.Unmarshal(ev.Payload, &p) == nil && p.Code != "budget_exhausted" {
+			g.runError = &p
+		}
+	case EventTypeTurnStopped:
 		g.ended = true
 	case EventTypeMessageStop:
 		return g.endTurn()
@@ -62,8 +70,14 @@ func (g *emptyTurnGuard) observe(ev Event) emptyTurnVerdict {
 
 func (g *emptyTurnGuard) endTurn() emptyTurnVerdict {
 	empty := !g.output && !g.ended
+	errored := g.runError != nil && !g.output
 	g.output, g.ended = false, false
+	if !errored {
+		g.runError = nil
+	}
 	switch {
+	case errored:
+		return emptyTurnErrored
 	case !empty:
 		g.reprompted = false
 		return emptyTurnOK
@@ -91,6 +105,9 @@ func (reg *Registry) turnEnds(ctx context.Context, s *session, ev Event) bool {
 		s.emptyTurns.reprompted = false
 	case emptyTurnFail:
 		reg.failEmptyTurn(ctx, s)
+		return false
+	case emptyTurnErrored:
+		reg.failErroredTurn(ctx, s)
 		return false
 	}
 	// A turn that ends with work still running is not an idle one.
@@ -129,6 +146,20 @@ func (reg *Registry) failEmptyTurn(ctx context.Context, s *session) {
 		Code:    runErrorEmptyTurn,
 		Message: "The agent ended two turns in a row without a tool call or a final answer.",
 	})
+	s.cancel()
+	_ = s.runner.Close()
+}
+
+// failErroredTurn closes the session so teardown ends the run failed with the
+// run_error the empty turn carried, instead of idling into completed.
+func (reg *Registry) failErroredTurn(ctx context.Context, s *session) {
+	f := *s.emptyTurns.runError
+	s.emptyTurns.runError = nil
+	reg.logger.Error(ctx, "Agent turn ended empty after a run error, failing the run",
+		logging.Field{Key: "run_id", Value: s.runID},
+		logging.Field{Key: "code", Value: f.Code},
+	)
+	s.failure.Store(&f)
 	s.cancel()
 	_ = s.runner.Close()
 }
