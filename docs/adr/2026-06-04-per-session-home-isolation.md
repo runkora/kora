@@ -397,7 +397,7 @@ One agent pod per runtime, on kernel 6.8 (Landlock ABI 4), 2026-09-30.
 
 **Status:** Accepted
 
-This amendment touches **What can it access?** only for where a sandbox's scratch files live. [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) supersedes the sandbox column of Amendment 1's layout table for these rows:
+This amendment touches **What can it access?** only for where a sandbox's scratch files live. [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) supersedes the sandbox column of Amendment 1's layout table, its capabilities brief bullet and its third positive consequence:
 
 *   `$HOME` in the sandbox is the run's local directory on the sandbox's local disk. The agent pod keeps `/workspaces/{runID}/.runhome`.
 *   `$TMPDIR` and `/tmp` in the sandbox are on the sandbox's local disk. The agent pod's `$TMPDIR` stays at `/workspaces/.tmp/{runID}` and is still mounted in the sandbox at that path.

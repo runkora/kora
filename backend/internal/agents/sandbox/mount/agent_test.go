@@ -263,8 +263,8 @@ func TestReconcile_ReleasesCopiesUnderDyingSandboxes(t *testing.T) {
 	}
 }
 
-// When the NFS port on the sandbox's node cannot be reached, nothing is mounted and the run's
-// report names the port and both nodes. A later successful mount clears the report.
+// When the NFS port on the sandbox's node cannot be reached, nothing is mounted. The agent's error
+// names the port and both nodes, the report carries only a reason code, and a later mount clears it.
 func TestReconcile_ReportsUnreachableNFSPort(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}, volumeDir: testVolume}
 	a, _ := newTestAgent(t, "node-b", m, nil)

@@ -343,7 +343,7 @@ For the default maximum:
 
 [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) supersedes Decision 8 and the neutral consequence that `node_modules` stays on NFS.
 
-*   HOME and TMPDIR sit on the sandbox's local disk with the caches and tool installs. A new or replaced sandbox starts with an empty HOME and TMPDIR.
+*   HOME and TMPDIR move to the sandbox's local disk, and a new or replaced sandbox starts with them empty.
 *   With `sandboxMount.enabled`, the local disk also holds the sandbox's working folder at `/workspaces/<run>/sandbox`. The repository checkout and `node_modules` sit there for the life of the sandbox.
 
 ---

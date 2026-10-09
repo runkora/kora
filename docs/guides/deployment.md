@@ -117,7 +117,7 @@ To keep an image pulled on a pool that does not scale to zero, set `warm` on its
 
 #### Scale-out sandboxes
 
-A scale-out install runs sandboxes on their own node pool. It turns on two settings together: a `ReadWriteMany` workspace and the sandbox working folder.
+A scale-out install runs sandboxes on their own node pool with a `ReadWriteMany` workspace. Package installs and builds are slow on the network filesystem behind that workspace. Set `sandboxMount.enabled` to give every sandbox a working folder on its node's local disk at `/workspaces/<run>/sandbox`. The agent's file tools and the sandbox see the same files in that folder, and the folder ends with the sandbox.
 
 ```yaml
 agents:
@@ -132,18 +132,17 @@ sandboxMount:
   enabled: true
 ```
 
-The workspace volume holds each run's files on a network filesystem, where package installs and builds are slow. With `sandboxMount.enabled`, every sandbox gets a working folder on its own local disk at `/workspaces/<run>/sandbox`, and the capabilities brief tells the agent to do its work there. The agent's file tools and the sandbox see the same files in that folder. The folder and its contents last as long as the sandbox.
+The chart deploys the node agent `orbit-sandbox-mount` as a privileged DaemonSet in the `orbit-node` namespace. The agent exports each sandbox's folder with the kernel NFS server to its session-manager's node and mounts it into the running session-manager pod.
 
-The node agent `orbit-sandbox-mount` runs as a privileged DaemonSet in the `sandboxMount.namespace` namespace (`orbit-node` by default). On the sandbox's node it exports the folder with the kernel NFS server to the session-manager's node only. On the session-manager's node it mounts the export into the running session-manager pod. The session-manager hands a new sandbox to the agent once its folder is mounted. The cluster needs:
+The cluster must provide:
 
-*   A node kernel with the NFS server and NFSv4 client modules. The node agent loads them on demand.
-*   Admission for a privileged DaemonSet that uses the host network and the host PID namespace.
-*   TCP `sandboxMount.port`, 20490 by default, reachable from the nodes that run session-managers to the nodes that run sandboxes. NFS uses only this port, with no rpcbind or mountd port. Restrict it to node addresses in your node firewall.
-*   The kubelet root directory at `sandboxMount.kubeletDir` (default `/var/lib/kubelet`).
+*   A node kernel with the NFS server and NFSv4 client modules.
+*   Admission for a privileged pod that uses the host network and the host PID namespace.
+*   TCP `sandboxMount.port` (default 20490) open from session-manager nodes to sandbox nodes. NFS uses no other port.
 
-Check each requirement before you turn the feature on:
+Check each requirement before you enable the feature:
 
-1.  **Check Privileged Admission:** Create the node agent's namespace at the privileged Pod Security level, then run a server-side dry run of a privileged pod in it. The API server and any admission policy accept the pod when the platform admits the node agent. Delete the namespace afterwards, or keep it and set `sandboxMount.createNamespace: false`.
+1.  **Check Privileged Admission:** Run a server-side dry run of a privileged pod in a namespace at the privileged Pod Security level.
 
     ```bash
     kubectl create namespace orbit-node
@@ -152,25 +151,25 @@ Check each requirement before you turn the feature on:
       --overrides='{"spec":{"hostNetwork":true,"hostPID":true,"containers":[{"name":"privileged-check","image":"busybox","securityContext":{"privileged":true}}]}}'
     ```
 
-2.  **Check the NFS Server Module:** Load the module from a privileged debug pod on a sandbox node. A zero exit status means the node kernel has the NFS server.
+2.  **Check the NFS Server Module:** Load the module on a sandbox node. A zero exit status means the kernel has the NFS server.
 
     ```bash
     kubectl debug node/<sandbox-node> -it --profile=sysadmin --image=busybox -- chroot /host modprobe nfsd
     ```
 
-3.  **Check the NFS Port:** Open a TCP connection from a session-manager node to the configured port on a sandbox node's address. A debug pod on a node runs in its host network. A refused connection means the port is reachable and nothing listens on it yet. A timeout means a firewall drops the port.
+3.  **Check the NFS Port:** Connect from a session-manager node to the port on a sandbox node. A refused connection means the port is open. A timeout means a firewall drops it.
 
     ```bash
     kubectl debug node/<session-manager-node> -it --image=busybox -- nc -z -v -w 3 <sandbox-node-address> 20490
     ```
 
-A platform that cannot meet these requirements leaves `sandboxMount.enabled` off. Sandboxes then work on the shared workspace volume.
+Leave `sandboxMount.enabled` off on a platform that fails a check. Sandboxes then work on the shared workspace volume.
 
-Before each mount the node agent checks that the session-manager's node can open the port on the sandbox's node. When the check keeps failing, the sandbox fails to start with the message that the node agent cannot reach the NFS port on the sandbox node. The node agent's log on the session-manager's node names the port and both nodes.
+If the session-manager's node cannot reach the port, the sandbox fails to start with "the node agent cannot reach the NFS port on the sandbox node". The node agent's log on the session-manager's node lists the port and both nodes.
 
-The DaemonSet carries the tolerations of `agents.workloads.sandbox` and `agents.workloads.sessionManager`, and `sandboxMount.tolerations` adds more. The chart creates the namespace at the privileged Pod Security level. Set `sandboxMount.createNamespace: false` to use a namespace you manage that admits privileged pods.
+The DaemonSet carries the sandbox and session-manager tolerations plus any in `sandboxMount.tolerations`. Set `sandboxMount.createNamespace: false` to run it in a namespace you manage.
 
-NFS cannot check a caller's identity. Each folder is exported only to its session-manager's node address. A pod can open a privileged source port, and the node address is the only check. kora's tenant NetworkPolicies deny agent and sandbox pods any connection to `sandboxMount.port`. Another workload can still reach the export as the node if it runs in the host network, or if your CNI masquerades pod traffic to node addresses and that workload has no egress policy. Keep host network access to trusted system workloads, and deny other workloads egress to node addresses on `sandboxMount.port`.
+NFS does not authenticate callers. Each folder is exported only to its session-manager's node address, and the tenant NetworkPolicies deny agent and sandbox pods the NFS port. A host-network workload, or a pod whose traffic your CNI masquerades to the node address, can still reach the export. Restrict host network access to trusted system workloads, and deny other workloads egress to node addresses on `sandboxMount.port`.
 
 ### Sandbox images and environments
 
@@ -236,13 +235,17 @@ agents:
 
 `disk` sizes a node-local volume in each sandbox that holds its `HOME`, `TMPDIR`, the Go, npm and pip caches, user-level tool installs and, with `sandboxMount.enabled`, its working folder.
 
-A sandbox reserves its size. Its CPU, memory and ephemeral-storage requests equal its limits, and its sidecars add `operator.injection.sandboxSidecars` on top. The default `maxSize` equals the default size. Raise `maxSize` to what one sandbox node holds:
+The sandbox container gets exactly its environment's size. The pod also runs sidecars (`operator.injection.sandboxSidecars`, 900m CPU and 320Mi memory by default) and 1Gi of scratch disk on top of the size. `maxSize` starts equal to `defaultSize`. To offer larger sizes, set each `maxSize` field to the largest value that fits one sandbox node:
 
-- `maxSize.cpu` plus the sidecar CPU must fit the node's allocatable CPU less its DaemonSet requests.
-- `maxSize.memory` plus the sidecar memory must fit the node's allocatable memory less its DaemonSet requests.
-- `maxSize.disk` plus 1Gi must fit the node's allocatable ephemeral storage.
+```text
+maxSize.cpu    = node allocatable CPU     - DaemonSet CPU requests    - sidecar CPU
+maxSize.memory = node allocatable memory  - DaemonSet memory requests - sidecar memory
+maxSize.disk   = node allocatable ephemeral storage - 1Gi
+```
 
-`kubectl describe node <node>` lists a node's allocatable resources and the requests of its pods. A run on a size that no node holds fails with the scheduler's reason.
+For example, a node with 3900m CPU, 14Gi memory and 20Gi ephemeral storage allocatable, running DaemonSets that request 500m CPU and 1Gi memory, holds a sandbox of up to 2.5 CPU, 12.6Gi memory and 19Gi disk. Round each value down to a size you want to offer, such as `{ cpu: "2", memory: 12Gi, disk: 18Gi }`.
+
+`kubectl describe node <node>` shows the node's allocatable resources and the requests of the pods on it. A run on a size that fits no node fails with the scheduler's reason.
 
 The operator needs `agents.sandboxImages.registryPorts` for a registry on a port other than 443. `agents.sandboxImages.registryMirrors` maps a registry host in image references to the host the operator reads from, as the nodes' registry mirrors do. A mirror given as `http://host` is read over plain HTTP, such as the local k3d registry.
 

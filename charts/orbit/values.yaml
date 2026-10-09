@@ -625,7 +625,8 @@ agents:
       - ReadWriteOnce
     size: 10Gi
   # Default and maximum environment sizes in Kubernetes quantities.
-  # disk is the sandbox's local volume for build caches and tool installs.
+  # disk sizes the sandbox's local volume for its HOME, TMPDIR, caches, tool
+  # installs and, with sandboxMount.enabled, its working folder.
   environments:
     # -- Size for an environment that sets none, and for the built-in default.
     defaultSize:

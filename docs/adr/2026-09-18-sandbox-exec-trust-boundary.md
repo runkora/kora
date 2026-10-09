@@ -25,7 +25,7 @@ Per-session HOME isolation ([2026-06-04](2026-06-04-per-session-home-isolation.m
 
 `sandbox-exec` performs no caller authentication. `Execute` runs whatever command arrives, with no token, no transport security and no identity check. Any workload that can route to a sandbox pod IP on port 50051 executes commands inside that run's sandbox, under that run's egress posture and against that run's workspace.
 
-Codex and OpenCode compound it. Neither routes tool commands to the sandbox, so both execute in the `session-manager` container itself, without Landlock and without a PID namespace. A run under either framework can read every sibling run's `.sandbox/endpoint` file from the shared PVC and then execute in that sibling's sandbox, because nothing on the receiving side checks who is calling.
+Codex and OpenCode compound it. Neither routes tool commands to the sandbox, so both execute in the `session-manager` container itself, without Landlock and without a PID namespace. A run under either framework can read every sibling run's `.sandbox-exec/endpoint` file from the shared PVC and then execute in that sibling's sandbox, because nothing on the receiving side checks who is calling.
 
 Separately, `session-manager`'s loopback `/internal/runs/{id}/provision-sandbox` route provisions a sandbox for any run ID presented, without checking that the run is hosted on this pod.
 
