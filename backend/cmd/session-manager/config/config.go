@@ -16,6 +16,7 @@ import (
 //
 //  1. cmd/session-manager/config/base.yaml  — service defaults
 //  2. cmd/session-manager/config/{env}.yaml — env overrides (optional)
+//  3. environment variables orbit-agents sets on the agent pod (applyEnvOverrides)
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`

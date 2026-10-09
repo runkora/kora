@@ -12,6 +12,9 @@ observability:
 workspaces:
   basePath: /workspaces
 
+# The three service URLs below assume the orbit-system namespace. orbit-agents
+# sets ORBIT_AGENTS_URL, ORBIT_INFERENCE_GATEWAY_URL and ORBIT_TOOL_GATEWAY_URL on
+# every agent pod from its system namespace, and those override these values.
 orbitAgents:
   url: "http://orbit-agents.orbit-system.svc.cluster.local"
 
