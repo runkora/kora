@@ -190,6 +190,12 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	if got, want := env["ORBIT_AGENTS_URL"], "http://orbit-agents.orbit-prod.svc.cluster.local"; got != want {
 		t.Errorf("ORBIT_AGENTS_URL = %q, want %q", got, want)
 	}
+	if got, want := env["ORBIT_INFERENCE_GATEWAY_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
+		t.Errorf("ORBIT_INFERENCE_GATEWAY_URL = %q, want %q", got, want)
+	}
+	if got, want := env["ORBIT_TOOL_GATEWAY_URL"], "http://orbit-tool-gateway.orbit-prod.svc.cluster.local"; got != want {
+		t.Errorf("ORBIT_TOOL_GATEWAY_URL = %q, want %q", got, want)
+	}
 	// Without this a provisioned agent traces nothing, and the only symptom is
 	// an absence of spans.
 	if got, want := env["ORBIT_OTLP_ENDPOINT"], "http://otel-collector.observability.svc:4317"; got != want {

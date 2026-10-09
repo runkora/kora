@@ -127,6 +127,12 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
 	if v := getenv("ORBIT_AGENTS_URL"); v != "" {
 		cfg.OrbitAgents.URL = v
 	}
+	if v := getenv("ORBIT_INFERENCE_GATEWAY_URL"); v != "" {
+		cfg.InferenceGateway.URL = v
+	}
+	if v := getenv("ORBIT_TOOL_GATEWAY_URL"); v != "" {
+		cfg.ToolGateway.URL = v
+	}
 	if v := getenv("ORBIT_NODE_MAX_OLD_SPACE_MB"); v != "" {
 		mb, err := strconv.Atoi(v)
 		if err != nil || mb < 0 {

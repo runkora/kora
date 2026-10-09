@@ -1757,6 +1757,9 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								{Name: "ORBIT_SAMPLING_RATE", Value: p.cfg.SamplingRate},
 								// orbit-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
+								// Codex, OpenCode and MCP URLs follow the install's system namespace.
+								{Name: "ORBIT_INFERENCE_GATEWAY_URL", Value: fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
+								{Name: "ORBIT_TOOL_GATEWAY_URL", Value: fmt.Sprintf("http://orbit-tool-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Placeholder key; actual auth is the identity-proxy-issued JWT
 								// injected on every outbound request by the Envoy ext_proc filter.
 								// Claude Code requires a non-empty value to start in --bare mode.
