@@ -1,11 +1,13 @@
 package agents
 
 import (
+	"context"
 	"slices"
 	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes/fake"
 
 	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
@@ -71,5 +73,37 @@ func TestSessionManager_WorkspacePropagation(t *testing.T) {
 		if got != enabled {
 			t.Errorf("enabled=%v: propagation %v", enabled, ws.MountPropagation)
 		}
+	}
+}
+
+// A reused live sandbox reports its UID as the folder only when the feature is on
+// and the pod mounts its working folder. A pod from before the feature has none.
+func TestProvisionSandbox_FolderOfLivePod(t *testing.T) {
+	run, spec := Run{ID: "run-1"}, testSandboxSpec()
+	for name, tc := range map[string]struct{ builtWith, provisionWith bool }{
+		"feature on":              {builtWith: true, provisionWith: true},
+		"pod from before feature": {builtWith: false, provisionWith: true},
+		"feature off":             {builtWith: true, provisionWith: false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			live := buildTestSandboxPod(sandboxMountProvisioner(tc.builtWith), run, "coder", "ns", spec, "live-token")
+			live.UID = "pod-uid"
+			live.Status = corev1.PodStatus{
+				Phase:      corev1.PodRunning,
+				PodIP:      "10.0.0.7",
+				Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: corev1.ConditionTrue}},
+			}
+			p := sandboxMountProvisioner(tc.provisionWith)
+			p.client = fake.NewSimpleClientset(live)
+
+			sb, err := p.ProvisionSandbox(context.Background(), run, "coder", "ns", spec)
+			want := ""
+			if tc.builtWith && tc.provisionWith {
+				want = "pod-uid"
+			}
+			if err != nil || sb.Folder != want {
+				t.Errorf("ProvisionSandbox = %+v, %v, want folder %q", sb, err, want)
+			}
+		})
 	}
 }

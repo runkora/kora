@@ -84,8 +84,6 @@ func newTestAgent(t *testing.T, node string, m *fakeMounter, recorded map[string
 	return &Agent{cfg: Config{Node: node, KubeletDir: "/k", Port: 20490}, exports: e, mounts: m, ledger: l, reach: reach, logger: logging.NewLoggerWithOutput(io.Discard)}, e
 }
 
-func lookup(pods ...*corev1.Pod) []*corev1.Pod { return pods }
-
 const (
 	testVolume = "/k/pods/ws-uid/volumes/kubernetes.io~csi/pv/mount"
 	testTarget = testVolume + "/run-1/sandbox"
@@ -97,7 +95,7 @@ func TestReconcile_MountsSandbox(t *testing.T) {
 	a, _ := newTestAgent(t, "node-b", m, nil)
 	sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-b", "10.0.0.2")
 
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws)); err != nil {
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, []*corev1.Pod{ws}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(m.mounted) != 1 || m.mounted[0] != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001 "+testTarget {
@@ -109,7 +107,7 @@ func TestReconcile_MountsSandbox(t *testing.T) {
 	}
 
 	m.mounted = nil
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws)); err != nil {
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, []*corev1.Pod{ws}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(m.mounted) != 0 || len(m.unmounted) != 0 {
@@ -126,7 +124,7 @@ func TestReconcile_UnmountsGoneSandboxes(t *testing.T) {
 	now := metav1.Now()
 	sb.DeletionTimestamp = &now
 
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws)); err != nil {
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, []*corev1.Pod{ws}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(m.unmounted) != 2 || len(a.ledger.entries) != 0 {
@@ -139,7 +137,7 @@ func TestReconcile_RemountsReplacedSandbox(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{testTarget: "10.0.0.1:/old-uid"}, volumeDir: testVolume}
 	a, _ := newTestAgent(t, "node-b", m, map[string]string{testTarget: "10.0.0.1:/old-uid"})
 
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2"))); err != nil {
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, []*corev1.Pod{workspacePod("node-b", "10.0.0.2")}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(m.unmounted) != 1 || len(m.mounted) != 1 || m.current[testTarget] != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001" || a.ledger.entries[testTarget] != "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001" {
@@ -159,7 +157,7 @@ func TestReconcile_LeavesMountsItDidNotMake(t *testing.T) {
 	}, volumeDir: testVolume}
 	a, _ := newTestAgent(t, "node-b", m, map[string]string{testTarget: "10.0.0.1:/0d6f0f3e-1111-4a8b-9c2d-000000000001"})
 
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2"))); err != nil {
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, []*corev1.Pod{workspacePod("node-b", "10.0.0.2")}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(m.unmounted) != 0 || len(m.mounted) != 0 {
@@ -172,7 +170,7 @@ func TestReconcile_RefusesToMountOverForeignMount(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{testTarget: "tmpfs"}, volumeDir: testVolume}
 	a, _ := newTestAgent(t, "node-b", m, nil)
 
-	err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2")))
+	err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, []*corev1.Pod{workspacePod("node-b", "10.0.0.2")})
 	if !errors.Is(err, errForeignMount) {
 		t.Errorf("err = %v, want errForeignMount", err)
 	}
@@ -196,40 +194,34 @@ func TestReconcile_ForgetsReplacedRecords(t *testing.T) {
 	}
 }
 
-// A sandbox names its session-manager pod by name only, so it never pairs with a same-named pod in another tenant's namespace.
-func TestReconcile_DoesNotPairAcrossNamespaces(t *testing.T) {
-	m := &fakeMounter{current: map[string]string{}, volumeDir: testVolume}
-	a, e := newTestAgent(t, "node-b", m, nil)
-	other := workspacePod("node-b", "10.0.0.2")
-	other.Namespace = "other-tenant"
-
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-b", "10.0.0.2")}, lookup(other)); err != nil {
-		t.Fatalf("Reconcile: %v", err)
-	}
-	if len(e.applied[0]) != 0 || len(m.mounted) != 0 {
-		t.Errorf("applied %v, mounted %v, want nothing", e.applied, m.mounted)
-	}
-}
-
-// A sandbox whose session-manager pod is gone, that has no folder mount, or that
-// mounts more than one workspace claim, is neither exported nor mounted.
+// A sandbox pairs only with the session-manager pod its one workspace claim names, in
+// its own namespace. Otherwise nothing is exported or mounted on either node.
 func TestReconcile_IgnoresUnpairedSandboxes(t *testing.T) {
-	m := &fakeMounter{current: map[string]string{}}
-	a, e := newTestAgent(t, "node-a", m, nil)
-	noFolder := sandboxPod("node-a", "10.0.0.1")
-	noFolder.Spec.Containers = nil
-	twoClaims := sandboxPod("node-a", "10.0.0.1")
-	twoClaims.Spec.Volumes = append(twoClaims.Spec.Volumes, corev1.Volume{Name: "other", VolumeSource: corev1.VolumeSource{
-		PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-agent-1"},
-	}})
-	ws := workspacePod("node-a", "10.0.0.1")
-	ws.Name = "agent-1"
-
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1"), noFolder, twoClaims}, lookup(ws)); err != nil {
-		t.Fatalf("Reconcile: %v", err)
+	cases := map[string]func(sb, ws *corev1.Pod){
+		"session-manager gone": func(_, ws *corev1.Pod) { ws.Name = "agent-1" },
+		"another namespace":    func(_, ws *corev1.Pod) { ws.Namespace = "other-tenant" },
+		"no folder mount":      func(sb, _ *corev1.Pod) { sb.Spec.Containers = nil },
+		"two workspace claims": func(sb, _ *corev1.Pod) {
+			sb.Spec.Volumes = append(sb.Spec.Volumes, corev1.Volume{Name: "other", VolumeSource: corev1.VolumeSource{
+				PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{ClaimName: "workspaces-agent-1"},
+			}})
+		},
 	}
-	if len(e.applied) != 1 || len(e.applied[0]) != 0 || len(m.mounted) != 0 {
-		t.Errorf("applied %v, mounted %v", e.applied, m.mounted)
+	for name, mutate := range cases {
+		t.Run(name, func(t *testing.T) {
+			for _, node := range []string{"node-a", "node-b"} {
+				m := &fakeMounter{current: map[string]string{}, volumeDir: testVolume}
+				a, e := newTestAgent(t, node, m, nil)
+				sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-b", "10.0.0.2")
+				mutate(sb, ws)
+				if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, []*corev1.Pod{ws}); err != nil {
+					t.Fatalf("%s: Reconcile: %v", node, err)
+				}
+				if len(e.applied) != 1 || len(e.applied[0]) != 0 || len(m.mounted) != 0 {
+					t.Errorf("%s: applied %v, mounted %v, want nothing", node, e.applied, m.mounted)
+				}
+			}
+		})
 	}
 }
 
@@ -238,7 +230,7 @@ func TestReconcile_ReportsUnresolvedWorkspace(t *testing.T) {
 	m := &fakeMounter{current: map[string]string{}, resolveErr: errors.New("not yet")}
 	a, _ := newTestAgent(t, "node-b", m, nil)
 
-	err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, lookup(workspacePod("node-b", "10.0.0.2")))
+	err := a.Reconcile(context.Background(), []*corev1.Pod{sandboxPod("node-a", "10.0.0.1")}, []*corev1.Pod{workspacePod("node-b", "10.0.0.2")})
 	if err == nil || !strings.Contains(err.Error(), "not yet") {
 		t.Errorf("err = %v, want the resolve error", err)
 	}
@@ -260,7 +252,7 @@ func TestReconcile_ReleasesCopiesUnderDyingSandboxes(t *testing.T) {
 	finished.Status.Phase = corev1.PodSucceeded
 	elsewhere.DeletionTimestamp = &now
 
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{deleting, finished, live, elsewhere}, lookup(workspacePod("node-a", "10.0.0.1"))); err != nil {
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{deleting, finished, live, elsewhere}, []*corev1.Pod{workspacePod("node-a", "10.0.0.1")}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if strings.Join(m.released, ",") != "deleting,finished" {
@@ -281,7 +273,7 @@ func TestReconcile_ReportsUnreachableNFSPort(t *testing.T) {
 	a.reach = func(_ context.Context, addr string) error { dialed = addr; return errors.New("i/o timeout") }
 	sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-b", "10.0.0.2")
 
-	err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws))
+	err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, []*corev1.Pod{ws})
 	if err == nil || !strings.Contains(err.Error(), "TCP port 20490") {
 		t.Errorf("err = %v, want the port named", err)
 	}
@@ -302,7 +294,7 @@ func TestReconcile_ReportsUnreachableNFSPort(t *testing.T) {
 	}
 
 	a.reach = func(context.Context, string) error { return nil }
-	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, lookup(ws)); err != nil {
+	if err := a.Reconcile(context.Background(), []*corev1.Pod{sb}, []*corev1.Pod{ws}); err != nil {
 		t.Fatalf("Reconcile: %v", err)
 	}
 	if len(m.mounted) != 1 || m.reports["run-1"] != "" {

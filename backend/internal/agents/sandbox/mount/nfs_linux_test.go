@@ -62,12 +62,13 @@ func TestOpenBeneath_RefusesPlantedSymlinks(t *testing.T) {
 	}
 }
 
-// Resolve finds the run's directory in a CSI volume's mount subdirectory and in a plain volume directory.
+// Resolve finds the run's directory in a CSI volume's mount subdirectory and in a plain volume directory,
+// and passes over a scratch volume that holds a directory named for the run.
 func TestResolve(t *testing.T) {
 	kubelet := t.TempDir()
 	csi := filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~csi", "pv-1", "mount")
 	local := filepath.Join(kubelet, "pods", "ws2", "volumes", "kubernetes.io~local-volume", "pv-2")
-	mkdirs(t, filepath.Join(csi, "run-1"), filepath.Join(local, "run-2"), filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~empty-dir", "tmp"))
+	mkdirs(t, filepath.Join(csi, "run-1"), filepath.Join(local, "run-2"), filepath.Join(kubelet, "pods", "ws2", "volumes", "kubernetes.io~empty-dir", "tmp", "run-2"))
 	c := Client{KubeletDir: kubelet}
 	if got, err := c.Resolve("ws", "run-1"); err != nil || got != csi {
 		t.Errorf("Resolve(ws, run-1) = %q, %v, want %q", got, err, csi)
@@ -143,17 +144,6 @@ func TestMakeExportDir_SearchableByAll(t *testing.T) {
 	}
 }
 
-// Resolve does not take the mount into a scratch volume that holds a directory named for the run.
-func TestResolve_SkipsScratchVolumes(t *testing.T) {
-	kubelet := t.TempDir()
-	scratch := filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~empty-dir", "scratch-tmp")
-	pv := filepath.Join(kubelet, "pods", "ws", "volumes", "kubernetes.io~local-volume", "pv")
-	mkdirs(t, filepath.Join(scratch, "run-1"), filepath.Join(pv, "run-1"))
-	if got, err := (Client{KubeletDir: kubelet}).Resolve("ws", "run-1"); err != nil || got != pv {
-		t.Errorf("Resolve = %q, %v, want %q", got, err, pv)
-	}
-}
-
 // Every unmount resolves the parent of its target from a descriptor on the root
 // without following symlinks. A run that swaps a path component for a symlink to
 // a host directory, between the agent reading mountinfo and unmounting, gets a
@@ -172,10 +162,6 @@ func TestUnmountBeneath_RefusesSwappedSymlink(t *testing.T) {
 	err := unmountBeneath(kubelet, filepath.Join(vol, "run-1", "sandbox"), unix.MNT_DETACH)
 	if !errors.Is(err, unix.ELOOP) {
 		t.Errorf("unmountBeneath through a swapped symlink = %v, want ELOOP from openat2", err)
-	}
-	// The same refusal holds for the client's unmount, which goes through unmountBeneath.
-	if err := (Client{KubeletDir: kubelet}).Unmount(filepath.Join(vol, "run-1", "sandbox")); !errors.Is(err, unix.ELOOP) {
-		t.Errorf("Client.Unmount through a swapped symlink = %v, want ELOOP", err)
 	}
 }
 

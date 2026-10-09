@@ -72,9 +72,12 @@ func TestPlan_CoLocated(t *testing.T) {
 	}
 }
 
-// Nothing is exported or mounted for a pod that is deleting or not running, or for a run ID that is not one path segment.
-func TestPlan_SkipsUnusablePods(t *testing.T) {
+// Nothing is exported or mounted for a pair that is not live, not this run's, or not this session-manager's,
+// or for a pod UID or node address that could add entries or options to the exports table. A sandbox without
+// a non-root user and group is not exported, since the export maps every client user to them.
+func TestPlan_SkipsUnusablePairs(t *testing.T) {
 	now := metav1.Now()
+	root := int64(0)
 	cases := map[string]func(sb, ws *corev1.Pod){
 		"sandbox deleting":     func(sb, _ *corev1.Pod) { sb.DeletionTimestamp = &now },
 		"workspace deleting":   func(_, ws *corev1.Pod) { ws.DeletionTimestamp = &now },
@@ -86,11 +89,15 @@ func TestPlan_SkipsUnusablePods(t *testing.T) {
 		"no run ID":            func(sb, _ *corev1.Pod) { delete(sb.Labels, folder.RunIDLabel) },
 		// A pod labelled with another run's ID does not carry that run's sandbox name.
 		"claims another run": func(sb, _ *corev1.Pod) { sb.Labels[folder.RunIDLabel] = "run-2" },
-		// A pod that names a session-manager whose workspace claim it does not mount.
 		"another workspace":  func(_, ws *corev1.Pod) { ws.Name = "agent-1" },
 		"no workspace claim": func(sb, _ *corev1.Pod) { sb.Spec.Volumes = nil },
-		// A session-manager pod in another tenant's namespace.
-		"another namespace": func(_, ws *corev1.Pod) { ws.Namespace = "other-tenant" },
+		"no folder mount":    func(sb, _ *corev1.Pod) { sb.Spec.Containers = nil },
+		"another namespace":  func(_, ws *corev1.Pod) { ws.Namespace = "other-tenant" },
+		"UID with a newline": func(sb, _ *corev1.Pod) { sb.UID = "0d6f0f3e-1111-4a8b-9c2d-000000000001\n/ *(rw,no_root_squash)" },
+		"UID path":           func(sb, _ *corev1.Pod) { sb.UID = "../../etc" },
+		"client with an ACL": func(_, ws *corev1.Pod) { ws.Status.HostIP = "10.0.0.2 *(rw)" },
+		"server not an IP":   func(sb, _ *corev1.Pod) { sb.Status.HostIP = "evil.example.com" },
+		"workspace UID path": func(_, ws *corev1.Pod) { ws.UID = "../*" },
 	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
@@ -102,15 +109,15 @@ func TestPlan_SkipsUnusablePods(t *testing.T) {
 			}
 		})
 	}
-}
-
-// A sandbox without a pod-level user and group is not exported: the export maps every client user to them.
-func TestPlan_RequiresRunAs(t *testing.T) {
-	sb := sandboxPod("node-a", "10.0.0.1")
-	sb.Spec.SecurityContext = nil
-	exports, _ := plan("node-a", "/k", []pair{{sandbox: sb, workspace: workspacePod("node-b", "10.0.0.2")}})
-	if len(exports) != 0 {
-		t.Errorf("exports = %+v, want none", exports)
+	for name, mutate := range map[string]func(sb *corev1.Pod){
+		"no run-as":    func(sb *corev1.Pod) { sb.Spec.SecurityContext = nil },
+		"runs as root": func(sb *corev1.Pod) { sb.Spec.SecurityContext.RunAsUser = &root },
+	} {
+		sb := sandboxPod("node-a", "10.0.0.1")
+		mutate(sb)
+		if exports, _ := plan("node-a", "/k", []pair{{sandbox: sb, workspace: workspacePod("node-b", "10.0.0.2")}}); len(exports) != 0 {
+			t.Errorf("%s: exports = %+v, want none", name, exports)
+		}
 	}
 }
 
@@ -118,35 +125,5 @@ func TestPlan_BracketsIPv6Source(t *testing.T) {
 	_, targets := plan("node-b", "/k", []pair{{sandbox: sandboxPod("node-a", "fd00::1"), workspace: workspacePod("node-b", "fd00::2")}})
 	if len(targets) != 1 || targets[0].source != "[fd00::1]:/0d6f0f3e-1111-4a8b-9c2d-000000000001" {
 		t.Errorf("targets = %+v", targets)
-	}
-}
-
-// A pod UID or node address that is not well formed never reaches the exports table, where it could add entries or options.
-func TestPlan_RejectsMalformedExportFields(t *testing.T) {
-	cases := map[string]func(sb, ws *corev1.Pod){
-		"UID with a newline": func(sb, _ *corev1.Pod) { sb.UID = "0d6f0f3e-1111-4a8b-9c2d-000000000001\n/ *(rw,no_root_squash)" },
-		"UID path":           func(sb, _ *corev1.Pod) { sb.UID = "../../etc" },
-		"client with an ACL": func(_, ws *corev1.Pod) { ws.Status.HostIP = "10.0.0.2 *(rw)" },
-		"server not an IP":   func(sb, _ *corev1.Pod) { sb.Status.HostIP = "evil.example.com" },
-		"workspace UID path": func(_, ws *corev1.Pod) { ws.UID = "../*" },
-	}
-	for name, mutate := range cases {
-		t.Run(name, func(t *testing.T) {
-			sb, ws := sandboxPod("node-a", "10.0.0.1"), workspacePod("node-a", "10.0.0.1")
-			mutate(sb, ws)
-			if exports, targets := plan("node-a", "/k", []pair{{sandbox: sb, workspace: ws}}); len(exports) != 0 || len(targets) != 0 {
-				t.Errorf("exports = %+v, targets = %+v, want none", exports, targets)
-			}
-		})
-	}
-}
-
-// A sandbox that runs as root is not exported: every client user would act as root on the folder.
-func TestPlan_RefusesRootSandbox(t *testing.T) {
-	sb := sandboxPod("node-a", "10.0.0.1")
-	root := int64(0)
-	sb.Spec.SecurityContext.RunAsUser = &root
-	if exports, _ := plan("node-a", "/k", []pair{{sandbox: sb, workspace: workspacePod("node-b", "10.0.0.2")}}); len(exports) != 0 {
-		t.Errorf("exports = %+v, want none", exports)
 	}
 }
