@@ -89,7 +89,8 @@ func (reg *Registry) turnEnds(ctx context.Context, s *session, ev Event) bool {
 		reg.failEmptyTurn(ctx, s)
 		return false
 	}
-	return ev.Type == EventTypeMessageStop
+	// A turn that ends with work still running is not an idle one.
+	return ev.Type == EventTypeMessageStop && !reg.holdForWork(ctx, s)
 }
 
 // repromptEmptyTurn asks the agent to continue after an empty turn. It reports

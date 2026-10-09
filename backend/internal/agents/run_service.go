@@ -30,6 +30,9 @@ type RunServiceConfig struct {
 	// SandboxGuardrails are the install's sandbox provisioning settings, sent
 	// with every run (docs/adr/2026-09-29-agent-run-guardrails.md).
 	SandboxGuardrails SandboxGuardrails
+	// IdleTimeouts are the install's idle timeouts by how a run started; the
+	// run's own is sent with its session.
+	IdleTimeouts      IdleTimeouts
 	TenantNamespaceFn func(tenantID string) string // maps tenant ID → k8s namespace
 	// StaleRunTimeout is how long a run may stay in active/starting without a state update
 	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
@@ -277,6 +280,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		// writes the run's sandbox descriptor. A pod warmed without one sits idle.
 		ProvisionSandbox: req.ProvisionSandbox,
 		Guardrails:       runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails),
+		// Chosen by how the run started; the session-manager arms its idle timer with it.
+		IdleTimeoutSecs: s.cfg.IdleTimeouts.ForRun(startedBy),
 	}
 	if at.ModelID != nil {
 		smReq.Model = *at.ModelID
@@ -656,7 +661,8 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 	podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
-	if err := s.sm.SendMessage(ctx, podURL, runID, content); err != nil {
+	// A person's message makes the turn manual: a trigger run takes the manual idle timeout from here on.
+	if err := s.sm.SendMessage(ctx, podURL, runID, content, s.cfg.IdleTimeouts.ForPersonMessage(run.StartedBy)); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "forward message to session-manager")
 		return fmt.Errorf("forward message to pod %d: %w", run.PodOrdinal, err)
@@ -676,7 +682,8 @@ func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID string
 	if msg == "" {
 		return
 	}
-	if err := s.sm.SendMessage(ctx, podURL, runID, msg); err != nil {
+	// The first message is the run's task, not a person's turn: the timeout set at creation stands.
+	if err := s.sm.SendMessage(ctx, podURL, runID, msg, 0); err != nil {
 		s.logger.Warn(ctx, "failed to send initial message",
 			logging.Field{Key: "run_id", Value: runID},
 			logging.Field{Key: "error", Value: err.Error()},

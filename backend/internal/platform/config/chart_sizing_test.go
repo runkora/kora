@@ -100,3 +100,41 @@ func TestChartHeadroomReservesDefaultSandboxPod(t *testing.T) {
 		}
 	}
 }
+
+// The chart exposes both idle timeouts, with the manual one at today's 20
+// minutes, and orbit-agents decodes what it renders.
+func TestChartIdleTimeouts(t *testing.T) {
+	tests := []struct {
+		name       string
+		values     string
+		wantManual int
+		wantTrig   int
+	}{
+		{name: "defaults", values: "", wantManual: 1200, wantTrig: 300},
+		{name: "overridden", values: "agents:\n  idleTimeout: {manualSecs: 3600, triggerSecs: 90}\n", wantManual: 3600, wantTrig: 90},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := renderChart(t, tt.values)
+			for _, root := range writeMountedConfig(t, out) {
+				if _, err := os.Stat(filepath.Join(root, "cmd", "orbit-agents.yaml")); err != nil {
+					continue
+				}
+				config.SetOverlayRoot(root)
+				cfg, err := config.LoadService[agentsConfig.Config]("cmd/orbit-agents", "production")
+				config.SetOverlayRoot("/etc/orbit/config")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got := cfg.Agents.IdleTimeout.ManualSecs; got != tt.wantManual {
+					t.Errorf("manualSecs = %d, want %d", got, tt.wantManual)
+				}
+				if got := cfg.Agents.IdleTimeout.TriggerSecs; got != tt.wantTrig {
+					t.Errorf("triggerSecs = %d, want %d", got, tt.wantTrig)
+				}
+				return
+			}
+			t.Fatal("no rendered orbit-agents config found")
+		})
+	}
+}
