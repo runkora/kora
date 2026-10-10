@@ -48,7 +48,6 @@ spec:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             {{- include "orbit.platformEnv" (dict "root" $ "name" "toolGateway" "keys" (list "DB_PASSWORD")) | nindent 12 }}
-            {{- include "orbit.extraEnv" (dict "root" $ "name" "toolGateway") | nindent 12 }}
           ports:
             - name: http
               containerPort: {{ .Values.toolGateway.httpPort }}

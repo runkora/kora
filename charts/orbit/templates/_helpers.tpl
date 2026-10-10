@@ -273,14 +273,14 @@ CSI socket lands at the path the proxy checks for an external SDS socket.
 {{- end }}
 
 {{/*
-secretKeyRef env entries for the keys a service reads from the platform Secret,
-so a pod receives only those keys. A key the service's extraEnv already sets is
-skipped, so extraEnv can source it elsewhere without a duplicate env name.
+Env entries for a workload: a secretKeyRef for each platform Secret key it reads,
+then its extraEnv. A key the extraEnv sets replaces the platform entry.
 Takes (dict "root" $ "name" "identity" "keys" (list "DB_PASSWORD" ...)).
 */}}
 {{- define "orbit.platformEnv" -}}
+{{- $extraEnv := (index .root.Values .name).extraEnv | default list }}
 {{- $overridden := list }}
-{{- range ((index .root.Values .name).extraEnv | default list) }}
+{{- range $extraEnv }}
 {{- $overridden = append $overridden .name }}
 {{- end }}
 {{- range .keys }}
@@ -291,6 +291,9 @@ Takes (dict "root" $ "name" "identity" "keys" (list "DB_PASSWORD" ...)).
       name: {{ $.root.Values.config.platformSecretName }}
       key: {{ . }}
 {{- end }}
+{{- end }}
+{{- with $extraEnv }}
+{{ toYaml . }}
 {{- end }}
 {{- end }}
 

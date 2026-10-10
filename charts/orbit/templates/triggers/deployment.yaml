@@ -42,7 +42,6 @@ spec:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
           env:
             {{- include "orbit.platformEnv" (dict "root" $ "name" "triggers" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD" "ORBIT_TRIGGERS_ENCRYPTION_KEY")) | nindent 12 }}
-            {{- include "orbit.extraEnv" (dict "root" $ "name" "triggers") | nindent 12 }}
           ports:
             - name: http
               containerPort: 8097
