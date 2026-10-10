@@ -69,14 +69,14 @@ The envelope follows the convention `inferencegw` established for `GET /v1/usage
 - A status filter means the same thing at any tenant size.
 - Paging is stable under concurrent arrivals, which offset pagination is not.
 - Filter changes stay interactive, with no skeleton flash.
-- The repo now has one pagination convention across two endpoints instead of one convention and one special case.
+- The repo has three keyset implementations rather than one shared helper. This change follows the `inferencegw` envelope rather than inventing a fourth, but consolidating them is still owed.
 
 ### Negative
 
 - One more index on a write-hot table: `(tenant_id, status, received_at DESC)`. `received_at DESC` matches the keyset `ORDER BY` so a single index serves both the filter and the page walk, and `id` is deliberately excluded because it only breaks exact ties the existing index already locates cheaply.
-- A single status is emitted as scalar equality rather than `= ANY($n)`. `ANY` over a parameter is a ScalarArrayOp, and pgx prepares statements, so Postgres settles into a generic plan where the array contents are invisible: it drops this index and filters over the tenant index instead. Measured on 300k rows under a forced generic plan, the `ANY` form discarded 101,898 rows by filter while the scalar form read 102 under an index condition. The multi-value case keeps `ANY` and keeps the scan; a covering answer for multi-select would need a different index and is not justified by current usage.
+- A single status is emitted as scalar equality rather than `= ANY($n)`. A ScalarArrayOp cannot serve as an index condition on the leading columns, so the planner costs this index worse than the tenant index plus a filter and abandons it. Measured on 300k rows under the default `plan_cache_mode`: the scalar form read 102 rows under an index condition using 106 buffers, the `ANY` form discarded 101,898 rows by filter using 2,266, and the `ANY` plan varied between indexes across sessions where the scalar one did not. This is not a generic-plan effect; `pg_prepared_statements` reported `generic_plans = 0` throughout, so it holds for the plans pgx actually gets. The multi-value case keeps `ANY` and keeps the scan; a covering answer for multi-select would need a different index and is not justified by current usage.
 - The cursor encoding is now a compatibility surface. It is documented as opaque and is ours to change, but a client that parses it will break.
-- The keyset cursor exists in two packages (`triggers` and `inferencegw`). Lifting it into `internal/platform/` is the right follow-up and is not done here.
+- The keyset cursor now exists in three packages (`triggers`, `inferencegw` and `agents`), each with its own envelope. Lifting one into `internal/platform/` is the right follow-up and is not done here.
 
 ### Neutral
 
@@ -86,7 +86,7 @@ The envelope follows the convention `inferencegw` established for `GET /v1/usage
 ## Related Decisions
 
 - Supersedes [2026-06-20-trigger-deliveries-filter](2026-06-20-trigger-deliveries-filter.md), whose payload-excerpt decision still stands.
-- Follows the cursor envelope established in [2026-05-03-embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-responses-api-endpoints.md) era gateway work, as implemented in `internal/inferencegw/handlers_usage.go`.
+- Follows the cursor envelope `inferencegw` uses for `GET /v1/usage` (`internal/inferencegw/handlers_usage.go`). No ADR records that convention; this is the first to write it down.
 
 ## References
 
