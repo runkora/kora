@@ -14,13 +14,14 @@ import (
 func TestChartPlatformSecretKeysPerService(t *testing.T) {
 	out := renderChart(t, "")
 	want := map[string][]string{
-		"orbit-identity":          {"DB_PASSWORD", "REDIS_PASSWORD", "ORBIT_TOKEN_SIGNING_KEY"},
-		"orbit-triggers":          {"DB_PASSWORD", "REDIS_PASSWORD", "ORBIT_TRIGGERS_ENCRYPTION_KEY"},
-		"orbit-agents":            {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-inference-gateway": {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-policy-service":    {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-tool-gateway":      {"DB_PASSWORD", "REDIS_PASSWORD"},
-		"orbit-egress-gateway":    nil,
+		"orbit-identity":               {"DB_PASSWORD", "REDIS_PASSWORD", "ORBIT_TOKEN_SIGNING_KEY"},
+		"orbit-triggers":               {"DB_PASSWORD", "REDIS_PASSWORD", "ORBIT_TRIGGERS_ENCRYPTION_KEY"},
+		"orbit-agents":                 {"DB_PASSWORD"},
+		"orbit-inference-gateway":      {"DB_PASSWORD", "REDIS_PASSWORD"},
+		"orbit-policy-service":         {"DB_PASSWORD", "REDIS_PASSWORD"},
+		"orbit-tool-gateway":           {"DB_PASSWORD"},
+		"orbit-tool-gateway-publisher": {"DB_PASSWORD"},
+		"orbit-egress-gateway":         nil,
 	}
 	seen := map[string]bool{}
 	for doc := range strings.SplitSeq(out, "\n---\n") {

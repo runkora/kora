@@ -135,7 +135,7 @@ if should_run "orbit-system"; then
 
   # orbit-frontend-secrets — BFF iron-session cookie signing key.
   # Kept separate from orbit-secrets so the identity service pod does not receive
-  # unrelated frontend credentials via its envFrom secretRef.
+  # unrelated frontend credentials.
   kubectl create secret generic orbit-frontend-secrets \
     --namespace orbit-system \
     --from-literal=BFF_SESSION_SECRET="${BFF_SESSION_SECRET}" \
