@@ -50,9 +50,6 @@ func (c *RedisConfig) tlsConfig() (*tls.Config, error) {
 		return nil, nil
 	}
 	tc := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: c.ServerName}
-	if tc.ServerName == "" {
-		tc.ServerName = c.Host
-	}
 	if c.CAFile != "" {
 		pem, err := os.ReadFile(c.CAFile)
 		if err != nil {

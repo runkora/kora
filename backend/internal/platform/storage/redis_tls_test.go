@@ -3,10 +3,10 @@ package storage
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"io"
 	"net"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -18,7 +18,7 @@ func TestRedisTLSConfig(t *testing.T) {
 		t.Fatalf("disabled TLS = %v, %v; want nil", tc, err)
 	}
 	tc, err := (&RedisConfig{Host: "r", TLSEnabled: true}).tlsConfig()
-	if err != nil || tc.MinVersion != tls.VersionTLS12 || tc.ServerName != "r" {
+	if err != nil || tc.MinVersion != tls.VersionTLS12 {
 		t.Fatalf("default TLS = %+v, %v", tc, err)
 	}
 	tc, _ = (&RedisConfig{Host: "r", TLSEnabled: true, ServerName: "redis.svc"}).tlsConfig()
@@ -61,7 +61,8 @@ func TestNewRedisTLSAgainstPlaintextFails(t *testing.T) {
 	if err == nil {
 		t.Fatal("TLS to a plaintext Redis must fail at startup")
 	}
-	if !strings.Contains(err.Error(), "tlsEnabled=true") {
-		t.Errorf("error %q does not say TLS was on", err)
+	var rh tls.RecordHeaderError
+	if !errors.As(err, &rh) {
+		t.Errorf("error %q is not a TLS handshake failure", err)
 	}
 }
