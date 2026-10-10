@@ -199,6 +199,19 @@ describe('listDeliveries (browser client)', () => {
     });
   });
 
+  // A non-ok body that is the JSON literal `null` parses successfully, so the
+  // catch in errorMessage never fires. Reading .message off it threw, which
+  // escaped as a rejection on the one path this PR added.
+  it('reports a status message when a non-ok body is the JSON literal null', async () => {
+    server.use(http.get(BFF, () => HttpResponse.json(null, { status: 500 })));
+
+    await expect(listDeliveries()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      error: 'Request failed (500)',
+    });
+  });
+
   it('resolves with a network-error message when the request cannot be made', async () => {
     server.use(http.get(BFF, () => HttpResponse.error()));
 

@@ -12,8 +12,11 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Delivery listing bounds. An out-of-range ask gets the default page rather
-// than an error: the limit shapes a read, it does not change what exists.
+// Delivery listing bounds. An out-of-range ask is shaped rather than refused:
+// the limit shapes a read, it does not change what exists. Absent or
+// non-positive gets the default; above the ceiling clamps DOWN to the ceiling,
+// which is the whole point of having one. It used to reset to the default, so
+// asking for 501 returned five times fewer rows than a legal request.
 const (
 	defaultDeliveryPageSize = 100
 	maxDeliveryPageSize     = 500

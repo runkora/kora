@@ -27,8 +27,12 @@ import type {
 } from '@orbit/shared/api';
 
 async function errorMessage(res: Response): Promise<string> {
-  const body = await res.json().catch(() => ({}) as { message?: string });
-  return (body as { message?: string }).message ?? `Request failed (${res.status})`;
+  // `?? null` then optional chaining, not `?? ({})`: a body that is the JSON
+  // literal `null` parses fine, so the catch never fires and `.message` on it
+  // throws. These functions must not throw, and this one runs on every non-ok
+  // response, including the deliveries page.
+  const body = (await res.json().catch(() => null)) as { message?: string } | null;
+  return body?.message ?? `Request failed (${res.status})`;
 }
 
 /**

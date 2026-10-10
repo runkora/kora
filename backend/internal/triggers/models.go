@@ -70,9 +70,13 @@ const (
 
 // AllDeliveryStatuses lists every arrival-level status a delivery can hold.
 //
-// Derived from the constants above rather than re-listed, so the set a caller
-// may filter on and the set the pipeline can write cannot drift apart. The
-// trigger_deliveries_status_check constraint holds the same six values.
+// Written next to the constants rather than re-listed elsewhere, so the filter's
+// allow-list has one home. It guarantees less than that sounds: this is a
+// hand-maintained slice, so dropping a value here drops it from the filter too
+// and no Go test notices. The trigger_deliveries_status_check constraint is the
+// authority on what the pipeline can actually write, and
+// TestPostgres_FilterableStatusesMatchTheDatabase compares the two. That test
+// needs ORBIT_TEST_DB_URL, which CI does not set, so it guards locally only.
 func AllDeliveryStatuses() []string {
 	return []string{
 		StatusVerified,

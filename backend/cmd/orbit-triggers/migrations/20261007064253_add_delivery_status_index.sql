@@ -7,9 +7,10 @@
 --
 -- received_at DESC matches the keyset ORDER BY so one index serves the filter
 -- and the page walk together. That only holds while the query says
--- `status = $n`; `status = ANY($n)` is a ScalarArrayOp the generic plan cannot
--- see into, and Postgres falls back to the tenant index with a filter. The
--- single-status case is written as scalar equality for exactly this reason.
+-- `status = $n`. A ScalarArrayOp cannot serve as an index condition on the
+-- leading columns, so with `status = ANY($n)` the planner costs this index
+-- worse than the tenant index plus a filter and abandons it. The single-status
+-- case is written as scalar equality for exactly this reason.
 -- id is deliberately NOT in the index: it only
 -- breaks exact received_at ties, which the existing index already locates
 -- cheaply, and this table is write-hot enough that an unnecessary column is a
