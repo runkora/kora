@@ -13,9 +13,10 @@ rules:
   - apiGroups: ["apps"]
     resources: ["statefulsets"]
     verbs: ["get", "create", "update", "patch", "delete"]
+  # Run start lists an agent's pods to find the Ready ones (ReadyOrdinals).
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "create", "delete"]
+    verbs: ["get", "list", "create", "delete"]
   - apiGroups: [""]
     resources: ["services", "serviceaccounts"]
     verbs: ["get", "create", "update", "delete"]
