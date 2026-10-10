@@ -38,6 +38,9 @@ const (
 	APIEmbeddings      API = "embeddings"
 	APIResponses       API = "responses"
 	APIMessages        API = "messages"
+	// APISystemOne is TypeSafe's System One decision API, served at
+	// <baseURL>/systemone.
+	APISystemOne API = "systemone"
 )
 
 // Phases on InferenceProvider status.

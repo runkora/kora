@@ -49,6 +49,13 @@ type Connector struct {
 	openai    *openai.Client
 	anthropic *anthropic.Client
 	logger    logging.Logger
+
+	// decisionOnly is set when the endpoint declares exactly systemone. It
+	// has no OpenAI or Anthropic model list, so discovery reads /models itself.
+	decisionOnly bool
+	baseURL      string
+	apiKey       string
+	http         *httpclient.Base
 }
 
 // New builds a connector. The SDKs' environment defaults (OPENAI_API_KEY,
@@ -61,6 +68,12 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	c := &Connector{name: name, serves: map[ip.API]bool{}, logger: logger}
 	for _, api := range cfg.APIs {
 		c.serves[api] = true
+	}
+	if len(c.serves) == 1 && c.serves[ip.APISystemOne] {
+		c.decisionOnly = true
+		c.baseURL = strings.TrimSuffix(cfg.BaseURL, "/")
+		c.apiKey = cfg.APIKey
+		c.http = httpclient.New("orbit.compatible", logger, listModelsTimeout)
 	}
 
 	openaiOpts := []openaiopt.RequestOption{
@@ -114,6 +127,9 @@ func (c *Connector) unsupported(api ip.API) error {
 
 // ListModels lists the endpoint's models through whichever API family it serves.
 func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
+	if c.decisionOnly {
+		return c.listDecisionModels(ctx)
+	}
 	var models []inferencegw.ProviderModel
 	if c.serves[ip.APIChatCompletions] || c.serves[ip.APIResponses] || c.serves[ip.APIEmbeddings] {
 		iter := c.openai.Models.ListAutoPaging(ctx)
@@ -149,6 +165,10 @@ func (c *Connector) Describe(id string) inferencegw.ProviderModel {
 		InputModalities:  text,
 		OutputModalities: text,
 		Capabilities:     []inferencegw.ModelCapability{inferencegw.CapabilityChat},
+	}
+	if c.decisionOnly {
+		m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityDecision}
+		return m
 	}
 	if c.serves[ip.APIEmbeddings] && strings.Contains(strings.ToLower(id), "embed") {
 		m.OutputModalities = []inferencegw.Modality{inferencegw.ModalityEmbedding}

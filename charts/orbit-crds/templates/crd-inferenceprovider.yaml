@@ -214,6 +214,7 @@ spec:
                           - embeddings
                           - responses
                           - messages
+                          - systemone
                     apiKeySecretRef:
                       description: A key of a Secret labelled orbit.io/inference-provider=true.
                       type: object
