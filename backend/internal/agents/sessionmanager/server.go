@@ -545,7 +545,13 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The switch comes before delivery, so a turn that ends while the message
+	// is on its way already belongs to a person.
+	wasTriggered := req.FromPerson && c.registry.SetTriggered(runID, false)
 	if err := c.registry.Send(ctx, runID, req.Content); err != nil {
+		if wasTriggered {
+			c.registry.SetTriggered(runID, true)
+		}
 		if errors.Is(err, ErrSessionNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -559,15 +565,6 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 	if req.IdleTimeoutSecs > 0 {
 		if err := c.registry.SetIdleTimeout(runID, idleTimeoutFromSecs(req.IdleTimeoutSecs)); err != nil {
 			c.logger.Warn(ctx, "Failed to apply the idle timeout after a message",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	}
-
-	if req.FromPerson {
-		if err := c.registry.MarkManual(runID); err != nil {
-			c.logger.Warn(ctx, "Failed to mark the run manual after a message",
 				logging.Field{Key: "run_id", Value: runID},
 				logging.Field{Key: "error", Value: err.Error()},
 			)

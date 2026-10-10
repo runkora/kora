@@ -260,16 +260,13 @@ func (reg *Registry) SetIdleTimeout(runID string, d time.Duration) error {
 	return nil
 }
 
-// MarkManual moves a trigger run to a person's: a person has messaged it.
-func (reg *Registry) MarkManual(runID string) error {
+// SetTriggered sets whether a run counts as started by a trigger and returns
+// the previous value. A person messaging a trigger run clears it.
+func (reg *Registry) SetTriggered(runID string, triggered bool) bool {
 	reg.mu.RLock()
 	s, ok := reg.sessions[runID]
 	reg.mu.RUnlock()
-	if !ok {
-		return ErrSessionNotFound
-	}
-	s.triggered.Store(false)
-	return nil
+	return ok && s.triggered.Swap(triggered)
 }
 
 // Send delivers a user text message to an existing session.

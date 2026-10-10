@@ -177,9 +177,7 @@ func TestDrain_ErroredEmptyTurnIdlesAPersonRun(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			reg, r, n := startEmptyTurnSession(t, tt.triggered)
 			if tt.triggered {
-				if err := reg.MarkManual("run-1"); err != nil {
-					t.Fatalf("MarkManual: %v", err)
-				}
+				reg.SetTriggered("run-1", false)
 			}
 			push(r, erroredTurn(t))
 			waitFor(t, "the run to idle", func() bool { _, idles := n.snapshot(); return idles == 1 })
