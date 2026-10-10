@@ -25,7 +25,7 @@ func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*Re
 
 	tlsCfg, err := cfg.tlsConfig()
 	if err != nil {
-		return nil, fmt.Errorf("redis tls: %w", err)
+		return nil, fmt.Errorf("tls: %w", err)
 	}
 
 	opts := &redis.Options{

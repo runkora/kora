@@ -374,26 +374,31 @@ internal/platform/observability:
   {{- end }}
 {{- end }}
 
+{{/*
+Storage config module. Take the root context, or (dict "root" . "redisClient" true)
+in the workloads that open a Redis client, which also get the CA file path.
+*/}}
 {{- define "orbit.storageConfigModule" -}}
+{{- $root := .root | default . }}
 internal/platform/storage:
   postgres:
-    host: {{ required "config.db.host must be set" .Values.config.db.host | toJson }}
-    port: {{ .Values.config.db.port | int }}
-    database: {{ .Values.config.db.name | toJson }}
-    user: {{ .Values.config.db.user | toJson }}
-    sslMode: {{ .Values.global.postgres.sslMode | toJson }}
-    captureQueryText: {{ eq (toString .Values.global.postgres.captureQueryText) "true" }}
+    host: {{ required "config.db.host must be set" $root.Values.config.db.host | toJson }}
+    port: {{ $root.Values.config.db.port | int }}
+    database: {{ $root.Values.config.db.name | toJson }}
+    user: {{ $root.Values.config.db.user | toJson }}
+    sslMode: {{ $root.Values.global.postgres.sslMode | toJson }}
+    captureQueryText: {{ eq (toString $root.Values.global.postgres.captureQueryText) "true" }}
   redis:
-    host: {{ required "config.redis.host must be set" .Values.config.redis.host | toJson }}
-    port: {{ .Values.config.redis.port | int }}
-    {{- $tls := .Values.config.redis.tls | default dict }}
-    tlsEnabled: {{ eq (toString $tls.enabled) "true" }}
+    host: {{ required "config.redis.host must be set" $root.Values.config.redis.host | toJson }}
+    port: {{ $root.Values.config.redis.port | int }}
+    {{- $tls := $root.Values.config.redis.tls | default dict }}
+    tlsEnabled: {{ $tls.enabled | default false }}
     {{- if $tls.enabled }}
     {{- with $tls.serverName }}
     serverName: {{ . | toJson }}
     {{- end }}
-    {{- if $tls.caSecret }}
-    caFile: {{ include "orbit.redisCAFile" . | toJson }}
+    {{- if and .redisClient $tls.caSecret }}
+    caFile: {{ include "orbit.redisCAFile" $root | toJson }}
     {{- end }}
     {{- end }}
 {{- end }}
