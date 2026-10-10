@@ -140,6 +140,7 @@ Callers that want probabilities for typed questions call a provider directly wit
 - The route passes TypeSafe's wire format through to providers that declare `systemone`. The gateway reads `model` and replaces it with the target's model id. Every other field, including `state` and `questions`, is forwarded unchanged and never interpreted. The upstream response body is returned unchanged.
 - The gateway reads `usage.input_tokens` and `usage.output_tokens` from the response for the usage row and does nothing else with it.
 - The route is non-streaming; the format has no streaming mode.
+- **Exception to the AGENTS.md handler conventions:** `handleSystemOne` reads the body with `http.MaxBytesReader` and `io.ReadAll` and writes the upstream body with `w.Write`, not `api.DecodeJSON` and `api.JSON`. Decoding and re-encoding would reorder or reformat `state` and `questions`; reading and writing raw bytes lets them reach the upstream byte-for-byte and returns the response unchanged.
 - The request body is capped at 10 MB, as for embeddings. The cap holds an image where an implementation accepts one.
 - Auth to the upstream is `Authorization: Bearer <key>`, or none when the provider has no key, as for the other OpenAI-style APIs. The request goes to `<baseURL>/systemone`.
 
