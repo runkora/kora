@@ -1717,6 +1717,7 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 	if hash := serviceAccountAnnotationHash(p.cfg.Workloads.SessionManager.ServiceAccount.Annotations); hash != "" {
 		podAnnotations[serviceAccountHashAnnotation] = hash
 	}
+	inferenceURL := fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)
 	ss := appsv1.StatefulSet{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "apps/v1", Kind: "StatefulSet"},
 		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: namespace, Labels: labels},
@@ -1752,13 +1753,13 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 							// tenant pod holds no database credential for an agent to read
 							// out of its own environment.
 							Env: []corev1.EnvVar{
-								{Name: "ANTHROPIC_BASE_URL", Value: fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
+								{Name: "ANTHROPIC_BASE_URL", Value: inferenceURL},
 								{Name: "ORBIT_OTLP_ENDPOINT", Value: p.cfg.OTLPEndpoint},
 								{Name: "ORBIT_SAMPLING_RATE", Value: p.cfg.SamplingRate},
 								// orbit-agents URL for live event push (docs/adr/2026-05-11-agent-event-streaming-protocol.md).
 								{Name: "ORBIT_AGENTS_URL", Value: fmt.Sprintf("http://orbit-agents.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Codex, OpenCode and MCP URLs follow the install's system namespace.
-								{Name: "ORBIT_INFERENCE_GATEWAY_URL", Value: fmt.Sprintf("http://orbit-inference-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
+								{Name: "ORBIT_INFERENCE_GATEWAY_URL", Value: inferenceURL},
 								{Name: "ORBIT_TOOL_GATEWAY_URL", Value: fmt.Sprintf("http://orbit-tool-gateway.%s.svc.cluster.local", p.cfg.SystemNamespace)},
 								// Placeholder key; actual auth is the identity-proxy-issued JWT
 								// injected on every outbound request by the Envoy ext_proc filter.

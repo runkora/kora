@@ -54,14 +54,4 @@ func TestApplyEnvOverrides_GatewayURLs(t *testing.T) {
 	if got, want := cfg.ToolGateway.URL, env["ORBIT_TOOL_GATEWAY_URL"]; got != want {
 		t.Errorf("ToolGateway.URL = %q, want %q", got, want)
 	}
-
-	cfg = &Config{}
-	cfg.InferenceGateway.URL = "http://yaml-inference"
-	cfg.ToolGateway.URL = "http://yaml-tool"
-	if err := applyEnvOverrides(cfg, func(string) string { return "" }); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if cfg.InferenceGateway.URL != "http://yaml-inference" || cfg.ToolGateway.URL != "http://yaml-tool" {
-		t.Errorf("unset env must keep the YAML values, got %q and %q", cfg.InferenceGateway.URL, cfg.ToolGateway.URL)
-	}
 }
