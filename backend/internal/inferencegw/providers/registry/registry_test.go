@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -242,6 +243,66 @@ func TestSystemOneOnlyProviderOffersDecisionModels(t *testing.T) {
 			}
 			if !slices.Equal(ids, tc.want) {
 				t.Errorf("models = %v, want %v", ids, tc.want)
+			}
+		})
+	}
+}
+
+func TestMixedProviderDecisionModelsAndSpecModels(t *testing.T) {
+	cases := []struct {
+		name   string
+		models []string
+		want   map[string]inferencegw.ModelCapability
+	}{
+		{
+			"every model", nil,
+			map[string]inferencegw.ModelCapability{"gpt": inferencegw.CapabilityChat, "jev": inferencegw.CapabilityDecision, "clef": inferencegw.CapabilityDecision},
+		},
+		{
+			"spec.models limits chat and decision models alike", []string{"gpt", "clef"},
+			map[string]inferencegw.ModelCapability{"gpt": inferencegw.CapabilityChat, "clef": inferencegw.CapabilityDecision},
+		},
+		{
+			"spec.models naming only an unlisted decision model", []string{"clef"},
+			map[string]inferencegw.ModelCapability{"clef": inferencegw.CapabilityDecision},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path != "/v1/models" {
+					http.NotFound(w, r)
+					return
+				}
+				if r.URL.Query().Get("output_modalities") == "decisions" {
+					_, _ = io.WriteString(w, `{"data":[{"id":"jev","architecture":{"output_modalities":["decisions"]}}]}`)
+					return
+				}
+				_, _ = io.WriteString(w, `{"data":[{"id":"gpt"}]}`)
+			}))
+			t.Cleanup(srv.Close)
+			w, _ := newWatcher(t, resource("or", ip.Spec{Type: ip.TypeCompatible, Models: tc.models, Compatible: &ip.Compatible{
+				BaseURL: srv.URL + "/v1", APIs: []ip.API{ip.APIChatCompletions, ip.APISystemOne}, DecisionModels: []string{"clef"},
+			}}))
+			connectors, _ := w.Load(context.Background())
+			conn, ok := connectors["compatible:or"]
+			if !ok {
+				t.Fatalf("connectors = %v", connectors)
+			}
+			models, err := conn.ListModels(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]inferencegw.ModelCapability{}
+			for _, m := range models {
+				if len(m.Capabilities) != 1 {
+					t.Fatalf("%s capabilities = %v", m.ModelID, m.Capabilities)
+				}
+				got[m.ModelID] = m.Capabilities[0]
+			}
+			if !maps.Equal(got, tc.want) {
+				t.Errorf("models = %v, want %v", got, tc.want)
 			}
 		})
 	}

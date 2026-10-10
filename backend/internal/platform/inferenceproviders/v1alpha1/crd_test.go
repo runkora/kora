@@ -1,14 +1,24 @@
 package v1alpha1
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
 
 	apiextensions "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions"
 	apiextensionsv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
+	structuralschema "k8s.io/apiextensions-apiserver/pkg/apiserver/schema"
+	celvalidation "k8s.io/apiextensions-apiserver/pkg/apiserver/schema/cel"
 	"k8s.io/apiextensions-apiserver/pkg/apiserver/validation"
+	"k8s.io/apimachinery/pkg/util/validation/field"
 	"sigs.k8s.io/yaml"
+)
+
+// The API server's CEL limits (k8s.io/apiserver/pkg/apis/cel).
+const (
+	celPerCallLimit = 1000000
+	celCostBudget   = 10000000
 )
 
 const crdPath = "../../../../../charts/orbit-crds/templates/crd-inferenceprovider.yaml"
@@ -113,5 +123,54 @@ func TestDeepCopyKeepsAPIs(t *testing.T) {
 	cp.Spec.Compatible.APIs[0] = APIMessages
 	if p.Spec.Compatible.APIs[0] != APISystemOne {
 		t.Error("DeepCopy shares the APIs slice")
+	}
+}
+
+func TestCRDDecisionModelsNeedSystemOne(t *testing.T) {
+	root := crdSchema(t)
+	validator, _, err := validation.NewSchemaValidator(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structural, err := structuralschema.NewStructural(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cel := celvalidation.NewValidator(structural, true, celPerCallLimit)
+	cases := []struct {
+		name           string
+		apis           []any
+		decisionModels any
+		wantErr        bool
+	}{
+		{"with systemone alone", []any{"systemone"}, []any{"jev"}, false},
+		{"with systemone beside chat", []any{"chatCompletions", "systemone"}, []any{"clef"}, false},
+		{"without systemone", []any{"chatCompletions"}, []any{"clef"}, true},
+		{"empty list without systemone", []any{"chatCompletions"}, []any{}, true},
+		{"absent without systemone", []any{"chatCompletions"}, nil, false},
+		{"empty id", []any{"systemone"}, []any{""}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			p := provider(tc.apis...)
+			if tc.decisionModels != nil {
+				p["spec"].(map[string]any)["compatible"].(map[string]any)["decisionModels"] = tc.decisionModels
+			}
+			errs := validation.ValidateCustomResource(nil, p, validator)
+			celErrs, _ := cel.Validate(context.Background(), field.NewPath(""), structural, p, nil, celCostBudget)
+			errs = append(errs, celErrs...)
+			if (len(errs) > 0) != tc.wantErr {
+				t.Errorf("errors = %v, want error %v", errs, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestDeepCopyKeepsDecisionModels(t *testing.T) {
+	p := &InferenceProvider{Spec: Spec{Type: TypeCompatible, Compatible: &Compatible{BaseURL: "https://x/v1", APIs: []API{APISystemOne}, DecisionModels: []string{"clef"}}}}
+	cp := p.DeepCopy()
+	cp.Spec.Compatible.DecisionModels[0] = "other"
+	if p.Spec.Compatible.DecisionModels[0] != "clef" {
+		t.Error("DeepCopy shares the DecisionModels slice")
 	}
 }

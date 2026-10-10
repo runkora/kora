@@ -136,7 +136,7 @@ func buildAzure(ctx context.Context, a *ip.Azure, info *inferencegw.ProviderInfo
 func buildCompatible(ctx context.Context, c *ip.Compatible, info *inferencegw.ProviderInfo, secret secretReader, logger logging.Logger) (inferencegw.ProviderConnector, error) {
 	info.Location = c.BaseURL
 	info.CredentialMode = inferencegw.CredentialModeNone
-	cfg := compatible.Config{BaseURL: c.BaseURL, APIs: c.APIs}
+	cfg := compatible.Config{BaseURL: c.BaseURL, APIs: c.APIs, DecisionModels: c.DecisionModels}
 	if ref := c.APIKeySecretRef; ref != nil {
 		info.CredentialMode = inferencegw.CredentialModeSecret
 		key, err := secret(ctx, ref.Name, ref.Key)

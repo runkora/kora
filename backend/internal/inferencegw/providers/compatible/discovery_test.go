@@ -171,3 +171,180 @@ func TestSystemOneOnlyRefusesChatAPIs(t *testing.T) {
 		}
 	}
 }
+
+// openRouterChat is the default listing of a mixed endpoint: text models only.
+const openRouterChat = `{"data":[
+ {"id":"openai/gpt-5","architecture":{"modality":"text->text","output_modalities":["text"]},"pricing":{"prompt":"0.000001","completion":"0.000002"}},
+ {"id":"typesafe/jev-1.13","architecture":{"modality":"text->text","output_modalities":["text"]},"pricing":{"prompt":"0.000009","completion":"0.000009"}}]}`
+
+// openRouterDecisions is the answer to ?output_modalities=decisions.
+const openRouterDecisions = `{"data":[
+ {"id":"typesafe/jev-1.13","architecture":{"modality":"text->decisions","output_modalities":["decisions"]},"pricing":{"prompt":"0.000000042","completion":"0"}},
+ {"id":"cloudflare/clef","architecture":{"modality":"text+image->decisions","output_modalities":["decisions"]},"pricing":{"prompt":"0.0000001","completion":"0"}}]}`
+
+// jsonHeader marks a test response as JSON, which the OpenAI SDK requires.
+func jsonHeader(w http.ResponseWriter) { w.Header().Set("Content-Type", "application/json") }
+
+func TestMixedEndpointDiscovery(t *testing.T) {
+	type want struct {
+		decision []string
+		chat     []string
+	}
+	cases := []struct {
+		name           string
+		decisionStatus int
+		decisionBody   string
+		decisionModels []string
+		want           want
+		wantJevPrice   float64
+	}{
+		{
+			name:           "only metadata-declared decision models are marked",
+			decisionStatus: http.StatusOK, decisionBody: openRouterDecisions,
+			want:         want{decision: []string{"typesafe/jev-1.13", "cloudflare/clef"}, chat: []string{"openai/gpt-5"}},
+			wantJevPrice: 0.042,
+		},
+		{
+			name:           "an endpoint ignoring the parameter marks nothing",
+			decisionStatus: http.StatusOK, decisionBody: openRouterChat,
+			want:         want{chat: []string{"openai/gpt-5", "typesafe/jev-1.13"}},
+			wantJevPrice: 9,
+		},
+		{
+			name:           "entries without architecture metadata are not marked",
+			decisionStatus: http.StatusOK, decisionBody: `{"data":[{"id":"openai/gpt-5"},{"id":"x","architecture":{}}]}`,
+			want:         want{chat: []string{"openai/gpt-5", "typesafe/jev-1.13"}},
+			wantJevPrice: 9,
+		},
+		{
+			name:           "a failed decision listing keeps the chat models",
+			decisionStatus: http.StatusInternalServerError, decisionBody: `{"error":"boom"}`,
+			want:         want{chat: []string{"openai/gpt-5", "typesafe/jev-1.13"}},
+			wantJevPrice: 9,
+		},
+		{
+			name:           "an unparsable decision listing keeps the chat models",
+			decisionStatus: http.StatusOK, decisionBody: `<html>`,
+			want:         want{chat: []string{"openai/gpt-5", "typesafe/jev-1.13"}},
+			wantJevPrice: 9,
+		},
+		{
+			name:           "decisionModels adds unlisted ids",
+			decisionStatus: http.StatusNotFound, decisionBody: `{}`,
+			decisionModels: []string{"clef", "openai/gpt-5"},
+			want:           want{decision: []string{"openai/gpt-5", "clef"}, chat: []string{"typesafe/jev-1.13"}},
+			wantJevPrice:   9,
+		},
+		{
+			name:           "decisionModels and metadata together",
+			decisionStatus: http.StatusOK, decisionBody: openRouterDecisions,
+			decisionModels: []string{"llama-clef"},
+			want:           want{decision: []string{"typesafe/jev-1.13", "cloudflare/clef", "llama-clef"}, chat: []string{"openai/gpt-5"}},
+			wantJevPrice:   0.042,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var decisionQueries int
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				jsonHeader(w)
+				if r.URL.Path != "/api/v1/models" {
+					http.NotFound(w, r)
+					return
+				}
+				if r.URL.Query().Get("output_modalities") == "decisions" {
+					decisionQueries++
+					w.WriteHeader(tc.decisionStatus)
+					_, _ = io.WriteString(w, tc.decisionBody)
+					return
+				}
+				_, _ = io.WriteString(w, openRouterChat)
+			}))
+			t.Cleanup(srv.Close)
+			c, err := New(Config{
+				BaseURL: srv.URL + "/api/v1", APIs: []ip.API{ip.APIChatCompletions, ip.APIResponses, ip.APISystemOne},
+				DecisionModels: tc.decisionModels,
+			}, "compatible:or", logging.NewLoggerWithOutput(io.Discard))
+			if err != nil {
+				t.Fatal(err)
+			}
+			models, err := c.ListModels(context.Background())
+			if err != nil {
+				t.Fatalf("ListModels: %v", err)
+			}
+			if decisionQueries != 1 {
+				t.Errorf("decision listing requested %d times, want 1", decisionQueries)
+			}
+			var decision, chat []string
+			for _, m := range models {
+				if slices.Equal(m.Capabilities, []inferencegw.ModelCapability{inferencegw.CapabilityDecision}) {
+					decision = append(decision, m.ModelID)
+					if len(m.Dialects) != 0 || !slices.Equal(m.InputModalities, []inferencegw.Modality{inferencegw.ModalityText}) {
+						t.Errorf("%s: dialects = %v, input = %v", m.ModelID, m.Dialects, m.InputModalities)
+					}
+					continue
+				}
+				chat = append(chat, m.ModelID)
+				if len(m.Dialects) == 0 {
+					t.Errorf("chat model %s lost its dialects", m.ModelID)
+				}
+				if m.ModelID == "typesafe/jev-1.13" && (m.Price == nil || !near(m.Price.InputCostPer1M, tc.wantJevPrice)) {
+					t.Errorf("jev price = %+v, want %v", m.Price, tc.wantJevPrice)
+				}
+			}
+			if !slices.Equal(decision, tc.want.decision) || !slices.Equal(chat, tc.want.chat) {
+				t.Errorf("decision = %v, chat = %v; want %v", decision, chat, tc.want)
+			}
+			for _, m := range models {
+				if m.ModelID == "typesafe/jev-1.13" && slices.Contains(decision, m.ModelID) && (m.Price == nil || !near(m.Price.InputCostPer1M, tc.wantJevPrice) || m.Price.OutputCostPer1M != 0) {
+					t.Errorf("decision jev price = %+v, want input %v, output 0", m.Price, tc.wantJevPrice)
+				}
+			}
+		})
+	}
+}
+
+func TestChatOnlyEndpointMakesNoDecisionRequest(t *testing.T) {
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		jsonHeader(w)
+		queries = append(queries, r.URL.RawQuery)
+		_, _ = io.WriteString(w, openRouterChat)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{BaseURL: srv.URL, APIs: []ip.API{ip.APIChatCompletions}, DecisionModels: []string{"x"}}, "compatible:c", logging.NewLoggerWithOutput(io.Discard))
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, err := c.ListModels(context.Background())
+	if err != nil || len(models) != 2 {
+		t.Fatalf("models = %v, %v", models, err)
+	}
+	if slices.ContainsFunc(queries, func(q string) bool { return q != "" }) {
+		t.Errorf("queries = %q, want none with a parameter", queries)
+	}
+	for _, m := range models {
+		if !slices.Equal(m.Capabilities, []inferencegw.ModelCapability{inferencegw.CapabilityChat}) {
+			t.Errorf("%s capabilities = %v", m.ModelID, m.Capabilities)
+		}
+	}
+}
+
+func TestDecisionOnlyAcceptsDecisionModels(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"data":[{"id":"jev"}]}`)
+	}))
+	t.Cleanup(srv.Close)
+	c, err := New(Config{BaseURL: srv.URL, APIs: []ip.API{ip.APISystemOne}, DecisionModels: []string{"jev", "clef"}}, "compatible:ts", logging.NewLoggerWithOutput(io.Discard))
+	if err != nil {
+		t.Fatal(err)
+	}
+	models, err := c.ListModels(context.Background())
+	var ids []string
+	for _, m := range models {
+		ids = append(ids, m.ModelID)
+	}
+	if err != nil || !slices.Equal(ids, []string{"jev", "clef"}) {
+		t.Errorf("ids = %v, %v", ids, err)
+	}
+}
