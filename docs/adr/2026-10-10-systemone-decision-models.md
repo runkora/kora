@@ -111,11 +111,22 @@ Callers that want probabilities for typed questions call a provider directly wit
 **Cons:**
 - Collides with OpenAI's `/v1/decisions` and OpenRouter's `/api/alpha/decisions`, which have different schemas.
 
+### Option 5: A second InferenceProvider per mixed endpoint
+
+**Description:** An endpoint that serves chat and decision models gets two InferenceProviders on the same `baseURL`: one for chat and one with `apis: [systemone]`.
+
+**Pros:**
+- No discovery change: a `systemone`-only provider already describes every model as `decision`.
+
+**Cons:**
+- Breaks the one-registration-per-multi-API-endpoint goal of [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md): two resources, two Secrets or Secret references, and two pricing namespaces for one endpoint.
+- Unnecessary where the endpoint publishes the metadata. OpenRouter does, so discovery can tell the models apart.
+
 ---
 
 ## Decision
 
-**Option 1, with Options 2, 3 and 4 rejected.**
+**Option 1, with Options 2, 3, 4 and 5 rejected.**
 
 ### 1. Naming
 
@@ -137,8 +148,18 @@ Callers that want probabilities for typed questions call a provider directly wit
 - A `compatible` provider declares `systemone` in `apis`, alone or with others. A `compatible` resource's `baseURL` is the prefix of `/systemone`, e.g. `https://api.typesafe.ai/v1`. No CEL rule is added: the existing rule that `messages` needs a `/v1` base URL does not apply.
 - Hosting is unchanged: orbit ships and hosts no decision model. A self-hosted server connects as a `compatible` provider with its `baseURL`, no key, and `spec.models` if it has no model list.
 - A provider whose `apis` is exactly `[systemone]` describes every model it lists as `decision`: capability `decision`, text input, no dialects. A decision model is not offered on the chat endpoints.
-- A provider that declares `systemone` together with other APIs does **not** guess which of its models are decision models. Its models keep the capabilities they have today, and the endpoint is not offered as a `decision` route by naming heuristic. The supported way to serve decision models from an endpoint that also serves chat is a second InferenceProvider on the same `baseURL` with `apis: [systemone]`.
-  - Trade-off: two resources for one mixed endpoint, against a name heuristic (as `embed` is for embeddings) that would mislabel models, and against labelling every model on the endpoint `decision`.
+- A provider that declares `systemone` together with other APIs (a mixed endpoint, such as OpenRouter) serves its chat and decision models from **one** InferenceProvider. Discovery does not guess by name. It identifies decision models from two sources:
+  1. **Endpoint metadata.** Verified against the live OpenRouter API on 2026-10-10:
+     - Every model in `GET /api/v1/models` carries `architecture.output_modalities`. Decision models have `["decisions"]` and an `architecture.modality` such as `"text->decisions"` or `"text+image->decisions"`.
+     - The default listing returns only text-output models (442 of 659), so decision models never appear in it.
+     - `?output_modalities=decisions` returns the 19 decision models, among them `typesafe/jev-1.13`, `~typesafe/jev-latest`, `microsoft/microsoft-decision-1`, `cloudflare/clef`, `cloudflare/clef-flash`, `cloudflare/clef-omni`, `liquid/d1`, `upstage/solar-decide`, `inception/mercury-decide` and `jaredpalmer/kev-4b`. `?output_modalities=all` returns all 659. The valid values are text, image, embeddings, audio, video, rerank, decisions, speech, transcription and all.
+     - Each entry publishes `pricing.prompt` per token and `pricing.completion` of `"0"` (Jev: `0.000000042`).
+
+     So for a `compatible` provider whose `apis` includes `systemone` alongside other APIs, discovery keeps its existing listing unchanged and makes one extra request, `GET <baseURL>/models?output_modalities=decisions`. A model from that response is marked `decision` only when its entry declares `decisions` in `architecture.output_modalities`. An endpoint that ignores the query parameter returns entries without that metadata (typically its chat models), and none of them is marked. A decision model gets only the `decision` capability, text input and no dialects, as on a decision-only provider. When the same id also came back from the chat listing, the decision description wins. It is priced from the entry's `pricing` block with the existing price parser. If the extra request fails, discovery logs a warning and keeps the chat models; the provider does not fail.
+  2. **An explicit `decisionModels` list** on the `compatible` spec, for endpoints that publish no metadata, such as a self-hosted Ollama serving both chat models and Clef. Listed ids are described as `decision` and added to the catalog even when no `/models` listing returns them. `spec.models` filters them like any other model. A CEL rule requires `'systemone' in self.apis` whenever `decisionModels` is set.
+  - Trade-off: one extra request per discovery on a mixed endpoint, and trust in what the endpoint publishes, against two resources for one endpoint, a name heuristic (as `embed` is for embeddings) that would mislabel models, or labelling every model on the endpoint `decision`. A model whose metadata is wrong is corrected through `decisionModels`, and an endpoint without metadata needs the list.
+- A decision-only provider also accepts `decisionModels`, which changes nothing: every model it lists is already `decision`.
+- Discovery for providers that do not declare `systemone` is unchanged. The default listing also misses OpenRouter's embeddings and rerank models; that is a separate follow-up.
 - `GET /v1/models` already returns each virtual model's `capabilities`. Callers filter on `decision` there. No server-side filter parameter is added.
 - A virtual model with the `decision` capability routes `/v1/systemone` calls through its routes, like every capability: the router picks targets by the virtual model's strategy, and the connector of each target either serves `systemone` or refuses.
 
@@ -214,7 +235,7 @@ Passing the body through is the only design that satisfies the SDK requirement a
 - Request validation is the upstream's. A bad request costs a round trip.
 - The error body differs from TypeSafe's in shape; only the status codes match.
 - Decision models are unpriced until an operator prices them, for `compatible` providers.
-- A mixed endpoint needs two resources to expose its decision models.
+- A mixed endpoint costs one extra `/models` request per discovery, and its decision models are only as accurate as the metadata it publishes. An endpoint with no metadata needs `decisionModels`.
 - Decision calls are not separable from chat calls by route scope or by usage dialect.
 
 ### Neutral
@@ -226,9 +247,9 @@ Passing the body through is the only design that satisfies the SDK requirement a
 
 ## Implementation
 
-- `backend/internal/platform/inferenceproviders/v1alpha1/types.go` and `charts/orbit-crds/templates/crd-inferenceprovider.yaml`: `systemone`.
+- `backend/internal/platform/inferenceproviders/v1alpha1/types.go` and `charts/orbit-crds/templates/crd-inferenceprovider.yaml`: `systemone`, the optional `decisionModels` list and its CEL rule.
 - `backend/internal/inferencegw/connector.go`: `CapabilityDecision`, the `SystemOneConnector` interface, request and result types.
-- `backend/internal/inferencegw/providers/compatible/`: the connector method, discovery for `systemone`-only providers, capability.
+- `backend/internal/inferencegw/providers/compatible/`: the connector method, discovery for `systemone`-only providers, decision-model detection on mixed endpoints (the `output_modalities=decisions` request and `decisionModels`), capability.
 - `backend/internal/inferencegw/providers/{bedrock,vertexai,azure}/`: refusal.
 - `backend/internal/inferencegw/service.go`, `handlers_systemone.go`, `controller.go`: the service method, handler and route.
 - `backend/cmd/inference-gateway/main.go`: route table entry.
@@ -243,9 +264,10 @@ Unit tests cover:
 - The connector: pass-through of `noul`, `choice` and `score` answers unchanged; model rewrite; refusal when `systemone` is not declared; discovery for both `/models` shapes.
 - The route: success, usage row priced from the catalog, refusal naming `systemone` when no route declares it, 422 / 429 / 529 mapping, budget refusal.
 - The capability: `systemone`-only providers describe models as `decision`.
-- The CRD: `systemone` passes validation and an unknown API is rejected.
+- Mixed endpoints, against an `httptest` server shaped like OpenRouter's response: only models that declare `decisions` in `architecture.output_modalities` are marked; an endpoint that ignores the parameter marks nothing; a failed decision listing keeps the chat models; `decisionModels` adds unlisted ids as `decision`; `spec.models` filtering still applies.
+- The CRD: `systemone` passes validation and an unknown API is rejected; `decisionModels` is accepted with `systemone` and rejected without it.
 
-On a cluster: an InferenceProvider with `apis: [systemone]` becomes Ready, and a TypeSafe SDK pointed at the gateway returns answers.
+On a cluster: an InferenceProvider with `apis: [systemone]` becomes Ready, and a TypeSafe SDK pointed at the gateway returns answers. Not yet verified: that OpenRouter's `/api/v1/systemone` accepts each of the 19 decision models its listing returns. That needs an OpenRouter key.
 
 ---
 
