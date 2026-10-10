@@ -36,6 +36,7 @@ spec:
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.configVolume" (dict "root" $ "name" "identity" "configMap" "orbit-identity-config" "modules" (include "orbit.identity.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         # Operator-owned tenant registries. All optional so identity starts before
         # any tenant exists; identity watches the files and reloads on change.
         - name: tenants-config
@@ -87,6 +88,7 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             - name: tenants-config
               mountPath: /etc/orbit
               readOnly: true

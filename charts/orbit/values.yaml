@@ -71,13 +71,13 @@ config:
     host: ""
     port: 6379
     tls:
-      # Connect to Redis over TLS 1.2 or later. Default off: enable it only
-      # when Redis serves TLS, or services fail at startup.
+      # -- Connect to Redis over TLS 1.2 or later. Off by default: enable it
+      # only when Redis serves TLS, or the services that use Redis fail at startup.
       enabled: false
-      # Secret in the system namespace with the CA bundle under key ca.crt.
-      # Empty trusts the system roots.
+      # -- Secret in the system namespace holding the CA bundle under key
+      # ca.crt. Empty trusts the system roots.
       caSecret: ""
-      # Name checked against the Redis certificate. Empty uses config.redis.host.
+      # -- Name checked against the Redis certificate. Empty uses config.redis.host.
       serverName: ""
   # Holds DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY,
   # ORBIT_TRIGGERS_ENCRYPTION_KEY. Not created by the chart.

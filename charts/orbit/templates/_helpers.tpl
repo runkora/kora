@@ -312,8 +312,33 @@ data:
   {{- end }}
 {{- end }}
 
+{{/*
+The Redis CA bundle from config.redis.tls.caSecret, for the workloads that open
+a Redis client: identity, inference-gateway and triggers. Take the root context.
+*/}}
 {{- define "orbit.redisCAFile" -}}
 /etc/orbit/redis-ca/ca.crt
+{{- end }}
+
+{{- define "orbit.redisCAVolume" -}}
+{{- $tls := .Values.config.redis.tls | default dict }}
+{{- if and $tls.enabled $tls.caSecret }}
+- name: redis-ca
+  secret:
+    secretName: {{ $tls.caSecret }}
+    items:
+      - key: ca.crt
+        path: ca.crt
+{{- end }}
+{{- end }}
+
+{{- define "orbit.redisCAVolumeMount" -}}
+{{- $tls := .Values.config.redis.tls | default dict }}
+{{- if and $tls.enabled $tls.caSecret }}
+- name: redis-ca
+  mountPath: {{ include "orbit.redisCAFile" . | dir }}
+  readOnly: true
+{{- end }}
 {{- end }}
 
 {{- define "orbit.configVolume" -}}
@@ -325,29 +350,12 @@ data:
       - key: {{ $module | replace "/" "." }}.yaml
         path: {{ $module }}.yaml
       {{- end }}
-{{- with .root.Values.config.redis.tls }}
-{{- if and .enabled .caSecret }}
-- name: redis-ca
-  secret:
-    secretName: {{ .caSecret }}
-    items:
-      - key: ca.crt
-        path: ca.crt
-{{- end }}
-{{- end }}
 {{- end }}
 
 {{- define "orbit.configVolumeMount" -}}
 - name: config-files
   mountPath: /etc/orbit/config
   readOnly: true
-{{- with .Values.config.redis.tls }}
-{{- if and .enabled .caSecret }}
-- name: redis-ca
-  mountPath: /etc/orbit/redis-ca
-  readOnly: true
-{{- end }}
-{{- end }}
 {{- end }}
 
 {{/*
@@ -376,15 +384,14 @@ internal/platform/storage:
   redis:
     host: {{ required "config.redis.host must be set" .Values.config.redis.host | toJson }}
     port: {{ .Values.config.redis.port | int }}
-    {{- with .Values.config.redis.tls }}
-    tlsEnabled: {{ eq (toString .enabled) "true" }}
-    {{- if .enabled }}
-    {{- if .serverName }}
-    serverName: {{ .serverName | toJson }}
+    {{- $tls := .Values.config.redis.tls | default dict }}
+    tlsEnabled: {{ eq (toString $tls.enabled) "true" }}
+    {{- if $tls.enabled }}
+    {{- with $tls.serverName }}
+    serverName: {{ . | toJson }}
     {{- end }}
-    {{- if .caSecret }}
-    caFile: {{ include "orbit.redisCAFile" $ | toJson }}
-    {{- end }}
+    {{- if $tls.caSecret }}
+    caFile: {{ include "orbit.redisCAFile" . | toJson }}
     {{- end }}
     {{- end }}
 {{- end }}
