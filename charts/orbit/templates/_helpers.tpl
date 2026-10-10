@@ -312,14 +312,16 @@ data:
   {{- end }}
 {{- end }}
 
-{{/*
-The Redis CA bundle from config.redis.tls.caSecret, for the workloads that open
-a Redis client: identity, inference-gateway and triggers. Take the root context.
-*/}}
+{{/* Path of the Redis CA bundle inside the pod, rendered into the storage config as caFile. */}}
 {{- define "orbit.redisCAFile" -}}
 /etc/orbit/redis-ca/ca.crt
 {{- end }}
 
+{{/*
+Volume and mount for the Redis CA bundle from config.redis.tls.caSecret, for the
+workloads that open a Redis client: identity, inference-gateway and triggers.
+Take the root context.
+*/}}
 {{- define "orbit.redisCAVolume" -}}
 {{- $tls := .Values.config.redis.tls | default dict }}
 {{- if and $tls.enabled $tls.caSecret }}
