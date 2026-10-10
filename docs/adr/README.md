@@ -72,7 +72,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Provider Error Visibility in the Inference Gateway](2026-06-19-provider-error-visibility.md) — `Accepted` · 2026-06-19
 - [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) — `Accepted` · 2026-07-24
 - [CRD-Driven Inference Providers](2026-10-01-crd-inference-providers.md) — `Accepted (Amended 2026-10-02)` · 2026-10-01
-- [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) — `Proposed` · 2026-10-10
+- [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) — `Accepted` · 2026-10-10
 
 ### Agents Control Plane & Execution
 
@@ -294,5 +294,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-06 | [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) | Accepted | — |
 | 2026-10-07 | [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) | Accepted | — |
 | 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
-| 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Proposed | — |
+| 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

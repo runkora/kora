@@ -1,6 +1,6 @@
 # Decision Models and the System One API
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-10  
 **Deciders:** kora Core Team  
 **Technical Story:** [#473](https://github.com/clear-route/orbit/issues/473): add a `decision` capability and `POST /v1/systemone` to the inference gateway. PRD: [systemone-decision-models](../prd/systemone-decision-models.md).
