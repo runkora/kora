@@ -59,3 +59,26 @@ func TestChartPlatformSecretKeysPerService(t *testing.T) {
 		}
 	}
 }
+
+// A platform key a service's extraEnv sets is left to extraEnv, so the pod has
+// one env entry with that name rather than a duplicate.
+func TestChartExtraEnvOverridesPlatformSecretKey(t *testing.T) {
+	out := renderChart(t, "identity:\n  extraEnv:\n    - name: DB_PASSWORD\n      valueFrom:\n        secretKeyRef: {name: external-db, key: password}\n")
+	for doc := range strings.SplitSeq(out, "\n---\n") {
+		var d appsv1.Deployment
+		if err := yaml.Unmarshal([]byte(doc), &d); err != nil || d.Kind != "Deployment" || d.Name != "orbit-identity" {
+			continue
+		}
+		var sources []string
+		for _, e := range d.Spec.Template.Spec.Containers[0].Env {
+			if e.Name == "DB_PASSWORD" && e.ValueFrom != nil && e.ValueFrom.SecretKeyRef != nil {
+				sources = append(sources, e.ValueFrom.SecretKeyRef.Name)
+			}
+		}
+		if !slices.Equal(sources, []string{"external-db"}) {
+			t.Errorf("orbit-identity DB_PASSWORD sources = %v, want [external-db]", sources)
+		}
+		return
+	}
+	t.Error("Deployment orbit-identity not rendered")
+}
