@@ -87,7 +87,7 @@ Introduce a `ModelCapability` string type with constants (`CapabilityChat`, `Cap
 - Explicit, self-documenting data model.
 - `Dialects` retains its clean "wire format selector for chat" semantics.
 - Filter is driven by a set of active handler capabilities — adding `POST /v1/embeddings` means adding `CapabilityEmbedding` to the supported set; embedding models immediately surface with no other change.
-- `GET /v1/models?capability=chat` query-parameter filtering is a natural future extension.
+- `GET /v1/models?capability=chat` query-parameter filtering is a natural future extension. *(Implemented: `GET /v1/models` now accepts `capability`; see the [model providers guide](../guides/model-providers.md#list-models-by-capability).)*
 
 **Cons:**
 - One additional field on `ProviderModel` and in the `GET /v1/models` JSON response.
