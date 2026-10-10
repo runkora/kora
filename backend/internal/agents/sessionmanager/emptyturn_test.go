@@ -52,12 +52,12 @@ func (n *emptyTurnNotifier) snapshot() (errs []string, idles int) {
 	return slices.Clone(n.runErrors), n.idles
 }
 
-func startEmptyTurnSession(t *testing.T) (*Registry, *scriptRunner, *emptyTurnNotifier) {
+func startEmptyTurnSession(t *testing.T, triggered bool) (*Registry, *scriptRunner, *emptyTurnNotifier) {
 	t.Helper()
 	n := &emptyTurnNotifier{completed: make(chan bool, 1)}
 	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, time.Minute)
 	r := newScriptRunner()
-	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r}); err != nil {
+	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r, Triggered: triggered}); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	return reg, r, n
@@ -97,7 +97,7 @@ func push(r *scriptRunner, evs []Event) {
 }
 
 func TestDrain_EmptyTurnRepromptsThenRecovers(t *testing.T) {
-	reg, r, n := startEmptyTurnSession(t)
+	reg, r, n := startEmptyTurnSession(t, false)
 	push(r, emptyTurn(t))
 	waitFor(t, "the re-prompt", func() bool { return len(r.sentTexts()) == 1 })
 	if _, idles := n.snapshot(); idles != 0 {
@@ -116,7 +116,7 @@ func TestDrain_EmptyTurnRepromptsThenRecovers(t *testing.T) {
 }
 
 func TestDrain_TwoEmptyTurnsFailTheRun(t *testing.T) {
-	_, r, n := startEmptyTurnSession(t)
+	_, r, n := startEmptyTurnSession(t, false)
 	push(r, emptyTurn(t))
 	waitFor(t, "the re-prompt", func() bool { return len(r.sentTexts()) == 1 })
 	push(r, emptyTurn(t))
@@ -137,13 +137,17 @@ func TestDrain_TwoEmptyTurnsFailTheRun(t *testing.T) {
 	}
 }
 
-func TestDrain_EmptyTurnAfterRunErrorFailsTheRun(t *testing.T) {
-	_, r, n := startEmptyTurnSession(t)
-	push(r, []Event{
+// erroredTurn is a turn the runner ended with a run_error before any output.
+func erroredTurn(t *testing.T) []Event {
+	return []Event{
 		ev(t, EventTypeRunError, RunErrorPayload{Code: "empty_response", Message: "stream cut"}),
-		ev(t, EventTypeMessageComplete, MessageCompletePayload{}),
 		ev(t, EventTypeMessageStop, nil),
-	})
+	}
+}
+
+func TestDrain_ErroredEmptyTurnFailsATriggerRun(t *testing.T) {
+	_, r, n := startEmptyTurnSession(t, true)
+	push(r, erroredTurn(t))
 
 	select {
 	case failed := <-n.completed:
@@ -153,16 +157,42 @@ func TestDrain_EmptyTurnAfterRunErrorFailsTheRun(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("run did not fail after an empty turn that followed a run error")
 	}
-	if errs, _ := n.snapshot(); slices.Contains(errs, "subprocess_exit") || !slices.Contains(errs, "empty_response") {
-		t.Errorf("run errors = %q, want the turn's empty_response and no subprocess_exit", errs)
+	if errs, _ := n.snapshot(); !slices.Equal(errs, []string{"empty_response"}) {
+		t.Errorf("run errors = %q, want only the turn's empty_response", errs)
 	}
 	if sent := r.sentTexts(); len(sent) != 0 {
 		t.Errorf("sent = %q, want no re-prompt", sent)
 	}
 }
 
+func TestDrain_ErroredEmptyTurnIdlesAPersonRun(t *testing.T) {
+	tests := []struct {
+		name      string
+		triggered bool
+	}{
+		{"a run a person started", false},
+		{"a trigger run a person messaged", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg, r, n := startEmptyTurnSession(t, tt.triggered)
+			if tt.triggered {
+				if err := reg.MarkManual("run-1"); err != nil {
+					t.Fatalf("MarkManual: %v", err)
+				}
+			}
+			push(r, erroredTurn(t))
+			waitFor(t, "the run to idle", func() bool { _, idles := n.snapshot(); return idles == 1 })
+			if errs, _ := n.snapshot(); !slices.Equal(errs, []string{"empty_response"}) {
+				t.Errorf("run errors = %q, want only the turn's empty_response", errs)
+			}
+			_ = reg.Close(context.Background(), "run-1")
+		})
+	}
+}
+
 func TestDrain_TurnWithTextIsNotEmpty(t *testing.T) {
-	reg, r, n := startEmptyTurnSession(t)
+	reg, r, n := startEmptyTurnSession(t, false)
 	push(r, textTurn(t))
 	waitFor(t, "the run to idle", func() bool { _, idles := n.snapshot(); return idles == 1 })
 	if sent := r.sentTexts(); len(sent) != 0 {
@@ -194,9 +224,6 @@ func TestEmptyTurnGuard_Verdicts(t *testing.T) {
 		}, emptyTurnErrored},
 		{"error turn with partial text", func(t *testing.T) []Event {
 			return []Event{ev(t, EventTypeMessageComplete, MessageCompletePayload{Text: "part", Interrupted: true}), ev(t, EventTypeRunError, RunErrorPayload{Code: "agent_error"}), stop(t)}
-		}, emptyTurnOK},
-		{"budget turn", func(t *testing.T) []Event {
-			return []Event{ev(t, EventTypeRunError, RunErrorPayload{Code: "budget_exhausted"}), stop(t)}
 		}, emptyTurnOK},
 		{"stopped turn", func(t *testing.T) []Event {
 			return []Event{ev(t, EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"}), stop(t)}
@@ -243,7 +270,7 @@ func TestEmptyTurnGuard_OutputResetsReprompt(t *testing.T) {
 // A re-prompt that could not be sent does not count, so the next empty turn
 // is re-prompted instead of failing the run.
 func TestDrain_FailedRepromptDoesNotCount(t *testing.T) {
-	reg, r, n := startEmptyTurnSession(t)
+	reg, r, n := startEmptyTurnSession(t, false)
 	r.mu.Lock()
 	r.sendErr = errors.New("stdin closed")
 	r.mu.Unlock()

@@ -26,10 +26,10 @@ const (
 // called no tool. Some providers end a turn that way, which leaves the run idle
 // with no error. It reads the standard event stream, so it covers every runtime.
 type emptyTurnGuard struct {
-	output     bool             // the model's current response wrote text or called a tool
-	ended      bool             // the turn already ended with a run_error or a stop
-	runError   *RunErrorPayload // the turn's run_error, unless the budget ended it
-	reprompted bool             // the previous turn ended empty and was re-prompted
+	output     bool // the model's current response wrote text or called a tool
+	ended      bool // the turn already ended with a run_error or a stop
+	runError   bool // the turn ended with a run_error
+	reprompted bool // the previous turn ended empty and was re-prompted
 }
 
 // observe records one event and returns the verdict at message_stop.
@@ -55,7 +55,8 @@ func (g *emptyTurnGuard) observe(ev Event) emptyTurnVerdict {
 			g.output = false
 		}
 	case EventTypeRunError:
-		g.recordRunError(ev.Payload)
+		g.runError = true
+		fallthrough
 	case EventTypeTurnStopped:
 		g.ended = true
 	case EventTypeMessageStop:
@@ -64,23 +65,10 @@ func (g *emptyTurnGuard) observe(ev Event) emptyTurnVerdict {
 	return emptyTurnOK
 }
 
-// recordRunError ends the turn and keeps its run_error. A budget error is not
-// kept, because the drain loop already closes the session on it.
-func (g *emptyTurnGuard) recordRunError(payload json.RawMessage) {
-	g.ended = true
-	var p RunErrorPayload
-	if json.Unmarshal(payload, &p) == nil && p.Code != "budget_exhausted" {
-		g.runError = &p
-	}
-}
-
 func (g *emptyTurnGuard) endTurn() emptyTurnVerdict {
 	empty := !g.output && !g.ended
-	errored := g.runError != nil && !g.output
-	g.output, g.ended = false, false
-	if !errored {
-		g.runError = nil
-	}
+	errored := g.runError && !g.output
+	g.output, g.ended, g.runError = false, false, false
 	switch {
 	case errored:
 		return emptyTurnErrored
@@ -113,8 +101,11 @@ func (reg *Registry) turnEnds(ctx context.Context, s *session, ev Event) bool {
 		reg.failEmptyTurn(ctx, s)
 		return false
 	case emptyTurnErrored:
-		reg.failErroredTurn(ctx, s)
-		return false
+		// Only a trigger run fails. A person can answer the error in the idle session.
+		if s.triggered.Load() {
+			reg.failErroredTurn(ctx, s)
+			return false
+		}
 	}
 	// A turn that ends with work still running is not an idle one.
 	if ev.Type != EventTypeMessageStop {
@@ -156,24 +147,26 @@ func (reg *Registry) failEmptyTurn(ctx context.Context, s *session) {
 	_ = s.runner.Close()
 }
 
-// failErroredTurn closes the session so teardown ends the run failed with the
-// run_error the empty turn carried, instead of idling into completed.
+// failErroredTurn closes the session so teardown ends the run failed. The
+// runner already reported the turn's run_error, so teardown sends no other.
 func (reg *Registry) failErroredTurn(ctx context.Context, s *session) {
-	f := *s.emptyTurns.runError
-	s.emptyTurns.runError = nil
 	reg.logger.Error(ctx, "Agent turn ended empty after a run error, failing the run",
 		logging.Field{Key: "run_id", Value: s.runID},
-		logging.Field{Key: "code", Value: f.Code},
 	)
-	s.failure.Store(&f)
+	s.failureSent.Store(true)
 	s.cancel()
 	_ = s.runner.Close()
 }
 
-// failureReason is the run_error for a run that failed when its session closed.
-func (s *session) failureReason() RunErrorPayload {
-	if f := s.failure.Load(); f != nil {
-		return *f
+// reportFailure records the run_error for a run that failed when its session
+// closed, unless the run already reported it.
+func (reg *Registry) reportFailure(ctx context.Context, s *session) {
+	if s.failureSent.Load() {
+		return
 	}
-	return RunErrorPayload{Code: "subprocess_exit", Message: "Agent process exited unexpectedly"}
+	f := RunErrorPayload{Code: "subprocess_exit", Message: "Agent process exited unexpectedly"}
+	if p := s.failure.Load(); p != nil {
+		f = *p
+	}
+	reg.emitRunError(ctx, s.runID, f.Code, f.Message)
 }

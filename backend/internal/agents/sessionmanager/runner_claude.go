@@ -632,8 +632,8 @@ func (r *ClaudeRunner) turnHadText() bool {
 }
 
 // endTurnWithError records a failed turn. The subprocess keeps reading input
-// after an error result, so the turn ends with message_stop and the run idles
-// rather than staying active with nothing running.
+// after an error result, so the turn ends with message_stop. The empty-turn
+// guard fails a trigger run whose errored turn wrote nothing.
 func (r *ClaudeRunner) endTurnWithError(code, msg string) {
 	r.flushPartial()
 	r.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})

@@ -125,6 +125,8 @@ type CreateSessionRequest struct {
 	// IdleTimeoutSecs is how long the run may stay idle before its session
 	// closes. Zero takes the session-manager's default.
 	IdleTimeoutSecs int `json:"idle_timeout_secs,omitempty"`
+	// Triggered marks a run a trigger started.
+	Triggered bool `json:"triggered,omitempty"`
 }
 
 // RunGuardrails carries the install's sandbox settings and the agent type's
@@ -175,11 +177,15 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 
 // SendMessage delivers a user message to an active session on the target pod.
 // A non-zero idleTimeoutSecs replaces the session's idle timeout from this message on.
+// fromPerson marks a message a person sent.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
-func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int) error {
+func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int, fromPerson bool) error {
 	payload := map[string]any{"content": content}
 	if idleTimeoutSecs > 0 {
 		payload["idle_timeout_secs"] = idleTimeoutSecs
+	}
+	if fromPerson {
+		payload["from_person"] = true
 	}
 	body, err := c.EncodeJSON(payload)
 	if err != nil {

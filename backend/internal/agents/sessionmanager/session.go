@@ -90,6 +90,8 @@ type SessionConfig struct {
 	// IdleTimeout is how long the session may sit idle before it closes. Zero
 	// takes the registry's, from session.idleTimeoutSecs.
 	IdleTimeout time.Duration
+	// Triggered marks a run a trigger started.
+	Triggered bool
 }
 
 // session represents one active run backed by a CLI subprocess.
@@ -140,6 +142,11 @@ type session struct {
 	// failure is the run_error teardown records when the session closed to fail
 	// the run. Unset means the process exited on its own.
 	failure atomic.Pointer[RunErrorPayload]
+	// failureSent is set when the run already reported why it failed.
+	failureSent atomic.Bool
+	// triggered is set for a run a trigger started, until a person messages it.
+	// A turn that errors with no output fails only such a run.
+	triggered atomic.Bool
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -208,6 +215,7 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		guardrails:   cfg.Guardrails,
 	}
 	s.idleTimeout.Store(int64(positiveOr(cfg.IdleTimeout, reg.idleTimeout)))
+	s.triggered.Store(cfg.Triggered)
 	// Registered before the runner starts. Start spawns the agent, which calls
 	// back to /internal/runs/{id}/provision-sandbox, and that route answers only
 	// for runs this pod hosts — so the entry has to exist before the process that
@@ -249,6 +257,18 @@ func (reg *Registry) SetIdleTimeout(runID string, d time.Duration) error {
 		return ErrSessionNotFound
 	}
 	s.idleTimeout.Store(int64(positiveOr(d, reg.idleTimeout)))
+	return nil
+}
+
+// MarkManual moves a trigger run to a person's: a person has messaged it.
+func (reg *Registry) MarkManual(runID string) error {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return ErrSessionNotFound
+	}
+	s.triggered.Store(false)
 	return nil
 }
 
@@ -993,6 +1013,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 			} else {
 				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan wakeKind, 1)}
 				newS.idleTimeout.Store(s.idleTimeout.Load())
+				newS.triggered.Store(s.triggered.Load())
 				newS.isIdle.Store(true)
 				newS.stoppedByUser.Store(true)
 				carrySandboxState(s, newS)
@@ -1047,8 +1068,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 		logging.Field{Key: "budget_exhausted", Value: budgetExhausted},
 	)
 	if failed && !budgetExhausted {
-		f := s.failureReason()
-		reg.emitRunError(bgCtx, cfg.RunID, f.Code, f.Message)
+		reg.reportFailure(bgCtx, s)
 	}
 	fromState := "active"
 	if s.isIdle.Load() {

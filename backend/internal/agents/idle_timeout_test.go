@@ -50,8 +50,8 @@ func TestStartRun_SendsIdleTimeoutByOrigin(t *testing.T) {
 		}
 		sm.mu.Lock()
 		defer sm.mu.Unlock()
-		if len(sm.sessions) != 1 || sm.sessions[0].IdleTimeoutSecs != 300 {
-			t.Errorf("sessions = %+v, want one created with idle_timeout_secs 300", sm.sessions)
+		if len(sm.sessions) != 1 || sm.sessions[0].IdleTimeoutSecs != 300 || !sm.sessions[0].Triggered {
+			t.Errorf("sessions = %+v, want one triggered session with idle_timeout_secs 300", sm.sessions)
 		}
 	})
 	t.Run("manual run", func(t *testing.T) {
@@ -64,8 +64,8 @@ func TestStartRun_SendsIdleTimeoutByOrigin(t *testing.T) {
 		}
 		sm.mu.Lock()
 		defer sm.mu.Unlock()
-		if len(sm.sessions) != 1 || sm.sessions[0].IdleTimeoutSecs != 1200 {
-			t.Errorf("sessions = %+v, want one created with idle_timeout_secs 1200", sm.sessions)
+		if len(sm.sessions) != 1 || sm.sessions[0].IdleTimeoutSecs != 1200 || sm.sessions[0].Triggered {
+			t.Errorf("sessions = %+v, want one untriggered session with idle_timeout_secs 1200", sm.sessions)
 		}
 	})
 }
@@ -93,6 +93,9 @@ func TestSendMessage_SwitchesTriggerRunToManualTimeout(t *testing.T) {
 			defer sm.mu.Unlock()
 			if len(sm.sentIdleTimeouts) != 1 || sm.sentIdleTimeouts[0] != tt.want {
 				t.Errorf("idle timeouts sent = %v, want [%d]", sm.sentIdleTimeouts, tt.want)
+			}
+			if len(sm.sentFromPerson) != 1 || !sm.sentFromPerson[0] {
+				t.Errorf("from_person sent = %v, want [true]", sm.sentFromPerson)
 			}
 		})
 	}
