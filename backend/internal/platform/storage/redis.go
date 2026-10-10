@@ -50,7 +50,7 @@ func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*Re
 
 	if err := client.Ping(pingCtx).Err(); err != nil {
 		_ = client.Close()
-		return nil, fmt.Errorf("ping redis: %w", err)
+		return nil, fmt.Errorf("ping redis at %s (tlsEnabled=%t): %w", opts.Addr, cfg.TLSEnabled, err)
 	}
 
 	logger.Info(ctx, "Redis client ready",

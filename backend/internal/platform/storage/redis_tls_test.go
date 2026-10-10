@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -56,7 +57,11 @@ func TestNewRedisTLSAgainstPlaintextFails(t *testing.T) {
 		DialTimeoutSeconds: 1, ReadTimeoutSeconds: 1, WriteTimeoutSeconds: 1}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := NewRedis(ctx, cfg, logging.NewLogger()); err == nil {
+	_, err = NewRedis(ctx, cfg, logging.NewLogger())
+	if err == nil {
 		t.Fatal("TLS to a plaintext Redis must fail at startup")
+	}
+	if !strings.Contains(err.Error(), "tlsEnabled=true") {
+		t.Errorf("error %q does not say TLS was on", err)
 	}
 }
