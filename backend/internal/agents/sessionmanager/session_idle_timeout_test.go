@@ -263,36 +263,41 @@ func TestDrain_NewTurnWithinGraceKeepsRunActive(t *testing.T) {
 
 // The timeout moves only with a delivered message: a failed send leaves a
 // trigger run on its own timeout.
-func TestHandleSendMessage_IdleTimeoutAppliesOnlyWhenDelivered(t *testing.T) {
+func TestHandleSendMessage_PersonSwitchAppliesOnlyWhenDelivered(t *testing.T) {
 	tests := []struct {
-		name    string
-		sendErr error
-		want    time.Duration
+		name          string
+		sendErr       error
+		want          time.Duration
+		wantTriggered bool
 	}{
 		{name: "delivered", want: 20 * time.Minute},
-		{name: "send failed", sendErr: io.ErrClosedPipe, want: 5 * time.Minute},
+		{name: "send failed", sendErr: io.ErrClosedPipe, want: 5 * time.Minute, wantTriggered: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			reg, _ := newRegistryFor(t, time.Hour)
 			r := newScriptRunner()
 			r.sendErr = tt.sendErr
-			if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r, IdleTimeout: 5 * time.Minute}); err != nil {
+			if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r, IdleTimeout: 5 * time.Minute, Triggered: true}); err != nil {
 				t.Fatalf("Create: %v", err)
 			}
 			t.Cleanup(func() { _ = reg.Close(context.Background(), "run-1") })
 			ctrl := &Controller{logger: logging.NewLoggerWithOutput(io.Discard), registry: reg}
 
-			req := httptest.NewRequest(http.MethodPost, "/session/run-1/messages", strings.NewReader(`{"content":"hi","idle_timeout_secs":1200}`))
+			req := httptest.NewRequest(http.MethodPost, "/session/run-1/messages", strings.NewReader(`{"content":"hi","idle_timeout_secs":1200,"from_person":true}`))
 			req.SetPathValue("runID", "run-1")
 			req.Header.Set("Content-Type", "application/json")
 			ctrl.handleSendMessage(httptest.NewRecorder(), req)
 
 			reg.mu.RLock()
 			got := time.Duration(reg.sessions["run-1"].idleTimeout.Load())
+			triggered := reg.sessions["run-1"].triggered.Load()
 			reg.mu.RUnlock()
 			if got != tt.want {
 				t.Errorf("idle timeout = %s, want %s", got, tt.want)
+			}
+			if triggered != tt.wantTriggered {
+				t.Errorf("triggered = %v, want %v", triggered, tt.wantTriggered)
 			}
 		})
 	}

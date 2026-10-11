@@ -255,6 +255,9 @@ type CreateSessionRequest struct {
 	// closes, chosen by orbit-agents from how the run started. Zero takes this
 	// pod's session.idleTimeoutSecs.
 	IdleTimeoutSecs int `json:"idle_timeout_secs"`
+	// Triggered marks a run a trigger started. A turn that errors with no
+	// output fails such a run, until a person messages it.
+	Triggered bool `json:"triggered"`
 }
 
 // RunGuardrails is the wire form of a run's guardrails.
@@ -398,6 +401,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		InferenceURL: inferenceURL,
 		Guardrails:   req.Guardrails.guardrails(),
 		IdleTimeout:  idleTimeoutFromSecs(req.IdleTimeoutSecs),
+		Triggered:    req.Triggered,
 	}
 
 	if err := c.registry.Create(ctx, cfg); err != nil {
@@ -522,6 +526,8 @@ type SendMessageRequest struct {
 	// IdleTimeoutSecs, when above zero, replaces the session's idle timeout from
 	// this message on: orbit-agents sets it when a person messages a trigger run.
 	IdleTimeoutSecs int `json:"idle_timeout_secs"`
+	// FromPerson marks a message a person sent, which moves a trigger run to a person's.
+	FromPerson bool `json:"from_person"`
 }
 
 // handleSendMessage delivers a user message to an active session.
@@ -539,7 +545,13 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The switch comes before delivery, so a turn that ends while the message
+	// is on its way already belongs to a person.
+	wasTriggered := req.FromPerson && c.registry.SetTriggered(runID, false)
 	if err := c.registry.Send(ctx, runID, req.Content); err != nil {
+		if wasTriggered {
+			c.registry.SetTriggered(runID, true)
+		}
 		if errors.Is(err, ErrSessionNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
