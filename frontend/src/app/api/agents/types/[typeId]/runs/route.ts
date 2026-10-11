@@ -1,7 +1,7 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
-import { agentsClient } from '@orbit/server/agents-client';
+import { agentsClient, START_RUN_TIMEOUT_MS } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
 import { listRunsWithNames, pickRunsPageParams } from '@orbit/server/services/runs-server';
 import type { AgentType } from '@orbit/shared/api';
@@ -67,12 +67,16 @@ export const POST = withAuth(
       const client = agentsClient(session.accessToken);
       // created_by is intentionally not sent — the backend derives the run creator
       // from the verified platform token, never from the request body.
-      const run = await client.post<unknown>('/api/v1/runs', {
-        tenant_id: session.tenantId,
-        agent_type_id: agentTypeId,
-        initial_message: body.task ?? '',
-        provision_sandbox: body.provision_sandbox ?? false,
-      });
+      const run = await client.post<unknown>(
+        '/api/v1/runs',
+        {
+          tenant_id: session.tenantId,
+          agent_type_id: agentTypeId,
+          initial_message: body.task ?? '',
+          provision_sandbox: body.provision_sandbox ?? false,
+        },
+        START_RUN_TIMEOUT_MS,
+      );
       return NextResponse.json({ data: run }, { status: 201 });
     } catch (err) {
       if (err instanceof ApiError) {

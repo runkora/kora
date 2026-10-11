@@ -42,7 +42,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			if a.AgentTypeID == "" {
 				return toolError(errors.New("agent_type_id is required")), nil
 			}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), base, a))
+			return jsonResult(jc.PostWithTimeout(ctx, callerToken(ctx), base, a, orbitjson.StartRunTimeout))
 		})
 
 	addTool(srv, "runs.send_message",

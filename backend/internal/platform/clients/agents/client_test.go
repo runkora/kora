@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -156,5 +157,31 @@ func TestStartRun_StatusMapping(t *testing.T) {
 		if !errors.Is(err, tt.want) {
 			t.Errorf("status %d: got %v, want %v", tt.status, err, tt.want)
 		}
+	}
+}
+
+// TestStartRun_OutlastsDefaultTimeout covers a run start that waits on a
+// rolling pod: it must not be cut off at the limit that applies to other calls.
+func TestStartRun_OutlastsDefaultTimeout(t *testing.T) {
+	defaultTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { defaultTimeout = 30 * time.Second })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		time.Sleep(200 * time.Millisecond)
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"id":"run-1","state":"active"}`))
+	}))
+	t.Cleanup(srv.Close)
+	c := NewClient(srv.URL, logging.NewLoggerWithOutput(io.Discard))
+
+	if _, err := c.GetAgentType(context.Background(), "tok", "at-1"); err == nil {
+		t.Fatal("GetAgentType: want timeout error")
+	}
+	out, err := c.StartRun(context.Background(), "tok", StartRunRequest{AgentTypeID: "at-1"})
+	if err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
+	if out.ID != "run-1" {
+		t.Errorf("response = %+v", out)
 	}
 }
