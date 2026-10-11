@@ -305,7 +305,13 @@ func TestConnector_Classify(t *testing.T) {
 
 		// Repo-less endpoints: unqualified
 		{"graphql_no_body", http.MethodPost, "https://api.github.com/graphql", "repo:write", "", false},
-		{"search", http.MethodGet, "https://api.github.com/search/code?q=x", "repo:read", "", false},
+		{"search_code", http.MethodGet, "https://api.github.com/search/code?q=x", "contents:read", "", false},
+		{"search_issues_repo", http.MethodGet, "https://api.github.com/search/issues?q=is:open+repo:orbital/orbit", "issues:read", "orbit", false},
+		{"search_issues_two_repos", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/orbit+repo:orbital/other", "issues:read", "", false},
+		{"search_issues_foreign_repo", http.MethodGet, "https://api.github.com/search/issues?q=repo:evil/orbit", "issues:read", "", false},
+		{"search_commits_repo", http.MethodGet, "https://api.github.com/search/commits?q=fix+repo:Orbital/Orbit", "contents:read", "orbit", false},
+		{"search_repositories", http.MethodGet, "https://api.github.com/search/repositories?q=x", "metadata:read", "", false},
+		{"search_unknown", http.MethodGet, "https://api.github.com/search/other?q=x", "repo:read", "", false},
 		{"rate_limit", http.MethodGet, "https://api.github.com/rate_limit", "metadata:read", "", false},
 		{"user", http.MethodGet, "https://api.github.com/user", "metadata:read", "", false},
 		{"installation_repos", http.MethodGet, "https://api.github.com/installation/repositories", "metadata:read", "", false},
