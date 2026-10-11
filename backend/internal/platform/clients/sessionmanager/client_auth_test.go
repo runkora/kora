@@ -51,7 +51,7 @@ func TestClient_SendsBearerOnEverySessionCall(t *testing.T) {
 			name:   "SendMessage",
 			status: http.StatusAccepted,
 			call: func(c *Client, url string) error {
-				return c.SendMessage(context.Background(), url, "run-1", "hello")
+				return c.SendMessage(context.Background(), url, "run-1", "hello", 0)
 			},
 		},
 		{
@@ -113,5 +113,35 @@ func TestPodURL_TargetsTheSessionManagerPort(t *testing.T) {
 	}
 	if !strings.HasSuffix(got, "8090") {
 		t.Errorf("PodURL must target the port the AuthorizationPolicy restricts")
+	}
+}
+
+// The idle timeout rides on the message only when there is one to change.
+func TestClient_SendMessageIdleTimeout(t *testing.T) {
+	tests := []struct {
+		name string
+		secs int
+		want string
+	}{
+		{name: "omitted when zero", secs: 0, want: `{"content":"hi"}`},
+		{name: "sent when set", secs: 1200, want: `{"content":"hi","idle_timeout_secs":1200}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var body []byte
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, _ = io.ReadAll(r.Body)
+				w.WriteHeader(http.StatusAccepted)
+			}))
+			t.Cleanup(srv.Close)
+			c := NewClient(logging.NewLoggerWithOutput(io.Discard), staticToken("tok"))
+
+			if err := c.SendMessage(context.Background(), srv.URL, "run-1", "hi", tc.secs); err != nil {
+				t.Fatalf("SendMessage: %v", err)
+			}
+			if got := strings.TrimSpace(string(body)); got != tc.want {
+				t.Errorf("body = %s, want %s", got, tc.want)
+			}
+		})
 	}
 }

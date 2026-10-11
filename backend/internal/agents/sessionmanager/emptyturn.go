@@ -78,6 +78,10 @@ func (g *emptyTurnGuard) endTurn() emptyTurnVerdict {
 // turnEnds observes ev for the empty-turn guard. It reports whether ev ends the
 // turn and leaves the run idle. A re-prompted turn goes on and a failed one closes.
 func (reg *Registry) turnEnds(ctx context.Context, s *session, ev Event) bool {
+	if !isStatusEvent(ev.Type) {
+		s.held.Store(false)
+		s.activity.Add(1)
+	}
 	switch s.emptyTurns.observe(ev) {
 	case emptyTurnReprompt:
 		if reg.repromptEmptyTurn(ctx, s) {
@@ -89,7 +93,15 @@ func (reg *Registry) turnEnds(ctx context.Context, s *session, ev Event) bool {
 		reg.failEmptyTurn(ctx, s)
 		return false
 	}
-	return ev.Type == EventTypeMessageStop
+	// A turn that ends with work still running is not an idle one.
+	if ev.Type != EventTypeMessageStop {
+		return false
+	}
+	if reg.holdForWork(ctx, s) {
+		s.held.Store(true)
+		return false
+	}
+	return true
 }
 
 // repromptEmptyTurn asks the agent to continue after an empty turn. It reports

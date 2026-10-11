@@ -47,6 +47,16 @@ var (
 	ErrUnexpectedStatus = errors.New("unexpected status from session-manager")
 )
 
+// StatusError carries the HTTP status of a response the pod rejected. It wraps
+// the sentinel, so errors.Is keeps working.
+type StatusError struct {
+	StatusCode int
+	Err        error
+}
+
+func (e *StatusError) Error() string { return e.Err.Error() }
+func (e *StatusError) Unwrap() error { return e.Err }
+
 // TokenFunc returns the caller's own platform token. orbit-agents supplies
 // identity.Client.SelfTokenSource(), which exchanges the pod's SPIRE SVID for a
 // SYSTEM token named "orbit-agents" and caches it until expiry — the same
@@ -112,6 +122,9 @@ type CreateSessionRequest struct {
 	// Guardrails are the run's thresholds; a zero field takes the
 	// session-manager's default (docs/adr/2026-09-29-agent-run-guardrails.md).
 	Guardrails RunGuardrails `json:"guardrails"`
+	// IdleTimeoutSecs is how long the run may stay idle before its session
+	// closes. Zero takes the session-manager's default.
+	IdleTimeoutSecs int `json:"idle_timeout_secs,omitempty"`
 }
 
 // RunGuardrails carries the install's sandbox settings and the agent type's
@@ -156,14 +169,19 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 	case http.StatusConflict:
 		return c.HandleErrorResponse(span, resp, ErrSessionConflict)
 	default:
-		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+		return &StatusError{StatusCode: resp.StatusCode, Err: c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)}
 	}
 }
 
 // SendMessage delivers a user message to an active session on the target pod.
+// A non-zero idleTimeoutSecs replaces the session's idle timeout from this message on.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
-func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string) error {
-	body, err := c.EncodeJSON(map[string]string{"content": content})
+func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int) error {
+	payload := map[string]any{"content": content}
+	if idleTimeoutSecs > 0 {
+		payload["idle_timeout_secs"] = idleTimeoutSecs
+	}
+	body, err := c.EncodeJSON(payload)
 	if err != nil {
 		return fmt.Errorf("encode send message: %w", err)
 	}

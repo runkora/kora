@@ -251,6 +251,10 @@ type CreateSessionRequest struct {
 	// Guardrails are the run's thresholds from orbit-agents; zero fields take
 	// this pod's defaults (docs/adr/2026-09-29-agent-run-guardrails.md).
 	Guardrails RunGuardrails `json:"guardrails"`
+	// IdleTimeoutSecs is how long the run may stay idle before its session
+	// closes, chosen by orbit-agents from how the run started. Zero takes this
+	// pod's session.idleTimeoutSecs.
+	IdleTimeoutSecs int `json:"idle_timeout_secs"`
 }
 
 // RunGuardrails is the wire form of a run's guardrails.
@@ -275,6 +279,15 @@ func (g RunGuardrails) guardrails() Guardrails {
 		WaitRearmWarn:            g.WaitRearmWarn,
 		WaitRearmPause:           g.WaitRearmPause,
 	}
+}
+
+// idleTimeoutFromSecs converts a wire timeout. Zero and negative values mean
+// unset, and stay zero for the registry's fallback.
+func idleTimeoutFromSecs(secs int) time.Duration {
+	if secs <= 0 {
+		return 0
+	}
+	return time.Duration(secs) * time.Second
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -384,6 +397,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		Model:        req.Model,
 		InferenceURL: inferenceURL,
 		Guardrails:   req.Guardrails.guardrails(),
+		IdleTimeout:  idleTimeoutFromSecs(req.IdleTimeoutSecs),
 	}
 
 	if err := c.registry.Create(ctx, cfg); err != nil {
@@ -505,6 +519,9 @@ func (c *Controller) requireRunToken(w http.ResponseWriter, r *http.Request, run
 // SendMessageRequest is the body for POST /session/{runID}/messages.
 type SendMessageRequest struct {
 	Content string `json:"content"`
+	// IdleTimeoutSecs, when above zero, replaces the session's idle timeout from
+	// this message on: orbit-agents sets it when a person messages a trigger run.
+	IdleTimeoutSecs int `json:"idle_timeout_secs"`
 }
 
 // handleSendMessage delivers a user message to an active session.
@@ -531,6 +548,15 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send message", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
+	}
+	// Only a delivered message changes the timeout. The turn it starts is far from over.
+	if req.IdleTimeoutSecs > 0 {
+		if err := c.registry.SetIdleTimeout(runID, idleTimeoutFromSecs(req.IdleTimeoutSecs)); err != nil {
+			c.logger.Warn(ctx, "Failed to apply the idle timeout after a message",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
 	}
 
 	api.NoBody(w, http.StatusAccepted)

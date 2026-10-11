@@ -89,9 +89,9 @@ active ──→ failed   (reaper: stuck mid-turn too long)
 |---|---|---|---|
 | `pending` | `starting` | orbit-agents | Pod ordinal selected; `AssignPod` called |
 | `starting` | `active` | session-manager | Subprocess started; initial message delivered to Claude |
-| `active` | `idle` | session-manager | `message_stop` event received — agent turn complete |
+| `active` | `idle` | session-manager | `message_stop` event received — agent turn complete, and no subagent or background task still running |
 | `idle` | `active` | session-manager | First event from Claude runner on new turn (agent responding) |
-| `idle` | `completed` | session-manager | Idle timer fires (20 min of no new message) → `CompleteRun(from="idle", failed=false)` |
+| `idle` | `completed` | session-manager | Idle timer fires (`agents.idleTimeout` in the chart: 20 min for a run a person started, 5 min for a trigger run until a person messages it) → `CompleteRun(from="idle", failed=false)` |
 | `active` | `completed` | session-manager | Subprocess exited cleanly (`intentionalClose=true`) → `CompleteRun(from="active", failed=false)` |
 | `active` | `failed` | session-manager | Subprocess exited unexpectedly (`intentionalClose=false`) → `CompleteRun(from="active", failed=true)` |
 | `idle` | `failed` | session-manager | Subprocess exited unexpectedly while idle → `CompleteRun(from="idle", failed=true)` |

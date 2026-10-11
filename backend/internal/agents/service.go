@@ -20,6 +20,9 @@ type k8sProvisioner interface {
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
+	// ReadyOrdinals returns the ordinals of pods that are Ready and run the
+	// StatefulSet's current template.
+	ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error)
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
@@ -30,7 +33,8 @@ type k8sProvisioner interface {
 // smClient abstracts sessionmanager.Client so it can be replaced in tests.
 type smClient interface {
 	CreateSession(ctx context.Context, podURL string, req sessionmanager.CreateSessionRequest) error
-	SendMessage(ctx context.Context, podURL, runID, content string) error
+	// idleTimeoutSecs, when above zero, replaces the session's idle timeout from this message on.
+	SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int) error
 	InterruptSession(ctx context.Context, podURL, runID string) error
 	CloseSession(ctx context.Context, podURL, runID string) error
 }

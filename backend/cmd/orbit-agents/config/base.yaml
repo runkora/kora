@@ -57,6 +57,10 @@ agents:
     sandboxProvisionAttempts: 3
     sandboxProvisionBackoffSecs: 5
     sandboxProvisionBudgetSecs: 300
+  # Idle timeouts by how the run started. See the chart's agents.idleTimeout.
+  idleTimeout:
+    manualSecs: 1200
+    triggerSecs: 300
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap.
   manifestPatchDir: /etc/orbit/manifest-patches
