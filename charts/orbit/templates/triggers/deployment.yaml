@@ -32,6 +32,7 @@ spec:
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.configVolume" (dict "root" $ "name" "triggers" "configMap" "orbit-triggers-config" "modules" (include "orbit.triggers.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "triggers") | nindent 8 }}
       containers:
         - name: orbit-triggers
@@ -69,4 +70,5 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "triggers") | nindent 12 }}

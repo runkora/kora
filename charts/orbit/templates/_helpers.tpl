@@ -312,6 +312,43 @@ data:
   {{- end }}
 {{- end }}
 
+{{/* "true" when Redis TLS is on: config.redis.tls.enabled, on when unset. Take the root context. */}}
+{{- define "orbit.redisTLSEnabled" -}}
+{{- $tls := .Values.config.redis.tls | default dict }}
+{{- if or (not (hasKey $tls "enabled")) $tls.enabled }}true{{ end }}
+{{- end }}
+
+{{/* Path of the Redis CA bundle inside the pod, rendered into the storage config as caFile. */}}
+{{- define "orbit.redisCAFile" -}}
+/etc/orbit/redis-ca/ca.crt
+{{- end }}
+
+{{/*
+Volume and mount for the Redis CA bundle from config.redis.tls.caSecret, for the
+workloads that open a Redis client: identity, inference-gateway and triggers.
+Take the root context.
+*/}}
+{{- define "orbit.redisCAVolume" -}}
+{{- $tls := .Values.config.redis.tls | default dict }}
+{{- if and (include "orbit.redisTLSEnabled" .) $tls.caSecret }}
+- name: redis-ca
+  secret:
+    secretName: {{ $tls.caSecret }}
+    items:
+      - key: ca.crt
+        path: ca.crt
+{{- end }}
+{{- end }}
+
+{{- define "orbit.redisCAVolumeMount" -}}
+{{- $tls := .Values.config.redis.tls | default dict }}
+{{- if and (include "orbit.redisTLSEnabled" .) $tls.caSecret }}
+- name: redis-ca
+  mountPath: {{ include "orbit.redisCAFile" . | dir }}
+  readOnly: true
+{{- end }}
+{{- end }}
+
 {{- define "orbit.configVolume" -}}
 - name: config-files
   configMap:
@@ -343,18 +380,34 @@ internal/platform/observability:
   {{- end }}
 {{- end }}
 
+{{/*
+Storage config module. Take the root context, or (dict "root" . "redisClient" true)
+in the workloads that open a Redis client, which also get the CA file path.
+*/}}
 {{- define "orbit.storageConfigModule" -}}
+{{- $root := .root | default . }}
 internal/platform/storage:
   postgres:
-    host: {{ required "config.db.host must be set" .Values.config.db.host | toJson }}
-    port: {{ .Values.config.db.port | int }}
-    database: {{ .Values.config.db.name | toJson }}
-    user: {{ .Values.config.db.user | toJson }}
-    sslMode: {{ .Values.global.postgres.sslMode | toJson }}
-    captureQueryText: {{ eq (toString .Values.global.postgres.captureQueryText) "true" }}
+    host: {{ required "config.db.host must be set" $root.Values.config.db.host | toJson }}
+    port: {{ $root.Values.config.db.port | int }}
+    database: {{ $root.Values.config.db.name | toJson }}
+    user: {{ $root.Values.config.db.user | toJson }}
+    sslMode: {{ $root.Values.global.postgres.sslMode | toJson }}
+    captureQueryText: {{ eq (toString $root.Values.global.postgres.captureQueryText) "true" }}
   redis:
-    host: {{ required "config.redis.host must be set" .Values.config.redis.host | toJson }}
-    port: {{ .Values.config.redis.port | int }}
+    host: {{ required "config.redis.host must be set" $root.Values.config.redis.host | toJson }}
+    port: {{ $root.Values.config.redis.port | int }}
+    {{- $tls := $root.Values.config.redis.tls | default dict }}
+    {{- $tlsOn := include "orbit.redisTLSEnabled" $root }}
+    tlsEnabled: {{ eq $tlsOn "true" }}
+    {{- if $tlsOn }}
+    {{- with $tls.serverName }}
+    serverName: {{ . | toJson }}
+    {{- end }}
+    {{- if and .redisClient $tls.caSecret }}
+    caFile: {{ include "orbit.redisCAFile" $root | toJson }}
+    {{- end }}
+    {{- end }}
 {{- end }}
 
 {{- define "orbit.tokenConfigModule" -}}

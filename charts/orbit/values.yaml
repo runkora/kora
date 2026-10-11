@@ -70,6 +70,15 @@ config:
   redis:
     host: ""
     port: 6379
+    tls:
+      # -- Connect to Redis over TLS 1.2 or later. Set false for a Redis that
+      # serves plaintext.
+      enabled: true
+      # -- Secret in the system namespace holding the CA bundle under key
+      # ca.crt. Empty trusts the system roots.
+      caSecret: ""
+      # -- Name checked against the Redis certificate. Empty uses config.redis.host.
+      serverName: ""
   # Holds DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY,
   # ORBIT_TRIGGERS_ENCRYPTION_KEY. Not created by the chart.
   platformSecretName: orbit-secrets

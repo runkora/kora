@@ -18,6 +18,9 @@ config:
     host: orbit-postgres
   redis:
     host: orbit-redis
+    # The compose Redis serves plaintext.
+    tls:
+      enabled: false
 
 identity:
   config:

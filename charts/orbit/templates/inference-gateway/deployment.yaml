@@ -34,6 +34,7 @@ spec:
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.configVolume" (dict "root" $ "name" "inferenceGateway" "configMap" "orbit-inference-gateway-config" "modules" (include "orbit.inferenceGateway.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "inferenceGateway") | nindent 8 }}
       containers:
         - name: orbit-inference-gateway
@@ -71,4 +72,5 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "inferenceGateway") | nindent 12 }}

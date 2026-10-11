@@ -333,6 +333,8 @@ config:
   redis:
     host: redis.example.internal
     port: 6379
+    tls:
+      caSecret: redis-ca      # only for a private CA
   platformSecretName: orbit-secrets
 
 networkPolicy:
@@ -350,6 +352,8 @@ ingressGateway:
   service:
     type: LoadBalancer
 ```
+
+Redis TLS is on by default. Set `config.redis.tls.enabled: false` for a Redis that serves plaintext.
 
 `global` holds the values every service shares: trust domain, image registry and tag, log format, Postgres SSL mode, and OTLP settings.
 

@@ -23,7 +23,13 @@ func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*Re
 		logging.Field{Key: "db", Value: cfg.DB},
 	)
 
+	tlsCfg, err := cfg.tlsConfig()
+	if err != nil {
+		return nil, fmt.Errorf("tls: %w", err)
+	}
+
 	opts := &redis.Options{
+		TLSConfig:       tlsCfg,
 		Addr:            fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
 		Password:        cfg.Password,
 		DB:              cfg.DB,
@@ -44,7 +50,7 @@ func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*Re
 
 	if err := client.Ping(pingCtx).Err(); err != nil {
 		_ = client.Close()
-		return nil, fmt.Errorf("ping redis: %w", err)
+		return nil, fmt.Errorf("ping redis at %s (tlsEnabled=%t): %w", opts.Addr, cfg.TLSEnabled, err)
 	}
 
 	logger.Info(ctx, "Redis client ready",

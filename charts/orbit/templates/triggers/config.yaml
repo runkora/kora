@@ -11,7 +11,7 @@ cmd/orbit-triggers:
     policyServiceInternalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
     bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
-{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "orbit.tokenConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "triggers" "configMap" "orbit-triggers-config" "modules" (include "orbit.triggers.configModules" . | fromYaml)) }}
