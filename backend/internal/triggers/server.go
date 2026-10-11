@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -404,13 +405,32 @@ func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error 
 
 func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	deliveries, err := c.svc.ListDeliveries(ctx, tenantFromCtx(ctx), DeliveryFilter{
-		SourceID:  r.URL.Query().Get("source_id"),
-		TriggerID: r.URL.Query().Get("trigger_id"),
-		Kind:      r.URL.Query().Get("kind"),
-		Limit:     limit,
-	})
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	filter := DeliveryFilter{
+		SourceID:    q.Get("source_id"),
+		TriggerID:   q.Get("trigger_id"),
+		Kind:        q.Get("kind"),
+		OmitPayload: q.Get("omit_payload") == "true",
+		Limit:       limit,
+	}
+	for _, b := range []struct {
+		field string
+		dst   *time.Time
+	}{{"received_after", &filter.ReceivedAfter}, {"received_before", &filter.ReceivedBefore}} {
+		raw := q.Get(b.field)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, b.field+" must be an RFC 3339 timestamp", map[string]any{"field": b.field})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+			return
+		}
+		*b.dst = t
+	}
+	deliveries, err := c.svc.ListDeliveries(ctx, tenantFromCtx(ctx), filter)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return

@@ -18,24 +18,13 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 	base := b.Agents + "/api/v1/runs"
 
 	addTool(srv, "runs.list",
-		"List agent runs in the caller's tenant, newest first, optionally filtered to one agent type or to run states. "+
+		"List agent runs in the caller's tenant, newest first, optionally filtered to one agent type, to run states, or to a time window. "+
+			"created_after (inclusive) and created_before (exclusive) are RFC 3339 timestamps bounding when runs were created; "+
+			"keep the same window while paging. "+
 			"Paginated: it returns at most `limit` runs plus `next_cursor`. Fetch the next page by calling again with "+
 			"cursor = the previous next_cursor and the same filters; next_cursor is null on the last page.",
 		func(ctx context.Context, a listRunsArgs) (*sdk.CallToolResult, error) {
-			q := url.Values{}
-			if a.AgentTypeID != "" {
-				q.Set("agent_type_id", a.AgentTypeID)
-			}
-			if a.State != "" {
-				q.Set("state", a.State)
-			}
-			if a.Cursor != "" {
-				q.Set("cursor", a.Cursor)
-			}
-			if a.Limit != 0 {
-				q.Set("limit", strconv.Itoa(a.Limit))
-			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base, q))
+			return jsonResult(jc.Get(ctx, callerToken(ctx), base, listRunsQuery(a)))
 		})
 
 	addTool(srv, "runs.get",
@@ -111,10 +100,33 @@ type runIDArgs struct {
 }
 
 type listRunsArgs struct {
-	AgentTypeID string `json:"agent_type_id,omitempty" jsonschema:"filter runs to this agent type id (optional) — call the agents.list tool for ids"`
-	State       string `json:"state,omitempty" jsonschema:"comma-separated run states to filter to (optional), e.g. pending,starting,active,completing"`
-	Cursor      string `json:"cursor,omitempty" jsonschema:"the previous response's next_cursor, to fetch the next page"`
-	Limit       int    `json:"limit,omitempty" jsonschema:"max runs to return (default 50, max 200)"`
+	AgentTypeID   string `json:"agent_type_id,omitempty" jsonschema:"filter runs to this agent type id (optional) — call the agents.list tool for ids"`
+	State         string `json:"state,omitempty" jsonschema:"comma-separated run states to filter to (optional), e.g. pending,starting,active,completing"`
+	CreatedAfter  string `json:"created_after,omitempty" jsonschema:"only runs created at or after this RFC 3339 timestamp (optional)"`
+	CreatedBefore string `json:"created_before,omitempty" jsonschema:"only runs created before this RFC 3339 timestamp (optional)"`
+	Cursor        string `json:"cursor,omitempty" jsonschema:"the previous response's next_cursor, to fetch the next page"`
+	Limit         int    `json:"limit,omitempty" jsonschema:"max runs to return (default 50, max 200)"`
+}
+
+// listRunsQuery maps the runs.list arguments to the list endpoint's query
+// parameters, leaving out the ones not set.
+func listRunsQuery(a listRunsArgs) url.Values {
+	q := url.Values{}
+	for key, value := range map[string]string{
+		"agent_type_id":  a.AgentTypeID,
+		"state":          a.State,
+		"created_after":  a.CreatedAfter,
+		"created_before": a.CreatedBefore,
+		"cursor":         a.Cursor,
+	} {
+		if value != "" {
+			q.Set(key, value)
+		}
+	}
+	if a.Limit != 0 {
+		q.Set("limit", strconv.Itoa(a.Limit))
+	}
+	return q
 }
 
 type startRunArgs struct {

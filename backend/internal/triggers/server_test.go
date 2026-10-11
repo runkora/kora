@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"slices"
 	"testing"
 	"time"
@@ -616,5 +617,45 @@ func TestHandleProviderFields(t *testing.T) {
 		map[string]string{"provider": "gitlab"}, nil)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("unknown provider status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleListDeliveries_TimeAndPayload(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
+	now := time.Now()
+	for i, id := range []string{"old", "new"} {
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+			ID: id, TenantID: testTenant, SourceID: src.ID, EventType: "push", Status: StatusSkipped,
+			Payload: []byte(`{"a":1}`), PayloadExcerpt: "x", ReceivedAt: now.Add(time.Duration(i-2) * time.Hour),
+		})
+	}
+	list := func(query string) (int, []Delivery) {
+		w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?"+query, nil, nil)
+		if w.Code != http.StatusOK {
+			return w.Code, nil
+		}
+		return w.Code, decode[struct {
+			Deliveries []Delivery `json:"deliveries"`
+		}](t, w).Deliveries
+	}
+
+	cut := url.QueryEscape(now.Add(-90 * time.Minute).UTC().Format(time.RFC3339))
+	if code, got := list("received_after=" + cut); code != 200 || len(got) != 1 || got[0].ID != "new" {
+		t.Errorf("received_after: %d %+v, want only new", code, got)
+	}
+	if code, got := list("received_before=" + cut); code != 200 || len(got) != 1 || got[0].ID != "old" {
+		t.Errorf("received_before: %d %+v, want only old", code, got)
+	}
+	if _, got := list(""); len(got) != 2 || len(got[0].Payload) == 0 {
+		t.Errorf("default listing = %+v, want payloads", got)
+	}
+	if _, got := list("omit_payload=true"); len(got) != 2 || len(got[0].Payload) != 0 || got[0].PayloadExcerpt != "x" {
+		t.Errorf("omit_payload listing = %+v, want excerpt without payload", got)
+	}
+	for _, q := range []string{"received_after=yesterday", "received_before=2026-13-01T00:00:00Z"} {
+		if code, _ := list(q); code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", q, code)
+		}
 	}
 }

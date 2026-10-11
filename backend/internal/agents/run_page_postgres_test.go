@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -196,5 +197,28 @@ func TestPostgres_AgentRunStatsSingleAgentScope(t *testing.T) {
 	got, err := r.RunStats(context.Background(), tenant, RunScope{AgentTypeIDs: []string{a.ID}, Vis: RunVisibility{SeeAll: true}}, now.Add(-24*h), now)
 	if err != nil || got.Total != 3 || got.Completed != 3 || got.Current.Total != 3 || got.Durations.MedianMs != h.Milliseconds() {
 		t.Errorf("stats = %+v, %v; want a's three one-hour runs only", got, err)
+	}
+}
+
+func TestPostgres_ListRunsTimeBounds(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	scope := RunScope{AgentTypeIDs: []string{at.ID}, Vis: RunVisibility{SeeAll: true}}
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	var ids []string
+	for i := range 6 {
+		ids = append(ids, seedRunAt(t, r, tenant, at.ID, "bob", RunStateCompleted, base.Add(-time.Duration(i)*time.Minute), nil))
+	}
+	// ids[0] is newest. after is inclusive and before is exclusive.
+	after, before := base.Add(-4*time.Minute), base.Add(-time.Minute)
+
+	if got := walkRepo(t, r, tenant, RunListQuery{Scope: scope, CreatedAfter: after, Limit: 2}); !slices.Equal(got, ids[:5]) {
+		t.Errorf("created_after = %v, want %v", got, ids[:5])
+	}
+	if got := walkRepo(t, r, tenant, RunListQuery{Scope: scope, CreatedBefore: before, Limit: 2}); !slices.Equal(got, ids[2:]) {
+		t.Errorf("created_before = %v, want %v", got, ids[2:])
+	}
+	if got := walkRepo(t, r, tenant, RunListQuery{Scope: scope, CreatedAfter: after, CreatedBefore: before, Limit: 2}); !slices.Equal(got, ids[2:5]) {
+		t.Errorf("window = %v, want %v", got, ids[2:5])
 	}
 }

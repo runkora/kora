@@ -267,6 +267,12 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, q RunListQ
 		if len(q.States) > 0 && !slices.Contains(q.States, r.State) {
 			continue
 		}
+		if !q.CreatedAfter.IsZero() && r.CreatedAt.Before(q.CreatedAfter) {
+			continue
+		}
+		if !q.CreatedBefore.IsZero() && !r.CreatedAt.Before(q.CreatedBefore) {
+			continue
+		}
 		if a := q.After; a != nil && (r.CreatedAt.After(a.CreatedAt) || (r.CreatedAt.Equal(a.CreatedAt) && r.ID >= a.ID)) {
 			continue
 		}

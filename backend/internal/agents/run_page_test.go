@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"slices"
 	"testing"
@@ -319,5 +320,66 @@ func TestHandleTenantRunStats(t *testing.T) {
 				t.Errorf("status = %d, want %d (body: %s)", w.Code, tc.want, w.Body.String())
 			}
 		})
+	}
+}
+
+func TestListRuns_TimeWindowPages(t *testing.T) {
+	svc, repo, _, _ := newTestService(t)
+	seedRunsAcrossTypes(t, repo, "t-1", 130, 3)
+	ctx := withTenantCtx(context.Background(), "t-1")
+	all, _ := walkRuns(t, ctx, svc.run, "", RunListQuery{Limit: 200})
+
+	after, before := all[100].CreatedAt, all[20].CreatedAt
+	var want []string
+	for _, r := range all {
+		if !r.CreatedAt.Before(after) && r.CreatedAt.Before(before) {
+			want = append(want, r.ID)
+		}
+	}
+	if len(want) == 0 || len(want) == len(all) {
+		t.Fatalf("window holds %d of %d runs, want a strict subset", len(want), len(all))
+	}
+
+	got, pages := walkRuns(t, ctx, svc.run, "", RunListQuery{CreatedAfter: after, CreatedBefore: before, Limit: 7})
+	if pages < 2 {
+		t.Errorf("window fit on %d page, want it to span pages", pages)
+	}
+	var ids []string
+	for _, r := range got {
+		ids = append(ids, r.ID)
+	}
+	if !slices.Equal(ids, want) {
+		t.Errorf("window runs = %v, want %v", ids, want)
+	}
+
+	onlyAfter, _ := walkRuns(t, ctx, svc.run, "", RunListQuery{CreatedAfter: after, Limit: 50})
+	for _, r := range onlyAfter {
+		if r.CreatedAt.Before(after) {
+			t.Errorf("run %s created before created_after", r.ID)
+		}
+	}
+	onlyBefore, _ := walkRuns(t, ctx, svc.run, "", RunListQuery{CreatedBefore: before, Limit: 50})
+	for _, r := range onlyBefore {
+		if !r.CreatedAt.Before(before) {
+			t.Errorf("run %s not before created_before", r.ID)
+		}
+	}
+}
+
+func TestHandleListRuns_TimeWindow(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	seedRunsAcrossTypes(t, repo, "t-1", 30, 1)
+
+	_, all := listRuns(t, c, "tenant_id=t-1&limit=200")
+	cut := all.Runs[10].CreatedAt.UTC().Format(time.RFC3339Nano)
+	code, got := listRuns(t, c, "tenant_id=t-1&created_after="+url.QueryEscape(cut))
+	if code != http.StatusOK || len(got.Runs) == 0 || len(got.Runs) >= len(all.Runs) {
+		t.Errorf("created_after: status %d with %d of %d runs", code, len(got.Runs), len(all.Runs))
+	}
+
+	for _, q := range []string{"created_after=yesterday", "created_before=2026-13-01T00:00:00Z"} {
+		if code, _ := listRuns(t, c, "tenant_id=t-1&"+q); code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", q, code)
+		}
 	}
 }
