@@ -109,7 +109,15 @@ async function sendPage<T>(
   } catch {
     return unreadable;
   }
-  return { data: body?.data ?? null, nextCursor: body?.next_cursor ?? null, error: null };
+  // A parseable body is not automatically a valid page. The route always writes
+  // both keys (NextResponse.json({ data, next_cursor })), so `{}` or `null` is
+  // a gateway artefact, not an empty result. Accepting it reports "no
+  // deliveries" and hides Load more, silently truncating the list: the same
+  // failure the unparseable-body check above exists to prevent.
+  if (body === null || typeof body !== 'object' || !Array.isArray(body.data)) {
+    return unreadable;
+  }
+  return { data: body.data as T, nextCursor: body.next_cursor ?? null, error: null };
 }
 
 /** A JSON request body, with the header that says so. */

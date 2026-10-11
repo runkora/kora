@@ -306,6 +306,37 @@ describe('TriggersPage deliveries paging', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
   });
 
+  it('does not claim "no deliveries" when the request failed', async () => {
+    // A failed filter change clears the rows, so the grid would otherwise say
+    // "No failed deliveries" beside the error: a claim about data from a
+    // request that never returned any.
+    renderPage([serverRow('d1')], 'cursor-1');
+    await openDeliveriesTab();
+
+    await userEvent.selectOptions(statusFilter(), 'failed');
+    (await request(0)).fail('deliveries backend is unavailable');
+
+    await waitFor(() => {
+      expect(screen.getByText('deliveries backend is unavailable')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('No failed deliveries.')).not.toBeInTheDocument();
+    expect(screen.getByText('Could not load deliveries.')).toBeInTheDocument();
+  });
+
+  it('announces the failure to assistive technology', async () => {
+    renderPage([serverRow('d1')], 'cursor-1');
+    await openDeliveriesTab();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    (await request(0)).fail('deliveries backend is unavailable');
+
+    // The error arrives after the response, so a live region is the only way a
+    // screen reader learns about it.
+    await waitFor(() => {
+      expect(screen.getByRole('alert')).toHaveTextContent('deliveries backend is unavailable');
+    });
+  });
+
   it('retries the page that failed, keeping the rows already loaded', async () => {
     // Retry used to restart from the first page whatever had failed, so a
     // failed Load more cost the reader every page they had accumulated: a
@@ -344,7 +375,9 @@ describe('TriggersPage deliveries paging', () => {
     });
     // Stale rows under the new label would claim to be the answer.
     expect(visibleRowIds()).toEqual([]);
-    expect(screen.getByText('No failed deliveries.')).toBeInTheDocument();
+    // The rows are cleared, but the empty state must not read as a result:
+    // nothing was filtered, the request failed.
+    expect(screen.getByText('Could not load deliveries.')).toBeInTheDocument();
     // Nothing left to page, so Retry is the only way back: re-picking the same
     // option in the select fires no change event.
     expect(loadMoreButton()).not.toBeInTheDocument();

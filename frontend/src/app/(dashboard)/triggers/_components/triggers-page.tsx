@@ -411,9 +411,14 @@ export function TriggersPage({
             sourceName={sourceName}
             onOpen={setDetailDelivery}
             emptyMessage={
-              page.applied === 'all'
-                ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
-                : `No ${page.applied} deliveries.`
+              // A failed request clears the rows, so without this the grid
+              // would say "No failed deliveries" next to the error: a claim
+              // about the data from a request that never returned any.
+              page.error !== null
+                ? 'Could not load deliveries.'
+                : page.applied === 'all'
+                  ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
+                  : `No ${page.applied} deliveries.`
             }
           />
           {/* Below the grid, because it extends the set the grid pages over
@@ -433,7 +438,11 @@ export function TriggersPage({
               )}
               {page.error !== null && (
                 <>
-                  <Text size="supporting" color="status-error">
+                  {/* role="alert": this appears after the response lands, so
+                      without a live region a screen reader never hears that
+                      the filter or Load more failed. Text forwards role, which
+                      is how guardrail-rows.tsx announces its inline errors. */}
+                  <Text size="supporting" color="status-error" role="alert">
                     {page.error}
                   </Text>
                   <Button

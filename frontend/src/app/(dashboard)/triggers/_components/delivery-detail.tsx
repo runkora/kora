@@ -85,7 +85,9 @@ function RunRef({ runId, agentSlug }: { runId: string; agentSlug: string | undef
   return (
     <Anchor asChild size="inherit">
       <Link href={APP_ROUTES.agents.run(agentSlug, runId)}>
-        <Text mono size="caption" color="accent">
+        {/* as="span": Text is a block <p> by default, and a <p> inside an
+            <a> is invalid markup that breaks the link's inline layout. */}
+        <Text as="span" mono size="caption" color="accent">
           {runId}
         </Text>
       </Link>
@@ -119,8 +121,16 @@ export function DeliveryDetail({
   const runId = outcome?.runId ?? (triggerId === undefined ? delivery.runId : null);
   // The run belongs to whichever trigger started it: this trigger in a scoped
   // view, otherwise the one fan-out row that actually produced a run.
+  //
+  // The delivery's own trigger_id is the last resort, and it is reachable:
+  // outcomeRecorder.insert logs an InsertDeliveryRun failure and carries on,
+  // so a delivery can hold a run_id and a trigger_id with no fan-out row
+  // behind them. Without this the link degrades to text on exactly the
+  // deliveries someone is most likely to be investigating.
   const runTriggerId =
-    outcome?.triggerId ?? delivery.runs.find((r) => r.runId === runId)?.triggerId;
+    outcome?.triggerId ??
+    delivery.runs.find((r) => r.runId === runId)?.triggerId ??
+    (triggerId === undefined ? (delivery.triggerId ?? undefined) : undefined);
   const runSlug = runTriggerId === undefined ? undefined : resolveAgentSlug?.(runTriggerId);
 
   // One delivery can match several triggers and start a run for each. A
