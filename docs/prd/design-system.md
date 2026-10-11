@@ -126,7 +126,7 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 
 ### Version the design system so a theme contract can be defined against it
 
-> Added 2026-10-08 for [white-labelling](white-labelling.md). This story is not yet built. The PRD's status stays Implemented for everything above it; this story is the one open item.
+> Required by [white-labelling](white-labelling.md). Not yet built.
 
 **As a** maintainer of the white-labelling theme contract,  
 **I want** Hades semantically versioned, with a major defining the theme surface,  
@@ -140,7 +140,7 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 
 **Contract boundary rules.** These decide what is and is not a change to the theme contract. They are a requirement in their own right: they are documented explicitly, as this numbered list, here and alongside the manifest in Hades, and every classification cites the rule it applied.
 
-1. Hades defines the shape of every value a theme can set. That shape is the theme surface manifest: colour tokens per mode, radius steps, font slots, identity slots (mark, wordmark, full logo and favicon, each per mode) and the product name with its bounds.
+1. Hades defines the shape of every value a theme can set. That shape is the theme surface manifest: colour and shadow tokens per mode, radius steps, font slots, identity slots (mark, wordmark, full logo and favicon, each per mode) and the product name with its bounds.
 2. Who reads a value is not the contract's concern. The kora frontend and the kora backend both read the product name, and neither reading is part of the contract.
 3. Hades contains no kora identity. The kora default is a theme like any other, owned by the app. The kora logo is an asset of that theme, not a Hades component. Hades provides the agnostic components that render whatever a theme supplies for a slot.
 4. A kora change that adds a place where a value appears, or changes a page or a template, does not change the contract. A kora change that needs a new value changes the manifest, which is a Hades change and is classified as one.
@@ -148,10 +148,10 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 
 **Acceptance Criteria:**
 - [ ] The design system is semantically versioned. A major defines the theme contract; minor and patch releases only add. Each kora release pins one design system version and validates themes against it.
-- [ ] The contract boundary rules are documented explicitly as a numbered list in Hades's own documentation, kept with the manifest, and in subsection 3 of the design system versioning ADR. The classification skill cites the rule it applied in its report.
-- [ ] The first major is cut from the current token set, with the radius steps as literal tokens and the identity slots in place, and is the baseline the classification rule compares against.
+- [ ] The contract boundary rules are documented explicitly as a numbered list in Hades's own documentation, kept with the manifest, and in subsection 3 of the design system versioning ADR. The classifier cites the rule it applied in its report.
+- [ ] The first major is cut from the current token set, with the radius steps as literal tokens, the font slot tokens and the identity slots in place, and is the baseline the classification rule compares against.
 - [ ] Each Hades release carries a machine-readable manifest of its theme surface: token and slot names, modes, value formats, and the product-name bounds. The validation rules the white-labelling PRD publishes per version are generated from it.
-- [ ] A reusable agent skill evaluates every design system change against the manifest and reports its classification as patch, minor or major, so a contract-breaking change cannot ship as a minor unnoticed. Its trigger point (pre-commit, pre-push, or pull request) is decided in subsection 4 of the design system versioning ADR.
+- [ ] A deterministic classifier evaluates every design system change against the manifest and reports its classification as patch, minor or major, citing the contract boundary rule it applied, so a contract-breaking change cannot ship as a minor unnoticed. Its trigger point (pre-commit, pre-push, or pull request) is decided in subsection 4 of the design system versioning ADR. The one case no classifier decides, a token changing meaning without changing name or format, is a review question.
 - [ ] Hades can be obtained outside the kora frontend as a buildable package, per major, so that consumers kora assumes will exist can render the product's own components. Which majors continue to receive releases is not decided until it matters.
 
 **Scope:**
@@ -159,8 +159,8 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 - Semantic versioning of the design system, with a major defining the theme contract, and each kora release pinning one design system version.
 - The theme surface manifest, carried by every release.
 - Explicit documentation of the contract boundary rules, kept with the manifest.
-- Three Hades changes made for the first major: radius steps as literal tokens rather than derived from one unit; agnostic identity slot components; the kora logo moved out of Hades into the kora default theme at app level.
-- A reusable agent skill that runs when the design system is modified and classifies the change against the rules above.
+- Four Hades changes made for the first major: radius steps as literal tokens rather than derived from one unit; agnostic identity slot components; font slot tokens the font families resolve through; the kora logo and mark moved out of Hades into the kora default theme at app level.
+- A deterministic classifier that runs when the design system is modified and classifies the change against the rules above.
 - Delivery of Hades per major to external consumers.
 
 **Consumers:**
@@ -173,7 +173,7 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 
 **ADR hand-off:** How the design system is versioned is decided separately from white-labelling, because it affects more than white-labelling. Two ADRs follow from this story:
 
-- Design system semantic versioning, with numbered subsections: (1) the version source of truth, the release process and the first major; (2) how kora pins and exposes the version, which the white-labelling PRD cites; (3) the classification rules and the manifest they are checked against; (4) the classification skill's trigger point and how it reports.
+- Design system semantic versioning, with numbered subsections: (1) the version source of truth, the release process and the first major; (2) how kora pins and exposes the version, which the white-labelling PRD cites; (3) the classification rules and the manifest they are checked against; (4) the classifier's trigger point and how it reports.
 - Hades delivery to external consumers. The deliverable is the tokens, the manifest and the components, buildable without the Next.js app. Storybook is not part of it.
 
 The [Hades Frontend Design System ADR](../adr/2026-03-25-terra-frontend-design-system.md) gains a pointer to both.
@@ -182,11 +182,11 @@ The [Hades Frontend Design System ADR](../adr/2026-03-25-terra-frontend-design-s
 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
-| A design system change breaks existing themes without a major bump | High | Medium | Minor and patch releases only add surface. An agent skill classifies every design system change against the manifest, and review confirms it. Anything that removes or renames surface is a major. |
+| A design system change breaks existing themes without a major bump | High | Medium | Minor and patch releases only add surface. A deterministic classifier classifies every design system change against the manifest, and review confirms it. Anything that removes or renames surface is a major. |
 | Delivering Hades to external consumers adds release friction | Medium | Medium | The ADR decides the delivery mechanism. A theme records the Hades version it conforms to, as the contract requires, so a consumer's release is always identifiable. |
 
 **Milestone:**
-- [ ] Design system versioning decided in its own ADR, including the classification skill's trigger point
+- [ ] Design system versioning decided in its own ADR, including the classifier's trigger point
 
 ---
 
