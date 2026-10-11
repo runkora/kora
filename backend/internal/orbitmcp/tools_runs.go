@@ -24,26 +24,7 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 			"Paginated: it returns at most `limit` runs plus `next_cursor`. Fetch the next page by calling again with "+
 			"cursor = the previous next_cursor and the same filters; next_cursor is null on the last page.",
 		func(ctx context.Context, a listRunsArgs) (*sdk.CallToolResult, error) {
-			q := url.Values{}
-			if a.AgentTypeID != "" {
-				q.Set("agent_type_id", a.AgentTypeID)
-			}
-			if a.State != "" {
-				q.Set("state", a.State)
-			}
-			if a.CreatedAfter != "" {
-				q.Set("created_after", a.CreatedAfter)
-			}
-			if a.CreatedBefore != "" {
-				q.Set("created_before", a.CreatedBefore)
-			}
-			if a.Cursor != "" {
-				q.Set("cursor", a.Cursor)
-			}
-			if a.Limit != 0 {
-				q.Set("limit", strconv.Itoa(a.Limit))
-			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base, q))
+			return jsonResult(jc.Get(ctx, callerToken(ctx), base, listRunsQuery(a)))
 		})
 
 	addTool(srv, "runs.get",
@@ -125,6 +106,27 @@ type listRunsArgs struct {
 	CreatedBefore string `json:"created_before,omitempty" jsonschema:"only runs created before this RFC 3339 timestamp (optional)"`
 	Cursor        string `json:"cursor,omitempty" jsonschema:"the previous response's next_cursor, to fetch the next page"`
 	Limit         int    `json:"limit,omitempty" jsonschema:"max runs to return (default 50, max 200)"`
+}
+
+// listRunsQuery maps the runs.list arguments to the list endpoint's query
+// parameters, leaving out the ones not set.
+func listRunsQuery(a listRunsArgs) url.Values {
+	q := url.Values{}
+	for key, value := range map[string]string{
+		"agent_type_id":  a.AgentTypeID,
+		"state":          a.State,
+		"created_after":  a.CreatedAfter,
+		"created_before": a.CreatedBefore,
+		"cursor":         a.Cursor,
+	} {
+		if value != "" {
+			q.Set(key, value)
+		}
+	}
+	if a.Limit != 0 {
+		q.Set("limit", strconv.Itoa(a.Limit))
+	}
+	return q
 }
 
 type startRunArgs struct {

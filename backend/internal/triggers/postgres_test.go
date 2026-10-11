@@ -1789,6 +1789,10 @@ func TestPostgres_ListDeliveriesTimeAndPayload(t *testing.T) {
 		if inserted, err := r.InsertDelivery(ctx, d); err != nil || !inserted {
 			t.Fatalf("insert: inserted=%v err=%v", inserted, err)
 		}
+		// The insert takes received_at from the database clock.
+		if _, err := r.pool.Exec(ctx, `UPDATE trigger_deliveries SET received_at = $2 WHERE id = $1`, d.ID, d.ReceivedAt); err != nil {
+			t.Fatalf("set received_at: %v", err)
+		}
 		ids = append(ids, d.ID)
 	}
 	idsOf := func(f DeliveryFilter) []string {
@@ -1807,10 +1811,10 @@ func TestPostgres_ListDeliveriesTimeAndPayload(t *testing.T) {
 	if got := idsOf(DeliveryFilter{ReceivedAfter: base.Add(-2 * time.Minute)}); !slices.Equal(got, ids[:3]) {
 		t.Errorf("received_after = %v, want %v", got, ids[:3])
 	}
-	if got := idsOf(DeliveryFilter{ReceivedBefore: base.Add(-time.Minute)}); !slices.Equal(got, ids[1:]) {
+	if got := idsOf(DeliveryFilter{ReceivedBefore: base}); !slices.Equal(got, ids[1:]) {
 		t.Errorf("received_before = %v, want %v", got, ids[1:])
 	}
-	if got := idsOf(DeliveryFilter{ReceivedAfter: base.Add(-2 * time.Minute), ReceivedBefore: base.Add(-time.Minute)}); !slices.Equal(got, ids[1:3]) {
+	if got := idsOf(DeliveryFilter{ReceivedAfter: base.Add(-2 * time.Minute), ReceivedBefore: base}); !slices.Equal(got, ids[1:3]) {
 		t.Errorf("window = %v, want %v", got, ids[1:3])
 	}
 
