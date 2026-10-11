@@ -251,11 +251,31 @@ The change is additive and non-breaking:
 
 ---
 
+## Amendment 1 (2026-10-10): `decision` capability
+
+**Status:** Accepted
+
+Touches *How does it connect?* only. The capability layer gains one endpoint family.
+
+**Decision:**
+
+*   Add `CapabilityDecision` (`"decision"`), served by `POST /v1/systemone`. See [systemone-decision-models](2026-10-10-systemone-decision-models.md).
+*   A `compatible` provider whose `apis` is only `systemone` marks every model it lists as `decision`. A provider that serves `systemone` with other APIs marks a model as `decision` when the endpoint's model list declares `decisions` in `architecture.output_modalities`, or when the model is in `decisionModels`.
+*   The constants table also omits `CapabilityAudioGeneration` (`"audio"`), which has no endpoint yet.
+
+| Constant | Value | Endpoint |
+|---|---|---|
+| `CapabilityAudioGeneration` | `"audio"` | None yet |
+| `CapabilityDecision` | `"decision"` | `POST /v1/systemone` |
+
+---
+
 ## Related Decisions
 
 - [inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md) — Inference Gateway architecture; defines the provider connector interface and handler structure.
 - [provider-model-catalog-and-alias-routing](2026-04-01-provider-model-catalog-and-alias-routing.md) — Provider Model Catalog; introduced `ProviderModel`, `InputModalities`, `OutputModalities`, `Dialects`.
 - [anthropic-zero-translation-path](2026-04-01-anthropic-zero-translation-path.md) — Anthropic zero-translation path; defines the two chat dialect wire formats.
+- [systemone-decision-models](2026-10-10-systemone-decision-models.md): Decision Models and the System One API. Adds the `decision` capability (Amendment 1).
 
 ---
 
@@ -271,4 +291,4 @@ The change is additive and non-breaking:
 
 The `activeCapabilities` map is intentionally a compile-time constant rather than a configuration value. Capability support is a code-level commitment — it requires a handler, connector interface methods, and integration tests to be correct. Making it runtime-configurable would allow operators to advertise capabilities the gateway cannot actually fulfil, which is worse than not advertising them at all.
 
-**Last Updated:** 2025-07-24
+**Last Updated:** 2026-10-10 (Amendment 1: `decision` capability)
