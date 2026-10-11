@@ -464,10 +464,12 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 		if raw == "" {
 			continue
 		}
-		t, err := time.Parse(time.RFC3339, raw)
-		if err != nil {
+		// parseErr, not err: the cursor parse above already owns err in this
+		// scope, and shadowing it here would hide a future use of it.
+		t, parseErr := time.Parse(time.RFC3339, raw)
+		if parseErr != nil {
 			apiErr := api.BadRequestError(api.ErrCodeInvalidField, b.field+" must be an RFC 3339 timestamp", map[string]any{"field": b.field})
-			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, parseErr)
 			return
 		}
 		*b.dst = t
