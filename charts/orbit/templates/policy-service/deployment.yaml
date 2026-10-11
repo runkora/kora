@@ -46,11 +46,8 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "policyService") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
-          {{- with .Values.policyService.extraEnv }}
           env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "policyService" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD")) | nindent 12 }}
           ports:
             - name: http
               containerPort: 8083

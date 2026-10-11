@@ -46,12 +46,7 @@ spec:
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}
           env:
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.config.platformSecretName }}
-                  key: DB_PASSWORD
-            {{- include "orbit.extraEnv" (dict "root" $ "name" "migrate") | nindent 12 }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "migrate" "keys" (list "DB_PASSWORD")) | nindent 12 }}
           resources:
             {{- toYaml .Values.migrate.resources | nindent 12 }}
           volumeMounts:

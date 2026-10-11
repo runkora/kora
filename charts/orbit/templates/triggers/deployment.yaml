@@ -40,11 +40,8 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "triggers") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
-          {{- with .Values.triggers.extraEnv }}
           env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "triggers" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD" "ORBIT_TRIGGERS_ENCRYPTION_KEY")) | nindent 12 }}
           ports:
             - name: http
               containerPort: 8097
