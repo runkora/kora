@@ -209,10 +209,16 @@ export function TriggersPage({
   // A failed filter change leaves nothing to click: the rows and cursor are
   // gone, so there is no Load more, and re-picking the same option fires no
   // change event. Retry is the way back.
+  // Retry re-issues the request that actually failed, which is what the state
+  // already describes: a failed filter change cleared the cursor, so this reads
+  // null and starts over, while a failed Load more left its cursor in place, so
+  // this resumes from there and keeps the pages already on screen. Restarting
+  // from the first page in both cases threw away everything the reader had
+  // loaded, which is a second loss on top of the one they are retrying.
   const retryDeliveries = useCallback(() => {
     if (page.loading) return;
-    void fetchDeliveries(selectedStatus, null, page.epoch);
-  }, [selectedStatus, page.epoch, page.loading, fetchDeliveries]);
+    void fetchDeliveries(page.applied, page.cursor, page.epoch);
+  }, [page.applied, page.cursor, page.epoch, page.loading, fetchDeliveries]);
 
   // The server re-renders this page after a fire, redeliver or delete
   // (use-trigger-actions calls router.refresh so the new arrival shows up). A
