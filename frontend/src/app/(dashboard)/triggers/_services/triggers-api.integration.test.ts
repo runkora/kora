@@ -67,8 +67,31 @@ describe('listDeliveries (browser client)', () => {
     expect(page.error).toBeNull();
   });
 
-  it('reports an empty page when the route answers with neither key', async () => {
+  // The route always writes both keys, so a body missing `data` is a gateway
+  // artefact, not an empty result. Accepting it reported "no deliveries" and
+  // hid Load more, silently truncating the list.
+  it('reports an error when the envelope is missing its data array', async () => {
     respondWith({});
+
+    await expect(listDeliveries()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      error: 'The server returned a response that could not be read.',
+    });
+  });
+
+  it('reports an error for a body that is the JSON literal null', async () => {
+    respondWith(null);
+
+    await expect(listDeliveries()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      error: 'The server returned a response that could not be read.',
+    });
+  });
+
+  it('accepts a genuinely empty page, which has data but no rows', async () => {
+    respondWith({ data: [], next_cursor: null });
 
     await expect(listDeliveries()).resolves.toEqual({
       deliveries: [],
