@@ -62,14 +62,23 @@ type messagesRequest struct {
 	Model     string            `json:"model"`
 	MaxTokens int               `json:"max_tokens"`
 	System    string            `json:"system,omitempty"`
-	Thinking  messagesThinking  `json:"thinking"`
+	Thinking  *messagesThinking `json:"thinking,omitempty"`
 	Messages  []messagesMessage `json:"messages"`
 }
 
-// messagesThinking disables extended thinking. A reasoning model otherwise
+// messagesThinking turns extended thinking off. A reasoning model otherwise
 // spends summaryMaxTokens on a thinking block and returns no text block.
 type messagesThinking struct {
 	Type string `json:"type"`
+}
+
+// summaryThinkingSettings lists the thinking settings Summarize tries in order.
+// Some models reject "disabled" with a 400 and want "between_tools"; a model
+// that accepts neither gets the field omitted (nil).
+var summaryThinkingSettings = []*messagesThinking{
+	{Type: "disabled"},
+	{Type: "between_tools"},
+	nil,
 }
 
 type messagesMessage struct {
@@ -93,40 +102,16 @@ type messagesContentBlock struct {
 // given model, calling {baseURL}/v1/messages. baseURL is the per-run inference
 // base (e.g. http://orbit-inference-gateway.../run/{runID}).
 func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessage string) (string, error) {
-	payload := messagesRequest{
-		Model:     model,
-		MaxTokens: summaryMaxTokens,
-		System:    summarizerSystemPrompt,
-		Thinking:  messagesThinking{Type: "disabled"},
-		Messages: []messagesMessage{
-			{Role: "user", Content: fmt.Sprintf(summaryPromptTemplate, initialMessage)},
-		},
-	}
-
-	body, err := s.EncodeJSON(payload)
-	if err != nil {
-		return "", fmt.Errorf("encode summarize request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", body)
-	if err != nil {
-		return "", fmt.Errorf("build summarize request: %w", err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	_, span, resp, err := s.Do(ctx, "summarizer.Summarize", req)
-	defer span.End()
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close() //nolint:errcheck
-
-	if resp.StatusCode != http.StatusOK {
-		return "", s.HandleErrorResponse(span, resp, errSummarizerUnexpectedStatus)
-	}
-
 	var result messagesResponse
-	if err := s.DecodeJSON(span, resp, &result); err != nil {
+	var err error
+	for _, thinking := range summaryThinkingSettings {
+		var retry bool
+		result, retry, err = s.send(ctx, baseURL, model, initialMessage, thinking)
+		if !retry {
+			break
+		}
+	}
+	if err != nil {
 		return "", err
 	}
 
@@ -136,6 +121,44 @@ func (s *summarizer) Summarize(ctx context.Context, baseURL, model, initialMessa
 	}
 
 	return truncateSummary(text), nil
+}
+
+// send makes one summary request. retry is true when the gateway answered 400,
+// meaning the model may reject this thinking setting.
+func (s *summarizer) send(ctx context.Context, baseURL, model, initialMessage string, thinking *messagesThinking) (result messagesResponse, retry bool, err error) {
+	payload := messagesRequest{
+		Model:     model,
+		MaxTokens: summaryMaxTokens,
+		System:    summarizerSystemPrompt,
+		Thinking:  thinking,
+		Messages: []messagesMessage{
+			{Role: "user", Content: fmt.Sprintf(summaryPromptTemplate, initialMessage)},
+		},
+	}
+
+	body, err := s.EncodeJSON(payload)
+	if err != nil {
+		return result, false, fmt.Errorf("encode summarize request: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, baseURL+"/v1/messages", body)
+	if err != nil {
+		return result, false, fmt.Errorf("build summarize request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	_, span, resp, err := s.Do(ctx, "summarizer.Summarize", req)
+	defer span.End()
+	if err != nil {
+		return result, false, err
+	}
+	defer resp.Body.Close() //nolint:errcheck
+
+	if resp.StatusCode != http.StatusOK {
+		return result, resp.StatusCode == http.StatusBadRequest, s.HandleErrorResponse(span, resp, errSummarizerUnexpectedStatus)
+	}
+
+	return result, false, s.DecodeJSON(span, resp, &result)
 }
 
 // firstText returns the text of the first content block of type "text",
