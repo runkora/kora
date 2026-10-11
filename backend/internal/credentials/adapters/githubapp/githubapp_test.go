@@ -308,6 +308,8 @@ func TestConnector_Classify(t *testing.T) {
 		{"search_code", http.MethodGet, "https://api.github.com/search/code?q=x", "contents:read", "", false},
 		{"search_issues_repo", http.MethodGet, "https://api.github.com/search/issues?q=is:open+repo:orbital/orbit", "issues:read", "orbit", false},
 		{"search_issues_two_repos", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/orbit+repo:orbital/other", "issues:read", "", false},
+		{"search_issues_negated_repo", http.MethodGet, "https://api.github.com/search/issues?q=-repo:orbital/orbit+foo", "issues:read", "", false},
+		{"search_issues_negated_repo_with_scope", http.MethodGet, "https://api.github.com/search/issues?q=repo:orbital/orbit+-repo:orbital/other", "issues:read", "", false},
 		{"search_issues_foreign_repo", http.MethodGet, "https://api.github.com/search/issues?q=repo:evil/orbit", "issues:read", "", false},
 		{"search_commits_repo", http.MethodGet, "https://api.github.com/search/commits?q=fix+repo:Orbital/Orbit", "contents:read", "orbit", false},
 		{"search_repositories", http.MethodGet, "https://api.github.com/search/repositories?q=x", "metadata:read", "", false},
