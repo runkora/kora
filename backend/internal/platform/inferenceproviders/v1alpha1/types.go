@@ -38,6 +38,9 @@ const (
 	APIEmbeddings      API = "embeddings"
 	APIResponses       API = "responses"
 	APIMessages        API = "messages"
+	// APISystemOne is TypeSafe's System One decision API, served at
+	// <baseURL>/systemone.
+	APISystemOne API = "systemone"
 )
 
 // Phases on InferenceProvider status.
@@ -122,6 +125,10 @@ type Compatible struct {
 	BaseURL         string        `json:"baseURL"`
 	APIs            []API         `json:"apis"`
 	APIKeySecretRef *SecretKeyRef `json:"apiKeySecretRef,omitempty"`
+
+	// DecisionModels names models served on POST /systemone when the endpoint
+	// publishes no metadata that says so. Requires systemone in APIs.
+	DecisionModels []string `json:"decisionModels,omitempty"`
 }
 
 // Status is written by the inference gateway.
@@ -199,6 +206,7 @@ func (s *Spec) DeepCopyInto(out *Spec) {
 	if s.Compatible != nil {
 		c := *s.Compatible
 		c.APIs = append([]API(nil), s.Compatible.APIs...)
+		c.DecisionModels = append([]string(nil), s.Compatible.DecisionModels...)
 		if s.Compatible.APIKeySecretRef != nil {
 			r := *s.Compatible.APIKeySecretRef
 			c.APIKeySecretRef = &r

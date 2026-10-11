@@ -150,6 +150,10 @@ const (
 	// CapabilityAudioGeneration — model produces audio output (TTS, live audio).
 	// No standard endpoint yet.
 	CapabilityAudioGeneration ModelCapability = "audio"
+
+	// CapabilityDecision — model supports POST /v1/systemone: typed questions
+	// answered with probabilities, not text.
+	CapabilityDecision ModelCapability = "decision"
 )
 
 // knownCapabilities is the single list of valid ModelCapability values. Add new
