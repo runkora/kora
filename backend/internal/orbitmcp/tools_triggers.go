@@ -158,11 +158,23 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 
 	addTool(srv, "triggers.deliveries.list",
 		"List recorded trigger deliveries — the history of received source events and the runs they started. "+
-			"Optionally filter by source_id and cap with limit.",
+			"Optionally filter by source_id, cap with limit, and bound the time window with received_after (inclusive) "+
+			"and received_before (exclusive), both RFC 3339 timestamps. Set omit_payload to leave the full payload out of "+
+			"each delivery; payload_excerpt, trigger outcomes and runs are kept. Use it for wide listings, since payloads "+
+			"dominate the response size.",
 		func(ctx context.Context, a listDeliveriesArgs) (*sdk.CallToolResult, error) {
 			q := url.Values{}
 			if a.SourceID != "" {
 				q.Set("source_id", a.SourceID)
+			}
+			if a.ReceivedAfter != "" {
+				q.Set("received_after", a.ReceivedAfter)
+			}
+			if a.ReceivedBefore != "" {
+				q.Set("received_before", a.ReceivedBefore)
+			}
+			if a.OmitPayload {
+				q.Set("omit_payload", "true")
 			}
 			if a.Limit > 0 {
 				q.Set("limit", strconv.Itoa(a.Limit))
@@ -254,6 +266,9 @@ type providerFieldsArgs struct {
 }
 
 type listDeliveriesArgs struct {
-	SourceID string `json:"source_id,omitempty" jsonschema:"filter deliveries by source id"`
-	Limit    int    `json:"limit,omitempty" jsonschema:"max number of deliveries to return"`
+	SourceID       string `json:"source_id,omitempty" jsonschema:"filter deliveries by source id"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"max number of deliveries to return"`
+	ReceivedAfter  string `json:"received_after,omitempty" jsonschema:"only deliveries received at or after this RFC 3339 timestamp (optional)"`
+	ReceivedBefore string `json:"received_before,omitempty" jsonschema:"only deliveries received before this RFC 3339 timestamp (optional)"`
+	OmitPayload    bool   `json:"omit_payload,omitempty" jsonschema:"leave the full payload out of each delivery (optional); payload_excerpt is kept"`
 }

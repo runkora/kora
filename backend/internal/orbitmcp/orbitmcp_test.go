@@ -653,3 +653,42 @@ func mcpCaller(t *testing.T, baseURL string) func(method string, params any) map
 		return m
 	}
 }
+
+// TestListToolsMapTimeWindowAndPayloadParams checks runs.list and
+// triggers.deliveries.list forward their time bounds and payload option.
+func TestListToolsMapTimeWindowAndPayloadParams(t *testing.T) {
+	var gotPath string
+	var gotQuery url.Values
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotQuery = r.URL.Path, r.URL.Query()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer backend.Close()
+
+	srv := NewServer(Backends{Agents: backend.URL, Triggers: backend.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	call("tools/call", map[string]any{"name": "runs.list", "arguments": map[string]any{
+		"created_after": "2026-01-01T00:00:00Z", "created_before": "2026-01-02T00:00:00Z",
+	}})
+	if gotPath != "/api/v1/runs" || gotQuery.Get("created_after") != "2026-01-01T00:00:00Z" || gotQuery.Get("created_before") != "2026-01-02T00:00:00Z" {
+		t.Errorf("runs.list hit %q?%v", gotPath, gotQuery)
+	}
+
+	call("tools/call", map[string]any{"name": "triggers.deliveries.list", "arguments": map[string]any{
+		"received_after": "2026-01-01T00:00:00Z", "received_before": "2026-01-02T00:00:00Z", "omit_payload": true,
+	}})
+	if gotPath != "/api/v1/trigger-deliveries" || gotQuery.Get("received_after") != "2026-01-01T00:00:00Z" ||
+		gotQuery.Get("received_before") != "2026-01-02T00:00:00Z" || gotQuery.Get("omit_payload") != "true" {
+		t.Errorf("triggers.deliveries.list hit %q?%v", gotPath, gotQuery)
+	}
+
+	call("tools/call", map[string]any{"name": "triggers.deliveries.list", "arguments": map[string]any{}})
+	if gotQuery.Has("omit_payload") || gotQuery.Has("received_after") {
+		t.Errorf("unset options were forwarded: %v", gotQuery)
+	}
+}

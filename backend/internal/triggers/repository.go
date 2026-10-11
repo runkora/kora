@@ -243,7 +243,14 @@ type DeliveryFilter struct {
 	SourceID  string
 	TriggerID string
 	Kind      string
-	Limit     int
+	// ReceivedAfter and ReceivedBefore bound received_at: at or after, and
+	// before. Zero means unbounded.
+	ReceivedAfter  time.Time
+	ReceivedBefore time.Time
+	// OmitPayload leaves the full payload out of each delivery. The excerpt,
+	// outcomes and runs stay.
+	OmitPayload bool
+	Limit       int
 }
 
 // PendingStats is a point-in-time view of the delivery queue.

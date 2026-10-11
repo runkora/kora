@@ -264,6 +264,14 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 		args = append(args, stateStrings(q.States))
 		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
 	}
+	if !q.CreatedAfter.IsZero() {
+		args = append(args, q.CreatedAfter)
+		query += fmt.Sprintf(" AND r.created_at >= $%d", len(args))
+	}
+	if !q.CreatedBefore.IsZero() {
+		args = append(args, q.CreatedBefore)
+		query += fmt.Sprintf(" AND r.created_at < $%d", len(args))
+	}
 	if q.After != nil {
 		args = append(args, q.After.CreatedAt, q.After.ID)
 		query += fmt.Sprintf(" AND (r.created_at, r.id) < ($%d, $%d)", len(args)-1, len(args))

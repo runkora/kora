@@ -82,6 +82,10 @@ type RunListQuery struct {
 	Scope RunScope
 	// States narrows to runs in these states; empty means every state.
 	States []RunState
+	// CreatedAfter and CreatedBefore bound created_at: at or after, and before.
+	// Zero means unbounded.
+	CreatedAfter  time.Time
+	CreatedBefore time.Time
 	// After is the previous page's cursor; nil is the first page.
 	After *runCursor
 	Limit int

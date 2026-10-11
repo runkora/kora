@@ -324,9 +324,20 @@ func (m *mockRepository) ListDeliveries(_ context.Context, tenantID string, filt
 	defer m.mu.Unlock()
 	var out []Delivery
 	for _, d := range m.deliveries {
-		if d.TenantID == tenantID && (filter.SourceID == "" || d.SourceID == filter.SourceID) {
-			out = append(out, *d)
+		if d.TenantID != tenantID || (filter.SourceID != "" && d.SourceID != filter.SourceID) {
+			continue
 		}
+		if !filter.ReceivedAfter.IsZero() && d.ReceivedAt.Before(filter.ReceivedAfter) {
+			continue
+		}
+		if !filter.ReceivedBefore.IsZero() && !d.ReceivedAt.Before(filter.ReceivedBefore) {
+			continue
+		}
+		cp := *d
+		if filter.OmitPayload {
+			cp.Payload = nil
+		}
+		out = append(out, cp)
 	}
 	return out, nil
 }

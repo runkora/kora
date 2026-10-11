@@ -402,7 +402,7 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
-// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&limit=&cursor=, clamping limit to maxRunsLimit.
+// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -422,6 +422,22 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", map[string]any{"field": "cursor"})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
+	}
+	for _, b := range []struct {
+		field string
+		dst   *time.Time
+	}{{"created_after", &p.CreatedAfter}, {"created_before", &p.CreatedBefore}} {
+		raw := q.Get(b.field)
+		if raw == "" {
+			continue
+		}
+		t, perr := time.Parse(time.RFC3339, raw)
+		if perr != nil {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, b.field+" must be an RFC 3339 timestamp", map[string]any{"field": b.field})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, perr)
+			return
+		}
+		*b.dst = t
 	}
 	// Repeated state keys add to the list.
 	if p.States, err = parseRunStates(strings.Join(q["state"], ",")); err != nil {
