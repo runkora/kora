@@ -312,6 +312,12 @@ data:
   {{- end }}
 {{- end }}
 
+{{/* "true" when Redis TLS is on: config.redis.tls.enabled, on when unset. Take the root context. */}}
+{{- define "orbit.redisTLSEnabled" -}}
+{{- $tls := .Values.config.redis.tls | default dict }}
+{{- if or (not (hasKey $tls "enabled")) $tls.enabled }}true{{ end }}
+{{- end }}
+
 {{/* Path of the Redis CA bundle inside the pod, rendered into the storage config as caFile. */}}
 {{- define "orbit.redisCAFile" -}}
 /etc/orbit/redis-ca/ca.crt
@@ -324,7 +330,7 @@ Take the root context.
 */}}
 {{- define "orbit.redisCAVolume" -}}
 {{- $tls := .Values.config.redis.tls | default dict }}
-{{- if and $tls.enabled $tls.caSecret }}
+{{- if and (include "orbit.redisTLSEnabled" .) $tls.caSecret }}
 - name: redis-ca
   secret:
     secretName: {{ $tls.caSecret }}
@@ -336,7 +342,7 @@ Take the root context.
 
 {{- define "orbit.redisCAVolumeMount" -}}
 {{- $tls := .Values.config.redis.tls | default dict }}
-{{- if and $tls.enabled $tls.caSecret }}
+{{- if and (include "orbit.redisTLSEnabled" .) $tls.caSecret }}
 - name: redis-ca
   mountPath: {{ include "orbit.redisCAFile" . | dir }}
   readOnly: true
@@ -392,8 +398,9 @@ internal/platform/storage:
     host: {{ required "config.redis.host must be set" $root.Values.config.redis.host | toJson }}
     port: {{ $root.Values.config.redis.port | int }}
     {{- $tls := $root.Values.config.redis.tls | default dict }}
-    tlsEnabled: {{ $tls.enabled | default false }}
-    {{- if $tls.enabled }}
+    {{- $tlsOn := include "orbit.redisTLSEnabled" $root }}
+    tlsEnabled: {{ eq $tlsOn "true" }}
+    {{- if $tlsOn }}
     {{- with $tls.serverName }}
     serverName: {{ . | toJson }}
     {{- end }}

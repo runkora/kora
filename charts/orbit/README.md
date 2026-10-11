@@ -112,7 +112,7 @@ Kubernetes: `>=1.34.0-0`
 | config.redis.host | string | `""` |  |
 | config.redis.port | int | `6379` |  |
 | config.redis.tls.caSecret | string | `""` | Secret in the system namespace holding the CA bundle under key ca.crt. Empty trusts the system roots. |
-| config.redis.tls.enabled | bool | `false` | Connect to Redis over TLS 1.2 or later. Off by default: enable it only when Redis serves TLS, or the services that use Redis fail at startup. |
+| config.redis.tls.enabled | bool | `true` | Connect to Redis over TLS 1.2 or later. Set false for a Redis that serves plaintext. |
 | config.redis.tls.serverName | string | `""` | Name checked against the Redis certificate. Empty uses config.redis.host. |
 | egressGateway.adminPort | int | `8086` |  |
 | egressGateway.affinity | object | `{}` |  |

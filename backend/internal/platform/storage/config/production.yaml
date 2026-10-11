@@ -28,5 +28,5 @@ redis:
   minIdleConns: 5
   connMaxIdleTimeMinutes: 30
 
-  # The chart sets this from config.redis.tls.enabled, which is off by default.
+  # The chart sets this from config.redis.tls.enabled.
   tlsEnabled: true

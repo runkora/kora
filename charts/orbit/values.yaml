@@ -71,9 +71,9 @@ config:
     host: ""
     port: 6379
     tls:
-      # -- Connect to Redis over TLS 1.2 or later. Off by default: enable it
-      # only when Redis serves TLS, or the services that use Redis fail at startup.
-      enabled: false
+      # -- Connect to Redis over TLS 1.2 or later. Set false for a Redis that
+      # serves plaintext.
+      enabled: true
       # -- Secret in the system namespace holding the CA bundle under key
       # ca.crt. Empty trusts the system roots.
       caSecret: ""

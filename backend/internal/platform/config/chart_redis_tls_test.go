@@ -45,22 +45,36 @@ func redisCAUsers(t *testing.T, rendered string) (mounts map[string]string, caFi
 	return mounts, caFileConfigs
 }
 
-// The chart default turns Redis TLS off, overriding the production default, and mounts no CA.
-func TestChartRedisTLSOffByDefault(t *testing.T) {
-	out := renderChart(t, "{}\n")
+// The chart default turns Redis TLS on in every storage config, with no CA
+// mounted, including when config.redis.tls is null.
+func TestChartRedisTLSOnByDefault(t *testing.T) {
+	for _, values := range []string{"{}\n", "config:\n  redis:\n    tls: null\n"} {
+		out := renderChart(t, values)
+		if !strings.Contains(out, "tlsEnabled: true") || strings.Contains(out, "tlsEnabled: false") {
+			t.Errorf("values %q: storage configs do not all render tlsEnabled: true", values)
+		}
+		if m, cfgs := redisCAUsers(t, out); len(m) != 0 || len(cfgs) != 0 {
+			t.Errorf("values %q: chart mounts the Redis CA in %v and reads it in %v", values, m, cfgs)
+		}
+	}
+}
+
+// Disabled, the services connect in plaintext and mount no CA, even with a CA secret set.
+func TestChartRedisTLSDisabled(t *testing.T) {
+	out := renderChart(t, "config:\n  redis:\n    tls: {enabled: false, caSecret: redis-ca}\n")
 	r := loadRendered[storage.StorageConfig](t, out, "internal/platform/storage").Redis
 	if r.TLSEnabled || r.CAFile != "" || r.ServerName != "" {
-		t.Errorf("default redis config = tls %v, caFile %q, serverName %q; want plaintext", r.TLSEnabled, r.CAFile, r.ServerName)
+		t.Errorf("redis config = tls %v, caFile %q, serverName %q; want plaintext", r.TLSEnabled, r.CAFile, r.ServerName)
 	}
 	if m, cfgs := redisCAUsers(t, out); len(m) != 0 || len(cfgs) != 0 {
-		t.Errorf("default chart mounts the Redis CA in %v and reads it in %v", m, cfgs)
+		t.Errorf("disabled chart mounts the Redis CA in %v and reads it in %v", m, cfgs)
 	}
 }
 
 // With TLS and a CA secret, only the three Redis clients mount the secret and
 // read the CA file from it.
 func TestChartRedisTLSWithCA(t *testing.T) {
-	out := renderChart(t, "config:\n  redis:\n    tls: {enabled: true, caSecret: redis-ca, serverName: redis.internal}\n")
+	out := renderChart(t, "config:\n  redis:\n    tls: {caSecret: redis-ca, serverName: redis.internal}\n")
 	r := loadRendered[storage.StorageConfig](t, out, "internal/platform/storage").Redis
 	if !r.TLSEnabled || r.ServerName != "redis.internal" {
 		t.Errorf("redis config = tls %v, serverName %q", r.TLSEnabled, r.ServerName)
