@@ -1,6 +1,6 @@
 # Hades Frontend Design System
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-11)
 **Date:** 2026-03-25
 **Deciders:** Engineering Team
 **Technical Story:** [Design System PRD](../prd/design-system.md) — establishing a coherent visual foundation for the kora control plane UI.
@@ -371,6 +371,8 @@ See [Design System PRD — Timeline and Milestones](../prd/design-system.md#time
 
 - [monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) — Monorepo structure; established `frontend/` directory and monorepo conventions that this ADR extends with `frontend/src/packages/hades/`
 - [language-and-framework-selection](2026-02-16-language-and-framework-selection.md) — Language and framework selection; Next.js and Tailwind CSS choices that this ADR builds on
+- [design-system-semantic-versioning](2026-10-11-design-system-semantic-versioning.md) — Versions the package this ADR established, so a white-labelling theme contract can be defined against its major
+- [hades-delivery-to-external-consumers](2026-10-11-hades-delivery-to-external-consumers.md) — Delivers each release to consumers outside the kora frontend
 
 ---
 
@@ -393,4 +395,8 @@ The name **Hades** (`@orbit/hades`) follows the kora metaphor. kora is another n
 
 The key discipline this ADR enforces is the **token boundary**: no component should ever reference a literal color value or arbitrary Tailwind shade. That discipline is what makes the system maintainable at scale. A component library where individual components reference `gray-900` instead of `surface` is not a design system — it is a collection of styled components with no shared visual contract.
 
-**Last Updated:** 2026-10-08
+## Amendment 1 (2026-10-11): Versioning and delivery
+
+Hades gains semantic versioning and delivery to consumers outside the kora frontend, so that the white-labelling theme contract can be defined as the Hades major. The decisions are in [design-system-semantic-versioning](2026-10-11-design-system-semantic-versioning.md) (version source of truth, pinning and exposure, the theme surface manifest and classification, and the classifier) and [hades-delivery-to-external-consumers](2026-10-11-hades-delivery-to-external-consumers.md) (what a release ships and how). Nothing in this ADR's decisions changes; the workspace-link consumption in the Implementation section remains how the frontend consumes the package.
+
+**Last Updated:** 2026-10-11 (Amendment 1: versioning and delivery)
