@@ -16,6 +16,7 @@ import (
 //
 //  1. cmd/session-manager/config/base.yaml  — service defaults
 //  2. cmd/session-manager/config/{env}.yaml — env overrides (optional)
+//  3. environment variables orbit-agents sets on the agent pod (applyEnvOverrides)
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -126,6 +127,12 @@ var Current = func() *Config {
 func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
 	if v := getenv("ORBIT_AGENTS_URL"); v != "" {
 		cfg.OrbitAgents.URL = v
+	}
+	if v := getenv("ORBIT_INFERENCE_GATEWAY_URL"); v != "" {
+		cfg.InferenceGateway.URL = v
+	}
+	if v := getenv("ORBIT_TOOL_GATEWAY_URL"); v != "" {
+		cfg.ToolGateway.URL = v
 	}
 	if v := getenv("ORBIT_NODE_MAX_OLD_SPACE_MB"); v != "" {
 		mb, err := strconv.Atoi(v)

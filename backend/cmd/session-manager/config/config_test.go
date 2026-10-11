@@ -36,3 +36,22 @@ func TestApplyEnvOverrides_NodeMaxOldSpaceMB(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyEnvOverrides_GatewayURLs(t *testing.T) {
+	cfg := &Config{}
+	cfg.InferenceGateway.URL = "http://yaml-inference"
+	cfg.ToolGateway.URL = "http://yaml-tool"
+	env := map[string]string{
+		"ORBIT_INFERENCE_GATEWAY_URL": "http://orbit-inference-gateway.orbit-prod.svc.cluster.local",
+		"ORBIT_TOOL_GATEWAY_URL":      "http://orbit-tool-gateway.orbit-prod.svc.cluster.local",
+	}
+	if err := applyEnvOverrides(cfg, func(k string) string { return env[k] }); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, want := cfg.InferenceGateway.URL, env["ORBIT_INFERENCE_GATEWAY_URL"]; got != want {
+		t.Errorf("InferenceGateway.URL = %q, want %q", got, want)
+	}
+	if got, want := cfg.ToolGateway.URL, env["ORBIT_TOOL_GATEWAY_URL"]; got != want {
+		t.Errorf("ToolGateway.URL = %q, want %q", got, want)
+	}
+}
