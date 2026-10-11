@@ -1,6 +1,6 @@
 # Decision Models and the System One API - Product Requirements Document
 
-**Status:** In Review  
+**Status:** Approved  
 **Created:** 2026-10-10  
 **Last Updated:** 2026-10-10  
 **Owner:** kora Core Team  
