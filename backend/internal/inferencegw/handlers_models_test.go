@@ -15,9 +15,10 @@ import (
 	"github.com/clear-route/orbit/internal/platform/token"
 )
 
-// newModelsCapabilityController wires a Controller whose catalog holds four
-// virtual models: chat-only, embedding-only, one spanning both capabilities
-// through two routes, and one with no enabled routes (so no capabilities).
+// newModelsCapabilityController wires a Controller whose catalog holds five
+// virtual models: chat-only, embedding-only, decision-only, one spanning chat
+// and embedding through two routes, and one with no enabled routes (so no
+// capabilities).
 func newModelsCapabilityController(t *testing.T) *Controller {
 	t.Helper()
 
@@ -29,6 +30,8 @@ func newModelsCapabilityController(t *testing.T) *Controller {
 			Routes: []VirtualModelRoute{route("chat-1", true)}},
 		{Family: "acme", Name: "embed-only", Strategy: VirtualStrategyPriority, Enabled: true,
 			Routes: []VirtualModelRoute{route("embed-1", true)}},
+		{Family: "acme", Name: "decide", Strategy: VirtualStrategyPriority, Enabled: true,
+			Routes: []VirtualModelRoute{route("decide-1", true)}},
 		{Family: "acme", Name: "multi", Strategy: VirtualStrategyPriority, Enabled: true,
 			Routes: []VirtualModelRoute{route("chat-2", true), route("embed-2", true)}},
 		{Family: "acme", Name: "no-routes", Strategy: VirtualStrategyPriority, Enabled: true,
@@ -37,6 +40,7 @@ func newModelsCapabilityController(t *testing.T) *Controller {
 	conn := &stubConnector{name: ProviderBedrock, models: []ProviderModel{
 		{Provider: ProviderBedrock, ModelID: "chat-1", Capabilities: []ModelCapability{CapabilityChat}},
 		{Provider: ProviderBedrock, ModelID: "embed-1", Capabilities: []ModelCapability{CapabilityEmbedding}},
+		{Provider: ProviderBedrock, ModelID: "decide-1", Capabilities: []ModelCapability{CapabilityDecision}},
 		{Provider: ProviderBedrock, ModelID: "chat-2", Capabilities: []ModelCapability{CapabilityChat}},
 		{Provider: ProviderBedrock, ModelID: "embed-2", Capabilities: []ModelCapability{CapabilityEmbedding}},
 		{Provider: ProviderBedrock, ModelID: "chat-3", Capabilities: []ModelCapability{CapabilityChat}},
@@ -72,13 +76,14 @@ func TestHandleListModels_CapabilityFilter(t *testing.T) {
 		query string
 		want  []string
 	}{
-		{"no parameter returns everything", "", []string{"acme/chat-only", "acme/embed-only", "acme/multi", "acme/no-routes"}},
+		{"no parameter returns everything", "", []string{"acme/chat-only", "acme/embed-only", "acme/decide", "acme/multi", "acme/no-routes"}},
 		{"single value", "capability=chat", []string{"acme/chat-only", "acme/multi"}},
 		{"repeated parameter", "capability=chat&capability=embedding", []string{"acme/chat-only", "acme/embed-only", "acme/multi"}},
 		{"comma list", "capability=chat,embedding", []string{"acme/chat-only", "acme/embed-only", "acme/multi"}},
 		{"whitespace and empty entries", "capability=" + url.QueryEscape(" embedding , ,") + "&capability=", []string{"acme/embed-only", "acme/multi"}},
-		{"only empty entries is no filter", "capability=" + url.QueryEscape(" , "), []string{"acme/chat-only", "acme/embed-only", "acme/multi", "acme/no-routes"}},
+		{"only empty entries is no filter", "capability=" + url.QueryEscape(" , "), []string{"acme/chat-only", "acme/embed-only", "acme/decide", "acme/multi", "acme/no-routes"}},
 		{"multi-capability model matches either value", "capability=embedding", []string{"acme/embed-only", "acme/multi"}},
+		{"decision models only", "capability=decision", []string{"acme/decide"}},
 		{"known capability with no models", "capability=rerank", []string{}},
 	}
 	for _, tc := range cases {

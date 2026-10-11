@@ -56,7 +56,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Inference Gateway Architecture](2026-04-01-inference-gateway-architecture.md) — `Accepted` · 2026-04-01
 - [Provider Model Catalog and Alias Routing](2026-04-01-provider-model-catalog-and-alias-routing.md) — `Accepted (Amended 2025-07-22)` · 2026-04-01
 - [Anthropic Zero-Translation Path](2026-04-01-anthropic-zero-translation-path.md) — `Accepted (Amended 2026-10-07)` · 2026-04-01
-- [Model Capability Taxonomy](2026-04-01-model-capability-taxonomy.md) — `Accepted` · 2026-04-01
+- [Model Capability Taxonomy](2026-04-01-model-capability-taxonomy.md) — `Accepted (Amended 2026-10-10)` · 2026-04-01
 - [Virtual Model Catalog and Platform Routing](2026-04-17-virtual-model-catalog-and-platform-routing.md) — `Accepted` · 2026-04-17
 - [Inference Usage Logs](2026-04-17-inference-usage-logs.md) — `Accepted` · 2026-04-17
 - [Inference Analytics: My Usage and Analytics Tabs](2026-04-27-inference-analytics.md) — `Accepted (Amended 2026-07-20)` · 2026-04-27
@@ -198,7 +198,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-04-01 | [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) | Accepted | 0030 |
 | 2026-04-01 | [Home Realm Discovery and Email-Based Tenant Routing](2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) | Accepted | 0031 |
 | 2026-04-01 | [Inference Gateway Architecture](2026-04-01-inference-gateway-architecture.md) | Accepted | 0023 |
-| 2026-04-01 | [Model Capability Taxonomy](2026-04-01-model-capability-taxonomy.md) | Accepted | 0032 |
+| 2026-04-01 | [Model Capability Taxonomy](2026-04-01-model-capability-taxonomy.md) | Accepted (Amended 2026-10-10) | 0032 |
 | 2026-04-01 | [Provider Model Catalog and Alias Routing](2026-04-01-provider-model-catalog-and-alias-routing.md) | Accepted (Amended 2025-07-22) | 0024 |
 | 2026-04-02 | [Personal Access Tokens for Inference](2026-04-02-personal-access-tokens.md) | Accepted | 0033 |
 | 2026-04-06 | [Frontend Cluster Deployment and Ingress Routing](2026-04-06-frontend-cluster-deployment-and-ingress-routing.md) | Accepted | 0034 |

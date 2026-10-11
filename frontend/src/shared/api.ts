@@ -39,7 +39,8 @@ export type ModelCapability =
   | 'image' // POST /v1/images/generations (handler not yet active)
   | 'video' // async video generation (no standard endpoint yet)
   | 'rerank' // POST /v1/rerank (handler not yet active)
-  | 'audio'; // TTS / live audio (no standard endpoint yet)
+  | 'audio' // TTS / live audio (no standard endpoint yet)
+  | 'decision'; // POST /v1/systemone
 
 /** Effective per-million-token prices for a virtual model. */
 export interface ModelObjectPricing {
