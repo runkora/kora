@@ -220,7 +220,7 @@ A decision model is served only on `/v1/systemone`. Chat models are not served t
 
 **Offer the model**
 
-Create a virtual model routed to the decision model and grant its scope, as in [Offer a model to agents](#offer-a-model-to-agents). `GET /v1/models` lists the virtual model with the `decision` capability.
+Create a virtual model routed to the decision model and grant its scope, as in [Offer a model to agents](#offer-a-model-to-agents). `GET /v1/models` lists the virtual model with the `decision` capability. `GET /v1/models?capability=decision` lists only decision models.
 
 **Call the model**
 
@@ -275,7 +275,7 @@ Provider health shows the model count, the last discovery and any upstream error
 
 ## List models by capability
 
-`GET /v1/models` accepts an optional `capability` parameter. It keeps models whose capabilities include any requested value. Repeat the parameter or separate values with commas. Valid values are `chat`, `embedding`, `image`, `video`, `rerank` and `audio`. An unknown value returns `400` with code `invalid_request`. Without the parameter the list is unchanged.
+`GET /v1/models` accepts an optional `capability` parameter. It keeps models whose capabilities include any requested value. Repeat the parameter or separate values with commas. Valid values are `chat`, `embedding`, `image`, `video`, `rerank`, `audio` and `decision`. An unknown value returns `400` with code `invalid_request`. Without the parameter the list is unchanged.
 
 ```bash
 curl -H "Authorization: Bearer $TOKEN" "$API/v1/models?capability=embedding"

@@ -207,6 +207,7 @@ var knownCapabilities = []ModelCapability{
 	CapabilityVideoGeneration,
 	CapabilityRerank,
 	CapabilityAudioGeneration,
+	CapabilityDecision,
 }
 
 // KnownCapabilities returns every valid ModelCapability, in declaration order.
