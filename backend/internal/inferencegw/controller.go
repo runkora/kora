@@ -18,6 +18,7 @@ import (
 //   - handlers_openai.go      — OpenAI-compatible dialect (POST /chat/completions, GET /models)
 //   - handlers_anthropic.go   — Anthropic Messages dialect (POST /messages)
 //   - handlers_embeddings.go  — OpenAI Embeddings API (POST /embeddings)
+//   - handlers_systemone.go   — System One decision API (POST /systemone)
 //   - handlers_responses.go   — OpenAI Responses API (POST /responses)
 type Controller struct {
 	svc       *Service
@@ -79,6 +80,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /messages              Anthropic Messages API dialect
 //	POST   /embeddings            OpenAI Embeddings API
 //	POST   /responses             OpenAI Responses API (streaming and non-streaming)
+//	POST   /systemone             System One decision API (typed questions, probabilities)
 //	GET    /models                List available models
 //	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
 //	GET    /usage/budget          Caller's current budget status (spend, limit, has_limit)
@@ -96,6 +98,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /messages", c.handleMessages)
 	mux.Handle("POST /embeddings", c.handleEmbeddings)
 	mux.Handle("POST /responses", c.handleResponses)
+	mux.Handle("POST /systemone", c.handleSystemOne)
 	mux.Handle("GET /models", c.handleListModels)
 	mux.Handle("GET /usage/stats", c.handleUsageStats)
 	mux.Handle("GET /usage/budget", c.handleGetPersonalBudget)
@@ -121,6 +124,10 @@ func connectorClientErrorResponse(err error) *api.APIError {
 	}
 	switch connErr.Code {
 	case "MODEL_NOT_SUPPORTED":
+		// The gateway's own refusal names the route to use instead.
+		if errors.Is(err, errRouteCapability) {
+			return api.BadRequestError("model_not_supported", connErr.ProviderMessage, nil)
+		}
 		return api.BadRequestError("model_not_supported",
 			"this model is not supported on this endpoint; use POST /v1/chat/completions for non-Anthropic models",
 			nil,

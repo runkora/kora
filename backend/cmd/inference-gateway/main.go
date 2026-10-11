@@ -229,6 +229,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/messages", Method: "POST", RequiredScope: "inference:invoke"},
 		{PathPrefix: "/v1/embeddings", Method: "POST", RequiredScope: "inference:invoke"},
 		{PathPrefix: "/v1/responses", Method: "POST", RequiredScope: "inference:invoke"},
+		{PathPrefix: "/v1/systemone", Method: "POST", RequiredScope: "inference:invoke"},
 		{PathPrefix: "/v1/models", Method: "GET", RequiredScope: "inference:list"},
 		{PathPrefix: "/v1/catalog", Method: "GET", RequiredScope: "platform:catalog:read"},
 		{PathPrefix: "/v1/catalog", Method: "POST", RequiredScope: "platform:catalog:write"},
