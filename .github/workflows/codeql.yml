@@ -6,6 +6,7 @@ on:
     paths-ignore: ["**/*.md", "docs/**"]
   pull_request:
     branches: [main]
+  merge_group:
   schedule:
     # Weekly, to pick up new queries against an unchanged main.
     - cron: "17 3 * * 2"
