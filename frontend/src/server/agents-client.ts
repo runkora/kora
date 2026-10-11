@@ -23,12 +23,15 @@ import type {
 
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
+/** Run start waits for a rolling pod: the 3 minute server budget plus margin. */
+export const START_RUN_TIMEOUT_MS = 240_000;
+
 async function request<T>(
   path: string,
   accessToken: string,
-  options: { method?: string; body?: unknown } = {},
+  options: { method?: string; body?: unknown; timeoutMs?: number } = {},
 ): Promise<T | undefined> {
-  const { method = 'GET', body } = options;
+  const { method = 'GET', body, timeoutMs = UPSTREAM_TIMEOUT_MS } = options;
   const url = `${config.orbitAgentsUrl}/${path.replace(/^\//, '')}`;
 
   const response = await fetch(url, {
@@ -40,7 +43,7 @@ async function request<T>(
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
     cache: 'no-store',
-    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {
@@ -63,8 +66,8 @@ async function request<T>(
 export function agentsClient(accessToken: string) {
   return {
     get: <T>(path: string) => request<T>(path, accessToken),
-    post: <T>(path: string, body: unknown) =>
-      request<T>(path, accessToken, { method: 'POST', body }),
+    post: <T>(path: string, body: unknown, timeoutMs?: number) =>
+      request<T>(path, accessToken, { method: 'POST', body, timeoutMs }),
     patch: <T>(path: string, body: unknown) =>
       request<T>(path, accessToken, { method: 'PATCH', body }),
     delete: <T>(path: string) => request<T>(path, accessToken, { method: 'DELETE' }),
