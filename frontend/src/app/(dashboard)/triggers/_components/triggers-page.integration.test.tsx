@@ -306,6 +306,32 @@ describe('TriggersPage deliveries paging', () => {
     expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
   });
 
+  it('retries the page that failed, keeping the rows already loaded', async () => {
+    // Retry used to restart from the first page whatever had failed, so a
+    // failed Load more cost the reader every page they had accumulated: a
+    // second loss on top of the one they were retrying.
+    renderPage([serverRow('d1')], 'cursor-1');
+    await openDeliveriesTab();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
+    (await request(0)).fail('deliveries backend is unavailable');
+    await waitFor(() => {
+      expect(screen.getByText('deliveries backend is unavailable')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    const retried = await request(1);
+
+    // The same cursor, not a restart.
+    expect(retried.cursor).toBe('cursor-1');
+
+    retried.respond([wireDelivery('d2')], null);
+    await settle();
+
+    // The page that was already on screen survived.
+    expect(visibleRowIds()).toEqual(['d1', 'd2']);
+  });
+
   it('clears the rows on a failed filter change and offers a Retry that re-issues it', async () => {
     renderPage([serverRow('d1')], 'cursor-1');
     await openDeliveriesTab();
