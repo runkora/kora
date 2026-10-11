@@ -37,6 +37,9 @@ func (s *stubConnector) AnthropicMessagesStream(_ context.Context, _ anthropic.M
 func (s *stubConnector) Embeddings(_ context.Context, _ openai.EmbeddingNewParams) (*openai.CreateEmbeddingResponse, error) {
 	return nil, errors.New("stub")
 }
+func (s *stubConnector) SystemOne(_ context.Context, _ SystemOneRequest) (*SystemOneResult, error) {
+	return nil, errors.New("stub")
+}
 func (s *stubConnector) Responses(_ context.Context, _ responses.ResponseNewParams) (*ResponsesResult, error) {
 	return nil, errors.New("stub")
 }

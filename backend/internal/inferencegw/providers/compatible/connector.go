@@ -60,9 +60,14 @@ type Connector struct {
 	// its decision models.
 	decisionOnly   bool
 	decisionModels []string
-	baseURL        string
-	apiKey         string
-	http           *httpclient.Base
+
+	// baseURL, apiKey, http and decide serve the calls made without an SDK:
+	// the model list (http) and systemone (decide), which have different
+	// timeouts. They are set when the endpoint declares systemone.
+	baseURL string
+	apiKey  string
+	http    *httpclient.Base
+	decide  *httpclient.Base
 }
 
 // New builds a connector. The SDKs' environment defaults (OPENAI_API_KEY,
@@ -81,7 +86,8 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 		c.decisionModels = slices.Clone(cfg.DecisionModels)
 		c.baseURL = strings.TrimSuffix(cfg.BaseURL, "/")
 		c.apiKey = cfg.APIKey
-		c.http = httpclient.New("orbit.compatible", logger, listModelsTimeout)
+		c.http = httpclient.New("orbit.compatible-list", logger, discoveryTimeout)
+		c.decide = httpclient.New("orbit.compatible-systemone", logger, decisionTimeout)
 	}
 
 	openaiOpts := []openaiopt.RequestOption{
@@ -122,15 +128,7 @@ func (c *Connector) Name() inferencegw.ProviderName { return c.name }
 // unsupported refuses an API the endpoint neither serves nor can bridge. It
 // is retryable: the virtual model may route to a provider that serves it.
 func (c *Connector) unsupported(api ip.API) error {
-	msg := fmt.Sprintf("provider %s does not serve the %s API", c.name, api)
-	return &inferencegw.ConnectorError{
-		Provider:        c.name,
-		Code:            "MODEL_NOT_SUPPORTED",
-		Retryable:       true,
-		Underlying:      errors.New(msg),
-		ProviderMessage: msg,
-		HTTPStatus:      400,
-	}
+	return inferencegw.NewAPINotServedError(c.name, string(api))
 }
 
 // ListModels lists the endpoint's models through whichever API family it serves.

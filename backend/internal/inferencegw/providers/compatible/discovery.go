@@ -13,8 +13,14 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// listModelsTimeout bounds one GET <baseURL>/models for a systemone endpoint.
-const listModelsTimeout = 30 * time.Second
+// Timeouts of the connector's own HTTP clients. Each covers one request,
+// body included, and applies afresh to every attempt of the retry policy.
+const (
+	// discoveryTimeout bounds GET <baseURL>/models.
+	discoveryTimeout = 30 * time.Second
+	// decisionTimeout bounds POST <baseURL>/systemone. Decisions should be quick.
+	decisionTimeout = 15 * time.Second
+)
 
 // errListModelsStatus is returned when the model list answers with a non-2xx status.
 var errListModelsStatus = errors.New("list models: unexpected status")
