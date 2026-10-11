@@ -3,6 +3,7 @@ package inferencegw
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
@@ -150,6 +151,24 @@ const (
 	// No standard endpoint yet.
 	CapabilityAudioGeneration ModelCapability = "audio"
 )
+
+// knownCapabilities is the single list of valid ModelCapability values. Add new
+// capabilities here (and as consts above) so request validation, such as the
+// GET /v1/models capability filter, picks them up.
+var knownCapabilities = []ModelCapability{
+	CapabilityChat,
+	CapabilityEmbedding,
+	CapabilityImageGeneration,
+	CapabilityVideoGeneration,
+	CapabilityRerank,
+	CapabilityAudioGeneration,
+}
+
+// KnownCapabilities returns every valid ModelCapability, in declaration order.
+// The returned slice is a copy; callers may modify it.
+func KnownCapabilities() []ModelCapability {
+	return slices.Clone(knownCapabilities)
+}
 
 // ============================================================================
 // ProviderModel
