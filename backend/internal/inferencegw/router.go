@@ -2,8 +2,11 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
+	"slices"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -65,8 +68,8 @@ type RoutingEngine struct {
 	// concurrent catalog update.
 	virtualCatalog atomic.Pointer[virtualCatalogSnapshot]
 
-	// modelCatalog holds the most recent provider-discovered models, used only
-	// for the admin Provider Catalog view. Not consulted during request routing.
+	// modelCatalog holds the most recent provider-discovered models. It backs
+	// the admin Provider Catalog view and the route capability check.
 	modelCatalog atomic.Pointer[[]ProviderModel]
 
 	// discovery holds the last ListModels outcome per provider.
@@ -401,8 +404,8 @@ func (r *RoutingEngine) CatalogScopes() []CatalogScope {
 }
 
 // ListModels queries every enabled connector concurrently and returns the
-// aggregated provider model list. Used exclusively for the admin Provider
-// Catalog view — it does NOT drive routing or the consumer /v1/models endpoint.
+// aggregated provider model list. It feeds the admin Provider Catalog view,
+// the consumer /v1/models capabilities and the route capability check.
 //
 // A connector may return models with an error: they are kept, and the error is
 // reported in its provider status. Results are published only if the provider
@@ -485,6 +488,44 @@ func (r *RoutingEngine) publishDiscovery(ctx context.Context, sweep uint64, set 
 	}
 	for provider, ms := range listed {
 		r.onDiscovered(ctx, provider, ms)
+	}
+}
+
+// errRouteCapability marks a target the gateway refused because discovery
+// described its model for another route.
+var errRouteCapability = errors.New("model is not served on this route")
+
+// refuseByCapability refuses a target whose model discovery described for
+// another route. Decision models serve only POST /v1/systemone, and only they
+// serve it. A model discovery has not described is left to its connector.
+func (r *RoutingEngine) refuseByCapability(t RouteTarget, route ModelCapability) error {
+	catalog := r.modelCatalog.Load()
+	if catalog == nil {
+		return nil
+	}
+	i := slices.IndexFunc(*catalog, func(m ProviderModel) bool {
+		return m.Provider == t.Provider && m.ModelID == t.ModelID
+	})
+	if i < 0 {
+		return nil
+	}
+	decision := slices.Contains((*catalog)[i].Capabilities, CapabilityDecision)
+	var msg string
+	switch {
+	case route == CapabilityDecision && !decision:
+		msg = fmt.Sprintf("provider %s does not serve the systemone API for model %s", t.Provider, t.ModelID)
+	case route != CapabilityDecision && decision:
+		msg = fmt.Sprintf("model %s on provider %s is a decision model; call POST /v1/systemone", t.ModelID, t.Provider)
+	default:
+		return nil
+	}
+	return &ConnectorError{
+		Provider:        t.Provider,
+		Code:            "MODEL_NOT_SUPPORTED",
+		Retryable:       true,
+		Underlying:      fmt.Errorf("%w: %s", errRouteCapability, msg),
+		ProviderMessage: msg,
+		HTTPStatus:      http.StatusBadRequest,
 	}
 }
 

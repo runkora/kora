@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -127,4 +128,25 @@ func TestUsageRoutesAreScopedUnlessPersonal(t *testing.T) {
 			t.Errorf("personal route %s is not registered: update the list", path)
 		}
 	}
+}
+
+// TestSystemOneRouteScope pins POST /v1/systemone to inference:invoke, beside
+// embeddings and responses, and checks the controller registers it.
+func TestSystemOneRouteScope(t *testing.T) {
+	got, ok := mw.ResolveRequiredScope(inferenceRoutes(), "POST", "/v1/systemone")
+	if !ok || got != "inference:invoke" {
+		t.Errorf("POST /v1/systemone: scope = %q (matched %v), want inference:invoke", got, ok)
+	}
+	if got, ok := mw.ResolveRequiredScope(inferenceRoutes(), "GET", "/v1/systemone"); ok && got != "" {
+		t.Errorf("GET /v1/systemone must not inherit a scope, got %q", got)
+	}
+
+	rec := &routeRecorder{Logger: logging.NewLoggerWithOutput(io.Discard)}
+	mux := api.NewMux(context.Background(), rec)
+	mux.SetBasePath("/v1")
+	inferencegw.NewController(context.Background(), nil, nil, inferenceRoutes(), "/v1", nil, rec).Boot(mux)
+	if slices.Contains(rec.routes, "POST /v1/systemone") {
+		return
+	}
+	t.Errorf("POST /v1/systemone is not registered; routes: %v", rec.routes)
 }
