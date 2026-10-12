@@ -39,7 +39,12 @@ if (!check) {
   process.exit(0);
 }
 
-const current = fs.existsSync(manifestPath) ? fs.readFileSync(manifestPath, 'utf8') : null;
+let current: string | null;
+try {
+  current = fs.readFileSync(manifestPath, 'utf8');
+} catch {
+  current = null;
+}
 if (current === text) {
   console.log('manifest in sync');
   process.exit(0);
