@@ -137,7 +137,30 @@ export function DeliveryDetail({
   // per-trigger view answers "what happened for me" and shows only that run;
   // the unscoped panel is asked "what did this arrival do", so every run it
   // started is worth reaching.
-  const fanOutRuns = triggerId === undefined ? delivery.runs.filter((r) => r.runId !== null) : [];
+  // Every run this arrival started, reachable in one place. The delivery's own
+  // run_id is folded in when no fan-out row carries it, which happens because
+  // outcomeRecorder.insert swallows an InsertDeliveryRun failure while
+  // UpdateDeliveryOutcome still stamps the delivery. Without that fold, a run
+  // whose own row failed to write is listed nowhere once a sibling trigger has
+  // one: the list renders the siblings and the inline cluster is suppressed.
+  const fanOutRuns =
+    triggerId === undefined
+      ? (() => {
+          const rows = delivery.runs.filter((r) => r.runId !== null);
+          if (runId == null || rows.some((r) => r.runId === runId)) return rows;
+          return [
+            ...rows,
+            {
+              triggerId: delivery.triggerId ?? '',
+              triggerName: delivery.triggerName ?? '',
+              runId,
+              status: delivery.status,
+              error: null,
+              createdAt: delivery.receivedAt,
+            },
+          ];
+        })()
+      : [];
 
   // The run shown inline when there is exactly one. delivery.run_id and the
   // fan-out are written by separate statements in service_dispatch, so a read
