@@ -161,6 +161,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Hades Frontend Design System](2026-03-25-terra-frontend-design-system.md) — `Accepted` · 2026-03-25
 - [Design System Semantic Versioning](2026-10-11-design-system-semantic-versioning.md) — `Accepted` · 2026-10-11
 - [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) — `Accepted` · 2026-10-11
+- [White-labelling Theme](2026-10-12-white-labelling-theme.md) — `Accepted` · 2026-10-12
 - [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) — `Accepted` · 2026-05-04
 - [Hades Design System Hardening](2026-05-04-terra-design-system-hardening.md) — `Accepted` · 2026-05-04
 - [Semantic HTML Consolidation — Unconditional Ban on header, article, nav, aside, footer](2026-05-04-semantic-html-consolidation.md) — `Accepted` · 2026-05-04
@@ -304,6 +305,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-11 | [Design System Semantic Versioning](2026-10-11-design-system-semantic-versioning.md) | Accepted | — |
 | 2026-10-11 | [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
+| 2026-10-12 | [White-labelling Theme](2026-10-12-white-labelling-theme.md) | Accepted | — |
 | 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
 | 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
