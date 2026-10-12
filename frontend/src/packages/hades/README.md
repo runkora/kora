@@ -130,11 +130,15 @@ Use `font-mono` for any value that represents a system identifier: agent IDs, cr
 
 ### Border Radius
 
-| Token         | Tailwind class | Purpose                       |
-| ------------- | -------------- | ----------------------------- |
-| `--radius-sm` | `rounded-sm`   | Tight elements (badges, tags) |
-| `--radius-md` | `rounded-md`   | Cards, inputs, buttons        |
-| `--radius-lg` | `rounded-lg`   | Modals, large panels          |
+Five literal steps, each a raw token a theme can set (`--hades-raw-radius-*`), resolved through the semantic names below.
+
+| Token          | Tailwind class | Default | Purpose                       |
+| -------------- | -------------- | ------- | ----------------------------- |
+| `--radius-sm`  | `rounded-sm`   | 6px     | Tight elements (badges, tags) |
+| `--radius-md`  | `rounded-md`   | 12px    | Inputs, buttons               |
+| `--radius-lg`  | `rounded-lg`   | 18px    | Cards, panels                 |
+| `--radius-xl`  | `rounded-xl`   | 18px    | Dialogs                       |
+| `--radius-2xl` | `rounded-2xl`  | 24px    | Chat input                    |
 
 ### Shadows: none
 
