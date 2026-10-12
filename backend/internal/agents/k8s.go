@@ -830,7 +830,7 @@ func (p *K8sProvisioner) replaceIfDeadSandboxPod(ctx context.Context, pod *corev
 	limit, next := sandboxMemoryLimit(existing), sandboxMemoryLimit(pod)
 	if t := sandboxExecTerminated(existing); t != nil && t.Reason == "OOMKilled" && next.Cmp(limit) <= 0 {
 		return true, fmt.Errorf("%w at its %s limit and was restarted. %s "+
-			"Call replace_environment with a larger environment, or use less memory", ErrSandboxOutOfMemory, limit.String(), sandboxLossNote(existing))
+			"Call replace_environment with a larger environment, or use less memory.", ErrSandboxOutOfMemory, limit.String(), sandboxLossNote(existing))
 	}
 	return true, nil
 }
