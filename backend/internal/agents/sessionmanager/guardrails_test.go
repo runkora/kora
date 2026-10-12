@@ -615,6 +615,34 @@ func TestRunGuardrails_WireMatchesTheClient(t *testing.T) {
 	}
 }
 
+// A lost sandbox that had a sandbox folder says the folder went with it.
+func TestSandboxLostMessage_SandboxFolder(t *testing.T) {
+	tests := []struct {
+		name   string
+		folder string
+		want   string
+	}{
+		{"no sandbox folder", "", "Files under {ws} are intact."},
+		{"sandbox folder", "pod-uid", "The sandbox folder {ws}/sandbox was lost with the sandbox. Other files under {ws} are intact."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg, ws := newTestRegistry(t, &failingNotifier{})
+			hostSession(reg, "run-1")
+			reg.sessions["run-1"].sandbox.Store(Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "t", Folder: tt.folder})
+			workspace := filepath.Join(ws, "run-1")
+			if err := os.MkdirAll(workspace, 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			want := strings.ReplaceAll(tt.want, "{ws}", workspace)
+			if got := reg.sandboxLostMessage("run-1"); !strings.Contains(got, want) {
+				t.Errorf("lost message = %q, want it to contain %q", got, want)
+			}
+		})
+	}
+}
+
 // setGuardrails replaces the registry's fallback thresholds for a test.
 func setGuardrails(reg *Registry, g Guardrails) {
 	reg.guardrails = g.withDefaults()

@@ -829,10 +829,20 @@ func (p *K8sProvisioner) replaceIfDeadSandboxPod(ctx context.Context, pod *corev
 	// The same size would run out again, so the agent is told to pick a larger one.
 	limit, next := sandboxMemoryLimit(existing), sandboxMemoryLimit(pod)
 	if t := sandboxExecTerminated(existing); t != nil && t.Reason == "OOMKilled" && next.Cmp(limit) <= 0 {
-		return true, fmt.Errorf("%w at its %s limit and was restarted. Files outside the workspace are lost. "+
-			"Call replace_environment with a larger environment, or use less memory", ErrSandboxOutOfMemory, limit.String())
+		return true, fmt.Errorf("%w at its %s limit and was restarted. %s "+
+			"Call replace_environment with a larger environment, or use less memory", ErrSandboxOutOfMemory, limit.String(), sandboxLossNote(existing))
 	}
 	return true, nil
+}
+
+// sandboxLossNote says which files a replaced sandbox took with it.
+// The sandbox folder is on the sandbox's own disk, so it is lost with the pod.
+func sandboxLossNote(pod *corev1.Pod) string {
+	workspace := runWorkspaceDir(pod.Labels[sandboxfolder.RunIDLabel])
+	if hasFolderMount(pod) {
+		return fmt.Sprintf("The sandbox folder %s was lost with it. Other files under %s are intact.", filepath.Join(workspace, sandboxfolder.Dir), workspace)
+	}
+	return fmt.Sprintf("Files outside %s are lost.", workspace)
 }
 
 // ErrSandboxOutOfMemory reports a sandbox replaced because sandbox-exec ran out of memory.

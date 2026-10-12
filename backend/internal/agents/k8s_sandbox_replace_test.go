@@ -15,6 +15,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
+	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -24,6 +25,7 @@ func sandboxPod(annoKey, annoVal string, phase corev1.PodPhase) *corev1.Pod {
 			Name:        "sandbox-run-1",
 			Namespace:   "ns",
 			Annotations: map[string]string{annoKey: annoVal},
+			Labels:      map[string]string{sandboxfolder.RunIDLabel: "run-1"},
 		},
 		Status: corev1.PodStatus{Phase: phase},
 	}
@@ -39,6 +41,12 @@ func withSandboxExec(pod *corev1.Pod, memory string, state corev1.ContainerState
 		{Name: sandboxContainerName, State: state},
 		{Name: "istio-proxy", State: corev1.ContainerState{Running: &corev1.ContainerStateRunning{}}},
 	}
+	return pod
+}
+
+// withFolderMount mounts the sandbox folder into the pod's sandbox-exec container.
+func withFolderMount(pod *corev1.Pod) *corev1.Pod {
+	pod.Spec.Containers[0].VolumeMounts = []corev1.VolumeMount{{Name: sandboxfolder.Volume, SubPath: sandboxfolder.Dir, MountPath: "/workspaces/run-1/sandbox"}}
 	return pod
 }
 
@@ -59,7 +67,7 @@ func TestReplaceIfDeadSandboxPod(t *testing.T) {
 		existing     *corev1.Pod
 		desired      *corev1.Pod
 		wantReplaced bool
-		wantOOM      bool
+		wantOOM      string
 	}{
 		{
 			name:     "running sandbox-exec is reused",
@@ -100,7 +108,14 @@ func TestReplaceIfDeadSandboxPod(t *testing.T) {
 			existing:     withSandboxExec(sandboxPod("marker", "old", corev1.PodRunning), "2Gi", execOOM),
 			desired:      withSandboxExec(sandboxPod("marker", "new", corev1.PodPending), "2Gi", corev1.ContainerState{}),
 			wantReplaced: true,
-			wantOOM:      true,
+			wantOOM:      "at its 2Gi limit and was restarted. Files outside /workspaces/run-1 are lost.",
+		},
+		{
+			name:         "OOMKilled sandbox-exec with a sandbox folder reports the folder lost",
+			existing:     withFolderMount(withSandboxExec(sandboxPod("marker", "old", corev1.PodRunning), "2Gi", execOOM)),
+			desired:      withSandboxExec(sandboxPod("marker", "new", corev1.PodPending), "2Gi", corev1.ContainerState{}),
+			wantReplaced: true,
+			wantOOM:      "The sandbox folder /workspaces/run-1/sandbox was lost with it. Other files under /workspaces/run-1 are intact.",
 		},
 		{
 			name:         "OOMKilled sandbox-exec replaced by a larger one is not reported",
@@ -115,9 +130,9 @@ func TestReplaceIfDeadSandboxPod(t *testing.T) {
 			p := &K8sProvisioner{client: client, logger: logging.NewLoggerWithOutput(io.Discard)}
 
 			replaced, err := p.replaceIfDeadSandboxPod(context.Background(), tt.desired, "ns")
-			if tt.wantOOM {
-				if !errors.Is(err, ErrSandboxOutOfMemory) || !strings.Contains(err.Error(), "2Gi limit") {
-					t.Fatalf("err = %v, want ErrSandboxOutOfMemory naming the 2Gi limit", err)
+			if tt.wantOOM != "" {
+				if !errors.Is(err, ErrSandboxOutOfMemory) || !strings.Contains(err.Error(), tt.wantOOM) {
+					t.Fatalf("err = %v, want ErrSandboxOutOfMemory containing %q", err, tt.wantOOM)
 				}
 			} else if err != nil {
 				t.Fatalf("replaceIfDeadSandboxPod: %v", err)
