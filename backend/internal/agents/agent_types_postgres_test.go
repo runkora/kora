@@ -62,3 +62,25 @@ func TestPostgres_AgentTypeRoundTrip(t *testing.T) {
 		t.Errorf("after update got prompt %q and max runs %d, want %q and 3", updated.SystemPrompt, updated.MaxConcurrentRunsPerPod, "be thorough")
 	}
 }
+
+func TestPostgres_ListActiveAgentTypes(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	active := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	pending := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	if err := r.SetAgentTypeState(context.Background(), pending.ID, AgentTypeStateActive, AgentTypeStateProvisioning); err != nil {
+		t.Fatal(err)
+	}
+	got, err := r.ListActiveAgentTypes(context.Background())
+	if err != nil {
+		t.Fatalf("ListActiveAgentTypes: %v", err)
+	}
+	var ids []string
+	for _, at := range got {
+		if at.TenantID == tenant {
+			ids = append(ids, at.ID)
+		}
+	}
+	if len(ids) != 1 || ids[0] != active.ID {
+		t.Errorf("active agent types = %v, want only %s", ids, active.ID)
+	}
+}

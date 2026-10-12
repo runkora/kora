@@ -117,7 +117,7 @@ func TestEnsureAuthorizationPolicy_IsIdempotent(t *testing.T) {
 	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme", metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("first ensure: %v", err)
 	}
-	// Provisioning re-runs on every agent-type update; an AlreadyExists must
+	// Provisioning re-runs at every orbit-agents startup; an AlreadyExists must
 	// not fail the reconcile.
 	if err := p.ensureAuthorizationPolicy(ctx, at, "orbit-tenant-acme", metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("second ensure: %v", err)
