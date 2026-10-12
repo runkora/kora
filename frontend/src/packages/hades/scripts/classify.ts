@@ -110,8 +110,13 @@ function readAtRef(ref: string, relPath: string): string | null {
 }
 
 function readAtHead(relPath: string): string | null {
-  const full = path.join(packageDir, relPath);
-  return fs.existsSync(full) && fs.statSync(full).isFile() ? fs.readFileSync(full, 'utf8') : null;
+  // Read and let it fail rather than check first: no check-then-use window,
+  // and a directory or a missing file both read as absent.
+  try {
+    return fs.readFileSync(path.join(packageDir, relPath), 'utf8');
+  } catch {
+    return null;
+  }
 }
 
 // ─── Inputs ──────────────────────────────────────────────────────────────────
@@ -264,7 +269,12 @@ function renderMarkdown(): string {
 }
 
 function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\|/g, '\\|');
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\|/g, '\\|');
 }
 
 const outputs: Record<string, () => string> = {

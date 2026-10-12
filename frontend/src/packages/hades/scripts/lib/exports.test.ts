@@ -69,10 +69,11 @@ describe('readExportSurface', () => {
   it('reads the real package entry point', () => {
     const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
     const read: FileReader = (rel) => {
-      const full = path.join(packageDir, rel);
-      return fs.existsSync(full) && fs.statSync(full).isFile()
-        ? fs.readFileSync(full, 'utf8')
-        : null;
+      try {
+        return fs.readFileSync(path.join(packageDir, rel), 'utf8');
+      } catch {
+        return null;
+      }
     };
     const surface = readExportSurface(read);
     expect(surface.exports).toContain('Button');
