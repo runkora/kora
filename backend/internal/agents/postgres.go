@@ -346,7 +346,7 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrd
 func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, now time.Time) ([]Run, error) {
 	rows, err := r.pool.Query(ctx, `
 		WITH claimed AS (
-		    UPDATE runs SET claimed_at = $2
+		    UPDATE runs SET claimed_at = $2, updated_at = $2
 		    WHERE id IN (
 		        SELECT id FROM runs
 		        WHERE  state = 'pending' AND claimed_at IS NULL AND not_before <= $2
@@ -374,7 +374,7 @@ func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, no
 // ReleaseRunClaim returns a run claimed at claimedAt to the queue, to be claimed
 // again after notBefore. The claim token stops a worker whose claim went stale
 // from releasing a run that another worker now holds. Returns ErrConflict when
-// the run has left pending and starting or another worker holds it.
+// the run is gone, has left pending and starting, or another worker holds it.
 func (r *PostgresRepository) ReleaseRunClaim(ctx context.Context, id string, claimedAt, notBefore time.Time) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE runs SET state = 'pending', pod_ordinal = -1, started_at = NULL,
@@ -396,9 +396,9 @@ func (r *PostgresRepository) ReleaseRunClaim(ctx context.Context, id string, cla
 // starting stays for the stale-run reaper.
 func (r *PostgresRepository) ReclaimStaleRunClaims(ctx context.Context, cutoff time.Time) ([]string, error) {
 	rows, err := r.pool.Query(ctx, `
-		UPDATE runs SET claimed_at = NULL
+		UPDATE runs SET claimed_at = NULL, updated_at = $2
 		WHERE  state = 'pending' AND claimed_at < $1
-		RETURNING id`, cutoff)
+		RETURNING id`, cutoff, time.Now().UTC())
 	if err != nil {
 		return nil, fmt.Errorf("reclaim stale run claims: %w", err)
 	}

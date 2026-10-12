@@ -8,12 +8,13 @@ ALTER TABLE runs ADD COLUMN claimed_at TIMESTAMPTZ;
 -- not_before is the earliest time a worker may claim the run. A worker never claims a row where it is NULL.
 ALTER TABLE runs ADD COLUMN not_before TIMESTAMPTZ;
 
-CREATE INDEX idx_runs_claimable ON runs (created_at) WHERE state = 'pending' AND claimed_at IS NULL;
+-- Serves the claim and the stale-claim sweep. Pending runs are few at any time.
+CREATE INDEX idx_runs_pending ON runs (created_at) WHERE state = 'pending';
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-DROP INDEX IF EXISTS idx_runs_claimable;
+DROP INDEX IF EXISTS idx_runs_pending;
 ALTER TABLE runs DROP COLUMN not_before;
 ALTER TABLE runs DROP COLUMN claimed_at;
 ALTER TABLE runs DROP COLUMN initial_message;

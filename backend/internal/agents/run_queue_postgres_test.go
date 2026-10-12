@@ -120,7 +120,9 @@ func TestPostgres_ReleaseRunClaim(t *testing.T) {
 	id := queueRun(t, r, tenant, at.ID, past, &past)
 
 	claimedAt := time.Now()
-	claimOwn(t, r, tenant, claimedAt)
+	if got := claimOwn(t, r, tenant, claimedAt); !slices.Equal(runIDs(got), []string{id}) {
+		t.Fatalf("claimed %v, want %s", runIDs(got), id)
+	}
 	if err := r.AssignPod(ctx, id, 1); err != nil {
 		t.Fatalf("AssignPod: %v", err)
 	}
