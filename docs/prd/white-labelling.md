@@ -92,7 +92,7 @@ The product identity is fixed in code. The colour palette, corner radii, fonts, 
 
 **Acceptance Criteria:**
 - [ ] The product name is a single verbatim string. It replaces every user-visible occurrence of the name, including page titles, dashboard copy, confirmation dialogs and agent runtime messages shown in the product. Copy is written so the name needs no possessive or plural form.
-- [ ] The instance renders the favicon and the logo variants the theme supplies (mark only, wordmark only, full logo) wherever identity is shown.
+- [ ] The instance renders the favicon and the logo the theme supplies wherever identity is shown.
 - [ ] Logos and the favicon are addressed per mode, as colour tokens are. A theme may set either mode's assets independently, and an unset mode falls through to the kora default for that mode.
 - [ ] An identity value cannot be set to nothing. A theme supplies a value or the kora default renders. Goal 1 is therefore met only by a theme that sets every identity value in both modes, and the published validation rules report which identity values a theme leaves to fall through.
 - [ ] Identity is rendered through agnostic Hades slot components that read from the effective theme. The kora logo drawing that lives in Hades today moves out, into the kora default theme at app level, and the static favicon file and hardcoded title are replaced by the same slots. The backend reads the product name from the theme the same way the frontend does.
@@ -131,7 +131,7 @@ The set of things a client can change in v1. Everything on this list is configur
 |---|---|
 | Colours | Every colour token in both dark and light mode, each set individually. Includes status colours (healthy, degraded, error) and provider and strategy brand colours. |
 | Depth | Every shadow token in both dark and light mode, each set individually. |
-| Identity | Product name. Favicon, logo mark, logo wordmark and full logo, each per mode. |
+| Identity | Product name. Favicon and logo, each per mode. |
 | Shape | Corner radius scale, each step a literal value. |
 | Typography | UI font and monospace font, supplied as font files. |
 
@@ -166,7 +166,7 @@ The following are architectural decisions and are deferred to the white-labellin
 1. The theme contract: schema, the recorded version, validation rules and how they are published per version, the unknown-token rule, the per-mode addressing of colours and identity assets, and the asset packaging modes, subject to the constraint that brand assets are never forced into a git repository. The accepted asset formats and sizes and the product-name bounds are fields of the Hades theme surface manifest, decided in subsection 3 of the design system versioning ADR; this decision cites them.
 2. How the theme enters the deployment configuration and how brand assets reach the instance. A custom resource reconciled by the operator is a candidate, following the precedent of [CRD-driven inference providers](crd-inference-providers.md).
 3. Where validation runs and how an invalid theme fails the deploy before the instance serves a page.
-4. Startup loading, rendering the effective theme in the first HTML response, serving fonts and logos, and the agnostic Hades slot components that render the product name, logo variants and favicon from the effective theme, with the kora logo moved out of Hades into the default theme.
+4. Startup loading, rendering the effective theme in the first HTML response, serving fonts and logos, and the agnostic Hades slot components that render the product name, logo and favicon from the effective theme, with the kora logo moved out of Hades into the default theme.
 5. Product-name wiring and the hardcoded-string check: the source trees it covers, the classes of string literal it inspects, and the names it searches for.
 6. Template exposure, for the P1 requirement: whether selected real page templates can be exposed for rendering outside the app, which ones, and how they are delivered alongside each Hades major. This decision may conclude that it is not viable.
 
@@ -197,7 +197,7 @@ The last column is not a contract change, because kora defaults are outside the 
 - **Theme contract** - the schema, recorded version, validation rules and packaging modes a theme must conform to, versioned by the Hades major independently of the kora version, and published per version so a theme can be validated before it is applied.
 - **Theme loading and validation** - the instance reads the theme at startup, validates it, and fails the deploy on an invalid theme.
 - **Theme rendering** - the running instance renders the effective theme on every page it serves, including unauthenticated ones, with no flash of default styling.
-- **Identity slots** - agnostic Hades components that render the product name, the logo variants and the favicon from the effective theme. They replace the single combined logo drawing, static favicon file and hardcoded title kora uses today; the kora logo becomes an asset of the kora default theme at app level.
+- **Identity slots** - agnostic Hades components that render the product name, the logo and the favicon from the effective theme. The slots are the identity surfaces the product renders today and no more; a surface that needs a mark alone adds that slot when it exists. They replace the single combined logo drawing, static favicon file and hardcoded title kora uses today; the kora logo becomes an asset of the kora default theme at app level.
 - **Product-name wiring** - a single configured name that every user-visible occurrence of the product name reads from, in the dashboard and in agent runtime messages shown in it.
 
 ---
