@@ -275,6 +275,190 @@ func TestTriggerProviderToolsAndSenderRestriction(t *testing.T) {
 	}
 }
 
+// TestTriggerKindsCreateUpdateAndPreview covers the per-kind create validation
+// and request bodies, the schedule/manual config update mapping, and the
+// schedule preview tool.
+func TestTriggerKindsCreateUpdateAndPreview(t *testing.T) {
+	var gotPath, gotMethod string
+	var gotBody map[string]any
+	previewStatus := http.StatusOK
+	triggers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath, gotMethod = r.URL.Path, r.Method
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/triggers/schedule-preview" && previewStatus != http.StatusOK {
+			w.WriteHeader(previewStatus)
+			_, _ = w.Write([]byte(`{"code":"validation_error","message":"invalid cron expression"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"next_fires":[{"at":"2026-01-01T09:00:00Z","label":"Thu 1 Jan 2026, 09:00"}]}`))
+	}))
+	defer triggers.Close()
+
+	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	callTool := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		gotPath, gotMethod, gotBody = "", "", nil
+		resp := call("tools/call", map[string]any{"name": name, "arguments": args})
+		result, _ := resp["result"].(map[string]any)
+		return result
+	}
+	isToolError := func(result map[string]any) bool {
+		isErr, _ := result["isError"].(bool)
+		return isErr
+	}
+	schedule := map[string]any{"cron_expression": "0 9 * * 1-5", "timezone": "Australia/Sydney", "catch_up": true}
+
+	t.Run("create validation per kind", func(t *testing.T) {
+		rejected := map[string]map[string]any{
+			"webhook without source_id":   {"name": "t", "event_type": "push"},
+			"webhook without event_type":  {"name": "t", "source_id": "src-1"},
+			"explicit webhook, no source": {"kind": "webhook", "name": "t", "event_type": "push"},
+			"scheduled without schedule":  {"kind": "scheduled", "name": "t"},
+			"unknown kind":                {"kind": "cron", "name": "t"},
+			"manual without name":         {"kind": "manual"},
+			"scheduled without name":      {"kind": "scheduled", "schedule_config": schedule},
+		}
+		for label, args := range rejected {
+			result := callTool("triggers.create", args)
+			if gotPath != "" {
+				t.Errorf("%s: reached the backend at %q", label, gotPath)
+			}
+			if !isToolError(result) {
+				t.Errorf("%s: want a tool error, got %v", label, result)
+			}
+		}
+	})
+
+	t.Run("webhook is the default kind", func(t *testing.T) {
+		callTool("triggers.create", map[string]any{"name": "t", "source_id": "src-1", "event_type": "push"})
+		if gotMethod != http.MethodPost || gotPath != "/api/v1/triggers" {
+			t.Fatalf("create hit %s %q", gotMethod, gotPath)
+		}
+		if gotBody["kind"] != "webhook" || gotBody["source_id"] != "src-1" || gotBody["event_type"] != "push" {
+			t.Errorf("webhook body = %v", gotBody)
+		}
+		if _, ok := gotBody["schedule_config"]; ok {
+			t.Errorf("webhook body carries schedule_config: %v", gotBody)
+		}
+	})
+
+	t.Run("scheduled needs no source or event type", func(t *testing.T) {
+		result := callTool("triggers.create", map[string]any{
+			"kind": "scheduled", "name": "nightly", "agent_slug": "reporter", "schedule_config": schedule,
+		})
+		if isToolError(result) {
+			t.Fatalf("scheduled create failed: %v", result)
+		}
+		if gotPath != "/api/v1/triggers" || gotBody["kind"] != "scheduled" {
+			t.Fatalf("create hit %q with %v", gotPath, gotBody)
+		}
+		sc, _ := gotBody["schedule_config"].(map[string]any)
+		if sc["cron_expression"] != "0 9 * * 1-5" || sc["timezone"] != "Australia/Sydney" || sc["catch_up"] != true {
+			t.Errorf("schedule_config = %v", gotBody["schedule_config"])
+		}
+		if _, ok := gotBody["manual_config"]; ok {
+			t.Errorf("scheduled body carries manual_config: %v", gotBody)
+		}
+	})
+
+	t.Run("manual forwards its inputs", func(t *testing.T) {
+		manual := map[string]any{"inputs": []any{
+			map[string]any{"name": "ticket", "type": "text", "required": true},
+			map[string]any{"name": "env", "type": "choice", "choices": []any{"dev", "prod"}, "default": "dev"},
+		}}
+		result := callTool("triggers.create", map[string]any{
+			"kind": "manual", "name": "triage", "agent_slug": "triager",
+			"prompt_template": "Triage {{ var.ticket }} in {{ var.env }}", "manual_config": manual,
+		})
+		if isToolError(result) {
+			t.Fatalf("manual create failed: %v", result)
+		}
+		if gotBody["kind"] != "manual" {
+			t.Fatalf("kind = %v", gotBody["kind"])
+		}
+		mc, _ := gotBody["manual_config"].(map[string]any)
+		inputs, _ := mc["inputs"].([]any)
+		if len(inputs) != 2 {
+			t.Fatalf("manual_config = %v", gotBody["manual_config"])
+		}
+		env, _ := inputs[1].(map[string]any)
+		if env["name"] != "env" || env["default"] != "dev" || len(env["choices"].([]any)) != 2 {
+			t.Errorf("second input = %v", env)
+		}
+		if _, ok := gotBody["schedule_config"]; ok {
+			t.Errorf("manual body carries schedule_config: %v", gotBody)
+		}
+	})
+
+	t.Run("update maps schedule and manual config", func(t *testing.T) {
+		callTool("triggers.update", map[string]any{"id": "t-1", "schedule_config": map[string]any{
+			"cron_expression": "30 6 * * *", "timezone": "Europe/London",
+		}})
+		if gotMethod != http.MethodPatch || gotPath != "/api/v1/triggers/t-1" {
+			t.Fatalf("update hit %s %q", gotMethod, gotPath)
+		}
+		sc, _ := gotBody["schedule_config"].(map[string]any)
+		if sc["cron_expression"] != "30 6 * * *" || sc["timezone"] != "Europe/London" {
+			t.Errorf("schedule_config = %v", gotBody["schedule_config"])
+		}
+		if _, ok := gotBody["manual_config"]; ok {
+			t.Errorf("update carries an unsupplied manual_config: %v", gotBody)
+		}
+
+		callTool("triggers.update", map[string]any{"id": "t-2", "manual_config": map[string]any{
+			"inputs": []any{map[string]any{"name": "ticket", "type": "text"}},
+		}})
+		if _, ok := gotBody["manual_config"].(map[string]any); !ok {
+			t.Errorf("update did not forward manual_config: %v", gotBody)
+		}
+		if _, ok := gotBody["schedule_config"]; ok {
+			t.Errorf("update carries an unsupplied schedule_config: %v", gotBody)
+		}
+	})
+
+	t.Run("update body omits unsupplied configs", func(t *testing.T) {
+		name := "renamed"
+		body := updateTriggerBody(updateTriggerArgs{ID: "t-1", Name: &name})
+		if len(body) != 1 || body["name"] != name {
+			t.Errorf("body = %v, want only name", body)
+		}
+	})
+
+	t.Run("schedule preview", func(t *testing.T) {
+		result := callTool("triggers.schedule_preview", map[string]any{"schedule_config": schedule})
+		if isToolError(result) {
+			t.Fatalf("preview failed: %v", result)
+		}
+		if gotMethod != http.MethodPost || gotPath != "/api/v1/triggers/schedule-preview" {
+			t.Fatalf("preview hit %s %q", gotMethod, gotPath)
+		}
+		sc, _ := gotBody["schedule_config"].(map[string]any)
+		if sc["cron_expression"] != "0 9 * * 1-5" || sc["timezone"] != "Australia/Sydney" {
+			t.Errorf("preview body = %v", gotBody)
+		}
+
+		result = callTool("triggers.schedule_preview", map[string]any{})
+		if gotPath != "" || !isToolError(result) {
+			t.Errorf("preview without schedule_config: path %q, result %v", gotPath, result)
+		}
+
+		previewStatus = http.StatusBadRequest
+		result = callTool("triggers.schedule_preview", map[string]any{"schedule_config": map[string]any{
+			"cron_expression": "not a cron", "timezone": "UTC",
+		}})
+		if !isToolError(result) {
+			t.Errorf("invalid expression: want a tool error, got %v", result)
+		}
+	})
+}
+
 // TestConnectorsDiscoveryAndForwarding covers the connectors surface: the
 // agents.connectors discovery tool hits the connections catalog, and agents.create
 // forwards the nested connectors + connectivity intent for the backend to compile.
@@ -603,6 +787,7 @@ func TestToolRequiresMatchDownstreamRouteScopes(t *testing.T) {
 		"triggers.update": "triggers:write", "triggers.delete": "triggers:write",
 		"triggers.deliveries.list":       "triggers:read",
 		"triggers.providers.event_types": "triggers:read", "triggers.providers.fields": "triggers:read",
+		"triggers.schedule_preview": "triggers:write", // POST /triggers/schedule-preview → triggers:write
 	}
 
 	for tool, want := range wantRequires {
