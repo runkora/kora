@@ -244,15 +244,71 @@ frontend/src/packages/hades/
 │   │       ├── section.stories.tsx
 │   │       └── index.ts
 │   ├── utils.ts                  # cn() utility (clsx + tailwind-merge)
+│   ├── version.ts                # HADES_VERSION, equal to package.json
 │   ├── tokens/
 │   │   ├── tokens.css            # Design token definitions (@theme block)
+│   │   ├── surface.ts            # Theme surface declaration: token kinds, slots, product-name bounds
 │   │   └── tokens.stories.tsx    # Storybook token showcase
 │   └── index.ts                  # Public API — all exports live here
+├── scripts/
+│   ├── manifest.ts               # Generates manifest.json (make hades-manifest)
+│   ├── classify.ts               # Classifies a change against the last release (make hades-classify)
+│   └── lib/                      # The pure parts of both, with their tests
 ├── .storybook/                   # Storybook configuration
+├── manifest.json                 # The theme surface manifest, generated, checked in
+├── CONTRACT.md                   # The five contract boundary rules
 ├── package.json
 ├── tsconfig.json
 └── README.md
 ```
+
+---
+
+## Versioning and the theme surface manifest
+
+Hades is semantically versioned, and the version promises the **theme contract**: the set of values a white-labelling theme can set. The rules are in the [design system versioning ADR](../../../../docs/adr/2026-10-11-design-system-semantic-versioning.md); this section is the working summary.
+
+### The version
+
+`package.json` `version` is the source of truth. `src/version.ts` exports the same value as `HADES_VERSION`, and `manifest.json` carries it too; `make check-versions` fails when the three disagree. A release is a `hades/vX.Y.Z` tag on a `main` commit where the field equals `X.Y.Z`; the `hades-release.yml` workflow verifies that, refuses any `0.x` tag, and deletes the tag on failure. Version bumps travel in the pull request that makes the change, so `main` is releasable at any commit.
+
+### The manifest
+
+`manifest.json` is the theme surface: every settable token, how each semantic name resolves to raw tokens, the asset slots, and the product-name bounds. It is generated, never edited:
+
+```bash
+make hades-manifest          # regenerate after changing tokens.css or surface.ts
+make hades-manifest-check    # what `make check` runs: fails on drift
+```
+
+The generator reads token names from the `:root` blocks of `src/tokens/tokens.css` (every `--hades-raw-*` property is settable, in both modes, by rule) and everything else from `src/tokens/surface.ts`: the kind of each token, the slots with their formats and size limits, and the product-name bounds. A raw token declared in one file and not the other fails generation, so adding a token means touching both.
+
+| Field         | Contents                                                                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`     | Equal to `package.json`.                                                                                                                                                                                                   |
+| `modes`       | `["dark", "light"]`.                                                                                                                                                                                                       |
+| `tokens`      | One entry per raw token: `name`, `kind` (`color`, `shadow`, `length`, `font`), `format` (`hex-or-oklch`, `css-shadow-list`, `css-length`, `font-family-name`) and `modes`.                                                 |
+| `mapping`     | For each `@theme inline` name, the raw tokens it resolves to, transitively, and whether it is `derived` through an expression such as `color-mix()`. A theme never sets a semantic name, but components read through them. |
+| `slots`       | One entry per asset slot: `name`, `kind`, `formats`, `maxBytes`, `modes` (empty when one file serves both modes).                                                                                                          |
+| `productName` | `minLength`, `maxLength` and a Unicode `pattern`, applied after trimming.                                                                                                                                                  |
+
+### The contract boundary rules
+
+`CONTRACT.md` carries the five rules that decide what is and is not a change to the contract. The same list is in the Hades PRD and the versioning ADR, and `make hades-contract-check` fails when the copies differ.
+
+### The classifier
+
+Every change to Hades is classified as `none`, `patch`, `minor` or `major` by comparing the manifest, the exported component API and the changed files at head against the last `hades/v*` release, citing the boundary rule for each finding:
+
+```bash
+make hades-classify                       # against the last release
+make hades-classify BASE=origin/main      # before the first release exists
+make hades-classify FORMAT=markdown       # what CI posts on the pull request
+```
+
+In short: a token or slot removed, renamed or re-typed, a semantic name remapped, a slot's limits shrunk, the product-name bounds tightened, or a new token that a pre-existing component reads is **major**. A new token read only by new components, a slot's limits grown, an export or prop removed, or a peer dependency range changed is **minor**. Any other source change is **patch**. Documentation, stories and tests alone are **none**.
+
+The classification sets a floor for the bump in `package.json`; a bump above the floor is fine, below it CI fails. The CI job posts one comment on the pull request with the table and the one question no script decides: whether a token kept its name but changed its meaning. Before the first release the classifier compares against the pull request base, reports "no baseline", and enforces nothing.
 
 ---
 

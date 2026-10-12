@@ -2,6 +2,12 @@ name: Frontend CI
 
 on:
   workflow_call:
+    inputs:
+      hades:
+        description: Whether frontend/src/packages/hades changed, which runs the classifier.
+        type: boolean
+        required: false
+        default: false
 
 # The default token only reads the repository. Jobs that need more
 # declare it themselves.
@@ -163,3 +169,73 @@ jobs:
           path: frontend/test-results/
           retention-days: 30
           if-no-files-found: ignore
+
+  # ── Hades classification ─────────────────────────────────────────────────
+  # Classifies the Hades change against the last hades/v* release per the
+  # contract boundary rules, posts one PR comment with the result, and fails
+  # when the version bump in package.json is below the floor. Full history and
+  # tags are needed because the comparison point is a tag. Wired into
+  # frontend-gate through this workflow, so it cannot be bypassed.
+  hades-classify:
+    name: Hades Classification
+    if: inputs.hades
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Manifest and contract in sync
+        run: make hades-check
+
+      # Before the first release the classifier compares against the PR base
+      # (or the previous commit on main) and reports without enforcing.
+      - name: Classify
+        id: classify
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^' }}
+        run: |
+          set +e
+          make hades-classify BASE="$BASE" FORMAT=markdown > hades-classification.md
+          status=$?
+          set -e
+          cat hades-classification.md >> "$GITHUB_STEP_SUMMARY"
+          make hades-classify BASE="$BASE" || true
+          exit $status
+
+      - name: Comment with the classification
+        # Fork PRs get a read-only token; skip rather than fail the gate.
+        if: >-
+          always() &&
+          github.event_name == 'pull_request' &&
+          github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          # The report is built from the PR branch, so it is untrusted input.
+          # Read it from the file at runtime instead of interpolating it.
+          HADES_REPORT_FILE: ${{ github.workspace }}/hades-classification.md
+        with:
+          script: |
+            const run = require(`${process.env.GITHUB_WORKSPACE}/.github/scripts/comment-hades-classification.js`)
+            await run({ github, context })

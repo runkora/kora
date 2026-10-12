@@ -1,0 +1,107 @@
+name: Hades Release
+
+# A Hades release is a `hades/vX.Y.Z` tag on a main commit where
+# frontend/src/packages/hades/package.json carries X.Y.Z. These jobs verify
+# that and run the Hades tests; the delivery ADR's jobs (pack, smoke build,
+# publish, release) follow them. A failure deletes the tag so the version can
+# be re-cut once the cause is fixed. See the design system versioning ADR,
+# SD-1, and the Hades delivery ADR.
+
+on:
+  push:
+    tags: ['hades/v*']
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10'
+
+jobs:
+  verify:
+    name: Verify the tag
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: The tag matches package.json and is not 0.x
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#hades/v}"
+          package=$(jq -r .version frontend/src/packages/hades/package.json)
+          if [ "$version" != "$package" ]; then
+            echo "::error::tag $TAG names $version but package.json carries $package"
+            exit 1
+          fi
+          case "$version" in
+            0.*) echo "::error::no 0.x Hades release is ever cut; nothing before 1.0.0 is contract"; exit 1 ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: version.ts, manifest.json and package.json agree, and the manifest is in sync
+        run: make check-versions hades-check
+
+  test:
+    name: Hades tests
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Hades unit tests
+        run: make frontend-test-hades
+
+  # Leaves nothing behind on failure: the tag is deleted so the same version
+  # can be re-cut once the cause is fixed.
+  cleanup:
+    name: Delete the tag on failure
+    needs: [verify, test]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Delete the tag
+        env:
+          TAG: ${{ github.ref_name }}
+        run: git push --delete origin "refs/tags/$TAG"

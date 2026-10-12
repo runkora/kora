@@ -22,7 +22,7 @@ export default mergeConfig(viteConfig, {
     environment: 'happy-dom',
     globals: true,
     setupFiles: ['./src/test-setup.ts'],
-    include: ['src/**/*.test.ts?(x)'],
+    include: ['src/**/*.test.ts?(x)', 'scripts/**/*.test.ts'],
     exclude: ['**/node_modules/**'],
   },
 });
