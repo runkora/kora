@@ -16,7 +16,6 @@ import {
   Stack,
   Text,
   Textarea,
-  Toggle,
 } from '@orbit/hades';
 import { DelegatedRunNotice } from './motif/delegated-run-notice';
 import { fetchStartRun } from '../_services/agents-api';
@@ -41,7 +40,6 @@ export function StartRunModal({
 }: StartRunModalProps) {
   const [selectedAgentId, setSelectedAgentId] = useState('');
   const [task, setTask] = useState('');
-  const [provisionSandbox, setProvisionSandbox] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +51,6 @@ export function StartRunModal({
     if (!open) {
       setSelectedAgentId('');
       setTask('');
-      setProvisionSandbox(false);
       setError(null);
     }
   }, [open]);
@@ -69,10 +66,7 @@ export function StartRunModal({
     setError(null);
     setSubmitting(true);
     try {
-      const result = await fetchStartRun(resolvedAgent.id, {
-        task: trimmedTask,
-        provision_sandbox: provisionSandbox,
-      });
+      const result = await fetchStartRun(resolvedAgent.id, { task: trimmedTask });
       if (result.error) {
         setError(result.error);
         return;
@@ -85,7 +79,7 @@ export function StartRunModal({
     } finally {
       setSubmitting(false);
     }
-  }, [resolvedAgent, task, provisionSandbox, onStarted]);
+  }, [resolvedAgent, task, onStarted]);
 
   return (
     <Modal open={open} onClose={onClose} size="md">
@@ -124,22 +118,6 @@ export function StartRunModal({
               rows={4}
             />
           </FormField>
-
-          <Stack direction="horizontal" align="center" gap="snug">
-            <Toggle
-              checked={provisionSandbox}
-              onChange={setProvisionSandbox}
-              aria-labelledby="provision-sandbox-label"
-            />
-            <Stack gap="tight">
-              <Text id="provision-sandbox-label" size="supporting" weight="emphasis">
-                Pre-provision sandbox
-              </Text>
-              <Text size="supporting" color="muted">
-                Reserve a sandbox pod upfront to reduce latency on first tool use.
-              </Text>
-            </Stack>
-          </Stack>
 
           {error && <Alert variant="error">{error}</Alert>}
         </Stack>

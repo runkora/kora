@@ -953,8 +953,8 @@ func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) erro
 	return f.run.InterruptRun(f.withRunTenant(ctx, runID), runID)
 }
 
-func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
-	return f.run.ProvisionSandbox(ctx, runID, ahead, "", false)
+func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error) {
+	return f.run.ProvisionSandbox(ctx, runID, "", false)
 }
 
 func (f *testServiceFacade) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {

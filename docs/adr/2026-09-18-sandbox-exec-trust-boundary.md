@@ -198,7 +198,7 @@ Confidentiality of both the token and the endpoint rests on Landlock, the same m
 - Codex is put on its one-shot shell tool rather than unified exec. Unified exec runs a persistent shell session fed by a startup script; `orbit-shell` issues one stateless call per command, the shape Claude Code's Bash tool has.
 - The sandbox image provides the same shell path as the agent pod. Codex bakes its resolved shell into a snapshot prefixed onto every command, so a command arriving in the sandbox names that path. In the agent pod it routes commands out; in the sandbox it runs them.
 - `orbit-runtime-mcp` answers `resources/list` with an empty list. It exposes tools only and says so, and Codex probes for resources regardless.
-- Pre-provisioning at run start is the session-manager's, reached through the same `ProvisionSandbox` the agent calls. `orbit-agents` warming the pod itself left the descriptor unwritten, so the sandbox was unreachable and the pod merely idle.
+- A sandbox is provisioned only when the agent calls `provision_sandbox`, in the environment it names or in its default. A run start creates no sandbox pod. Pre-provisioning at run start is removed: it ignored the environment the agent would have chosen, and `orbit-agents` warming the pod itself left the descriptor unwritten, so the pod sat idle.
 
 ### Migration Path
 

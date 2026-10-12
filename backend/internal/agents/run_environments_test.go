@@ -39,7 +39,7 @@ func TestProvisionSandbox_BuiltinDefault(t *testing.T) {
 	svc, repo, k8s, _ := newTestService(t)
 	seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: "at-1", State: RunStateActive})
 
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "", false); err != nil {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "", false); err != nil {
 		t.Fatal(err)
 	}
 	spec := k8s.provisionSpec
@@ -64,7 +64,7 @@ func TestProvisionSandbox_ChoosesEnvironment(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, repo, k8s, _ := newTestService(t)
 			seedEnvironments(t, repo, k8s)
-			if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, tc.env, false); err != nil {
+			if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", tc.env, false); err != nil {
 				t.Fatal(err)
 			}
 			if k8s.provisionSpec.Image != tc.wantImage {
@@ -102,7 +102,7 @@ func TestProvisionSandbox_Refusals(t *testing.T) {
 			svc, repo, k8s, _ := newTestService(t)
 			seedEnvironments(t, repo, k8s)
 			tc.setup(repo, k8s)
-			_, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, tc.env, false)
+			_, err := svc.run.ProvisionSandbox(context.Background(), "run-1", tc.env, false)
 			if !errors.Is(err, tc.want) {
 				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
@@ -121,7 +121,7 @@ func TestProvisionSandbox_ReusedPodRecordsNothing(t *testing.T) {
 	repo.runs["run-1"].EnvironmentID = &goID
 	k8s.podEnv, k8s.podLive = "env-go", true
 	k8s.provisionReused = true
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "", false); err != nil {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if len(repo.events["run-1"]) != 0 {
@@ -138,10 +138,10 @@ func TestReplaceEnvironment(t *testing.T) {
 	repo.runs["run-1"].EnvironmentID = &goID
 	k8s.podEnv, k8s.podLive = "env-go", true
 
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, " ", true); !errors.Is(err, ErrEnvironmentRequired) {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", " ", true); !errors.Is(err, ErrEnvironmentRequired) {
 		t.Fatalf("replace without a name = %v, want ErrEnvironmentRequired", err)
 	}
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "node", true); err != nil {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "node", true); err != nil {
 		t.Fatal(err)
 	}
 	if len(k8s.deletedSandboxes) != 1 || k8s.provisionSpec.EnvironmentID != "env-node" {
@@ -158,7 +158,7 @@ func TestReplaceEnvironment(t *testing.T) {
 
 	// The sandbox died. The next unnamed provision restarts it in node.
 	k8s.podEnv, k8s.podLive = "", false
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "", false); err != nil {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "", false); err != nil {
 		t.Fatal(err)
 	}
 	if k8s.provisionSpec.Environment != "node" {
@@ -176,7 +176,7 @@ func TestReplaceEnvironment_RetryAfterHalfSuccess(t *testing.T) {
 	k8s.podEnv, k8s.podLive = "env-node", true
 	k8s.provisionReused = true
 
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "node", true); err != nil {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "node", true); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
 	if len(k8s.deletedSandboxes) != 0 {
@@ -199,7 +199,7 @@ func TestReplaceEnvironment_FailedStartKeepsTarget(t *testing.T) {
 	k8s.podEnv, k8s.podLive = "env-go", true
 	k8s.provisionSandboxErr = errors.New("quota exceeded")
 
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "node", true); err == nil {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "node", true); err == nil {
 		t.Fatal("replace succeeded, want the start failure")
 	}
 	if got := repo.runs["run-1"].EnvironmentID; got == nil || *got != "env-node" {
@@ -284,13 +284,13 @@ func TestProvisionSandbox_PodEnvironmentWinsOverRecord(t *testing.T) {
 	seedEnvironments(t, repo, k8s)
 	k8s.podEnv, k8s.podLive = "env-node", true // starting pod; run record still empty
 
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "", false); err != nil {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "", false); err != nil {
 		t.Fatalf("unnamed provision of a starting pod: %v", err)
 	}
 	if k8s.provisionSpec.EnvironmentID != "env-node" {
 		t.Errorf("provisioned %q, want the pod's env-node", k8s.provisionSpec.EnvironmentID)
 	}
-	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", false, "node", true); err != nil || len(k8s.deletedSandboxes) != 0 {
+	if _, err := svc.run.ProvisionSandbox(context.Background(), "run-1", "node", true); err != nil || len(k8s.deletedSandboxes) != 0 {
 		t.Errorf("replace into the pod's environment = %v, deleted %v; want the pod reused", err, k8s.deletedSandboxes)
 	}
 	envs, err := svc.run.ListRunEnvironments(context.Background(), "run-1")

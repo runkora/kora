@@ -58,7 +58,7 @@ type Notifier interface {
 	// given run and returns how to reach and authenticate to it.
 	// environment names one of the agent's environments. Empty keeps the
 	// current one. replace switches a live sandbox to it.
-	ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error)
+	ProvisionSandbox(ctx context.Context, runID string, environment string, replace bool) (Sandbox, error)
 	// ListEnvironments returns orbit-agents' list of the run's environments unchanged.
 	ListEnvironments(ctx context.Context, runID string) (json.RawMessage, error)
 	GetSandbox(ctx context.Context, runID string) (Sandbox, bool, error)
@@ -76,7 +76,7 @@ func (NoopNotifier) IdleRun(_ context.Context, _ string) error                  
 func (NoopNotifier) ActivateRun(_ context.Context, _ string) error                   { return nil }
 func (NoopNotifier) CompleteRun(_ context.Context, _ string, _ string, _ bool) error { return nil }
 func (NoopNotifier) ExhaustRun(_ context.Context, _ string, _ string) error          { return nil }
-func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, _ string, _ bool) (Sandbox, error) {
+func (NoopNotifier) ProvisionSandbox(_ context.Context, _ string, _ string, _ bool) (Sandbox, error) {
 	return Sandbox{}, nil
 }
 func (NoopNotifier) ListEnvironments(_ context.Context, _ string) (json.RawMessage, error) {
@@ -194,11 +194,8 @@ func (n *HTTPNotifier) GetSandbox(ctx context.Context, runID string) (Sandbox, b
 	return result, true, nil
 }
 
-func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error) {
+func (n *HTTPNotifier) ProvisionSandbox(ctx context.Context, runID string, environment string, replace bool) (Sandbox, error) {
 	target := fmt.Sprintf("%s/internal/runs/%s/provision-sandbox", n.baseURL, runID)
-	if ahead {
-		target += "?ahead=true"
-	}
 	body, _ := json.Marshal(map[string]any{"environment": environment, "replace": replace})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {

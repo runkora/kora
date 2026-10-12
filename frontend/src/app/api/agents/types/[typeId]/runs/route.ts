@@ -55,7 +55,6 @@ export const POST = withAuth(
     try {
       const body = (await req.json().catch(() => ({}))) as {
         task?: string;
-        provision_sandbox?: boolean;
       };
       const agentTypeId = await resolveAgentTypeId(session.accessToken, session.tenantId, typeId);
       if (!agentTypeId) {
@@ -73,7 +72,6 @@ export const POST = withAuth(
           tenant_id: session.tenantId,
           agent_type_id: agentTypeId,
           initial_message: body.task ?? '',
-          provision_sandbox: body.provision_sandbox ?? false,
         },
         START_RUN_TIMEOUT_MS,
       );

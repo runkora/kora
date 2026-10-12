@@ -617,7 +617,6 @@ export interface CreateAgentTypeRequest {
 /** Request body for POST /api/agents/types/:typeId/runs. */
 export interface StartRunRequest {
   task?: string;
-  provision_sandbox?: boolean;
 }
 
 /**

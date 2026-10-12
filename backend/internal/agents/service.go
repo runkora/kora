@@ -112,9 +112,6 @@ type StartRunRequest struct {
 	TenantID       string `json:"tenant_id"`
 	AgentTypeID    string `json:"agent_type_id"`
 	InitialMessage string `json:"initial_message"`
-	// ProvisionSandbox, when true, eagerly warms a sandbox pod for the run so the
-	// first tool call does not pay cold-start latency. Best-effort; failures log.
-	ProvisionSandbox bool `json:"provision_sandbox"`
 	// CreatedBy is intentionally absent: the run creator is always derived from the
 	// verified platform token in ctx, never from the request body.
 

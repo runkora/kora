@@ -133,7 +133,7 @@ func (reg *Registry) provisionWithRetry(ctx context.Context, s *session, environ
 	var lastErr error
 	for attempt := 1; attempt <= g.SandboxProvisionAttempts; attempt++ {
 		attemptCtx, attemptCancel := context.WithTimeout(ctx, perAttempt)
-		sandbox, err := reg.notifier.ProvisionSandbox(attemptCtx, runID, false, environment, replace)
+		sandbox, err := reg.notifier.ProvisionSandbox(attemptCtx, runID, environment, replace)
 		attemptCancel()
 		if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
 			err = ErrSandboxIncomplete

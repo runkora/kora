@@ -130,9 +130,8 @@ func listRunsQuery(a listRunsArgs) url.Values {
 }
 
 type startRunArgs struct {
-	AgentTypeID      string `json:"agent_type_id" jsonschema:"the agent type to run — call the agents.list tool for ids"`
-	InitialMessage   string `json:"initial_message,omitempty" jsonschema:"the first user message to send to the agent"`
-	ProvisionSandbox bool   `json:"provision_sandbox,omitempty" jsonschema:"eagerly warm a sandbox pod so the first tool call avoids cold-start latency"`
+	AgentTypeID    string `json:"agent_type_id" jsonschema:"the agent type to run — call the agents.list tool for ids"`
+	InitialMessage string `json:"initial_message,omitempty" jsonschema:"the first user message to send to the agent"`
 }
 
 type sendMessageArgs struct {
