@@ -4,7 +4,8 @@
  * The panel is hidden on small screens, where the logo moves into the form column.
  */
 import type { ReactNode } from 'react';
-import { Card, CardFooter, Heading, KoraLogo, Show, Stack, Text } from '@orbit/hades';
+import { BrandLogo, Card, CardFooter, Heading, Show, Stack, Text } from '@orbit/hades';
+import { defaultTheme } from '@orbit/theme/default';
 
 const PANEL_GRADIENT =
   'linear-gradient(25deg, color-mix(in oklch, var(--color-border-accent) 55%, var(--color-surface-elevated)) 0%, var(--color-surface-elevated) 55%, var(--color-surface) 100%)';
@@ -36,7 +37,12 @@ export function AuthCardShell({ title, description, footer, children }: AuthCard
           >
             <Stack align="center" gap="relaxed" textAlign="center">
               <Heading variant="title">
-                <KoraLogo size={40} title="kora" />
+                <BrandLogo
+                  dark={defaultTheme.logo.dark}
+                  light={defaultTheme.logo.light}
+                  size={40}
+                  title={defaultTheme.productName}
+                />
               </Heading>
               <Stack style={{ textWrap: 'balance' }}>
                 <Heading variant="section">Governed passage for agents.</Heading>
@@ -50,7 +56,12 @@ export function AuthCardShell({ title, description, footer, children }: AuthCard
             <Stack gap="relaxed" style={{ width: '100%', maxWidth: 305 }}>
               <Show below="md">
                 <Heading variant="title">
-                  <KoraLogo size={34} title="kora" />
+                  <BrandLogo
+                    dark={defaultTheme.logo.dark}
+                    light={defaultTheme.logo.light}
+                    size={34}
+                    title={defaultTheme.productName}
+                  />
                 </Heading>
               </Show>
               <Stack gap="snug">

@@ -26,6 +26,16 @@ const eslintConfig = defineConfig([
   // only need to list rule names — no repeated plugins: { local } per block.
   { plugins: { local: localPlugin } },
 
+  // ---- Hades is framework-agnostic ----------------------------------------
+  // next/image is a Next.js concern; a Hades component that renders an image
+  // the app supplies uses <img>.
+  {
+    files: ['src/packages/hades/**/*.tsx'],
+    rules: {
+      '@next/next/no-img-element': 'off',
+    },
+  },
+
   // ---- server-only guard ---------------------------------------------------
   // Every file in src/server/ and every Route Handler must import "server-only".
   {

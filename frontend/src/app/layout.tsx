@@ -4,6 +4,7 @@ import type { Metadata, Viewport } from 'next';
 import { Geist_Mono, Inter } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
 import { TooltipProvider } from '@orbit/hades';
+import { defaultTheme } from '@orbit/theme/default';
 import './globals.css';
 
 // Inter is a variable font; the optical size axis tightens it automatically at heading sizes.
@@ -19,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'kora',
+  title: defaultTheme.productName,
   description: 'Control plane for autonomous AI agents.',
 };
 
