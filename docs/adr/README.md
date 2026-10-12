@@ -116,6 +116,7 @@ Orbit records every significant technical decision as an ADR. This index is the 
 - [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) — `Accepted` · 2026-07-23
 - [Terra Wizard Component](2026-08-03-terra-wizard-component.md) — `Proposed` · 2026-08-03
 - [Agent Marketplace — Cache-Aside, Tenant-Scoped Redis Keys, and Resource-Aware Skills](2026-08-28-marketplace-adr-backend.md) — `Proposed` · 2026-08-28
+- [Skill Marketplace Source Registration via a Tenant-Scoped CRD](2026-10-10-skill-marketplace-source-registration.md) — `Proposed` · 2026-10-10
 - [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) — `Proposed` · 2026-09-06
 - [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) — `Proposed` · 2026-09-18
 
@@ -274,4 +275,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-09-18 | [Authenticated Sandbox Exec and Runner Isolation Parity](2026-09-18-sandbox-exec-trust-boundary.md) | Proposed | — |
 | 2026-09-18 | [Trace Propagation into the Claude Code Agent Runtime](2026-09-18-agent-runtime-trace-propagation.md) | Accepted | — |
 | 2026-09-18 | [Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) | Accepted | — |
+| 2026-10-10 | [Skill Marketplace Source Registration via a Tenant-Scoped CRD](2026-10-10-skill-marketplace-source-registration.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
