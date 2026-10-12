@@ -624,7 +624,7 @@ func (p *K8sProvisioner) LookupSandbox(ctx context.Context, runID, namespace str
 	// it. Everything else is an error, and the caller stops.
 	switch {
 	case !podLive(pod):
-		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is terminating or finished", errSandboxUnusable, pod.Name)
+		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s is terminating, finished or its sandbox-exec exited", errSandboxUnusable, pod.Name)
 	case pod.Status.PodIP == "":
 		return Sandbox{}, false, fmt.Errorf("%w: sandbox pod %s has no address yet", errSandboxUnusable, pod.Name)
 	}
@@ -793,11 +793,12 @@ func imagePullSecretRefs(names []string) []corev1.LocalObjectReference {
 }
 
 // replaceIfDeadSandboxPod inspects an existing sandbox pod of the same name and,
-// if it is dead (PodFailed/PodSucceeded) or already terminating
-// (DeletionTimestamp set), deletes it, waits for it to disappear, and creates a
-// fresh one. It returns true when it replaced the pod. A live pod
-// (Running/Pending and not terminating) is left untouched so warm-start and
-// idempotent re-provision calls keep reusing it.
+// if it is not live (see podLive), deletes it, waits for it to disappear, and
+// creates a fresh one. It returns true when it replaced the pod. A live pod is
+// left untouched so warm-start and idempotent re-provision calls keep reusing it.
+//
+// A pod whose sandbox-exec ran out of memory is replaced, and the replacement is
+// reported as ErrSandboxOutOfMemory unless it has more memory.
 func (p *K8sProvisioner) replaceIfDeadSandboxPod(ctx context.Context, pod *corev1.Pod, namespace string) (bool, error) {
 	existing, err := p.client.CoreV1().Pods(namespace).Get(ctx, pod.Name, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -825,7 +826,37 @@ func (p *K8sProvisioner) replaceIfDeadSandboxPod(ctx context.Context, pod *corev
 	if _, err := p.client.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{}); err != nil && !apierrors.IsAlreadyExists(err) {
 		return false, fmt.Errorf("recreate sandbox pod: %w", err)
 	}
+	// The same size would run out again, so the agent is told to pick a larger one.
+	limit, next := sandboxMemoryLimit(existing), sandboxMemoryLimit(pod)
+	if t := sandboxExecTerminated(existing); t != nil && t.Reason == "OOMKilled" && next.Cmp(limit) <= 0 {
+		return true, fmt.Errorf("%w at its %s limit and was restarted. Files outside the workspace are lost. "+
+			"Call replace_environment with a larger environment, or use less memory", ErrSandboxOutOfMemory, limit.String())
+	}
 	return true, nil
+}
+
+// ErrSandboxOutOfMemory reports a sandbox replaced because sandbox-exec ran out of memory.
+var ErrSandboxOutOfMemory = errors.New("the sandbox ran out of memory")
+
+// sandboxExecTerminated returns the sandbox-exec container's terminated state, or nil while it runs.
+// Sandbox pods never restart containers, so a terminated sandbox-exec stays dead.
+func sandboxExecTerminated(pod *corev1.Pod) *corev1.ContainerStateTerminated {
+	for _, cs := range pod.Status.ContainerStatuses {
+		if cs.Name == sandboxContainerName {
+			return cs.State.Terminated
+		}
+	}
+	return nil
+}
+
+// sandboxMemoryLimit returns the sandbox-exec container's memory limit.
+func sandboxMemoryLimit(pod *corev1.Pod) resource.Quantity {
+	for _, c := range pod.Spec.Containers {
+		if c.Name == sandboxContainerName {
+			return c.Resources.Limits.Memory().DeepCopy()
+		}
+	}
+	return resource.Quantity{}
 }
 
 // waitForPodGone polls until the named pod no longer exists.
@@ -2229,9 +2260,11 @@ func (p *K8sProvisioner) sandboxPod(ctx context.Context, runID, namespace string
 	return pod, nil
 }
 
-// podLive reports a pod that is neither terminating nor finished.
+// podLive reports a sandbox pod that is neither terminating nor finished and whose sandbox-exec has not exited.
+// Sidecars keep the phase Running after sandbox-exec dies, so the phase alone is not enough.
 func podLive(pod *corev1.Pod) bool {
-	return pod.DeletionTimestamp == nil && pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded
+	return pod.DeletionTimestamp == nil && pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded &&
+		sandboxExecTerminated(pod) == nil
 }
 
 // SandboxImage reads a SandboxImage in a tenant namespace. It returns ErrNotFound when there is none.
