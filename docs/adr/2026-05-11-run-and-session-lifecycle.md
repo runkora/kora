@@ -1,8 +1,8 @@
 # Run & Session Lifecycle
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-12)
 **Date:** 2026-05-11
-**Updated:** 2026-05-28
+**Updated:** 2026-10-12
 **Deciders:** Platform Engineering
 **Technical Story:** Agent interactions need a durable execution model that survives browser disconnects, enables context replay on reconnect, and provides a clean basis for future resume and orchestration features.
 
@@ -230,13 +230,27 @@ On future resume, both `run_events` and `run_messages` are interleaved by timest
 
 ---
 
+## Amendment 1 (2026-10-12): Runs wait in `pending` for a scheduling worker
+
+**Status:** Accepted
+
+[Run Scheduling](2026-10-12-run-scheduling.md) changes how a run leaves `pending`.
+
+*   `POST /api/v1/runs` will write the run as `pending` with its initial message and return it. A worker in orbit-agents will claim the run, assign a pod and set the run `starting`, then create the session with the stored initial message and set the run `active`.
+*   A run can hold `pending` for up to the start budget, measured from `created_at`. When the budget runs out, the worker will move the run from `pending` to `failed` and record the reason.
+*   A message to a `pending` run will be rejected with a "run is starting" error. Terminate will still work on a `pending` run.
+*   `runs` will gain `initial_message`, `claimed_at` and `not_before`, and an index for the claim.
+
+---
+
 ## Related Decisions
 
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Transform layer that emits events written to `run_events`
 - [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — Service that owns the state machine
 - [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Streaming protocol built on `run_events`
 - [agent-workspace-model](2026-05-11-agent-workspace-model.md) — Workspace lifecycle tied to run lifecycle
+- [run-scheduling](2026-10-12-run-scheduling.md) — Amendment 1
 
 ---
 
-**Last Updated:** 2026-05-28
+**Last Updated:** 2026-10-12 (Amendment 1: runs wait in `pending` for a scheduling worker)
