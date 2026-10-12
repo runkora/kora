@@ -245,9 +245,6 @@ type CreateSessionRequest struct {
 	// MCPServers are the distinct MCP servers the agent has tool grants on; one
 	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
 	MCPServers []string `json:"mcp_servers"`
-	// ProvisionSandbox provisions this run's sandbox immediately instead of
-	// waiting for the agent to ask for one.
-	ProvisionSandbox bool `json:"provision_sandbox"`
 	// Guardrails are the run's thresholds from orbit-agents; zero fields take
 	// this pod's defaults (docs/adr/2026-09-29-agent-run-guardrails.md).
 	Guardrails RunGuardrails `json:"guardrails"`
@@ -415,30 +412,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.ProvisionSandbox {
-		c.provisionSandboxAhead(ctx, req.RunID)
-	}
-
 	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"run_id": req.RunID})
-}
-
-// provisionSandboxAhead provisions the run's sandbox up front, so the first
-// command does not pay the pod's cold start.
-//
-// Runs in the background: provisioning waits on pod readiness and the egress
-// canary, which takes minutes, and the session is created either way. A failure
-// is logged only; the agent can still request one itself. The context is
-// detached from the request, which ends with this handler.
-func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
-	bgCtx := context.WithoutCancel(ctx)
-	go func() {
-		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true, "", false); err != nil {
-			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	}()
 }
 
 // prepareRun rejects a request no runner can serve and returns the run's token,
@@ -679,7 +653,7 @@ func (c *Controller) serveSandbox(w http.ResponseWriter, r *http.Request, replac
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, replace)
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, req.Environment, replace)
 	if err != nil {
 		c.writeSandboxError(ctx, w, runID, err, "failed to provision sandbox")
 		return

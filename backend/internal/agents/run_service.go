@@ -276,10 +276,7 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		MCPServers: at.MCPServers(),
 		// The agent's own prompt plus the runtime-environment brief.
 		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),
-		// The session-manager pre-provisions, because it is the only component that
-		// writes the run's sandbox descriptor. A pod warmed without one sits idle.
-		ProvisionSandbox: req.ProvisionSandbox,
-		Guardrails:       runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails),
+		Guardrails:   runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails),
 		// Chosen by how the run started; the session-manager arms its idle timer with it.
 		IdleTimeoutSecs: s.cfg.IdleTimeouts.ForRun(startedBy),
 		Triggered:       startedBy != nil,
@@ -821,28 +818,17 @@ func (s *RunService) GetSandbox(ctx context.Context, runID string) (Sandbox, err
 	return sandbox, nil
 }
 
-// ErrKubeconfigNotReady declines a sandbox pre-provision while the connection
-// registry is still loading. Not a run failure: the caller loses the warm
-// start and the next on-demand request provisions normally.
-var ErrKubeconfigNotReady = errors.New("kubeconfig not resolved for sandbox pre-provision")
-
 // ProvisionSandbox is called by the session-manager (via orbit-runtime-mcp) to
 // request a sandbox pod for a run. Returns the gRPC endpoint ("podIP:port") and
 // the exec token that sandbox requires.
 //
 // An empty environment keeps the run's current one, or the agent's default before the first sandbox.
 // replace switches a live sandbox to the named environment and ends its commands; a pod already in it is reused.
-//
-// ahead marks a pre-provision, which exists to spare the first command the
-// pod's cold start. It refuses while the connection registry is loading, since
-// the pod would keep an empty kubeconfig for the rest of the run. An on-demand
-// request provisions either way: no kubeconfig beats no sandbox.
-func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (Sandbox, error) {
+func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, environment string, replace bool) (Sandbox, error) {
 	environment = strings.TrimSpace(environment)
 	ctx, span := agentsTracer.Start(ctx, "agents.ProvisionSandbox",
 		trace.WithAttributes(
 			attribute.String("run_id", runID),
-			attribute.Bool("ahead", ahead),
 			attribute.String("environment", environment),
 			attribute.Bool("replace", replace),
 		),
@@ -858,15 +844,8 @@ func (s *RunService) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	}
 
 	namespace := s.cfg.TenantNamespaceFn(run.TenantID)
-	kubeClusters, kubeReady := s.sandboxKubeClusters(ctx, *at)
-	if ahead && !kubeReady {
-		span.SetStatus(codes.Error, "kubeconfig not resolved")
-		s.logger.Warn(ctx, "Skipping sandbox pre-provision: the connection registry has not resolved",
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "agent_type", Value: at.Slug},
-		)
-		return Sandbox{}, ErrKubeconfigNotReady
-	}
+	// No kubeconfig beats no sandbox, so an unresolved registry still provisions.
+	kubeClusters, _ := s.sandboxKubeClusters(ctx, *at)
 
 	spec, switching, err := s.chooseSandbox(ctx, span, *run, *at, namespace, environment, replace)
 	if err != nil {

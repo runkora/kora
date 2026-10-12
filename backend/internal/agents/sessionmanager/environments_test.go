@@ -30,15 +30,15 @@ func TestHTTPNotifier_EnvironmentRejected(t *testing.T) {
 	defer srv.Close()
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 
-	_, err := n.ProvisionSandbox(context.Background(), "run-1", true, "rust", false)
+	_, err := n.ProvisionSandbox(context.Background(), "run-1", "rust", false)
 	if !errors.Is(err, ErrEnvironmentRejected) || !strings.Contains(err.Error(), "not attached") {
 		t.Fatalf("err = %v, want ErrEnvironmentRejected with the message", err)
 	}
-	if gotQuery != "ahead=true" || gotBody != `{"environment":"rust","replace":false}` {
-		t.Errorf("query %q body %s, want ahead=true and the environment in the body", gotQuery, gotBody)
+	if gotQuery != "" || gotBody != `{"environment":"rust","replace":false}` {
+		t.Errorf("query %q body %s, want no query and the environment in the body", gotQuery, gotBody)
 	}
 
-	_, err = n.ProvisionSandbox(context.Background(), "run-1", false, "node", true)
+	_, err = n.ProvisionSandbox(context.Background(), "run-1", "node", true)
 	if !errors.Is(err, ErrEnvironmentRejected) {
 		t.Fatalf("replace err = %v, want ErrEnvironmentRejected", err)
 	}
@@ -56,7 +56,7 @@ func TestHTTPNotifier_SandboxUnschedulable(t *testing.T) {
 	defer srv.Close()
 	n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
 
-	_, err := n.ProvisionSandbox(context.Background(), "run-1", false, "", false)
+	_, err := n.ProvisionSandbox(context.Background(), "run-1", "", false)
 	if !errors.Is(err, ErrSandboxUnschedulable) || unschedulableReason(err) != "0/3 nodes are available: 3 Insufficient cpu." {
 		t.Fatalf("err = %v, reason %q, want ErrSandboxUnschedulable with the scheduler's reason", err, unschedulableReason(err))
 	}
@@ -74,7 +74,7 @@ type envNotifier struct {
 	replaceCtxErr error
 }
 
-func (n *envNotifier) ProvisionSandbox(ctx context.Context, _ string, _ bool, env string, replace bool) (Sandbox, error) {
+func (n *envNotifier) ProvisionSandbox(ctx context.Context, _ string, env string, replace bool) (Sandbox, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	if replace {
@@ -103,7 +103,7 @@ func TestProvisionSandbox_RefusedEnvironmentIsNotALoss(t *testing.T) {
 	setGuardrails(reg, fastGuardrails())
 	hostSession(reg, "run-1")
 
-	_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "rust", false)
+	_, err := reg.ProvisionSandbox(context.Background(), "run-1", "rust", false)
 	if !errors.Is(err, ErrEnvironmentRejected) {
 		t.Fatalf("err = %v, want ErrEnvironmentRejected", err)
 	}
@@ -125,7 +125,7 @@ func TestReplaceEnvironment_WritesDescriptor(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "node", true); err != nil {
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "node", true); err != nil {
 		t.Fatalf("replace: %v", err)
 	}
 	if n.replaced != "node" {
@@ -178,7 +178,7 @@ func TestHTTPNotifier_SandboxCallErrorBody(t *testing.T) {
 			_, _ = w.Write([]byte(tc.body))
 		}))
 		n := NewHTTPNotifier(srv.URL, logging.NewLoggerWithOutput(io.Discard))
-		_, err := n.ProvisionSandbox(context.Background(), "run-1", false, "", false)
+		_, err := n.ProvisionSandbox(context.Background(), "run-1", "", false)
 		srv.Close()
 		if errors.Is(err, ErrEnvironmentRejected) || err == nil || !strings.Contains(err.Error(), tc.body) || !strings.Contains(err.Error(), fmt.Sprint(tc.status)) {
 			t.Errorf("status %d: err = %v, want the status and body", tc.status, err)
@@ -193,7 +193,7 @@ func TestReplaceEnvironment_OutlivesTheRequest(t *testing.T) {
 	hostSession(reg, "run-1")
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, _ = reg.ProvisionSandbox(ctx, "run-1", false, "node", true)
+	_, _ = reg.ProvisionSandbox(ctx, "run-1", "node", true)
 	if n.replaceCtxErr != nil {
 		t.Errorf("replacement ran on the cancelled request context: %v", n.replaceCtxErr)
 	}
@@ -206,7 +206,7 @@ func TestReplaceEnvironment_RetriesThenLosesTheSandbox(t *testing.T) {
 	setGuardrails(reg, fastGuardrails())
 	hostSession(reg, "run-1")
 
-	_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "node", true)
+	_, err := reg.ProvisionSandbox(context.Background(), "run-1", "node", true)
 	if !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("err = %v, want ErrSandboxLost", err)
 	}

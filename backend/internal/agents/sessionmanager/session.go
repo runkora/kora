@@ -437,7 +437,7 @@ type Sandbox struct {
 // answer or the wait runs out. An agent with no named host skips the probe. This eliminates the first-minute window where
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
-func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (string, error) {
+func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environment string, replace bool) (string, error) {
 	// Only runs this pod hosts: loopback tells the /internal routes that the
 	// caller is in this pod, not which run it belongs to.
 	reg.mu.RLock()
@@ -465,7 +465,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 
 	started := time.Now()
 	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
-	sandbox, err := reg.provision(ctx, s, ahead, environment, replace)
+	sandbox, err := reg.provision(ctx, s, environment, replace)
 	if err != nil {
 		// The error names in-cluster addresses, and anyone who can read the run reads the event.
 		// A refused environment choice keeps its message for the agent.
@@ -611,20 +611,12 @@ func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, sta
 	reg.pushEvent(context.WithoutCancel(ctx), runID, ev)
 }
 
-// provision gets a sandbox from orbit-agents. A pre-provision tries once, since
-// the agent can still ask later. An agent's request retries within the
+// provision gets a sandbox from orbit-agents. The request retries within the
 // guardrail, and a final failure marks the sandbox lost.
 //
 // The retries outlive the caller: Claude Code kills a Bash call after its own
 // timeout, and the outcome must still be recorded.
-func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, environment string, replace bool) (Sandbox, error) {
-	if ahead {
-		sandbox, err := reg.notifier.ProvisionSandbox(ctx, s.runID, true, environment, replace)
-		if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
-			err = ErrSandboxIncomplete
-		}
-		return sandbox, err
-	}
+func (reg *Registry) provision(ctx context.Context, s *session, environment string, replace bool) (Sandbox, error) {
 	if s.sandboxLost.Load() {
 		return Sandbox{}, ErrSandboxLost
 	}

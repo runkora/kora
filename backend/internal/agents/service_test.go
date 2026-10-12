@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -462,35 +461,26 @@ func TestStartRun_HappyPath(t *testing.T) {
 	}
 }
 
-// Pre-provisioning is forwarded to the session-manager, the only component that
-// writes the sandbox descriptor. A pod warmed without one sits idle.
-func TestStartRun_ForwardsProvisionSandbox(t *testing.T) {
-	for _, requested := range []bool{true, false} {
-		t.Run(strconv.FormatBool(requested), func(t *testing.T) {
-			svc, repo, _, sm := newTestService(t)
-			at := seedAgentType(t, repo, AgentType{
-				ID: "at-1", TenantID: "t-1", Slug: "bot",
-				Framework:               AgentFrameworkClaudeCode,
-				MaxConcurrentRunsPerPod: 5,
-			})
+// A run start creates no sandbox pod: the agent asks for one when it needs it.
+func TestStartRun_CreatesNoSandbox(t *testing.T) {
+	svc, repo, k8s, sm := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{
+		ID: "at-1", TenantID: "t-1", Slug: "bot",
+		Framework:               AgentFrameworkClaudeCode,
+		MaxConcurrentRunsPerPod: 5,
+	})
 
-			if _, err := svc.StartRun(context.Background(), StartRunRequest{
-				TenantID:         "t-1",
-				AgentTypeID:      at.ID,
-				ProvisionSandbox: requested,
-			}); err != nil {
-				t.Fatalf("StartRun: %v", err)
-			}
+	if _, err := svc.StartRun(context.Background(), StartRunRequest{TenantID: "t-1", AgentTypeID: at.ID}); err != nil {
+		t.Fatalf("StartRun: %v", err)
+	}
 
-			sm.mu.Lock()
-			defer sm.mu.Unlock()
-			if len(sm.sessions) != 1 {
-				t.Fatalf("expected 1 session-manager call, got %d", len(sm.sessions))
-			}
-			if got := sm.sessions[0].ProvisionSandbox; got != requested {
-				t.Errorf("ProvisionSandbox forwarded as %v, want %v", got, requested)
-			}
-		})
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	if len(sm.sessions) != 1 {
+		t.Fatalf("expected 1 session-manager call, got %d", len(sm.sessions))
+	}
+	if k8s.provisionSandboxCalls != 0 {
+		t.Errorf("provisionSandboxCalls = %d, want 0", k8s.provisionSandboxCalls)
 	}
 }
 
@@ -785,7 +775,7 @@ func TestProvisionSandbox_HappyPath(t *testing.T) {
 
 	k8s.sandboxEndpoint = "10.0.0.5:50051"
 
-	sandbox, err := svc.ProvisionSandbox(context.Background(), "run-1", false)
+	sandbox, err := svc.ProvisionSandbox(context.Background(), "run-1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -800,7 +790,7 @@ func TestProvisionSandbox_HappyPath(t *testing.T) {
 func TestProvisionSandbox_RunNotFound(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 
-	_, err := svc.ProvisionSandbox(context.Background(), "nonexistent", false)
+	_, err := svc.ProvisionSandbox(context.Background(), "nonexistent")
 	if err == nil {
 		t.Fatal("expected error for missing run")
 	}
