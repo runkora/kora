@@ -16,9 +16,9 @@
  * reference the raw values, so a brand changes by redefining them under its own
  * selector, for example [data-brand='other'].
  *
- * Corner radii have their own seed, --hades-radius-unit. sm, md and lg are 1x,
- * 2x and 3x of it. Changing the unit rescales every radius and keeps nested
- * radii proportional.
+ * Corner radii are five literal steps (--hades-raw-radius-sm to -2xl), each a
+ * settable token like a colour, so a theme sets the scale it wants step by
+ * step rather than scaling one unit.
  *
  * Surfaces step lighter with elevation in both themes. Foreground
  * and status colours are chosen to clear WCAG AA 4.5:1 as text on their own
@@ -27,12 +27,16 @@
 
 @import 'tailwindcss';
 
-/* ─── Radius seed ─────────────────────────────────────────────────────────── */
-/* sm, md and lg are 1x, 2x and 3x of the unit. Changing it rescales every    */
-/* radius and keeps nested radii proportional.                                */
+/* ─── Radius scale ────────────────────────────────────────────────────────── */
+/* Five literal steps. The defaults keep the former 6px unit's proportions    */
+/* (1x, 2x, 3x, 3x, 4x) so nested radii stay concentric; a theme sets each.   */
 :root {
   color-scheme: dark;
-  --hades-radius-unit: 0.375rem;
+  --hades-raw-radius-sm: 0.375rem; /* 6px  */
+  --hades-raw-radius-md: 0.75rem; /* 12px */
+  --hades-raw-radius-lg: 1.125rem; /* 18px */
+  --hades-raw-radius-xl: 1.125rem; /* 18px */
+  --hades-raw-radius-2xl: 1.5rem; /* 24px */
 }
 
 /* ─── Raw colour palette ─────────────────────────────────────────────────── */
@@ -244,13 +248,12 @@
   --font-sans: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
   --font-mono: var(--font-geist-mono, 'Geist Mono', ui-monospace, 'Cascadia Code', monospace);
 
-  /* Radii are multiples of --hades-radius-unit. A theme changes the unit to   */
-  /* rescale all of them. At the default unit xl and 2xl are 18px and 24px.    */
-  --radius-sm: var(--hades-radius-unit); /* 6px by default  */
-  --radius-md: calc(var(--hades-radius-unit) * 2); /* 12px */
-  --radius-lg: calc(var(--hades-radius-unit) * 3); /* 18px */
-  --radius-xl: calc(var(--hades-radius-unit) * 3); /* 18px */
-  --radius-2xl: calc(var(--hades-radius-unit) * 4); /* 24px */
+  /* Radii resolve to the raw steps above; full is a literal outside the theme. */
+  --radius-sm: var(--hades-raw-radius-sm);
+  --radius-md: var(--hades-raw-radius-md);
+  --radius-lg: var(--hades-raw-radius-lg);
+  --radius-xl: var(--hades-raw-radius-xl);
+  --radius-2xl: var(--hades-raw-radius-2xl);
   --radius-full: 9999px; /* pills, status dots, avatars */
 
   /* Motion */
