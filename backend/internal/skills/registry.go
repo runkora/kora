@@ -196,11 +196,14 @@ func loadSources(path string) (map[string][]MarketplaceSource, error) {
 	}
 	out := make(map[string][]MarketplaceSource, len(f.Tenants))
 	for tenantID, ts := range f.Tenants {
-		if ts.Sources == nil {
-			out[tenantID] = []MarketplaceSource{}
-		} else {
-			out[tenantID] = ts.Sources
+		sources := make([]MarketplaceSource, 0, len(ts.Sources))
+		for _, source := range ts.Sources {
+			source.RepoName = source.Repo
+			source.Link = "https://github.com/" + source.Org + "/" + source.Repo
+			source.MarketplaceSlug = source.Org + "__" + source.RepoName
+			sources = append(sources, source)
 		}
+		out[tenantID] = sources
 	}
 	return out, nil
 }

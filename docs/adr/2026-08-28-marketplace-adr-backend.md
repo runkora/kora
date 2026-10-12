@@ -3,7 +3,7 @@
 **Status:** Proposed
 **Date:** 2026-09-17
 **Deciders:** Platform Engineering, Product Owner
-**Technical Story:** Defines the backend architecture for the read-only Agent Marketplace: cache-aside reads through Redis, tenant-scoped Redis keys in a single shared Redis instance, a skill model that includes resources directory files, server-side pagination, and an API contract that follows the platform's REST conventions.
+**Technical Story:** Defines the backend architecture for the read-only Agent Marketplace: cache-aside reads through Redis, tenant-scoped Redis keys in a single shared Redis instance, a skill model that includes resources directory files, server-capped list responses, and an API contract that follows the platform's REST conventions.
 
 ---
 
@@ -23,7 +23,7 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 
 ### Problem Statement
 
-- The Marketplace requires server-side search/filtering and pagination.
+- The Marketplace requires server-side search/filtering with bounded list responses.
 - A transient failure in one repository's GitHub fetch must not block other repositories from being served.
 - Skill detail responses must include the `resources/` directory files that accompany `SKILL.md`.
 - List responses must be bounded; the frontend must not hold or process the full dataset.
@@ -34,10 +34,12 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 
 - Serve reads out of Redis when warm; on a miss, fetch from GitHub, populate Redis, and serve the request (cache-aside).
 - Store skills per repository under separate Redis keys, all inside one shared Redis instance, with the tenant ID as the isolation prefix.
+- Use a tenant-scoped internal marketplace slug (`{org}__{repo}`) for deterministic Redis key construction; generate it once in the registry.
 - Include `resources/` directory files in the cached skill record and expose them in the detail API.
-- Serve paginated skill lists server-side; the frontend passes `offset` and `limit` and never processes the full dataset.
+- Cap list responses at a server-side maximum (200 skills); the frontend never processes the full dataset.
 - Keep both list and detail endpoints reading from the same Redis structure — no separate metadata-only key.
 - Expose a marketplace listing endpoint so the frontend can populate the marketplace selector.
+- Keep internal cache identifiers (skill slug, marketplace slug) out of API responses.
 - Use the platform GitHub client (`internal/platform/clients/github/`) that embeds `httpclient.Base` — no raw `http.Client` construction inside the feature package.
 - Keep Marketplace content read-only; never execute skill content.
 
@@ -57,8 +59,9 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 * **Strict tenant isolation** — one tenant must never be able to read another tenant's marketplace data. Enforced by the key prefix and by the fact that `skills-service` is the only service with access to the Redis instance.
 * **Repository fault isolation** — a failing repository must not block the others.
 * **Complete skill content** — the detail endpoint must return everything a consumer needs: the `SKILL.md` body and any accompanying resource files.
-* **Server-side pagination** — list responses must be bounded; the frontend must not hold or process the full dataset.
+* **Bounded list responses** — list responses must be capped server-side; the frontend must not hold or process the full dataset.
 * **Per-repository Redis keys** — cache granularity must match the unit of crawl: one repo, one key.
+* **Stable internal cache identifiers** — the marketplace slug (`{org}__{repo}`) is generated once by the registry and reused for all cache operations; it is never exposed in API responses.
 * **GitHub rate limits** — GitHub must not be contacted on every user interaction. A warm cache handles the common case; a miss falls through to GitHub and repopulates.
 * **Platform client conventions** — GitHub calls go through a typed client under `internal/platform/clients/github/` that embeds `httpclient.Base`, matching every other service-to-service client in the codebase.
 * **Correct HTTP semantics** — a cache miss is not a server failure; it is served transparently from GitHub. 5xx status codes are reserved for genuine server failures (GitHub unreachable and cache absent, Redis outage, etc.).
@@ -148,7 +151,7 @@ The complete skill record stored in Redis — the same shape is returned by the 
 
 ```go
 type Skill struct {
-    Slug        string      `json:"slug"`
+    Slug        string      `json:"slug,omitempty"`
     Name        string      `json:"name"`
     Description string      `json:"description"`
     Skill       SkillFile   `json:"skill"`
@@ -160,41 +163,72 @@ type SkillFile struct {
     Name    string `json:"name"`
     Content string `json:"content"`
 }
+
+// MarketplaceSource is one entry from marketplace-sources.json.
+// Org, Repo, Branch, RepoName, Link, and MarketplaceSlug are backend-internal
+// and never appear in API responses.
+type MarketplaceSource struct {
+    Name            string `json:"name"`
+    Org             string `json:"org"`
+    Repo            string `json:"repo"`
+    RepoName        string `json:"repoName"`   // alias of Repo; set by the registry
+    Link            string `json:"link"`        // https://github.com/{org}/{repo}
+    MarketplaceSlug string `json:"-"`           // {org}__{repo}; set by the registry
+    Branch          string `json:"branch"`
+}
 ```
 
-`Skill` is the `SKILL.md` file — `path`, `name`, and full `content`. `Documents` is the slice of files found under `skills/{skill-name}/resources/`. If no `resources/` directory exists, `Documents` is an empty slice — never `null`. The stored Redis value and the detail API response are the same shape; the list endpoint strips `Skill` and `Documents` at read time.
+`Skill.Skill` is the `SKILL.md` file — `path`, `name`, and full `content`. `Documents` is the slice of files found under `skills/{skill-name}/resources/`. If no `resources/` directory exists, `Documents` is an empty slice — never `null`.
 
-### Slug Format
+`Skill.Slug` carries the internal skill identifier (`{org}:{repo}:{skill-name}`) used solely to look up a skill by directory name from the cached `[]Skill` array. It is stored in Redis under `omitempty` so an empty value is omitted on serialisation. The detail endpoint explicitly clears the field before serialising the response; the list endpoint's `SkillSummary` projection type has no `Slug` field. **The slug is never returned to the frontend.**
+
+`MarketplaceSource.MarketplaceSlug` is the internal Redis key segment (`{org}__{repo}`), generated once by the registry when loading `marketplace-sources.json`, and excluded from JSON serialisation entirely (`json:"-"`).
+
+### Internal Slug Formats
+
+Two separate internal identifiers are used by the backend; neither is exposed in API responses.
+
+**Internal marketplace slug** — used as the repository segment in Redis keys:
 
 ```
-slug = "{org}/{repo}/{skill-name}"
+{org}__{repo}
 ```
 
-Example: `clear-route/plugins/react-expert`
+Example: `clear-route__skills-marketplace`
 
-`marketplace-name` is the URL-safe form of the marketplace's `name` from the ConfigMap. `skill-name` is the directory name under `skills/` that contains the `SKILL.md` file. The slug is stable across cache evictions and pod restarts and is the canonical identifier the FE holds. The tenant is not part of the slug — the tenant is carried in the request context (from the authenticated caller), not in the URL. `org` and `repo` are backend-internal (used only to build the Redis key) and never appear in FE-facing responses.
+Generated once by the registry when loading `marketplace-sources.json` and stored on `MarketplaceSource.MarketplaceSlug`. The double-underscore separator distinguishes it from the URL-safe marketplace name and from path components. A `marketplaceName` URL parameter is resolved by slugifying the configured source's `Name` field; the resulting `MarketplaceSlug` is the one used for cache operations.
+
+**Internal skill slug** — used to look up a specific skill inside the cached `[]Skill` array:
+
+```
+{org}:{repo}:{skill-name}
+```
+
+Example: `clear-route:skills-marketplace:react-expert`
+
+`skill-name` is the directory name under `skills/` that contains the `SKILL.md` file. The slug is stable across cache evictions and pod restarts. It is stored in Redis under `omitempty` and is cleared before any detail response is written. It is never returned to the frontend.
 
 ### Redis Key Structure
 
-One shared Redis instance across all tenants. Every key is prefixed with the tenant ID:
+One shared Redis instance across all tenants. Every key is prefixed with the tenant ID and uses the internal marketplace slug:
 
 ```
-marketplace:{tenant-id}:{org}:{repo}   →   []Skill   (TTL: 12h)
+marketplace:{tenantID}:{marketplaceSlug}   →   []Skill   (TTL: 12h)
 ```
 
-Example for a tenant with three declared marketplaces:
+Where `marketplaceSlug = {org}__{repo}`. Example for a tenant with three declared marketplaces:
 
 ```text
 ONE SHARED REDIS INSTANCE
 │
-├── marketplace:tenant-a:clear-route:skills-marketplace       →   []Skill   (TTL: 12h)
-├── marketplace:tenant-a:clearroute:core-skills               →   []Skill   (TTL: 12h)
-├── marketplace:tenant-a:partner:reference-skills             →   []Skill   (TTL: 12h)
-├── marketplace:tenant-b:clear-route:internal-skills          →   []Skill   (TTL: 12h)
+├── marketplace:tenant-a:clear-route__skills-marketplace       →   []Skill   (TTL: 12h)
+├── marketplace:tenant-a:clearroute__core-skills               →   []Skill   (TTL: 12h)
+├── marketplace:tenant-a:partner__reference-skills             →   []Skill   (TTL: 12h)
+├── marketplace:tenant-b:clear-route__internal-skills          →   []Skill   (TTL: 12h)
 └── ...
 ```
 
-Each key holds a JSON-encoded `[]Skill` array. All skills for a repository expire together — there are no per-skill sub-keys. The tenant ID is the isolation boundary; a request from `tenant-a` can never construct a key that reads `tenant-b`'s data because the tenant ID comes from the authenticated identity, not user input.
+Each key holds a JSON-encoded `[]Skill` array. All skills for a repository expire together — there are no per-skill sub-keys. The tenant ID is the isolation boundary; a request from `tenant-a` can never construct a key that reads `tenant-b`'s data because the tenant ID comes from the authenticated identity, not user input, and the marketplace slug is resolved from the registry, not directly from a URL parameter.
 
 ### Access Restrictions
 
@@ -251,14 +285,15 @@ The BFF does **not** extract or pass `tenant_id`. It just forwards the auth toke
 
 ```
 FE → BFF (forwards bearer token) → skills-service
-         → AuthMiddleware puts identity on ctx
-         → handler reads tenantID := identity.FromContext(ctx).TenantID
-         → path param marketplaceName → ConfigMap lookup → { org, repo }
-         → produce key marketplace:{tenantID}:{org}:{repo}
+         → AuthMiddleware verifies identity, puts claims on ctx
+         → handler reads tenantID from token claims
+         → path param marketplaceName → registry lookup → MarketplaceSource { org, repo }
+         → marketplaceSlug = {org}__{repo}
+         → produce key marketplace:{tenantID}:{marketplaceSlug}
          → Redis GET/SET
 ```
 
-Why it matters: if the BFF or the URL supplied `tenant_id`, a caller could tamper with it and read another tenant's keys. Deriving it from the verified identity is what makes the prefix a real isolation boundary.
+Why it matters: if the BFF or the URL supplied `tenant_id`, a caller could tamper with it and read another tenant's keys. Deriving it from the verified identity is what makes the prefix a real isolation boundary. Similarly, the `marketplaceSlug` comes from the registry (resolved by the public name), never directly from URL input.
 
 ### Request Flow (Cache-Aside)
 
@@ -266,18 +301,19 @@ Why it matters: if the BFF or the URL supplied `tenant_id`, a caller could tampe
 HTTP request arrives at skills-service
    │  path: /v1/marketplaces/{marketplaceName}/skills[/{skillName}]
    ▼
-Resolve tenantID from the authenticated caller (context)
+Resolve tenantID from the authenticated caller (token claims)
    │
    ▼
-Look up marketplaceName in the tenant's ConfigMap
-   │   → { org, repo, branch }   (404 if not found)
+Slugify marketplaceName and match against tenant's registry
+   │   → MarketplaceSource { org, repo, branch }   (404 if not found or ambiguous)
    ▼
-Construct key: marketplace:{tenantID}:{org}:{repo}
+marketplaceSlug = {org}__{repo}
+Construct key: marketplace:{tenantID}:{marketplaceSlug}
    │
    ▼
 Redis GET
    │
-   ├── HIT ──► deserialise []Skill ──► apply search/pagination ──► respond 200
+   ├── HIT ──► deserialise []Skill ──► apply search / server-cap ──► respond 200
    │
    └── MISS
          │
@@ -292,10 +328,10 @@ Redis GET
                └── fetch skills/{name}/resources/* (all) → Documents
          │
          ▼
-      Redis SET marketplace:{tenantId}:{org}:{repo} (TTL: 12h)
+      Redis SET marketplace:{tenantID}:{marketplaceSlug} (TTL: 12h)
          │
          ▼
-      apply search/pagination ──► respond 200
+      apply search / server-cap ──► respond 200
 ```
 
 If GitHub is unreachable on a miss and there is no cached value to fall back on, the handler responds with `503 Service Unavailable` — that is a genuine server-side failure, not a cache-miss condition. A miss that GitHub serves successfully is not a failure and is never surfaced to the frontend as one.
@@ -327,7 +363,7 @@ All Marketplace endpoints live under `/v1/marketplaces`, matching the versioned 
 | Method | Path | Description |
 |---|---|---|
 | GET | `/v1/marketplaces` | List marketplaces declared for the caller's tenant (name only) |
-| GET | `/v1/marketplaces/{marketplaceName}/skills` | Paginated skill list — metadata only (`slug`, `name`, `description`) |
+| GET | `/v1/marketplaces/{marketplaceName}/skills` | Server-capped skill list — metadata only (`name`, `description`) |
 | GET | `/v1/marketplaces/{marketplaceName}/skills/{skillName}` | Full skill detail — `SKILL.md` body + resource files |
 
 `{marketplaceName}` is the URL-safe slug of a `name` from the ConfigMap. `{skillName}` is the directory name under `skills/` and cannot contain a slash.
@@ -354,35 +390,28 @@ Query parameters:
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `offset` | integer | No | Zero-based index of the first item; default `0` |
-| `limit` | integer | No | Maximum items to return; default `15`, max `100` |
-| `search` | string | No | Substring match on `name`; omit to return all skills |
+| `search` | string | No | Case-insensitive substring match on `name`; omit to return all skills |
 
 The server:
 
 1. Resolves `tenantID` from the authenticated caller.
-2. Looks up `marketplaceName` in the tenant's ConfigMap → `{ org, repo, branch }`. If not found, returns `404`.
-3. Reads `marketplace:{tenantID}:{org}:{repo}` from Redis. On a miss, crawls the repository as described in the request flow, writes the result to Redis with a 12h TTL, then serves the response from the same in-memory result.
-4. Applies the `search` filter, then slices `skills[offset : offset+limit]`.
+2. Slugifies `marketplaceName` and matches it against the tenant's registry → `MarketplaceSource { org, repo, branch }`. If no unique match, returns `404`.
+3. Constructs `marketplace:{tenantID}:{org}__{repo}` and reads Redis. On a miss, crawls the repository as described in the request flow, writes the result to Redis with a 12h TTL, then serves from the same in-memory result.
+4. Applies the `search` filter and caps the result at 200 skills.
 
 **Successful response (HTTP 200):**
 
 ```json
 {
   "skills": [
-    { "slug": "clear-route-skills/react-expert", "name": "React Expert", "description": "Senior React developer" }
-  ],
-  "pagination": {
-    "offset": 0,
-    "limit": 15,
-    "totalItems": 100
-  }
+    { "name": "React Expert", "description": "Senior React developer" }
+  ]
 }
 ```
 
-`Skill` and `Documents` are always stripped before the response is written. An empty result returns `{ "skills": [], "pagination": { "offset": 0, "limit": 15, "totalItems": 0 } }` with HTTP 200.
+`Skill.Skill`, `Skill.Documents`, and `Skill.Slug` are always stripped before the response is written; the list item type (`SkillSummary`) exposes only `name` and `description`. An empty result returns `{ "skills": [] }` with HTTP 200.
 
-If `marketplaceName` is not declared for the caller's tenant, the handler returns `404 Not Found`.
+If `marketplaceName` is not declared for the caller's tenant (or is ambiguous), the handler returns `404 Not Found`.
 
 If Redis is unavailable, or if the cache is cold and GitHub is unreachable, the handler returns `503 Service Unavailable`. These are genuine server failures.
 
@@ -398,7 +427,6 @@ Response (HTTP 200):
 
 ```json
 {
-  "slug" : "clear-route-skills/react-expert" ( not shown on FE )
   "name": "React Expert",
   "description": "Senior React developer",
   "skill": {
@@ -416,9 +444,9 @@ Response (HTTP 200):
 }
 ```
 
-`slug` is intentionally omitted from the detail response — the FE has already navigated to this skill by URL and does not need the identifier back. `skill` is always present. `documents` is an empty array if the skill has no `resources/` directory.
+`skill` is always present. `documents` is an empty array if the skill has no `resources/` directory. `Skill.Slug` is explicitly cleared before serialisation and is not present in the response.
 
-On a Redis miss, the handler performs the same cache-aside crawl the list endpoint does (after the same `marketplaceName → {org, repo}` lookup), populates Redis, and looks up the requested `skillName` in the crawled result. If the marketplace is not declared for the tenant, or if the crawl completes but `skillName` is not present in the repository, the handler returns `404 Not Found`. `503` is reserved for the same genuine server-failure cases as the list endpoint.
+On a Redis miss, the handler performs the same cache-aside crawl the list endpoint does (after the same `marketplaceName` → `MarketplaceSource` registry lookup), populates Redis, and looks up the requested `skillName` by matching against `Skill.Slug` (which encodes the skill directory name as `{org}:{repo}:{skillName}`). If the marketplace is not declared for the tenant, or if the crawl completes but `skillName` is not present in the repository, the handler returns `404 Not Found`. `503` is reserved for the same genuine server-failure cases as the list endpoint.
 
 ### Status-Code Summary
 
@@ -437,8 +465,8 @@ A cache miss on its own is never surfaced as an error. 5xx codes are reserved fo
 
 | Key | Default TTL | Configuration |
 |---|---|---|
-| `marketplace:{tenantId}:{org}:{repo}` | 12 hours | `MARKETPLACE_CACHE_TTL` |
-| GitHub App installation token | 55 minutes | Refreshed 5 min before GitHub's 60-min expiry |
+| `marketplace:{tenantID}:{org}__{repo}` | 12 hours | `MARKETPLACE_CACHE_TTL` |
+| GitHub App installation token | ~55 minutes | Refreshed 5 min before GitHub's 60-min expiry |
 
 When a key expires, the next request that targets it triggers a fresh crawl and repopulates the key.
 
@@ -458,7 +486,8 @@ All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMid
 - Strict tenant isolation with cheap infrastructure. All tenants share one Redis instance; the tenant ID prefix is the boundary, and the fact that `skills-service` is the only reader/writer makes cross-tenant access structurally impossible.
 - Per-repo isolation: a failing GitHub fetch for one repository does not affect any other cached repository.
 - The detail endpoint returns the complete skill content — `SKILL.md` body and all `resources/` files — in one response.
-- Server-side pagination keeps response sizes bounded regardless of dataset size.
+- A server-side cap (200 skills per marketplace) keeps list response sizes bounded regardless of dataset size.
+- Internal identifiers (marketplace slug, skill slug) are generated and consumed entirely within the backend and never appear in API responses.
 - URLs follow the platform's `/v1/{resource}` REST conventions and are consistent with the rest of the API.
 - GitHub calls go through the standard platform client, so tracing, logging, and metrics work the same way they do for every other service-to-service call.
 
@@ -496,31 +525,34 @@ When `skills-service` starts:
 
 1. The frontend calls `GET /v1/marketplaces/{marketplaceName}/skills`
 2. `skills-service` resolves `tenantID` from the authenticated caller.
-3. Looks up `marketplaceName` in the tenant's ConfigMap → `{ org, repo, branch }`. 
-4. Constructs the key `marketplace:{tenantID}:{org}:{repo}` and reads Redis.
-5. On a hit: deserialise, apply search + pagination, strip `Skill` and `Documents`, respond `200`.
-6. On a miss: crawl the repository via the platform GitHub client, write `[]Skill` back to Redis with a 12h TTL, apply search + pagination, strip, respond `200`.
+3. Slugifies `marketplaceName` and matches it against the tenant's registry → `MarketplaceSource { org, repo, branch }`.
+4. Constructs the key `marketplace:{tenantID}:{org}__{repo}` and reads Redis.
+5. On a hit: deserialise, apply search + server-cap, strip `Skill`, `Documents`, and `Slug`, respond `200`.
+6. On a miss: crawl the repository via the platform GitHub client, write `[]Skill` back to Redis with a 12h TTL, apply search + server-cap, strip, respond `200`.
 7. If Redis is unavailable or GitHub is unreachable on a cold-cache miss, respond `503`.
 
 ### Step 5 — User Opens a Skill Detail Page
 
 1. The frontend calls `GET /v1/marketplaces/{marketplaceName}/skills/{skillName}`.
-2. `skills-service` performs the same `tenantID` resolution and `marketplaceName → {org, repo}` lookup as the list endpoint.
+2. `skills-service` performs the same `tenantID` resolution and `marketplaceName` → `MarketplaceSource` registry lookup as the list endpoint.
 3. Reads Redis; on a miss it runs the same cache-aside crawl the list endpoint does.
-4. Looks up `skillName` in the resulting `[]Skill`. If found, responds `200` with the full record; if not found in the crawled repository, responds `404`.
+4. Looks up `skillName` by matching against `Skill.Slug` (`{org}:{repo}:{skillName}`). If found, responds `200` with the full record (slug cleared); if not found in the crawled repository, responds `404`.
 
 ### Service Layout
 
 ```
 backend/internal/skills/
-├── models.go        — Skill, SkillFile domain types
-├── cache.go         — Redis read/write; tenant-scoped key helpers; TTL constants
-├── crawler.go       — GitHub Trees API walk; SKILL.md + resources fetch
-├── registry.go      — Reads marketplace-sources.json; hot-reload via fsnotify;
-│                       tenant → sources mapping
-├── token.go         — TokenProvider: GitHub App token mint and refresh
-├── service.go       — Cache-aside orchestration; pagination, search, field projection
-└── handlers.go      — HTTP controllers for marketplaces, list, and detail endpoints
+├── models.go                   — Skill, SkillFile, MarketplaceSource domain types
+├── cache.go                    — Redis read/write; tenant-scoped key helpers; TTL constants
+├── crawler.go                  — GitHub Trees API walk; SKILL.md + resources fetch
+├── registry.go                 — Reads marketplace-sources.json; generates MarketplaceSlug;
+│                                  hot-reload via fsnotify; tenant → sources mapping
+├── token.go                    — TokenProvider: GitHub App token mint and refresh
+├── service.go                  — Cache-aside orchestration; search, server-cap, field projection
+├── handlers_skills_entry.go    — HTTP controllers for marketplaces, list, and detail endpoints
+├── formatter.go                — Response formatting helpers
+└── errors.go                   — Sentinel errors: ErrMarketplaceNotFound, ErrSkillNotFound,
+                                   ErrRedisUnavailable
 
 backend/internal/platform/clients/github/
 └── client.go        — Typed GitHub client embedding httpclient.Base
@@ -544,10 +576,10 @@ REST is used for V1. The Marketplace has a small, well-defined set of operations
 Set up `skills-service` skeleton, ConfigMap and Secret mounts, `registry.Registry` loading from `marketplace-sources.json` with tenant scoping, `TokenProvider` with GitHub App token mint and cache, and `internal/platform/clients/github`. Service starts, reads credentials, and can make authenticated calls to the GitHub Trees API and `raw.githubusercontent.com`.
 
 **Phase 2 — Cache-aside read path**
-Implement `cache.go`, `crawler.go`, and `service.go`: tenant-scoped Redis key helpers, `SKILL.md` and `resources/` crawl, `[]Skill` write to Redis on miss, and the cache-aside orchestration used by the handlers.
+Implement `cache.go`, `crawler.go`, and `service.go`: tenant-scoped Redis key helpers using `{org}__{repo}` marketplace slugs, `SKILL.md` and `resources/` crawl with `{org}:{repo}:{skillName}` internal skill slugs, `[]Skill` write to Redis on miss, and the cache-aside orchestration used by the handlers.
 
 **Phase 3 — API endpoints**
-Implement `GET /v1/marketplaces` (returns names only), `GET /v1/marketplaces/{marketplaceName}/skills` (list, search, offset/limit pagination), and `GET /v1/marketplaces/{marketplaceName}/skills/{skillName}` (full detail). Wire the `marketplaceName → {org, repo}` ConfigMap lookup and the status-code semantics (`200`/`404`/`503`) as defined above. Wire the BFF proxy. Frontend can populate the selector, browse, and open skills end to end.
+Implement `GET /v1/marketplaces` (returns names only), `GET /v1/marketplaces/{marketplaceName}/skills` (list, search, server-side cap at 200), and `GET /v1/marketplaces/{marketplaceName}/skills/{skillName}` (full detail). Wire the `marketplaceName` → registry → `MarketplaceSource` lookup and the status-code semantics (`200`/`404`/`503`) as defined above. Wire the BFF proxy. Frontend can populate the selector, browse, and open skills end to end.
 
 **Phase 4 (deferred) — Stampede protection and/or startup preload**
 Revisit if metrics show duplicate crawls on cold-cache bursts, or if the first-request-after-expiry latency turns out to be a real user problem. Both are additive to the cache-aside design and require no changes to the API contract.
@@ -558,4 +590,4 @@ No migration is required — `skills-service` is a new service with no existing 
 
 ---
 
-**Last Updated:** 2026-09-17
+**Last Updated:** 2026-10-10

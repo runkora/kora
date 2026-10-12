@@ -49,6 +49,15 @@ func TestRegistryLoadsValidFile(t *testing.T) {
 	if len(sources) != 2 {
 		t.Fatalf("expected 2 sources for tenant-a, got %d", len(sources))
 	}
+	if sources[0].RepoName != "skills" {
+    t.Errorf("RepoName: got %q, want %q", sources[0].RepoName, "skills")
+	}
+	if sources[0].Link != "https://github.com/clear-route/skills" {
+		t.Errorf("Link: got %q, want %q", sources[0].Link, "https://github.com/clear-route/skills")
+	}
+	if sources[0].MarketplaceSlug != "clear-route__skills" {
+		t.Errorf("MarketplaceSlug: got %q, want %q", sources[0].MarketplaceSlug, "clear-route__skills")
+	}
 	if len(r.ListSources("tenant-b")) != 0 {
 		t.Fatal("expected empty sources for unknown tenant")
 	}

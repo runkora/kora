@@ -101,6 +101,16 @@ func (f *fakeGitHubTokenProvider) Token(context.Context) (string, error) {
 	return f.token, f.err
 }
 
+// fakeTokenResolver is a test double for githubTokenProviderResolver.
+// It returns the same provider for any credentialsRef path.
+type fakeTokenResolver struct {
+	provider githubTokenProvider
+}
+
+func (f *fakeTokenResolver) For(_ string) (githubTokenProvider, error) {
+	return f.provider, nil
+}
+
 // testSource is the marketplace source every test crawls.
 var testSource = MarketplaceSource{Name: "marketplace-name", Org: "org", Repo: "repo", Branch: "main"}
 
@@ -113,7 +123,7 @@ func folder(path string) ghclient.TreeEntry {
 }
 
 func newTestCrawler(github *fakeGitHubTreeClient, tokens *fakeGitHubTokenProvider) *Crawler {
-	return NewCrawler(github, tokens, logging.NewDevelopmentLogger())
+	return NewCrawler(github, &fakeTokenResolver{provider: tokens}, logging.NewDevelopmentLogger())
 }
 
 func TestCrawlerTreeWalk(t *testing.T) {
@@ -282,7 +292,7 @@ func TestCrawlerTreeWalk(t *testing.T) {
 			file("plugins/plugin-name/skills/skill-name/file.md"),
 		}}
 		var logs bytes.Buffer
-		c := NewCrawler(github, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewLoggerWithOutput(&logs))
+		c := NewCrawler(github, &fakeTokenResolver{provider: &fakeGitHubTokenProvider{token: "test-token"}}, logging.NewLoggerWithOutput(&logs))
 
 		got, err := c.FetchTree(context.Background(), testSource)
 		if err != nil {
@@ -309,7 +319,7 @@ func TestCrawlerTreeWalk(t *testing.T) {
 			file("file.md"),
 		}}
 		var logs bytes.Buffer
-		c := NewCrawler(github, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewLoggerWithOutput(&logs))
+		c := NewCrawler(github, &fakeTokenResolver{provider: &fakeGitHubTokenProvider{token: "test-token"}}, logging.NewLoggerWithOutput(&logs))
 
 		got, err := c.FetchTree(context.Background(), testSource)
 		if err != nil {
@@ -405,6 +415,103 @@ func skillMD(name, description string) string {
 	return "---\nname: " + name + "\ndescription: " + description + "\n---\n\n# " + name + "\n"
 }
 
+// fakeErrorResolver is a test double for githubTokenProviderResolver that
+// always returns an error, so tests can exercise the credential-resolution
+// failure path without touching the file system.
+type fakeErrorResolver struct{ err error }
+
+func (f *fakeErrorResolver) For(_ string) (githubTokenProvider, error) {
+	return nil, f.err
+}
+
+func TestCrawlerResolverError(t *testing.T) {
+	resolverErr := errors.New("credentials not found")
+
+	t.Run("FetchTree returns resolver error and does not call GitHub", func(t *testing.T) {
+		github := &fakeGitHubTreeClient{}
+		c := NewCrawler(github, &fakeErrorResolver{err: resolverErr}, logging.NewDevelopmentLogger())
+
+		_, err := c.FetchTree(context.Background(), testSource)
+		if !errors.Is(err, resolverErr) {
+			t.Fatalf("FetchTree error = %v, want wrapping %v", err, resolverErr)
+		}
+		if github.calls != 0 {
+			t.Errorf("GetTree calls = %d, want 0 (should not reach GitHub on resolver failure)", github.calls)
+		}
+	})
+
+	t.Run("FetchSkills returns resolver error and does not call GitHub", func(t *testing.T) {
+		github := &fakeGitHubTreeClient{}
+		c := NewCrawler(github, &fakeErrorResolver{err: resolverErr}, logging.NewDevelopmentLogger())
+
+		skillPaths := map[string]SkillFilePaths{
+			"skill-a": {SkillPath: "skills/skill-a/SKILL.md"},
+		}
+		_, err := c.FetchSkills(context.Background(), "", testSource, skillPaths)
+		if !errors.Is(err, resolverErr) {
+			t.Fatalf("FetchSkills error = %v, want wrapping %v", err, resolverErr)
+		}
+		if github.calls != 0 {
+			t.Errorf("GetRawContent calls = %d, want 0 (should not reach GitHub on resolver failure)", github.calls)
+		}
+	})
+}
+
+func TestCrawlerPerSourceCredentials(t *testing.T) {
+	// Two sources with different credentialsRef values. The resolver records
+	// which credentialsRef it was asked for so we can assert the crawler
+	// passes through the source's own field.
+	type call struct{ credentialsRef string }
+	var mu sync.Mutex
+	var calls []call
+
+	resolver := &recordingResolver{
+		record: func(ref string) {
+			mu.Lock()
+			calls = append(calls, call{ref})
+			mu.Unlock()
+		},
+		provider: &fakeGitHubTokenProvider{token: "tok"},
+	}
+
+	github := &fakeGitHubTreeClient{files: []ghclient.TreeEntry{}}
+	c := NewCrawler(github, resolver, logging.NewDevelopmentLogger())
+
+	sourceA := MarketplaceSource{Name: "A", Org: "org", Repo: "repo-a", Branch: "main", CredentialsRef: "/secrets/app-a"}
+	sourceB := MarketplaceSource{Name: "B", Org: "org", Repo: "repo-b", Branch: "main", CredentialsRef: "/secrets/app-b"}
+
+	if _, err := c.FetchTree(context.Background(), sourceA); err != nil {
+		t.Fatalf("FetchTree(sourceA): %v", err)
+	}
+	if _, err := c.FetchTree(context.Background(), sourceB); err != nil {
+		t.Fatalf("FetchTree(sourceB): %v", err)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(calls) != 2 {
+		t.Fatalf("resolver called %d times, want 2", len(calls))
+	}
+	if calls[0].credentialsRef != "/secrets/app-a" {
+		t.Errorf("first call credentialsRef = %q, want %q", calls[0].credentialsRef, "/secrets/app-a")
+	}
+	if calls[1].credentialsRef != "/secrets/app-b" {
+		t.Errorf("second call credentialsRef = %q, want %q", calls[1].credentialsRef, "/secrets/app-b")
+	}
+}
+
+// recordingResolver records each credentialsRef it is asked for and returns a
+// fixed provider. Used by TestCrawlerPerSourceCredentials.
+type recordingResolver struct {
+	record   func(credentialsRef string)
+	provider githubTokenProvider
+}
+
+func (r *recordingResolver) For(credentialsRef string) (githubTokenProvider, error) {
+	r.record(credentialsRef)
+	return r.provider, nil
+}
+
 func TestCrawlParallel(t *testing.T) {
 	t.Run("returns every skill with its files, sorted by slug", func(t *testing.T) {
 		github := &fakeGitHubTreeClient{
@@ -473,7 +580,7 @@ func TestCrawlParallel(t *testing.T) {
 			},
 		}
 		var logs bytes.Buffer
-		c := NewCrawler(github, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewLoggerWithOutput(&logs))
+		c := NewCrawler(github, &fakeTokenResolver{provider: &fakeGitHubTokenProvider{token: "test-token"}}, logging.NewLoggerWithOutput(&logs))
 
 		got, err := c.Crawl(context.Background(), testSource)
 		if err != nil {
@@ -611,7 +718,7 @@ func TestCrawlerConcurrencyCap(t *testing.T) {
 
 	t.Run("never exceeds the per-repo cap", func(t *testing.T) {
 		tracking := &trackingGitHubClient{fakeGitHubTreeClient: manySkills(skillCount), delay: 20 * time.Millisecond}
-		c := NewCrawler(tracking, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewDevelopmentLogger())
+		c := NewCrawler(tracking, &fakeTokenResolver{provider: &fakeGitHubTokenProvider{token: "test-token"}}, logging.NewDevelopmentLogger())
 
 		got, err := c.Crawl(context.Background(), testSource)
 		if err != nil {
@@ -631,7 +738,7 @@ func TestCrawlerConcurrencyCap(t *testing.T) {
 
 	t.Run("a call waiting for a permit returns promptly when the context is canceled", func(t *testing.T) {
 		github := &fakeGitHubTreeClient{contents: map[string]string{"file.md": "content"}}
-		c := NewCrawler(github, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewDevelopmentLogger())
+		c := NewCrawler(github, &fakeTokenResolver{provider: &fakeGitHubTokenProvider{token: "test-token"}}, logging.NewDevelopmentLogger())
 
 		perRepoSem := semaphore.NewWeighted(perRepoCap)
 		if !perRepoSem.TryAcquire(perRepoCap) {
@@ -666,7 +773,7 @@ func TestCrawlerGlobalConcurrencyCap(t *testing.T) {
 	const skillsPerCrawl = perRepoCap // each crawl alone maxes its own per-repo budget
 	const concurrentCrawls = 6        // 6 * 20 = 120 > globalCap (100): the global cap must bind
 	tracking := &trackingGitHubClient{fakeGitHubTreeClient: manySkills(skillsPerCrawl), delay: 30 * time.Millisecond}
-	c := NewCrawler(tracking, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewDevelopmentLogger())
+	c := NewCrawler(tracking, &fakeTokenResolver{provider: &fakeGitHubTokenProvider{token: "test-token"}}, logging.NewDevelopmentLogger())
 
 	var wg sync.WaitGroup
 	errs := make([]error, concurrentCrawls)

@@ -9,6 +9,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -197,4 +200,83 @@ func (p *TokenProvider) mint(ctx context.Context) mintResult {
 		return mintResult{err: fmt.Errorf("mint github app installation token: %w", err)}
 	}
 	return mintResult{token: tok.Token, expiresAt: tok.ExpiresAt}
+}
+
+// TokenProviderPool lazily constructs and caches a TokenProvider per
+// credentialsRef directory path. Safe for concurrent use. A source with an
+// empty CredentialsRef falls back to the default provider supplied at
+// construction, preserving behavior for sources declared before per-source
+// credentials were introduced.
+type TokenProviderPool struct {
+	client          installationTokenMinter
+	defaultProvider githubTokenProvider
+
+	mu    sync.Mutex
+	cache map[string]*TokenProvider // key: credentialsRef path
+}
+
+// NewTokenProviderPool constructs a pool. defaultProvider is used for any
+// MarketplaceSource whose CredentialsRef is empty; pass nil only if every
+// source is guaranteed to carry a CredentialsRef.
+func NewTokenProviderPool(client installationTokenMinter, defaultProvider githubTokenProvider) *TokenProviderPool {
+	return &TokenProviderPool{
+		client:          client,
+		defaultProvider: defaultProvider,
+		cache:           map[string]*TokenProvider{},
+	}
+}
+
+// For returns the token provider for credentialsRef. An empty dir returns the
+// default provider. A non-empty dir must contain appID, installationID, and
+// privateKey files (PEM-encoded RSA key).
+func (p *TokenProviderPool) For(dir string) (githubTokenProvider, error) {
+	if dir == "" {
+		if p.defaultProvider == nil {
+			return nil, fmt.Errorf("no credentialsRef and no default token provider configured")
+		}
+		return p.defaultProvider, nil
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if tp, ok := p.cache[dir]; ok {
+		return tp, nil
+	}
+
+	appID, installationID, err := readCredentials(dir)
+	if err != nil {
+		return nil, fmt.Errorf("read credentials from %s: %w", dir, err)
+	}
+
+	tp := NewTokenProvider(p.client, appID, installationID, filepath.Join(dir, "privateKey"))
+	p.cache[dir] = tp
+	return tp, nil
+}
+
+// readCredentials reads appID and installationID from files inside dir.
+// Expected layout (matches the Kubernetes Secret mount shape):
+//
+//	<dir>/appID           — GitHub App ID as a decimal string
+//	<dir>/installationID  — installation ID as a decimal string
+//	<dir>/privateKey      — PEM-encoded RSA private key (read later by TokenProvider)
+func readCredentials(dir string) (appID string, installationID int64, err error) {
+	raw, err := os.ReadFile(filepath.Join(dir, "appID"))
+	if err != nil {
+		return "", 0, fmt.Errorf("read appID: %w", err)
+	}
+	appID = strings.TrimSpace(string(raw))
+	if appID == "" {
+		return "", 0, fmt.Errorf("appID file is empty")
+	}
+
+	raw, err = os.ReadFile(filepath.Join(dir, "installationID"))
+	if err != nil {
+		return "", 0, fmt.Errorf("read installationID: %w", err)
+	}
+	installationID, err = strconv.ParseInt(strings.TrimSpace(string(raw)), 10, 64)
+	if err != nil {
+		return "", 0, fmt.Errorf("parse installationID: %w", err)
+	}
+	return appID, installationID, nil
 }

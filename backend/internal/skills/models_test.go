@@ -68,7 +68,7 @@ func TestSkillRoundTrip(t *testing.T) {
 		t.Errorf("Slug: got %q want %q", decoded.Slug, original.Slug)
 	}
 	if len(decoded.Documents) != 1 {
-		t.Errorf("Documents: got %d items want 1", len(decoded.Documents))
+		t.Fatalf("Documents: got %d items want 1", len(decoded.Documents))
 	}
 	if decoded.Documents[0].Name != "guide.md" {
 		t.Errorf("Documents[0].Name: got %q want %q", decoded.Documents[0].Name, "guide.md")

@@ -59,7 +59,7 @@ spec:
               value: "1"
 
             - name: GITHUB_APP_PRIVATE_KEY_PATH
-              value: "/tmp/github-private-key.pem"
+              value: {{ index .Values.skillsService.githubApps 0 "mountPath" }}/privateKey
 
             - name: ORBIT_MARKETPLACE_SOURCES_CONFIG
               value: "/etc/orbit/marketplace"
@@ -67,6 +67,11 @@ spec:
           volumeMounts:
             - name: marketplace-sources
               mountPath: /etc/orbit/marketplace
+            {{- range .Values.skillsService.githubApps }}
+            - name: github-app-{{ .secretName }}
+              mountPath: {{ .mountPath }}
+              readOnly: true
+            {{- end }}
 
           resources:
             {{- toYaml .Values.skillsService.resources | nindent 12 }}
@@ -75,3 +80,8 @@ spec:
         - name: marketplace-sources
           configMap:
             name: orbit-skill-marketplace-sources
+        {{- range .Values.skillsService.githubApps }}
+        - name: github-app-{{ .secretName }}
+          secret:
+            secretName: {{ .secretName }}
+        {{- end }}
