@@ -180,10 +180,26 @@ func buildRestConfig(inCluster bool) (*rest.Config, error) {
 
 // ── Agent type provisioning ───────────────────────────────────────────────────
 
-// ProvisionAgentType creates all k8s resources for a managed agent type in the
-// given namespace. Idempotent; existing resources are left unchanged.
+// ProvisionAgentType creates the k8s resources of a managed agent type in the
+// given namespace and updates existing ones to the rendered spec. Updating the
+// StatefulSet template rolls the agent's pods.
 func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error {
-	ctx, span := k8sTracer.Start(ctx, "agents.k8s.ProvisionAgentType",
+	return p.provision(ctx, at, namespace, true)
+}
+
+// ProvisionMissing creates the agent type's missing k8s resources and leaves
+// existing ones unchanged. It still reconciles the agent's grant. Run start uses
+// it so that starting a run never rolls pods.
+func (p *K8sProvisioner) ProvisionMissing(ctx context.Context, at AgentType, namespace string) error {
+	return p.provision(ctx, at, namespace, false)
+}
+
+func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace string, update bool) error {
+	spanName := "agents.k8s.ProvisionMissing"
+	if update {
+		spanName = "agents.k8s.ProvisionAgentType"
+	}
+	ctx, span := k8sTracer.Start(ctx, spanName,
 		trace.WithAttributes(
 			attribute.String("slug", at.Slug),
 			attribute.String("namespace", namespace),
@@ -210,27 +226,27 @@ func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, n
 		return err
 	}
 
-	if err := p.ensureServiceAccount(ctx, slug, namespace, labels, tenantRef); err != nil {
+	if err := p.ensureServiceAccount(ctx, slug, namespace, labels, tenantRef, update); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure service account")
 		return err
 	}
-	if err := p.ensureStatefulSet(ctx, at, namespace, labels, tenantRef); err != nil {
+	if err := p.ensureStatefulSet(ctx, at, namespace, labels, tenantRef, update); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure statefulset")
 		return err
 	}
-	if err := p.ensureHeadlessService(ctx, slug, namespace, labels, tenantRef); err != nil {
+	if err := p.ensureHeadlessService(ctx, slug, namespace, labels, tenantRef, update); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure headless service")
 		return err
 	}
-	if err := p.ensureHPA(ctx, slug, namespace, labels, tenantRef); err != nil {
+	if err := p.ensureHPA(ctx, slug, namespace, labels, tenantRef, update); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure hpa")
 		return err
 	}
-	if err := p.ensurePDB(ctx, slug, namespace, labels, tenantRef); err != nil {
+	if err := p.ensurePDB(ctx, slug, namespace, labels, tenantRef, update); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure pdb")
 		return err
@@ -240,12 +256,12 @@ func (p *K8sProvisioner) ProvisionAgentType(ctx context.Context, at AgentType, n
 		span.SetStatus(codes.Error, "ensure agent grant")
 		return err
 	}
-	if err := p.ensureDestinationRule(ctx, at, namespace, tenantRef); err != nil {
+	if err := p.ensureDestinationRule(ctx, at, namespace, tenantRef, update); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure destination rule")
 		return err
 	}
-	if err := p.ensureAuthorizationPolicy(ctx, at, namespace, tenantRef); err != nil {
+	if err := p.ensureAuthorizationPolicy(ctx, at, namespace, tenantRef, update); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "ensure authorization policy")
 		return err
@@ -329,8 +345,8 @@ func (p *K8sProvisioner) ReplicaCount(ctx context.Context, slug, namespace strin
 }
 
 // ReadyOrdinals returns the ordinals of the StatefulSet's pods that are Ready
-// and match its update revision. While a template change is still being
-// observed or rolled out it returns none, so callers wait for the new pod.
+// and not terminating. A pod on either revision counts, so the pod a roll has
+// not reached yet takes new runs (docs/adr/2026-10-12-run-scheduling.md).
 func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error) {
 	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
 	if apierrors.IsNotFound(err) {
@@ -338,9 +354,6 @@ func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace stri
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
-	}
-	if ss.Status.ObservedGeneration < ss.Generation {
-		return nil, nil
 	}
 	sel := labels.SelectorFromSet(ss.Spec.Selector.MatchLabels).String()
 	pods, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: sel})
@@ -350,9 +363,6 @@ func (p *K8sProvisioner) ReadyOrdinals(ctx context.Context, slug, namespace stri
 	var out []int
 	for _, pod := range pods.Items {
 		if pod.DeletionTimestamp != nil || !podReady(&pod) {
-			continue
-		}
-		if rev := ss.Status.UpdateRevision; rev != "" && pod.Labels[appsv1.ControllerRevisionHashLabelKey] != rev {
 			continue
 		}
 		n, ok := strings.CutPrefix(pod.Name, slug+"-")
@@ -1608,7 +1618,7 @@ func (p *K8sProvisioner) buildServiceAccount(name, namespace string, labels map[
 	}
 }
 
-func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
 	sa := p.buildServiceAccount(name, namespace, labels)
 	applyOwnerRef(&sa.ObjectMeta, owner)
 	var err error
@@ -1619,6 +1629,9 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 	_, err = p.client.CoreV1().ServiceAccounts(namespace).Create(ctx, &sa, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
+	}
+	if !update {
+		return nil
 	}
 	// Sync patched labels/annotations onto an existing ServiceAccount so a
 	// patch (e.g. an IRSA role-arn annotation) takes effect on reconcile, not
@@ -1637,7 +1650,7 @@ func (p *K8sProvisioner) ensureServiceAccount(ctx context.Context, name, namespa
 	return err
 }
 
-func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
 	ss := p.buildSessionManagerStatefulSet(at, namespace, labels)
 	applyOwnerRef(&ss.ObjectMeta, owner)
 
@@ -1649,6 +1662,9 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	_, err = p.client.AppsV1().StatefulSets(namespace).Create(ctx, &ss, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
+	}
+	if !update {
+		return nil
 	}
 	// Replace the existing pod template with the rendered one so a patch change
 	// reaches existing agents on the next reconcile, keeping only the live
@@ -1898,7 +1914,7 @@ func (p *K8sProvisioner) buildHeadlessService(name, namespace string, labels map
 	}
 }
 
-func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
 	svc := p.buildHeadlessService(name, namespace, labels)
 	applyOwnerRef(&svc.ObjectMeta, owner)
 	var err error
@@ -1909,6 +1925,9 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	_, err = p.client.CoreV1().Services(namespace).Create(ctx, &svc, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
+	}
+	if !update {
+		return nil
 	}
 	existing, err := p.client.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -1970,7 +1989,7 @@ func (p *K8sProvisioner) buildHPA(name, namespace string, labels map[string]stri
 // PVCs created by the StatefulSet's VolumeClaimTemplate. Orphaned workspace PVCs
 // accumulate silently. A cleanup controller or CronJob should prune PVCs whose
 // owning pod no longer exists. Track in the sandbox hardening story.
-func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
 	hpa := p.buildHPA(name, namespace, labels)
 	applyOwnerRef(&hpa.ObjectMeta, owner)
 	var err error
@@ -1981,6 +2000,9 @@ func (p *K8sProvisioner) ensureHPA(ctx context.Context, name, namespace string, 
 	_, err = p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Create(ctx, &hpa, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
+	}
+	if !update {
+		return nil
 	}
 	existing, err := p.client.AutoscalingV2().HorizontalPodAutoscalers(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -2006,7 +2028,7 @@ func (p *K8sProvisioner) buildPDB(name, namespace string, labels map[string]stri
 	}
 }
 
-func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, labels map[string]string, owner metav1.OwnerReference, update bool) error {
 	pdb := p.buildPDB(name, namespace, labels)
 	applyOwnerRef(&pdb.ObjectMeta, owner)
 	var err error
@@ -2017,6 +2039,9 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 	_, err = p.client.PolicyV1().PodDisruptionBudgets(namespace).Create(ctx, &pdb, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
+	}
+	if !update {
+		return nil
 	}
 	existing, err := p.client.PolicyV1().PodDisruptionBudgets(namespace).Get(ctx, name, metav1.GetOptions{})
 	if err != nil {
@@ -2041,7 +2066,7 @@ func (p *K8sProvisioner) ensurePDB(ctx context.Context, name, namespace string, 
 // EDS-based endpoint identity lookup. Without this rule, istiod falls back to
 // the standard formula (spiffe://<td>/ns/<ns>/sa/<sa>), which doesn't match the
 // SPIRE-issued SPIFFE ID (spiffe://<td>/tenant/<ns>/agent/<slug>).
-func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference, update bool) error {
 	spiffeID := p.agentSpiffeID(at, namespace)
 	host := fmt.Sprintf("%s.%s.svc.cluster.local", at.Slug, namespace)
 	metadata := map[string]any{
@@ -2077,6 +2102,9 @@ func (p *K8sProvisioner) ensureDestinationRule(ctx context.Context, at AgentType
 		Create(ctx, dr, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
+	}
+	if !update {
+		return nil
 	}
 	if owner.Kind == "" {
 		return nil
@@ -2129,7 +2157,7 @@ func agentAuthorizationPolicyName(slug string) string { return "agent-" + slug +
 // NOTE: Istio prepends "spiffe://" when translating an AuthorizationPolicy to
 // Envoy RBAC. Principals are written WITHOUT the prefix; writing it produces
 // "spiffe://spiffe://..." in the generated rule and never matches.
-func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference) error {
+func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at AgentType, namespace string, owner metav1.OwnerReference, update bool) error {
 	if !p.cfg.AuthorizationPolicyEnabled {
 		return nil
 	}
@@ -2186,6 +2214,9 @@ func (p *K8sProvisioner) ensureAuthorizationPolicy(ctx context.Context, at Agent
 		Create(ctx, ap, metav1.CreateOptions{})
 	if err == nil || !apierrors.IsAlreadyExists(err) {
 		return err
+	}
+	if !update {
+		return nil
 	}
 	if owner.Kind == "" {
 		return nil

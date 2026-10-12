@@ -185,6 +185,27 @@ func (r *PostgresRepository) SetAgentTypeState(ctx context.Context, id string, f
 	return nil
 }
 
+// ListActiveAgentTypes returns the active agent types of every tenant.
+func (r *PostgresRepository) ListActiveAgentTypes(ctx context.Context) ([]AgentType, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+agentTypeColumns+`
+		FROM agent_types WHERE state = $1 ORDER BY created_at`, string(AgentTypeStateActive))
+	if err != nil {
+		return nil, fmt.Errorf("query active agent_types: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AgentType
+	for rows.Next() {
+		at, err := scanAgentType(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *at)
+	}
+	return out, rows.Err()
+}
+
 func (r *PostgresRepository) ListAllAgentTypeSlugs(ctx context.Context) ([]string, error) {
 	rows, err := r.pool.Query(ctx, `SELECT DISTINCT slug FROM agent_types ORDER BY slug`)
 	if err != nil {

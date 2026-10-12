@@ -108,6 +108,7 @@ func realMain() error {
 	// restarts; the shared helper owns the retry and re-registration cadence.
 	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
 	go runSvc.StartReaper(ctx)
+	go atSvc.ApplyAll(ctx)
 	go draftSvc.StartReaper(ctx)
 	run(ctx, logger, server)
 	return nil

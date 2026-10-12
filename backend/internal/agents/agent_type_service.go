@@ -388,6 +388,26 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	return &at, nil
 }
 
+// ApplyAll applies the rendered resources of every active agent type, which
+// rolls an agent whose template changed. orbit-agents runs it at startup, so an
+// upgrade reaches existing agents (docs/adr/2026-10-12-run-scheduling.md).
+func (s *AgentTypeService) ApplyAll(ctx context.Context) {
+	ats, err := s.repo.ListActiveAgentTypes(ctx)
+	if err != nil {
+		s.logger.Error(ctx, "list agent types to apply failed", logging.Field{Key: "error", Value: err.Error()})
+		return
+	}
+	for _, at := range ats {
+		if err := s.k8s.ProvisionAgentType(ctx, at, s.cfg.TenantNamespaceFn(at.TenantID)); err != nil {
+			s.logger.Error(ctx, "apply agent type resources failed",
+				logging.Field{Key: "agent_type_id", Value: at.ID},
+				logging.Field{Key: "slug", Value: at.Slug},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+	}
+}
+
 // provisionAgentTypeAsync runs in a goroutine after CreateAgentType returns.
 // On success it transitions the agent type from provisioning → active.
 // On failure it deletes the record so the slug is freed for a retry.

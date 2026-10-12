@@ -87,13 +87,13 @@ patch: |
 
 	ctx := context.Background()
 	labels := agentTypeLabels(at)
-	if err := p.ensureStatefulSet(ctx, at, ns, labels, metav1.OwnerReference{}); err != nil {
+	if err := p.ensureStatefulSet(ctx, at, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureStatefulSet: %v", err)
 	}
-	if err := p.ensureHPA(ctx, at.Slug, ns, labels, metav1.OwnerReference{}); err != nil {
+	if err := p.ensureHPA(ctx, at.Slug, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureHPA: %v", err)
 	}
-	if err := p.ensureHeadlessService(ctx, at.Slug, ns, labels, metav1.OwnerReference{}); err != nil {
+	if err := p.ensureHeadlessService(ctx, at.Slug, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureHeadlessService: %v", err)
 	}
 

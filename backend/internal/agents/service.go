@@ -15,13 +15,14 @@ var agentsTracer = otel.Tracer("orbit.agents")
 // k8sProvisioner abstracts K8sProvisioner so it can be replaced in tests.
 type k8sProvisioner interface {
 	ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error
+	// ProvisionMissing creates only the agent type's missing resources.
+	ProvisionMissing(ctx context.Context, at AgentType, namespace string) error
 	DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error
 	EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
-	// ReadyOrdinals returns the ordinals of pods that are Ready and run the
-	// StatefulSet's current template.
+	// ReadyOrdinals returns the ordinals of pods that are Ready and not terminating.
 	ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error)
 	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
