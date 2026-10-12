@@ -151,6 +151,7 @@ The same list is `frontend/src/packages/hades/CONTRACT.md`, delivered with the p
 | A token or slot present at the last release is absent, renamed, or has a different `kind`, `format` or `modes` | major | boundary rule 1 |
 | A mode is added or removed | major | boundary rule 1 |
 | `productName` bounds tighten, or a slot's formats or maximum size shrink | major | boundary rule 1 |
+| A top-level property of the theme document's schema, `theme.schema.json` from the white-labelling theme ADR, is added, removed or changes shape | major | boundary rule 1; an unknown top-level key fails validation on every older instance |
 | A token or slot is added, and a component that existed at the last release reads it, directly or through a semantic name whose mapping now resolves to it | major | boundary rule 4, plus the token test in the PRD |
 | A semantic name present at the last release is remapped to a different raw token | major | boundary rule 4 |
 | A token or slot is added, and only components new since the last release read it | minor | boundary rule 4 |
@@ -159,7 +160,7 @@ The same list is `frontend/src/packages/hades/CONTRACT.md`, delivered with the p
 | No manifest change, and sources changed without changing the component API: markup or style changes, a new export, a default value change, a change to `scripts/`, build or test configuration | patch | boundary rule 5 |
 | Only `README.md`, `CONTRACT.md`, `src/docs/`, stories or tests changed | none | no rule engaged |
 
-The manifest rows are a diff of two JSON files. The direct-read row also needs a source search: for each added token, the classifier searches the component sources that existed at the last release tag for a reference to it. The remaining rows need the list of changed files and, for the component API row, a diff of the package's exported names and props, which the classifier takes from the TypeScript declarations of `src/index.ts` at both commits.
+The manifest rows are a diff of two JSON files, and the document row a diff of a third, the top level of the generated `theme.schema.json`. The direct-read row also needs a source search: for each added token, the classifier searches the component sources that existed at the last release tag for a reference to it. The remaining rows need the list of changed files and, for the component API row, a diff of the package's exported names and props, which the classifier takes from the TypeScript declarations of `src/index.ts` at both commits.
 
 One case no script decides: a token that keeps its name, kind, format and mapping but changes what it means, such as an accent token repurposed as a status colour. That is a review question, and the PR template for Hades changes asks it.
 

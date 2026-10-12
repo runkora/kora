@@ -17,7 +17,7 @@ The white-labelling PRDs assume consumers outside this repository will render ko
 
 - The [versioning ADR](2026-10-11-design-system-semantic-versioning.md) decides that a Hades release is a `hades/vX.Y.Z` tag matching `package.json`, and that each release carries `manifest.json`, `CONTRACT.md` and an exported `HADES_VERSION`.
 - The organisation already publishes container images to `ghcr.io`, so GitHub Packages is in use and authenticated from CI.
-- The Hades PRD excludes Storybook, and any design-tooling artefact, from what ships to anyone.
+- The Hades PRD excludes Storybook, and any design-tooling artefact, from the Hades deliverable.
 
 ### Problem Statement
 
@@ -26,7 +26,7 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 ### Goals
 
 - A consumer can install a specific Hades release by version and build a React application with it, without cloning this repository or the kora frontend.
-- The deliverable carries the tokens, the manifest, the contract boundary rules and the components. Nothing else.
+- The deliverable carries the tokens, the manifest, the contract boundary rules, the components, and the theme module and schema the white-labelling theme ADR places in Hades. Nothing else.
 - Publishing is a consequence of tagging a release, with no manual step.
 - The mechanism costs this repository as little as possible, because Hades is first a workspace package and only second a published one.
 
@@ -114,9 +114,9 @@ The published package contains exactly:
 
 - `src/**` excluding `*.stories.tsx`, `*.test.ts`, `*.test.tsx`, `test-setup.ts`, `src/docs/` and `.storybook/`.
 - `src/tokens/tokens.css` and `src/tokens/surface.ts`.
-- `manifest.json` and `CONTRACT.md` from the versioning ADR.
+- `manifest.json` and `CONTRACT.md` from the versioning ADR, and `theme.schema.json` from the white-labelling theme ADR.
 - `README.md`, which documents the consumer requirements below.
-- `package.json` named `@clear-route/hades`, with `private` removed, a `files` whitelist producing the list above, `publishConfig` pointing at `npm.pkg.github.com`, the `repository` field with `directory`, the existing dependencies, and `exports` extended with `./manifest.json` and `./CONTRACT.md` so a consumer can read what it is told it receives. `src/index.ts` exports `HADES_VERSION`.
+- `package.json` named `@clear-route/hades`, with `private` removed, a `files` whitelist producing the list above, `publishConfig` pointing at `npm.pkg.github.com`, the `repository` field with `directory`, the existing dependencies, and `exports` extended with `./manifest.json`, `./CONTRACT.md` and `./theme.schema.json` so a consumer can read what it is told it receives. `src/index.ts` exports `HADES_VERSION`.
 
 It does not contain fonts, Storybook, stories, tests, or any build of its own. The kora frontend's own consumption is unaffected beyond the rename: the workspace link ignores `files` and `publishConfig`, and `exports` keeps its existing entries.
 
@@ -138,7 +138,7 @@ One workflow, `.github/workflows/hades-release.yml`, triggered by `hades/v*` tag
 2. **test**: the Hades unit tests.
 3. **pack-and-smoke**: `pnpm --filter @clear-route/hades pack` into `clear-route-hades-X.Y.Z.tgz`, uploaded as a workflow artefact. Then the **smoke build**: scaffold a minimal Vite plus React plus Tailwind v4 application in a temporary directory, install the tarball into it, render a page that imports `tokens.css`, the `Button` component and `HADES_VERSION`, and run its production build. This is the proof that the package is buildable without the Next.js application, and it runs on every release.
 4. **publish**: publish the same tarball to GitHub Packages.
-5. **release**: create a GitHub Release named `hades/vX.Y.Z` with the tarball, `manifest.json` and `CONTRACT.md` attached, marked as not the repository's latest release, so kora's own releases keep that position.
+5. **release**: create a GitHub Release named `hades/vX.Y.Z` with the tarball, `manifest.json`, `CONTRACT.md` and `theme.schema.json` attached, marked as not the repository's latest release, so kora's own releases keep that position.
 6. **cleanup**, run only if any job above failed: delete the tag, so the version can be re-cut once the cause is fixed. A failure leaves nothing published and is reported on the commit.
 
 ### Workflow requirements
@@ -185,7 +185,7 @@ Option 1 is the only option that gives consumers semver resolution, and it is th
 ## Implementation
 
 - Rename `@orbit/hades` to `@clear-route/hades` everywhere: the package name, the frontend's dependency, every import under `frontend/src`, the ESLint rules under `frontend/eslint`, `next.config.ts`, the Vitest configs, the Makefile's `--filter` arguments, the Dockerfile, and the docs. The ESLint rule names, Storybook titles and make target names keep the word Hades and do not change.
-- `frontend/src/packages/hades/package.json`: remove `private`; add `files`, `publishConfig` (`registry` only), the `repository` field with `directory`, and the two new `exports` entries.
+- `frontend/src/packages/hades/package.json`: remove `private`; add `files`, `publishConfig` (`registry` only), the `repository` field with `directory`, and the three new `exports` entries.
 - `frontend/src/packages/hades/src/index.ts`: export `HADES_VERSION`.
 - `frontend/src/packages/hades/README.md`: consumer requirements, the patch-range pin, and the two `.npmrc` lines a consumer needs.
 - `.github/workflows/hades-release.yml`: the six jobs above, with the permissions and pinning stated under Workflow requirements. Jobs 1 and 2 are the versioning ADR's.
@@ -208,7 +208,7 @@ With the `1.0.0` release.
 
 ### Success Metrics
 
-- A `hades/v1.0.0` tag results in a package at `npm.pkg.github.com` and a GitHub Release with the three assets, with no manual step.
+- A `hades/v1.0.0` tag results in a package at `npm.pkg.github.com` and a GitHub Release with the four assets, with no manual step.
 - The smoke build passes on every release, and fails the release if the package cannot build outside kora.
 - A consumer in another repository installs `@clear-route/hades@~1.0.0` with only an `.npmrc` entry and a read token.
 - The kora frontend builds and its tests pass after the rename, with no change to how it consumes the package.

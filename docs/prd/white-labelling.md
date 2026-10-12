@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-10-06  
-**Last Updated:** 2026-10-09  
+**Last Updated:** 2026-10-12  
 **Owner:** Qj Stout-Spykers  
 **Stakeholders:** Frontend Engineering, Platform Engineering, Identity/Backend Engineering
 
@@ -63,7 +63,7 @@ The product identity is fixed in code. The colour palette, corner radii, fonts, 
 - Branding of CLI output and of any surface outside the dashboard and the agent runtime messages it shows.
 - Sign-in and consent pages hosted by the client's identity provider. Those carry the provider's own branding.
 - Email branding. No email templates exist today.
-- Shipping Storybook, or any design-tooling artefact, to clients as a product.
+- Shipping Storybook, or any design-tooling artefact, to clients as a client-facing product. A preview build published for whoever produces a theme is not a client deliverable.
 
 ---
 
@@ -328,8 +328,7 @@ The last column is not a contract change, because kora defaults are outside the 
 
 ## Open Questions
 
-1. Which agent runtime messages and model-facing strings that name the product originate in the backend rather than the frontend, and therefore need the configured name on that side too? To be enumerated during the ADR.
-2. How is the theme wired into the deployment? A custom resource reconciled by the operator is the leading candidate, since the platform already configures inference providers that way. The ADR has to settle how the values and the brand assets each reach the instance, whether a resource change triggers a rollout or only a redeploy picks it up, and where validation runs so an invalid theme fails before the instance serves. Decided in the ADR.
+None.
 
 ### Resolved Questions
 
@@ -339,6 +338,8 @@ The last column is not a contract change, because kora defaults are outside the 
 4. **What does a theme target?** The Hades design system major, not the kora version. A theme records one exact Hades version and its major is derived from it. An instance accepts any theme in its own major and refuses every other. A kora change that does not change Hades never affects the contract.
 5. **Can an identity value be set to nothing?** No. A theme supplies a value or the kora default renders. A theme that wants no kora identity visible sets every identity value in both modes.
 6. **Is the asset contract defined here?** No. It is derived from the identity surfaces kora renders today and recorded in the Hades theme surface manifest, in subsection 3 of the design system versioning ADR. Those surfaces are replaced by agnostic Hades slot components, and the kora logo becomes an asset of the kora default theme at app level, so Hades contains no kora identity.
+7. **Which backend strings name the product?** Enumerated in decision 5 of the [White-labelling Theme ADR](../adr/2026-10-12-white-labelling-theme.md): guardrail messages, the capabilities brief, MCP tool descriptions and the registered MCP server name, egress denial messages, and the sandbox base image description. Identifiers, log lines and operator-facing output keep the kora name.
+8. **How is the theme wired into the deployment?** Decided in decisions 2 and 3 of the same ADR: the document as a chart value supplied from the repository file, the bundle as a digest-pinned OCI image mounted as an image volume, validation in an init container in the frontend pod, and a theme change as a rolling update triggered by the values change.
 
 ---
 
