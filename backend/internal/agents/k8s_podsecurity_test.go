@@ -483,7 +483,7 @@ func TestReadyOrdinals(t *testing.T) {
 		want []int
 	}{
 		{"no statefulset", nil, nil},
-		{"generation not observed", []runtime.Object{ss(2, 1, "r2"), pod("coder-0", "r1", true, false)}, []int{0}},
+		{"roll not yet observed", []runtime.Object{ss(2, 1, "r2"), pod("coder-0", "r1", true, false)}, []int{0}},
 		{"not ready", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", false, false)}, nil},
 		{"old revision during a roll", []runtime.Object{ss(2, 2, "r2"), pod("coder-0", "r1", true, false), pod("coder-1", "r2", false, false)}, []int{0}},
 		{"terminating", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", true, true)}, nil},

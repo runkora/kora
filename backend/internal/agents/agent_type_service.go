@@ -399,7 +399,8 @@ func (s *AgentTypeService) ApplyAll(ctx context.Context) {
 	}
 	for _, at := range ats {
 		if err := s.k8s.ProvisionAgentType(ctx, at, s.cfg.TenantNamespaceFn(at.TenantID)); err != nil {
-			s.logger.Error(ctx, "apply agent type resources failed",
+			// Another orbit-agents replica applying the same resources at startup causes update conflicts.
+			s.logger.Warn(ctx, "apply agent type resources failed",
 				logging.Field{Key: "agent_type_id", Value: at.ID},
 				logging.Field{Key: "slug", Value: at.Slug},
 				logging.Field{Key: "error", Value: err.Error()},
