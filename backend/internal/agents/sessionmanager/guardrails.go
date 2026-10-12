@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -214,6 +215,7 @@ func (reg *Registry) markSandboxLost(ctx context.Context, s *session, attempts i
 func (reg *Registry) sandboxLostMessage(runID string) string {
 	attempts := reg.guardrails.SandboxProvisionAttempts
 	cause := ""
+	folder := false
 	reg.mu.RLock()
 	if s, ok := reg.sessions[runID]; ok {
 		attempts = reg.limits(s).SandboxProvisionAttempts
@@ -223,10 +225,16 @@ func (reg *Registry) sandboxLostMessage(runID string) string {
 		if reason, ok := s.lostReason.Load().(string); ok && reason != "" {
 			cause = " The cluster has no node that can run it: " + reason
 		}
+		sb, _ := s.sandbox.Load().(Sandbox)
+		folder = sb.Folder != ""
 	}
 	reg.mu.RUnlock()
 	workspace := filepath.Join(reg.workspaces, runID)
 	survived := "Files under " + workspace + " are intact."
+	if folder {
+		// The sandbox folder is on the sandbox's own disk, so it went with the sandbox.
+		survived = "The sandbox folder " + filepath.Join(workspace, sandboxfolder.Dir) + " was lost with the sandbox. Other files under " + workspace + " are intact."
+	}
 	if _, err := os.Stat(workspace); err != nil {
 		survived = workspace + " could not be found, so its files may be lost too."
 	}

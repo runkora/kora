@@ -1017,10 +1017,11 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	api.JSON(ctx, w, c.logger, http.StatusOK, sandbox)
 }
 
-// writeEnvironmentChoiceError answers a refused environment choice with a 409
-// whose message the agent reads. It reports whether err was one.
+// writeEnvironmentChoiceError answers a refused environment choice, or a sandbox
+// too small for its work, with a 409 whose message the agent reads. It reports
+// whether err was one.
 func (c *Controller) writeEnvironmentChoiceError(ctx context.Context, w http.ResponseWriter, err error) bool {
-	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrEnvironmentRequired, ErrSandboxImageUnavailable} {
+	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrEnvironmentRequired, ErrSandboxImageUnavailable, ErrSandboxOutOfMemory} {
 		if errors.Is(err, target) {
 			api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
 			return true
