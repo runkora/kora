@@ -90,6 +90,28 @@ describe('listDeliveries (browser client)', () => {
     });
   });
 
+  it('reports an error when data is present but next_cursor is missing', async () => {
+    // Coercing the absent key to null would read as "last page", hide Load
+    // more, and truncate the list without saying so.
+    respondWith({ data: [] });
+
+    await expect(listDeliveries()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      error: 'The server returned a response that could not be read.',
+    });
+  });
+
+  it('reports an error when next_cursor is not a string or null', async () => {
+    respondWith({ data: [], next_cursor: 42 });
+
+    await expect(listDeliveries()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      error: 'The server returned a response that could not be read.',
+    });
+  });
+
   it('accepts a genuinely empty page, which has data but no rows', async () => {
     respondWith({ data: [], next_cursor: null });
 

@@ -117,7 +117,15 @@ async function sendPage<T>(
   if (body === null || typeof body !== 'object' || !Array.isArray(body.data)) {
     return unreadable;
   }
-  return { data: body.data as T, nextCursor: body.next_cursor ?? null, error: null };
+  // next_cursor must be PRESENT, not merely absent-and-coerced. The route
+  // always writes it, so a body without it is malformed, and `?? null` would
+  // read that as "last page": Load more disappears and the list is silently
+  // truncated, which is the whole failure this guard exists to stop.
+  const cursor = (body as { next_cursor?: unknown }).next_cursor;
+  if (!('next_cursor' in body) || (cursor !== null && typeof cursor !== 'string')) {
+    return unreadable;
+  }
+  return { data: body.data as T, nextCursor: cursor, error: null };
 }
 
 /** A JSON request body, with the header that says so. */

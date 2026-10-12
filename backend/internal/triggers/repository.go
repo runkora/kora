@@ -318,9 +318,18 @@ type DeliveryFilter struct {
 	// Several values are OR-ed together.
 	Status []string
 	// Outcome filters on the per-trigger fan-out (AllRunStatuses): a delivery
-	// matches when ANY of its runs holds one of these outcomes. When TriggerID
-	// is also set the match is narrowed to that trigger's own run, which is the
-	// outcome the console shows in a per-trigger view.
+	// matches when ANY of its runs holds one of these outcomes.
+	//
+	// With TriggerID set, the EXISTS narrows to that trigger's own run, but the
+	// outer query still requires trigger_deliveries.trigger_id = TriggerID, and
+	// that summary column holds only the trigger that dispatched LAST. So a
+	// delivery that fanned out to several triggers is reachable only through
+	// whichever one is stamped on it: asking for another trigger's failed run
+	// on that delivery returns nothing, even though the run exists.
+	//
+	// That is a property of how UpdateDeliveryOutcome stamps trigger_id, not of
+	// this filter, and TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun
+	// pins the behavior as it stands. Fixing it means changing the stamp.
 	Outcome []string
 	Limit   int
 	// Cursor is the keyset position to read from; nil means the first page.
