@@ -25,6 +25,7 @@ jobs:
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
+      hades: ${{ steps.filter.outputs.hades }}
       charts: ${{ steps.filter.outputs.charts }}
       docs: ${{ steps.filter.outputs.docs }}
       images: ${{ steps.filter.outputs.imageworkflow == 'true' || steps.imagecode.outputs.code == 'true' }}
@@ -61,6 +62,8 @@ jobs:
               - 'Makefile'
               - '.github/workflows/ci.yml'
               - '.github/workflows/frontend-ci.yml'
+            hades:
+              - 'frontend/src/packages/hades/**'
             charts:
               - 'charts/**'
               - 'deploy/reference/**'
@@ -110,7 +113,13 @@ jobs:
     name: Frontend CI
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
     uses: ./.github/workflows/frontend-ci.yml
+    with:
+      # Runs the Hades classifier only when the package changed.
+      hades: ${{ needs.changes.outputs.hades == 'true' }}
 
   charts:
     name: Charts CI
