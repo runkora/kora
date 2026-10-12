@@ -1,4 +1,5 @@
-import { KoraLogo, Stack } from '@orbit/hades';
+import { BrandLogo, Stack } from '@orbit/hades';
+import { defaultTheme } from '@orbit/theme/default';
 import type { ReactNode } from 'react';
 
 /**
@@ -7,7 +8,14 @@ import type { ReactNode } from 'react';
  * drawer passes its close button here so the brand markup lives in one place.
  */
 export function SidebarBrandHeader({ action }: { action?: ReactNode } = {}) {
-  const lockup = <KoraLogo size={30} title="kora" />;
+  const lockup = (
+    <BrandLogo
+      dark={defaultTheme.logo.dark}
+      light={defaultTheme.logo.light}
+      size={30}
+      title={defaultTheme.productName}
+    />
+  );
 
   // height="full" fills the h-14 sidebarHeader slot in PageLayout, which matches
   // the page header height so both bottom borders align on the same pixel row.
