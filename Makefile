@@ -260,13 +260,21 @@ proto-gen: ## Generate Go code from proto files (requires buf — run make insta
 	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
 .PHONY: check-versions
-check-versions: ## Verify GO_VERSION in versions.hcl matches the go directive in backend/go.mod
+check-versions: ## Verify GO_VERSION matches backend/go.mod and the Hades version agrees across package.json, version.ts and manifest.json
 	@GOMOD=$$(awk '$$1 == "go" { print $$2; exit }' backend/go.mod); \
 	if [ "$$GOMOD" != "$(GO_VERSION)" ]; then \
 		echo "$(COLOR_RED)✗ versions.hcl GO_VERSION=$(GO_VERSION) but backend/go.mod has go $$GOMOD$(COLOR_RESET)"; \
 		exit 1; \
 	fi
 	@echo "$(COLOR_GREEN)✓ GO_VERSION $(GO_VERSION) matches backend/go.mod$(COLOR_RESET)"
+	@PKG=$$(jq -r .version $(HADES_DIR)/package.json); \
+	TS=$$(sed -nE "s/^export const HADES_VERSION = '([^']+)'.*/\1/p" $(HADES_DIR)/src/version.ts); \
+	MANIFEST=$$(jq -r .version $(HADES_DIR)/manifest.json); \
+	if [ "$$PKG" != "$$TS" ] || [ "$$PKG" != "$$MANIFEST" ]; then \
+		echo "$(COLOR_RED)✗ Hades version disagrees: package.json $$PKG, version.ts $$TS, manifest.json $$MANIFEST$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_GREEN)✓ Hades version $$(jq -r .version $(HADES_DIR)/package.json) agrees across package.json, version.ts and manifest.json$(COLOR_RESET)"
 
 .PHONY: check-tool-versions
 check-tool-versions: ## Verify installed tool versions match pinned versions in versions.hcl
@@ -1099,6 +1107,32 @@ frontend-test-hades: ## Run Hades component unit tests in isolation (happy-dom)
 	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
 	@echo "$(COLOR_GREEN)✓ Hades unit tests passed$(COLOR_RESET)"
 
+# ─── Hades versioning ────────────────────────────────────────────────────────
+# The theme surface manifest and the classifier from the design system
+# versioning ADR. The scripts are TypeScript run directly by Node.
+
+HADES_DIR := $(FRONTEND_DIR)/src/packages/hades
+HADES_NODE := node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
+
+.PHONY: hades-manifest
+hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json) from tokens.css and surface.ts
+	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts
+
+.PHONY: hades-manifest-check
+hades-manifest-check: ## Verify manifest.json is what tokens.css and surface.ts generate
+	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts --check
+
+.PHONY: hades-contract-check
+hades-contract-check: ## Verify CONTRACT.md matches the boundary rules in the Hades PRD and the versioning ADR
+	@bash scripts/hades/check-contract.sh
+
+.PHONY: hades-check
+hades-check: hades-manifest-check hades-contract-check ## Hades manifest sync and contract checks (part of make check)
+
+.PHONY: hades-classify
+hades-classify: ## Classify the Hades change against the last hades/v* release (BASE=<ref> before one exists; FORMAT=text|markdown|json)
+	@cd $(HADES_DIR) && $(HADES_NODE) scripts/classify.ts $(if $(BASE),--base $(BASE),) $(if $(FORMAT),--format $(FORMAT),)
+
 .PHONY: frontend-test-e2e
 frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
 	@echo "$(COLOR_YELLOW)Running frontend E2E tests...$(COLOR_RESET)"
@@ -1259,7 +1293,7 @@ chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/orbit
 
 .PHONY: check
-check: check-versions tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
+check: check-versions tidy fmt vet fix lint deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
