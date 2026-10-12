@@ -105,11 +105,13 @@ export interface SlotDeclaration {
 const KIB = 1024;
 const MIB = 1024 * KIB;
 
-/** Asset slots, with the formats and limits the versioning ADR's SD-3 table decides. */
+/**
+ * Asset slots, with the formats and limits the versioning ADR's SD-3 table
+ * decides. Only the identity the product renders today: the combined logo and
+ * the favicon. A mark-only slot is added when a surface needs one.
+ */
 export const SLOTS: readonly SlotDeclaration[] = [
-  { name: 'logo.mark', kind: 'image', formats: ['svg'], maxBytes: 256 * KIB, modes: MODES },
-  { name: 'logo.wordmark', kind: 'image', formats: ['svg'], maxBytes: 256 * KIB, modes: MODES },
-  { name: 'logo.full', kind: 'image', formats: ['svg'], maxBytes: 256 * KIB, modes: MODES },
+  { name: 'logo', kind: 'image', formats: ['svg'], maxBytes: 256 * KIB, modes: MODES },
   { name: 'favicon', kind: 'image', formats: ['svg'], maxBytes: 64 * KIB, modes: MODES },
   { name: 'font.sans', kind: 'font', formats: ['woff2'], maxBytes: 2 * MIB, modes: [] },
   { name: 'font.mono', kind: 'font', formats: ['woff2'], maxBytes: 2 * MIB, modes: [] },

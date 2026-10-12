@@ -124,14 +124,7 @@ describe('buildManifest', () => {
     const m = buildManifest(tokensCss, '0.0.0', SURFACE);
     expect(m.tokens.length).toBeGreaterThan(30);
     expect(m.tokens.every((t) => t.name.startsWith('--hades-raw-'))).toBe(true);
-    expect(m.slots.map((s) => s.name)).toEqual([
-      'favicon',
-      'font.mono',
-      'font.sans',
-      'logo.full',
-      'logo.mark',
-      'logo.wordmark',
-    ]);
+    expect(m.slots.map((s) => s.name)).toEqual(['favicon', 'font.mono', 'font.sans', 'logo']);
     expect(new RegExp(m.productName.pattern, 'u').test("Acme & Co.'s Agents")).toBe(true);
     expect(new RegExp(m.productName.pattern, 'u').test('<b>x</b>')).toBe(false);
   });

@@ -658,31 +658,7 @@
       "modes": []
     },
     {
-      "name": "logo.full",
-      "kind": "image",
-      "formats": [
-        "svg"
-      ],
-      "maxBytes": 262144,
-      "modes": [
-        "dark",
-        "light"
-      ]
-    },
-    {
-      "name": "logo.mark",
-      "kind": "image",
-      "formats": [
-        "svg"
-      ],
-      "maxBytes": 262144,
-      "modes": [
-        "dark",
-        "light"
-      ]
-    },
-    {
-      "name": "logo.wordmark",
+      "name": "logo",
       "kind": "image",
       "formats": [
         "svg"
