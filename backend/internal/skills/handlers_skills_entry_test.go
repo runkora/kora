@@ -26,7 +26,13 @@ import (
 )
 
 var handlerSource = MarketplaceSource{
-	Name: "Clear Route Skills", Org: "internal-org", Repo: "internal-repo", Branch: "main",
+	Name:            "Clear Route Skills",
+	Org:             "internal-org",
+	Repo:            "internal-repo",
+	RepoName:        "internal-repo",
+	MarketplaceSlug: "internal-org__internal-repo",
+	Link:            "https://github.com/internal-org/internal-repo",
+	Branch:          "main",
 }
 
 type handlerListResponse struct {
@@ -59,25 +65,30 @@ type handlerCache struct {
 	getError, setErr error
 }
 
-func (f *handlerCache) Get(_ context.Context, tenantID, org, repo string) ([]Skill, bool, error) {
-	key := CacheKey(tenantID, org, repo)
+func (f *handlerCache) Get(_ context.Context, tenantID, marketplaceSlug string) ([]Skill, bool, error) {
+	key := CacheKey(tenantID, marketplaceSlug)
 	f.getCalls = append(f.getCalls, key)
+
 	if f.getError != nil {
 		return nil, false, f.getError
 	}
+
 	skills, hit := f.values[key]
 	return skills, hit, nil
 }
 
-func (f *handlerCache) Set(_ context.Context, tenantID, org, repo string, skills []Skill) error {
-	key := CacheKey(tenantID, org, repo)
+func (f *handlerCache) Set(_ context.Context, tenantID, marketplaceSlug string, skills []Skill) error {
+	key := CacheKey(tenantID, marketplaceSlug)
 	f.setCalls = append(f.setCalls, key)
+
 	if f.setErr != nil {
 		return f.setErr
 	}
+
 	if f.values == nil {
 		f.values = make(map[string][]Skill)
 	}
+
 	f.values[key] = skills
 	return nil
 }
@@ -136,7 +147,7 @@ func newHandlerController(cached bool) *handlerFixture {
 	reg := &handlerRegistry{sources: map[string][]MarketplaceSource{"tenant-a": {handlerSource}}}
 	cache := &handlerCache{}
 	if cached {
-		cache.values = map[string][]Skill{CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo): handlerSkills()}
+		cache.values = map[string][]Skill{CacheKey("tenant-a", handlerSource.MarketplaceSlug): handlerSkills()}
 	}
 	crawler := &handlerCrawler{skills: handlerSkills()}
 	logger := logging.NewDevelopmentLogger()
@@ -218,7 +229,7 @@ func TestControllerListSkills(t *testing.T) {
 func TestControllerServerCap(t *testing.T) {
 	fix := newHandlerController(true)
 	items := make([]Skill, serverCap+10)
-	fix.cache.values[CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo)] = items
+	fix.cache.values[CacheKey("tenant-a", handlerSource.MarketplaceSlug)] = items
 	rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills", "tenant-a")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
@@ -259,7 +270,7 @@ func TestControllerCacheMissAndDetail(t *testing.T) {
 			if detail.Skill != handlerSkills()[0].Skill || detail.Name != "React Expert" {
 				t.Fatalf("detail lost SKILL.md content: %+v", detail)
 			}
-			key := CacheKey("tenant-a", handlerSource.Org, handlerSource.Repo)
+			key := CacheKey("tenant-a", handlerSource.MarketplaceSlug)
 			if !reflect.DeepEqual(fix.cache.getCalls, []string{key, key}) || !reflect.DeepEqual(fix.cache.setCalls, []string{key}) {
 				t.Fatalf("cache calls: get %v, set %v", fix.cache.getCalls, fix.cache.setCalls)
 			}

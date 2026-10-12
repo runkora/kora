@@ -22,8 +22,12 @@ type Skill struct {
 // Org, Repo, and Branch are backend-internal — they never appear in API
 // responses or URLs.
 type MarketplaceSource struct {
-	Name   string `json:"name"`
-	Org    string `json:"org"`
-	Repo   string `json:"repo"`
-	Branch string `json:"branch"`
+	Name            string `json:"name"`
+	Org             string `json:"org"`
+	Repo            string `json:"repo"`
+	RepoName        string `json:"repoName"`
+	Link            string `json:"link"`
+	MarketplaceSlug string `json:"-"`
+	Branch          string `json:"branch"`
+	CredentialsRef  string `json:"credentialsRef,omitempty"`
 }

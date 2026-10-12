@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -360,4 +361,181 @@ func TestToken_WaiterHonorsOwnContext(t *testing.T) {
 
 	close(release)
 	<-leaderDone
+}
+
+// testCredentialsDir writes appID, installationID, and privateKey files into a
+// new temp directory and returns its path. The provider constructed from this
+// dir will use minter for token minting.
+func testCredentialsDir(t *testing.T, appID string, installationID int64) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "appID"), []byte(appID), 0o600); err != nil {
+		t.Fatalf("write appID: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "installationID"), []byte(fmt.Sprintf("%d", installationID)), 0o600); err != nil {
+		t.Fatalf("write installationID: %v", err)
+	}
+	// Copy a valid PEM key so TokenProvider can sign JWTs.
+	keyPath := testKeyPath(t)
+	pemBytes, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatalf("read test key: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "privateKey"), pemBytes, 0o600); err != nil {
+		t.Fatalf("write privateKey: %v", err)
+	}
+	return dir
+}
+
+func TestTokenProviderPool_EmptyDirReturnsDefault(t *testing.T) {
+	minter := &fakeMinter{tok: ghclient.InstallationToken{Token: "default-tok", ExpiresAt: time.Now().Add(time.Hour)}}
+	defaultProvider := newProvider(t, minter)
+	pool := NewTokenProviderPool(minter, defaultProvider)
+
+	got, err := pool.For("")
+	if err != nil {
+		t.Fatalf("For(%q): unexpected error: %v", "", err)
+	}
+	if got != defaultProvider {
+		t.Errorf("For(%q): got %v, want default provider", "", got)
+	}
+}
+
+func TestTokenProviderPool_NoDefaultAndEmptyDirReturnsError(t *testing.T) {
+	minter := &fakeMinter{}
+	pool := NewTokenProviderPool(minter, nil)
+
+	_, err := pool.For("")
+	if err == nil {
+		t.Fatal("For: expected error when no default provider, got nil")
+	}
+}
+
+func TestTokenProviderPool_LoadsCredentialsFromDir(t *testing.T) {
+	minter := &fakeMinter{tok: ghclient.InstallationToken{Token: "per-source-tok", ExpiresAt: time.Now().Add(time.Hour)}}
+	dir := testCredentialsDir(t, "app-99", 1234)
+	pool := NewTokenProviderPool(minter, nil)
+
+	provider, err := pool.For(dir)
+	if err != nil {
+		t.Fatalf("For(%q): unexpected error: %v", dir, err)
+	}
+
+	tok, err := provider.Token(context.Background())
+	if err != nil {
+		t.Fatalf("Token: unexpected error: %v", err)
+	}
+	if tok != "per-source-tok" {
+		t.Errorf("Token: got %q, want %q", tok, "per-source-tok")
+	}
+	if minter.callCount() != 1 {
+		t.Errorf("CreateInstallationToken calls: got %d, want 1", minter.callCount())
+	}
+}
+
+func TestTokenProviderPool_SameDirReturnsCachedProvider(t *testing.T) {
+	minter := &fakeMinter{tok: ghclient.InstallationToken{Token: "tok", ExpiresAt: time.Now().Add(time.Hour)}}
+	dir := testCredentialsDir(t, "app-1", 1)
+	pool := NewTokenProviderPool(minter, nil)
+
+	first, err := pool.For(dir)
+	if err != nil {
+		t.Fatalf("For (first): %v", err)
+	}
+	second, err := pool.For(dir)
+	if err != nil {
+		t.Fatalf("For (second): %v", err)
+	}
+	if first != second {
+		t.Errorf("For: got different providers for the same dir — expected cached instance")
+	}
+}
+
+func TestTokenProviderPool_DifferentDirsGetDifferentProviders(t *testing.T) {
+	minter := &fakeMinter{tok: ghclient.InstallationToken{Token: "tok", ExpiresAt: time.Now().Add(time.Hour)}}
+	dir1 := testCredentialsDir(t, "app-1", 1)
+	dir2 := testCredentialsDir(t, "app-2", 2)
+	pool := NewTokenProviderPool(minter, nil)
+
+	p1, err := pool.For(dir1)
+	if err != nil {
+		t.Fatalf("For(dir1): %v", err)
+	}
+	p2, err := pool.For(dir2)
+	if err != nil {
+		t.Fatalf("For(dir2): %v", err)
+	}
+	if p1 == p2 {
+		t.Errorf("For: got the same provider for two different dirs — expected distinct instances")
+	}
+}
+
+func TestReadCredentials_MissingAppIDFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "installationID"), []byte("42"), 0o600); err != nil {
+		t.Fatalf("write installationID: %v", err)
+	}
+	_, _, err := readCredentials(dir)
+	if err == nil {
+		t.Fatal("readCredentials: expected error for missing appID file, got nil")
+	}
+}
+
+func TestReadCredentials_MissingInstallationIDFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "appID"), []byte("app-1"), 0o600); err != nil {
+		t.Fatalf("write appID: %v", err)
+	}
+	_, _, err := readCredentials(dir)
+	if err == nil {
+		t.Fatal("readCredentials: expected error for missing installationID file, got nil")
+	}
+}
+
+func TestReadCredentials_EmptyAppID(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "appID"), []byte("   "), 0o600); err != nil {
+		t.Fatalf("write appID: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "installationID"), []byte("42"), 0o600); err != nil {
+		t.Fatalf("write installationID: %v", err)
+	}
+	_, _, err := readCredentials(dir)
+	if err == nil {
+		t.Fatal("readCredentials: expected error for empty appID, got nil")
+	}
+}
+
+func TestReadCredentials_InvalidInstallationID(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "appID"), []byte("app-1"), 0o600); err != nil {
+		t.Fatalf("write appID: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "installationID"), []byte("not-a-number"), 0o600); err != nil {
+		t.Fatalf("write installationID: %v", err)
+	}
+	_, _, err := readCredentials(dir)
+	if err == nil {
+		t.Fatal("readCredentials: expected error for non-integer installationID, got nil")
+	}
+}
+
+func TestReadCredentials_TrimsWhitespace(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "appID"), []byte("  app-1\n"), 0o600); err != nil {
+		t.Fatalf("write appID: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "installationID"), []byte("  42\n"), 0o600); err != nil {
+		t.Fatalf("write installationID: %v", err)
+	}
+	gotAppID, gotInstallationID, err := readCredentials(dir)
+	if err != nil {
+		t.Fatalf("readCredentials: unexpected error: %v", err)
+	}
+	if gotAppID != "app-1" {
+		t.Errorf("appID: got %q, want %q", gotAppID, "app-1")
+	}
+	if gotInstallationID != 42 {
+		t.Errorf("installationID: got %d, want 42", gotInstallationID)
+	}
 }

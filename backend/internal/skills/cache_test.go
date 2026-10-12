@@ -8,19 +8,18 @@ import (
 
 func TestCacheKey(t *testing.T) {
 	tests := []struct {
-		tenantID string
-		org      string
-		repo     string
-		want     string
+		tenantID        string
+		marketplaceSlug string
+		want            string
 	}{
-		{"tenant-a", "clear-route", "skills-marketplace", "marketplace:tenant-a:clear-route:skills-marketplace"},
-		{"tenant-b", "clearroute", "core-skills", "marketplace:tenant-b:clearroute:core-skills"},
+		{tenantID: "tenant-a", marketplaceSlug: "clear-route__skills-marketplace", want: "marketplace:tenant-a:clear-route__skills-marketplace"},
+		{tenantID: "tenant-b", marketplaceSlug: "clearroute__core-skills", want: "marketplace:tenant-b:clearroute__core-skills"},
 	}
 
 	for _, tt := range tests {
-		got := skills.CacheKey(tt.tenantID, tt.org, tt.repo)
+		got := skills.CacheKey(tt.tenantID, tt.marketplaceSlug)
 		if got != tt.want {
-			t.Errorf("CacheKey(%q, %q, %q) = %q, want %q", tt.tenantID, tt.org, tt.repo, got, tt.want)
+			t.Errorf("CacheKey(%q, %q) = %q, want %q", tt.tenantID, tt.marketplaceSlug, got, tt.want)
 		}
 	}
 }

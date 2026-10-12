@@ -20,8 +20,8 @@ func marketplaceSlug(name string) string {
 }
 
 type skillCache interface {
-	Get(ctx context.Context, tenantID, org, repo string) ([]Skill, bool, error)
-	Set(ctx context.Context, tenantID, org, repo string, skills []Skill) error
+	Get(ctx context.Context, tenantID, marketplaceSlug string) ([]Skill, bool, error)
+	Set(ctx context.Context, tenantID, marketplaceSlug string, skills []Skill) error
 }
 
 type skillCrawler interface {
@@ -88,7 +88,7 @@ func (s *Service) resolve(ctx context.Context, tenantID, marketplaceName string)
 		return nil, ErrMarketplaceNotFound
 	}
 
-	skills, hit, err := s.cache.Get(ctx, tenantID, source.Org, source.Repo)
+	skills, hit, err := s.cache.Get(ctx, tenantID, source.MarketplaceSlug)
 	if err != nil {
 		return nil, fmt.Errorf("read cache: %w", err)
 	}
@@ -106,7 +106,7 @@ func (s *Service) resolve(ctx context.Context, tenantID, marketplaceName string)
 		return nil, fmt.Errorf("fetch skills: %w", err)
 	}
 
-	if err := s.cache.Set(ctx, tenantID, source.Org, source.Repo, skills); err != nil {
+	if err := s.cache.Set(ctx, tenantID, source.MarketplaceSlug, skills); err != nil {
 		return nil, fmt.Errorf("write cache: %w", err)
 	}
 

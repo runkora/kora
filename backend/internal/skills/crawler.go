@@ -1,3 +1,4 @@
+
 package skills
 
 import (
@@ -34,12 +35,10 @@ const (
 // Crawler finds the skills in a marketplace repository.
 type Crawler struct {
 	github githubTreeClient
-	tokens githubTokenProvider
+	tokens githubTokenProviderResolver
 	logger logging.Logger
-
-	// globalSem is shared by every FetchSkills call on this Crawler. Crawler is
-	// constructed once per process (main.go wires one), so this one instance
-	// is the process-wide cap.
+	// globalSem is shared by every FetchSkills call on this Crawler.
+	// Crawler is constructed once per process, so this is the process-wide cap.
 	globalSem *semaphore.Weighted
 }
 
@@ -49,38 +48,60 @@ type githubTreeClient interface {
 	GetRawContent(ctx context.Context, token, org, repo, ref, path string) ([]byte, error)
 }
 
-// githubTokenProvider gives the crawler a GitHub token. *TokenProvider satisfies it.
+// githubTokenProvider gives the crawler a GitHub token.
 type githubTokenProvider interface {
 	Token(ctx context.Context) (string, error)
 }
 
-// NewCrawler creates a Crawler.
-func NewCrawler(github githubTreeClient, tokens githubTokenProvider, logger logging.Logger) *Crawler {
-	return &Crawler{github: github, tokens: tokens, logger: logger, globalSem: semaphore.NewWeighted(globalCap)}
+// githubTokenProviderResolver selects a token provider for a marketplace source.
+//
+// For an empty credentialsRef, the pool should return the default provider.
+// The pool should return an error if the requested credentials cannot be loaded.
+type githubTokenProviderResolver interface {
+	For(credentialsRef string) (githubTokenProvider, error)
+}
+
+// NewCrawler creates a Crawler using a token provider pool.
+func NewCrawler(
+	github githubTreeClient,
+	tokens githubTokenProviderResolver,
+	logger logging.Logger,
+) *Crawler {
+	return &Crawler{
+		github:    github,
+		tokens:    tokens,
+		logger:    logger,
+		globalSem: semaphore.NewWeighted(globalCap),
+	}
+}
+
+// tokenForSource resolves the provider configured for a marketplace source
+// and obtains its GitHub access token.
+func (c *Crawler) tokenForSource(ctx context.Context,source MarketplaceSource) (string, error) {
+	provider, err := c.tokens.For(source.CredentialsRef)
+	if err != nil {
+		return "", fmt.Errorf("resolve github credentials for marketplace %q: %w", source.Name, err)
+	}
+
+	token, err := provider.Token(ctx)
+	if err != nil {
+		return "", fmt.Errorf("get github token for marketplace %q: %w", source.Name, err)
+	}
+
+	return token, nil
 }
 
 // FetchTree lists all files in the marketplace repository with a GitHub call.
-// It returns the file paths of each skill by skillName.
-//
-// A skill is any folder that contains a SKILL.md, at any depth, so both of
-// these layouts work:
-//
-//	skills/{skillName}/SKILL.md
-//	plugins/{pluginName}/skills/{skillName}/SKILL.md
-//
-// skillName is the name of that folder. Every other file in the folder, at
-// any depth, is a document of the skill. A file that belongs to a nested
-// skill folder belongs to the nested skill only. Files outside every skill
-// folder are ignored.
-//
+// It returns the file paths of each skill by skillName
+// A skill is any folder that contains a SKILL.md, at any depth
 // Two skill folders with the same name: the first one in the tree is kept
 // and the other is skipped with a warning. A SKILL.md at the repository root
 // has no folder name and is skipped with a warning. An empty repository gives
 // an empty map.
 func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[string]SkillFilePaths, error) {
-	token, err := c.tokens.Token(ctx)
+	token, err := c.tokenForSource(ctx, source)
 	if err != nil {
-		return nil, fmt.Errorf("get github token: %w", err)
+		return nil, err
 	}
 
 	files, err := c.github.GetTree(ctx, token, source.Org, source.Repo, source.Branch)
@@ -88,8 +109,6 @@ func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[
 		return nil, fmt.Errorf("list files of %s/%s: %w", source.Org, source.Repo, err)
 	}
 
-	// Step 1: find the skill folders. skillFolders maps each folder path to
-	// its skillName, for example "plugins/decks/skills/deck-builder" → "deck-builder".
 	skills := map[string]SkillFilePaths{}
 	skillFolders := map[string]string{}
 	for _, file := range files {
@@ -99,34 +118,42 @@ func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[
 
 		folder := path.Dir(file.Path)
 		if folder == "." {
-			c.logger.Warn(ctx, "skipping SKILL.md at the repository root — a skill needs its own folder",
-				logging.Field{Key: "marketplace", Value: source.Name})
+			c.logger.Warn(
+				ctx,
+				"skipping SKILL.md at the repository root — a skill needs its own folder",
+				logging.Field{Key: "marketplace", Value: source.Name},
+			)
 			continue
 		}
 
 		skillName := path.Base(folder)
 		if existing, ok := skills[skillName]; ok {
-			c.logger.Warn(ctx, "skipping skill with a duplicate name — the first one is kept",
+			c.logger.Warn(
+				ctx,
+				"skipping skill with a duplicate name — the first one is kept",
 				logging.Field{Key: "marketplace", Value: source.Name},
 				logging.Field{Key: "skillName", Value: skillName},
 				logging.Field{Key: "kept", Value: existing.SkillPath},
-				logging.Field{Key: "skipped", Value: file.Path})
+				logging.Field{Key: "skipped", Value: file.Path},
+			)
 			continue
 		}
 
-		skills[skillName] = SkillFilePaths{SkillPath: file.Path}
+		skills[skillName] = SkillFilePaths{
+			SkillPath: file.Path,
+		}
 		skillFolders[folder] = skillName
 	}
 
-	// Step 2: give every other file to the nearest skill folder above it.
+	// Step 2: Give every other file to the nearest skill folder above it.
 	for _, file := range files {
 		if file.Type != "blob" {
-			continue // a folder, not a file
+			continue
 		}
 
 		skillName, ok := nearestSkill(file.Path, skillFolders)
 		if !ok {
-			continue // not inside a skill folder
+			continue
 		}
 
 		paths := skills[skillName]
@@ -140,23 +167,16 @@ func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[
 	return skills, nil
 }
 
-// FetchSkills downloads the files of the skills that FetchTree found. The
-// service layer calls it on a cache miss, after FetchTree. The marketplace
-// name parameter is not used.
+// FetchSkills downloads the files of the skills that FetchTree found.
 //
-// Skills are fetched in parallel. FetchSkills returns an error if the token
-// fails, if ctx ends, or if GitHub is unavailable or rate-limits a download
-// (ghclient.ErrUnavailable). For these errors the backend ADR
-// (docs/adr/2026-08-28-marketplace-adr-backend.md) expects a 503 and no cache
-// write, so a GitHub outage never leaves a partial list in the cache. Any
-// other failure of one skill — bad frontmatter, or a file that fails to
-// download — skips only that skill, with a warning.
+// Skills are fetched in parallel. A GitHub outage or rate limit aborts the
+// whole crawl. Other failures skip only the affected skill.
 //
 // The result is sorted by Slug.
-func (c *Crawler) FetchSkills(ctx context.Context, _ string, source MarketplaceSource, skillPaths map[string]SkillFilePaths) ([]Skill, error) {
-	token, err := c.tokens.Token(ctx)
+func (c *Crawler) FetchSkills(ctx context.Context,_ string, source MarketplaceSource, skillPaths map[string]SkillFilePaths) ([]Skill, error) {
+	token, err := c.tokenForSource(ctx, source)
 	if err != nil {
-		return nil, fmt.Errorf("get github token: %w", err)
+		return nil, err
 	}
 
 	var mu sync.Mutex
@@ -178,15 +198,15 @@ func (c *Crawler) FetchSkills(ctx context.Context, _ string, source MarketplaceS
 				return err
 			}
 			if gctx.Err() != nil {
-				// The crawl stopped: ctx ended, or another skill hit an outage.
 				return gctx.Err()
 			}
 			// A problem with this skill only.
-			c.logger.Warn(gctx, "skipping skill that failed to load — the other skills are kept",
+			c.logger.Warn(gctx,"skipping skill that failed to load — the other skills are kept",
 				logging.Field{Key: "marketplace", Value: source.Name},
 				logging.Field{Key: "skillName", Value: skillName},
 				logging.Field{Key: "skillPath", Value: paths.SkillPath},
-				logging.Field{Key: "error", Value: err.Error()})
+				logging.Field{Key: "error", Value: err.Error()},
+			)
 			return nil
 		})
 	}
@@ -221,9 +241,8 @@ func (c *Crawler) fetchSkill(ctx context.Context, token string, source Marketpla
 	if err != nil {
 		return Skill{}, fmt.Errorf("parse frontmatter of %s: %w", paths.SkillPath, err)
 	}
-
-	// documents has a fixed length, so it keeps the tree order and is never
-	// nil: a skill without documents marshals as "documents": [].
+	
+	// A skill without documents marshals as "documents": [] rather than null.
 	documents := make([]SkillFile, len(paths.DocumentPaths))
 	g, gctx := errgroup.WithContext(ctx)
 	for i, documentPath := range paths.DocumentPaths {

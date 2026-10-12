@@ -1,3 +1,4 @@
+
 package main
 
 import (
@@ -142,13 +143,21 @@ func initControllers(
 	}
 
 	gh := ghclient.NewClient(sc.Current.GitHub.APIBaseURL, logger)
-	tokens := skills.NewTokenProvider(
+
+	// Keep the existing provider as the default for sources that do not
+	// specify CredentialsRef.
+	defaultTokens := skills.NewTokenProvider(
 		gh,
 		sc.Current.GitHub.AppID,
 		installationID,
 		sc.Current.GitHub.PrivateKeyPath,
 	)
-	crawler := skills.NewCrawler(gh, tokens, logger)
+
+	// The pool selects a TokenProvider per source CredentialsRef, falling
+	// back to defaultTokens for sources that omit the field.
+	tokenPool := skills.NewTokenProviderPool(gh, defaultTokens)
+
+	crawler := skills.NewCrawler(gh, tokenPool, logger)
 	cache := skills.NewCache(redis, sc.Current.CacheTTL())
 
 	pol := policy.NewEvaluator(

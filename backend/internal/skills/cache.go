@@ -31,15 +31,15 @@ func NewCache(redis *storage.RedisClient, ttl time.Duration) *Cache {
 }
 
 // CacheKey returns the tenant-scoped Redis key for a repo's skill set.
-func CacheKey(tenantID, org, repo string) string {
-	return fmt.Sprintf("%s:%s:%s:%s", cacheKeyPrefix, tenantID, org, repo)
+func CacheKey(tenantID, marketplaceSlug string) string {
+	return fmt.Sprintf("%s:%s:%s", cacheKeyPrefix, tenantID, marketplaceSlug)
 }
 
 // Get returns the cached []Skill for the given tenant + repo. The second
 // return value is false on a cache miss (not an error). Redis operation
 // failures wrap ErrRedisUnavailable; invalid cached JSON retains its own error.
-func (c *Cache) Get(ctx context.Context, tenantID, org, repo string) ([]Skill, bool, error) {
-	key := CacheKey(tenantID, org, repo)
+func (c *Cache) Get(ctx context.Context, tenantID, marketplaceSlug string) ([]Skill, bool, error) {
+	key := CacheKey(tenantID, marketplaceSlug)
 	data, err := c.redis.Client().Get(ctx, key).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -57,8 +57,8 @@ func (c *Cache) Get(ctx context.Context, tenantID, org, repo string) ([]Skill, b
 
 // Set writes skills to Redis under the tenant-scoped key with the configured TTL.
 // Redis operation failures wrap ErrRedisUnavailable.
-func (c *Cache) Set(ctx context.Context, tenantID, org, repo string, skills []Skill) error {
-	key := CacheKey(tenantID, org, repo)
+func (c *Cache) Set(ctx context.Context, tenantID, marketplaceSlug string, skills []Skill) error {
+	key := CacheKey(tenantID, marketplaceSlug)
 	data, err := json.Marshal(skills)
 	if err != nil {
 		return fmt.Errorf("cache marshal %q: %w", key, err)
