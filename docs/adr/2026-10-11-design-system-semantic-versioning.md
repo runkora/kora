@@ -19,7 +19,7 @@ White-labelling changes that. A theme is a deployment artefact that sets Hades v
 - The frontend image receives `ORBIT_VERSION` as a build argument and surfaces it as `NEXT_PUBLIC_ORBIT_VERSION`, which the dashboard header shows.
 - `make check-versions` already enforces parity between a pinned version in `versions.hcl` and the Go directive in `go.mod`. The same pattern, one source and a check that every copy agrees, is reused here.
 - The token file `tokens.css` defines the raw palette in a `:root` block, overrides it in a `[data-theme='light']` block, and maps semantic names in a Tailwind `@theme inline` block. The radius steps are multiples of one `--hades-radius-unit`. The raw palette also holds six shadow tokens. There is no raw font token: the font families in `@theme inline` fall back through `--font-inter` and `--font-geist-mono`, names the kora app chose and sets through `next/font`.
-- Identity is rendered today by two kora drawings in Hades, `KoraLogo` and `KoraMark`, a static `icon.svg` under the app directory, and a title string in the root layout.
+- Identity is rendered today by one kora drawing in Hades, `KoraLogo`, the mark and wordmark as a single SVG, in the login card and the sidebar header; a static `icon.svg` under the app directory; and a title string in the root layout. `KoraMark`, the mark alone, is exported but nothing renders it.
 
 ### Problem Statement
 
@@ -78,7 +78,7 @@ The Hades PRD refers to these as subsections 1 to 4.
 - A release is `git tag hades/vX.Y.Z` on a `main` commit where the field equals `X.Y.Z`. A workflow triggered by `hades/v*` tags verifies the equality, runs the Hades tests, and hands over to the delivery workflow. A tag that does not match the field fails and is deleted.
 - Version bumps travel in the PR that makes the change, as SD-3 and SD-4 enforce, so `main` always carries the version its contents warrant and a release is only a tag.
 - Pre-1.0 releases carry no contract. Nothing is promised about `0.x`.
-- **The first major, `1.0.0`, is cut from the current token set once four changes have landed:** radius steps as literal tokens rather than multiples of one unit; agnostic identity slot components for the mark, wordmark, full logo and favicon, each taking a value per mode, with the product name as a value, where this ADR decides only their Hades-side props and the white-labelling theme ADR decides how the effective theme feeds them; `KoraLogo` and `KoraMark` moved out of Hades into the kora default theme at app level; and two font slot tokens, `--hades-raw-font-sans` and `--hades-raw-font-mono`, defaulting to generic stacks, which `--font-sans` and `--font-mono` resolve through and the kora default theme sets to its own fonts. The asset formats and product-name bounds the manifest carries are decided in SD-3, so nothing outside this ADR blocks `1.0.0`. `1.0.0` is the baseline every later classification compares against.
+- **The first major, `1.0.0`, is cut from the current token set once four changes have landed:** radius steps as literal tokens rather than multiples of one unit; agnostic identity slot components for the logo and the favicon, each taking a value per mode, with the product name as a value, where this ADR decides only their Hades-side props and the white-labelling theme ADR decides how the effective theme feeds them; `KoraLogo` moved out of Hades into the kora default theme at app level and `KoraMark`, which nothing renders, deleted; and two font slot tokens, `--hades-raw-font-sans` and `--hades-raw-font-mono`, defaulting to generic stacks, which `--font-sans` and `--font-mono` resolve through and the kora default theme sets to its own fonts. The asset formats and product-name bounds the manifest carries are decided in SD-3, so nothing outside this ADR blocks `1.0.0`. `1.0.0` is the baseline every later classification compares against.
 
 ### SD-2: How kora pins the version and exposes it
 
@@ -126,7 +126,7 @@ The generator is the only thing that writes the manifest; a hand edit fails the 
 
 | Slot | Kind | Formats | Maximum size | Modes |
 |---|---|---|---|---|
-| `logo.mark`, `logo.wordmark`, `logo.full` | `image` | SVG only. No scripts, no event attributes, no external references; the validator rejects any of them. | 256 KiB each | both |
+| `logo` | `image` | SVG only. No scripts, no event attributes, no external references; the validator rejects any of them. | 256 KiB | both |
 | `favicon` | `image` | SVG only. A raster fallback is not provided until a target browser needs one. | 64 KiB | both |
 | `font.sans`, `font.mono` | `font` | WOFF2 only, one file per slot, variable or single weight. The instance declares the font face and assigns the family name the font slot token resolves to. | 2 MiB each | not per mode |
 
@@ -134,7 +134,7 @@ Product name: one string, 1 to 40 characters after trimming surrounding whitespa
 
 **The contract boundary rules.** The five numbered rules from the Hades PRD, reproduced here because classification cites them by number:
 
-1. Hades defines the shape of every value a theme can set. That shape is the theme surface manifest: colour and shadow tokens per mode, radius steps, font slots, identity slots (mark, wordmark, full logo and favicon, each per mode) and the product name with its bounds.
+1. Hades defines the shape of every value a theme can set. That shape is the theme surface manifest: colour and shadow tokens per mode, radius steps, font slots, identity slots (the logo and the favicon, each per mode) and the product name with its bounds.
 2. Who reads a value is not the contract's concern. The kora frontend and the kora backend both read the product name, and neither reading is part of the contract.
 3. Hades contains no kora identity. The kora default is a theme like any other, owned by the app. The kora logo is an asset of that theme, not a Hades component. Hades provides the agnostic components that render whatever a theme supplies for a slot.
 4. A kora change that adds a place where a value appears, or changes a page or a template, does not change the contract. A kora change that needs a new value changes the manifest, which is a Hades change and is classified as one.
@@ -214,7 +214,8 @@ Pull request enforcement is chosen over hooks because it is the only point that 
 - Every PR that changes Hades sources owes a version bump in the same PR. This is deliberate: it keeps `main` releasable at any commit. Documentation, story and test changes inside the package are exempt.
 - The manifest generator parses `tokens.css` for token names and the semantic mapping, and reads kinds, formats, slots and bounds from `surface.ts`. A raw token present in one file and absent from the other fails the sync check, so the two cannot drift, but every new token is declared twice.
 - The "newly read by a pre-existing component" check is a source search, which can produce a false major when a token name appears in a comment or a string. A false major is the safe direction, and the comment shows the match for review.
-- The four changes before `1.0.0`, in particular moving `KoraLogo` and `KoraMark` out of Hades, are real frontend work that this ADR schedules ahead of any contract.
+- The four changes before `1.0.0`, in particular moving `KoraLogo` out of Hades, are real frontend work that this ADR schedules ahead of any contract.
+- The slots are only the identity the product renders today, the logo and the favicon. A mark-only or wordmark-only slot is added when a surface needs one, which the classifier records as a minor.
 - A component removal or a prop removal is a minor, not a major, so a consumer on a caret range can be broken by a minor. The README tells consumers to pin a patch range; the trade is deliberate, because a major forces every client theme to be reissued.
 
 ### Neutral
