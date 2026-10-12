@@ -1,6 +1,7 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
+import Link from 'next/link';
 
 import { Icon, NavItem, Navigation, Stack, Text } from '@orbit/hades';
 import { hasScope } from '@orbit/lib/permissions';
@@ -57,9 +58,9 @@ export function DashboardSidebar({ onNavigate }: { onNavigate?: () => void }) {
                     badge={badge}
                     asChild
                   >
-                    <a href={href} onClick={onNavigate}>
+                    <Link href={href} onClick={onNavigate}>
                       {itemLabel}
-                    </a>
+                    </Link>
                   </NavItem>
                 ),
               )}
