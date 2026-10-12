@@ -162,6 +162,7 @@ var toolRequires = map[string][]string{
 	"triggers.get":                   {"triggers:read"},
 	"triggers.create":                {"triggers:write"},
 	"triggers.update":                {"triggers:write"},
+	"triggers.schedule_preview":      {"triggers:write"},
 	"triggers.delete":                {"triggers:write"},
 	"triggers.deliveries.list":       {"triggers:read"},
 	"triggers.providers.event_types": {"triggers:read"},
