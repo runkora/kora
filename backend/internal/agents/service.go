@@ -15,8 +15,6 @@ var agentsTracer = otel.Tracer("orbit.agents")
 // k8sProvisioner abstracts K8sProvisioner so it can be replaced in tests.
 type k8sProvisioner interface {
 	ProvisionAgentType(ctx context.Context, at AgentType, namespace string) error
-	// ProvisionMissing creates only the agent type's missing resources.
-	ProvisionMissing(ctx context.Context, at AgentType, namespace string) error
 	DeprovisionAgentType(ctx context.Context, at AgentType, namespace string) error
 	EnsureAgentGrant(ctx context.Context, at AgentType, namespace string) error
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)

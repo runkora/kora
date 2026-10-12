@@ -12,8 +12,6 @@ type AgentTypeRepository interface {
 	GetAgentType(ctx context.Context, id string) (*AgentType, error)
 	GetAgentTypeBySlug(ctx context.Context, tenantID, slug string) (*AgentType, error)
 	ListAgentTypes(ctx context.Context, tenantID string) ([]AgentType, error)
-	// ListActiveAgentTypes returns the active agent types of every tenant.
-	ListActiveAgentTypes(ctx context.Context) ([]AgentType, error)
 	// ListAllAgentTypeSlugs returns the distinct set of agent type slugs across all tenants.
 	// Used by scope registration to build the per-agent-type vocabulary.
 	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)

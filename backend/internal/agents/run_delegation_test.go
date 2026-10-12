@@ -357,7 +357,7 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	repo := newMockRepository()
 	issuer := &fakeDelegationIssuer{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	runSvc := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, RunServiceConfig{
+	runSvc := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, RunServiceConfig{
 		MaxConcurrentRunsPerPod: 5,
 		TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 		StaleRunTimeout:         time.Millisecond,

@@ -799,7 +799,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s,
+		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,

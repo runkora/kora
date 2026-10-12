@@ -433,7 +433,7 @@ func TestApplyAll_AppliesActiveAgentTypes(t *testing.T) {
 	seedAgentType(t, repo, AgentType{ID: "at-3", TenantID: "t-1", Slug: "three"})
 	repo.agentTypes["at-3"].State = AgentTypeStateProvisioning
 
-	svc.at.ApplyAll(context.Background())
+	svc.at.ApplyAll(context.Background(), repo)
 
 	got := append([]string(nil), k8s.provisionedAgentTypes...)
 	slices.Sort(got)
@@ -1104,7 +1104,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s,
+		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,

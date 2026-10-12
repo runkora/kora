@@ -388,11 +388,16 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 	return &at, nil
 }
 
+// activeAgentTypeLister lists the active agent types of every tenant.
+type activeAgentTypeLister interface {
+	ListActiveAgentTypes(ctx context.Context) ([]AgentType, error)
+}
+
 // ApplyAll applies the rendered resources of every active agent type, which
 // rolls an agent whose template changed. orbit-agents runs it at startup, so an
 // upgrade reaches existing agents (docs/adr/2026-10-12-run-scheduling.md).
-func (s *AgentTypeService) ApplyAll(ctx context.Context) {
-	ats, err := s.repo.ListActiveAgentTypes(ctx)
+func (s *AgentTypeService) ApplyAll(ctx context.Context, lister activeAgentTypeLister) {
+	ats, err := lister.ListActiveAgentTypes(ctx)
 	if err != nil {
 		s.logger.Error(ctx, "list agent types to apply failed", logging.Field{Key: "error", Value: err.Error()})
 		return
