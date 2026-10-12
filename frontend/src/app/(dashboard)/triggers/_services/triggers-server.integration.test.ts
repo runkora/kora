@@ -40,7 +40,12 @@ describe('fetchTriggersPage', () => {
   it('asks for exactly the page size the client pager continues from', async () => {
     vi.mocked(listDeliveries).mockResolvedValue({ deliveries: [], nextCursor: null });
     await fetchTriggersPage('tok');
-    expect(listDeliveries).toHaveBeenCalledWith('tok', { limit: DELIVERY_PAGE_SIZE });
+    // omitPayload too: the grid renders payloadExcerpt and never the full
+    // body, so asking for it would ship a hundred webhook payloads a page.
+    expect(listDeliveries).toHaveBeenCalledWith('tok', {
+      limit: DELIVERY_PAGE_SIZE,
+      omitPayload: true,
+    });
   });
 
   it('carries the cursor out so the first Load more has somewhere to start', async () => {

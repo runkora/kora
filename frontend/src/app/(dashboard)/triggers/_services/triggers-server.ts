@@ -39,7 +39,9 @@ export async function fetchTriggersPage(accessToken: string): Promise<TriggersRe
     const [sources, triggers, deliveryPage] = await Promise.all([
       listSources(accessToken),
       listTriggers(accessToken),
-      listDeliveries(accessToken, { limit: DELIVERY_PAGE_SIZE }),
+      // The grid reads payloadExcerpt; the full body is never rendered, so
+      // asking for it costs a hundred webhook bodies a page for nothing.
+      listDeliveries(accessToken, { limit: DELIVERY_PAGE_SIZE, omitPayload: true }),
     ]);
     return {
       ok: true,

@@ -140,6 +140,14 @@ describe('listDeliveries (browser client)', () => {
     expect(seen.url!.searchParams.getAll('outcome')).toEqual(['denied', 'dropped']);
   });
 
+  it('asks the server to omit the payload when told to', async () => {
+    // The grid renders payloadExcerpt only, so fetching the full body costs a
+    // hundred webhook payloads a page and renders none of them.
+    const seen = respondWith({ data: [], next_cursor: null });
+    await listDeliveries({ omitPayload: true });
+    expect(seen.url!.searchParams.get('omit_payload')).toBe('true');
+  });
+
   it('asks for the bare route when no filters are given', async () => {
     const seen = respondWith({ data: [] });
 

@@ -162,6 +162,8 @@ export function TriggersPage({
         status: status === 'all' ? undefined : [status],
         limit: DELIVERY_PAGE_SIZE,
         cursor,
+        // The grid never renders the full payload, only the excerpt.
+        omitPayload: true,
       });
       if (requestSeq.current !== seq) return; // superseded; its writes are stale
       setPage((cur) => {

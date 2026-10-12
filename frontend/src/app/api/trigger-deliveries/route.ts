@@ -20,6 +20,7 @@ export const GET = withAuth(async (req: NextRequest, session) => {
     outcome: q.getAll('outcome'),
     limit: limitRaw ? Number(limitRaw) : undefined,
     cursor: q.get('cursor'),
+    omitPayload: q.get('omit_payload') === 'true',
   });
   return NextResponse.json({ data: page.deliveries, next_cursor: page.nextCursor });
 });

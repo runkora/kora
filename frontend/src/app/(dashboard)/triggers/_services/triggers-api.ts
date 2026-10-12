@@ -162,7 +162,13 @@ export async function listTriggers(
  * nothing more to load, which is what hides the "Load more" control.
  */
 export async function listDeliveries(
-  opts: { status?: string[]; outcome?: string[]; limit?: number; cursor?: string | null } = {},
+  opts: {
+    status?: string[];
+    outcome?: string[];
+    limit?: number;
+    cursor?: string | null;
+    omitPayload?: boolean;
+  } = {},
 ): Promise<{
   deliveries: TriggerDelivery[];
   nextCursor: string | null;
@@ -173,6 +179,7 @@ export async function listDeliveries(
   for (const o of opts.outcome ?? []) qs.append('outcome', o);
   if (opts.limit) qs.set('limit', String(opts.limit));
   if (opts.cursor) qs.set('cursor', opts.cursor);
+  if (opts.omitPayload) qs.set('omit_payload', 'true');
   const q = qs.toString();
   const res = await sendPage<TriggerDelivery[]>(
     `${ApiRoute.triggerDeliveries.list()}${q ? `?${q}` : ''}`,

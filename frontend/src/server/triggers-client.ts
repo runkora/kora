@@ -248,6 +248,8 @@ export async function listDeliveries(
     outcome?: string[];
     limit?: number;
     cursor?: string | null;
+    /** Leaves the full payload out; the excerpt, outcomes and runs stay. */
+    omitPayload?: boolean;
   } = {},
 ): Promise<DeliveryPage> {
   const qs = new URLSearchParams();
@@ -258,6 +260,7 @@ export async function listDeliveries(
   for (const o of opts.outcome ?? []) qs.append('outcome', o);
   if (opts.limit) qs.set('limit', String(opts.limit));
   if (opts.cursor) qs.set('cursor', opts.cursor);
+  if (opts.omitPayload) qs.set('omit_payload', 'true');
   const q = qs.toString();
   const body = await request<{ deliveries?: TriggerDelivery[]; next_cursor?: string | null }>(
     `/trigger-deliveries${q ? `?${q}` : ''}`,
