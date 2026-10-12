@@ -246,10 +246,11 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 // selectRun joins agent_types so every run read carries the agent's
 // identity_mode (runs always reference an existing agent type — DeleteAgentType
 // force-deletes its runs first, so the inner join never drops rows).
-const selectRun = `
-	SELECT r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
-	       r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id, r.initial_message
-	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
+const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
+
+const runColumns = `
+	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
+	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id`
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
 	row := r.pool.QueryRow(ctx, selectRun+` WHERE r.id=$1`, id)
@@ -353,8 +354,10 @@ func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, no
 		        ORDER  BY created_at
 		        LIMIT  $1
 		        FOR UPDATE SKIP LOCKED)
-		    RETURNING id)
-		`+selectRun+` WHERE r.id IN (SELECT id FROM claimed) ORDER BY r.created_at`,
+		    RETURNING id, initial_message)
+		SELECT `+runColumns+`, c.initial_message
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id JOIN claimed c ON c.id = r.id
+		ORDER BY r.created_at`,
 		limit, claimToken(now))
 	if err != nil {
 		return nil, fmt.Errorf("claim pending runs: %w", err)
@@ -362,10 +365,12 @@ func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, no
 	defer rows.Close()
 	var out []Run
 	for rows.Next() {
-		run, err := scanRun(rows)
+		var msg string
+		run, err := scanRun(rows, &msg)
 		if err != nil {
 			return nil, err
 		}
+		run.InitialMessage = msg
 		out = append(out, *run)
 	}
 	return out, rows.Err()
@@ -697,16 +702,17 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	return &at, nil
 }
 
-func scanRun(s scanner) (*Run, error) {
+// scanRun scans the runColumns, then extra into the given destinations.
+func scanRun(s scanner, extra ...any) (*Run, error) {
 	var r Run
 	var state, identityMode string
 	var triggerID, triggerName, deliveryID *string
-	err := s.Scan(
+	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode,
-		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID, &r.InitialMessage,
-	)
+		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID,
+	}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

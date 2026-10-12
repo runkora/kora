@@ -550,8 +550,8 @@ type Run struct {
 	// EnvironmentID is the environment of the run's current sandbox. It is nil
 	// for the built-in default and before the first sandbox.
 	EnvironmentID *string `json:"environment_id,omitempty"`
-	// InitialMessage is the run's first message, sent when the scheduling worker
-	// creates its session. It reaches the event stream as a human message.
+	// InitialMessage is the run's first message. Only a claimed run carries it, and
+	// the scheduling worker sends it when it creates the session.
 	InitialMessage string `json:"-"`
 }
 
