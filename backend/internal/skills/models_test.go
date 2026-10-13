@@ -7,20 +7,48 @@ import (
 	"github.com/clear-route/orbit/internal/skills"
 )
 
-func TestSkillDocumentsMarshalAsEmptyArray(t *testing.T) {
-	s := skills.Skill{
-		Slug:        "clear-route-skills/react-expert",
+func TestSkillMarshalRoundtrip(t *testing.T) {
+	original := skills.Skill{
 		Name:        "React Expert",
 		Description: "Senior React developer",
-		Skill: skills.SkillFile{
+		SkillSlug:   "org__repo__react-expert",
+		File: skills.SkillFile{
 			Path:    "skills/react-expert/SKILL.md",
 			Name:    "SKILL.md",
-			Content: "# React Expert",
+			Content: "# React Expert\nSome content",
 		},
-		Documents: []skills.SkillFile{},
+		Documents: []skills.SkillFile{
+			{Path: "skills/react-expert/resources/testing.md", Name: "testing.md", Content: "# Testing"},
+		},
 	}
 
-	b, err := json.Marshal(s)
+	b, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var got skills.Skill
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if got.Name != original.Name || got.SkillSlug != original.SkillSlug || got.File.Content != original.File.Content {
+		t.Errorf("roundtrip mismatch: got %+v, want %+v", got, original)
+	}
+	if len(got.Documents) != 1 || got.Documents[0].Content != original.Documents[0].Content {
+		t.Errorf("roundtrip documents mismatch: got %+v, want %+v", got.Documents, original.Documents)
+	}
+}
+
+func TestSkillEntryPathInJSON(t *testing.T) {
+	entry := skills.SkillEntry{
+		Name:        "React Expert",
+		Description: "desc",
+		SkillSlug:   "org__repo__react-expert",
+		Path:        "skills/react-expert/SKILL.md",
+	}
+
+	b, err := json.Marshal(entry)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
@@ -30,47 +58,11 @@ func TestSkillDocumentsMarshalAsEmptyArray(t *testing.T) {
 		t.Fatalf("unmarshal: %v", err)
 	}
 
-	docs, ok := got["documents"]
-	if !ok {
-		t.Fatal("documents field missing from JSON")
+	// Path must be present so Redis-cached entries retain the GitHub path.
+	if _, ok := got["path"]; !ok {
+		t.Error("SkillEntry.Path missing from JSON — Redis cache would lose the file path")
 	}
-	arr, ok := docs.([]any)
-	if !ok {
-		t.Fatalf("documents is not an array, got %T", docs)
-	}
-	if len(arr) != 0 {
-		t.Fatalf("expected empty array, got %d items", len(arr))
-	}
-}
-
-func TestSkillRoundTrip(t *testing.T) {
-	original := skills.Skill{
-		Slug:        "mkt/skill-name",
-		Name:        "My Skill",
-		Description: "Does things",
-		Skill:       skills.SkillFile{Path: "skills/skill-name/SKILL.md", Name: "SKILL.md", Content: "body"},
-		Documents: []skills.SkillFile{
-			{Path: "skills/skill-name/resources/guide.md", Name: "guide.md", Content: "guide"},
-		},
-	}
-
-	b, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-
-	var decoded skills.Skill
-	if err := json.Unmarshal(b, &decoded); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-
-	if decoded.Slug != original.Slug {
-		t.Errorf("Slug: got %q want %q", decoded.Slug, original.Slug)
-	}
-	if len(decoded.Documents) != 1 {
-		t.Fatalf("Documents: got %d items want 1", len(decoded.Documents))
-	}
-	if decoded.Documents[0].Name != "guide.md" {
-		t.Errorf("Documents[0].Name: got %q want %q", decoded.Documents[0].Name, "guide.md")
+	if got["skillSlug"] != "org__repo__react-expert" {
+		t.Errorf("skillSlug = %v, want org__repo__react-expert", got["skillSlug"])
 	}
 }

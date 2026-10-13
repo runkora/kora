@@ -109,8 +109,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 // Boot registers all marketplace endpoints on the platform mux.
 func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /marketplaces", c.handleListMarketplaces)
-	mux.Handle("GET /marketplaces/{marketplaceName}/skills", c.handleListSkills)
-	mux.Handle("GET /marketplaces/{marketplaceName}/skills/{skillName}", c.handleGetSkill)
+	mux.Handle("GET /marketplaces/{marketplaceSlug}/skills", c.handleListSkills)
+	mux.Handle("GET /marketplaces/{marketplaceSlug}/skills/{skillSlug}", c.handleGetSkill)
 }
 
 func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Request) {
@@ -125,19 +125,14 @@ func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Reque
 	marketplaces := make([]map[string]string, 0, len(sources))
 
 	for _, source := range sources {
-		marketplaces = append(
-			marketplaces,
-			map[string]string{"name": source.Name},
-		)
+		marketplaces = append(marketplaces, map[string]string{
+			"name":            source.Name,
+			"marketplaceSlug": source.MarketplaceSlug,
+			"link":            source.Link,
+		})
 	}
 
-	api.JSON(
-		ctx,
-		w,
-		c.logger,
-		http.StatusOK,
-		map[string]any{"marketplaces": marketplaces},
-	)
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"marketplaces": marketplaces})
 }
 
 func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +146,7 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	result, err := c.service.ListSkills(
 		ctx,
 		tenantID,
-		r.PathValue("marketplaceName"),
+		r.PathValue("marketplaceSlug"),
 		r.URL.Query().Get("search"),
 	)
 	if err != nil {
@@ -170,26 +165,21 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	skillName := r.PathValue("skillName")
-	if skillName == "" ||
-		skillName == "." ||
-		skillName == ".." ||
-		strings.Contains(skillName, "/") {
+	marketplaceSlug := r.PathValue("marketplaceSlug")
+	skillSlug := r.PathValue("skillSlug")
+
+	// Reject obviously malformed slugs before hitting the service.
+	if skillSlug == "" || strings.Contains(skillSlug, "/") {
 		apiErr := api.ValidationError(
 			api.ErrCodeInvalidField,
-			"skillName must be a single directory name",
+			"skillSlug must be a single path segment",
 			nil,
 		)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 		return
 	}
 
-	skill, err := c.service.GetSkill(
-		ctx,
-		tenantID,
-		r.PathValue("marketplaceName"),
-		skillName,
-	)
+	skill, err := c.service.GetSkill(ctx, tenantID, marketplaceSlug, skillSlug)
 	if err != nil {
 		c.respondError(w, r, err)
 		return
@@ -198,8 +188,8 @@ func (c *Controller) handleGetSkill(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, skill)
 }
 
-// tenantID uses the configured local tenant during local development.
-// In normal operation, the tenant ID always comes from verified platform claims.
+// tenantID returns the tenant ID from the verified platform token.
+// In local development mode the configured localTenantID is used instead.
 func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, bool) {
 	if c.localTenantID != "" {
 		return c.localTenantID, true
@@ -212,7 +202,6 @@ func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, b
 			"tenant-scoped platform token required",
 			nil,
 		)
-
 		api.ErrorResponse(r.Context(), w, c.logger, apiErr, nil)
 		return "", false
 	}
@@ -220,44 +209,24 @@ func (c *Controller) tenantID(w http.ResponseWriter, r *http.Request) (string, b
 	return claims.Orbit.TenantID, true
 }
 
-func (c *Controller) respondError(
-	w http.ResponseWriter,
-	r *http.Request,
-	err error,
-) {
+func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err error) {
 	var apiErr *api.APIError
 
 	switch {
 	case errors.Is(err, ErrMarketplaceNotFound):
-		apiErr = api.NotFoundError(
-			api.ErrCodeResourceNotFound,
-			"marketplace not found",
-			nil,
-		)
+		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "marketplace not found", nil)
 
 	case errors.Is(err, ErrSkillNotFound):
-		apiErr = api.NotFoundError(
-			api.ErrCodeResourceNotFound,
-			"skill not found",
-			nil,
-		)
+		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "skill not found", nil)
 
 	case errors.Is(err, ErrRedisUnavailable),
 		errors.Is(err, ghclient.ErrUnavailable),
 		errors.Is(err, context.Canceled),
 		errors.Is(err, context.DeadlineExceeded):
-		apiErr = api.ServiceUnavailableError(
-			api.ErrCodeServiceUnavailable,
-			"marketplace is temporarily unavailable",
-			nil,
-		)
+		apiErr = api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "marketplace is temporarily unavailable", nil)
 
 	default:
-		apiErr = api.InternalError(
-			api.ErrCodeInternalError,
-			"failed to read marketplace",
-			nil,
-		)
+		apiErr = api.InternalError(api.ErrCodeInternalError, "failed to read marketplace", nil)
 	}
 
 	api.ErrorResponse(r.Context(), w, c.logger, apiErr, err)

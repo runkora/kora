@@ -1,30 +1,21 @@
 package skills_test
 
 import (
-	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/skills"
 )
 
-func writeSourcesFile(t *testing.T, dir string, tenantID string, sources []skills.MarketplaceSource) {
+func writeYAMLMapping(t *testing.T, dir string, content string) string {
 	t.Helper()
-	data, err := json.Marshal(map[string]any{
-		"tenants": map[string]any{
-			tenantID: map[string]any{"sources": sources},
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal sources: %v", err)
+	path := filepath.Join(dir, "skills-mapping.yaml")
+	if err := os.WriteFile(path, []byte(content), 0600); err != nil {
+		t.Fatalf("write yaml: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "marketplace-sources.json"), data, 0600); err != nil {
-		t.Fatalf("write sources file: %v", err)
-	}
+	return path
 }
 
 func newTestRegistry(t *testing.T, path string) *skills.Registry {
@@ -36,182 +27,134 @@ func newTestRegistry(t *testing.T, path string) *skills.Registry {
 	return r
 }
 
-func TestRegistryLoadsValidFile(t *testing.T) {
+func TestRegistryLoadsValidYAML(t *testing.T) {
 	dir := t.TempDir()
-	writeSourcesFile(t, dir, "tenant-a", []skills.MarketplaceSource{
-		{Name: "Clear Route Skills", Org: "clear-route", Repo: "skills", Branch: "main"},
-		{Name: "Core Skills", Org: "clearroute", Repo: "core", Branch: "main"},
-	})
-
-	r := newTestRegistry(t, filepath.Join(dir, "marketplace-sources.json"))
+	path := writeYAMLMapping(t, dir, `
+skillsMapping:
+  tenants:
+    - id: "tenant-a"
+      marketplaces:
+        - "https://github.com/clear-route/skills-marketplace"
+        - "https://github.com/clearroute/core"
+`)
+	r := newTestRegistry(t, path)
 
 	sources := r.ListSources("tenant-a")
 	if len(sources) != 2 {
 		t.Fatalf("expected 2 sources for tenant-a, got %d", len(sources))
 	}
-	if sources[0].RepoName != "skills" {
-    t.Errorf("RepoName: got %q, want %q", sources[0].RepoName, "skills")
+	if sources[0].MarketplaceSlug != "clear-route__skills-marketplace" {
+		t.Errorf("slug: got %q, want %q", sources[0].MarketplaceSlug, "clear-route__skills-marketplace")
 	}
-	if sources[0].Link != "https://github.com/clear-route/skills" {
-		t.Errorf("Link: got %q, want %q", sources[0].Link, "https://github.com/clear-route/skills")
+	if sources[0].RepoName != "skills-marketplace" {
+		t.Errorf("RepoName: got %q, want %q", sources[0].RepoName, "skills-marketplace")
 	}
-	if sources[0].MarketplaceSlug != "clear-route__skills" {
-		t.Errorf("MarketplaceSlug: got %q, want %q", sources[0].MarketplaceSlug, "clear-route__skills")
+	if sources[0].Link != "https://github.com/clear-route/skills-marketplace" {
+		t.Errorf("Link: got %q, want %q", sources[0].Link, "https://github.com/clear-route/skills-marketplace")
 	}
 	if len(r.ListSources("tenant-b")) != 0 {
 		t.Fatal("expected empty sources for unknown tenant")
 	}
 }
 
-func TestRegistryFindByName(t *testing.T) {
+func TestRegistryMultipleTenants(t *testing.T) {
 	dir := t.TempDir()
-	writeSourcesFile(t, dir, "tenant-a", []skills.MarketplaceSource{
-		{Name: "Clear Route Skills", Org: "clear-route", Repo: "skills", Branch: "main"},
-	})
+	path := writeYAMLMapping(t, dir, `
+skillsMapping:
+  tenants:
+    - id: "tenant-a"
+      marketplaces:
+        - "https://github.com/org/repo-a"
+    - id: "tenant-b"
+      marketplaces:
+        - "https://github.com/org/repo-b"
+`)
+	r := newTestRegistry(t, path)
 
-	r := newTestRegistry(t, filepath.Join(dir, "marketplace-sources.json"))
-
-	src, ok := r.FindByName("tenant-a", "Clear Route Skills")
-	if !ok {
-		t.Fatal("expected to find source")
+	if len(r.ListSources("tenant-a")) != 1 || r.ListSources("tenant-a")[0].RepoName != "repo-a" {
+		t.Fatal("tenant-a sources wrong")
 	}
-	if src.Org != "clear-route" {
-		t.Errorf("Org: got %q want %q", src.Org, "clear-route")
+	if len(r.ListSources("tenant-b")) != 1 || r.ListSources("tenant-b")[0].RepoName != "repo-b" {
+		t.Fatal("tenant-b sources wrong")
 	}
+}
 
-	_, ok = r.FindByName("tenant-a", "Unknown")
-	if ok {
-		t.Fatal("expected not found for unknown name")
+func TestRegistryDeduplicatesSameURL(t *testing.T) {
+	dir := t.TempDir()
+	path := writeYAMLMapping(t, dir, `
+skillsMapping:
+  tenants:
+    - id: "tenant-a"
+      marketplaces:
+        - "https://github.com/org/repo"
+        - "https://github.com/org/repo"
+        - "https://github.com/org/repo.git"
+`)
+	r := newTestRegistry(t, path)
+
+	if len(r.ListSources("tenant-a")) != 1 {
+		t.Fatalf("expected 1 deduplicated source, got %d", len(r.ListSources("tenant-a")))
 	}
+}
 
-	_, ok = r.FindByName("tenant-b", "Clear Route Skills")
-	if ok {
-		t.Fatal("expected not found for wrong tenant")
+func TestRegistrySkipsInvalidURLAndWarns(t *testing.T) {
+	dir := t.TempDir()
+	path := writeYAMLMapping(t, dir, `
+skillsMapping:
+  tenants:
+    - id: "tenant-a"
+      marketplaces:
+        - "https://github.com/org/valid-repo"
+        - "not-a-url"
+        - "https://gitlab.com/org/repo"
+`)
+	r := newTestRegistry(t, path)
+
+	// Only the valid GitHub URL should be loaded.
+	if len(r.ListSources("tenant-a")) != 1 {
+		t.Fatalf("expected 1 source (invalid URLs skipped), got %d", len(r.ListSources("tenant-a")))
+	}
+	if r.ListSources("tenant-a")[0].RepoName != "valid-repo" {
+		t.Errorf("wrong source loaded: %+v", r.ListSources("tenant-a")[0])
 	}
 }
 
 func TestRegistryAbsentFileReturnsEmpty(t *testing.T) {
-	r := newTestRegistry(t, "/nonexistent/marketplace-sources.json")
+	r := newTestRegistry(t, "/nonexistent/skills-mapping.yaml")
 	if len(r.ListSources("tenant-a")) != 0 {
 		t.Fatal("expected empty sources for absent file")
 	}
 }
 
-func TestRegistryInvalidJSONReturnsError(t *testing.T) {
+func TestRegistryInvalidYAMLReturnsError(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "marketplace-sources.json")
-	if err := os.WriteFile(path, []byte("not json"), 0600); err != nil {
-		t.Fatalf("write file: %v", err)
-	}
+	path := writeYAMLMapping(t, dir, "not: valid: yaml: [[[")
 
 	_, err := skills.NewRegistry(path, logging.NewDevelopmentLogger())
 	if err == nil {
-		t.Fatal("expected error for invalid JSON")
+		t.Fatal("expected error for invalid YAML")
 	}
 }
 
-// pollUntil retries f every 50 ms until it returns true or the deadline passes.
-func pollUntil(t *testing.T, deadline time.Duration, f func() bool) bool {
-	t.Helper()
-	end := time.Now().Add(deadline)
-	for time.Now().Before(end) {
-		if f() {
-			return true
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	return false
-}
-
-func TestWatchReloadsOnWrite(t *testing.T) {
+func TestRegistryNormalizesCase(t *testing.T) {
 	dir := t.TempDir()
-	writeSourcesFile(t, dir, "tenant-a", []skills.MarketplaceSource{
-		{Name: "Initial", Org: "org", Repo: "repo", Branch: "main"},
-	})
-
-	r := newTestRegistry(t, filepath.Join(dir, "marketplace-sources.json"))
-
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go r.Watch(ctx)
-	time.Sleep(50 * time.Millisecond) // let watcher subscribe before writing
-
-	writeSourcesFile(t, dir, "tenant-a", []skills.MarketplaceSource{
-		{Name: "Updated", Org: "org", Repo: "repo", Branch: "main"},
-	})
-
-	if !pollUntil(t, 2*time.Second, func() bool {
-		srcs := r.ListSources("tenant-a")
-		return len(srcs) > 0 && srcs[0].Name == "Updated"
-	}) {
-		t.Fatal("registry did not reload after write")
-	}
-}
-
-func TestWatchReloadsOnRename(t *testing.T) {
-	// Simulates the Kubernetes ConfigMap atomic-rename update pattern.
-	dir := t.TempDir()
-	path := filepath.Join(dir, "marketplace-sources.json")
-	writeSourcesFile(t, dir, "tenant-a", []skills.MarketplaceSource{
-		{Name: "Before", Org: "org", Repo: "repo", Branch: "main"},
-	})
-
+	path := writeYAMLMapping(t, dir, `
+skillsMapping:
+  tenants:
+    - id: "tenant-a"
+      marketplaces:
+        - "https://github.com/Clear-Route/Skills-Marketplace"
+`)
 	r := newTestRegistry(t, path)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	t.Cleanup(cancel)
-	go r.Watch(ctx)
-	time.Sleep(50 * time.Millisecond) // let watcher subscribe before writing
-
-	data, err := json.Marshal(map[string]any{
-		"tenants": map[string]any{
-			"tenant-a": map[string]any{
-				"sources": []skills.MarketplaceSource{
-					{Name: "After", Org: "org", Repo: "repo", Branch: "main"},
-				},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
+	sources := r.ListSources("tenant-a")
+	if len(sources) != 1 {
+		t.Fatalf("expected 1 source, got %d", len(sources))
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		t.Fatalf("write tmp: %v", err)
+	if sources[0].MarketplaceSlug != "clear-route__skills-marketplace" {
+		t.Errorf("slug not lowercased: got %q", sources[0].MarketplaceSlug)
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		t.Fatalf("rename: %v", err)
-	}
-
-	if !pollUntil(t, 2*time.Second, func() bool {
-		srcs := r.ListSources("tenant-a")
-		return len(srcs) > 0 && srcs[0].Name == "After"
-	}) {
-		t.Fatal("registry did not reload after rename")
-	}
-}
-
-func TestWatchExitsOnContextCancel(t *testing.T) {
-	dir := t.TempDir()
-	writeSourcesFile(t, dir, "tenant-a", []skills.MarketplaceSource{
-		{Name: "Test", Org: "org", Repo: "repo", Branch: "main"},
-	})
-
-	r := newTestRegistry(t, filepath.Join(dir, "marketplace-sources.json"))
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	done := make(chan struct{})
-	go func() {
-		r.Watch(ctx)
-		close(done)
-	}()
-
-	cancel()
-
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("Watch goroutine did not exit after context cancellation")
+	if sources[0].Org != "clear-route" {
+		t.Errorf("org not lowercased: got %q", sources[0].Org)
 	}
 }

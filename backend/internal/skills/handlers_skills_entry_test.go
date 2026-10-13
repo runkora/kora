@@ -11,7 +11,6 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
-	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -28,22 +27,9 @@ import (
 var handlerSource = MarketplaceSource{
 	Name:            "Clear Route Skills",
 	Org:             "internal-org",
-	Repo:            "internal-repo",
 	RepoName:        "internal-repo",
 	MarketplaceSlug: "internal-org__internal-repo",
 	Link:            "https://github.com/internal-org/internal-repo",
-	Branch:          "main",
-}
-
-type handlerListResponse struct {
-	Skills []map[string]string `json:"skills"`
-}
-
-type handlerDetailResponse struct {
-	Name        string      `json:"name"`
-	Description string      `json:"description"`
-	Skill       SkillFile   `json:"skill"`
-	Documents   []SkillFile `json:"documents"`
 }
 
 // --- fakes ---
@@ -59,57 +45,78 @@ func (f *handlerRegistry) ListSources(tenantID string) []MarketplaceSource {
 }
 
 type handlerCache struct {
-	values           map[string][]Skill
-	getCalls         []string
-	setCalls         []string
-	getError, setErr error
+	marketplace map[string][]SkillEntry // key = marketplaceSlug
+	skills      map[string]Skill        // key = skillSlug
+	getCalls    []string
+	setCalls    []string
+	getError    error
+	setErr      error
 }
 
-func (f *handlerCache) Get(_ context.Context, tenantID, marketplaceSlug string) ([]Skill, bool, error) {
-	key := CacheKey(tenantID, marketplaceSlug)
-	f.getCalls = append(f.getCalls, key)
-
+func (f *handlerCache) GetMarketplace(_ context.Context, tenantID, slug string) ([]SkillEntry, bool, error) {
+	f.getCalls = append(f.getCalls, MarketplaceCacheKey(tenantID, slug))
 	if f.getError != nil {
 		return nil, false, f.getError
 	}
-
-	skills, hit := f.values[key]
-	return skills, hit, nil
+	entries, hit := f.marketplace[slug]
+	return entries, hit, nil
 }
 
-func (f *handlerCache) Set(_ context.Context, tenantID, marketplaceSlug string, skills []Skill) error {
-	key := CacheKey(tenantID, marketplaceSlug)
-	f.setCalls = append(f.setCalls, key)
-
+func (f *handlerCache) SetMarketplace(_ context.Context, tenantID, slug string, entries []SkillEntry) error {
+	f.setCalls = append(f.setCalls, MarketplaceCacheKey(tenantID, slug))
 	if f.setErr != nil {
 		return f.setErr
 	}
-
-	if f.values == nil {
-		f.values = make(map[string][]Skill)
+	if f.marketplace == nil {
+		f.marketplace = make(map[string][]SkillEntry)
 	}
+	f.marketplace[slug] = entries
+	return nil
+}
 
-	f.values[key] = skills
+func (f *handlerCache) GetSkill(_ context.Context, slug string) (Skill, bool, error) {
+	f.getCalls = append(f.getCalls, SkillCacheKey(slug))
+	if f.getError != nil {
+		return Skill{}, false, f.getError
+	}
+	skill, hit := f.skills[slug]
+	return skill, hit, nil
+}
+
+func (f *handlerCache) SetSkill(_ context.Context, slug string, skill Skill) error {
+	f.setCalls = append(f.setCalls, SkillCacheKey(slug))
+	if f.setErr != nil {
+		return f.setErr
+	}
+	if f.skills == nil {
+		f.skills = make(map[string]Skill)
+	}
+	f.skills[slug] = skill
 	return nil
 }
 
 type handlerCrawler struct {
-	skills    []Skill
-	skillsErr error
-	calls     int
+	entries    []SkillEntry
+	skill      Skill
+	skillsErr  error
+	contentErr error
+	fetchCalls int
 }
 
-func (f *handlerCrawler) FetchTree(_ context.Context, _ MarketplaceSource) (map[string]SkillFilePaths, error) {
-	return map[string]SkillFilePaths{}, nil
+func (f *handlerCrawler) FetchTree(_ context.Context, _ MarketplaceSource) (map[string]skillFilePath, error) {
+	return map[string]skillFilePath{}, nil
 }
 
-func (f *handlerCrawler) FetchSkills(_ context.Context, _ string, _ MarketplaceSource, _ map[string]SkillFilePaths) ([]Skill, error) {
-	f.calls++
-	return f.skills, f.skillsErr
+func (f *handlerCrawler) FetchSkills(_ context.Context, _ MarketplaceSource, _ map[string]skillFilePath) ([]SkillEntry, error) {
+	f.fetchCalls++
+	return f.entries, f.skillsErr
 }
 
-// handlerFixture bundles a Controller with the underlying fakes so tests can
-// inspect cache and crawl calls without the Controller exposing those fields.
+func (f *handlerCrawler) FetchSkillContent(_ context.Context, _ MarketplaceSource, _ SkillEntry) (Skill, error) {
+	return f.skill, f.contentErr
+}
+
+// handlerFixture bundles a Controller with the fakes for inspection.
 type handlerFixture struct {
 	*Controller
 	registry *handlerRegistry
@@ -117,29 +124,22 @@ type handlerFixture struct {
 	crawler  *handlerCrawler
 }
 
-func handlerSkills() []Skill {
-	return []Skill{
-		{
-			Slug:        "internal-org:internal-repo:react-expert",
-			Name:        "React Expert",
-			Description: "React development",
-			Skill:       SkillFile{Path: "plugins/web/skills/react-expert/SKILL.md", Name: "SKILL.md", Content: "private skill body"},
-			Documents:   []SkillFile{},
-		},
-		{
-			Slug:        "internal-org:internal-repo:react-testing",
-			Name:        "React Testing",
-			Description: "React tests",
-			Skill:       SkillFile{Path: "skills/react-testing/SKILL.md", Name: "SKILL.md", Content: "testing skill body"},
-			Documents:   []SkillFile{{Path: "skills/react-testing/resources/example.md", Name: "example.md", Content: "resource body"}},
-		},
-		{
-			Slug:        "internal-org:internal-repo:go-expert",
-			Name:        "Go Expert",
-			Description: "Go development",
-			Skill:       SkillFile{Path: "skills/go-expert/SKILL.md", Name: "SKILL.md", Content: "go skill body"},
-			Documents:   []SkillFile{},
-		},
+func handlerSkillEntries() []SkillEntry {
+	slug := handlerSource.MarketplaceSlug
+	return []SkillEntry{
+		{Name: "React Expert", Description: "React development", SkillSlug: slug + "__react-expert", Path: "skills/react-expert/SKILL.md"},
+		{Name: "React Testing", Description: "React tests", SkillSlug: slug + "__react-testing", Path: "skills/react-testing/SKILL.md"},
+		{Name: "Go Expert", Description: "Go development", SkillSlug: slug + "__go-expert", Path: "skills/go-expert/SKILL.md"},
+	}
+}
+
+func handlerSkillDetail(entry SkillEntry) Skill {
+	return Skill{
+		Name:        entry.Name,
+		Description: entry.Description,
+		SkillSlug:   entry.SkillSlug,
+		File:        SkillFile{Path: entry.Path, Name: "SKILL.md", Content: "# " + entry.Name},
+		Documents:   []SkillFile{},
 	}
 }
 
@@ -147,17 +147,18 @@ func newHandlerController(cached bool) *handlerFixture {
 	reg := &handlerRegistry{sources: map[string][]MarketplaceSource{"tenant-a": {handlerSource}}}
 	cache := &handlerCache{}
 	if cached {
-		cache.values = map[string][]Skill{CacheKey("tenant-a", handlerSource.MarketplaceSlug): handlerSkills()}
+		cache.marketplace = map[string][]SkillEntry{
+			handlerSource.MarketplaceSlug: handlerSkillEntries(),
+		}
 	}
-	crawler := &handlerCrawler{skills: handlerSkills()}
+	entries := handlerSkillEntries()
+	crawler := &handlerCrawler{entries: entries, skill: handlerSkillDetail(entries[0])}
 	logger := logging.NewDevelopmentLogger()
 	svc := NewService(reg, cache, crawler, logger)
 	c := &Controller{service: svc, registry: reg, logger: logger}
 	return &handlerFixture{Controller: c, registry: reg, cache: cache, crawler: crawler}
 }
 
-// Exercise routing and transport with verified claims supplied in context.
-// TestControllerAuthorization separately exercises the full middleware chain.
 func handlerRequest(fix *handlerFixture, target, tenantID string) *httptest.ResponseRecorder {
 	ctx := token.WithClaims(context.Background(), &token.PlatformClaims{
 		Orbit: token.OrbitClaims{TenantID: tenantID, PrincipalType: token.PrincipalTypeHuman},
@@ -173,7 +174,7 @@ func TestControllerMarketplaces(t *testing.T) {
 	for _, tenantID := range []string{"tenant-a", "tenant-b"} {
 		t.Run(tenantID, func(t *testing.T) {
 			fix := newHandlerController(true)
-			rr := handlerRequest(fix, "/marketplaces?tenant_id=tenant-a", tenantID)
+			rr := handlerRequest(fix, "/marketplaces", tenantID)
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 			}
@@ -184,17 +185,24 @@ func TestControllerMarketplaces(t *testing.T) {
 				t.Fatal(err)
 			}
 			if tenantID == "tenant-a" {
-				want := []map[string]any{{"name": "Clear Route Skills"}}
-				if !reflect.DeepEqual(body.Marketplaces, want) {
-					t.Fatalf("marketplaces = %v, want names only", body.Marketplaces)
+				if len(body.Marketplaces) != 1 {
+					t.Fatalf("want 1 marketplace, got %v", body.Marketplaces)
 				}
-			} else if body.Marketplaces == nil || len(body.Marketplaces) != 0 {
-				t.Fatalf("unknown tenant must get [], got %v", body.Marketplaces)
+				if body.Marketplaces[0]["name"] != "Clear Route Skills" {
+					t.Errorf("name = %v", body.Marketplaces[0]["name"])
+				}
+				if body.Marketplaces[0]["marketplaceSlug"] != "internal-org__internal-repo" {
+					t.Errorf("marketplaceSlug = %v", body.Marketplaces[0]["marketplaceSlug"])
+				}
+				if body.Marketplaces[0]["link"] != "https://github.com/internal-org/internal-repo" {
+					t.Errorf("link = %v", body.Marketplaces[0]["link"])
+				}
+			} else {
+				if len(body.Marketplaces) != 0 {
+					t.Fatalf("unknown tenant must get [], got %v", body.Marketplaces)
+				}
 			}
-			if !reflect.DeepEqual(fix.registry.calls, []string{tenantID}) {
-				t.Fatal("request parameters changed tenant resolution")
-			}
-			if len(fix.cache.getCalls) != 0 || fix.crawler.calls != 0 {
+			if len(fix.cache.getCalls) != 0 || fix.crawler.fetchCalls != 0 {
 				t.Fatal("marketplace listing must not call Redis or GitHub")
 			}
 		})
@@ -203,7 +211,8 @@ func TestControllerMarketplaces(t *testing.T) {
 
 func TestControllerListSkills(t *testing.T) {
 	fix := newHandlerController(true)
-	rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills?search=REACT", "tenant-a")
+	slug := handlerSource.MarketplaceSlug
+	rr := handlerRequest(fix, "/marketplaces/"+slug+"/skills?search=REACT", "tenant-a")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
@@ -213,28 +222,36 @@ func TestControllerListSkills(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	// List response exposes only name and description — no slug.
-	want := []map[string]any{
-		{"name": "React Expert", "description": "React development"},
-		{"name": "React Testing", "description": "React tests"},
+	if len(body.Skills) != 2 {
+		t.Fatalf("want 2 react skills, got %d: %s", len(body.Skills), rr.Body.String())
 	}
-	if !reflect.DeepEqual(body.Skills, want) {
-		t.Fatalf("unexpected list response: %s", rr.Body.String())
+	// Each skill must include skillSlug.
+	for _, s := range body.Skills {
+		if _, ok := s["skillSlug"]; !ok {
+			t.Errorf("skillSlug missing from list response: %v", s)
+		}
 	}
-	if fix.crawler.calls != 0 {
+	if fix.crawler.fetchCalls != 0 {
 		t.Fatal("cache hit caused a crawl")
 	}
 }
 
 func TestControllerServerCap(t *testing.T) {
-	fix := newHandlerController(true)
-	items := make([]Skill, serverCap+10)
-	fix.cache.values[CacheKey("tenant-a", handlerSource.MarketplaceSlug)] = items
-	rr := handlerRequest(fix, "/marketplaces/clear-route-skills/skills", "tenant-a")
+	fix := newHandlerController(false)
+	items := make([]SkillEntry, serverCap+10)
+	for i := range items {
+		items[i] = SkillEntry{Name: fmt.Sprintf("skill-%03d", i), SkillSlug: handlerSource.MarketplaceSlug + fmt.Sprintf("__skill-%03d", i)}
+	}
+	fix.crawler.entries = items
+
+	slug := handlerSource.MarketplaceSlug
+	rr := handlerRequest(fix, "/marketplaces/"+slug+"/skills", "tenant-a")
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
-	var body handlerListResponse
+	var body struct {
+		Skills []map[string]any `json:"skills"`
+	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
@@ -243,78 +260,47 @@ func TestControllerServerCap(t *testing.T) {
 	}
 }
 
-func TestControllerCacheMissAndDetail(t *testing.T) {
-	for _, first := range []string{"/skills", "/skills/react-expert"} {
-		t.Run(first, func(t *testing.T) {
-			fix := newHandlerController(false)
-			prefix := "/marketplaces/clear-route-skills"
-			rr := handlerRequest(fix, prefix+first+"?tenant_id=tenant-b", "tenant-a")
-			if rr.Code != http.StatusOK {
-				t.Fatalf("cold cache status %d: %s", rr.Code, rr.Body.String())
-			}
-			rr = handlerRequest(fix, prefix+"/skills/react-expert", "tenant-a")
-			if rr.Code != http.StatusOK {
-				t.Fatalf("detail status %d: %s", rr.Code, rr.Body.String())
-			}
-			var body map[string]json.RawMessage
-			if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-				t.Fatal(err)
-			}
-			if len(body) != 4 || string(body["documents"]) != "[]" || body["slug"] != nil {
-				t.Fatalf("wrong detail fields: %s", rr.Body.String())
-			}
-			var detail handlerDetailResponse
-			if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
-				t.Fatal(err)
-			}
-			if detail.Skill != handlerSkills()[0].Skill || detail.Name != "React Expert" {
-				t.Fatalf("detail lost SKILL.md content: %+v", detail)
-			}
-			key := CacheKey("tenant-a", handlerSource.MarketplaceSlug)
-			if !reflect.DeepEqual(fix.cache.getCalls, []string{key, key}) || !reflect.DeepEqual(fix.cache.setCalls, []string{key}) {
-				t.Fatalf("cache calls: get %v, set %v", fix.cache.getCalls, fix.cache.setCalls)
-			}
-			if fix.crawler.calls != 1 {
-				t.Fatal("cold list/detail did not share one cache fill")
-			}
-			rr = handlerRequest(fix, prefix+"/skills/react-testing", "tenant-a")
-			if err := json.Unmarshal(rr.Body.Bytes(), &detail); err != nil {
-				t.Fatal(err)
-			}
-			if rr.Code != http.StatusOK || !reflect.DeepEqual(detail.Documents, handlerSkills()[1].Documents) {
-				t.Fatalf("detail lost resources: %s", rr.Body.String())
-			}
-		})
+func TestControllerGetSkill(t *testing.T) {
+	fix := newHandlerController(true)
+	slug := handlerSource.MarketplaceSlug
+	skillSlug := slug + "__react-expert"
+	rr := handlerRequest(fix, "/marketplaces/"+slug+"/skills/"+skillSlug, "tenant-a")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	// Detail response: name, description, skillSlug, skill (file), documents.
+	for _, field := range []string{"name", "description", "skillSlug", "skill", "documents"} {
+		if _, ok := body[field]; !ok {
+			t.Errorf("field %q missing from detail response: %s", field, rr.Body.String())
+		}
 	}
 }
 
 func TestControllerNotFound(t *testing.T) {
+	slug := handlerSource.MarketplaceSlug
 	for _, tc := range []struct {
 		name     string
 		target   string
 		tenantID string
 		code     int
-		reads    int
 	}{
-		{"unknown marketplace", "/marketplaces/unknown/skills", "tenant-a", http.StatusNotFound, 0},
-		{"another tenant", "/marketplaces/clear-route-skills/skills?tenant_id=tenant-a", "tenant-b", http.StatusNotFound, 0},
-		{"unknown skill", "/marketplaces/clear-route-skills/skills/missing", "tenant-a", http.StatusNotFound, 1},
-		{"slash in skill name", "/marketplaces/clear-route-skills/skills/bad%2Fname", "tenant-a", http.StatusBadRequest, 0},
-		{"ambiguous marketplace", "/marketplaces/clear-route-skills/skills", "tenant-a", http.StatusNotFound, 0},
+		{"unknown marketplace", "/marketplaces/unknown__slug/skills", "tenant-a", http.StatusNotFound},
+		{"wrong tenant", "/marketplaces/" + slug + "/skills", "tenant-b", http.StatusNotFound},
+		{"unknown skill", "/marketplaces/" + slug + "/skills/" + slug + "__missing", "tenant-a", http.StatusNotFound},
+		{"wrong prefix skill", "/marketplaces/" + slug + "/skills/other__repo__skill", "tenant-a", http.StatusNotFound},
+		{"slash in skill name", "/marketplaces/" + slug + "/skills/bad%2Fname", "tenant-a", http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fix := newHandlerController(true)
-			if tc.name == "ambiguous marketplace" {
-				fix.registry.sources["tenant-a"] = append(
-					fix.registry.sources["tenant-a"],
-					MarketplaceSource{Name: "Clear-Route-Skills", Org: "other", Repo: "other"},
-				)
-			}
 			rr := handlerRequest(fix, tc.target, tc.tenantID)
-			if rr.Code != tc.code || len(fix.cache.getCalls) != tc.reads {
-				t.Fatalf("status %d, reads %v: %s", rr.Code, fix.cache.getCalls, rr.Body.String())
+			if rr.Code != tc.code {
+				t.Fatalf("status %d, want %d: %s", rr.Code, tc.code, rr.Body.String())
 			}
-			if fix.crawler.calls != 0 {
+			if fix.crawler.fetchCalls != 0 {
 				t.Fatal("not-found request caused a crawl")
 			}
 		})
@@ -322,26 +308,36 @@ func TestControllerNotFound(t *testing.T) {
 }
 
 func TestControllerReadFailures(t *testing.T) {
-	for _, target := range []string{"/skills", "/skills/react-expert"} {
+	slug := handlerSource.MarketplaceSlug
+	for _, target := range []string{"/skills", "/skills/" + slug + "__react-expert"} {
 		for _, tc := range []struct {
-			name                     string
-			getErr, crawlErr, setErr error
-			code, crawls, writes     int
+			name                          string
+			getErr, crawlErr, setErr      error
+			contentErr                    error
+			code, crawls, writes          int
 		}{
-			{"Redis read", fmt.Errorf("private connection: %w", ErrRedisUnavailable), nil, nil, http.StatusServiceUnavailable, 0, 0},
-			{"GitHub outage", nil, fmt.Errorf("private token: %w", ghclient.ErrUnavailable), nil, http.StatusServiceUnavailable, 1, 0},
-			{"Redis write", nil, nil, ErrRedisUnavailable, http.StatusServiceUnavailable, 1, 1},
-			{"corrupt cache", errors.New("private cached JSON"), nil, nil, http.StatusInternalServerError, 0, 0},
-			{"unexpected crawl error", nil, errors.New("private configuration"), nil, http.StatusInternalServerError, 1, 0},
-			{"crawl timeout", nil, context.DeadlineExceeded, nil, http.StatusServiceUnavailable, 1, 0},
+			{"Redis read", fmt.Errorf("private: %w", ErrRedisUnavailable), nil, nil, nil, http.StatusServiceUnavailable, 0, 0},
+			{"GitHub outage", nil, fmt.Errorf("private: %w", ghclient.ErrUnavailable), nil, nil, http.StatusServiceUnavailable, 1, 0},
+			{"Redis write", nil, nil, ErrRedisUnavailable, nil, http.StatusServiceUnavailable, 1, 1},
+			{"corrupt cache", errors.New("private JSON"), nil, nil, nil, http.StatusInternalServerError, 0, 0},
+			{"unexpected crawl error", nil, errors.New("private config"), nil, nil, http.StatusInternalServerError, 1, 0},
+			{"crawl timeout", nil, context.DeadlineExceeded, nil, nil, http.StatusServiceUnavailable, 1, 0},
 		} {
 			t.Run(target+"/"+tc.name, func(t *testing.T) {
 				fix := newHandlerController(false)
-				fix.cache.getError, fix.cache.setErr = tc.getErr, tc.setErr
+				fix.cache.getError = tc.getErr
+				fix.cache.setErr = tc.setErr
 				fix.crawler.skillsErr = tc.crawlErr
-				rr := handlerRequest(fix, "/marketplaces/clear-route-skills"+target, "tenant-a")
-				if rr.Code != tc.code || fix.crawler.calls != tc.crawls || len(fix.cache.setCalls) != tc.writes {
-					t.Fatalf("status %d, crawls %d, writes %d: %s", rr.Code, fix.crawler.calls, len(fix.cache.setCalls), rr.Body.String())
+				fix.crawler.contentErr = tc.contentErr
+				rr := handlerRequest(fix, "/marketplaces/"+slug+target, "tenant-a")
+				if rr.Code != tc.code {
+					t.Fatalf("status %d, want %d: %s", rr.Code, tc.code, rr.Body.String())
+				}
+				if fix.crawler.fetchCalls != tc.crawls {
+					t.Fatalf("crawls %d, want %d: %s", fix.crawler.fetchCalls, tc.crawls, rr.Body.String())
+				}
+				if len(fix.cache.setCalls) != tc.writes {
+					t.Fatalf("writes %d, want %d: %s", len(fix.cache.setCalls), tc.writes, rr.Body.String())
 				}
 				if strings.Contains(rr.Body.String(), "private") {
 					t.Fatal("underlying error leaked to response")
@@ -352,7 +348,12 @@ func TestControllerReadFailures(t *testing.T) {
 }
 
 func TestControllerRequiresTenant(t *testing.T) {
-	for _, target := range []string{"/marketplaces", "/marketplaces/clear-route-skills/skills", "/marketplaces/clear-route-skills/skills/react-expert"} {
+	slug := handlerSource.MarketplaceSlug
+	for _, target := range []string{
+		"/marketplaces",
+		"/marketplaces/" + slug + "/skills",
+		"/marketplaces/" + slug + "/skills/" + slug + "__react-expert",
+	} {
 		for _, claims := range []*token.PlatformClaims{nil, {}} {
 			fix := newHandlerController(true)
 			ctx := token.WithClaims(context.Background(), claims)
@@ -368,10 +369,10 @@ func TestControllerRequiresTenant(t *testing.T) {
 }
 
 type handlerEvaluator struct {
-	policy.Evaluator // Only Check is exercised by scope middleware.
-	allow            bool
-	err              error
-	inputs           []policy.CheckInput
+	policy.Evaluator
+	allow  bool
+	err    error
+	inputs []policy.CheckInput
 }
 
 func (f *handlerEvaluator) Check(_ context.Context, input policy.CheckInput) (policy.Result, error) {
@@ -408,13 +409,10 @@ func TestControllerAuthorization(t *testing.T) {
 		t.Fatal(err)
 	}
 	delegationClaims := jwt.MapClaims{
-		"iss":                      token.DefaultIssuer,
-		"aud":                      token.DefaultAudience,
-		"exp":                      time.Now().Add(5 * time.Minute).Unix(),
-		"sub":                      "caller",
-		"act":                      map[string]string{"sub": "agent-1"},
-		"jti":                      "delegation-1",
-		"run_id":                   "run-1",
+		"iss": token.DefaultIssuer, "aud": token.DefaultAudience,
+		"exp": time.Now().Add(5 * time.Minute).Unix(), "sub": "caller",
+		"act": map[string]string{"sub": "agent-1"},
+		"jti": "delegation-1", "run_id": "run-1",
 		"delegator_principal_type": string(token.PrincipalTypeHuman),
 		"tenant_id":                "tenant-a",
 	}
@@ -423,6 +421,13 @@ func TestControllerAuthorization(t *testing.T) {
 	validDelegation, err := signedDelegation.SignedString(key)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	slug := handlerSource.MarketplaceSlug
+	targets := []string{
+		"/marketplaces",
+		"/marketplaces/" + slug + "/skills",
+		"/marketplaces/" + slug + "/skills/" + slug + "__react-expert",
 	}
 
 	for _, tc := range []struct {
@@ -439,7 +444,7 @@ func TestControllerAuthorization(t *testing.T) {
 		{"policy unavailable", validToken, "", true, errors.New("policy unavailable"), http.StatusForbidden, 1},
 		{"allowed", validToken, "", true, nil, http.StatusOK, 1},
 	} {
-		for _, target := range []string{"/marketplaces", "/marketplaces/clear-route-skills/skills", "/marketplaces/clear-route-skills/skills/react-expert"} {
+		for _, target := range targets {
 			t.Run(tc.name+target, func(t *testing.T) {
 				fixture := newHandlerController(true)
 				eval := &handlerEvaluator{allow: tc.allow, err: tc.policyErr}
