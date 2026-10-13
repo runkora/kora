@@ -3,7 +3,7 @@
 /** @tier 3 — triggers-scoped. Shared Review step: the configuration grouped by
  * the step that owns it, each group jumping back to its step for edits. */
 
-import { Alert, Stack, Text, Wizard } from '@orbit/hades';
+import { Alert, Stack, Text, Wizard } from '@runkora/hades';
 import { coalesceDraftOf, coalesceFrom, parallelWord } from './wizard-state';
 import type { StepComponentProps } from './types';
 

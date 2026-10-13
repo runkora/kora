@@ -13,8 +13,8 @@ import {
   Stack,
   Text,
   donutSegmentColor,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+} from '@runkora/hades';
+import type { IconName } from '@runkora/hades';
 import { fmtTokens } from '@orbit/utils';
 import { formatDuration } from '../_types';
 

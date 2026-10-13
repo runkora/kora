@@ -1,4 +1,4 @@
-import { Heading, Stack, Text } from '@orbit/hades';
+import { Heading, Stack, Text } from '@runkora/hades';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { listPATsFromIdentity } from '@orbit/server/services/identity-server';
 import { fetchScopesExplain } from '@orbit/server/services/policy-gateway-server';

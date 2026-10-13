@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { PageLayout } from '@orbit/hades';
+import { PageLayout } from '@runkora/hades';
 import {
   DashboardHeader,
   DashboardSidebar,

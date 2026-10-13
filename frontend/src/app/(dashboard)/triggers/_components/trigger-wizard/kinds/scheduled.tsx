@@ -22,7 +22,7 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import {
   FREQS,
   INTERVAL_PRESETS,

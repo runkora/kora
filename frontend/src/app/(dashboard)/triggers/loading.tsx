@@ -11,7 +11,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 /**
  * The Triggers page loads sources, triggers, deliveries and agent types in one

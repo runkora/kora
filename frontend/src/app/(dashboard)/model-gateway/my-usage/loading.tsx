@@ -17,7 +17,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 function KPICardSkeleton() {
   return (

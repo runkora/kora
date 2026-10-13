@@ -3,7 +3,7 @@
 /** @tier 3 — dashboard-scoped. Left-side slide-in drawer that renders the full sidebar nav on mobile viewports. */
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { Button, Icon, Separator, Stack } from '@orbit/hades';
+import { Button, Icon, Separator, Stack } from '@runkora/hades';
 import { DashboardSidebar } from './dashboard-sidebar';
 import { SidebarBrandHeader } from './sidebar-brand-header';
 import { SidebarUserFooter } from './sidebar-user-footer';

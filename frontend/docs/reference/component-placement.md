@@ -14,7 +14,7 @@ All UI components belong to exactly one of three tiers. The tier determines the 
 
 | Tier  | Name             | Filesystem path                                       | Import path                             | Storybook title prefix                                                  |
 | ----- | ---------------- | ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| **1** | Hades            | `frontend/src/packages/hades/src/components/`         | `import { X } from '@orbit/hades'`      | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
+| **1** | Hades            | `frontend/src/packages/hades/src/components/`         | `import { X } from '@runkora/hades'`    | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
 | **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@orbit/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
 | **3** | Feature-scoped   | `frontend/src/app/(dashboard)/[feature]/_components/` | relative import                         | none required                                                           |
 
@@ -72,7 +72,7 @@ for the same reason.
 
 ## Available Hades Components (Tier 1)
 
-All components below are exported from `@orbit/hades`. Never import from sub-paths.
+All components below are exported from `@runkora/hades`. Never import from sub-paths.
 
 > **`frontend/src/packages/hades/src/index.ts` is the authoritative export list.** This table is a curated view with usage notes; when the two disagree, the index is correct. If a lint error tells you to use a component, it exists in the index. Check there first, then add it here.
 
@@ -233,12 +233,12 @@ When you add a new component at any tier, update this document in the **same PR*
 
 Tier 2 components live at `frontend/src/components/` and are exported from `frontend/src/components/index.ts`. Import all Tier 2 components via `@orbit/components` (the `@orbit/*` path alias maps to `./src/*`).
 
-| Component           | Description                                                                                                                                                                                                 |
-| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/hades` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                     |
-| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                    |
-| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/hades`** (promoted from Tier 2). |
-| `RUN_STATE_DISPLAY` | Maps each run state to a status dot and a label (`pending` is Queued). Used by the agents run tables and the run page top bar. Type: `RunStateDisplay`.                                                     |
+| Component           | Description                                                                                                                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@runkora/hades` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                     |
+| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                      |
+| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@runkora/hades`** (promoted from Tier 2). |
+| `RUN_STATE_DISPLAY` | Maps each run state to a status dot and a label (`pending` is Queued). Used by the agents run tables and the run page top bar. Type: `RunStateDisplay`.                                                       |
 
 Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/reference/app-components.md`.
 

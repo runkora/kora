@@ -14,8 +14,8 @@ import {
   PopoverTrigger,
   TemplateCatalogList,
   Text,
-} from '@orbit/hades';
-import type { TemplateCatalogEntry } from '@orbit/hades';
+} from '@runkora/hades';
+import type { TemplateCatalogEntry } from '@runkora/hades';
 
 interface CatalogPickerProps {
   /** The current choice; the placeholder shows when empty. */

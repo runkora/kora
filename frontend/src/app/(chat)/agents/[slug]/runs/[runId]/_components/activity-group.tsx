@@ -11,8 +11,8 @@
 import { memo, useState } from 'react';
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import { Badge, Button, Icon, Stack, StatusDot, Text } from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+import { Badge, Button, Icon, Stack, StatusDot, Text } from '@runkora/hades';
+import type { IconName } from '@runkora/hades';
 import type { ToolCall } from '../_types';
 import {
   callDuration,

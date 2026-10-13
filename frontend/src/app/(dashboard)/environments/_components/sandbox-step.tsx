@@ -21,8 +21,8 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+} from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
 import type { EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 import { ExternalLink } from '@orbit/components/links';
 import { BASE_IMAGE_NAME, imageProblem } from '@orbit/lib/environments';

@@ -3,8 +3,8 @@
 /** @tier 3 — connections-scoped. Read-only UI for the /connections list page. */
 
 import { useMemo, useState } from 'react';
-import { DataTable, EmptyState, Heading, Stack, Text, TruncatingBadge } from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+import { DataTable, EmptyState, Heading, Stack, Text, TruncatingBadge } from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
 import { ScopeChipList, scopeColumnFilter } from '@orbit/components';
 import { adapterLabel } from '../_types';
 import type { ConnectionRow } from '../_types';

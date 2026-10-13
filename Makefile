@@ -1083,7 +1083,7 @@ frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
 .PHONY: frontend-test-unit
 frontend-test-unit: ## Run frontend unit tests (Hades first, then app)
 	@echo "$(COLOR_YELLOW)Running frontend unit tests...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run test:unit
 	@cd $(FRONTEND_DIR) && pnpm run test:unit
 	@echo "$(COLOR_GREEN)✓ Frontend unit tests passed$(COLOR_RESET)"
 
@@ -1096,7 +1096,7 @@ frontend-test-integration: ## Run frontend integration tests (MSW + jsdom)
 .PHONY: frontend-test-hades
 frontend-test-hades: ## Run Hades component unit tests in isolation (happy-dom)
 	@echo "$(COLOR_YELLOW)Running Hades unit tests...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run test:unit
 	@echo "$(COLOR_GREEN)✓ Hades unit tests passed$(COLOR_RESET)"
 
 # ─── Hades versioning ────────────────────────────────────────────────────────
@@ -1157,7 +1157,7 @@ frontend-storybook-build: ## Build Storybook as a static site
 .PHONY: frontend-storybook-hades
 frontend-storybook-hades: ## Start Hades-isolated Storybook (Hades package only, port 6006)
 	@echo "$(COLOR_YELLOW)Starting Hades-isolated Storybook...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades storybook
+	@cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades storybook
 
 # ===========================================
 # Cleanup

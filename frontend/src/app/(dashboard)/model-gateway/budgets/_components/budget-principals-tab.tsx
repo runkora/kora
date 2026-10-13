@@ -14,8 +14,8 @@ import {
   StatCard,
   Text,
   EmptyState,
-} from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+} from '@runkora/hades';
+import type { DataTableColumn } from '@runkora/hades';
 import { ClampedList, StatusBadge } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';

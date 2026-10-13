@@ -24,7 +24,7 @@ import {
   TableHead,
   TableCell,
   Icon,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { fmtDate, fmtDateTime } from '@orbit/utils';
 import Link from 'next/link';

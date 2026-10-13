@@ -12,7 +12,7 @@ import {
   SidePanelAccessibleTitle,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { MCP_CLIENTS, buildMcpConfig, isCommandClient, type McpClient } from '@orbit/lib/mcp';
 import type { McpServer } from '../_types';
 import { serverRollupScope } from '../_types';

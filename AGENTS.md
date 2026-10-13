@@ -291,7 +291,7 @@ See [repository-pattern-and-code-organization](docs/adr/2026-02-17-repository-pa
 
 ## Frontend Development
 
-All product JSX must use Hades (`@orbit/hades`). Raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Hades rule are themselves a lint error (`local/no-hades-disable-comment`). Violations fail `pnpm lint`.
+All product JSX must use Hades (`@runkora/hades`). Raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Hades rule are themselves a lint error (`local/no-hades-disable-comment`). Violations fail `pnpm lint`.
 
 | Rule                                | What it bans                                                                                   | Use instead                                                                                                       |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -336,7 +336,7 @@ All product JSX must use Hades (`@orbit/hades`). Raw HTML primitives are banned 
 
 | Tier  | Name             | Filesystem                                   | Import                                  | Storybook prefix                                                        |
 | ----- | ---------------- | -------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| **1** | Hades            | `src/packages/hades/src/components/`         | `import { X } from '@orbit/hades'`      | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
+| **1** | Hades            | `src/packages/hades/src/components/`         | `import { X } from '@runkora/hades'`      | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
 | **2** | App-level shared | `src/components/`                            | `import { X } from '@orbit/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
 | **3** | Feature-scoped   | `src/app/(dashboard)/[feature]/_components/` | relative import                         | n/a                                                                     |
 

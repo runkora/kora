@@ -3,7 +3,7 @@
  * email form, and an error banner after a failed OIDC round-trip. The page
  * passes the error message and the post-login destination.
  */
-import { Alert, Icon, Stack, Text } from '@orbit/hades';
+import { Alert, Icon, Stack, Text } from '@runkora/hades';
 
 import { AuthCardShell } from './auth-card-shell';
 import { EmailSignInForm } from './email-sign-in-form';

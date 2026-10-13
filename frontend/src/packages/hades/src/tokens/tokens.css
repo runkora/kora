@@ -4,7 +4,7 @@
  * The layer beneath every kora screen. Import this file once at the application root.
  *
  * Usage:
- *   @import "@orbit/hades/src/tokens/tokens.css";
+ *   @import "@runkora/hades/src/tokens/tokens.css";
  *
  * All tokens are registered via Tailwind v4's @theme directive so they are
  * available as utility classes (e.g. `bg-background`, `text-foreground`,

@@ -14,7 +14,7 @@ import {
   Progress,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { StatusBadge } from '@orbit/components';
 import { fmtUsd } from '@orbit/utils';
 import type { AgentTypeUsage } from '@orbit/shared/api';
