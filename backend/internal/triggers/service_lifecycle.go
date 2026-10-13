@@ -130,6 +130,11 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 	if err != nil {
 		return nil, err
 	}
+	// Validated by validateWebhookTriggerCreate above; read again for the value.
+	coalesce, err := coalesceForCreate(req)
+	if err != nil {
+		return nil, err
+	}
 
 	at, err := s.resolveAgentType(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, req.AgentTypeID)
 	if err != nil {
@@ -169,6 +174,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		GrantID:           &grantID,
 		Enabled:           true,
 		SenderRestriction: restriction,
+		Coalesce:          coalesce,
 	}
 	// Already validated by validateWebhookTriggerCreate above, before the grant
 	// existed; the rollback here is belt and braces.
@@ -358,7 +364,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 		if err = s.applyWebhookUpdate(ctx, t, req); err != nil {
 			return nil, err
 		}
-	} else if err = refuseWebhookOnly(req.SenderRestriction, req.MatchContains); err != nil {
+	} else if err = refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce); err != nil {
 		return nil, err
 	}
 	if req.Enabled != nil {
@@ -427,9 +433,21 @@ func applyKindConfigUpdate(t *Trigger, req UpdateTriggerRequest) error {
 }
 
 // applyWebhookUpdate validates the event type and field keys when the request
-// edits them, and replaces match_contains and the sender restriction when the
-// request carries them. A PATCH that edits none of them is not checked.
+// edits them, and replaces match_contains, coalesce and the sender restriction
+// when the request carries them. A PATCH that edits none of them is not checked.
 func (s *TriggerService) applyWebhookUpdate(ctx context.Context, t *Trigger, req UpdateTriggerRequest) error {
+	if req.Coalesce != nil {
+		coalesce, err := normalizeCoalesce(req.Coalesce)
+		if err != nil {
+			return err
+		}
+		t.Coalesce = coalesce
+	}
+	// Checked against the stored setting too, not only a new one: an overflow
+	// change on a trigger that already coalesces must be refused as well.
+	if err := validateCoalesceOverflow(t.Coalesce, t.Overflow); err != nil {
+		return err
+	}
 	if req.MatchContains != nil {
 		if err := validateContains(req.MatchContains); err != nil {
 			return err

@@ -1849,7 +1849,7 @@ type waitingRow struct {
 func waitingFor(t *testing.T, r *postgresRepository, triggerID, key string) []waitingRow {
 	t.Helper()
 	rows, err := r.pool.Query(context.Background(), `
-		SELECT id, delivery_id, fields->>'marker', dispatch_after
+		SELECT id, delivery_id, COALESCE(fields->>'marker', ''), dispatch_after
 		FROM   trigger_pending_deliveries
 		WHERE  trigger_id = $1 AND coalesce_key = $2 AND claimed_at IS NULL
 		ORDER  BY enqueued_at`, triggerID, key)
@@ -2244,5 +2244,100 @@ func TestPostgres_DeliveryRunSupersededBy(t *testing.T) {
 	}
 	if got := runs[ids[1]]; len(got) != 1 || got[0].SupersededBy != nil {
 		t.Errorf("ordinary run = %+v, want no pointer", got)
+	}
+}
+
+// The coalesce setting lives in kind_config and survives a round trip, and
+// clearing it removes it. A sender restriction beside it is left alone.
+func TestPostgres_WebhookCoalesce(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
+		Name: "coalescing", AgentTypeID: "at-1", AgentSlug: "code-reviewer",
+		EventType: "pull_request", PromptTemplate: "p", Enabled: true,
+		Coalesce:          &CoalesceConfig{Key: "{{ repository.full_name }}#{{ pull_request.number }}", WindowSeconds: 45},
+		SenderRestriction: &SenderRestriction{Logins: []string{"alice"}},
+	}
+	admissionDefaults(tr)
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	got, err := r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.Coalesce == nil || *got.Coalesce != *tr.Coalesce {
+		t.Fatalf("coalesce round-trip = %+v, want %+v", got.Coalesce, tr.Coalesce)
+	}
+
+	got.Coalesce = nil
+	if err := r.UpdateTrigger(ctx, got, false); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+	cleared, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	if cleared.Coalesce != nil {
+		t.Errorf("coalesce after clearing = %+v, want nil", cleared.Coalesce)
+	}
+	if cleared.SenderRestriction == nil {
+		t.Error("clearing coalesce dropped the sender restriction")
+	}
+}
+
+// Admission over the real queue: the second fire replaces the first in the
+// database, the first delivery gets a superseded outcome that points at the
+// second, and both keys are on record.
+func TestPostgres_Admission_Coalesces(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "coalescing", 4)
+	tr.Coalesce = &CoalesceConfig{Key: "{{ k }}", WindowSeconds: 60}
+	adm := NewAdmission(r, silentLogger())
+
+	var ids []string
+	for range 2 {
+		d := &Delivery{
+			ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+			ProviderDeliveryID: uuid.NewString(), Status: StatusVerified,
+		}
+		if ok, err := r.InsertDelivery(ctx, d); err != nil || !ok {
+			t.Fatalf("InsertDelivery: %v %v", ok, err)
+		}
+		ids = append(ids, d.ID)
+		res, err := adm.Admit(ctx, *tr, d.ID, map[string]string{"k": "acme#7"})
+		if err != nil || res != AdmitEnqueued {
+			t.Fatalf("Admit: %v, %v", res, err)
+		}
+	}
+
+	rows := waitingFor(t, r, tr.ID, "acme#7")
+	if len(rows) != 1 || rows[0].deliveryID != ids[1] {
+		t.Fatalf("waiting rows = %+v, want only the second delivery", rows)
+	}
+	runs, err := r.ListDeliveryRunsForDeliveries(ctx, tenant, ids)
+	if err != nil {
+		t.Fatalf("ListDeliveryRunsForDeliveries: %v", err)
+	}
+	if got := runs[ids[0]]; len(got) != 1 || got[0].Status != RunStatusSuperseded || got[0].SupersededBy == nil || *got[0].SupersededBy != ids[1] {
+		t.Errorf("first delivery outcomes = %+v, want superseded by %s", got, ids[1])
+	}
+	if len(runs[ids[1]]) != 0 {
+		t.Errorf("second delivery has outcomes %+v while it still waits", runs[ids[1]])
+	}
+	keys, err := r.ListDeliveryKeysForDeliveries(ctx, tenant, ids)
+	if err != nil {
+		t.Fatalf("ListDeliveryKeysForDeliveries: %v", err)
+	}
+	for _, id := range ids {
+		if len(keys[id]) != 1 || keys[id][0].Key != "acme#7" {
+			t.Errorf("delivery %s keys = %+v, want acme#7", id, keys[id])
+		}
+	}
+	first, _ := r.GetDelivery(ctx, tenant, ids[0])
+	if first.Status != StatusSkipped {
+		t.Errorf("superseded delivery status = %q, want skipped", first.Status)
 	}
 }
