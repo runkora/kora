@@ -111,7 +111,7 @@ func parseMigration(service, name, body string) migration {
 
 // statements splits SQL into statements on top-level semicolons.
 //
-// Comments and quoted runs are recognised in the same pass, because either can
+// Comments and quoted runs are recognized in the same pass, because either can
 // contain the other: a `--` inside a string literal does not open a comment, and
 // a semicolon inside either is data rather than a terminator. Stripping comments
 // first with a regex gets that backwards, and concurrentBlockViolations counts
