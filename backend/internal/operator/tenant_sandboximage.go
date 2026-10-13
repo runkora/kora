@@ -23,7 +23,7 @@ type SandboxBase struct {
 // ensureBaseSandboxImage keeps kora-base pointing at the install's base image.
 // Every reconcile replaces its whole spec and drops a field a tenant added.
 func (r *TenantReconciler) ensureBaseSandboxImage(ctx context.Context, tenant *OrbitTenant) error {
-	desired := baseSandboxImage(tenantNamespace(tenant), tenant.Name, r.SandboxBase)
+	desired := baseSandboxImage(tenantNamespace(tenant), tenant.Name, r.SandboxBase, r.ProductName)
 	existing, err := r.getSandboxImage(ctx, desired.Namespace, desired.Name)
 	if err != nil {
 		return err
@@ -62,13 +62,14 @@ func (r *TenantReconciler) upsertSandboxImage(ctx context.Context, desired, exis
 	return nil
 }
 
-func baseSandboxImage(ns, tenantName string, base SandboxBase) *si.SandboxImage {
+// product is the configured product name the description reads.
+func baseSandboxImage(ns, tenantName string, base SandboxBase, product string) *si.SandboxImage {
 	return &si.SandboxImage{
 		TypeMeta:   metav1.TypeMeta{APIVersion: si.GroupVersion.String(), Kind: "SandboxImage"},
 		ObjectMeta: metav1.ObjectMeta{Name: si.BaseName, Namespace: ns, Labels: tenantPolicyLabels(tenantName)},
 		Spec: si.Spec{
 			Image:       base.Image,
-			Description: si.BaseDescription,
+			Description: si.BaseDescription(product),
 			Warm:        base.Warm,
 		},
 	}
@@ -91,7 +92,7 @@ func (r *TenantReconciler) ensureBundledSandboxImages(ctx context.Context, tenan
 	var errs []error
 	for _, b := range si.Bundled {
 		cfg := r.SandboxBundled[b.Key]
-		desired := bundledSandboxImage(ns, tenant.Name, b, cfg)
+		desired := bundledSandboxImage(ns, tenant.Name, b, cfg, r.ProductName)
 		existing, err := r.getSandboxImage(ctx, ns, b.Name)
 		if err != nil {
 			errs = append(errs, err)
@@ -127,7 +128,8 @@ func ownsBundledSandboxImage(img *si.SandboxImage) bool {
 		img.Labels["orbit.io/component"] == si.BundledComponent
 }
 
-func bundledSandboxImage(ns, tenantName string, b si.BundledImage, cfg BundledSandboxImage) *si.SandboxImage {
+// product is the configured product name the description reads.
+func bundledSandboxImage(ns, tenantName string, b si.BundledImage, cfg BundledSandboxImage, product string) *si.SandboxImage {
 	labels := tenantPolicyLabels(tenantName)
 	labels["orbit.io/component"] = si.BundledComponent
 	return &si.SandboxImage{
@@ -135,7 +137,7 @@ func bundledSandboxImage(ns, tenantName string, b si.BundledImage, cfg BundledSa
 		ObjectMeta: metav1.ObjectMeta{Name: b.Name, Namespace: ns, Labels: labels},
 		Spec: si.Spec{
 			Image:       cfg.Image,
-			Description: b.Description,
+			Description: b.Description(product),
 			Warm:        cfg.Warm,
 		},
 	}

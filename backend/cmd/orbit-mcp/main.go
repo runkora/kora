@@ -18,6 +18,7 @@ import (
 	omc "github.com/clear-route/orbit/cmd/orbit-mcp/config"
 	"github.com/clear-route/orbit/internal/orbitmcp"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -46,6 +47,13 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "kora MCP starting", logging.Field{Key: "version", Value: omc.Current.App.Version})
 
+	// The product name is the server's reported name and reaches the tool
+	// descriptions agents read.
+	b, err := brand.Load()
+	if err != nil {
+		return fmt.Errorf("load brand: %w", err)
+	}
+
 	jc := orbitjson.NewClient(logger)
 	srv := orbitmcp.NewServer(orbitmcp.Backends{
 		Agents:      omc.Current.Backends.Agents,
@@ -54,7 +62,7 @@ func realMain() error {
 		Identity:    omc.Current.Backends.Identity,
 		Triggers:    omc.Current.Backends.Triggers,
 		ToolGateway: omc.Current.Backends.ToolGateway,
-	}, jc)
+	}, jc, b)
 
 	controller := mcpkit.NewController("/mcp", srv)
 	apiServer := platformapi.NewAPI(ctx, logger)

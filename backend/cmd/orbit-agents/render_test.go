@@ -11,6 +11,7 @@ import (
 
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
+	"github.com/clear-route/orbit/internal/platform/brand"
 )
 
 func writePatch(t *testing.T, name, body string) string {
@@ -29,7 +30,7 @@ func TestLoadPatches_RejectsProtectedField(t *testing.T) {
 patch: |
   - {op: replace, path: /spec/template/spec/serviceAccountName, value: default}
 `)
-	_, _, err := loadProvisioning(testConfig(), dir)
+	_, _, err := loadProvisioning(testConfig(), dir, brand.MustNew("kora"))
 	if err == nil || !strings.Contains(err.Error(), "90-bad.yaml") || !strings.Contains(err.Error(), "spec.template.spec.serviceAccountName") {
 		t.Fatalf("got %v, want a protected-field error naming 90-bad.yaml", err)
 	}
@@ -163,7 +164,7 @@ func TestLoadWorkloads_ChartDefaultsChangeNoManifest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	cfg := provisionerConfig(testConfig(), nil, workloads)
+	cfg := provisionerConfig(testConfig(), nil, workloads, brand.MustNew("kora"))
 	at := agents.AgentType{ID: "agent-1", Slug: "coder", TenantID: "example"}
 	objs, err := agents.RenderResources(cfg, at, "tenant-example", true)
 	if err != nil {
@@ -225,7 +226,7 @@ func TestLoadPatches_ValidPatchLoads(t *testing.T) {
 patch: |
   - {op: add, path: /spec/tolerations, value: [{key: dedicated, operator: Exists}]}
 `)
-	patches, _, err := loadProvisioning(testConfig(), dir)
+	patches, _, err := loadProvisioning(testConfig(), dir, brand.MustNew("kora"))
 	if err != nil {
 		t.Fatal(err)
 	}

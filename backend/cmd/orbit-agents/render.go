@@ -10,6 +10,7 @@ import (
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
 	"github.com/clear-route/orbit/internal/agents/manifestpatch"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/ports"
 )
@@ -47,8 +48,9 @@ func loadWorkloads(path string) (workloadsFile, error) {
 }
 
 // provisionerConfig builds the provisioner config from the service config, so
-// the server and -render produce the same manifests.
-func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, workloads workloadsFile) agents.K8sProvisionerConfig {
+// the server and -render produce the same manifests. b is the brand whose
+// product name each session pod receives.
+func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, workloads workloadsFile, b brand.Brand) agents.K8sProvisionerConfig {
 	return agents.K8sProvisionerConfig{
 		Workloads:              workloads.Workloads,
 		Workspace:              workloads.Workspace,
@@ -63,6 +65,7 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		GitAuthorEmail:             cfg.Agents.SandboxGitAuthorEmail,
 		OTLPEndpoint:               observability.TenantOTLPEndpoint(),
 		SamplingRate:               observability.SamplingRateString(),
+		ProductName:                b.ProductName(),
 		ImagePullSecrets:           cfg.Agents.ImagePullSecrets,
 		TrustDomain:                cfg.Platform.TrustDomain,
 		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
@@ -81,7 +84,7 @@ var validationAgentType = agents.AgentType{ID: "validate", Slug: "validate", Ten
 
 // loadProvisioning reads the manifest patches and the workload customization,
 // then renders every patchable resource once to prove the combination applies.
-func loadProvisioning(cfg *agentsConfig.Config, dir string) ([]manifestpatch.Patch, workloadsFile, error) {
+func loadProvisioning(cfg *agentsConfig.Config, dir string, b brand.Brand) ([]manifestpatch.Patch, workloadsFile, error) {
 	workloads, err := loadWorkloads(cfg.Agents.WorkloadsFile)
 	if err != nil {
 		return nil, workloads, err
@@ -90,7 +93,7 @@ func loadProvisioning(cfg *agentsConfig.Config, dir string) ([]manifestpatch.Pat
 	if err != nil {
 		return nil, workloads, fmt.Errorf("load manifest patches from %s: %w", dir, err)
 	}
-	if _, err := agents.RenderResources(provisionerConfig(cfg, patches, workloads), validationAgentType, "tenant-validate", true); err != nil {
+	if _, err := agents.RenderResources(provisionerConfig(cfg, patches, workloads, b), validationAgentType, "tenant-validate", true); err != nil {
 		return nil, workloads, fmt.Errorf("validate provisioning config (patches in %s, workloads in %s): %w", dir, cfg.Agents.WorkloadsFile, err)
 	}
 	return patches, workloads, nil
@@ -103,11 +106,15 @@ func renderManifests(patchDir string, at agents.AgentType, namespace string, inc
 		return fmt.Errorf("-agent-slug is required")
 	}
 	cfg := agentsConfig.Current
-	patches, workloads, err := loadProvisioning(cfg, patchDir)
+	b, err := brand.Load()
+	if err != nil {
+		return fmt.Errorf("load brand: %w", err)
+	}
+	patches, workloads, err := loadProvisioning(cfg, patchDir, b)
 	if err != nil {
 		return err
 	}
-	objs, err := agents.RenderResources(provisionerConfig(cfg, patches, workloads), at, namespace, includeSandbox)
+	objs, err := agents.RenderResources(provisionerConfig(cfg, patches, workloads, b), at, namespace, includeSandbox)
 	if err != nil {
 		return err
 	}

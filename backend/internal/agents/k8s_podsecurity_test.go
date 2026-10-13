@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"io"
 	"os"
 	"path/filepath"
@@ -33,6 +34,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 			SystemNamespace:     "orbit-prod",
 			OTLPEndpoint:        "http://otel-collector.observability.svc:4317",
 			SamplingRate:        "1.0",
+			ProductName:         "Acme",
 		},
 	}
 }
@@ -205,6 +207,11 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	// traces are dropped at a different rate than the platform's.
 	if got, want := env["ORBIT_SAMPLING_RATE"], "1.0"; got != want {
 		t.Errorf("ORBIT_SAMPLING_RATE = %q, want %q", got, want)
+	}
+	// Session pods are not chart-rendered, so this variable is the only way the
+	// product name reaches the session-manager's guardrail text.
+	if got, want := env[brand.EnvProductName], "Acme"; got != want {
+		t.Errorf("%s = %q, want %q", brand.EnvProductName, got, want)
 	}
 }
 

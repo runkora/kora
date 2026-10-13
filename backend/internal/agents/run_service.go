@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -53,6 +54,9 @@ type RunServiceConfig struct {
 	DefaultEnvironmentSize EnvironmentSize
 	// SandboxMount tells the agent, in its brief, to work in the sandbox's local folder.
 	SandboxMount bool
+	// Brand names the product in the capabilities brief and the default
+	// environment's description.
+	Brand brand.Brand
 }
 
 // RunService is the single state machine authority for agent runs.
@@ -112,7 +116,7 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 	if access == nil {
 		return at.SystemPrompt
 	}
-	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID), s.cfg.SandboxMount)
+	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID), s.cfg.SandboxMount, s.cfg.Brand.ProductName())
 }
 
 // NewRunService creates a RunService with the given dependencies.

@@ -22,6 +22,7 @@ import (
 	sandboxMountConfig "github.com/clear-route/orbit/cmd/sandbox-mount/config"
 	toolGatewayConfig "github.com/clear-route/orbit/cmd/tool-gateway/config"
 	"github.com/clear-route/orbit/internal/identity"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/storage"
@@ -47,6 +48,7 @@ var moduleLoaders = map[string]func() error{
 		return err
 	},
 	"internal/platform/token": loadService[token.Config]("internal/platform/token"),
+	"internal/platform/brand": loadService[brand.Config]("internal/platform/brand"),
 
 	"internal/platform/observability": loadService[observability.ObservabilityConfig]("internal/platform/observability"),
 	"internal/platform/storage": func() error {

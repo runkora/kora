@@ -95,7 +95,7 @@ func buildPassthroughGateway(t *testing.T) *httptest.Server {
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, NewAdapterRegistry(), passthrough.New(), logger)
 	forward := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
 	claims := claimsFor("acme", "spiffe://orbit.test/tenant/orbit-tenant-acme/agent/coder", "run-1")
-	inner := authInjector(claims, NewProxyHandler(broker, forward, logger))
+	inner := authInjector(claims, NewProxyHandler(broker, forward, testBrand, logger))
 	connect := NewConnectHandler(&fixedCABundle{tenant: "acme", ca: ca}, inner, interceptAllConns{}, logger)
 	return httptest.NewServer(authInjector(claims, connect))
 }

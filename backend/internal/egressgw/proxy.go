@@ -25,14 +25,21 @@ import (
 type ProxyHandler struct {
 	broker     *Broker
 	transports *TransportCache // upstream forward transport, keyed per-connection CA trust
+	brand      productNamer    // names the product in the denial message the agent reads
 	logger     logging.Logger
+}
+
+// productNamer is the one brand method the proxy calls.
+type productNamer interface {
+	ProductName() string
 }
 
 // NewProxyHandler constructs a ProxyHandler. transport is the base transport for
 // the forward leg, cloned per connection that declares its own CA. Every
 // transport handed to the proxy is traced, so spans cover each forwarded call.
-func NewProxyHandler(broker *Broker, transport *http.Transport, logger logging.Logger) *ProxyHandler {
-	return &ProxyHandler{broker: broker, transports: NewTransportCache(transport), logger: logger}
+// brand supplies the product name denial messages read.
+func NewProxyHandler(broker *Broker, transport *http.Transport, brand productNamer, logger logging.Logger) *ProxyHandler {
+	return &ProxyHandler{broker: broker, transports: NewTransportCache(transport), brand: brand, logger: logger}
 }
 
 // Transports exposes the handler's TransportCache so the owning binary can
@@ -153,7 +160,7 @@ func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request,
 	case errors.Is(err, credentials.ErrUnsupportedAdapter):
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
 	case errors.As(err, &denial):
-		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, denial.Message(), denial.Details())
+		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, denial.Message(p.brand.ProductName()), denial.Details())
 	case errors.Is(err, ErrForbidden):
 		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress denied", nil)
 	case errors.Is(err, ErrTenantMismatch):

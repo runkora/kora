@@ -30,6 +30,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN mkdir -p /configs && \
     find /app/cmd/operator/config \
          /app/internal/platform/observability/config \
+         /app/internal/platform/brand/config \
          -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \

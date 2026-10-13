@@ -87,6 +87,7 @@ orbit/
 │   ├── internal/
 │   │   ├── platform/                 # Cross-cutting infrastructure — never imports features
 │   │   │   ├── api/                  # Mux, Controller interface, JSON/error helpers
+│   │   │   ├── brand/                # Product name for every string people or agents read
 │   │   │   ├── clients/              # Typed service-to-service HTTP clients (embed httpclient.Base)
 │   │   │   ├── config/               # Generic + per-service YAML loaders
 │   │   │   ├── logging/              # Logger interface + implementation (injected, never global)
@@ -138,6 +139,7 @@ Infrastructure shared by all features. Platform packages **never import feature 
 | Package | Purpose |
 |---------|---------|
 | `api` | HTTP `Mux`, `Controller` interface, `DecodeJSON`/`JSON`/`ErrorResponse` helpers, typed `APIError` |
+| `brand` | The product name (`productName`, default `kora`) every speaking service reads for the text people or agents see; chart-rendered, `ORBIT_PRODUCT_NAME` on session pods |
 | `clients` | Typed service-to-service HTTP clients; `httpclient.Base` owns OTel spans + W3C trace propagation + structured logging |
 | `config` | Generic YAML loaders: `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV`, with the chart-rendered file merged last |
 | `logging` | `Logger` interface + implementation; injected via constructors, never global |

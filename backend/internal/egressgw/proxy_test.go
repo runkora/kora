@@ -204,7 +204,7 @@ func newFixture(t *testing.T) *fixture {
 
 	// Forward transport must accept the upstream's self-signed test cert.
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	handler := NewProxyHandler(f.broker, tr, logger)
+	handler := NewProxyHandler(f.broker, tr, testBrand, logger)
 
 	// The gateway runs as plain HTTP here; the CONNECT handler's TLS
 	// termination has its own tests. authInjector stands in for AuthMiddleware.
@@ -390,7 +390,7 @@ func TestProxy_Unauthenticated(t *testing.T) {
 	registry := NewAdapterRegistry()
 	broker := NewBroker(&stubEvaluator{allow: true}, repo, registry, passthrough.New(), logger)
 	tr := &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}
-	handler := NewProxyHandler(broker, tr, logger)
+	handler := NewProxyHandler(broker, tr, testBrand, logger)
 
 	srv := httptest.NewServer(authInjector(nil, handler)) // no claims in context
 	defer srv.Close()

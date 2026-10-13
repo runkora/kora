@@ -415,7 +415,7 @@ func TestSQLStateHelpers(t *testing.T) {
 
 // The built-in environment is selected by the slug default and shown as Default.
 func TestDefaultEnvironment_SlugAndName(t *testing.T) {
-	env := DefaultEnvironment(testSizes.Default)
+	env := DefaultEnvironment(testSizes.Default, "Acme")
 	if env.Slug != DefaultEnvironmentName || env.Name != "Default" {
 		t.Errorf("slug, name = %q, %q", env.Slug, env.Name)
 	}

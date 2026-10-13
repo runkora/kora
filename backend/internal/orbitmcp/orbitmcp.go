@@ -23,8 +23,6 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-const serverName = "orbit"
-
 // Backends holds the in-cluster base URLs of the kora services the tools call.
 type Backends struct {
 	Agents      string
@@ -35,10 +33,18 @@ type Backends struct {
 	ToolGateway string
 }
 
-// NewServer builds the kora MCP server and registers its tools onto a kit server.
-func NewServer(b Backends, jc *orbitjson.Client) *sdk.Server {
-	srv := mcpkit.NewServer(serverName, "0.1.0")
-	registerTools(srv, b, jc)
+// productNamer is the one brand method the server calls.
+type productNamer interface {
+	ProductName() string
+}
+
+// NewServer builds the platform MCP server and registers its tools onto a kit
+// server. The server's reported name and the tool descriptions that name the
+// product read brand.
+func NewServer(b Backends, jc *orbitjson.Client, brand productNamer) *sdk.Server {
+	product := brand.ProductName()
+	srv := mcpkit.NewServer(product, "0.1.0")
+	registerTools(srv, b, jc, product)
 	return srv
 }
 

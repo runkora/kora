@@ -17,11 +17,11 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 			{Connection: "github", Adapter: "github_app", Hosts: []string{"github.com", "api.github.com", "codeload.github.com", "*.githubusercontent.com"}},
 		},
 	}
-	brief := renderCapabilitiesBrief(access, testWorkspaceDir, false)
+	brief := renderCapabilitiesBrief(access, testWorkspaceDir, false, "Acme")
 	t.Logf("rendered brief:\n%s", brief)
 
 	for _, want := range []string{
-		"# Runtime environment (kora)",
+		"# Runtime environment (Acme)",
 		"You can reach only these hosts",
 		"  - pypi.org",
 		"## Credentials — injected for you",
@@ -50,7 +50,7 @@ func TestRenderCapabilitiesBrief_Whitelist(t *testing.T) {
 }
 
 func TestRenderCapabilitiesBrief_OpenAndNone(t *testing.T) {
-	open := renderCapabilitiesBrief(&EffectiveAccess{Open: true}, testWorkspaceDir, false)
+	open := renderCapabilitiesBrief(&EffectiveAccess{Open: true}, testWorkspaceDir, false, "Acme")
 	if !strings.Contains(open, "outbound requests to any host") {
 		t.Errorf("open brief should allow any host, got:\n%s", open)
 	}
@@ -58,7 +58,7 @@ func TestRenderCapabilitiesBrief_OpenAndNone(t *testing.T) {
 		t.Errorf("open brief should mention provision_sandbox, got:\n%s", open)
 	}
 
-	none := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir, false)
+	none := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir, false, "Acme")
 	if !strings.Contains(none, "no outbound network access") {
 		t.Errorf("none brief should deny network, got:\n%s", none)
 	}
@@ -75,7 +75,7 @@ func TestRenderCapabilitiesBrief_OpenAndNone(t *testing.T) {
 // work to the sandbox whether or not the agent has egress.
 func TestRenderCapabilitiesBrief_SendsHeavyWorkToTheSandbox(t *testing.T) {
 	for name, access := range map[string]*EffectiveAccess{"open": {Open: true}, "none": {}} {
-		brief := renderCapabilitiesBrief(access, testWorkspaceDir, false)
+		brief := renderCapabilitiesBrief(access, testWorkspaceDir, false, "Acme")
 		for _, want := range []string{"builds or tests", "memory-heavy", "shared with other runs"} {
 			if !strings.Contains(brief, want) {
 				t.Errorf("%s brief missing %q, got:\n%s", name, want, brief)
@@ -87,7 +87,7 @@ func TestRenderCapabilitiesBrief_SendsHeavyWorkToTheSandbox(t *testing.T) {
 // A whitelist miss is a reset TLS handshake with no body, so the brief is the
 // only place the agent can learn what that failure means.
 func TestRenderCapabilitiesBrief_ExplainsEgressDenials(t *testing.T) {
-	brief := renderCapabilitiesBrief(&EffectiveAccess{Hosts: []string{"api.github.com"}}, testWorkspaceDir, false)
+	brief := renderCapabilitiesBrief(&EffectiveAccess{Hosts: []string{"api.github.com"}}, testWorkspaceDir, false, "Acme")
 	for _, want := range []string{"connection reset or TLS handshake failure", "egress allowlist", "names the host, the action, and the grant"} {
 		if !strings.Contains(brief, want) {
 			t.Errorf("brief missing %q", want)
@@ -97,14 +97,14 @@ func TestRenderCapabilitiesBrief_ExplainsEgressDenials(t *testing.T) {
 
 // Open egress has no allowlist, so the brief must not describe one.
 func TestRenderCapabilitiesBrief_OpenOmitsAllowlistHint(t *testing.T) {
-	if brief := renderCapabilitiesBrief(&EffectiveAccess{Open: true}, testWorkspaceDir, false); strings.Contains(brief, "egress allowlist") {
+	if brief := renderCapabilitiesBrief(&EffectiveAccess{Open: true}, testWorkspaceDir, false, "Acme"); strings.Contains(brief, "egress allowlist") {
 		t.Error("open-egress brief mentions an allowlist")
 	}
 }
 
 // The brief is written before the agent provisions a sandbox, so it states the workspace rule for runs with and without one.
 func TestRenderCapabilitiesBrief_WorkspaceWithAndWithoutSandbox(t *testing.T) {
-	brief := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir, false)
+	brief := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir, false, "Acme")
 	for _, want := range []string{
 		// Without a sandbox and with one, the workspace is shared by Bash and the file tools.
 		"see the same files there, with or without a sandbox",
@@ -128,10 +128,10 @@ func TestRenderCapabilitiesBrief_WorkspaceWithAndWithoutSandbox(t *testing.T) {
 // With the node agent enabled, the brief points the agent at the sandbox's working folder. Without it, the brief does not.
 func TestRenderCapabilitiesBrief_SandboxFolder(t *testing.T) {
 	want := "Starting a sandbox gives you a working folder at `/workspaces/run-1/sandbox`. Do all your work there from then on: create and edit files, clone repos, install, build and run commands. Your file tools and the sandbox see the same files in that folder. The folder and its contents last as long as the sandbox."
-	if brief := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir, true); !strings.Contains(brief, want) {
+	if brief := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir, true, "Acme"); !strings.Contains(brief, want) {
 		t.Errorf("brief missing the sandbox folder line:\n%s", brief)
 	}
-	if brief := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir, false); strings.Contains(brief, "working folder") {
+	if brief := renderCapabilitiesBrief(&EffectiveAccess{}, testWorkspaceDir, false, "Acme"); strings.Contains(brief, "working folder") {
 		t.Error("brief names a working folder without the node agent")
 	}
 }

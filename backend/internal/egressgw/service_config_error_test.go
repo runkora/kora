@@ -62,7 +62,7 @@ func TestAuthorize_UnreadableConnectionDenies(t *testing.T) {
 // wrapped in ErrForbidden it must surface as a server fault: reported as a
 // denial it sends whoever reads it hunting a grant that was never the problem.
 func TestHandleBrokerError_ConfigFaultOutranksForbidden(t *testing.T) {
-	p := &ProxyHandler{logger: logging.NewLoggerWithOutput(io.Discard)}
+	p := &ProxyHandler{brand: testBrand, logger: logging.NewLoggerWithOutput(io.Discard)}
 
 	for name, err := range map[string]error{
 		"bare":               credentials.ErrInvalidConfig,

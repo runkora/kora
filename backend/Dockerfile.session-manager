@@ -34,6 +34,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN mkdir -p /configs && \
     find /app/cmd/session-manager/config \
          /app/internal/platform/observability/config \
+         /app/internal/platform/brand/config \
          /app/internal/platform/storage/config \
          /app/internal/platform/token/config \
          -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
