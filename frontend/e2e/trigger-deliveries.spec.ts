@@ -149,7 +149,9 @@ test.describe('/triggers — Deliveries paging', () => {
   // here; the linked case is asserted precisely in delivery-detail.test.tsx,
   // which can inject a resolver.
   test('renders the run id as text when no agent slug can be resolved', async ({ page }) => {
-    await stubDeliveries(page, [{ data: [delivery('d1', '2026-10-07T12:00:00Z')], next_cursor: null }]);
+    await stubDeliveries(page, [
+      { data: [delivery('d1', '2026-10-07T12:00:00Z')], next_cursor: null },
+    ]);
 
     await openDeliveries(page);
     await page.getByRole('combobox').first().selectOption('failed');
