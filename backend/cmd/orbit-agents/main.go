@@ -192,7 +192,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		if strings.HasPrefix(e, "ORBIT_MANIFEST__") {
 			key, _, _ := strings.Cut(e, "=")
 			logger.Warn(ctx,
-				"legacy ORBIT_MANIFEST__ env var is ignored: migrate it to a patch file under "+patchDir+" (docs/adr/2026-09-15-manifest-patches-configmap.md)",
+				"legacy ORBIT_MANIFEST__ env var is ignored: migrate it to a patch file under "+patchDir+" (docs/guides/advanced-customisations.md)",
 				logging.Field{Key: "key", Value: key},
 			)
 		}
