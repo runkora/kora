@@ -2,9 +2,9 @@
 
 <!-- Filename: 2026-10-13-trigger-fire-coalescing.md -->
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-10-13
-**Deciders:** Pending maintainer review
+**Deciders:** Justin Wilkin
 **Technical Story:** [#500 triggers: coalesce fires about the same subject with an author-defined key](https://github.com/clear-route/orbit/issues/500)
 
 ---
@@ -139,9 +139,9 @@ That is wrong for a key.
 
 ## Decision
 
-1. **Configuration.** A webhook trigger gains `coalesce.key` and `coalesce.windowSeconds`. Both are off by default. The feature is on only when both are set. `windowSeconds` is 1 to 300.
+1. **Configuration.** A webhook trigger gains `coalesce.key` and `coalesce.window_seconds`. Both are off by default. The feature is on only when both are set. `window_seconds` is 1 to 300.
 2. **Key.** The author writes `coalesce.key` as a template in the `prompt_template` syntax, for example `{{ repository.full_name }}#{{ pull_request.number }}`. It renders with Option 4a against the same field map as the prompt. The platform keeps no per-provider default keys.
-3. **Window.** A fire with a key is enqueued with `dispatch_after = now() + windowSeconds`. The claim query skips rows that are not due. The window is fixed from the first fire and is never extended.
+3. **Window.** A fire with a key is enqueued with `dispatch_after = now() + window_seconds`. The claim query skips rows that are not due. The window is fixed from the first fire and is never extended.
 4. **Replacement.** A fire whose key matches a waiting row of the same trigger, still unclaimed and still inside its window, replaces that row in place. The row keeps the first fire's `dispatch_after`. The newest payload wins.
 5. **Atomicity.** Option 2a. One transaction locks the trigger row, updates the matching waiting row if one exists, and inserts a row if none did. Two concurrent fires with the same key cannot both insert.
 6. **Running runs.** Only unclaimed rows are replaced. A claimed or started fire is untouched. A fire after the window closes starts its own window and its own run.
@@ -149,32 +149,18 @@ That is wrong for a key.
 8. **Delivery list.** The delivery list returns the keys and the pointer.
 9. **Kinds.** Webhook triggers only. Scheduled triggers keep `replace` and manual fires keep `refuse`. A create or update that sets `coalesce` on another kind is rejected.
 
-### Proposed defaults
+### Details
 
-These four details were not fixed by the issue.
-The implementation follows them.
-The maintainer can change any of them before this ADR is accepted.
-
-- **Q1: coalesce needs `overflow: wait`.** Validation rejects `coalesce` with `replace` or `refuse`. The check runs on the stored value after an update is applied, so changing overflow on a coalescing trigger is also rejected.
-- **Q2: only a fully empty render skips coalescing.** A render of zero bytes dispatches as it does today. A partial render such as `org/repo#` still coalesces.
-- **Q3: a rendered key over 256 bytes does not coalesce.** The fire dispatches as it does today. The delivery records that the key was too long and stores no key text.
-- **Q4: the key is recorded at enqueue.** The row in `trigger_delivery_keys` is written before the fire is enqueued. The delivery list returns it from then on, including while the fire is waiting.
-
-### Open questions
-
-The issue and the maintainer decisions do not cover these.
-Each has a stated default so the implementation can proceed.
-The maintainer can change them.
-
-1. **Wire name.** The issue names `coalesce.windowSeconds`. The rest of the trigger API uses snake_case, for example `max_parallel`. The default follows the issue.
-2. **Key template length.** Default: 256 bytes, checked at create and update.
-3. **Whitespace-only render.** Default: not empty. A render of `" "` coalesces. Only zero bytes skips.
-4. **Several triggers on one delivery.** Default: the key is stored per delivery and trigger, so each trigger's key is visible.
-5. **Queue depth.** Default: held fires count toward `max_queue_depth` and `pending_count`. A replacement does not grow the backlog. After a coalescing enqueue, trim keeps the backlog at `max_queue_depth` and may evict the oldest row, held or not.
-6. **Queue age metric.** Default: the oldest-waiting age counts from the time a row became due, so a long window does not read as a stalled worker.
-7. **Settings changed while fires wait.** Default: a waiting row keeps the window it was enqueued with. New settings apply to the next fire.
-8. **Redelivery.** Default: a replayed delivery is a webhook fire and coalesces like any other.
-9. **Update shape.** Default: a `coalesce` object in an update replaces the stored one. `{}` turns the feature off.
+10. **Overflow.** Coalescing requires `overflow: wait`. Validation rejects `coalesce` with `replace` or `refuse`. `replace` removes every waiting fire of the trigger whatever its key. A per-key window cannot hold under it. The check runs on the stored value after an update is applied. Changing overflow on a coalescing trigger away from `wait` is also rejected.
+11. **Empty key.** The rendered key is trimmed of surrounding whitespace. A key that is empty after trimming does not coalesce, and the fire dispatches as it does today. A partial render such as `org/repo#` is a key and coalesces.
+12. **Key length.** The key template is at most 256 bytes, checked at create and update. A rendered key over 256 bytes does not coalesce. The fire dispatches as it does today, and the delivery records that the key was too long and stores no key text.
+13. **Recording time.** The row in `trigger_delivery_keys` is written before the fire is enqueued. The delivery list returns it from then on, including while the fire is waiting.
+14. **Several triggers.** One delivery can match several triggers. Each trigger records its own key for the delivery.
+15. **Queue depth.** Held fires count toward `max_queue_depth` and `pending_count`. A replacement does not grow the backlog. After a coalescing enqueue, trim keeps the backlog at `max_queue_depth` and may evict the oldest row, held or not.
+16. **Queue age.** The oldest-waiting age counts from the time a row became due. A long window does not read as a stalled worker.
+17. **Edits.** A waiting row keeps the window it was enqueued with. New settings apply from the next fire.
+18. **Redelivery.** A replayed delivery is a webhook fire and coalesces like any other.
+19. **Update shape.** A `coalesce` object in an update replaces the stored one. `{}` turns the feature off. An update without `coalesce` leaves it unchanged.
 
 ---
 
@@ -190,7 +176,7 @@ The maintainer can change them.
 
 ### Negative
 
-- A coalescing trigger starts runs up to `windowSeconds` later than it does today.
+- A coalescing trigger starts runs up to `window_seconds` later than it does today.
 - Coalescing inserts for one trigger serialise on the trigger row.
 - A continuing burst starts one run per window, not one run for the burst, because the window never extends.
 - The rendered key outlives payload retention. It can hold payload-derived text for as long as delivery history is kept. The author controls which fields enter it, and the 256 byte cap bounds it.
