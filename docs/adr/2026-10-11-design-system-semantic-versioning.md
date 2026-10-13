@@ -167,7 +167,7 @@ The two relate in one direction. The manifest, `tokens.css` and the schema are p
 | `productName` bounds loosen, or a slot's formats or maximum size grow | minor | minor | boundary rule 1 |
 | A semantic name present at the last release is removed | none | major | Semantic Versioning: no theme sets a semantic name, but a consumer's styles may read it |
 | An export removed or renamed, a prop removed, a prop made required, a peer dependency added, or a peer dependency range narrowed | none | major | Semantic Versioning |
-| A semantic name added over existing tokens, an export added, an optional prop added, or a peer dependency range widened | none | minor | Semantic Versioning |
+| A semantic name added over existing tokens, an export added, an optional prop added, a peer dependency range widened, or a peer dependency removed | none | minor | Semantic Versioning |
 | No manifest change and no API change, and sources changed: markup or style changes, a default value change, a change to `scripts/`, build or test configuration | none | patch | boundary rule 5 |
 | Only `README.md`, `CONTRACT.md`, `src/docs/`, stories or tests changed | none | none | no rule engaged |
 
@@ -262,7 +262,7 @@ The classifier built to the first version of this ADR classifies on one axis. Ev
 
 - **Two results.** `classify()` returns a package level and a contract level, and each finding records the level it moves on each axis. The table above is the specification; the code's rules mirror it row for row.
 - **Component API rows.** A removed export, a removed prop and a changed peer range were classified minor and become package major. An added export, now caught only by the generic source-change patch, becomes package minor. A prop made required is new, and needs `scripts/lib/exports.ts` to record whether each member is optional.
-- **Peer dependencies.** A peer added becomes package major. A changed range is compared rather than treated as one kind of change: a range that accepts every version the old one did is widened, minor; any other is narrowed, major.
+- **Peer dependencies.** A peer added becomes package major. A changed range is compared rather than treated as one kind of change: a range that accepts every version the old one did is widened, minor; any other is narrowed, major. Overlapping and touching alternatives are merged before comparing, so a union is judged by what it covers. A peer removed is the widest range of all and is minor.
 - **Semantic names.** A removed semantic name was minor and becomes package major with no contract change; an added one was a patch and becomes package minor. Remapping stays major on both axes.
 - **Two floors.** `requiredVersion` and `floorMet` also work on the two-part contract version, and the script reads the baseline contract version from `manifest.json` at the last `hades/v*` tag.
 - **The theme document key.** `schema.ts` and its tests name the key `contractVersion`, not `hadesVersion`. Hades `1.0.0` is not released, so this is not a document-format change against any baseline.
