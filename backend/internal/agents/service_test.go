@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -424,10 +425,27 @@ func TestListAgentTypes_FiltersByTenant(t *testing.T) {
 	}
 }
 
+// ApplyAll applies every active agent type and skips the others.
+func TestApplyAll_AppliesActiveAgentTypes(t *testing.T) {
+	svc, repo, k8s, _ := newTestService(t)
+	seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "one"})
+	seedAgentType(t, repo, AgentType{ID: "at-2", TenantID: "t-2", Slug: "two"})
+	seedAgentType(t, repo, AgentType{ID: "at-3", TenantID: "t-1", Slug: "three"})
+	repo.agentTypes["at-3"].State = AgentTypeStateProvisioning
+
+	svc.at.ApplyAll(context.Background(), repo)
+
+	got := append([]string(nil), k8s.provisionedAgentTypes...)
+	slices.Sort(got)
+	if !slices.Equal(got, []string{"at-1", "at-2"}) {
+		t.Errorf("applied %v, want at-1 and at-2", got)
+	}
+}
+
 // ── StartRun ──────────────────────────────────────────────────────────────────
 
 func TestStartRun_HappyPath(t *testing.T) {
-	svc, repo, _, sm := newTestService(t)
+	svc, repo, k8s, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
 		Framework:               AgentFrameworkClaudeCode,
@@ -447,6 +465,9 @@ func TestStartRun_HappyPath(t *testing.T) {
 	}
 	if run.AgentTypeID != at.ID {
 		t.Errorf("AgentTypeID = %q, want %q", run.AgentTypeID, at.ID)
+	}
+	if len(k8s.provisionedMissing) != 1 || len(k8s.provisionedAgentTypes) != 0 {
+		t.Errorf("run start provisioned missing=%v full=%v, want only a create-only provision", k8s.provisionedMissing, k8s.provisionedAgentTypes)
 	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -1083,7 +1104,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s,
+		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,

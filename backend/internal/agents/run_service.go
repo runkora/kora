@@ -68,6 +68,12 @@ type RunService struct {
 	delegation *DelegationBroker // mints/revokes run delegations; nil = issuer not wired (delegated runs fail closed)
 	envs       runEnvironmentStore
 	images     sandboxImageLookup
+	missing    missingProvisioner
+}
+
+// missingProvisioner creates an agent type's missing k8s resources without changing existing ones.
+type missingProvisioner interface {
+	ProvisionMissing(ctx context.Context, at AgentType, namespace string) error
 }
 
 // SetScopeResolver installs the resolver used to render the runtime-environment
@@ -113,20 +119,22 @@ func NewRunService(
 	authz *Authz,
 	envs runEnvironmentStore,
 	images sandboxImageLookup,
+	missing missingProvisioner,
 	cfg RunServiceConfig,
 	logger logging.Logger,
 ) *RunService {
 	return &RunService{
-		repo:   repo,
-		atRepo: atRepo,
-		sm:     sm,
-		k8s:    k8s,
-		pubsub: pubsub,
-		authz:  authz,
-		envs:   envs,
-		images: images,
-		cfg:    cfg,
-		logger: logger,
+		repo:    repo,
+		atRepo:  atRepo,
+		sm:      sm,
+		k8s:     k8s,
+		pubsub:  pubsub,
+		authz:   authz,
+		envs:    envs,
+		images:  images,
+		missing: missing,
+		cfg:     cfg,
+		logger:  logger,
 	}
 }
 
@@ -951,12 +959,12 @@ func (s *RunService) egressCanaryHost(ctx context.Context, at AgentType) string 
 // host is allowed, and this one reliably answers HTTPS.
 const openEgressCanaryHost = "api.github.com"
 
-// providePod ensures the agent type's k8s resources exist (idempotent, fast
-// no-op if already present — guards against cluster resets where the DB
-// retains agent types but the StatefulSet/Service/HPA were lost) and picks the
-// least-loaded pod ordinal for a new run. Errors are recorded on span.
+// providePod creates the agent type's missing k8s resources (guards against
+// cluster resets where the DB retains agent types but the StatefulSet/Service/HPA
+// were lost) and picks the least-loaded pod ordinal for a new run. It never
+// changes existing resources, so a run start never rolls pods. Errors are recorded on span.
 func (s *RunService) providePod(ctx context.Context, span trace.Span, at *AgentType, namespace string) (int, error) {
-	if provErr := s.k8s.ProvisionAgentType(ctx, *at, namespace); provErr != nil {
+	if provErr := s.missing.ProvisionMissing(ctx, *at, namespace); provErr != nil {
 		span.RecordError(provErr)
 		span.SetStatus(codes.Error, "ensure agent infrastructure")
 		return 0, fmt.Errorf("ensure agent infrastructure: %w", provErr)
@@ -974,8 +982,7 @@ func (s *RunService) providePod(ctx context.Context, span trace.Span, at *AgentT
 }
 
 // selectPod picks the least-loaded Ready pod ordinal for a new run. When no pod
-// is Ready, or the StatefulSet is still rolling out a changed template, it
-// waits until one is or ctx ends.
+// is Ready, it waits until one is or ctx ends.
 func (s *RunService) selectPod(ctx context.Context, at *AgentType) (int, error) {
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
 	replicaCount, err := s.k8s.ReplicaCount(ctx, at.Slug, namespace)

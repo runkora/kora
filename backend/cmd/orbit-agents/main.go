@@ -108,6 +108,7 @@ func realMain() error {
 	// restarts; the shared helper owns the retry and re-registration cadence.
 	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
 	go runSvc.StartReaper(ctx)
+	go atSvc.ApplyAll(ctx, repo)
 	go draftSvc.StartReaper(ctx)
 	run(ctx, logger, server)
 	return nil
@@ -162,7 +163,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error
 	return db, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error)) (*http.Server, agents.AgentTypeRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error)) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -229,7 +230,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	if err := sizes.Validate(); err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
 	}
-	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, agents.RunServiceConfig{
+	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, agents.RunServiceConfig{
 		DefaultEnvironmentSize:  sizes.Default,
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,

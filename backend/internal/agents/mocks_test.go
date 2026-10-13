@@ -131,6 +131,18 @@ func (m *mockRepository) ListAgentTypes(_ context.Context, tenantID string) ([]A
 	return out, nil
 }
 
+func (m *mockRepository) ListActiveAgentTypes(context.Context) ([]AgentType, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []AgentType
+	for _, at := range m.agentTypes {
+		if at.State == AgentTypeStateActive {
+			out = append(out, *at)
+		}
+	}
+	return out, nil
+}
+
 func (m *mockRepository) ListAgentTypesByEnvironment(_ context.Context, tenantID, environmentID string) ([]AgentType, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -524,6 +536,7 @@ func (m *mockRepository) SetRunSummary(_ context.Context, runID, summary string)
 type mockK8s struct {
 	mu                      sync.Mutex
 	provisionedAgentTypes   []string
+	provisionedMissing      []string
 	deprovisionedAgentTypes []string
 	deletedSandboxes        []string
 	rolledOutSlugs          []string
@@ -560,6 +573,17 @@ func (m *mockK8s) ProvisionAgentType(_ context.Context, at AgentType, _ string) 
 	}
 	m.mu.Lock()
 	m.provisionedAgentTypes = append(m.provisionedAgentTypes, at.ID)
+	m.mu.Unlock()
+	return nil
+}
+
+// ProvisionMissing records a create-only provision of the agent type.
+func (m *mockK8s) ProvisionMissing(_ context.Context, at AgentType, _ string) error {
+	if m.provisionAgentTypeErr != nil {
+		return m.provisionAgentTypeErr
+	}
+	m.mu.Lock()
+	m.provisionedMissing = append(m.provisionedMissing, at.ID)
 	m.mu.Unlock()
 	return nil
 }
@@ -775,7 +799,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s,
+		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,
