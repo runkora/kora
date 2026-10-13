@@ -3,7 +3,7 @@
 # outside the kora frontend. Scaffolds a minimal Vite + React + Tailwind v4
 # application in a temporary directory, installs the tarball and the peer
 # dependencies it declares, renders a page that imports tokens.css, the Button
-# component and HADES_VERSION, type-checks it and runs the production build.
+# component, HADES_VERSION and CONTRACT_VERSION, type-checks it and runs the production build.
 #
 # Usage: .github/scripts/hades-smoke-build.sh <path/to/runkora-hades-X.Y.Z.tgz>
 #
@@ -120,13 +120,15 @@ EOF
 cat > src/main.tsx <<'EOF'
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Button, HADES_VERSION } from '@runkora/hades';
+import { Button, CONTRACT_VERSION, HADES_VERSION } from '@runkora/hades';
 import './index.css';
 
 function App() {
   return (
     <main>
-      <Button variant="secondary">Hades {HADES_VERSION}</Button>
+      <Button variant="secondary">
+        Hades {HADES_VERSION}, contract {CONTRACT_VERSION}
+      </Button>
     </main>
   );
 }
@@ -164,6 +166,11 @@ if [ -z "$js" ] || [ -z "$css" ]; then
 fi
 if ! grep -qF "$version" "$js"; then
   echo "error: HADES_VERSION $version is not in the built bundle" >&2
+  exit 1
+fi
+contract=$(node -pe 'require("./node_modules/@runkora/hades/manifest.json").contractVersion')
+if ! grep -qF "\"$contract\"" "$js"; then
+  echo "error: CONTRACT_VERSION $contract is not in the built bundle" >&2
   exit 1
 fi
 if ! grep -q -- '--hades-raw-font-sans' "$css"; then
