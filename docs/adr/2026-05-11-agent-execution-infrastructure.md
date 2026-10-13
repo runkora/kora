@@ -197,7 +197,7 @@ On agent type deletion, all resources are removed after active runs drain.
 *   Each agent's StatefulSet and HPA will have a minimum of 2 replicas.
 *   The headless Service will set `publishNotReadyAddresses: true` to keep a draining pod reachable by its DNS name.
 *   On SIGTERM the session-manager will fail readiness, accept no new sessions, and exit when its runs end or the grace period from the chart ends.
-*   Run start will create only missing resources and will not change the pod template. orbit-agents will apply template and image changes at startup and on agent update, and RollingUpdate will replace one pod at a time.
+*   Run start will create only missing resources and will not change the pod template. orbit-agents will apply template and image changes at startup, and RollingUpdate will replace one pod at a time.
 *   Pod selection will take any Ready pod that is not terminating and has a free slot. A pod on the old revision during a roll qualifies.
 
 ---
@@ -209,7 +209,7 @@ On agent type deletion, all resources are removed after active runs drain.
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — session-manager (main container)
 - [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — service that provisions these resources
 - [agent-identity-and-policy-provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — SPIRE entry and grant lifecycle
-- [run-scheduling](2026-10-12-run-scheduling.md) — Amendment 1
+- [run-scheduling](2026-10-12-run-scheduling.md): Amendment 1
 
 ---
 

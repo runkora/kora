@@ -220,7 +220,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /internal/session/{runID}/sandbox", c.handleGetSandbox)
 }
 
-// handleHealth returns liveness + active session count.
+// handleHealth is the readiness probe with the active session count. A draining pod answers 503.
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	// A draining pod fails readiness so new runs go to another pod.

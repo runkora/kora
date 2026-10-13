@@ -239,7 +239,8 @@ On future resume, both `run_events` and `run_messages` are interleaved by timest
 *   `POST /api/v1/runs` will write the run as `pending` with its initial message and return it. A worker in orbit-agents will claim the run, assign a pod and set the run `starting`, then create the session with the stored initial message and set the run `active`.
 *   A run can hold `pending` for up to the start budget, measured from `created_at`. When the budget runs out, the worker will move the run from `pending` to `failed` and record the reason.
 *   The stale-run reaper will also fail a run that stayed in `pending` past its window.
-*   A message to a `pending` run will be rejected with a "run is starting" error. Terminate will still work on a `pending` run.
+*   A transient session error after the pod is assigned will return a `starting` run to `pending`. A session the pod refuses will fail the run.
+*   A message to a `pending` or `starting` run will be rejected with a "run is starting" error. Terminate will still work on a `pending` run.
 *   `runs` will gain `initial_message`, `claimed_at` and `not_before`, and an index for the claim.
 
 ---
@@ -250,7 +251,7 @@ On future resume, both `run_events` and `run_messages` are interleaved by timest
 - [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — Service that owns the state machine
 - [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Streaming protocol built on `run_events`
 - [agent-workspace-model](2026-05-11-agent-workspace-model.md) — Workspace lifecycle tied to run lifecycle
-- [run-scheduling](2026-10-12-run-scheduling.md) — Amendment 1
+- [run-scheduling](2026-10-12-run-scheduling.md): Amendment 1
 
 ---
 

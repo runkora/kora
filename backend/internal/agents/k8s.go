@@ -718,11 +718,8 @@ func (p *K8sProvisioner) buildSandboxPod(run Run, agentTypeSlug, namespace strin
 		// passed through HCM via the egress-gateway EnvoyFilter
 		// (charts/orbit/templates/egress-gateway/envoyfilter.yaml).
 		"traffic.sidecar.istio.io/excludeInboundPorts": fmt.Sprintf("%d", p.cfg.SandboxGRPCPort),
-		// Hold every other container until istio-proxy is ready. Without
-		// this, identity-proxy starts immediately and times out after 60s
-		// waiting for Envoy, since istio-proxy is the LAST container
-		// kubelet starts (it follows the largest image, sandbox-exec, whose
-		// pull alone can take ~50s on a cold node). Same wiring the
+		// Holds the other containers until istio-proxy is ready on clusters
+		// where Istio does not inject it as a native sidecar. Same wiring the
 		// session-manager StatefulSet pod uses.
 		"proxy.istio.io/config": sidecarProxyConfig,
 		annotationEnvironment:   spec.Environment,
@@ -2328,7 +2325,7 @@ func (p *K8sProvisioner) sandboxPod(ctx context.Context, runID, namespace string
 }
 
 // podLive reports a sandbox pod that is neither terminating nor finished and whose sandbox-exec has not exited.
-// Sidecars keep the phase Running after sandbox-exec dies, so the phase alone is not enough.
+// The status of sandbox-exec catches a dead pod before its phase changes.
 func podLive(pod *corev1.Pod) bool {
 	return pod.DeletionTimestamp == nil && pod.Status.Phase != corev1.PodFailed && pod.Status.Phase != corev1.PodSucceeded &&
 		sandboxExecTerminated(pod) == nil

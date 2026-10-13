@@ -69,7 +69,7 @@ orbit-agents will schedule runs through a durable queue on the `runs` table, and
 ### Run Start
 
 *   `POST /api/v1/runs` will authorize the caller, write the run as `pending` with its initial message, mint a delegated run's delegation from the caller's token, and return the run.
-*   A message to a `pending` run will be rejected with a "run is starting" error. Terminate will still work on a `pending` run.
+*   A message to a `pending` or `starting` run will be rejected with a "run is starting" error. Terminate will still work on a `pending` run.
 *   The initial message will be stored on the run row and sent when the worker creates the session.
 
 ### Worker
@@ -78,15 +78,15 @@ orbit-agents will schedule runs through a durable queue on the `runs` table, and
 *   It will create only the agent's missing Kubernetes resources. It will not change existing ones.
 *   It will select a Ready pod that is not terminating and has a free slot. A pod on the old revision during a roll qualifies. The worker will not wait for a pod.
 *   It will assign the pod and set the run `starting`, then create the session with the stored initial message and set the run `active`.
-*   On no Ready pod, no free slot, or a transient Kubernetes API error such as a conflict, it will release the claim with a `not_before` retry time.
+*   On no Ready pod, no free slot, a transient Kubernetes API error such as a conflict, or a transient session error, it will release the claim with a `not_before` retry time.
 *   When the start budget measured from `created_at` has run out, it will set the run `failed` and record the reason on the run.
 *   Each step will change the run with a compare-and-swap on its state. Terminate deletes the run row. When a step finds the run gone or changed, the worker will stop and close any session it created.
 *   Session creation is keyed by run ID. A repeated create of the same run on the same pod counts as success.
-*   Every replica will release claims on `pending` runs older than a stale window. The stale-run reaper fails a run that a dead worker left in `starting` and a run that stayed in `pending`.
+*   Every replica will release `pending` runs whose claim is older than a stale window. The stale-run reaper fails a run that a dead worker left in `starting` and a run that stayed in `pending`.
 
 ### Agent Resources
 
-*   orbit-agents will apply every agent type's resources at startup and on agent update. This includes the pod template and the session-manager image.
+*   orbit-agents will apply every agent type's resources at startup. This includes the pod template and the session-manager image.
 *   The headless Service will set `publishNotReadyAddresses: true`.
 *   The HPA minimum and the StatefulSet replicas will be 2.
 *   On SIGTERM the session-manager will fail readiness, accept no new sessions, and exit when its runs end or the grace period ends. The StatefulSet's `terminationGracePeriodSeconds` will come from the chart.
