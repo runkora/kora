@@ -12,7 +12,7 @@ const rule = {
         '`{{ name }}.{{ property }}` is undefined in a Server Component: Hades is a ' +
         '`"use client"` entrypoint, so `{{ name }}` arrives as a client reference without its ' +
         'composed sub-components, and React throws "Element type is invalid". Import ' +
-        '`{{ name }}{{ property }}` by name from `@orbit/hades`, or add `"use client"` to this file.',
+        '`{{ name }}{{ property }}` by name from `@clear-route/hades`, or add `"use client"` to this file.',
     },
   },
   create(context) {
@@ -29,7 +29,7 @@ const rule = {
         );
       },
       ImportDeclaration(node) {
-        if (node.source.value !== '@orbit/hades') return;
+        if (node.source.value !== '@clear-route/hades') return;
         for (const spec of node.specifiers) {
           if (spec.type === 'ImportSpecifier' && COMPOUND.has(spec.imported.name)) {
             hadesNames.add(spec.local.name);

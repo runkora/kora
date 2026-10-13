@@ -12,7 +12,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { fmtUsd } from '@orbit/utils';
 import { AgentBudgets, Breakdown, TrendChart } from '../../_components/agents-spend-card';
 import { SPEND_ALERT_PCT, changeText, usedShare } from '../../_lib/spend';

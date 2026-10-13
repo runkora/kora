@@ -1,4 +1,4 @@
-import { BrandLogo, Stack } from '@orbit/hades';
+import { BrandLogo, Stack } from '@clear-route/hades';
 import { defaultTheme } from '@orbit/theme/default';
 import type { ReactNode } from 'react';
 

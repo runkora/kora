@@ -5,7 +5,7 @@
  * Used by the Environments wizard and the agent Connectivity tab. */
 
 import { useState } from 'react';
-import { Button, Card, Icon, Input, Stack, Text } from '@orbit/hades';
+import { Button, Card, Icon, Input, Stack, Text } from '@clear-route/hades';
 import { COMMON_PACKAGE_REGISTRIES } from '../_types';
 
 interface EgressHostsEditorProps {

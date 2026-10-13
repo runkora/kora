@@ -10,7 +10,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 
 export default function RoutesLoading() {
   return (

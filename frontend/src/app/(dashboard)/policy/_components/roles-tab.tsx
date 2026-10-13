@@ -27,7 +27,7 @@ import {
   PageSectionHeader,
   EmptyState,
   ConfirmDialog,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import type { RoleEntry } from '../_types';

@@ -10,16 +10,16 @@
 
 ## Before You Start
 
-Hades (`@orbit/hades`) is the **mandatory** UI foundation for all product JSX. These local ESLint rules enforce it, with no exceptions in product code. The enforced set is `HADES_RULES` in `frontend/eslint.config.mjs`.
+Hades (`@clear-route/hades`) is the **mandatory** UI foundation for all product JSX. These local ESLint rules enforce it, with no exceptions in product code. The enforced set is `HADES_RULES` in `frontend/eslint.config.mjs`.
 
 | Rule                                | What it bans                                                                                                                                       | Escape hatch                                                                                                                                                                                                              |
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `local/no-raw-layout-elements`      | Every `<div>` (unconditional), `<section>`, `<aside>`, `<nav>`, `<header>`, `<footer>`, `<article>` (unconditional) + `<main>` with layout classes | **None**: use `<Stack>` / `<Grid>` / `<Section>` / `<Navigation>` / `<Callout>` / `<SidePanel>`; for other semantic HTML use `<Stack asChild>` or `<Grid asChild>`; if missing, propose a new Hades component (see below) |
 | `local/no-raw-inline-elements`      | Every raw inline element (`span`, `strong`, `b`, `em`, `i`, `mark`, `abbr`, `s`, `u`, `sub`, `sup`, `code`, `kbd`, `samp`, `var`)                  | **None**: use a Hades equivalent; if missing, propose a new Hades component (see below)                                                                                                                                   |
 | `local/no-raw-html-text-tags`       | `<p>` and `<h1>`–`<h6>`                                                                                                                            | **None**: use `<Text>` and `<Heading>`                                                                                                                                                                                    |
-| `local/no-raw-interactive-elements` | `<button>`                                                                                                                                         | **None**: use `<Button>` from `@orbit/hades`                                                                                                                                                                              |
-| `local/no-raw-list-elements`        | `<ul>`, `<ol>`, `<li>`                                                                                                                             | **None**: use `<List>` (or `<List ordered>`) and `<ListItem>` from `@orbit/hades`; `<Stack>` for pure layout containers                                                                                                   |
-| `local/no-raw-form-elements`        | `<form>`, `<label>`, `<input>`, `<output>`                                                                                                         | **None**: use `<Form>`, `<Label>` (or `<Checkbox>` for labelled checkboxes), `<Input>` / `<Checkbox>`, `<Output>` from `@orbit/hades`                                                                                     |
+| `local/no-raw-interactive-elements` | `<button>`                                                                                                                                         | **None**: use `<Button>` from `@clear-route/hades`                                                                                                                                                                        |
+| `local/no-raw-list-elements`        | `<ul>`, `<ol>`, `<li>`                                                                                                                             | **None**: use `<List>` (or `<List ordered>`) and `<ListItem>` from `@clear-route/hades`; `<Stack>` for pure layout containers                                                                                             |
+| `local/no-raw-form-elements`        | `<form>`, `<label>`, `<input>`, `<output>`                                                                                                         | **None**: use `<Form>`, `<Label>` (or `<Checkbox>` for labelled checkboxes), `<Input>` / `<Checkbox>`, `<Output>` from `@clear-route/hades`                                                                               |
 | `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'`                                                                                                                 | **None**: use `<Icon name="…" />`; add new icons to `src/packages/hades/src/components/icon/registry.ts` only                                                                                                             |
 | `local/no-hades-classname`          | `className` on any Hades component                                                                                                                 | **None**: use the component's design-token props                                                                                                                                                                          |
 
@@ -44,7 +44,7 @@ The most common migrations at a glance.
 | `<div className="grid grid-cols-3 gap-4">`                            | `<Grid cols={3} gap="comfortable">`                                                                                                       |
 | `<div style={{ display: 'grid', gridTemplateColumns: '1fr 372px' }}>` | `<SidebarLayout sidebarWidth="detail-panel" gap="relaxed">`                                                                               |
 | `<div className="flex items-center justify-between">`                 | `<Stack direction="horizontal" align="center" justify="between">`                                                                         |
-| `<section>`                                                           | `<Section>` from `@orbit/hades`                                                                                                           |
+| `<section>`                                                           | `<Section>` from `@clear-route/hades`                                                                                                     |
 | `<section className="flex flex-col gap-8 p-6">`                       | `<Stack asChild gap="relaxed"><section>…</section></Stack>`                                                                               |
 | `<aside className="grid grid-cols-2">`                                | `<Grid asChild cols={2}><aside>…</aside></Grid>`                                                                                          |
 | `<button onClick={…}>label</button>`                                  | `<Button onClick={…}>label</Button>`                                                                                                      |
@@ -73,7 +73,7 @@ Every `<div>` must become a `Stack` (flex), `Grid` (equal-column CSS grid), or `
 `Stack` replaces `<div className="flex …">`. It renders a `div` by default.
 
 ```tsx
-import { Stack } from '@orbit/hades';
+import { Stack } from '@clear-route/hades';
 
 // ❌ Banned
 <div className="flex flex-col gap-4">…</div>
@@ -127,7 +127,7 @@ import { Stack } from '@orbit/hades';
 `Grid` replaces `<div className="grid grid-cols-N gap-…">`.
 
 ```tsx
-import { Grid } from '@orbit/hades';
+import { Grid } from '@clear-route/hades';
 
 // ❌ Banned
 <div className="grid grid-cols-3 gap-6">…</div>
@@ -161,7 +161,7 @@ import { Grid } from '@orbit/hades';
 `SidebarLayout` addresses a layout that neither `Stack` nor `Grid` can express: a two-column grid where one column is fluid (`1fr`) and the other is a fixed-width sidebar. Use it instead of the inline-style workaround.
 
 ```tsx
-import { SidebarLayout } from '@orbit/hades';
+import { SidebarLayout } from '@clear-route/hades';
 
 // ❌ Banned — inline style workaround
 <div style={{ display: 'grid', gridTemplateColumns: '1fr 372px', gap: 24 }}>
@@ -215,7 +215,7 @@ For one-off widths with no token, pass a number (`sidebarWidth={300}`) or a stri
 
 ## Layout: Semantic Elements
 
-`<section>` is blocked **unconditionally**. Use `<Section>` from `@orbit/hades` for content groupings with optional heading and description. For layout-only groupings without those semantics, use `<Stack>` (renders a `<div>`).
+`<section>` is blocked **unconditionally**. Use `<Section>` from `@clear-route/hades` for content groupings with optional heading and description. For layout-only groupings without those semantics, use `<Stack>` (renders a `<div>`).
 
 ```tsx
 // ❌ Banned — raw <section>
@@ -260,7 +260,7 @@ For one-off widths with no token, pass a number (`sidebarWidth={300}`) or a stri
 Every heading must use `Heading`. The variant selects both the visual scale and the default HTML element, so you never need to write `h1`–`h4` directly.
 
 ```tsx
-import { Heading } from '@orbit/hades';
+import { Heading } from '@clear-route/hades';
 
 // ❌ Banned
 <h1 className="text-3xl font-bold">Agents</h1>
@@ -303,7 +303,7 @@ import { Heading } from '@orbit/hades';
 `Text` covers all prose, metadata, captions, and descriptive strings. It replaces both `<p>` and `<span>`.
 
 ```tsx
-import { Text } from '@orbit/hades';
+import { Text } from '@clear-route/hades';
 
 // ❌ Banned
 <p className="text-sm text-muted">Last seen 2 minutes ago</p>
@@ -425,7 +425,7 @@ This is intentional: the rule prevents the codebase from accumulating ad-hoc HTM
 `Code` renders a `<code>` element with consistent monospace styling. Use it for technical identifiers inside prose.
 
 ```tsx
-import { Code } from '@orbit/hades';
+import { Code } from '@clear-route/hades';
 
 // ❌ Banned
 <code>ORBIT_API_KEY</code>
@@ -452,10 +452,10 @@ For a whole cell or label that is a technical value (not inside prose), use `Tex
 
 ## Interactive Elements: `Button`
 
-All interactive elements must use `<Button>` from `@orbit/hades`. Raw `<button>` is banned unconditionally by `local/no-raw-interactive-elements`.
+All interactive elements must use `<Button>` from `@clear-route/hades`. Raw `<button>` is banned unconditionally by `local/no-raw-interactive-elements`.
 
 ```tsx
-import { Button } from '@orbit/hades';
+import { Button } from '@clear-route/hades';
 
 // ❌ Banned
 <button onClick={handleSave}>Save</button>
@@ -539,7 +539,7 @@ Only `Text` exposes a string `as` prop. All other element-override use cases use
 `Badge` is the canonical inline status/label chip. It replaces ad-hoc `<span className="rounded …">` patterns. All colour, size, and typography come from the variant prop. Never override with `className`.
 
 ```tsx
-import { Badge } from '@orbit/hades';
+import { Badge } from '@clear-route/hades';
 ```
 
 ### Variants
@@ -588,7 +588,7 @@ Every dashboard page gets one gutter from `app/(dashboard)/layout.tsx`: `Stack p
 Use `Section` for page sections and `PageLayout` as the top-level page wrapper. These are higher-level primitives that compose `Stack` and `Grid` internally.
 
 ```tsx
-import { PageLayout, Section } from '@orbit/hades';
+import { PageLayout, Section } from '@clear-route/hades';
 
 // Top-level page shell
 <PageLayout>
@@ -606,7 +606,7 @@ import { PageLayout, Section } from '@orbit/hades';
 Use `Wizard` inside a `Modal size="builder"` to build consistent multi-step configuration flows. `Wizard` is a compound component; all sub-components are accessed via the `Wizard` namespace.
 
 ```tsx
-import { Modal, ModalAccessibleTitle, Wizard } from '@orbit/hades';
+import { Modal, ModalAccessibleTitle, Wizard } from '@clear-route/hades';
 
 <Modal open onClose={onClose} size="builder" dismissOnOutsideClick={false}>
   <ModalAccessibleTitle>New agent</ModalAccessibleTitle>
@@ -687,7 +687,7 @@ import type {
   WizardHeaderProps,
   WizardFooterProps,
   WizardReviewCardProps,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 ```
 
 ---
@@ -780,13 +780,13 @@ Use this checklist before opening a PR. Every item must be true.
 
 ### Interactive Elements
 
-- [ ] No raw `<button>` elements: all replaced with `<Button>` from `@orbit/hades`.
+- [ ] No raw `<button>` elements: all replaced with `<Button>` from `@clear-route/hades`.
 - [ ] Icon-only buttons have `size="icon"` or `size="icon-sm"` and an `aria-label`.
 
 ### Lists & Forms
 
 - [ ] No raw `<ul>`, `<ol>`, `<li>` elements: replaced with `<List>` / `<List ordered>` and `<ListItem>` (or `<Stack>` for pure layout containers).
-- [ ] No raw `<form>`, `<label>`, `<input>`, `<output>` elements: replaced with `<Form>`, `<Label>` (or `<Checkbox>`), `<Input>` / `<Checkbox>`, `<Output>` from `@orbit/hades`.
+- [ ] No raw `<form>`, `<label>`, `<input>`, `<output>` elements: replaced with `<Form>`, `<Label>` (or `<Checkbox>`), `<Input>` / `<Checkbox>`, `<Output>` from `@clear-route/hades`.
 
 ### Typography
 
@@ -796,7 +796,7 @@ Use this checklist before opening a PR. Every item must be true.
 - [ ] No `<strong>` or `<b>` elements: replaced with `Text weight="heavy"` or `weight="strong"`.
 - [ ] No `<em>` or `<i>` elements: no Hades equivalent yet; (see [Adding a Missing Hades Component](#adding-a-missing-hades-component)).
 - [ ] No `<code>` elements: replaced with `Code` (in prose) or `Text mono` (standalone technical values).
-- [ ] No `<code>`, `<kbd>`, `<samp>`, `<var>` elements: replaced with `<Code>` from `@orbit/hades`.
+- [ ] No `<code>`, `<kbd>`, `<samp>`, `<var>` elements: replaced with `<Code>` from `@clear-route/hades`.
 - [ ] No `<mark>`, `<abbr>`, `<s>`, `<u>`, `<sub>`, `<sup>` elements
 - [ ] `Text as="span"` is used when the rendered element must be inline (e.g. inside a `<Button>`, `<a>`, `<p>`, or `<li>`); `asChild` is used only to merge Text styles onto a non-span child element you already control.
 

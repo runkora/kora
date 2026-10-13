@@ -6,7 +6,7 @@
  * Selecting several scopes keeps any row that carries at least one of them
  * (union).
  */
-import type { DataTableClientFilter } from '@orbit/hades';
+import type { DataTableClientFilter } from '@clear-route/hades';
 
 export function scopeColumnFilter<TData>(
   rows: readonly TData[],

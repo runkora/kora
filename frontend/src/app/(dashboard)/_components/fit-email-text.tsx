@@ -3,7 +3,7 @@
 /** @tier 3 — sidebar-footer-scoped. Shrinks an email to fit its column, single-line, no ellipsis. */
 
 import { useLayoutEffect, useRef } from 'react';
-import { Text } from '@orbit/hades';
+import { Text } from '@clear-route/hades';
 
 const MAX_PX = 11.5;
 

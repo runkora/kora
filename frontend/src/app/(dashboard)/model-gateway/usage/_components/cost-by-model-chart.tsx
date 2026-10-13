@@ -10,7 +10,7 @@ import {
   Cell,
   ResponsiveContainer,
 } from 'recharts';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@orbit/hades';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@clear-route/hades';
 import { fmtUsd } from '@orbit/utils';
 import { MODEL_COSTS } from '../../_data/mock';
 

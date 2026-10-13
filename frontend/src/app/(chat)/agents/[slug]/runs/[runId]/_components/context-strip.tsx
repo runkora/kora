@@ -5,7 +5,7 @@
  * 32px horizontal strip of file chips representing the agent's context window.
  */
 
-import { Stack, Text, Button } from '@orbit/hades';
+import { Stack, Text, Button } from '@clear-route/hades';
 import { useRunContext } from '../_context/run-context';
 
 function getExt(path: string): string {

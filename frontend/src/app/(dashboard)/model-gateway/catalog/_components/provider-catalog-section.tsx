@@ -18,7 +18,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { BadgeList } from '../../_components/badge-list';

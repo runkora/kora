@@ -16,8 +16,8 @@ import {
   ConfirmDialog,
   EmptyState,
   TruncatingBadge,
-} from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+} from '@clear-route/hades';
+import type { DataTableColumn } from '@clear-route/hades';
 import { ClampedList } from '@orbit/components';
 import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';

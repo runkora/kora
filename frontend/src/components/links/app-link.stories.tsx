@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack, Text } from '@orbit/hades';
+import { Stack, Text } from '@clear-route/hades';
 import { Example, Option, OptionTable } from '../../packages/hades/src/docs/story-ui';
 import { AppLink } from './app-link';
 

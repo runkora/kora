@@ -11,7 +11,7 @@ import {
   ChartTooltipContent,
   ChartLegendContent,
   type ChartConfig,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import type { AnalyticsBucket } from '../../_types';
 
 const CHART_CONFIG: ChartConfig = {

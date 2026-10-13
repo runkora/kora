@@ -14,8 +14,8 @@ import {
   PopoverTrigger,
   TemplateCatalogList,
   Text,
-} from '@orbit/hades';
-import type { TemplateCatalogEntry } from '@orbit/hades';
+} from '@clear-route/hades';
+import type { TemplateCatalogEntry } from '@clear-route/hades';
 
 interface CatalogPickerProps {
   /** The current choice; the placeholder shows when empty. */

@@ -18,7 +18,7 @@
  *     Date
  *   </TableColumnHeader>
  *
- * Static (no interactions) — just use the base `TableHead` from @orbit/hades instead.
+ * Static (no interactions) — just use the base `TableHead` from @clear-route/hades instead.
  */
 
 import * as React from 'react';

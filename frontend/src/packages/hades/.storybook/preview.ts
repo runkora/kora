@@ -26,7 +26,7 @@ import type { Preview } from '@storybook/react';
  *     mapped into Tailwind via `@theme inline`
  *
  * The path must be a relative filesystem path. Bare package specifiers
- * (e.g. `@orbit/hades/src/tokens/tokens.css`) do not work here because
+ * (e.g. `@clear-route/hades/src/tokens/tokens.css`) do not work here because
  * Vite resolves CSS imports via the filesystem, not Node module resolution.
  */
 import '../src/tokens/tokens.css';

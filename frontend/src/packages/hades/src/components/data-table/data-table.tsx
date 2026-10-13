@@ -16,9 +16,9 @@
  *
  * ```
  * Are you building inside (dashboard)/ (authenticated shell)?
- * ├── No  → use DataTable from @orbit/hades
+ * ├── No  → use DataTable from @clear-route/hades
  * └── Yes → Does this table need column visibility persisted per user?
- *           ├── No  → use DataTable from @orbit/hades
+ *           ├── No  → use DataTable from @clear-route/hades
  *           └── Yes → use SmartTable from @orbit/components  ← default choice
  * ```
  *

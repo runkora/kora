@@ -5,7 +5,7 @@
  * @promote-to-tier-2 if: a second feature area outside model-gateway usage
  * needs this label+value row pattern.
  */
-import { Stack, Text } from '@orbit/hades';
+import { Stack, Text } from '@clear-route/hades';
 
 export interface StatRowProps {
   label: string;

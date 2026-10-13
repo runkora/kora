@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { BrandLogo, Stack, Text } from '@orbit/hades';
+import { BrandLogo, Stack, Text } from '@clear-route/hades';
 import { defaultTheme } from '@orbit/theme/default';
 
 const meta: Meta = {

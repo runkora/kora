@@ -15,8 +15,8 @@ import {
   Stack,
   Text,
   FieldRow,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+} from '@clear-route/hades';
+import type { IconName } from '@clear-route/hades';
 import {
   describeMatchCondition,
   matchConditionFrom,

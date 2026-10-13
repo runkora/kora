@@ -25,7 +25,7 @@ import {
   Stack,
   StatusDot,
   Text,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import Link from 'next/link';
 import { fmtCost, fmtNumCompact, fmtTime, fmtDateAxis } from '@orbit/utils';

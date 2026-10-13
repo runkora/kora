@@ -7,18 +7,18 @@ const rule = {
     },
     messages: {
       noRawForm:
-        'Raw <form> is not allowed. Use <Form> from @orbit/hades. ' +
+        'Raw <form> is not allowed. Use <Form> from @clear-route/hades. ' +
         'See frontend/docs/reference/hades-design-system.md',
       noRawLabel:
-        'Raw <label> is not allowed. Use <Label> from @orbit/hades for text labels, ' +
+        'Raw <label> is not allowed. Use <Label> from @clear-route/hades for text labels, ' +
         'or <Checkbox> for labeled checkbox inputs. ' +
         'See frontend/docs/reference/hades-design-system.md',
       noRawInput:
-        'Raw <input> is not allowed. Use <Input> from @orbit/hades for text inputs, ' +
+        'Raw <input> is not allowed. Use <Input> from @clear-route/hades for text inputs, ' +
         'or <Checkbox> for checkbox inputs. ' +
         'See frontend/docs/reference/hades-design-system.md',
       noRawOutput:
-        'Raw <output> is not allowed. Use <Output> from @orbit/hades. ' +
+        'Raw <output> is not allowed. Use <Output> from @clear-route/hades. ' +
         'See frontend/docs/reference/hades-design-system.md',
     },
     schema: [],

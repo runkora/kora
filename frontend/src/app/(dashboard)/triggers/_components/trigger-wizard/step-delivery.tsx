@@ -26,8 +26,8 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+} from '@clear-route/hades';
+import type { IconName } from '@clear-route/hades';
 import { admissionSummary, parallelWord } from './wizard-state';
 import { LIMITS } from '../../_types';
 import type { StepComponentProps, TriggerKind, TriggerOverflow } from './types';

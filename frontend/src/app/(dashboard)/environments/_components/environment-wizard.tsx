@@ -23,7 +23,7 @@ import {
   Text,
   Textarea,
   Wizard,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import type {
   ConnectionCatalogEntry,
   Connector,

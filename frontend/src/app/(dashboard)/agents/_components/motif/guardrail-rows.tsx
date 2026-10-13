@@ -13,8 +13,8 @@ import {
   Stack,
   Text,
   Toggle,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+} from '@clear-route/hades';
+import type { IconName } from '@clear-route/hades';
 import {
   LOOP_GUARDRAIL_DEFAULTS,
   loopGuardrailErrors,

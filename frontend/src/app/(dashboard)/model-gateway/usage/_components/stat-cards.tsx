@@ -9,7 +9,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { fmtUsd, fmtTokens, fmtNumCompact } from '@orbit/utils';
 import { StatRow } from './stat-row';
 

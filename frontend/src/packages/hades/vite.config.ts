@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 /**
- * Vite config for @orbit/hades Storybook development.
+ * Vite config for @clear-route/hades Storybook development.
  *
  * Tailwind CSS v4 is processed via the official Vite plugin — no
  * tailwind.config.js required. The design tokens are declared in

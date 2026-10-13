@@ -4,7 +4,7 @@
  * The panel is hidden on small screens, where the logo moves into the form column.
  */
 import type { ReactNode } from 'react';
-import { BrandLogo, Card, CardFooter, Heading, Show, Stack, Text } from '@orbit/hades';
+import { BrandLogo, Card, CardFooter, Heading, Show, Stack, Text } from '@clear-route/hades';
 import { defaultTheme } from '@orbit/theme/default';
 
 const PANEL_GRADIENT =

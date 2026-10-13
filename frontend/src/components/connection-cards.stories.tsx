@@ -2,7 +2,7 @@
 
 import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
-import { Stack } from '@orbit/hades';
+import { Stack } from '@clear-route/hades';
 import type { ConnectionCatalogEntry, Connector } from '@orbit/shared/api';
 import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { ConnectionCards } from './connection-cards';

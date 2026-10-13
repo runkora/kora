@@ -1,6 +1,6 @@
 'use client';
 
-import { Callout, Grid, Heading, Stack, Text } from '@orbit/hades';
+import { Callout, Grid, Heading, Stack, Text } from '@clear-route/hades';
 import type { AnalyticsDays, AnalyticsGranularity, AnalyticsResponse } from '../../_types';
 import type { AnalyticsLoadStatus } from '../../_hooks/use-analytics';
 import type { PeriodPrefKey } from '../../../_preferences/period';

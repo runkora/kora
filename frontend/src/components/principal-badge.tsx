@@ -2,7 +2,7 @@
  * @tier 2 — Orbit-domain-aware: maps a principal type to its badge colour. Used by:
  * policy (grants, grant detail, evaluate), model-gateway budgets.
  */
-import { Badge } from '@orbit/hades';
+import { Badge } from '@clear-route/hades';
 
 export type PrincipalType = 'AGENT' | 'HUMAN' | 'PAT' | 'SERVICE';
 

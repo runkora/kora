@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { PageLayout } from '@orbit/hades';
+import { PageLayout } from '@clear-route/hades';
 import {
   DashboardHeader,
   DashboardSidebar,

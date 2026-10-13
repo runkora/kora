@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '@orbit/hades';
+import { Stack } from '@clear-route/hades';
 import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { PrincipalBadge } from './principal-badge';
 

@@ -4,12 +4,12 @@ const rule = {
     docs: {
       description:
         'Disallow raw HTML text-flow tags in JSX outside the Hades package. ' +
-        'Use Hades typography components (Heading, Text, Code) from @orbit/hades instead.',
+        'Use Hades typography components (Heading, Text, Code) from @clear-route/hades instead.',
     },
     messages: {
       noRawTag:
         'Raw <{{tag}}> is not allowed. ' +
-        'Use <Text> (for p) or <Heading variant="…"> (for h1–h6) from @orbit/hades. ' +
+        'Use <Text> (for p) or <Heading variant="…"> (for h1–h6) from @clear-route/hades. ' +
         'See frontend/docs/reference/hades-design-system.md',
     },
   },

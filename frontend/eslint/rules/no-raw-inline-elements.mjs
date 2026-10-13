@@ -8,15 +8,15 @@ const rule = {
     },
     messages: {
       span:
-        'Raw <span> is not allowed. Use <Text> or <Text asChild> from @orbit/hades. ' +
+        'Raw <span> is not allowed. Use <Text> or <Text asChild> from @clear-route/hades. ' +
         'See frontend/docs/reference/hades-design-system.md',
       formatting:
         'Raw <{{tag}}> is not allowed. ' +
-        'Use <Text weight="heavy"> from @orbit/hades for <strong> and <b>. ' +
+        'Use <Text weight="heavy"> from @clear-route/hades for <strong> and <b>. ' +
         'See frontend/docs/reference/hades-design-system.md',
       code:
         'Raw <{{tag}}> is not allowed. ' +
-        'Use <Code> from @orbit/hades for inline code, keyboard input, sample output, and variables. ' +
+        'Use <Code> from @clear-route/hades for inline code, keyboard input, sample output, and variables. ' +
         'See frontend/docs/reference/hades-design-system.md',
       missing:
         'Raw <{{tag}}> has no Hades equivalent yet. ' +

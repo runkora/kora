@@ -3,8 +3,8 @@
 /** @tier 3 — agents/[slug]-scoped. The Configuration tab's section rail:
  * numbered nav entries in the builder's anatomy, plus the audit card. */
 
-import { Card, CardContent, Eyebrow, SectionNav, Stack, Text } from '@orbit/hades';
-import type { SectionNavSection } from '@orbit/hades';
+import { Card, CardContent, Eyebrow, SectionNav, Stack, Text } from '@clear-route/hades';
+import type { SectionNavSection } from '@clear-route/hades';
 import { formatRelativeTime } from '../../_types';
 
 export type ConfigSection = SectionNavSection;

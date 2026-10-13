@@ -13,7 +13,7 @@
  * and drive data re-fetching — PeriodSelector intercepts `onChange` to also persist.
  */
 
-import { Button, Stack } from '@orbit/hades';
+import { Button, Stack } from '@clear-route/hades';
 import { usePreferences } from '../../../_preferences/preferences-context';
 import { toPeriod } from '../../../_preferences/period';
 import type { AnalyticsDays, PeriodPrefKey } from '../../../_preferences/period';

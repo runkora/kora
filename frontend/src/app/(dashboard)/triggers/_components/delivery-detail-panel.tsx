@@ -10,7 +10,15 @@
  * Deliveries tab and the agent page so the two surfaces cannot drift.
  */
 
-import { Button, Icon, SidePanel, SidePanelBody, SidePanelHeader, Stack, Text } from '@orbit/hades';
+import {
+  Button,
+  Icon,
+  SidePanel,
+  SidePanelBody,
+  SidePanelHeader,
+  Stack,
+  Text,
+} from '@clear-route/hades';
 import { StatusBadge } from '@orbit/components';
 import { DeliveryDetail } from './delivery-detail';
 import { deliveryStatusTone, formatTimestampUtc } from '../_types';

@@ -5,7 +5,7 @@
  * renders the four layout regions (topbar, context strip, body, input).
  */
 
-import { Stack } from '@orbit/hades';
+import { Stack } from '@clear-route/hades';
 import { RunProvider } from '../_context/run-context';
 import { RunTopbar } from './run-topbar';
 import { ContextStrip } from './context-strip';

@@ -1,9 +1,9 @@
 import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
-  // Treat the @orbit/hades workspace package as local source so that
+  // Treat the @clear-route/hades workspace package as local source so that
   // Next.js/Turbopack resolves its symlink for both JS and CSS imports.
-  transpilePackages: ['@orbit/hades'],
+  transpilePackages: ['@clear-route/hades'],
   // Emit standalone output for containerised deployments
   output: process.env.NEXT_OUTPUT === 'standalone' ? 'standalone' : undefined,
   // ORBIT_OIDC_ISSUER_URL and ORBIT_OIDC_CLIENT_ID have been intentionally

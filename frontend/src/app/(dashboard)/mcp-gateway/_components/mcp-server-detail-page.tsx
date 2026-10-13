@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 import type { McpCatalogTool } from '@orbit/shared/api';
-import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@orbit/hades';
+import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@clear-route/hades';
 import {
   MCP_CLIENTS,
   buildMcpConfig,

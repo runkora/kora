@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped. Builder step 4: enforced ceilings + the planned block. */
 
-import { Eyebrow, SectionHeading, Stack, Text } from '@orbit/hades';
+import { Eyebrow, SectionHeading, Stack, Text } from '@clear-route/hades';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { GuardrailsFields, type GuardrailValues } from '../motif/guardrail-rows';
 import { PlannedLimits } from '../motif/planned-limits';

@@ -15,8 +15,8 @@ import {
   Stack,
   StatusDot,
   Text,
-} from '@orbit/hades';
-import type { BadgeProps, StatusDotProps } from '@orbit/hades';
+} from '@clear-route/hades';
+import type { BadgeProps, StatusDotProps } from '@clear-route/hades';
 import type { EffectiveAccess } from '@orbit/shared/api';
 
 // ── Provenance model ────────────────────────────────────────────────────────────

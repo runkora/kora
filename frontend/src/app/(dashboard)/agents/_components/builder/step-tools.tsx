@@ -3,7 +3,7 @@
 /** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, connections, egress, environments. */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, SectionHeading, Separator, Stack, Text } from '@orbit/hades';
+import { Alert, SectionHeading, Separator, Stack, Text } from '@clear-route/hades';
 import type { EffectiveAccess } from '@orbit/shared/api';
 import { previewEffectiveAccess } from '../../[slug]/_services/agent-detail-api';
 import { ConnectionCards, EffectiveAccessPanel } from '@orbit/components';

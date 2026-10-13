@@ -12,7 +12,7 @@ import {
   ModalHeader,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { createToken } from '../_actions/tokens';
 import { ScopePicker } from '@orbit/components';
 import type { CreatePATResponse } from '@orbit/shared/api';

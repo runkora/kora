@@ -1,7 +1,16 @@
 /** @tier 3 — budgets-page-scoped. Promote to src/components/ if a second feature needs this. */
 'use client';
 
-import { Alert, Icon, Stack, Tabs, TabsContent, TabsList, TabsTrigger, Text } from '@orbit/hades';
+import {
+  Alert,
+  Icon,
+  Stack,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Text,
+} from '@clear-route/hades';
 import type { Grant, RoleEntry } from '../../../policy/_types/api';
 import type { BudgetPrincipalsView, PrincipalIdentity } from '../../_types';
 import { BudgetPrincipalsTab } from './budget-principals-tab';

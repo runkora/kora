@@ -27,7 +27,7 @@ import {
   Stack,
   Text,
   donutSegmentColor,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { AppLink } from '@orbit/components/links';
 import { fmtDate, fmtUsd } from '@orbit/utils';
 import {

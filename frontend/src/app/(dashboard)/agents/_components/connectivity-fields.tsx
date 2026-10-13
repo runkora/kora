@@ -4,7 +4,7 @@
  * hosts), shared by the create form and the settings tab. Promote to
  * src/components/ only if a non-agents feature needs it. */
 
-import { FormField, NativeSelect, Stack, Text, Textarea } from '@orbit/hades';
+import { FormField, NativeSelect, Stack, Text, Textarea } from '@clear-route/hades';
 import type { ConnectivityMode } from '@orbit/shared/api';
 
 // hostsToText / textToHosts bridge the API's string[] and the textarea's

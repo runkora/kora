@@ -14,7 +14,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { fmtCost } from '@orbit/utils';
 import type { ModelObjectPricing, ModelRow } from '../_types';
 import { AvailabilityDot } from './availability-dot';

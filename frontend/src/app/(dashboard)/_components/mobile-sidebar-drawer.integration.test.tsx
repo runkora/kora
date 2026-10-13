@@ -11,7 +11,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { Button } from '@orbit/hades';
+import { Button } from '@clear-route/hades';
 import { renderWithProviders } from '@orbit/test-utils';
 import { SidebarStateProvider, useSidebarState } from './sidebar-state';
 import { MobileSidebarDrawer } from './mobile-sidebar-drawer';

@@ -3,7 +3,7 @@
  * needs a scope-chip list.
  */
 
-import { Stack } from '@orbit/hades';
+import { Stack } from '@clear-route/hades';
 import { ScopeChip } from '@orbit/components';
 
 interface ScopeListProps {

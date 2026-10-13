@@ -22,7 +22,7 @@ import {
   TableHead,
   TableCell,
   EmptyState,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import type { ScopeEntryWithUsage } from '../_types';
 import { ScopeChip } from '@orbit/components';
 import { FilterChip } from './filter-chip';

@@ -17,7 +17,7 @@ import {
   Stack,
   Text,
   Icon,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import type {
   CheckResponse,
   CheckSimulateRequest,

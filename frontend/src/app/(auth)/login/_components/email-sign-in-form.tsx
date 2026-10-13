@@ -20,7 +20,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Alert, Button, Field, FieldError, Form, Input, Label, Text } from '@orbit/hades';
+import { Alert, Button, Field, FieldError, Form, Input, Label, Text } from '@clear-route/hades';
 
 import {
   buildUserManager,

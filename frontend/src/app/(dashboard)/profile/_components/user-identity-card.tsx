@@ -14,7 +14,7 @@ import {
   Icon,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import type { IronSession } from 'iron-session';
 import type { SessionPayload } from '@orbit/server/auth-config';
 

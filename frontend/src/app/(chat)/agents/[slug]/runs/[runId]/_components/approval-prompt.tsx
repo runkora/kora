@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { Stack, Text, Button, Code } from '@orbit/hades';
+import { Stack, Text, Button, Code } from '@clear-route/hades';
 
 interface ApprovalPromptProps {
   id: string;

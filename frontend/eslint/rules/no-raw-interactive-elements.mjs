@@ -4,12 +4,12 @@ const rule = {
     docs: {
       description:
         'Disallow raw <button> elements in JSX outside the Hades package. ' +
-        'Use <Button> from @orbit/hades for consistent focus styles, hover states, and accessibility.',
+        'Use <Button> from @clear-route/hades for consistent focus styles, hover states, and accessibility.',
     },
     messages: {
       noRawButton:
         'Raw <button> is not allowed. ' +
-        'Use <Button> from @orbit/hades. ' +
+        'Use <Button> from @clear-route/hades. ' +
         'See frontend/docs/reference/hades-design-system.md',
     },
     schema: [],

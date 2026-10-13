@@ -11,7 +11,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import type { AnalyticsKPIs } from '../../_types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

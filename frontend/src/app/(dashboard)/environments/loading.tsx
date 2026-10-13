@@ -10,7 +10,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 
 /**
  * The Environments page fetches the tenant's environments and the connection

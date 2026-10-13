@@ -1,5 +1,5 @@
 import NextLink from 'next/link';
-import { Anchor, type AnchorProps } from '@orbit/hades';
+import { Anchor, type AnchorProps } from '@clear-route/hades';
 import { type AppRoute } from '@orbit/lib/routing/routes';
 
 type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {

@@ -11,8 +11,8 @@
  */
 
 import { useMemo } from 'react';
-import { Badge, DataTable, Stack, StatusDot, Text } from '@orbit/hades';
-import type { DataTableColumn } from '@orbit/hades';
+import { Badge, DataTable, Stack, StatusDot, Text } from '@clear-route/hades';
+import type { DataTableColumn } from '@clear-route/hades';
 import {
   deliveryDotStatus,
   deliveryDuration,

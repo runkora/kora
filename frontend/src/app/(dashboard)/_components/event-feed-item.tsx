@@ -1,5 +1,5 @@
 /** @tier 3 — dashboard-scoped. One row in the home page's activity feed: status dot, identifier, optional meta, message and timestamp. */
-import { ListItem, Stack, StatusDot, Text } from '@orbit/hades';
+import { ListItem, Stack, StatusDot, Text } from '@clear-route/hades';
 import type { OrbitStatus } from '@orbit/components';
 
 export interface EventFeedItemProps {

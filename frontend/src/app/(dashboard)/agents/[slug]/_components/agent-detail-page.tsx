@@ -20,7 +20,7 @@ import {
   TabsTrigger,
   Text,
   EmptyState,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import Link from 'next/link';
 import { StatusBadge } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';

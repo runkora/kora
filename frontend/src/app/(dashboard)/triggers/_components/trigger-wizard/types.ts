@@ -9,7 +9,7 @@
  */
 
 import type * as React from 'react';
-import type { IconName } from '@orbit/hades';
+import type { IconName } from '@clear-route/hades';
 import type { TriggerKind, TriggerOverflow } from '@orbit/shared/api';
 import type { Frequency } from './cron';
 import type { FilterRow } from '../filter-rows-editor';

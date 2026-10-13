@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, Grid, Skeleton, Stack } from '@orbit/hades';
+import { Card, CardContent, CardHeader, Grid, Skeleton, Stack } from '@clear-route/hades';
 
 /**
  * The agent detail page loads the agent type, its runs and its budget in one

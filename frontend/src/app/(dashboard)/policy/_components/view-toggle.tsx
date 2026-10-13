@@ -2,7 +2,7 @@
  * @tier 3 — policy scoped.
  * @promote-to-tier-2 if: a second feature area outside policy adds a card/list view toggle.
  */
-import { Button, ButtonGroup, Icon } from '@orbit/hades';
+import { Button, ButtonGroup, Icon } from '@clear-route/hades';
 
 export interface ViewToggleProps {
   viewMode: 'cards' | 'list';

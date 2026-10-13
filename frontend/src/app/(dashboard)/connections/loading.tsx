@@ -10,7 +10,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 
 /**
  * The Connections page fetches the read-only connection catalog and per-connection

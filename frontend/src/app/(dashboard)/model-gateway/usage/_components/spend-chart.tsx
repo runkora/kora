@@ -13,7 +13,7 @@ import {
   ChartLegendContent,
   Stack,
   type ChartConfig,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { DAILY_SPEND, type DailySpendRow } from '../../_data/mock';
 import { TableControls, type Granularity, type Period } from './table-controls';
 import { aggregateByWeek, aggregateByMonth, filterByPeriod } from './utils/table-utils';

@@ -2,8 +2,8 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import { Badge, Grid, RadioCard, RadioGroup, Stack, Text, Textarea } from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+import { Badge, Grid, RadioCard, RadioGroup, Stack, Text, Textarea } from '@clear-route/hades';
+import type { IconName } from '@clear-route/hades';
 import type { ConnectivityMode } from '@orbit/shared/api';
 
 const EGRESS_MODES: { id: ConnectivityMode; name: string; desc: string; icon: IconName }[] = [

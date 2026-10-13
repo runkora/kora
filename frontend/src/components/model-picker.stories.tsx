@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import type { ModelObject } from '@orbit/shared/api';
-import { Stack } from '@orbit/hades';
+import { Stack } from '@clear-route/hades';
 import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { ModelPicker } from './model-picker';
 

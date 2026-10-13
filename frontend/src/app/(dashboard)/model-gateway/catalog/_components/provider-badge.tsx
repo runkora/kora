@@ -1,4 +1,4 @@
-import { Badge, Stack } from '@orbit/hades';
+import { Badge, Stack } from '@clear-route/hades';
 import { providerLabel, providerTitle, providerBadgeVariant } from '../_utils/catalog-constants';
 
 interface ProviderBadgeProps {

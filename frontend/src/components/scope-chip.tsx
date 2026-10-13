@@ -6,7 +6,7 @@
  * removed and a generic token chip is needed by a second non-dashboard surface.
  */
 import { Fragment } from 'react';
-import { Badge, Text } from '@orbit/hades';
+import { Badge, Text } from '@clear-route/hades';
 
 export interface ScopeChipProps {
   scope: string;

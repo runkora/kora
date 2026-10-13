@@ -2,7 +2,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Alert, CodeBlock, Icon, Stack, Text } from '@orbit/hades';
+import { Alert, CodeBlock, Icon, Stack, Text } from '@clear-route/hades';
 import { SmartTable, StatusBadge } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtDate } from '@orbit/utils';

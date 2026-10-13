@@ -2,7 +2,7 @@
 
 /** @tier 3 · agents/[slug]-scoped. The Overview tab. */
 
-import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@orbit/hades';
+import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@clear-route/hades';
 import { fmtTokens, fmtUsd } from '@orbit/utils';
 import { StatTile } from '../../_components/agent-stat-tiles';
 import { Breakdown } from '../../_components/agents-spend-card';

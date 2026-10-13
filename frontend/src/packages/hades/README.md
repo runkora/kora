@@ -1,6 +1,6 @@
 # Hades: kora Design System
 
-**`@orbit/hades`** · `frontend/src/packages/hades/`
+**`@clear-route/hades`** · `frontend/src/packages/hades/`
 
 ---
 
@@ -13,7 +13,7 @@ kora is another name for Persephone, who lives half the year in Olympus and half
 Hades is a monorepo workspace package. It lives at `frontend/src/packages/hades/` inside the kora frontend directory and is consumed via the pnpm workspace protocol:
 
 ```json
-"@orbit/hades": "workspace:*"
+"@clear-route/hades": "workspace:*"
 ```
 
 Changes to Hades are reflected immediately in the consuming app: no build step, no publish cycle.
@@ -42,7 +42,7 @@ Storybook runs entirely in isolation: no Next.js app, no backend, no application
 ### Use components in the frontend
 
 ```tsx
-import { Button, Card, CardContent, Badge } from '@orbit/hades';
+import { Button, Card, CardContent, Badge } from '@clear-route/hades';
 
 export default function AgentCard() {
   return (
@@ -59,7 +59,7 @@ export default function AgentCard() {
 ### Use the `cn()` utility
 
 ```tsx
-import { cn } from '@orbit/hades';
+import { cn } from '@clear-route/hades';
 
 <div className={cn('base-class', isActive && 'active-class')} />;
 ```
@@ -156,19 +156,19 @@ Five literal steps, each a raw token a theme can set (`--hades-raw-radius-*`), r
 
 Each component lives in its own named folder under `src/components/`. The folder contains the component file, a co-located Storybook story, and an `index.ts` that re-exports the public API, e.g. `src/components/card/card.tsx`, `src/components/card/card.stories.tsx`, `src/components/card/index.ts`. There is no enforced subdirectory hierarchy beyond this: atomic design (atoms → molecules → organisms) is a useful mental model for reasoning about component complexity, not a directory structure.
 
-| Component                                                                         | Import         | Notes                                                                           |
-| --------------------------------------------------------------------------------- | -------------- | ------------------------------------------------------------------------------- |
-| `Button`                                                                          | `@orbit/hades` | Variants: `default`, `secondary`, `ghost`, `outline`, `destructive`             |
-| `Badge`                                                                           | `@orbit/hades` | Variants: standard + status (`healthy`, `degraded`, `error`, `idle`, `pending`) |
-| `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | `@orbit/hades` | All exported from a single `card.tsx` file                                      |
-| `Input`                                                                           | `@orbit/hades` | Text input, Radix-based                                                         |
-| `Label`                                                                           | `@orbit/hades` | Form label, associates with inputs                                              |
-| `Separator`                                                                       | `@orbit/hades` | Horizontal/vertical divider                                                     |
-| `Skeleton`                                                                        | `@orbit/hades` | Loading placeholder                                                             |
-| `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider`                  | `@orbit/hades` | Radix Tooltip with Hades-token styling                                          |
-| `PageLayout`                                                                      | `@orbit/hades` | Root page wrapper: applies background, font, padding                            |
-| `Section`                                                                         | `@orbit/hades` | Content section with consistent vertical rhythm                                 |
-| _(more added as features are built)_                                              |                |                                                                                 |
+| Component                                                                         | Import               | Notes                                                                           |
+| --------------------------------------------------------------------------------- | -------------------- | ------------------------------------------------------------------------------- |
+| `Button`                                                                          | `@clear-route/hades` | Variants: `default`, `secondary`, `ghost`, `outline`, `destructive`             |
+| `Badge`                                                                           | `@clear-route/hades` | Variants: standard + status (`healthy`, `degraded`, `error`, `idle`, `pending`) |
+| `Card`, `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter` | `@clear-route/hades` | All exported from a single `card.tsx` file                                      |
+| `Input`                                                                           | `@clear-route/hades` | Text input, Radix-based                                                         |
+| `Label`                                                                           | `@clear-route/hades` | Form label, associates with inputs                                              |
+| `Separator`                                                                       | `@clear-route/hades` | Horizontal/vertical divider                                                     |
+| `Skeleton`                                                                        | `@clear-route/hades` | Loading placeholder                                                             |
+| `Tooltip`, `TooltipTrigger`, `TooltipContent`, `TooltipProvider`                  | `@clear-route/hades` | Radix Tooltip with Hades-token styling                                          |
+| `PageLayout`                                                                      | `@clear-route/hades` | Root page wrapper: applies background, font, padding                            |
+| `Section`                                                                         | `@clear-route/hades` | Content section with consistent vertical rhythm                                 |
+| _(more added as features are built)_                                              |                      |                                                                                 |
 
 ### Button variants
 
@@ -386,12 +386,12 @@ Stories are the primary way to review and document component variants. Run `pnpm
 
 When generating components for kora using Hades:
 
-1. **Import from `@orbit/hades`**: never import directly from internal paths like `src/components/button`
+1. **Import from `@clear-route/hades`**: never import directly from internal paths like `src/components/button`
 2. **Use semantic token classes**: `bg-surface`, `text-foreground`, `text-muted`, `border-border`, `text-accent`. Never arbitrary shades like `gray-800` or `blue-500`
 3. **Use `font-mono`** for any system identifier (agent IDs, policy names, event IDs, credential names)
 4. **Use status badge variants** for agent/policy health: `healthy`, `degraded`, `error`, `idle`, `pending`
 5. **Never use `shadow-*` classes**: Hades is a flat design system. Use `bg-surface-elevated` + `border-border` to distinguish layers instead
-6. **Use `cn()`** from `@orbit/hades` for conditional class composition
+6. **Use `cn()`** from `@clear-route/hades` for conditional class composition
 7. **Check `src/index.ts`** for the current list of available exports before reaching for a new primitive
 8. **Do not modify Hades while working on application code**: if a gap is found (a missing component, token, or variant), stop and propose the addition before making any change. Hades is a stable design API from the application's point of view; changes to the design system itself are a separate, deliberate act that requires explicit confirmation from the developer
 

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Heading, Stack, Text } from '@orbit/hades';
+import { Heading, Stack, Text } from '@clear-route/hades';
 import type { ListPATsResult } from '@orbit/server/services/identity-server';
 import { dashboardPage } from '@orbit/storybook/dashboard-frame';
 import { ApiKeysCard } from './api-keys-card';

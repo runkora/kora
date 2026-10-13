@@ -13,7 +13,7 @@ import {
   Stack,
   Text,
   EmptyState,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { StatusBadge } from '@orbit/components';
 import { fmtExpiry, isExpired } from '@orbit/utils';
 import type { ListPATsResult } from '@orbit/server/services/identity-server';

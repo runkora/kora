@@ -22,7 +22,7 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import {
   FREQS,
   INTERVAL_PRESETS,

@@ -1,14 +1,14 @@
 'use client';
 
 /**
- * @orbit/hades
+ * @clear-route/hades
  *
  * kora is another name for Persephone, who lives half the year in Olympus and
  * half in the underworld. Hades is the underworld half of kora: the tokens and
  * primitives beneath every screen.
  *
  * Import the token stylesheet separately in your app's global CSS:
- *   @import "@orbit/hades/src/tokens/tokens.css";
+ *   @import "@clear-route/hades/src/tokens/tokens.css";
  *
  * The banners below are load-bearing: an atom is a single element with no
  * internal composition, a molecule composes atoms into one reusable unit, an

@@ -173,7 +173,7 @@ comment (`// ─── Atoms`, `// ─── Molecules`, `// ─── Layout`, 
 ```tsx
 /** @tier 2 — Orbit-domain-aware: {note domain knowledge used}. Used by: {feature areas}. */
 'use client'  // only if this file uses React hooks
-import { ... } from '@orbit/hades'
+import { ... } from '@clear-route/hades'
 // Import Orbit types as needed; no raw HTML
 
 export interface {Name}Props { ... }
@@ -194,7 +194,7 @@ Then add an export to `frontend/src/components/index.ts`.
 ```tsx
 /** @tier 3 — {feature}-scoped. Promote to src/components/ if a second feature needs this. */
 'use client'  // only if this file uses React hooks
-import { ... } from '@orbit/hades'
+import { ... } from '@clear-route/hades'
 
 export function {Name}({ ... }: {Name}Props) { ... }
 ```
@@ -322,7 +322,7 @@ Both must exit zero before the task is done. Do not declare success until they d
 
 | Tier | Path | Import | Story title prefix | Story required |
 |---|---|---|---|---|
-| 1 — Hades | `src/packages/hades/src/components/{name}/` | `@orbit/hades` | `Hades/{Category}/{Name}` | Yes (always) |
+| 1 — Hades | `src/packages/hades/src/components/{name}/` | `@clear-route/hades` | `Hades/{Category}/{Name}` | Yes (always) |
 | 2 — App-shared | `src/components/{name}.tsx` | `@orbit/components` | `App/Shared/{Name}` | Yes (always) |
 | 3 — Feature-scoped | `src/app/(dashboard)/{feature}/_components/{name}.tsx` | relative | — | No |
 

@@ -3,7 +3,7 @@ const rule = {
     type: 'problem',
     docs: {
       description:
-        'Disallow `className` props on Hades components (@orbit/hades) outside the Hades package. ' +
+        'Disallow `className` props on Hades components (@clear-route/hades) outside the Hades package. ' +
         'Use a wrapper element for layout, or propose a new variant to a human engineer for approval.',
     },
     messages: {
@@ -15,12 +15,12 @@ const rule = {
     },
   },
   create(context) {
-    // Track which local names in this file are imported from @orbit/hades.
+    // Track which local names in this file are imported from @clear-route/hades.
     const hadesComponents = new Set();
 
     return {
       ImportDeclaration(node) {
-        if (node.source.value !== '@orbit/hades') return;
+        if (node.source.value !== '@clear-route/hades') return;
         for (const specifier of node.specifiers) {
           if (specifier.type === 'ImportSpecifier') {
             hadesComponents.add(specifier.local.name);

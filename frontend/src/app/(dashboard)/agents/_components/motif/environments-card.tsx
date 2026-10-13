@@ -3,7 +3,17 @@
 /** @tier 3 — agents-scoped. Attaches environments to an agent and marks the
  * default. Used by the builder wizard and the detail Configuration tab. */
 
-import { Alert, Badge, Button, Card, CardContent, Checkbox, Icon, Stack, Text } from '@orbit/hades';
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  Checkbox,
+  Icon,
+  Stack,
+  Text,
+} from '@clear-route/hades';
 import type { Environment } from '@orbit/shared/api';
 import { sizeLabel } from '@orbit/lib/environments';
 import { setDefaultEnvironment, toggleEnvironment } from '../../_types';

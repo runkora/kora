@@ -11,7 +11,7 @@ import type { CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
-import { Text, Code, Stack } from '@orbit/hades';
+import { Text, Code, Stack } from '@clear-route/hades';
 
 // ── Contexts shared by nested renderers ──────────────────────────────────────
 

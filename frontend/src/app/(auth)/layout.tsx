@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { Stack } from '@orbit/hades';
+import { Stack } from '@clear-route/hades';
 
 /**
  * Auth layout — centered, no chrome.

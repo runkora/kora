@@ -16,11 +16,11 @@ import {
   Stack,
   Text,
   EmptyState,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope, statusColor } from '../_types';
-import type { IconName } from '@orbit/hades';
+import type { IconName } from '@clear-route/hades';
 import { ServerAvatar } from './server-avatar';
 import { BuildConfigPanel } from './build-config-panel';
 

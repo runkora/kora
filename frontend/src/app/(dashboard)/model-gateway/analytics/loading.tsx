@@ -3,7 +3,7 @@
 // Mirrors the AnalyticsShell layout (tab strip, then the dashboard: header,
 // KPI strip, charts) so there is no layout shift when data arrives.
 
-import { Card, CardContent, CardHeader, Grid, Skeleton, Stack } from '@orbit/hades';
+import { Card, CardContent, CardHeader, Grid, Skeleton, Stack } from '@clear-route/hades';
 
 function KPICardSkeleton() {
   return (

@@ -20,8 +20,8 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@orbit/hades": ["./src/index.ts"],
-      "@orbit/hades/*": ["./src/*"]
+      "@clear-route/hades": ["./src/index.ts"],
+      "@clear-route/hades/*": ["./src/*"]
     },
     "noEmit": true,
     "allowImportingTsExtensions": true

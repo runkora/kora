@@ -4,8 +4,8 @@
  * The choice is immutable after creation, so the detail Configuration tab shows
  * the mode read-only rather than reusing these cards. */
 
-import { Grid, RadioCard, RadioGroup } from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+import { Grid, RadioCard, RadioGroup } from '@clear-route/hades';
+import type { IconName } from '@clear-route/hades';
 import type { AgentIdentityMode } from '@orbit/shared/api';
 
 export const IDENTITY_MODE_LABELS: Record<AgentIdentityMode, string> = {

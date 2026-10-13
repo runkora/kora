@@ -12,7 +12,7 @@ import {
   ModalHeader,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import type { BudgetAssignment } from '../../../policy/_types/api';
 
 interface BudgetEditModalProps {

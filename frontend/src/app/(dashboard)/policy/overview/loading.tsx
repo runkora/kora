@@ -1,4 +1,12 @@
-import { Card, CardContent, CardHeader, CardTitle, Grid, Skeleton, Stack } from '@orbit/hades';
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  Grid,
+  Skeleton,
+  Stack,
+} from '@clear-route/hades';
 
 function KPISkeleton() {
   return (

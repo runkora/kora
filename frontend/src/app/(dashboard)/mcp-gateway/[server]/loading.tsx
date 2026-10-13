@@ -8,7 +8,7 @@ import {
   SidebarLayoutSidebar,
   Skeleton,
   Stack,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 
 /**
  * The MCP server detail page fetches one server's metadata and tool catalog in

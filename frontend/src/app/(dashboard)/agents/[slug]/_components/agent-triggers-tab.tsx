@@ -19,7 +19,7 @@ import {
   Text,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { TriggerWizard } from '../../../triggers/_components/trigger-wizard';
 import type {
   TriggerCreateResult,

@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Stack, Text, Button, InputSurface, Textarea } from '@orbit/hades';
+import { Stack, Text, Button, InputSurface, Textarea } from '@clear-route/hades';
 import { useRunContext } from '../_context/run-context';
 
 // Context tools — toggleable pills that annotate the message with context sources

@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 
-import { Icon, NavItem, Navigation, Stack, Text } from '@orbit/hades';
+import { Icon, NavItem, Navigation, Stack, Text } from '@clear-route/hades';
 import { hasScope } from '@orbit/lib/permissions';
 import { NAV_GROUPS } from '../_utils';
 import { useSession } from './permissions-provider';

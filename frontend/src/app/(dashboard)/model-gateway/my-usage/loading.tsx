@@ -17,7 +17,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 
 function KPICardSkeleton() {
   return (

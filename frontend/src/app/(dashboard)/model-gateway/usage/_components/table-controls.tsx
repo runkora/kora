@@ -1,6 +1,6 @@
 'use client';
 
-import { Stack, Text } from '@orbit/hades';
+import { Stack, Text } from '@clear-route/hades';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

@@ -3,7 +3,7 @@
 /** @tier 3 — agents-scoped. Builder step 5: the complete configuration, grouped by owning step. */
 
 import { useMemo } from 'react';
-import { Alert, SectionHeading, Stack, Wizard } from '@orbit/hades';
+import { Alert, SectionHeading, Stack, Wizard } from '@clear-route/hades';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FRAMEWORK_LABELS } from '../motif/framework-cards';
 import { IDENTITY_MODE_LABELS } from '../motif/identity-mode-cards';

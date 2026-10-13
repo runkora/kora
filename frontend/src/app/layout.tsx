@@ -3,7 +3,7 @@ import 'server-only';
 import type { Metadata, Viewport } from 'next';
 import { Geist_Mono, Inter } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
-import { TooltipProvider } from '@orbit/hades';
+import { TooltipProvider } from '@clear-route/hades';
 import { defaultTheme } from '@orbit/theme/default';
 import './globals.css';
 

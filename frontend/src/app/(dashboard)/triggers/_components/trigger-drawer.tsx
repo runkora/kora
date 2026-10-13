@@ -40,7 +40,7 @@ import {
   ToggleRow,
   SegmentedControl,
   EmptyState,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 import { KIND_ICON, LIMITS } from '../_types';
 import type { DeliveryRow, Senders, SourceRow, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';

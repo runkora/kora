@@ -6,7 +6,7 @@
  */
 
 import { memo } from 'react';
-import { Icon, Stack, Text } from '@orbit/hades';
+import { Icon, Stack, Text } from '@clear-route/hades';
 import type { AgentTurn, AgentElement, ToolCall } from '../_types';
 import { useRunContext } from '../_context/run-context';
 import { ThinkingBlock } from './thinking-block';

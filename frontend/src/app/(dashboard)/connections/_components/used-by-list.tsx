@@ -2,7 +2,7 @@
 
 /** @tier 3 — connections-scoped. Promote to src/components/ if a second feature needs this. */
 
-import { Text, TruncatingBadge } from '@orbit/hades';
+import { Text, TruncatingBadge } from '@clear-route/hades';
 import { ClampedList } from '@orbit/components';
 import type { ConnectionUsage } from '../_types';
 

@@ -3,7 +3,7 @@
 // Mirrors the PrincipalUsageView layout (back link, identity header, KPI
 // strip, chart) so there is no layout shift when data arrives.
 
-import { Card, CardContent, CardHeader, Grid, Skeleton, Stack } from '@orbit/hades';
+import { Card, CardContent, CardHeader, Grid, Skeleton, Stack } from '@clear-route/hades';
 
 function KPICardSkeleton() {
   return (

@@ -4,7 +4,7 @@
 // as the Suspense boundary required by the client-side useSearchParams() call
 // inside LogsTab.
 
-import { Card, CardContent, Skeleton, Stack } from '@orbit/hades';
+import { Card, CardContent, Skeleton, Stack } from '@clear-route/hades';
 
 export default function LogsLoading() {
   return (

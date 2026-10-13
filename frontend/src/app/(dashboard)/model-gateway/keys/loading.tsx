@@ -13,7 +13,7 @@ import {
   Skeleton,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@clear-route/hades';
 
 function KeyCardSkeleton() {
   return (

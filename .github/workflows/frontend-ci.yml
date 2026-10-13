@@ -81,7 +81,7 @@ jobs:
 
       # Hades has its own vitest config; the app's unit config excludes src/packages/**.
       - name: Hades component tests
-        run: cd frontend && pnpm --filter @orbit/hades run test:unit
+        run: cd frontend && pnpm --filter @clear-route/hades run test:unit
 
       - name: Unit tests
         run: cd frontend && pnpm run test:coverage:unit

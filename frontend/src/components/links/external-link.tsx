@@ -1,4 +1,4 @@
-import { Anchor, type AnchorProps } from '@orbit/hades';
+import { Anchor, type AnchorProps } from '@clear-route/hades';
 import { ExternalUrl } from '@orbit/lib/routing';
 
 type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
