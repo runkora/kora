@@ -38,3 +38,7 @@ export { ModelPicker } from './model-picker';
 
 /** Per-connection action grants as collapsible tri-state cards. */
 export { ConnectionCards } from './connection-cards';
+
+/** Each run state's status dot and label. */
+export { RUN_STATE_DISPLAY } from './run-state';
+export type { RunStateDisplay } from './run-state';

@@ -24,16 +24,9 @@ import (
 )
 
 const (
-	tracerName = "orbit.json-client"
-	// StartRunTimeout covers a run start that waits for a rolling pod: the
-	// 3 minute server start budget plus margin.
-	StartRunTimeout = 4 * time.Minute
-	// clientTimeout is the transport ceiling; send narrows it per call.
-	clientTimeout = StartRunTimeout
+	tracerName    = "orbit.json-client"
+	clientTimeout = 30 * time.Second
 )
-
-// defaultTimeout bounds ordinary calls. A variable so tests can shorten it.
-var defaultTimeout = 30 * time.Second
 
 var (
 	// ErrUnauthorized is returned when the upstream rejects the caller's token.
@@ -66,14 +59,6 @@ func (c *Client) Get(ctx context.Context, bearer, rawURL string, query url.Value
 
 // Post performs an authenticated POST of a JSON body and returns the raw JSON body.
 func (c *Client) Post(ctx context.Context, bearer, rawURL string, body any) (json.RawMessage, error) {
-	return c.PostWithTimeout(ctx, bearer, rawURL, body, defaultTimeout)
-}
-
-// PostWithTimeout is Post with a caller-chosen time limit, for calls that
-// legitimately wait longer than the default, such as starting a run.
-func (c *Client) PostWithTimeout(ctx context.Context, bearer, rawURL string, body any, timeout time.Duration) (json.RawMessage, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	r, err := c.EncodeJSON(body)
 	if err != nil {
 		return nil, err
@@ -125,12 +110,6 @@ func (c *Client) Delete(ctx context.Context, bearer, rawURL string) (json.RawMes
 }
 
 func (c *Client) send(ctx context.Context, spanName, bearer string, req *http.Request) (json.RawMessage, error) {
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, defaultTimeout)
-		defer cancel()
-		req = req.WithContext(ctx)
-	}
 	if bearer != "" {
 		req.Header.Set("Authorization", "Bearer "+bearer)
 	}

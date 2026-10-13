@@ -891,7 +891,7 @@ export interface Trigger {
   overflow?: TriggerOverflow;
   max_queue_depth?: number;
 
-  /** Delivery safety. Timeout bounds starting the run, not running it. */
+  /** Delivery safety. Bounds the start request, which returns once the run is queued. Dispatch is abandoned after this window. */
   timeout_seconds?: number;
   dedupe_enabled?: boolean;
   autopause_enabled?: boolean;

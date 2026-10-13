@@ -37,12 +37,12 @@ func registerRunTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 		})
 
 	addTool(srv, "runs.start",
-		"Start a new run of an agent type. Provide agent_type_id (call agents.list to find ids) and an optional initial_message.",
+		"Start a new run of an agent type. Provide agent_type_id (call agents.list to find ids) and an optional initial_message. The run returns as pending. It becomes active once a pod takes it, or failed if it cannot start. Poll runs.get before sending messages: a message to a pending or starting run fails with \"run is starting\".",
 		func(ctx context.Context, a startRunArgs) (*sdk.CallToolResult, error) {
 			if a.AgentTypeID == "" {
 				return toolError(errors.New("agent_type_id is required")), nil
 			}
-			return jsonResult(jc.PostWithTimeout(ctx, callerToken(ctx), base, a, orbitjson.StartRunTimeout))
+			return jsonResult(jc.Post(ctx, callerToken(ctx), base, a))
 		})
 
 	addTool(srv, "runs.send_message",
