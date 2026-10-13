@@ -259,7 +259,7 @@ frontend/src/packages/hades/
 ├── scripts/
 │   ├── manifest.ts               # Generates manifest.json (make hades-manifest)
 │   ├── classify.ts               # Classifies a change against the last release (make hades-classify)
-│   └── lib/                      # The pure parts of both, with their tests
+│   └── lib/                      # The pure parts of both scripts, with their tests
 ├── .storybook/                   # Storybook configuration
 ├── manifest.json                 # The theme surface manifest, generated, checked in
 ├── CONTRACT.md                   # The five contract boundary rules
@@ -317,6 +317,40 @@ make hades-classify FORMAT=markdown       # what CI posts on the pull request
 In short: a token or slot removed, renamed or re-typed, a semantic name remapped, a slot's limits shrunk, the product-name bounds tightened, or a new token that a pre-existing component reads is a **major** for both. A new token read only by new components, or a slot's limits grown, is a **minor** for both. A contract change is always a package change of at least the same level. Changes that no theme can see move only the package: an export removed or renamed, a prop removed or made required, a peer dependency added or narrowed, or a semantic name removed is a package **major**; an export or optional prop added, a peer range widened, a peer removed, or a semantic name added is a package **minor**. Any other source change is a package **patch**. Documentation, stories and tests alone are **none**.
 
 The classifications set two floors, one for `package.json` and one for the contract version (`CONTRACT_VERSION` and the generated `contractVersion`, a major resetting the minor to zero); a bump above a floor is fine, below it CI fails. The CI job posts one comment on the pull request with both classifications and two questions no script decides: whether a token kept its name but changed its meaning (a contract major), and whether a prop narrowed its type or a function tightened its signature (a package major). Before the first release the classifier compares against the pull request base, reports "no baseline", and enforces nothing.
+
+---
+
+## Consuming Hades from another repository
+
+Each `hades/vX.Y.Z` tag publishes `@clear-route/hades` to the GitHub Packages npm registry and creates a GitHub Release of the same name with the tarball, `manifest.json` and `CONTRACT.md` attached. The package ships TypeScript source, `tokens.css`, the manifest, the contract and this README: no compiled JavaScript, no fonts, no Storybook, no stories, no tests. The rules are in the [Hades delivery ADR](../../../../docs/adr/2026-10-11-hades-delivery-to-external-consumers.md); a consumer needs the following.
+
+**Registry and token.** An `.npmrc` with the scope mapped to the registry, and a token that has `read:packages` for this repository (a fine-grained personal access token, a GitHub App token, or, for a workflow in a repository granted access to the package, its own `GITHUB_TOKEN`):
+
+```ini
+@clear-route:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
+```
+
+**A patch-range pin.** The version promises the theme contract, not the component API: a minor may rename an export or a prop, so a caret range can break a build. Pin a patch range and move minors deliberately:
+
+```json
+"@clear-route/hades": "~1.2.0"
+```
+
+**React 19 and the declared peers.** Every runtime dependency except `@tanstack/react-table` is a peer dependency; install each at the range `package.json` declares.
+
+**Tailwind v4, with `tokens.css` as the entry.** `tokens.css` contains `@import 'tailwindcss'` itself, so it is the single Tailwind entry: never add a second one. Tailwind does not scan `node_modules`, so an `@source` must point at the installed package for its components' utilities to be generated:
+
+```css
+@import '@clear-route/hades/src/tokens/tokens.css';
+@source '../node_modules/@clear-route/hades/src';
+```
+
+**TypeScript compilation of the source.** The package has no build output; the consumer's toolchain compiles its `.ts` and `.tsx` files. Vite does so unaided; Next.js needs `transpilePackages: ['@clear-route/hades']`, as the kora frontend sets.
+
+**The two font slots.** Hades never loads a font. It reads `--hades-raw-font-sans` and `--hades-raw-font-mono`, which default to generic stacks; the consumer, or the theme it renders, sets them to font families it loads itself.
+
+`make hades-smoke` packs the package and builds exactly such a consumer (Vite, React, Tailwind v4) from the tarball in a temporary directory; the release workflow runs the same script on every tag.
 
 ---
 

@@ -1,11 +1,12 @@
 name: Hades Release
 
 # A Hades release is a `hades/vX.Y.Z` tag on a main commit where
-# frontend/src/packages/hades/package.json carries X.Y.Z. These jobs verify
-# that and run the Hades tests; the delivery ADR's jobs (pack, smoke build,
-# publish, release) follow them. A failure deletes the tag so the version can
-# be re-cut once the cause is fixed. See the design system versioning ADR,
-# SD-1, and the Hades delivery ADR.
+# frontend/src/packages/hades/package.json carries X.Y.Z. The first jobs verify
+# that and run the Hades tests (the design system versioning ADR, SD-1); the
+# rest pack the tarball, prove it builds outside kora, publish it to GitHub
+# Packages and create the GitHub Release (the Hades delivery ADR). A failure
+# anywhere deletes the tag so the version can be re-cut once the cause is
+# fixed; nothing is published before the smoke build has passed.
 
 on:
   push:
@@ -99,11 +100,133 @@ jobs:
       - name: Hades unit tests
         run: make frontend-test-hades
 
+  # The tarball is packed once and carried through the remaining jobs as a
+  # workflow artifact, so what the smoke build proves is what gets published.
+  pack-and-smoke:
+    name: Pack and smoke build
+    needs: [verify, test]
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Pack the tarball
+        run: |
+          cd frontend
+          pnpm --filter @clear-route/hades pack --pack-destination "$RUNNER_TEMP/hades-pack"
+          test -f "$RUNNER_TEMP/hades-pack/clear-route-hades-$VERSION.tgz"
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hades-tarball
+          path: ${{ runner.temp }}/hades-pack/clear-route-hades-${{ needs.verify.outputs.version }}.tgz
+          if-no-files-found: error
+
+      # Scaffolds a Vite + React + Tailwind v4 app in a temporary directory,
+      # installs the tarball and its declared peers, and builds a page that
+      # imports tokens.css, Button and HADES_VERSION. This is the proof that the
+      # package builds without the Next.js application.
+      - name: Smoke build
+        run: bash .github/scripts/hades-smoke-build.sh "$RUNNER_TEMP/hades-pack/clear-route-hades-$VERSION.tgz"
+
+  publish:
+    name: Publish to GitHub Packages
+    needs: [verify, pack-and-smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      # registry-url and scope write the job's .npmrc; NODE_AUTH_TOKEN is the
+      # workflow token, which can publish to the package linked to this
+      # repository through package.json's repository field.
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://npm.pkg.github.com
+          scope: '@clear-route'
+
+      - name: Download the tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hades-tarball
+          path: ${{ runner.temp }}/hades-pack
+
+      - name: Publish the tarball
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish "$RUNNER_TEMP/hades-pack/clear-route-hades-$VERSION.tgz"
+
+  release:
+    name: Create the GitHub release
+    needs: [verify, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hades-tarball
+          path: ${{ runner.temp }}/hades-pack
+
+      # Never the repository's latest release: that position belongs to kora's
+      # own v* releases. Notes run from the previous hades/v* release, and the
+      # tarball's checksum is published in them.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          tarball="$RUNNER_TEMP/hades-pack/clear-route-hades-$VERSION.tgz"
+          checksum=$(sha256sum "$tarball" | cut -d' ' -f1)
+          flags=(--title "$TAG" --latest=false --verify-tag --generate-notes)
+          previous=$(gh release list --exclude-drafts --limit 50 --json tagName \
+            --jq '[.[] | select(.tagName | startswith("hades/v"))][0].tagName // ""')
+          if [ -n "$previous" ]; then
+            flags+=(--notes-start-tag "$previous")
+          fi
+          flags+=(--notes "\`@clear-route/hades@$VERSION\` on GitHub Packages. Tarball SHA-256: \`$checksum\`")
+          gh release create "$TAG" "${flags[@]}" \
+            "$tarball" \
+            frontend/src/packages/hades/manifest.json \
+            frontend/src/packages/hades/CONTRACT.md
+
   # Leaves nothing behind on failure: the tag is deleted so the same version
-  # can be re-cut once the cause is fixed.
+  # can be re-cut once the cause is fixed. A failure up to and including
+  # publish leaves nothing published. A failure in release alone leaves the
+  # version on GitHub Packages, which refuses a second publish of it: delete
+  # that package version there before re-cutting the tag.
   cleanup:
     name: Delete the tag on failure
-    needs: [verify, test]
+    needs: [verify, test, pack-and-smoke, publish, release]
     if: failure()
     runs-on: ubuntu-latest
     permissions:

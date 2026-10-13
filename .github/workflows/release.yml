@@ -111,7 +111,8 @@ jobs:
             flags+=(--latest)
             # A final release lists everything since the previous final release,
             # not only what changed since its last release candidate.
-            previous=$(gh release list --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName // ""')
+            # Only kora's own v* tags count: a hades/v* release is never the predecessor.
+            previous=$(gh release list --exclude-pre-releases --exclude-drafts --limit 50 --json tagName --jq '[.[] | select(.tagName | startswith("v"))][0].tagName // ""')
             if [[ -n "${previous}" ]]; then
               flags+=(--notes-start-tag "${previous}")
             fi

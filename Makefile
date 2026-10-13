@@ -1144,6 +1144,15 @@ hades-check: hades-manifest-check hades-contract-check ## Hades manifest sync an
 hades-classify: ## Classify the Hades change against the last hades/v* release (BASE=<ref> before one exists; FORMAT=text|markdown|json)
 	@cd $(HADES_DIR) && $(HADES_NODE) scripts/classify.ts $(if $(BASE),--base $(BASE),) $(if $(FORMAT),--format $(FORMAT),)
 
+.PHONY: hades-smoke
+hades-smoke: ## Pack Hades and build a throwaway Vite consumer from the tarball: the release workflow's smoke build, run locally (needs network)
+	@echo "$(COLOR_YELLOW)Packing @clear-route/hades...$(COLOR_RESET)"
+	@dest=$$(mktemp -d "$${TMPDIR:-/tmp}/hades-pack.XXXXXX") && \
+	cd $(FRONTEND_DIR) && pnpm --filter @clear-route/hades pack --pack-destination "$$dest" >/dev/null && \
+	cd $(CURDIR) && bash .github/scripts/hades-smoke-build.sh "$$dest/clear-route-hades-$$(jq -r .version $(HADES_DIR)/package.json).tgz" && \
+	rm -rf "$$dest"
+	@echo "$(COLOR_GREEN)✓ Hades smoke build passed$(COLOR_RESET)"
+
 .PHONY: frontend-test-e2e
 frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
 	@echo "$(COLOR_YELLOW)Running frontend E2E tests...$(COLOR_RESET)"
