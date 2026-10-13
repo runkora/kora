@@ -28,6 +28,7 @@ The cluster must provide:
 - Working cluster DNS and a route from workloads to the Kubernetes API.
 - A `LoadBalancer` implementation for the default gateway, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
 - Pod Security Admission that admits the privileged SPIRE and Istio node components. The SPIFFE CSI driver and the Istio CNI must run privileged, whilst kora namespaces run at restricted.
+- Nodes on Kubernetes 1.36 or later with containerd 2.1 or CRI-O 1.31 or later, only when a [theme](#white-labelling-theme) is configured. The theme bundle is mounted as an image volume. The chart's own floor stays 1.34, and nothing checks this at render time.
 
 See [connectivity](../architecture/connectivity.md) for the request path and [identity](../architecture/identity.md) for the SPIRE and Istio trust model.
 
@@ -395,6 +396,78 @@ An external collector is the one external address an agent can reach. On a share
 
 Point your service mesh's own telemetry at the same collector to get the mesh hop and the application span in one trace.
 
+## White-labelling theme
+
+A deployment can carry one theme: the product name, the colours and the identity assets a client's people see in place of kora's ([white-labelling theme](../adr/2026-10-12-white-labelling-theme.md)). A theme is a bundle, a directory with the document `theme.yaml` at its root and its assets under `assets/`, written against the Hades version the release runs. The frontend validates it before any page serves. Without a theme the chart renders exactly as before.
+
+### Nodes
+
+The bundle reaches the frontend pod as an image volume, which the kubelet mounts straight from the registry. That needs nodes on Kubernetes 1.36 or later with containerd 2.1 or CRI-O 1.31 or later, ahead of the chart's floor of 1.34. The chart does not check this. On a cluster below it the frontend pod never starts, the rollout stalls on an event that names the `theme-bundle` volume, and the previous pods keep serving.
+
+### Build the bundle image
+
+The image is the bundle directory and nothing else, with the document at `/theme/theme.yaml` and the assets under `/theme/assets/`:
+
+```dockerfile
+FROM scratch
+COPY theme.yaml /theme/theme.yaml
+COPY assets/ /theme/assets/
+```
+
+Build it, push it to a registry the nodes can pull from with the configured pull secrets, and record the digest:
+
+```bash
+docker build -t registry.example.com/acme/kora-theme:2026-10-12 .
+docker push registry.example.com/acme/kora-theme:2026-10-12
+docker inspect --format='{{index .RepoDigests 0}}' registry.example.com/acme/kora-theme:2026-10-12
+```
+
+Where `assets/` comes from is your pipeline's business: a directory beside `theme.yaml` in the repository, or an artefact store the pipeline assembles from. Nothing requires the assets in git. A theme that sets colours only has an empty `assets/` and is still an image.
+
+### Configure the chart
+
+The chart takes the digest-pinned image reference and the document itself. The document is the committed `theme.yaml`, passed as a file, so the committed file is the one thing you edit:
+
+```yaml
+theme:
+  bundle:
+    image: registry.example.com/acme/kora-theme@sha256:3f9e...   # a digest; the schema rejects a tag
+    pullSecrets: []     # {name: <secret>} objects; empty uses global.imagePullSecrets
+```
+
+```bash
+helm upgrade --install orbit oci://ghcr.io/clear-route/charts/orbit \
+  --namespace orbit-system \
+  --values orbit.yaml \
+  --set-file theme.document=theme.yaml
+```
+
+Under Argo CD, `fileParameters` is the `--set-file` equivalent. With the reference app-of-apps, where the chart and the values are separate sources, the path starts with the values source's `ref`, as `valueFiles` does:
+
+```yaml
+helm:
+  valueFiles:
+    - $values/orbit.yaml
+  fileParameters:
+    - name: theme.document
+      path: $values/theme.yaml
+```
+
+The image and the document come together: one without the other fails the render, as does a tag in place of a digest or a document that is not YAML, each with a message that names the fault. The chart renders the document into a ConfigMap for the frontend and reads `productName` from it into the config of the services that produce text a client's people or agents read.
+
+### Roll out a theme
+
+A theme change is a values change: a new digest, a changed document, or both, rolled out by the standard rolling update and rolled back by a revert. The frontend pod mounts the bundle read-only at `/etc/orbit/theme` and runs a `validate-theme` init container before the application starts. It validates the bundle with the Hades version the image carries and checks that the bundle's `theme.yaml` matches the document the chart was given. A fault stops the pod there: the rollout stalls, the previous pods keep serving, and under Argo CD the Application goes Degraded once the Deployment's progress deadline passes.
+
+When a rollout stalls, read the init container's log on the new pod:
+
+```bash
+kubectl get pods -n orbit-system -l app=orbit-frontend
+kubectl logs -n orbit-system <pod> -c validate-theme
+```
+
+It prints every fault, or, on success, every entry this version ignores and every identity value left at the kora default. A bundle that was not rebuilt after the document changed, or a document that was not committed after the bundle was, fails with a message that says so: rebuild and push, or commit, then roll again. A pod stuck in `ContainerCreating` with an event about the `theme-bundle` volume is a node below the floor above.
+
 ## Run behind an existing gateway
 
 By default kora creates its own ingress gateway. Set `gateway.create: false` to front kora with an Istio gateway you already operate. kora then renders no `Gateway` resource, and binds its `VirtualService`s to the provided gateway.
@@ -513,3 +586,4 @@ A failed migration fails the upgrade before any workload changes. Under Helm the
 - [Enforcement sidecar injection and preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md): how kora injects its sidecars and runs preflight on the mesh before install.
 - [Service mesh and network enforcement](../adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md): the mesh and NetworkPolicy enforcement the platform runs on.
 - [Manifest patches](../adr/2026-09-15-manifest-patches-configmap.md): how operators patch the resources orbit-agents provisions in tenant namespaces.
+- [White-labelling theme](../adr/2026-10-12-white-labelling-theme.md): how a theme reaches a deployment, where it is validated, and the node requirement it adds.

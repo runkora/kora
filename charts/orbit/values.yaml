@@ -84,6 +84,30 @@ frontendHost: ""
 # Canonical (api.) host first. Empty disables validation.
 publicHosts: []
 
+# The white-labelling theme (docs/adr/2026-10-12-white-labelling-theme.md).
+# Empty means the kora default. bundle.image and document come together: one
+# without the other fails the render, because the frontend's init container
+# checks the bundle against the document before any page serves. Theming needs
+# nodes on Kubernetes 1.36 or later with containerd 2.1 or CRI-O 1.31 or later,
+# ahead of the chart's own floor. The chart does not check that: below it the
+# frontend rollout stalls on the bundle volume and the previous pods keep serving.
+theme:
+  bundle:
+    # -- Digest-pinned reference to the theme bundle image, e.g.
+    # registry.example.com/acme/kora-theme@sha256:<64 hex digits>. The image
+    # holds theme.yaml at /theme/theme.yaml and its assets under /theme/assets/.
+    # A tag is rejected: a re-pushed tag would roll nothing.
+    image: ""
+    # -- Pull secrets for the bundle image, as {name: <secret-name>} objects.
+    # Empty uses global.imagePullSecrets.
+    pullSecrets: []
+  # -- The theme document: the full theme.yaml as one string, from the file the
+  # bundle was built from. Supply it with `--set-file theme.document=theme.yaml`
+  # or Argo CD `fileParameters`. The chart renders it into the frontend's
+  # ConfigMap for the init container's check and reads productName from it for
+  # the backend services.
+  document: ""
+
 # Postgres and Redis endpoints rendered into each service's storage config
 # file, and the name of the Secret every service reads.
 config:

@@ -1,0 +1,4 @@
+# A bundle without the document to check it against.
+theme:
+  bundle:
+    image: registry.example.com/acme/kora-theme@sha256:0000000000000000000000000000000000000000000000000000000000000000

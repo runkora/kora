@@ -13,5 +13,6 @@ cmd/egress-gateway:
     policyServiceInternalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
 {{ include "orbit.tokenConfigModule" . }}
+{{ include "orbit.brandConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "egressGateway" "configMap" "orbit-egress-gateway-config" "modules" (include "orbit.egressGateway.configModules" . | fromYaml)) }}

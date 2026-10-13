@@ -432,6 +432,101 @@ internal/platform/token:
 {{- end }}
 
 {{/*
+Brand config module, read by every service that produces text a client's
+people or agents read: orbit-agents, orbit-mcp, the egress gateway and the
+operator (docs/adr/2026-10-12-white-labelling-theme.md, decision 5). Take the
+root context.
+*/}}
+{{- define "orbit.brandConfigModule" -}}
+internal/platform/brand:
+  productName: {{ include "orbit.themeProductName" . | toJson }}
+{{- end }}
+
+{{/*
+The white-labelling theme (docs/adr/2026-10-12-white-labelling-theme.md).
+"true" when a theme is configured. The bundle image and the document come
+together: the frontend's init container checks one against the other, so
+either alone is a fault the render names. No Kubernetes version check: under
+helm template with no cluster Helm substitutes its own version, and the API
+server's version says nothing about the nodes the image volume needs. Take the
+root context.
+*/}}
+{{- define "orbit.themeEnabled" -}}
+{{- $t := .Values.theme -}}
+{{- if and $t.bundle.image (not $t.document) -}}
+{{- fail "theme.bundle.image is set without theme.document: supply the theme.yaml the bundle was built from, e.g. --set-file theme.document=theme.yaml" -}}
+{{- end -}}
+{{- if and $t.document (not $t.bundle.image) -}}
+{{- fail "theme.document is set without theme.bundle.image: supply the digest-pinned reference to the bundle image built from it" -}}
+{{- end -}}
+{{- if $t.bundle.image }}true{{ end -}}
+{{- end }}
+
+{{/*
+The product name the backend services render: the document's productName, or
+kora when no theme is configured or the document does not set one. The render
+fails when the document is not a YAML map, which is a parse check, not a theme
+rule; fromYaml reports a parse error as an Error key. Take the root context.
+*/}}
+{{- define "orbit.themeProductName" -}}
+{{- $name := "kora" -}}
+{{- if include "orbit.themeEnabled" . -}}
+{{- $doc := fromYaml .Values.theme.document -}}
+{{- if hasKey $doc "Error" -}}
+{{- fail (printf "theme.document does not parse as a YAML map: %s" (get $doc "Error")) -}}
+{{- end -}}
+{{- $p := get $doc "productName" -}}
+{{- if and (not (kindIs "invalid" $p)) (not (kindIs "string" $p)) -}}
+{{- fail (printf "theme.document productName must be a string, got %s" (kindOf $p)) -}}
+{{- end -}}
+{{- if $p -}}{{- $name = $p -}}{{- end -}}
+{{- end -}}
+{{- $name -}}
+{{- end }}
+
+{{/*
+The frontend pod's pull secrets. With a theme, global.imagePullSecrets plus
+the bundle's own (theme.bundle.pullSecrets, else the global ones again),
+deduplicated by name: the kubelet pulls the bundle image with the pod's
+imagePullSecrets, as it pulls the containers' images. Without a theme, the
+global ones, rendered as for every other workload. Take the root context.
+*/}}
+{{- define "orbit.frontendImagePullSecrets" -}}
+{{- if include "orbit.themeEnabled" . -}}
+{{- $global := .Values.global.imagePullSecrets | default list -}}
+{{- $secrets := list -}}
+{{- $names := list -}}
+{{- range concat $global (.Values.theme.bundle.pullSecrets | default $global) -}}
+{{- if not (has .name $names) -}}
+{{- $names = append $names .name -}}
+{{- $secrets = append $secrets . -}}
+{{- end -}}
+{{- end -}}
+{{- with $secrets }}
+imagePullSecrets:
+  {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- else -}}
+{{- include "orbit.imagePullSecrets" . -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+The theme mounts: the bundle image at /etc/orbit/theme, from the image's
+/theme directory, and the chart's copy of the document beside it. The init
+container and the frontend container mount both. Take the root context.
+*/}}
+{{- define "orbit.themeVolumeMounts" -}}
+- name: theme-bundle
+  mountPath: /etc/orbit/theme
+  subPath: theme
+  readOnly: true
+- name: theme-document
+  mountPath: /etc/orbit/theme-document
+  readOnly: true
+{{- end }}
+
+{{/*
 The policy-service bundle endpoint the in-process evaluators poll.
 */}}
 {{- define "orbit.bundleEndpoint" -}}

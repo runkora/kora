@@ -1,0 +1,13 @@
+# A configured theme, for the render matrix. The digest is a placeholder:
+# helm template pulls nothing, and the init container is what checks a real
+# bundle (docs/adr/2026-10-12-white-labelling-theme.md).
+theme:
+  bundle:
+    image: registry.example.com/acme/kora-theme@sha256:0000000000000000000000000000000000000000000000000000000000000000
+  document: |
+    hadesVersion: 1.0.0
+    productName: Acme Agents
+    tokens:
+      --hades-raw-100:
+        dark: "#0b1020"
+        light: "#f4f6fb"

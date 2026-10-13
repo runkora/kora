@@ -49,6 +49,10 @@ jobs:
             helm template orbit-crds charts/orbit-crds -n orbit-system --kube-version "${K8S_VERSION}"
             echo '---'
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml --kube-version "${K8S_VERSION}"
+            echo '---'
+            # The same release with a theme configured: the image volume, the
+            # init container and the theme ConfigMap on the frontend pod.
+            helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/theme-values.yaml --kube-version "${K8S_VERSION}"
           } > rendered.yaml
           # Schema coverage:
           #   - kora CRs: extracted from charts/orbit-crds into crd-schemas/.
@@ -67,3 +71,28 @@ jobs:
             -schema-location 'https://json.schemastore.org/{{.ResourceKind}}.json' \
             -schema-location 'crd-schemas/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
             -kubernetes-version "${K8S_VERSION}" rendered.yaml
+      - name: Reject invalid theme values
+        env:
+          K8S_VERSION: ${{ matrix.k8s }}
+        run: |
+          set -euo pipefail
+          # Each file under charts/orbit/ci/invalid/ must fail the render with
+          # the message that names its fault.
+          while IFS='|' read -r file expected; do
+            if out=$(helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml -f "charts/orbit/ci/invalid/${file}" --kube-version "${K8S_VERSION}" 2>&1); then
+              echo "::error::${file} rendered; expected the render to fail"
+              exit 1
+            fi
+            # Case-insensitive: Helm 3 says "Does not match pattern", Helm 4 "does not match pattern".
+            if ! grep -qiF -- "${expected}" <<<"${out}"; then
+              echo "::error::${file} failed without the expected message '${expected}':"
+              echo "${out}"
+              exit 1
+            fi
+            echo "${file}: rejected (${expected})"
+          done <<'CASES'
+          theme-tag.yaml|does not match pattern
+          theme-no-image.yaml|theme.document is set without theme.bundle.image
+          theme-no-document.yaml|theme.bundle.image is set without theme.document
+          theme-unparseable.yaml|theme.document does not parse as a YAML map
+          CASES

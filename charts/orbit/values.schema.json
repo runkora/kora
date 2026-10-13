@@ -92,6 +92,38 @@
         "type": "string"
       }
     },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "bundle": {
+          "type": "object",
+          "properties": {
+            "image": {
+              "type": "string",
+              "pattern": "^$|^[^@]+@sha256:[0-9a-f]{64}$"
+            },
+            "pullSecrets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "name"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "document": {
+          "type": "string"
+        }
+      }
+    },
     "config": {
       "type": "object",
       "required": [

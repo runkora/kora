@@ -23,4 +23,10 @@ postgresql:
 tooling:
   helm: "${HELM_VERSION}"
   helmfile: "${HELMFILE_VERSION}"
+# Nodes, only for a deployment with a theme configured: the theme bundle is an
+# image volume (docs/adr/2026-10-12-white-labelling-theme.md).
+theming:
+  kubernetes: ">=1.36"
+  containerd: ">=2.1"
+  crio: ">=1.31"
 YAML
