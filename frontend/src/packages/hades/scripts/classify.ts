@@ -36,6 +36,7 @@ import {
 } from './lib/classify.ts';
 import { readExportSurface, type FileReader } from './lib/exports.ts';
 import { parseManifest, type Manifest } from './lib/manifest.ts';
+import { readSchemaSurface } from './lib/schema.ts';
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -142,6 +143,15 @@ const headManifest: Manifest = parseManifest(headManifestText);
 const baseManifestText = baseReader('manifest.json');
 const baseManifest = baseManifestText ? parseManifest(baseManifestText) : null;
 
+const headSchemaText = readAtHead('theme.schema.json');
+if (!headSchemaText) {
+  console.error('theme.schema.json is missing at head. Run: make hades-manifest');
+  process.exit(1);
+}
+const headSchema = readSchemaSurface(headSchemaText);
+const baseSchemaText = baseReader('theme.schema.json');
+const baseSchema = baseSchemaText ? readSchemaSurface(baseSchemaText) : null;
+
 const headPackage = JSON.parse(readAtHead('package.json')!) as {
   version: string;
   peerDependencies?: Record<string, string>;
@@ -212,6 +222,8 @@ function findReads(patterns: readonly RegExp[]): string[] {
 const classification: Classification = classify({
   baseManifest,
   headManifest,
+  baseSchema,
+  headSchema,
   baseExports: basePackage ? readExportSurface(baseReader) : null,
   headExports: readExportSurface(headReader),
   basePeerDependencies: basePackage?.peerDependencies ?? {},
@@ -277,6 +289,8 @@ function renderText(): string {
     '',
   ];
   if (!baseManifest) lines.push('No manifest at the baseline; manifest rules not applied.', '');
+  if (!baseSchema)
+    lines.push('No theme schema at the baseline; document-format rule not applied.', '');
   lines.push(
     classification.findings.length === 0 ? 'No findings.' : 'Findings (contract / package):',
   );
@@ -307,6 +321,9 @@ function renderMarkdown(): string {
     `| Floor | ${escapeHtml(packageFloorLine(classification.package))} | ${escapeHtml(contractFloorLine(classification.contract))} |`,
     '',
     ...(baseManifest ? [] : ['No manifest at the baseline; manifest rules not applied.', '']),
+    ...(baseSchema
+      ? []
+      : ['No theme schema at the baseline; document-format rule not applied.', '']),
     ...(rows.length === 0
       ? ['No findings.']
       : [

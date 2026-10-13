@@ -9,6 +9,7 @@
 import type { Manifest, ManifestSlot, ManifestToken } from './manifest.ts';
 import type { ExportSurface } from './exports.ts';
 import { compareRanges } from './ranges.ts';
+import type { SchemaSurface } from './schema.ts';
 
 export type Level = 'none' | 'patch' | 'minor' | 'major';
 /** The contract version has no patch: a change that leaves the surface alone does not move it. */
@@ -65,6 +66,9 @@ function finding(
 export interface ClassifyInput {
   readonly baseManifest: Manifest | null;
   readonly headManifest: Manifest;
+  /** Top level of `theme.schema.json`; null at the baseline skips the document-format row. */
+  readonly baseSchema: SchemaSurface | null;
+  readonly headSchema: SchemaSurface | null;
   readonly baseExports: ExportSurface | null;
   readonly headExports: ExportSurface;
   readonly basePeerDependencies: Readonly<Record<string, string>>;
@@ -101,6 +105,8 @@ export function classify(input: ClassifyInput): Classification {
   const findings: Finding[] = [];
   if (input.baseManifest)
     findings.push(...compareManifests(input.baseManifest, input.headManifest, input.findReads));
+  if (input.baseSchema && input.headSchema)
+    findings.push(...compareSchemas(input.baseSchema, input.headSchema));
   if (input.baseExports) findings.push(...compareExports(input.baseExports, input.headExports));
   findings.push(...comparePeerDependencies(input.basePeerDependencies, input.headPeerDependencies));
 
@@ -299,6 +305,53 @@ function slotFieldChanges(name: string, b: ManifestSlot, h: ManifestSlot): Findi
         `maximum size grew from ${b.maxBytes} to ${h.maxBytes} bytes`,
       ),
     );
+  return out;
+}
+
+/**
+/**
+ * The document-format row: a top-level property of `theme.schema.json` added,
+ * removed or re-typed is a contract major, because an unknown top-level key
+ * fails validation on every older instance in the major.
+ */
+function compareSchemas(base: SchemaSurface, head: SchemaSurface): Finding[] {
+  const out: Finding[] = [];
+  for (const [name, type] of Object.entries(base.properties)) {
+    const now = head.properties[name];
+    if (!(name in head.properties)) {
+      out.push(
+        finding(
+          'major',
+          'major',
+          RULE_1,
+          name,
+          'document property removed; themes that set it fail on this version',
+        ),
+      );
+    } else if (now !== type) {
+      out.push(
+        finding(
+          'major',
+          'major',
+          RULE_1,
+          name,
+          `document property type ${type ?? '(untyped)'} became ${now ?? '(untyped)'}`,
+        ),
+      );
+    }
+  }
+  for (const name of Object.keys(head.properties)) {
+    if (!(name in base.properties))
+      out.push(
+        finding(
+          'major',
+          'major',
+          RULE_1,
+          name,
+          'document property added; themes that set it fail on every older instance',
+        ),
+      );
+  }
   return out;
 }
 

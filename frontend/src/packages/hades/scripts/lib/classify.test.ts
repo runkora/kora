@@ -18,6 +18,7 @@ import {
 } from './classify.ts';
 import type { ExportSurface } from './exports.ts';
 import type { Manifest } from './manifest.ts';
+import type { SchemaSurface } from './schema.ts';
 
 const MANIFEST: Manifest = {
   version: '1.0.0',
@@ -48,10 +49,21 @@ const EXPORTS: ExportSurface = {
   required: { ButtonProps: [] },
 };
 
+const SCHEMA: SchemaSurface = {
+  properties: {
+    contractVersion: 'string',
+    productName: 'string',
+    tokens: 'object',
+    slots: 'object',
+  },
+};
+
 function input(overrides: Partial<ClassifyInput>): ClassifyInput {
   return {
     baseManifest: MANIFEST,
     headManifest: MANIFEST,
+    baseSchema: SCHEMA,
+    headSchema: SCHEMA,
     baseExports: EXPORTS,
     headExports: EXPORTS,
     basePeerDependencies: { react: '>=19' },
@@ -375,11 +387,57 @@ describe('classify', () => {
     }
   });
 
+  describe('the document-format rows, which move both axes together', () => {
+    it('is major on both when a top-level document property is added, removed or re-typed, citing rule 1', () => {
+      const added: SchemaSurface = { properties: { ...SCHEMA.properties, fonts: 'object' } };
+      const c = classify(input({ headSchema: added }));
+      expect(levels(c)).toEqual({ contract: 'major', package: 'major' });
+      expect(c.findings).toContainEqual({
+        contract: 'major',
+        package: 'major',
+        rule: 'boundary rule 1',
+        subject: 'fonts',
+        detail: 'document property added; themes that set it fail on every older instance',
+      });
+
+      const rest = Object.fromEntries(
+        Object.entries(SCHEMA.properties).filter(([name]) => name !== 'productName'),
+      );
+      const removed = classify(input({ headSchema: { properties: rest } }));
+      expect(removed.findings).toContainEqual(
+        expect.objectContaining({
+          contract: 'major',
+          package: 'major',
+          rule: 'boundary rule 1',
+          subject: 'productName',
+        }),
+      );
+
+      const retyped: SchemaSurface = { properties: { ...SCHEMA.properties, tokens: 'array' } };
+      expect(classify(input({ headSchema: retyped })).findings).toContainEqual(
+        expect.objectContaining({
+          contract: 'major',
+          subject: 'tokens',
+          detail: 'document property type object became array',
+        }),
+      );
+    });
+
+    it('skips the document-format rows when the baseline has no schema', () => {
+      const added: SchemaSurface = { properties: { ...SCHEMA.properties, fonts: 'object' } };
+      expect(levels(classify(input({ baseSchema: null, headSchema: added })))).toEqual({
+        contract: 'none',
+        package: 'none',
+      });
+    });
+  });
+
   it('skips manifest and export rules when the baseline has none', () => {
     const head = withTokens([MANIFEST.tokens[1]!]);
     const c = classify(
       input({
         baseManifest: null,
+        baseSchema: null,
         baseExports: null,
         basePeerDependencies: {},
         headManifest: head,

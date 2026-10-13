@@ -3,7 +3,9 @@
 # outside the kora frontend. Scaffolds a minimal Vite + React + Tailwind v4
 # application in a temporary directory, installs the tarball and the peer
 # dependencies it declares, renders a page that imports tokens.css, the Button
-# component, HADES_VERSION and CONTRACT_VERSION, type-checks it and runs the production build.
+# component, HADES_VERSION, CONTRACT_VERSION and the theme module's validator from
+# the `@clear-route/hades/theme` subpath, type-checks it and runs the production
+# build.
 #
 # Usage: .github/scripts/hades-smoke-build.sh <path/to/clear-route-hades-X.Y.Z.tgz>
 #
@@ -121,13 +123,14 @@ cat > src/main.tsx <<'EOF'
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button, CONTRACT_VERSION, HADES_VERSION } from '@clear-route/hades';
+import { validateTheme } from '@clear-route/hades/theme';
 import './index.css';
 
 function App() {
   return (
     <main>
       <Button variant="secondary">
-        Hades {HADES_VERSION}, contract {CONTRACT_VERSION}
+        Hades {HADES_VERSION}, contract {CONTRACT_VERSION} ({typeof validateTheme})
       </Button>
     </main>
   );

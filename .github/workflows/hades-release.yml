@@ -73,7 +73,7 @@ jobs:
           esac
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: The versions and the contract version agree, and the manifest is in sync
+      - name: The versions and the contract version agree, and manifest.json and theme.schema.json are in sync
         run: make check-versions hades-check
 
   test:
@@ -200,6 +200,7 @@ jobs:
           gh release create "$TAG" "${flags[@]}" \
             "$tarball" \
             frontend/src/packages/hades/manifest.json \
+            frontend/src/packages/hades/theme.schema.json \
             frontend/src/packages/hades/CONTRACT.md
 
   # Last: see the header. A failure here leaves nothing published.

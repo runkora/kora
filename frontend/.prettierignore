@@ -2,3 +2,4 @@ pnpm-lock.yaml
 .next/
 node_modules/
 src/packages/hades/manifest.json
+src/packages/hades/theme.schema.json

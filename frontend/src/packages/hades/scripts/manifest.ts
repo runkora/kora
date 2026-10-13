@@ -1,7 +1,8 @@
 /**
  * Generates `manifest.json` from `src/tokens/tokens.css` and
- * `src/tokens/surface.ts`, or with `--check` verifies the checked-in file is
- * what generation would produce. The only thing that writes the manifest.
+ * `src/tokens/surface.ts`, and `theme.schema.json` from that manifest, or
+ * with `--check` verifies the checked-in files are what generation would
+ * produce. The only thing that writes either.
  *
  *   node scripts/manifest.ts          # write
  *   node scripts/manifest.ts --check  # verify, exit 1 on drift
@@ -12,10 +13,12 @@ import { fileURLToPath } from 'node:url';
 
 import { CONTRACT_VERSION } from '../src/version.ts';
 import { buildManifest, serializeManifest, SurfaceMismatchError } from './lib/manifest.ts';
+import { buildThemeSchema, serializeSchema } from './lib/schema.ts';
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tokensPath = path.join(packageDir, 'src', 'tokens', 'tokens.css');
 const manifestPath = path.join(packageDir, 'manifest.json');
+const schemaPath = path.join(packageDir, 'theme.schema.json');
 
 const check = process.argv.includes('--check');
 
@@ -23,11 +26,12 @@ const version = (
   JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')) as { version: string }
 ).version;
 
-let text: string;
+let manifestText: string;
+let schemaText: string;
 try {
-  text = serializeManifest(
-    buildManifest(fs.readFileSync(tokensPath, 'utf8'), version, CONTRACT_VERSION),
-  );
+  const manifest = buildManifest(fs.readFileSync(tokensPath, 'utf8'), version, CONTRACT_VERSION);
+  manifestText = serializeManifest(manifest);
+  schemaText = serializeSchema(buildThemeSchema(manifest));
 } catch (err) {
   if (err instanceof SurfaceMismatchError) {
     console.error(err.message);
@@ -36,26 +40,39 @@ try {
   throw err;
 }
 
+const outputs: [file: string, text: string][] = [
+  [manifestPath, manifestText],
+  [schemaPath, schemaText],
+];
+
 if (!check) {
-  fs.writeFileSync(manifestPath, text);
-  console.log(`wrote ${path.relative(process.cwd(), manifestPath)}`);
+  for (const [file, text] of outputs) {
+    fs.writeFileSync(file, text);
+    console.log(`wrote ${path.relative(process.cwd(), file)}`);
+  }
   process.exit(0);
 }
 
-let current: string | null;
-try {
-  current = fs.readFileSync(manifestPath, 'utf8');
-} catch {
-  current = null;
+let drifted = false;
+for (const [file, text] of outputs) {
+  let current: string | null;
+  try {
+    current = fs.readFileSync(file, 'utf8');
+  } catch {
+    current = null;
+  }
+  if (current === text) continue;
+  drifted = true;
+  const name = path.basename(file);
+  console.error(
+    current === null
+      ? `${name} is missing.`
+      : `${name} is out of sync with tokens.css and surface.ts.`,
+  );
 }
-if (current === text) {
-  console.log('manifest in sync');
+if (!drifted) {
+  console.log('manifest and theme schema in sync');
   process.exit(0);
 }
-console.error(
-  current === null
-    ? 'manifest.json is missing.'
-    : 'manifest.json is out of sync with tokens.css and surface.ts.',
-);
 console.error('Run: make hades-manifest');
 process.exit(1);
