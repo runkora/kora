@@ -36,6 +36,9 @@ var (
 	indexTarget   = regexp.MustCompile(`(?i)^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\s+)?ON\s+(?:ONLY\s+)?` + ident)
 	concurrently  = regexp.MustCompile(`(?i)\bCONCURRENTLY\b`)
 	noTransaction = regexp.MustCompile(`(?i)--\s*\+goose\s+NO\s+TRANSACTION`)
+	// gooseBlock captures the body between a StatementBegin/StatementEnd pair.
+	// goose hands one block to the driver as a single Exec.
+	gooseBlock = regexp.MustCompile(`(?is)--\s*\+goose\s+StatementBegin(.*?)--\s*\+goose\s+StatementEnd`)
 
 	// tableReferences lists every form in which a statement names one table.
 	tableReferences = []*regexp.Regexp{references, insertTarget, deleteTarget, updateTarget, alterTarget, indexTarget}
@@ -48,6 +51,9 @@ type migration struct {
 	up      []string
 	down    []string
 	noTx    bool
+	// blocks is the body of each StatementBegin/StatementEnd pair, kept whole
+	// because the rule below is about what shares one Exec, not one statement.
+	blocks []string
 }
 
 // lintMigrations checks every service's files against the content rule and
@@ -92,6 +98,9 @@ func lintMigrations(sources map[string]fs.FS) error {
 // removed. The NO TRANSACTION directive is read before comments are stripped.
 func parseMigration(service, name, body string) migration {
 	m := migration{service: service, name: name, noTx: noTransaction.MatchString(body)}
+	for _, b := range gooseBlock.FindAllStringSubmatch(body, -1) {
+		m.blocks = append(m.blocks, b[1])
+	}
 
 	upBody, downBody, _ := strings.Cut(body, "-- +goose Down")
 	if _, after, ok := strings.Cut(upBody, "-- +goose Up"); ok {
@@ -118,6 +127,7 @@ func statements(sql string) []string {
 func (m migration) violations(owners map[string]string) []string {
 	out := m.dmlViolations()
 	out = append(out, m.tableViolations(owners)...)
+	out = append(out, m.concurrentBlockViolations()...)
 	if len(m.up) == 0 {
 		out = append(out, "Up has no statements")
 	}
@@ -216,6 +226,29 @@ func referencedTables(stmt string) []string {
 			if name := dropTarget.FindStringSubmatch(strings.TrimSpace(target)); name != nil {
 				add(name[1])
 			}
+		}
+	}
+	return out
+}
+
+// concurrentBlockViolations covers the block-splitting rule. goose sends one
+// StatementBegin/StatementEnd block to the driver as a single Exec, and two
+// statements in one Exec are an implicit transaction, which CREATE INDEX
+// CONCURRENTLY and DROP INDEX CONCURRENTLY both refuse outright with "cannot
+// run inside a transaction block". NO TRANSACTION alone does not save a file
+// that packs them together, so the failure lands at deploy time, in the
+// chart's pre-upgrade hook, where it blocks the release.
+func (m migration) concurrentBlockViolations() []string {
+	var out []string
+	for _, b := range m.blocks {
+		if !concurrently.MatchString(b) {
+			continue
+		}
+		if n := len(statements(b)); n > 1 {
+			out = append(out, fmt.Sprintf(
+				"a CONCURRENTLY statement shares one goose block with %d other statement(s); give each its own StatementBegin/StatementEnd",
+				n-1,
+			))
 		}
 	}
 	return out
