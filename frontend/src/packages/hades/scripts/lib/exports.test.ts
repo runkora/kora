@@ -58,12 +58,32 @@ describe('readExportSurface', () => {
     });
   });
 
+  it('records which members are required', () => {
+    const read = reader({
+      'src/index.ts': "export type { FieldProps, PanelProps } from './field';",
+      'src/field.tsx': [
+        'export interface FieldProps {',
+        '  label: string;',
+        '  hint?: string;',
+        '  onChange(value: string): void;',
+        '}',
+        'export type PanelProps = { open: boolean } & { dense?: boolean };',
+      ].join('\n'),
+    });
+    const surface = readExportSurface(read);
+    expect(surface.required).toEqual({
+      FieldProps: ['label', 'onChange'],
+      PanelProps: ['open'],
+    });
+    expect(surface.props.PanelProps).toEqual(['dense', 'open']);
+  });
+
   it('omits a type it cannot resolve to declared members', () => {
     const read = reader({
       'src/index.ts': "export type { ShowProps } from './show';",
       'src/show.tsx': 'export type ShowProps = React.ComponentProps<typeof Show>;',
     });
-    expect(readExportSurface(read)).toEqual({ exports: ['ShowProps'], props: {} });
+    expect(readExportSurface(read)).toEqual({ exports: ['ShowProps'], props: {}, required: {} });
   });
 
   it('reads the real package entry point', () => {
@@ -78,6 +98,7 @@ describe('readExportSurface', () => {
     const surface = readExportSurface(read);
     expect(surface.exports).toContain('Button');
     expect(surface.exports).toContain('HADES_VERSION');
+    expect(surface.exports).toContain('CONTRACT_VERSION');
     expect(surface.props.ButtonProps).toContain('asChild');
   });
 });
