@@ -95,6 +95,10 @@ export const TOKEN_KINDS: Readonly<Record<string, TokenKind>> = {
   '--hades-raw-radius-lg': 'length',
   '--hades-raw-radius-xl': 'length',
   '--hades-raw-radius-2xl': 'length',
+
+  // Font slots
+  '--hades-raw-font-sans': 'font',
+  '--hades-raw-font-mono': 'font',
 };
 
 export type SlotKind = 'image' | 'font';
