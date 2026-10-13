@@ -558,10 +558,10 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 func (r *postgresRepository) InsertDeliveryRun(ctx context.Context, dr *DeliveryRun) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO trigger_delivery_runs
-			(id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error)
-		VALUES
-			($1, $2, $3, $4, $5, $6, $7, $8)
-	`, dr.ID, dr.TenantID, dr.DeliveryID, dr.TriggerID, storage.NullIfZero(dr.TriggerName), dr.RunID, dr.Status, dr.Error)
+			(id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error, superseded_by)
+			VALUES
+				($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		`, dr.ID, dr.TenantID, dr.DeliveryID, dr.TriggerID, storage.NullIfZero(dr.TriggerName), dr.RunID, dr.Status, dr.Error, dr.SupersededBy)
 	if err != nil {
 		return fmt.Errorf("insert delivery run: %w", err)
 	}
@@ -574,7 +574,8 @@ func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, 
 		return out, nil
 	}
 	rows, err := r.pool.Query(ctx, `
-		SELECT id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error, created_at
+		SELECT id, tenant_id, delivery_id, trigger_id, trigger_name, run_id, status, error, created_at, superseded_by
+
 		FROM   trigger_delivery_runs
 		WHERE  tenant_id = $1 AND delivery_id = ANY($2)
 		ORDER BY created_at ASC
@@ -589,7 +590,7 @@ func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, 
 		var triggerName *string
 		if err := rows.Scan(
 			&dr.ID, &dr.TenantID, &dr.DeliveryID, &dr.TriggerID, &triggerName,
-			&dr.RunID, &dr.Status, &dr.Error, &dr.CreatedAt,
+			&dr.RunID, &dr.Status, &dr.Error, &dr.CreatedAt, &dr.SupersededBy,
 		); err != nil {
 			return nil, fmt.Errorf("scan delivery run: %w", err)
 		}
@@ -598,6 +599,49 @@ func (r *postgresRepository) ListDeliveryRunsForDeliveries(ctx context.Context, 
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate delivery runs: %w", err)
+	}
+	return out, nil
+}
+
+func (r *postgresRepository) InsertDeliveryKey(ctx context.Context, k *DeliveryKey) error {
+	_, err := r.pool.Exec(ctx, `
+		INSERT INTO trigger_delivery_keys (delivery_id, trigger_id, tenant_id, coalesce_key, key_too_long)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (delivery_id, trigger_id) DO NOTHING
+	`, k.DeliveryID, k.TriggerID, k.TenantID, storage.NullIfZero(k.Key), k.KeyTooLong)
+	if err != nil {
+		return fmt.Errorf("insert delivery key: %w", err)
+	}
+	return nil
+}
+
+func (r *postgresRepository) ListDeliveryKeysForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error) {
+	out := make(map[string][]DeliveryKey)
+	if len(deliveryIDs) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `
+		SELECT delivery_id, trigger_id, tenant_id, coalesce_key, key_too_long
+		FROM   trigger_delivery_keys
+		WHERE  tenant_id = $1 AND delivery_id = ANY($2)
+		ORDER BY created_at ASC, trigger_id ASC
+	`, tenantID, deliveryIDs)
+	if err != nil {
+		return nil, fmt.Errorf("list delivery keys: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var k DeliveryKey
+		var key *string
+		if err := rows.Scan(&k.DeliveryID, &k.TriggerID, &k.TenantID, &key, &k.KeyTooLong); err != nil {
+			return nil, fmt.Errorf("scan delivery key: %w", err)
+		}
+		k.Key = deref(key)
+		out[k.DeliveryID] = append(out[k.DeliveryID], k)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate delivery keys: %w", err)
 	}
 	return out, nil
 }
@@ -966,6 +1010,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		    LEFT   JOIN in_flight f ON f.trigger_id = p.trigger_id
 		    WHERE  p.claimed_at IS NULL
 		      AND  t.enabled
+		      AND  (p.dispatch_after IS NULL OR p.dispatch_after <= now())
 		),
 		claimable AS (
 		    SELECT p.id
@@ -1138,6 +1183,71 @@ func (r *postgresRepository) SupersedeAndEnqueue(ctx context.Context, p *Pending
 		return nil, txErr
 	}
 	return superseded, nil
+}
+
+// EnqueueCoalescing enqueues a fire that waits out a coalescing window, and
+// replaces the waiting fire with the same key if its window is still open.
+//
+// The window is fixed from the first fire: a replacement keeps the row's
+// dispatch_after and takes only the newest fire's delivery id and fields, so a
+// steady stream cannot hold a key back forever.
+//
+// The trigger row is locked first, the same serialization SupersedeAndEnqueue
+// uses. Two concurrent first fires with one key would otherwise both find no
+// open row and both insert, and a window cannot be a unique index because its
+// end is a moment in time. A row a worker has claimed, or one whose window has
+// closed, is not replaced: the new fire opens its own window.
+//
+// The UPDATE repeats claimed_at IS NULL in its own WHERE for the reason
+// ClaimPending re-checks its predicate: under READ COMMITTED a concurrent claim
+// can stamp the row after the CTE read it.
+func (r *postgresRepository) EnqueueCoalescing(ctx context.Context, p *PendingDelivery, window time.Duration) (string, error) {
+	fieldsJSON, err := json.Marshal(p.Fields)
+	if err != nil {
+		return "", fmt.Errorf("marshal pending fields: %w", err)
+	}
+
+	var replaced string
+	txErr := storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		var lockedID string
+		if err := tx.QueryRow(ctx,
+			`SELECT id FROM triggers WHERE id = $1 FOR UPDATE`, p.TriggerID).Scan(&lockedID); err != nil {
+			return fmt.Errorf("lock trigger for coalescing: %w", err)
+		}
+
+		err := tx.QueryRow(ctx, `
+			WITH open AS (
+			    SELECT id, delivery_id FROM trigger_pending_deliveries
+			    WHERE  trigger_id = $1 AND coalesce_key = $2
+			      AND  claimed_at IS NULL AND dispatch_after > now()
+			    FOR UPDATE
+			)
+			UPDATE trigger_pending_deliveries p
+			SET    delivery_id = $3, fields = $4, enqueued_at = now()
+			FROM   open
+			WHERE  p.id = open.id AND p.claimed_at IS NULL
+			RETURNING open.delivery_id
+		`, p.TriggerID, p.CoalesceKey, p.DeliveryID, fieldsJSON).Scan(&replaced)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			return fmt.Errorf("replace coalesced fire: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO trigger_pending_deliveries
+				(id, tenant_id, trigger_id, delivery_id, fields, coalesce_key, dispatch_after)
+			VALUES ($1, $2, $3, $4, $5, $6, now() + make_interval(secs => $7))
+		`, p.ID, p.TenantID, p.TriggerID, p.DeliveryID, fieldsJSON, p.CoalesceKey, window.Seconds()); err != nil {
+			return fmt.Errorf("enqueue coalescing fire: %w", err)
+		}
+		return nil
+	})
+	if txErr != nil {
+		return "", txErr
+	}
+	return replaced, nil
 }
 
 // TrimPending evicts the oldest waiting rows beyond depth, leaving room for the
@@ -1428,14 +1538,16 @@ func (r *postgresRepository) ObservedEventTypes(ctx context.Context, sourceID st
 // PendingStats summarizes the queue in a single round trip.
 //
 // The oldest waiting fire's age is the half that matters: depth alone cannot
-// distinguish a busy queue that drains from a stalled one that does not.
+// distinguish a busy queue that drains from a stalled one that does not. A fire
+// held in a coalescing window ages from the moment it became claimable, so a
+// long window does not read as a stalled worker.
 func (r *postgresRepository) PendingStats(ctx context.Context) (PendingStats, error) {
 	var waiting, claimed int64
 	var oldestSeconds float64
 	err := r.pool.QueryRow(ctx, `
 		SELECT count(*) FILTER (WHERE claimed_at IS NULL),
 		       count(*) FILTER (WHERE claimed_at IS NOT NULL),
-		       COALESCE(EXTRACT(EPOCH FROM (now() - min(enqueued_at) FILTER (WHERE claimed_at IS NULL))), 0)
+		       GREATEST(COALESCE(EXTRACT(EPOCH FROM (now() - min(GREATEST(enqueued_at, dispatch_after)) FILTER (WHERE claimed_at IS NULL))), 0), 0)
 		FROM   trigger_pending_deliveries
 	`).Scan(&waiting, &claimed, &oldestSeconds)
 	if err != nil {

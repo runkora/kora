@@ -52,10 +52,12 @@ type mockRepository struct {
 	triggers     map[string]*Trigger
 	deliveries   []*Delivery
 	deliveryRuns []*DeliveryRun
-	pending      []*pendingRow
-	retention    map[string]int          // tenant_id → payload_days
-	seenDeliv    map[string]bool         // source_id|provider_delivery_id → seen (dedup)
-	replayKeys   map[string]replayKeyRow // source_id|body_hash → what was seen
+	deliveryKeys []*DeliveryKey
+
+	pending    []*pendingRow
+	retention  map[string]int          // tenant_id → payload_days
+	seenDeliv  map[string]bool         // source_id|provider_delivery_id → seen (dedup)
+	replayKeys map[string]replayKeyRow // source_id|body_hash → what was seen
 
 	createSourceErr   error
 	createTriggerErr  error
@@ -387,6 +389,26 @@ func (m *mockRepository) ListDeliveryRunsForDeliveries(_ context.Context, tenant
 	for _, r := range m.deliveryRuns {
 		if r.TenantID == tenantID && want[r.DeliveryID] {
 			out[r.DeliveryID] = append(out[r.DeliveryID], *r)
+		}
+	}
+	return out, nil
+}
+
+func (m *mockRepository) InsertDeliveryKey(_ context.Context, k *DeliveryKey) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *k
+	m.deliveryKeys = append(m.deliveryKeys, &cp)
+	return nil
+}
+
+func (m *mockRepository) ListDeliveryKeysForDeliveries(_ context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string][]DeliveryKey{}
+	for _, k := range m.deliveryKeys {
+		if k.TenantID == tenantID && slices.Contains(deliveryIDs, k.DeliveryID) {
+			out[k.DeliveryID] = append(out[k.DeliveryID], *k)
 		}
 	}
 	return out, nil
@@ -900,6 +922,8 @@ type pendingRow struct {
 	// stale-claim reaper acts on: "claimed" alone cannot express "claimed by a
 	// worker that died twenty minutes ago".
 	claimedAt time.Time
+	// dispatchAfter mirrors the coalescing hold; zero means claimable at once.
+	dispatchAfter time.Time
 }
 
 func (m *mockRepository) EnqueuePending(_ context.Context, p *PendingDelivery) error {
@@ -951,7 +975,7 @@ func (m *mockRepository) ClaimPending(_ context.Context, limit int) ([]PendingDe
 		if len(out) >= limit {
 			break
 		}
-		if p.claimed {
+		if p.claimed || time.Now().Before(p.dispatchAfter) {
 			continue
 		}
 		p.claimed = true
@@ -1001,6 +1025,26 @@ func (m *mockRepository) SupersedeAndEnqueue(_ context.Context, p *PendingDelive
 	}
 	m.pending = append(m.pending, &pendingRow{PendingDelivery: cp})
 	return superseded, nil
+}
+
+// EnqueueCoalescing mirrors the SQL for a service test: a waiting row with the
+// same key and an open window is replaced in place. The row-level concurrency
+// guarantees are TestPostgres_EnqueueCoalescing_*'s.
+func (m *mockRepository) EnqueueCoalescing(_ context.Context, p *PendingDelivery, window time.Duration) (string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	for _, row := range m.pending {
+		if row.TriggerID == p.TriggerID && row.CoalesceKey == p.CoalesceKey && !row.claimed && now.Before(row.dispatchAfter) {
+			replaced := row.DeliveryID
+			row.DeliveryID, row.Fields, row.EnqueuedAt = p.DeliveryID, p.Fields, now
+			return replaced, nil
+		}
+	}
+	cp := *p
+	cp.EnqueuedAt = now
+	m.pending = append(m.pending, &pendingRow{PendingDelivery: cp, dispatchAfter: now.Add(window)})
+	return "", nil
 }
 
 // DrainPending mirrors the SQL: only WAITING rows go. A claimed row belongs to a

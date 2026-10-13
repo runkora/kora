@@ -223,7 +223,8 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 }
 
 // ListDeliveries returns recent deliveries for a tenant, each with its full
-// per-trigger run fan-out attached (one batched query, no N+1).
+// per-trigger run fan-out and coalescing keys attached (one batched query each,
+// no N+1).
 func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
 	// The page-size bounds are business policy, so they live here rather than
 	// in the storage layer: an unset limit gets the default page, and a caller
@@ -246,8 +247,13 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 	if err != nil {
 		return nil, fmt.Errorf("attach delivery runs: %w", err)
 	}
+	keys, err := s.repo.ListDeliveryKeysForDeliveries(ctx, tenantID, ids)
+	if err != nil {
+		return nil, fmt.Errorf("attach delivery keys: %w", err)
+	}
 	for i := range deliveries {
 		deliveries[i].Runs = runs[deliveries[i].ID]
+		deliveries[i].CoalesceKeys = keys[deliveries[i].ID]
 	}
 	return deliveries, nil
 }

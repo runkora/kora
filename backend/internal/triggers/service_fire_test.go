@@ -720,3 +720,51 @@ func TestFireTrigger_AdmissionInfraError_IsNotReportedAsCapacity(t *testing.T) {
 		t.Errorf("the underlying fault should be wrapped, got %v", err)
 	}
 }
+
+// The delivery list carries the coalescing key each trigger rendered, and the
+// pointer on a superseded outcome, so history explains a fire that did not run.
+func TestListDeliveries_ReturnsCoalesceKeysAndSupersededBy(t *testing.T) {
+	svc, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	ctx := context.Background()
+
+	var ids []string
+	for _, pid := range []string{"d-1", "d-2"} {
+		d := &Delivery{
+			ID: "delivery-" + pid, TenantID: testTenant, SourceID: src.ID, Kind: KindWebhook,
+			ProviderDeliveryID: pid, Status: StatusVerified,
+		}
+		if _, err := deps.repo.InsertDelivery(ctx, d); err != nil {
+			t.Fatalf("InsertDelivery: %v", err)
+		}
+		ids = append(ids, d.ID)
+	}
+	if err := deps.repo.InsertDeliveryKey(ctx, &DeliveryKey{DeliveryID: ids[0], TenantID: testTenant, TriggerID: "t-1", Key: "org/repo#7"}); err != nil {
+		t.Fatalf("InsertDeliveryKey: %v", err)
+	}
+	if err := deps.repo.InsertDeliveryRun(ctx, &DeliveryRun{
+		ID: "r-1", TenantID: testTenant, DeliveryID: ids[0], TriggerID: "t-1",
+		Status: RunStatusSuperseded, SupersededBy: &ids[1],
+	}); err != nil {
+		t.Fatalf("InsertDeliveryRun: %v", err)
+	}
+
+	listed, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{SourceID: src.ID})
+	if err != nil {
+		t.Fatalf("ListDeliveries: %v", err)
+	}
+	byID := map[string]Delivery{}
+	for _, d := range listed {
+		byID[d.ID] = d
+	}
+	first := byID[ids[0]]
+	if len(first.CoalesceKeys) != 1 || first.CoalesceKeys[0].Key != "org/repo#7" || first.CoalesceKeys[0].TriggerID != "t-1" {
+		t.Errorf("coalesce keys = %+v, want the rendered key for t-1", first.CoalesceKeys)
+	}
+	if len(first.Runs) != 1 || first.Runs[0].SupersededBy == nil || *first.Runs[0].SupersededBy != ids[1] {
+		t.Errorf("runs = %+v, want a superseded outcome pointing at %s", first.Runs, ids[1])
+	}
+	if got := byID[ids[1]].CoalesceKeys; len(got) != 0 {
+		t.Errorf("the replacing delivery has keys %+v, want none recorded", got)
+	}
+}

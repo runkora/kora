@@ -443,7 +443,28 @@ type Delivery struct {
 	ScheduledAt *time.Time    `json:"scheduled_at,omitempty"`
 	ReceivedAt  time.Time     `json:"received_at"`
 	Runs        []DeliveryRun `json:"runs,omitempty"`
+	// CoalesceKeys are the keys the triggers this delivery matched rendered for
+	// it, one per coalescing trigger. Populated on reads.
+	CoalesceKeys []DeliveryKey `json:"coalesce_keys,omitempty"`
 }
+
+// DeliveryKey is the coalescing key one trigger rendered for one delivery.
+//
+// It is per trigger because each trigger writes its own key template. It is
+// written when the fire is enqueued, so it is readable while the fire waits.
+type DeliveryKey struct {
+	DeliveryID string `json:"-"`
+	TenantID   string `json:"-"`
+	TriggerID  string `json:"trigger_id"`
+	// Key is the rendered key. Empty when KeyTooLong is set.
+	Key string `json:"key,omitempty"`
+	// KeyTooLong marks a render over MaxCoalesceKeyBytes. Such a fire did not coalesce.
+	KeyTooLong bool `json:"key_too_long,omitempty"`
+}
+
+// MaxCoalesceKeyBytes is the longest rendered key that coalesces. It matches the
+// length check on trigger_delivery_keys.
+const MaxCoalesceKeyBytes = 256
 
 // DeliveryRun records a single matched-trigger dispatch for a delivery — the
 // authoritative one-to-many audit detail behind a delivery. RunID is nil when
@@ -464,6 +485,9 @@ type DeliveryRun struct {
 	Status      string    `json:"status"`
 	Error       *string   `json:"error,omitempty"`
 	CreatedAt   time.Time `json:"created_at"`
+	// SupersededBy is the delivery whose fire replaced this one. Set only on a
+	// superseded outcome.
+	SupersededBy *string `json:"superseded_by,omitempty"`
 }
 
 // ─── API request/response DTOs ────────────────────────────────────────────────

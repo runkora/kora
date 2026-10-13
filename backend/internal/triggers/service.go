@@ -84,6 +84,7 @@ type pipelineStore interface {
 	InsertScheduledDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error)
 	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
+	ListDeliveryKeysForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error)
 	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
 	RecordAccepted(ctx context.Context, sourceID string) error
 	RecordSourceRejection(ctx context.Context, sourceID, reason string) error

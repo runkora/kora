@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -1828,5 +1829,419 @@ func TestPostgres_ListDeliveriesTimeAndPayload(t *testing.T) {
 	}
 	if len(slim[0].Payload) != 0 || slim[0].PayloadExcerpt != "excerpt" || slim[0].Status != StatusVerified {
 		t.Errorf("OmitPayload delivery = %+v; want no payload, excerpt and status kept", slim[0])
+	}
+}
+
+// coalescePending is a queue row carrying a coalescing key and a payload marker.
+func coalescePending(tenant, triggerID, key, marker string) *PendingDelivery {
+	p := newPending(tenant, triggerID)
+	p.CoalesceKey = key
+	p.Fields = map[string]string{"marker": marker}
+	return p
+}
+
+// waitingFor reads the waiting rows for a trigger and key.
+type waitingRow struct {
+	id, deliveryID, marker string
+	dispatchAfter          time.Time
+}
+
+func waitingFor(t *testing.T, r *postgresRepository, triggerID, key string) []waitingRow {
+	t.Helper()
+	rows, err := r.pool.Query(context.Background(), `
+		SELECT id, delivery_id, fields->>'marker', dispatch_after
+		FROM   trigger_pending_deliveries
+		WHERE  trigger_id = $1 AND coalesce_key = $2 AND claimed_at IS NULL
+		ORDER  BY enqueued_at`, triggerID, key)
+	if err != nil {
+		t.Fatalf("read waiting rows: %v", err)
+	}
+	defer rows.Close()
+	var out []waitingRow
+	for rows.Next() {
+		var w waitingRow
+		if err := rows.Scan(&w.id, &w.deliveryID, &w.marker, &w.dispatchAfter); err != nil {
+			t.Fatalf("scan waiting row: %v", err)
+		}
+		out = append(out, w)
+	}
+	return out
+}
+
+// closeWindow moves a row's dispatch time into the past, so the window test does
+// not have to sleep.
+func closeWindow(t *testing.T, r *postgresRepository, pendingID string) {
+	t.Helper()
+	if _, err := r.pool.Exec(context.Background(),
+		`UPDATE trigger_pending_deliveries SET dispatch_after = now() - interval '1 second' WHERE id = $1`, pendingID); err != nil {
+		t.Fatalf("close window: %v", err)
+	}
+}
+
+// A second fire with the same key inside the window takes the first one's place:
+// the newest payload wins, the first delivery is handed back to be recorded as
+// superseded, and the window stays where the first fire put it.
+func TestPostgres_EnqueueCoalescing_ReplacesInsideTheWindow(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "coalesce", 4)
+
+	first := coalescePending(tenant, tr.ID, "org/repo#7", "first")
+	if replaced, err := r.EnqueueCoalescing(ctx, first, time.Minute); err != nil || replaced != "" {
+		t.Fatalf("first fire: replaced %q, err %v; want a new window", replaced, err)
+	}
+	opened := waitingFor(t, r, tr.ID, "org/repo#7")
+	if len(opened) != 1 {
+		t.Fatalf("waiting rows after the first fire = %d, want 1", len(opened))
+	}
+	if d := time.Until(opened[0].dispatchAfter); d < 50*time.Second || d > time.Minute {
+		t.Errorf("window ends in %s, want about a minute from the first fire", d)
+	}
+
+	// A much longer window on the second call must not move the end: the window
+	// is fixed from the first fire.
+	second := coalescePending(tenant, tr.ID, "org/repo#7", "second")
+	replaced, err := r.EnqueueCoalescing(ctx, second, time.Hour)
+	if err != nil {
+		t.Fatalf("second fire: %v", err)
+	}
+	if replaced != first.DeliveryID {
+		t.Errorf("replaced %q, want the first delivery %q", replaced, first.DeliveryID)
+	}
+
+	rows := waitingFor(t, r, tr.ID, "org/repo#7")
+	if len(rows) != 1 {
+		t.Fatalf("waiting rows after the second fire = %d, want 1", len(rows))
+	}
+	if rows[0].deliveryID != second.DeliveryID || rows[0].marker != "second" {
+		t.Errorf("row holds delivery %q payload %q, want the second fire's", rows[0].deliveryID, rows[0].marker)
+	}
+	if !rows[0].dispatchAfter.Equal(opened[0].dispatchAfter) {
+		t.Errorf("window end moved from %s to %s, want it fixed", opened[0].dispatchAfter, rows[0].dispatchAfter)
+	}
+}
+
+// Different keys, and the same key on different triggers, never touch each other.
+func TestPostgres_EnqueueCoalescing_DistinctKeysStayApart(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	a := seedPendingTrigger(t, r, tenant, s.ID, "a", 4)
+	b := seedPendingTrigger(t, r, tenant, s.ID, "b", 4)
+
+	for _, c := range []struct{ trigger, key string }{{a.ID, "k1"}, {a.ID, "k2"}, {b.ID, "k1"}} {
+		replaced, err := r.EnqueueCoalescing(ctx, coalescePending(tenant, c.trigger, c.key, "x"), time.Minute)
+		if err != nil || replaced != "" {
+			t.Fatalf("fire %v: replaced %q, err %v; want an independent window", c, replaced, err)
+		}
+	}
+	for _, c := range []struct{ trigger, key string }{{a.ID, "k1"}, {a.ID, "k2"}, {b.ID, "k1"}} {
+		if n := len(waitingFor(t, r, c.trigger, c.key)); n != 1 {
+			t.Errorf("trigger %s key %s has %d waiting rows, want 1", c.trigger, c.key, n)
+		}
+	}
+}
+
+// A fire after the window closes opens its own window instead of replacing a row
+// that is already due, and a row a worker has claimed is never replaced.
+func TestPostgres_EnqueueCoalescing_WindowBoundary(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "boundary", 4)
+
+	first := coalescePending(tenant, tr.ID, "k", "first")
+	if _, err := r.EnqueueCoalescing(ctx, first, time.Minute); err != nil {
+		t.Fatalf("first fire: %v", err)
+	}
+	closeWindow(t, r, first.ID)
+
+	late := coalescePending(tenant, tr.ID, "k", "late")
+	replaced, err := r.EnqueueCoalescing(ctx, late, time.Minute)
+	if err != nil || replaced != "" {
+		t.Fatalf("late fire: replaced %q, err %v; want its own window", replaced, err)
+	}
+	rows := waitingFor(t, r, tr.ID, "k")
+	if len(rows) != 2 {
+		t.Fatalf("waiting rows = %d, want the due row and the new window", len(rows))
+	}
+
+	// The due row dispatches on its own; the new window keeps holding.
+	claimed, err := r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].DeliveryID != first.DeliveryID {
+		t.Fatalf("claimed %+v, want only the first fire", claimed)
+	}
+
+	// Another fire inside the new window replaces the late one, not the claimed one.
+	third := coalescePending(tenant, tr.ID, "k", "third")
+	replaced, err = r.EnqueueCoalescing(ctx, third, time.Minute)
+	if err != nil {
+		t.Fatalf("third fire: %v", err)
+	}
+	if replaced != late.DeliveryID {
+		t.Errorf("replaced %q, want the late fire %q and never the claimed one", replaced, late.DeliveryID)
+	}
+}
+
+// Concurrent fires with one key leave exactly one waiting row. Every other fire
+// is handed back once, so each can be recorded as superseded, and the survivor is
+// the one fire nobody reported as replaced.
+func TestPostgres_EnqueueCoalescing_ConcurrentInsertsOfOneKey(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "concurrent", 4)
+
+	for round := range 3 {
+		key := fmt.Sprintf("k%d", round)
+		const callers = 10
+
+		var mu sync.Mutex
+		var replacedIDs, fired []string
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		for range callers {
+			p := coalescePending(tenant, tr.ID, key, "x")
+			fired = append(fired, p.DeliveryID)
+			wg.Go(func() {
+				<-start
+				replaced, err := r.EnqueueCoalescing(ctx, p, time.Minute)
+				if err != nil {
+					t.Errorf("EnqueueCoalescing: %v", err)
+					return
+				}
+				if replaced != "" {
+					mu.Lock()
+					replacedIDs = append(replacedIDs, replaced)
+					mu.Unlock()
+				}
+			})
+		}
+		close(start)
+		wg.Wait()
+
+		rows := waitingFor(t, r, tr.ID, key)
+		if len(rows) != 1 {
+			t.Fatalf("round %d: %d waiting rows for one key, want exactly 1", round, len(rows))
+		}
+		if len(replacedIDs) != callers-1 {
+			t.Errorf("round %d: %d fires reported replaced, want %d", round, len(replacedIDs), callers-1)
+		}
+		seen := map[string]bool{rows[0].deliveryID: true}
+		for _, id := range replacedIDs {
+			if seen[id] {
+				t.Errorf("round %d: delivery %s reported replaced but also survived or repeated", round, id)
+			}
+			seen[id] = true
+		}
+		for _, id := range fired {
+			if !seen[id] {
+				t.Errorf("round %d: delivery %s neither survived nor was reported replaced", round, id)
+			}
+		}
+	}
+}
+
+// A row inside its window cannot be claimed, and a held row does not take a
+// parallel slot from a fire that is due.
+func TestPostgres_ClaimPending_HoldsRowsInsideTheWindow(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "held", 1)
+
+	held := coalescePending(tenant, tr.ID, "k", "held")
+	if _, err := r.EnqueueCoalescing(ctx, held, time.Minute); err != nil {
+		t.Fatalf("EnqueueCoalescing: %v", err)
+	}
+	claimed, err := r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	if len(claimed) != 0 {
+		t.Fatalf("claimed %d rows inside the window, want none", len(claimed))
+	}
+
+	// An ordinary fire queued after the held one. max_parallel is 1 and the held
+	// row is ahead of it in the queue, so it would be starved if held rows ranked.
+	plain := newPending(tenant, tr.ID)
+	if err := r.EnqueuePending(ctx, plain); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+	claimed, err = r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].DeliveryID != plain.DeliveryID {
+		t.Fatalf("claimed %+v, want the ordinary fire", claimed)
+	}
+	if err := r.ReleasePending(ctx, plain.ID); err != nil {
+		t.Fatalf("ReleasePending: %v", err)
+	}
+
+	closeWindow(t, r, held.ID)
+	claimed, err = r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0].DeliveryID != held.DeliveryID {
+		t.Fatalf("claimed %+v after the window closed, want the held fire", claimed)
+	}
+}
+
+// A long window must not read as a stalled worker: the oldest-waiting age counts
+// from the moment a row became claimable.
+func TestPostgres_PendingStats_AgeExcludesTheHold(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "age", 4)
+
+	// PendingStats reads the whole table, so rows left by anything else would
+	// swamp the figures asserted below.
+	before, err := r.PendingStats(ctx)
+	if err != nil {
+		t.Fatalf("PendingStats: %v", err)
+	}
+	if before.OldestUnclaimedAge > 30*time.Second {
+		t.Skipf("the queue holds unrelated rows %s old", before.OldestUnclaimedAge)
+	}
+
+	p := coalescePending(tenant, tr.ID, "k", "x")
+	if _, err := r.EnqueueCoalescing(ctx, p, 300*time.Second); err != nil {
+		t.Fatalf("EnqueueCoalescing: %v", err)
+	}
+	// Enqueued 200 seconds ago, so a stat that ignored the hold would report 200s.
+	if _, err := r.pool.Exec(ctx,
+		`UPDATE trigger_pending_deliveries SET enqueued_at = now() - interval '200 seconds' WHERE id = $1`, p.ID); err != nil {
+		t.Fatalf("backdate enqueue: %v", err)
+	}
+	held, err := r.PendingStats(ctx)
+	if err != nil {
+		t.Fatalf("PendingStats: %v", err)
+	}
+	if held.OldestUnclaimedAge > 60*time.Second {
+		t.Errorf("oldest age %s while held, want the hold excluded", held.OldestUnclaimedAge)
+	}
+
+	// Due for 100 seconds: the age now counts from then.
+	if _, err := r.pool.Exec(ctx,
+		`UPDATE trigger_pending_deliveries SET dispatch_after = now() - interval '100 seconds' WHERE id = $1`, p.ID); err != nil {
+		t.Fatalf("close window: %v", err)
+	}
+	due, err := r.PendingStats(ctx)
+	if err != nil {
+		t.Fatalf("PendingStats: %v", err)
+	}
+	if due.OldestUnclaimedAge < 95*time.Second || due.OldestUnclaimedAge > 110*time.Second {
+		t.Errorf("oldest age %s after the window closed, want about 100s", due.OldestUnclaimedAge)
+	}
+}
+
+// The rendered key is stored per delivery and trigger, readable by tenant, and a
+// too-long key stores no text.
+func TestPostgres_DeliveryKeys(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	d := &Delivery{
+		ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+		ProviderDeliveryID: uuid.NewString(), Status: StatusVerified,
+	}
+	if ok, err := r.InsertDelivery(ctx, d); err != nil || !ok {
+		t.Fatalf("InsertDelivery: %v %v", ok, err)
+	}
+
+	keys := []*DeliveryKey{
+		{DeliveryID: d.ID, TenantID: tenant, TriggerID: "t-a", Key: "org/repo#7"},
+		{DeliveryID: d.ID, TenantID: tenant, TriggerID: "t-b", KeyTooLong: true},
+	}
+	for _, k := range keys {
+		if err := r.InsertDeliveryKey(ctx, k); err != nil {
+			t.Fatalf("InsertDeliveryKey: %v", err)
+		}
+	}
+	// A repeat write for the same pair is a no-op, not an error.
+	if err := r.InsertDeliveryKey(ctx, &DeliveryKey{DeliveryID: d.ID, TenantID: tenant, TriggerID: "t-a", Key: "other"}); err != nil {
+		t.Fatalf("repeat InsertDeliveryKey: %v", err)
+	}
+
+	got, err := r.ListDeliveryKeysForDeliveries(ctx, tenant, []string{d.ID})
+	if err != nil {
+		t.Fatalf("ListDeliveryKeysForDeliveries: %v", err)
+	}
+	byTrigger := map[string]DeliveryKey{}
+	for _, k := range got[d.ID] {
+		byTrigger[k.TriggerID] = k
+	}
+	if len(byTrigger) != 2 {
+		t.Fatalf("got %d keys, want 2: %+v", len(byTrigger), got[d.ID])
+	}
+	if k := byTrigger["t-a"]; k.Key != "org/repo#7" || k.KeyTooLong {
+		t.Errorf("t-a key = %+v, want org/repo#7", k)
+	}
+	if k := byTrigger["t-b"]; k.Key != "" || !k.KeyTooLong {
+		t.Errorf("t-b key = %+v, want a too-long marker with no text", k)
+	}
+
+	if other, _ := r.ListDeliveryKeysForDeliveries(ctx, "test-"+uuid.NewString(), []string{d.ID}); len(other) != 0 {
+		t.Errorf("another tenant read %d keys, want none", len(other))
+	}
+
+	// The schema refuses a key over the cap and an inconsistent too-long marker.
+	long := &DeliveryKey{DeliveryID: d.ID, TenantID: tenant, TriggerID: "t-c", Key: strings.Repeat("k", MaxCoalesceKeyBytes+1)}
+
+	if err := r.InsertDeliveryKey(ctx, long); err == nil {
+		t.Error("stored a key over the byte cap")
+	}
+	if err := r.InsertDeliveryKey(ctx, &DeliveryKey{DeliveryID: d.ID, TenantID: tenant, TriggerID: "t-d", Key: "k", KeyTooLong: true}); err == nil {
+		t.Error("stored a key that is also marked too long")
+	}
+}
+
+// A superseded outcome names the delivery that replaced it, and the pointer
+// survives the round trip through the delivery run listing.
+func TestPostgres_DeliveryRunSupersededBy(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "superseded", 4)
+
+	var ids []string
+	for range 2 {
+		d := &Delivery{
+			ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, Kind: KindWebhook,
+			ProviderDeliveryID: uuid.NewString(), Status: StatusVerified,
+		}
+		if ok, err := r.InsertDelivery(ctx, d); err != nil || !ok {
+			t.Fatalf("InsertDelivery: %v %v", ok, err)
+		}
+		ids = append(ids, d.ID)
+	}
+	if err := r.InsertDeliveryRun(ctx, &DeliveryRun{
+		ID: uuid.NewString(), TenantID: tenant, DeliveryID: ids[0], TriggerID: tr.ID,
+		Status: RunStatusSuperseded, SupersededBy: &ids[1],
+	}); err != nil {
+		t.Fatalf("InsertDeliveryRun: %v", err)
+	}
+	if err := r.InsertDeliveryRun(ctx, &DeliveryRun{
+		ID: uuid.NewString(), TenantID: tenant, DeliveryID: ids[1], TriggerID: tr.ID, Status: RunStatusFiltered,
+	}); err != nil {
+		t.Fatalf("InsertDeliveryRun: %v", err)
+	}
+
+	runs, err := r.ListDeliveryRunsForDeliveries(ctx, tenant, ids)
+	if err != nil {
+		t.Fatalf("ListDeliveryRunsForDeliveries: %v", err)
+	}
+	if got := runs[ids[0]]; len(got) != 1 || got[0].SupersededBy == nil || *got[0].SupersededBy != ids[1] {
+		t.Errorf("superseded run = %+v, want it to point at %s", got, ids[1])
+	}
+	if got := runs[ids[1]]; len(got) != 1 || got[0].SupersededBy != nil {
+		t.Errorf("ordinary run = %+v, want no pointer", got)
 	}
 }

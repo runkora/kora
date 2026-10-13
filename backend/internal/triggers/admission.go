@@ -85,6 +85,9 @@ type PendingDelivery struct {
 	DeliveryID string
 	Fields     map[string]string
 	EnqueuedAt time.Time
+	// CoalesceKey is the rendered key the fire coalesces under. Written on
+	// enqueue only; reads leave it empty.
+	CoalesceKey string
 }
 
 // OrphanedPending is a waiting fire whose trigger can no longer run it.

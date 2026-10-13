@@ -140,6 +140,13 @@ type DeliveryStore interface {
 	// the given delivery ids, scoped to the tenant, keyed by delivery id. Used to
 	// attach the full run fan-out to a delivery listing without an N+1 query.
 	ListDeliveryRunsForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryRun, error)
+	// InsertDeliveryKey records the coalescing key a trigger rendered for a
+	// delivery. It is written before the fire is enqueued, so the key is
+	// readable for as long as the fire waits.
+	InsertDeliveryKey(ctx context.Context, k *DeliveryKey) error
+	// ListDeliveryKeysForDeliveries returns the recorded keys for the given
+	// delivery ids, scoped to the tenant, keyed by delivery id.
+	ListDeliveryKeysForDeliveries(ctx context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error)
 
 	// ClaimReplayKey records a body fingerprint against a source and reports
 	// whether the source may take that body under this provider delivery id.
@@ -161,7 +168,8 @@ type PendingQueue interface {
 	// through here, so an acknowledged fire always starts.
 	EnqueuePending(ctx context.Context, p *PendingDelivery) error
 	// ClaimPending takes up to limit unclaimed fires for triggers under their
-	// ceiling, using FOR UPDATE SKIP LOCKED so replicas do not contend.
+	// ceiling, using FOR UPDATE SKIP LOCKED so replicas do not contend. A fire
+	// still inside its coalescing window is not claimable.
 	ClaimPending(ctx context.Context, limit int) ([]PendingDelivery, error)
 	// ReleasePending removes a claimed row once its dispatch has settled.
 	ReleasePending(ctx context.Context, id string) error
@@ -184,6 +192,18 @@ type PendingQueue interface {
 	// caller records each as superseded) and enqueues the replacement in one
 	// transaction, under a lock on the trigger.
 	SupersedeAndEnqueue(ctx context.Context, p *PendingDelivery) ([]PendingDelivery, error)
+	// EnqueueCoalescing enqueues a fire under its coalescing key. The fire waits
+	// window before it can be claimed.
+	//
+	// If the trigger already has a waiting row with the same key that is still
+	// inside its window, that row is replaced in place: the newest fire's
+	// payload is kept, the original dispatch time is kept, and the replaced
+	// fire's delivery id is returned so the caller can record it as superseded.
+	// Otherwise a new row opens a new window and the returned id is empty.
+	// Claimed rows are never replaced. The lookup and the write are one
+	// transaction under a lock on the trigger, so concurrent fires with one key
+	// leave one row.
+	EnqueueCoalescing(ctx context.Context, p *PendingDelivery, window time.Duration) (replacedDeliveryID string, err error)
 	// TrimPending evicts the oldest waiting rows beyond depth, returning them.
 	TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
 	// DrainPending removes everything still WAITING for a trigger, returning it.
