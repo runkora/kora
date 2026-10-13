@@ -1,4 +1,10 @@
-import type { Marketplace, PackageOverview, SkillSort } from '@orbit/shared/api';
+import type { Marketplace, SkillSummary } from '@orbit/shared/api';
+
+/**
+ * Sort order of a Skill list, by Skill name. The skills-service does not sort
+ * by name, so the server service sorts before it cuts the page.
+ */
+export type SkillSort = 'name-asc' | 'name-desc';
 
 /** Rows-per-page options. A `pageSize` in the URL must be one of these values. */
 export const PAGE_SIZES = [12, 24, 48] as const;
@@ -16,7 +22,7 @@ export const MIN_SEARCH_LENGTH = 3;
 
 /** The browse values that the Marketplace overview keeps in the URL. */
 export interface MarketplaceBrowseParams {
-  /** Marketplace name. Empty means "use the default Marketplace". */
+  /** The marketplaceSlug of the Marketplace. Empty means "use the default Marketplace". */
   marketplace: string;
   /** Search text. Empty means "no search". */
   query: string;
@@ -37,7 +43,7 @@ export interface MarketplaceOverviewData {
   requested: MarketplaceBrowseParams;
   /** The browse values that the server used, after validation. */
   browse: MarketplaceBrowseParams;
-  skills: PackageOverview[];
+  skills: SkillSummary[];
   total: number;
 }
 

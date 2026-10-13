@@ -1062,51 +1062,51 @@ export interface AgentTypeGuardrails {
 }
 
 // ── Marketplace ─────────────────────────────────────────────────────────
-// Package refers to a Skill/Plugin.
+// Mirrors the skills-service (backend/internal/skills) JSON: GET
+// /v1/marketplaces, /v1/marketplaces/{marketplaceSlug}/skills and
+// /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}.
+
 export interface Marketplace {
+  /** Display name. The backend uses the repository name, so it is not unique. */
   name: string;
+  /** Identifier: `org__repo` in lower case. */
+  marketplaceSlug: string;
+  /** The GitHub repository link. */
+  link: string;
 }
 
 export interface GetMarketplaces {
   marketplaces: Marketplace[];
 }
 
-export interface PackageOverview {
-  slug: string;
-  title_of_package: string;
+/** One item of a Marketplace's Skill list. */
+export interface SkillSummary {
+  name: string;
   description: string;
+  /** Identifier: `{marketplaceSlug}__{slugified name}`. */
+  skillSlug: string;
 }
 
-export interface PackageResource {
-  path_of_resource_in_repo: string;
-  name_of_resource: string;
-  body_of_resource: string;
+/**
+ * The Skills of one Marketplace. At most 200 items, sorted by skillSlug,
+ * with no paging, sort, or total.
+ */
+export interface ListSkillsResponse {
+  skills: SkillSummary[];
 }
 
-export interface PackageDetail extends PackageOverview {
-  package: {
-    path_of_package_in_repo: string;
-    name_of_package: string;
-    body_of_package: string;
-  };
-  resources_of_package: PackageResource[];
-  name_of_marketplace: string;
+/** One file of a Skill: the SKILL.md or a resource document. */
+export interface SkillFile {
+  path: string;
+  name: string;
+  content: string;
 }
 
-export interface GetPackageOverview {
-  packages: PackageOverview[];
-  offset: number;
-  limit: number;
-  total: number;
-}
-
-/** Sort order of a skill list, by skill name. The backend must accept the same values. */
-export type SkillSort = 'name-asc' | 'name-desc';
-
-export interface GetPackageOverviewParams {
-  offset: number;
-  limit: number;
-  search?: string;
-  /** Sort order. The backend sorts before it applies offset and limit. Omit for the source order. */
-  sort?: SkillSort;
+/** One Skill with its full SKILL.md and resource documents. */
+export interface Skill {
+  name: string;
+  description: string;
+  skillSlug: string;
+  skill: SkillFile;
+  documents: SkillFile[];
 }
