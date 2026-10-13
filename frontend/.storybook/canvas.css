@@ -1,3 +1,11 @@
+/* The kora default theme's fonts, as globals.css sets them for the app. The
+   families load from preview-head.html, so the named fallbacks apply here. */
+:root {
+  --hades-raw-font-sans: var(--font-inter, 'Inter'), ui-sans-serif, system-ui, sans-serif;
+  --hades-raw-font-mono:
+    var(--font-geist-mono, 'Geist Mono'), ui-monospace, 'Cascadia Code', monospace;
+}
+
 /* The canvas and docs pages use Hades' background colour, so they change with the brand and theme. */
 body,
 .sb-show-main,

@@ -48,6 +48,19 @@
  */
 @source "../packages/hades/src";
 
+/**
+ * The kora default theme's fonts. Hades defaults the font slot tokens to the
+ * generic stacks; kora sets them to Inter and Geist Mono. next/font defines
+ * --font-inter and --font-geist-mono on <html> (see layout.tsx), so this rule
+ * sits on :root beside them; outside Next the named families serve as the
+ * fallback. A loaded theme overrides these from the same selector level.
+ */
+:root {
+  --hades-raw-font-sans: var(--font-inter, 'Inter'), ui-sans-serif, system-ui, sans-serif;
+  --hades-raw-font-mono:
+    var(--font-geist-mono, 'Geist Mono'), ui-monospace, 'Cascadia Code', monospace;
+}
+
 [data-theme-switch='light'] {
   display: none;
 }

@@ -37,11 +37,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    // suppressHydrationWarning: next-themes sets data-theme pre-hydration
-    <html lang="en" suppressHydrationWarning>
-      <body
-        className={`${inter.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
-      >
+    // suppressHydrationWarning: next-themes sets data-theme pre-hydration.
+    // The font variables live on <html> so the :root font slot defaults in
+    // globals.css can reference them.
+    <html lang="en" className={`${inter.variable} ${geistMono.variable}`} suppressHydrationWarning>
+      <body className="antialiased bg-background text-foreground">
         <ThemeProvider attribute="data-theme" defaultTheme="system" enableSystem>
           <TooltipProvider>{children}</TooltipProvider>
         </ThemeProvider>

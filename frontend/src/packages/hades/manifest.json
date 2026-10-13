@@ -257,6 +257,24 @@
       ]
     },
     {
+      "name": "--hades-raw-font-mono",
+      "kind": "font",
+      "format": "font-family-name",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-font-sans",
+      "kind": "font",
+      "format": "font-family-name",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
       "name": "--hades-raw-healthy",
       "kind": "color",
       "format": "hex-or-oklch",
@@ -626,11 +644,15 @@
       "derived": false
     },
     "--font-mono": {
-      "tokens": [],
+      "tokens": [
+        "--hades-raw-font-mono"
+      ],
       "derived": false
     },
     "--font-sans": {
-      "tokens": [],
+      "tokens": [
+        "--hades-raw-font-sans"
+      ],
       "derived": false
     },
     "--radius-2xl": {
