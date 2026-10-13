@@ -1,6 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { KoraLogo, Stack, Text } from '@orbit/hades';
+import { BrandLogo, Stack, Text } from '@orbit/hades';
+import { defaultTheme } from '@orbit/theme/default';
 
 const meta: Meta = {
   title: 'Kora/Brand',
@@ -74,7 +75,12 @@ export const Identity: StoryObj = {
   render: () => (
     <Stack gap="relaxed" style={{ padding: 48, maxWidth: 1100 }}>
       <Section title="Mark and wordmark">
-        <KoraLogo size={150} title="kora" />
+        <BrandLogo
+          dark={defaultTheme.logo.dark}
+          light={defaultTheme.logo.light}
+          size={150}
+          title={defaultTheme.productName}
+        />
       </Section>
 
       <Section title="Sizes and single-colour versions">
