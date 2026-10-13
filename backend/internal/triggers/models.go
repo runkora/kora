@@ -690,7 +690,7 @@ func (r *SenderRestriction) empty() bool {
 // subject of an event is depends on the provider and on what the trigger does.
 type CoalesceConfig struct {
 	Key           string `json:"key"`
-	WindowSeconds int    `json:"windowSeconds"`
+	WindowSeconds int    `json:"window_seconds"`
 }
 
 // WebhookConfig is the kind_config for a webhook trigger.

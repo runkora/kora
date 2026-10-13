@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -34,11 +35,11 @@ func normalizeCoalesce(c *CoalesceConfig) (*CoalesceConfig, error) {
 	}
 	switch {
 	case c.Key == "":
-		return nil, fmt.Errorf("%w: coalesce.key is required when coalesce.windowSeconds is set", ErrValidation)
+		return nil, fmt.Errorf("%w: coalesce.key is required when coalesce.window_seconds is set", ErrValidation)
 	case c.WindowSeconds == 0:
-		return nil, fmt.Errorf("%w: coalesce.windowSeconds is required when coalesce.key is set", ErrValidation)
+		return nil, fmt.Errorf("%w: coalesce.window_seconds is required when coalesce.key is set", ErrValidation)
 	case c.WindowSeconds < 0 || c.WindowSeconds > maxCoalesceWindowSeconds:
-		return nil, fmt.Errorf("%w: coalesce.windowSeconds must be between 1 and %d", ErrValidation, maxCoalesceWindowSeconds)
+		return nil, fmt.Errorf("%w: coalesce.window_seconds must be between 1 and %d", ErrValidation, maxCoalesceWindowSeconds)
 	case len(c.Key) > maxCoalesceKeyTemplateLen:
 		return nil, fmt.Errorf("%w: coalesce.key must be %d bytes or fewer", ErrValidation, maxCoalesceKeyTemplateLen)
 	}
@@ -71,13 +72,13 @@ func (c *CoalesceConfig) keyTemplate() string {
 //
 // ok is false when the fire must not coalesce: coalescing is off, the render is
 // empty, or the render is over the cap. tooLong tells the last of those apart,
-// because it is the one worth recording. Only a render of zero bytes is empty,
-// so a partial render such as "acme/widgets#" still coalesces.
+// because it is the one worth recording. The render is trimmed first, so a
+// blank render is empty and a partial render such as "acme/widgets#" is a key.
 func renderCoalesceKey(t Trigger, fields map[string]string) (key string, ok, tooLong bool) {
 	if !t.Coalesce.Enabled() {
 		return "", false, false
 	}
-	key = renderTemplate(t.Coalesce.Key, fields)
+	key = strings.TrimSpace(renderTemplate(t.Coalesce.Key, fields))
 	switch {
 	case key == "":
 		return "", false, false

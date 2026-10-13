@@ -61,6 +61,8 @@ func TestRenderCoalesceKey(t *testing.T) {
 		{name: "renders", trigger: on("{{ repository.full_name }}#{{ pull_request.number }}"), wantKey: "acme/widgets#42", wantOK: true},
 		{name: "off", trigger: Trigger{}},
 		{name: "fully empty render does not coalesce", trigger: on("{{ missing }}")},
+		{name: "blank render does not coalesce", trigger: on("{{ missing }} {{ missing }}")},
+		{name: "render is trimmed", trigger: on(" {{ repository.full_name }} "), wantKey: "acme/widgets", wantOK: true},
 		{name: "partial render still coalesces", trigger: on("{{ repository.full_name }}#{{ missing }}"), wantKey: "acme/widgets#", wantOK: true},
 		{name: "literal key", trigger: on("all"), wantKey: "all", wantOK: true},
 		{name: "256 bytes coalesces", trigger: on("{{ edge }}"), wantKey: strings.Repeat("x", 256), wantOK: true},
@@ -474,10 +476,10 @@ func TestFanOut_Coalesce_KeysAreKeptPerTrigger(t *testing.T) {
 }
 
 // The setting uses the names the API documents: coalesce.key and
-// coalesce.windowSeconds.
+// coalesce.window_seconds.
 func TestCoalesceConfig_WireNames(t *testing.T) {
 	var req CreateTriggerRequest
-	body := `{"name":"n","coalesce":{"key":"{{ a }}","windowSeconds":45}}`
+	body := `{"name":"n","coalesce":{"key":"{{ a }}","window_seconds":45}}`
 	if err := json.Unmarshal([]byte(body), &req); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
@@ -488,7 +490,7 @@ func TestCoalesceConfig_WireNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	if !strings.Contains(string(out), `"coalesce":{"key":"{{ a }}","windowSeconds":45}`) {
+	if !strings.Contains(string(out), `"coalesce":{"key":"{{ a }}","window_seconds":45}`) {
 		t.Errorf("encoded trigger = %s", out)
 	}
 	if out, _ := json.Marshal(Trigger{}); strings.Contains(string(out), "coalesce") {
