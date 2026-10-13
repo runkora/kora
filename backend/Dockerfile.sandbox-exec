@@ -57,11 +57,6 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ── Runtime stage ─────────────────────────────────────────────────────────────
 FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 
-# The operator accepts a sandbox image only when it carries this label. It names
-# the base version the image was built on.
-ARG SANDBOX_BASE_VERSION=dev
-LABEL io.orbit.sandbox.base=$SANDBOX_BASE_VERSION
-
 ARG BUN_VERSION
 ARG GO_VERSION
 ARG RUST_VERSION
@@ -306,6 +301,13 @@ RUN mkdir -p /workspaces && chown 100:100 /workspaces
 
 # Strip setuid and setgid bits. no_new_privs already neutralises them; this keeps it true if that setting is ever dropped.
 RUN find / -xdev -perm /6000 -type f -exec chmod a-s {} +
+
+# The operator accepts a sandbox image only when it carries this label. It names
+# the base version the image was built on. It is declared last because a build
+# argument is part of the cache key of every later RUN step, and the version
+# changes on every commit.
+ARG SANDBOX_BASE_VERSION=dev
+LABEL io.orbit.sandbox.base=$SANDBOX_BASE_VERSION
 
 USER 100:100
 
