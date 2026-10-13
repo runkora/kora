@@ -46,6 +46,9 @@ var ErrIdentityModeImmutable = errors.New("identity_mode is immutable: it is set
 // ErrRunNotAcceptingMessages is returned when a message is sent to a run that is not in a state that accepts messages.
 var ErrRunNotAcceptingMessages = errors.New("run not accepting messages")
 
+// ErrRunStarting is returned when a message is sent to a run the scheduler has not started yet.
+var ErrRunStarting = errors.New("run is starting")
+
 // PostgresRepository implements Repository against a pgxpool.
 type PostgresRepository struct {
 	pool *pgxpool.Pool
@@ -345,12 +348,14 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 	return nil
 }
 
-func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrdinal int) error {
+// AssignPod moves a claimed run to starting on podOrdinal. The claim token stops a
+// worker whose claim went stale from assigning a run that another worker now holds.
+func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error {
 	now := time.Now().UTC()
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE runs SET state=$1, pod_ordinal=$2, started_at=$3, updated_at=$3
-		WHERE id=$4 AND state=$5`,
-		string(RunStateStarting), podOrdinal, now, runID, string(RunStatePending),
+		WHERE id=$4 AND state=$5 AND claimed_at=$6`,
+		string(RunStateStarting), podOrdinal, now, runID, string(RunStatePending), claimToken(claimedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("assign pod: %w", err)
@@ -361,10 +366,8 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrd
 	return nil
 }
 
-// ClaimPendingRuns claims up to limit pending runs whose not_before is at or
-// before now, oldest first, and stamps claimed_at with now. SKIP LOCKED lets
-// every orbit-agents replica claim at once without taking the same run twice.
-// The truncated now is the claim token that ReleaseRunClaim checks.
+// ClaimPendingRuns claims up to limit due pending runs, oldest first, with SKIP LOCKED.
+// The claim time now is the token that AssignPod and ReleaseRunClaim check.
 func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, now time.Time) ([]Run, error) {
 	rows, err := r.pool.Query(ctx, `
 		WITH claimed AS (
@@ -397,10 +400,21 @@ func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, no
 	return out, rows.Err()
 }
 
-// ReleaseRunClaim returns a run claimed at claimedAt to the queue, to be claimed
-// again after notBefore. The claim token stops a worker whose claim went stale
-// from releasing a run that another worker now holds. Returns ErrConflict when
-// the run is gone, has left pending and starting, or another worker holds it.
+// QueueRun makes a pending run claimable from notBefore. Returns ErrConflict when
+// the run is gone or has left pending.
+func (r *PostgresRepository) QueueRun(ctx context.Context, runID string, notBefore time.Time) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE runs SET not_before = $2 WHERE id = $1 AND state = 'pending'`, runID, notBefore)
+	if err != nil {
+		return fmt.Errorf("queue run: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// ReleaseRunClaim returns a run claimed at claimedAt to the queue until notBefore.
+// Returns ErrConflict when the run is gone, has moved on, or another worker holds it.
 func (r *PostgresRepository) ReleaseRunClaim(ctx context.Context, id string, claimedAt, notBefore time.Time) error {
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE runs SET state = 'pending', pod_ordinal = -1, started_at = NULL,
@@ -565,6 +579,7 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 // emit the correct event type per group.
 //
 //   - active / starting → failed (session-manager died mid-turn)
+//   - pending → failed (never queued, or no scheduler took it)
 //   - idle → completed  (session-manager died after a clean turn; idle timeout
 //     never fired because the pod restarted)
 func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) (failed, completed []string, err error) {
@@ -573,12 +588,12 @@ func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration ti
 	rows, err := r.pool.Query(ctx, `
 		UPDATE runs
 		SET state = CASE
-			WHEN state IN ('active','starting') THEN 'failed'
+			WHEN state IN ('active','starting','pending') THEN 'failed'
 			ELSE 'completed'
 		END,
 		completed_at = $1,
 		updated_at   = $1
-		WHERE state IN ('active','starting','idle')
+		WHERE state IN ('active','starting','pending','idle')
 		  AND updated_at < $2
 		  AND NOT EXISTS (
 		      SELECT 1 FROM run_events e

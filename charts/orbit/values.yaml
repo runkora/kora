@@ -564,6 +564,14 @@ agents:
     manualSecs: 1200
     # -- Seconds a run a trigger started may stay idle. Shorter, because nobody is watching it.
     triggerSecs: 300
+  # The run scheduler in each orbit-agents replica starts pending runs on agent pods.
+  scheduling:
+    # -- Runs one orbit-agents replica starts at once.
+    workerConcurrency: 16
+    # -- Seconds between polls for pending runs, and before a run with no free pod is tried again.
+    pollIntervalSecs: 1
+    # -- Seconds a run may stay pending before it fails.
+    startBudgetSecs: 180
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
   authorizationPolicy:

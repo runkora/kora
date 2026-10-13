@@ -238,6 +238,7 @@ On future resume, both `run_events` and `run_messages` are interleaved by timest
 
 *   `POST /api/v1/runs` will write the run as `pending` with its initial message and return it. A worker in orbit-agents will claim the run, assign a pod and set the run `starting`, then create the session with the stored initial message and set the run `active`.
 *   A run can hold `pending` for up to the start budget, measured from `created_at`. When the budget runs out, the worker will move the run from `pending` to `failed` and record the reason.
+*   The stale-run reaper will also fail a run that stayed in `pending` past its window.
 *   A message to a `pending` run will be rejected with a "run is starting" error. Terminate will still work on a `pending` run.
 *   `runs` will gain `initial_message`, `claimed_at` and `not_before`, and an index for the claim.
 

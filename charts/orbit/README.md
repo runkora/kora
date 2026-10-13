@@ -80,6 +80,9 @@ Kubernetes: `>=1.34.0-0`
 | agents.sandboxWarming.resources | object | `{}` | Capacity each placeholder reserves, and the size a node is fitted to. Empty reserves one default sandbox pod: `agents.environments.defaultSize`, 1Gi of scratch disk and `operator.injection.sandboxSidecars`. A value here replaces that and must cover a sandbox pod's total requests. |
 | agents.sandboxWarming.tolerations | list | `[]` |  |
 | agents.sandboxWarming.topologySpreadConstraints | list | `[]` |  |
+| agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
+| agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending before it fails. |
+| agents.scheduling.workerConcurrency | int | `16` | Runs one orbit-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"orbit-tenant-connections"` |  |
 | agents.tolerations | list | `[]` |  |

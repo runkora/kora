@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -34,19 +35,20 @@ type RunServiceConfig struct {
 	// run's own is sent with its session.
 	IdleTimeouts      IdleTimeouts
 	TenantNamespaceFn func(tenantID string) string // maps tenant ID → k8s namespace
-	// StaleRunTimeout is how long a run may stay in active/starting without a state update
+	// StaleRunTimeout is how long a run may stay pending, starting or active without a state update
 	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
 	StaleRunTimeout time.Duration
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
 	// Override in tests to speed up reaper cycles.
 	ReaperInterval time.Duration
-	// StartBudget bounds how long StartRun waits for a Ready agent pod and for
-	// the session to be accepted. Defaults to 3 minutes; the request deadline
-	// still wins when it is shorter.
+	// StartBudget is how long a run may stay pending, measured from its
+	// created_at, before the scheduler fails it. Defaults to 3 minutes.
 	StartBudget time.Duration
-	// StartPollInterval is the first wait between readiness checks and session
-	// retries; it doubles up to 10 seconds. Defaults to 2 seconds.
+	// StartPollInterval is how often the scheduler claims pending runs and how
+	// long a released run waits before it can be claimed again. Defaults to 1 second.
 	StartPollInterval time.Duration
+	// WorkerConcurrency is how many runs the scheduler starts at once. Defaults to 1.
+	WorkerConcurrency int
 	// DefaultEnvironmentSize sizes the built-in default environment.
 	DefaultEnvironmentSize EnvironmentSize
 	// SandboxMount tells the agent, in its brief, to work in the sandbox's local folder.
@@ -69,6 +71,10 @@ type RunService struct {
 	envs       runEnvironmentStore
 	images     sandboxImageLookup
 	missing    missingProvisioner
+	queue      runQueue
+	// attempts and schedulerDone track the scheduler started by StartScheduler.
+	attempts      sync.WaitGroup
+	schedulerDone chan struct{}
 }
 
 // missingProvisioner creates an agent type's missing k8s resources without changing existing ones.
@@ -120,6 +126,7 @@ func NewRunService(
 	envs runEnvironmentStore,
 	images sandboxImageLookup,
 	missing missingProvisioner,
+	queue runQueue,
 	cfg RunServiceConfig,
 	logger logging.Logger,
 ) *RunService {
@@ -133,6 +140,7 @@ func NewRunService(
 		envs:    envs,
 		images:  images,
 		missing: missing,
+		queue:   queue,
 		cfg:     cfg,
 		logger:  logger,
 	}
@@ -170,7 +178,8 @@ func (s *RunService) authorizeStart(ctx context.Context, span trace.Span, req St
 	return at, nil
 }
 
-// StartRun creates a new run and assigns it to a pod. Tenant and created_by are
+// StartRun writes a pending run and returns it. A RunScheduler starts it on a
+// pod (docs/adr/2026-10-12-run-scheduling.md). Tenant and created_by are
 // derived from the verified platform claims in ctx; request-body values are
 // ignored.
 //
@@ -190,10 +199,8 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	)
 	defer span.End()
 
-	// Once the run row exists, any later failure (pod assign, session create) must
-	// not leave it stuck in pending/starting. Fail it synchronously rather than
-	// waiting for the stale-run reaper. A delegation minted before the failure is
-	// revoked too — no delegation may outlive a run that never started.
+	// Once the run row exists, a later failure fails it at once and revokes a
+	// delegation minted before the failure.
 	var createdRunID, mintedJTI string
 	defer func() {
 		if retErr != nil {
@@ -218,29 +225,21 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 	if err != nil {
 		return nil, err
 	}
-	delegated := at.IsDelegated()
-
-	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	// One budget covers the pod readiness wait and the session retries.
-	waitCtx, cancelWait := context.WithTimeout(ctx, s.startBudget())
-	defer cancelWait()
-	podOrdinal, err := s.providePod(waitCtx, span, at, namespace)
-	if err != nil {
-		return nil, err
-	}
 
 	run := Run{
 		ID:          uuid.NewString(),
 		TenantID:    req.TenantID,
 		AgentTypeID: req.AgentTypeID,
 		State:       RunStatePending,
+		PodOrdinal:  -1,
 		CreatedBy:   createdBy,
 		// Derived from the agent type (reads join it); carried on the response
 		// so run surfaces know the governance posture without a second lookup.
 		IdentityMode: at.IdentityMode.OrDefault(),
 		// Nil unless a trigger started this run, which is what its absence means
 		// everywhere downstream.
-		StartedBy: startedBy,
+		StartedBy:      startedBy,
+		InitialMessage: req.InitialMessage,
 	}
 	span.SetAttributes(attribute.String("run_id", run.ID))
 	if startedBy != nil {
@@ -253,20 +252,14 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		return nil, fmt.Errorf("create run: %w", err)
 	}
 	createdRunID = run.ID
-	if err := s.repo.AssignPod(ctx, run.ID, podOrdinal); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "assign pod")
-		return nil, fmt.Errorf("assign pod: %w", err)
-	}
-	run.State = RunStateStarting
-	run.PodOrdinal = podOrdinal
 
 	// Mint the run's delegation from the CALLER's own bearer token (ADR Leg 1):
 	// identity never mints delegated authority the caller does not hold, and the
 	// response carries only the issuance record — the token never transits
-	// orbit-agents. Mint failure fails the run start (fail closed).
-	if delegated {
-		jti, mintErr := s.mintRunDelegation(ctx, span, run.ID, *at, namespace)
+	// orbit-agents. Mint failure fails the run start (fail closed). The caller's
+	// token exists only in this request, so the mint happens here.
+	if at.IsDelegated() {
+		jti, mintErr := s.mintRunDelegation(ctx, span, run.ID, *at, s.cfg.TenantNamespaceFn(at.TenantID))
 		if mintErr != nil {
 			return nil, mintErr
 		}
@@ -274,43 +267,21 @@ func (s *RunService) StartRun(ctx context.Context, req StartRunRequest) (started
 		run.DelegationJTI = &jti
 	}
 
-	podURL := sessionmanager.PodURL(at.Slug, podOrdinal, namespace)
-	smReq := sessionmanager.CreateSessionRequest{
-		RunID:       run.ID,
-		AgentTypeID: run.AgentTypeID,
-		TenantID:    run.TenantID,
-		Framework:   string(at.Framework),
-		// One governed MCP endpoint per server the agent has tool grants on.
-		MCPServers: at.MCPServers(),
-		// The agent's own prompt plus the runtime-environment brief.
-		SystemPrompt: s.systemPromptWithBrief(ctx, *at, run.ID),
-		Guardrails:   runGuardrails(s.cfg.SandboxGuardrails, at.Guardrails),
-		// Chosen by how the run started; the session-manager arms its idle timer with it.
-		IdleTimeoutSecs: s.cfg.IdleTimeouts.ForRun(startedBy),
-		Triggered:       startedBy != nil,
-	}
-	if at.ModelID != nil {
-		smReq.Model = *at.ModelID
-	}
-	if err := s.createSessionWithRetry(waitCtx, podURL, smReq); err != nil {
+	// Queued last, so the scheduler never claims a run whose delegation is not yet stored.
+	if err := s.queue.QueueRun(ctx, run.ID, time.Now().UTC()); err != nil {
 		span.RecordError(err)
-		span.SetStatus(codes.Error, "create session")
-		return nil, fmt.Errorf("create session on pod %d: %w", podOrdinal, err)
+		span.SetStatus(codes.Error, "queue run")
+		return nil, fmt.Errorf("queue run: %w", err)
 	}
-	if err := s.repo.SetRunState(ctx, run.ID, RunStateStarting, RunStateActive); err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "set run active")
-		return nil, fmt.Errorf("set run active: %w", err)
-	}
-	run.State = RunStateActive
 
-	s.tryInitialMessage(ctx, podURL, run.ID, at, req.InitialMessage)
-
-	s.logger.Info(ctx, "Run started",
+	s.logger.Info(ctx, "Run queued",
 		logging.Field{Key: "run_id", Value: run.ID},
 		logging.Field{Key: "agent_type_id", Value: run.AgentTypeID},
-		logging.Field{Key: "pod_ordinal", Value: run.PodOrdinal},
 	)
+	// The stored row carries the timestamps the caller shows.
+	if stored, err := s.repo.GetRun(ctx, run.ID); err == nil {
+		return stored, nil
+	}
 	return &run, nil
 }
 
@@ -642,6 +613,9 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 	if err = checkDelegatedRunSteer(ctx, at, run); err != nil {
 		return err
 	}
+	if run.State == RunStatePending || run.State == RunStateStarting {
+		return ErrRunStarting
+	}
 	if run.State != RunStateActive && run.State != RunStateIdle {
 		return fmt.Errorf("%w (state: %s)", ErrRunNotAcceptingMessages, run.State)
 	}
@@ -684,7 +658,7 @@ func (s *RunService) SendMessage(ctx context.Context, runID, content string) err
 // (see internal/agents/sessionmanager/summarizer.go) and reports it back via the
 // /internal/runs/{id}/summary callback. Best-effort: a send failure is logged but
 // does not abort the run.
-func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID string, _ *AgentType, msg string) {
+func (s *RunService) tryInitialMessage(ctx context.Context, podURL, runID, msg string) {
 	if msg == "" {
 		return
 	}
@@ -958,151 +932,6 @@ func (s *RunService) egressCanaryHost(ctx context.Context, at AgentType) string 
 // openEgressCanaryHost is probed for open-egress agents that name no host: any
 // host is allowed, and this one reliably answers HTTPS.
 const openEgressCanaryHost = "api.github.com"
-
-// providePod creates the agent type's missing k8s resources (guards against
-// cluster resets where the DB retains agent types but the StatefulSet/Service/HPA
-// were lost) and picks the least-loaded pod ordinal for a new run. It never
-// changes existing resources, so a run start never rolls pods. Errors are recorded on span.
-func (s *RunService) providePod(ctx context.Context, span trace.Span, at *AgentType, namespace string) (int, error) {
-	if provErr := s.missing.ProvisionMissing(ctx, *at, namespace); provErr != nil {
-		span.RecordError(provErr)
-		span.SetStatus(codes.Error, "ensure agent infrastructure")
-		return 0, fmt.Errorf("ensure agent infrastructure: %w", provErr)
-	}
-	podOrdinal, err := s.selectPod(ctx, at)
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) {
-			err = fmt.Errorf("agent pod not ready after %s: %w", s.startBudget(), err)
-		}
-		span.RecordError(err)
-		span.SetStatus(codes.Error, "select pod")
-		return 0, fmt.Errorf("select pod: %w", err)
-	}
-	return podOrdinal, nil
-}
-
-// selectPod picks the least-loaded Ready pod ordinal for a new run. When no pod
-// is Ready, it waits until one is or ctx ends.
-func (s *RunService) selectPod(ctx context.Context, at *AgentType) (int, error) {
-	namespace := s.cfg.TenantNamespaceFn(at.TenantID)
-	replicaCount, err := s.k8s.ReplicaCount(ctx, at.Slug, namespace)
-	if err != nil {
-		return 0, fmt.Errorf("get replica count: %w", err)
-	}
-	if replicaCount < 1 {
-		replicaCount = 1
-	}
-
-	var best, bestCount int
-	err = s.pollUntil(ctx, func() (bool, error) {
-		// Re-read on each pass: runs may start while this one waits.
-		counts, cerr := s.repo.ActiveRunsPerPod(ctx, at.ID)
-		if cerr != nil {
-			return false, cerr
-		}
-		ready, rerr := s.k8s.ReadyOrdinals(ctx, at.Slug, namespace)
-		if rerr != nil {
-			return false, fmt.Errorf("list ready pods: %w", rerr)
-		}
-		best, bestCount = 0, -1
-		anyReady := false
-		for _, i := range ready {
-			if i >= replicaCount {
-				continue
-			}
-			anyReady = true
-			c := counts[i]
-			if c >= at.MaxConcurrentRunsPerPod {
-				continue
-			}
-			if bestCount < 0 || c < bestCount || (c == bestCount && i < best) {
-				best, bestCount = i, c
-			}
-		}
-		if !anyReady {
-			return false, nil
-		}
-		if bestCount < 0 {
-			return false, fmt.Errorf("all pods at capacity (%d runs/pod)", at.MaxConcurrentRunsPerPod)
-		}
-		return true, nil
-	})
-	if err != nil {
-		return 0, err
-	}
-	s.logger.Info(ctx, "Pod selected",
-		logging.Field{Key: "agent_type_id", Value: at.ID},
-		logging.Field{Key: "pod_ordinal", Value: best},
-		logging.Field{Key: "active_runs", Value: bestCount},
-		logging.Field{Key: "max_runs_per_pod", Value: at.MaxConcurrentRunsPerPod},
-	)
-	return best, nil
-}
-
-const (
-	defaultStartBudget       = 3 * time.Minute
-	defaultStartPollInterval = 2 * time.Second
-	maxStartPollInterval     = 10 * time.Second
-)
-
-func (s *RunService) startBudget() time.Duration {
-	if s.cfg.StartBudget > 0 {
-		return s.cfg.StartBudget
-	}
-	return defaultStartBudget
-}
-
-// pollUntil calls check with exponential backoff until it reports done, returns
-// an error, or ctx ends. The context error is returned when ctx ends first.
-func (s *RunService) pollUntil(ctx context.Context, check func() (bool, error)) error {
-	delay := s.cfg.StartPollInterval
-	if delay <= 0 {
-		delay = defaultStartPollInterval
-	}
-	for {
-		done, err := check()
-		if err != nil || done {
-			return err
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(delay):
-		}
-		delay = min(delay*2, maxStartPollInterval)
-	}
-}
-
-// createSessionWithRetry posts the session until the pod accepts it or ctx
-// ends. Transport errors and 503s are retried because the pod may still be
-// joining the headless Service. Sessions are keyed by run ID, so a conflict on
-// a retry means an earlier attempt landed and counts as success.
-func (s *RunService) createSessionWithRetry(ctx context.Context, podURL string, req sessionmanager.CreateSessionRequest) error {
-	attempts := 0
-	var lastErr error
-	err := s.pollUntil(ctx, func() (bool, error) {
-		attempts++
-		err := s.sm.CreateSession(ctx, podURL, req)
-		switch {
-		case err == nil:
-			return true, nil
-		case errors.Is(err, sessionmanager.ErrSessionConflict) && attempts > 1:
-			return true, nil
-		case isRetryableSessionError(err) && ctx.Err() == nil:
-			lastErr = err
-			return false, nil
-		default:
-			return false, err
-		}
-	})
-	if err != nil && errors.Is(err, context.DeadlineExceeded) {
-		err = fmt.Errorf("agent pod not ready after %s: %w", s.startBudget(), err)
-		if lastErr != nil {
-			err = fmt.Errorf("%w (last error: %w)", err, lastErr)
-		}
-	}
-	return err
-}
 
 // isRetryableSessionError reports whether err means the pod was unreachable or
 // not yet serving, as opposed to a request the pod rejected.

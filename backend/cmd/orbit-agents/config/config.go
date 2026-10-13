@@ -93,6 +93,16 @@ type Config struct {
 			// TriggerSecs applies to a run a trigger started.
 			TriggerSecs int `yaml:"triggerSecs"`
 		} `yaml:"idleTimeout"`
+		// Scheduling configures the run scheduler that starts pending runs
+		// (docs/adr/2026-10-12-run-scheduling.md).
+		Scheduling struct {
+			// WorkerConcurrency is how many runs one replica starts at once.
+			WorkerConcurrency int `yaml:"workerConcurrency"`
+			// PollIntervalSecs is how often the scheduler claims pending runs, and how long a released run waits.
+			PollIntervalSecs int `yaml:"pollIntervalSecs"`
+			// StartBudgetSecs is how long a run may stay pending before it fails.
+			StartBudgetSecs int `yaml:"startBudgetSecs"`
+		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the orbit-tenant-connections
 		// ConfigMap. orbit-agents reads it to serve the read-only connection

@@ -45,8 +45,8 @@ func TestStartRun_SendsIdleTimeoutByOrigin(t *testing.T) {
 		f.run.cfg.IdleTimeouts = testIdleTimeouts
 		at := seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
 		ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeService, "trigger:trig-1")
-		if _, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: at.ID, TriggerID: "trig-1"}); err != nil {
-			t.Fatalf("StartRun: %v", err)
+		if _, err := startAndSchedule(ctx, f.run, StartRunRequest{AgentTypeID: at.ID, TriggerID: "trig-1"}); err != nil {
+			t.Fatalf("startAndSchedule: %v", err)
 		}
 		sm.mu.Lock()
 		defer sm.mu.Unlock()
@@ -59,8 +59,8 @@ func TestStartRun_SendsIdleTimeoutByOrigin(t *testing.T) {
 		f.run.cfg.IdleTimeouts = testIdleTimeouts
 		at := seedAutonomousAgentType(t, repo, "at-1", "t1", "reviewer")
 		ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeHuman, "user:1")
-		if _, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: at.ID}); err != nil {
-			t.Fatalf("StartRun: %v", err)
+		if _, err := startAndSchedule(ctx, f.run, StartRunRequest{AgentTypeID: at.ID}); err != nil {
+			t.Fatalf("startAndSchedule: %v", err)
 		}
 		sm.mu.Lock()
 		defer sm.mu.Unlock()

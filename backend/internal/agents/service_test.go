@@ -453,7 +453,7 @@ func TestStartRun_HappyPath(t *testing.T) {
 		MaxConcurrentRunsPerPod: 5,
 	})
 
-	run, err := svc.StartRun(context.Background(), StartRunRequest{
+	run, err := svc.StartAndSchedule(context.Background(), StartRunRequest{
 		TenantID:    "t-1",
 		AgentTypeID: at.ID,
 	})
@@ -466,8 +466,8 @@ func TestStartRun_HappyPath(t *testing.T) {
 	if run.AgentTypeID != at.ID {
 		t.Errorf("AgentTypeID = %q, want %q", run.AgentTypeID, at.ID)
 	}
-	if len(k8s.provisionedMissing) != 1 || len(k8s.provisionedAgentTypes) != 0 {
-		t.Errorf("run start provisioned missing=%v full=%v, want only a create-only provision", k8s.provisionedMissing, k8s.provisionedAgentTypes)
+	if len(k8s.provisionedAgentTypes) != 0 {
+		t.Errorf("run start provisioned %v, want no full provision", k8s.provisionedAgentTypes)
 	}
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
@@ -491,7 +491,7 @@ func TestStartRun_CreatesNoSandbox(t *testing.T) {
 		MaxConcurrentRunsPerPod: 5,
 	})
 
-	if _, err := svc.StartRun(context.Background(), StartRunRequest{TenantID: "t-1", AgentTypeID: at.ID}); err != nil {
+	if _, err := svc.StartAndSchedule(context.Background(), StartRunRequest{TenantID: "t-1", AgentTypeID: at.ID}); err != nil {
 		t.Fatalf("StartRun: %v", err)
 	}
 
@@ -505,60 +505,16 @@ func TestStartRun_CreatesNoSandbox(t *testing.T) {
 	}
 }
 
-func TestStartRun_FailedStartMarksRunFailed(t *testing.T) {
-	svc, repo, _, sm := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{
-		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		Framework: AgentFrameworkClaudeCode, MaxConcurrentRunsPerPod: 5,
-	})
-	sm.createSessionErr = errors.New("session-manager unreachable")
-
-	if _, err := svc.StartRun(context.Background(), StartRunRequest{TenantID: "t-1", AgentTypeID: at.ID}); err == nil {
-		t.Fatal("expected StartRun to fail when the session cannot be created")
-	}
-
-	// The created run must be marked failed, not left stuck in starting.
-	repo.mu.Lock()
-	defer repo.mu.Unlock()
-	if len(repo.runs) != 1 {
-		t.Fatalf("expected 1 run row, got %d", len(repo.runs))
-	}
-	for _, r := range repo.runs {
-		if r.State != RunStateFailed {
-			t.Errorf("run left in %q, want failed", r.State)
-		}
-	}
-}
-
 func TestStartRun_TenantMismatch(t *testing.T) {
 	svc, repo, _, _ := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
 
-	_, err := svc.StartRun(context.Background(), StartRunRequest{
+	_, err := svc.StartAndSchedule(context.Background(), StartRunRequest{
 		TenantID:    "t-other",
 		AgentTypeID: at.ID,
 	})
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound for tenant mismatch, got %v", err)
-	}
-}
-
-func TestStartRun_AllPodsAtCapacity(t *testing.T) {
-	svc, repo, k8s, _ := newTestService(t)
-	at := seedAgentType(t, repo, AgentType{
-		ID: "at-1", TenantID: "t-1", Slug: "bot",
-		MaxConcurrentRunsPerPod: 2,
-	})
-	k8s.replicaCount = 1
-	// Override active runs so pod 0 is at capacity.
-	repo.activeRunsOverride = map[int]int{0: 2}
-
-	_, err := svc.StartRun(context.Background(), StartRunRequest{
-		TenantID:    "t-1",
-		AgentTypeID: at.ID,
-	})
-	if err == nil {
-		t.Fatal("expected error when all pods at capacity")
 	}
 }
 
@@ -568,11 +524,11 @@ func TestStartRun_SelectsLeastLoadedPod(t *testing.T) {
 		ID: "at-1", TenantID: "t-1", Slug: "bot",
 		MaxConcurrentRunsPerPod: 5,
 	})
-	k8s.replicaCount = 3
+	k8s.readyPods = 3
 	// Pod 1 has the fewest runs.
 	repo.activeRunsOverride = map[int]int{0: 3, 1: 1, 2: 2}
 
-	run, err := svc.StartRun(context.Background(), StartRunRequest{
+	run, err := svc.StartAndSchedule(context.Background(), StartRunRequest{
 		TenantID:    "t-1",
 		AgentTypeID: at.ID,
 	})
@@ -587,7 +543,7 @@ func TestStartRun_SelectsLeastLoadedPod(t *testing.T) {
 func TestStartRun_AgentTypeNotFound(t *testing.T) {
 	svc, _, _, _ := newTestService(t)
 
-	_, err := svc.StartRun(context.Background(), StartRunRequest{
+	_, err := svc.StartAndSchedule(context.Background(), StartRunRequest{
 		TenantID:    "t-1",
 		AgentTypeID: "nonexistent",
 	})
@@ -985,8 +941,25 @@ func TestSendMessage_IdleRun(t *testing.T) {
 	}
 }
 
+func TestSendMessage_RejectsStartingRun(t *testing.T) {
+	for _, state := range []RunState{RunStatePending, RunStateStarting} {
+		t.Run(string(state), func(t *testing.T) {
+			svc, repo, _, sm := newTestService(t)
+			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+			seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: state})
+
+			if err := svc.SendMessage(context.Background(), "run-1", "hello"); !errors.Is(err, ErrRunStarting) {
+				t.Errorf("err = %v, want ErrRunStarting", err)
+			}
+			if len(sm.sentMessages) != 0 || len(repo.messages) != 0 {
+				t.Errorf("a message to a starting run was stored or forwarded")
+			}
+		})
+	}
+}
+
 func TestSendMessage_RejectsTerminalStates(t *testing.T) {
-	for _, state := range []RunState{RunStateCompleted, RunStateFailed, RunStatePending} {
+	for _, state := range []RunState{RunStateCompleted, RunStateFailed} {
 		t.Run(string(state), func(t *testing.T) {
 			svc, repo, _, _ := newTestService(t)
 			at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
@@ -1104,7 +1077,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s,
+		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,

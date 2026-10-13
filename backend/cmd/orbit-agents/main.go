@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
@@ -109,8 +110,9 @@ func realMain() error {
 	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
 	go runSvc.StartReaper(ctx)
 	go atSvc.ApplyAll(ctx, repo)
+	runSvc.StartScheduler(ctx)
 	go draftSvc.StartReaper(ctx)
-	run(ctx, logger, server)
+	run(ctx, logger, server, runSvc)
 	return nil
 }
 
@@ -230,7 +232,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	if err := sizes.Validate(); err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
 	}
-	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, agents.RunServiceConfig{
+	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize:  sizes.Default,
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
@@ -239,7 +241,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 			Manual:  cfg.Agents.IdleTimeout.ManualSecs,
 			Trigger: cfg.Agents.IdleTimeout.TriggerSecs,
 		},
-		SandboxMount: cfg.Agents.SandboxMount,
+		SandboxMount:      cfg.Agents.SandboxMount,
+		StartBudget:       time.Duration(cfg.Agents.Scheduling.StartBudgetSecs) * time.Second,
+		StartPollInterval: time.Duration(cfg.Agents.Scheduling.PollIntervalSecs) * time.Second,
+		WorkerConcurrency: cfg.Agents.Scheduling.WorkerConcurrency,
 	}, logger)
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{
@@ -460,7 +465,7 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 	return decls
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc *agents.RunService) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -474,9 +479,14 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), agentsConfig.Current.ShutdownTimeout())
 	defer cancel()
 
+	// Let a run start in flight finish rather than leave the run in starting. Open
+	// run streams hold Shutdown until its timeout, so the wait runs beside it.
+	scheduled := make(chan struct{})
+	go func() { runSvc.WaitScheduler(shutdownCtx); close(scheduled) }()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	<-scheduled
 
 	logger.Info(ctx, "orbit-agents shutdown complete")
 }
