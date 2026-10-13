@@ -11,12 +11,30 @@
 
 FROM kora-sandbox-go AS go-tools
 
-FROM kora-sandbox-node
+# The Go tools build on the native build platform and Go cross-compiles them
+# for the target, so multi-arch builds never compile under QEMU emulation.
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS go-builder
 
 # Set from versions.hcl by docker-bake.hcl.
 ARG PROTOC_GEN_GO_VERSION
 ARG PROTOC_GEN_GO_GRPC_VERSION
 ARG DEADCODE_VERSION
+ARG TARGETOS TARGETARCH
+
+# go install verifies each module against the Go checksum database. A
+# cross-compiled install writes to bin/<os>_<arch>, so the binaries are
+# collected from either path into /out.
+RUN set -eux; \
+    export CGO_ENABLED=0 GOOS="$TARGETOS" GOARCH="$TARGETARCH"; \
+    go install "google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}"; \
+    go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}"; \
+    go install "golang.org/x/tools/cmd/deadcode@${DEADCODE_VERSION}"; \
+    mkdir /out; \
+    find "$(go env GOPATH)/bin" -type f -exec mv {} /out/ \;
+
+FROM kora-sandbox-node
+
+# Set from versions.hcl by docker-bake.hcl.
 ARG GITLEAKS_VERSION
 ARG HELM_VERSION
 
@@ -32,13 +50,9 @@ ARG HELM_SHA256_ARM64=31c5794dd55c66a51e6b7d2e2ac7a114ae8b1de41ff1d9ba51748ac973
 USER 0
 
 COPY --from=go-tools /usr/local/bin/golangci-lint /usr/local/bin/buf /usr/local/bin/
+COPY --from=go-builder /out/ /usr/local/bin/
 
-# go install verifies each module against the Go checksum database.
 RUN set -eux; \
-    export GOPATH=/tmp/gopath GOCACHE=/tmp/gocache GOBIN=/usr/local/bin; \
-    go install "google.golang.org/protobuf/cmd/protoc-gen-go@${PROTOC_GEN_GO_VERSION}"; \
-    go install "google.golang.org/grpc/cmd/protoc-gen-go-grpc@${PROTOC_GEN_GO_GRPC_VERSION}"; \
-    go install "golang.org/x/tools/cmd/deadcode@${DEADCODE_VERSION}"; \
     case "$(dpkg --print-architecture)" in \
       amd64) GL_ARCH=x64; GL_SHA="${GITLEAKS_SHA256_AMD64}"; HELM_SHA="${HELM_SHA256_AMD64}";; \
       arm64) GL_ARCH=arm64; GL_SHA="${GITLEAKS_SHA256_ARM64}"; HELM_SHA="${HELM_SHA256_ARM64}";; \
