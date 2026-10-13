@@ -84,7 +84,7 @@ If the refresh token itself is expired, run `make auth` to start a fresh session
 **Run the full quality gate before committing:**
 
 ```bash
-make check             # tidy + fmt + vet + lint (golangci-lint) + secret scan + docs-check + tests + frontend checks
+make check             # tidy + fmt + vet + lint (golangci-lint) + secret scan + docs-check + Hades manifest and contract checks + tests + frontend checks
 ```
 
 `docs-check` (`scripts/docs/check-docs.sh`) guards the docs against drift: broken links, missing ADR/PRD index entries, dead `make` targets, a stale binary table, and hardcoded counts. All PRs must pass `make check` with zero issues.
