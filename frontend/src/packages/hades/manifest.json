@@ -1,6 +1,6 @@
 {
-  "version": "0.1.0",
-  "contractVersion": "0.0",
+  "version": "1.0.0",
+  "contractVersion": "1.0",
   "modes": [
     "dark",
     "light"
