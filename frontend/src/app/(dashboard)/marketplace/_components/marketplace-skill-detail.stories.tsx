@@ -95,7 +95,7 @@ Distinguish the requested browse values from the last successful results. This m
 };
 
 const meta: Meta<typeof MarketplaceSkillDetail> = {
-  title: 'App/Marketplace/SkillDetail',
+  title: 'Pages/Marketplace/SkillDetail',
   component: MarketplaceSkillDetail,
   tags: ['autodocs'],
   parameters: { layout: 'padded' },

@@ -5,7 +5,7 @@ import { Stack } from '@orbit/terra';
 import { MarketplaceResultsSkeleton } from './marketplace-results-skeleton';
 
 const meta: Meta<typeof MarketplaceResultsSkeleton> = {
-  title: 'App/Marketplace/ResultsSkeleton',
+  title: 'Pages/Marketplace/ResultsSkeleton',
   component: MarketplaceResultsSkeleton,
   tags: ['autodocs'],
   parameters: { layout: 'padded' },

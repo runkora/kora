@@ -20,7 +20,7 @@ const initialData: MarketplaceOverviewData = {
 };
 
 const meta: Meta<typeof MarketplaceSkillList> = {
-  title: 'App/Marketplace/SkillList',
+  title: 'Pages/Marketplace/SkillList',
   component: MarketplaceSkillList,
   tags: ['autodocs'],
   parameters: {

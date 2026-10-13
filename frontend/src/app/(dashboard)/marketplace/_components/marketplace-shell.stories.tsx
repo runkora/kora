@@ -102,7 +102,7 @@ function createOverview(requested: MarketplaceBrowseParams): MarketplaceOverview
 }
 
 const meta: Meta<typeof MarketplaceShell> = {
-  title: 'App/Marketplace/Shell',
+  title: 'Pages/Marketplace/Shell',
   component: MarketplaceShell,
   tags: ['autodocs'],
   parameters: {
