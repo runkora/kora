@@ -9,11 +9,6 @@ on:
 
 # The default token only reads the repository. Jobs that need more
 # declare it themselves.
-# A newer run for the same pull request cancels the older one. Every other event gets its own group and always finishes.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
