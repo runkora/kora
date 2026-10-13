@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -245,8 +246,8 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error
 	if pod.Labels[podLabelRole] == podRoleSandbox {
 		m.pinSandboxSidecars(pod, &idProxy, &opa)
 	}
-	ensureContainer(&pod.Spec, idProxy)
-	ensureContainer(&pod.Spec, opa)
+	ensureNativeSidecar(&pod.Spec, idProxy)
+	ensureNativeSidecar(&pod.Spec, opa)
 	return nil
 }
 
@@ -440,14 +441,19 @@ func preDeclaredIstioContainer(spec *corev1.PodSpec) string {
 	return ""
 }
 
-func ensureContainer(spec *corev1.PodSpec, c corev1.Container) {
-	for i := range spec.Containers {
-		if spec.Containers[i].Name == c.Name {
-			spec.Containers[i] = c
+// ensureNativeSidecar adds c as an init container that keeps running, which Kubernetes stops after the
+// main containers (docs/adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md, Amendment 3).
+func ensureNativeSidecar(spec *corev1.PodSpec, c corev1.Container) {
+	always := corev1.ContainerRestartPolicyAlways
+	c.RestartPolicy = &always
+	spec.Containers = slices.DeleteFunc(spec.Containers, func(x corev1.Container) bool { return x.Name == c.Name })
+	for i := range spec.InitContainers {
+		if spec.InitContainers[i].Name == c.Name {
+			spec.InitContainers[i] = c
 			return
 		}
 	}
-	spec.Containers = append(spec.Containers, c)
+	spec.InitContainers = append(spec.InitContainers, c)
 }
 
 func hasPullSecret(refs []corev1.LocalObjectReference, name string) bool {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -72,6 +73,46 @@ func TestPostgres_ClaimPendingRuns(t *testing.T) {
 	}
 	if again := claimOwn(t, r, tenant, time.Now()); len(again) != 0 {
 		t.Errorf("claimed runs twice: %v", runIDs(again))
+	}
+}
+
+// Replicas claiming at once never take the same run twice. This guards the claim's row lock (FOR UPDATE).
+func TestPostgres_ClaimPendingRunsConcurrent(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	past := time.Now().UTC().Add(-time.Hour)
+	want := make([]string, 0, 40)
+	for range 40 {
+		want = append(want, queueRun(t, r, tenant, at.ID, past, &past))
+	}
+
+	var mu sync.Mutex
+	var got []string
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Go(func() {
+			for {
+				runs, err := r.ClaimPendingRuns(context.Background(), 3, time.Now())
+				if err != nil {
+					t.Errorf("ClaimPendingRuns: %v", err)
+					return
+				}
+				if len(runs) == 0 {
+					return
+				}
+				runs = slices.DeleteFunc(runs, func(run Run) bool { return run.TenantID != tenant })
+				mu.Lock()
+				got = append(got, runIDs(runs)...)
+				mu.Unlock()
+			}
+		})
+	}
+	wg.Wait()
+
+	slices.Sort(got)
+	slices.Sort(want)
+	if !slices.Equal(got, want) {
+		t.Fatalf("claimed %d runs (%d unique), want each of %d once", len(got), len(slices.Compact(slices.Clone(got))), len(want))
 	}
 }
 

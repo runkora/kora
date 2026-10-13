@@ -29,7 +29,7 @@ A pod can be running while one of its containers is unready or repeatedly restar
 
 ```bash
 kubectl get pod <pod> -n orbit-system \
-  -o jsonpath='{range .status.containerStatuses[*]}{.name}{"\t"}{.ready}{"\t"}{.restartCount}{"\n"}{end}'
+  -o jsonpath='{range .status.initContainerStatuses[*]}{.name}{"\t"}{.ready}{"\t"}{.restartCount}{"\n"}{end}{range .status.containerStatuses[*]}{.name}{"\t"}{.ready}{"\t"}{.restartCount}{"\n"}{end}'
 
 kubectl logs <pod> -n orbit-system -c <container>
 kubectl logs <pod> -n orbit-system -c <container> --previous

@@ -43,7 +43,7 @@ func sandboxLikePod() *corev1.Pod {
 // An agent pod, whose egress is not restricted that way, keeps it.
 func TestMutate_OTLPEndpointSkippedForSandboxes(t *testing.T) {
 	endpointOf := func(pod *corev1.Pod) string {
-		for _, c := range pod.Spec.Containers {
+		for _, c := range pod.Spec.InitContainers {
 			if c.Name != containerIdentityProxy {
 				continue
 			}
@@ -141,6 +141,32 @@ func TestMutate_AttachesEnforcement(t *testing.T) {
 	}
 }
 
+// The enforcement sidecars are native sidecars after the pod's own init containers,
+// and a regular container of the same name is replaced.
+func TestMutate_InjectsNativeSidecars(t *testing.T) {
+	pod := sandboxLikePod()
+	pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{Name: containerOPA, Image: "stale"})
+	pod.Spec.InitContainers = []corev1.Container{{Name: "setup", Image: "x"}}
+	if err := testMutator().mutate(pod, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range pod.Spec.Containers {
+		if c.Name == containerIdentityProxy || c.Name == containerOPA {
+			t.Errorf("%s is a regular container", c.Name)
+		}
+	}
+	var names []string
+	for _, c := range pod.Spec.InitContainers {
+		names = append(names, c.Name)
+		if c.Name != "setup" && (c.RestartPolicy == nil || *c.RestartPolicy != corev1.ContainerRestartPolicyAlways) {
+			t.Errorf("%s is not a native sidecar", c.Name)
+		}
+	}
+	if !slices.Equal(names, []string{"setup", containerIdentityProxy, containerOPA}) {
+		t.Errorf("init containers = %v, want setup then the sidecars", names)
+	}
+}
+
 // TestMutate_RejectsPreDeclaredIstioContainers: a pod that ships its own
 // istio-proxy is standing in for the sidecar; with failurePolicy Fail the
 // error becomes a denial.
@@ -164,8 +190,8 @@ func TestMutate_Idempotent(t *testing.T) {
 	if err := m.mutate(pod, "example", ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(pod.Spec.Containers) != len(once.Spec.Containers) || len(pod.Spec.Volumes) != len(once.Spec.Volumes) || len(pod.Spec.ImagePullSecrets) != 1 {
-		t.Errorf("second mutation changed the pod: containers %d->%d volumes %d->%d", len(once.Spec.Containers), len(pod.Spec.Containers), len(once.Spec.Volumes), len(pod.Spec.Volumes))
+	if len(pod.Spec.Containers) != len(once.Spec.Containers) || len(pod.Spec.InitContainers) != len(once.Spec.InitContainers) || len(pod.Spec.Volumes) != len(once.Spec.Volumes) || len(pod.Spec.ImagePullSecrets) != 1 {
+		t.Errorf("second mutation changed the pod: containers %d->%d init containers %d->%d volumes %d->%d", len(once.Spec.Containers), len(pod.Spec.Containers), len(once.Spec.InitContainers), len(pod.Spec.InitContainers), len(once.Spec.Volumes), len(pod.Spec.Volumes))
 	}
 	if pod.Annotations[podAnnotationUserVolumeMount] != once.Annotations[podAnnotationUserVolumeMount] {
 		t.Error("userVolumeMount changed on reinvocation")
@@ -230,10 +256,11 @@ func hasVolume(pod *corev1.Pod, name string) bool {
 	return false
 }
 
+// containerByName finds an injected sidecar, which is a native sidecar init container.
 func containerByName(pod *corev1.Pod, name string) *corev1.Container {
-	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Name == name {
-			return &pod.Spec.Containers[i]
+	for i := range pod.Spec.InitContainers {
+		if pod.Spec.InitContainers[i].Name == name {
+			return &pod.Spec.InitContainers[i]
 		}
 	}
 	return nil
@@ -241,7 +268,7 @@ func containerByName(pod *corev1.Pod, name string) *corev1.Container {
 
 func containerNames(pod *corev1.Pod) []string {
 	var out []string
-	for _, c := range pod.Spec.Containers {
+	for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 		out = append(out, c.Name)
 	}
 	return out
@@ -264,7 +291,7 @@ func TestMutate_PinsSandboxSidecars(t *testing.T) {
 		OPA:           corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
 	}
 	containerOf := func(pod *corev1.Pod, name string) corev1.Container {
-		for _, c := range pod.Spec.Containers {
+		for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 			if c.Name == name {
 				return c
 			}

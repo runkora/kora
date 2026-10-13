@@ -949,7 +949,7 @@ func isRetryableSessionError(err error) bool {
 }
 
 // StartReaper runs a background goroutine that periodically marks runs stuck in
-// active or starting state as failed. It exits when ctx is canceled.
+// pending, starting or active as failed. It exits when ctx is canceled.
 func (s *RunService) StartReaper(ctx context.Context) {
 	staleDuration := s.cfg.StaleRunTimeout
 	if staleDuration <= 0 {
