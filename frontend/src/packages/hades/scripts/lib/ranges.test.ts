@@ -22,6 +22,15 @@ describe('compareRanges', () => {
     expect(compareRanges('~1.2.3', '1.2.3')).toBe('narrowed');
   });
 
+  it('judges a union by what it covers, merging alternatives that overlap or touch', () => {
+    expect(compareRanges('>=1 <3', '>=1 <2 || >=2 <4')).toBe('widened');
+    expect(compareRanges('>=1 <3', '>=1 <2 || >=2 <3')).toBe('same');
+    expect(compareRanges('^1 || ^2', '>=1 <3')).toBe('same');
+    expect(compareRanges('>=1', '>=1 <2 || >=2')).toBe('same');
+    expect(compareRanges('>=1', '>=1 <2 || >=3')).toBe('narrowed');
+    expect(compareRanges('>=1 <3', '>=1 <2 || >2 <4')).toBe('narrowed');
+  });
+
   it('narrows when the ranges overlap without one containing the other', () => {
     expect(compareRanges('^1.0.0', '^2.0.0')).toBe('narrowed');
   });
