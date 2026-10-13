@@ -26,6 +26,8 @@ type Config struct {
 		Port                int    `yaml:"port"`
 		BasePath            string `yaml:"basePath"`
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
+		// TerminationGracePeriodSecs is the pod's grace period, set by orbit-agents. Zero drains until the pod is stopped.
+		TerminationGracePeriodSecs int `yaml:"terminationGracePeriodSecs"`
 	} `yaml:"server"`
 
 	Observability struct {
@@ -110,6 +112,18 @@ func (c *Config) ShutdownTimeout() time.Duration {
 	return time.Duration(c.Server.ShutdownTimeoutSecs) * time.Second
 }
 
+// DrainTimeout is the grace period less the shutdown timeout and a margin to close the rest.
+// limited is false when no grace period is known, and the drain then waits for the runs.
+func (c *Config) DrainTimeout() (d time.Duration, limited bool) {
+	if c.Server.TerminationGracePeriodSecs <= 0 {
+		return 0, false
+	}
+	return max(time.Duration(c.Server.TerminationGracePeriodSecs)*time.Second-c.ShutdownTimeout()-drainMargin, 0), true
+}
+
+// drainMargin is the part of the grace period kept for closing the sessions left after a drain.
+const drainMargin = 30 * time.Second
+
 // Current holds all non-secret configuration for the session-manager.
 // Secrets must be supplied via environment variables. The session-manager
 // reaches no database: run events travel to orbit-agents over HTTP, which is
@@ -133,6 +147,13 @@ func applyEnvOverrides(cfg *Config, getenv func(string) string) error {
 	}
 	if v := getenv("ORBIT_TOOL_GATEWAY_URL"); v != "" {
 		cfg.ToolGateway.URL = v
+	}
+	if v := getenv("ORBIT_TERMINATION_GRACE_PERIOD_SECS"); v != "" {
+		secs, err := strconv.Atoi(v)
+		if err != nil || secs < 0 {
+			return fmt.Errorf("ORBIT_TERMINATION_GRACE_PERIOD_SECS must be a non-negative integer, got %q", v)
+		}
+		cfg.Server.TerminationGracePeriodSecs = secs
 	}
 	if v := getenv("ORBIT_NODE_MAX_OLD_SPACE_MB"); v != "" {
 		mb, err := strconv.Atoi(v)

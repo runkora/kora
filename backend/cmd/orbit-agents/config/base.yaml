@@ -66,6 +66,8 @@ agents:
     workerConcurrency: 16
     pollIntervalSecs: 1
     startBudgetSecs: 180
+    minReplicas: 2
+    drainGracePeriodSecs: 3600
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap.
   manifestPatchDir: /etc/orbit/manifest-patches

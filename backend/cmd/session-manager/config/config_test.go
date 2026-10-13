@@ -1,6 +1,9 @@
 package smConfig
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestApplyEnvOverrides_NodeMaxOldSpaceMB(t *testing.T) {
 	tests := []struct {
@@ -53,5 +56,27 @@ func TestApplyEnvOverrides_GatewayURLs(t *testing.T) {
 	}
 	if got, want := cfg.ToolGateway.URL, env["ORBIT_TOOL_GATEWAY_URL"]; got != want {
 		t.Errorf("ToolGateway.URL = %q, want %q", got, want)
+	}
+}
+
+func TestDrainTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		grace   string
+		want    time.Duration
+		limited bool
+	}{{"", 0, false}, {"3600", 3540 * time.Second, true}, {"30", 0, true}} {
+		cfg := &Config{}
+		cfg.Server.ShutdownTimeoutSecs = 30
+		if err := applyEnvOverrides(cfg, func(k string) string {
+			if k == "ORBIT_TERMINATION_GRACE_PERIOD_SECS" {
+				return tc.grace
+			}
+			return ""
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if got, limited := cfg.DrainTimeout(); got != tc.want || limited != tc.limited {
+			t.Errorf("grace %q: drain timeout = %s limited %v, want %s %v", tc.grace, got, limited, tc.want, tc.limited)
+		}
 	}
 }

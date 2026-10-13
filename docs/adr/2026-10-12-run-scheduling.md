@@ -123,7 +123,10 @@ The chart will expose these values with these defaults:
 *   Callers, the dashboard and MCP clients must handle a run that is `pending` when the start call returns.
 *   Every agent will run at least 2 session-manager pods.
 *   A draining pod and its node will stay up for up to the grace period. A run that outlasts the grace period will be killed when the pod exits.
+*   The drain keeps a run's model and tool calls working only when the enforcement sidecars are native sidecars ([Enforcement Sidecar Injection](2026-09-04-enforcement-sidecar-injection-and-preflight.md), Amendment 3).
 *   RollingUpdate drains one pod at a time, and a roll of a 2-pod agent can take up to twice the grace period.
+*   During a roll, one pod takes every new run. Runs beyond its free slots wait and fail when the start budget runs out.
+*   The first roll after this change replaces pods that cannot drain yet, and the runs on them end.
 *   A run that cannot find a pod within the start budget will end `failed`. Before this change the caller received an error and no run.
 *   A trigger will count a delivery as dispatched once its run is queued. A run that then fails to start will not count toward the trigger's auto-pause.
 
@@ -136,12 +139,12 @@ The chart will expose these values with these defaults:
 
 ## Validation
 
-Two behaviors are unverified and will be checked on the local cluster before the drain is built:
+These behaviors were checked on the local k3d cluster with Kubernetes 1.36 and Istio 1.31.1:
 
-*   A terminating StatefulSet pod stays in DNS when the headless Service sets `publishNotReadyAddresses: true`.
-*   orbit-agents still reaches the terminating pod over mTLS on the `http` port through Istio 1.30.4.
-
-The HPA with minimum 2 raising the StatefulSet to 2 replicas without a metrics API is also unverified.
+*   A terminating StatefulSet pod stayed in DNS while the headless Service set `publishNotReadyAddresses: true`. Without it, the pod's name returned NXDOMAIN.
+*   orbit-agents reached the terminating pod over mTLS on the `http` port through Istio.
+*   A run on a draining pod answered a message with a model call, and new runs went to the other pod.
+*   With the metrics API unavailable, the HPA raised a StatefulSet from 1 to its minimum of 2 replicas.
 
 ---
 
