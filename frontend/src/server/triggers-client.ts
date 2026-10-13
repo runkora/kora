@@ -290,10 +290,7 @@ export async function listDeliveries(
   // backend answers page one again - an unbounded duplicate loop rather than a
   // page walk. The contract is null or a non-empty opaque string.
   const cursor = env.next_cursor;
-  if (
-    !('next_cursor' in env) ||
-    (cursor !== null && (typeof cursor !== 'string' || cursor === ''))
-  ) {
+  if (cursor !== null && (typeof cursor !== 'string' || cursor === '')) {
     throw new ApiError(
       502,
       'bad_upstream_response',

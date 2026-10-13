@@ -118,10 +118,7 @@ async function sendPage<T>(
   // on screen with Load more still showing. That is an unbounded duplicate
   // loop, not a page walk. The contract is null or a non-empty opaque string.
   const cursor = (body as { next_cursor?: unknown }).next_cursor;
-  if (
-    !('next_cursor' in body) ||
-    (cursor !== null && (typeof cursor !== 'string' || cursor === ''))
-  ) {
+  if (cursor !== null && (typeof cursor !== 'string' || cursor === '')) {
     return unreadable;
   }
   return { data: body.data as T, nextCursor: cursor, error: null };

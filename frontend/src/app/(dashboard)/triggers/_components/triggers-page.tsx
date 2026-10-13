@@ -212,9 +212,9 @@ export function TriggersPage({
   // prop read once at mount would never see it, so the accumulated list is
   // re-seeded whenever a new server page arrives.
   //
-  // This is React's "adjust state when a prop changes" pattern, done during
-  // render rather than in an effect: an effect would paint the stale list first
-  // and is what the repo's no-setState-in-effect rule exists to prevent.
+  // React's "adjust state when a prop changes" pattern, during render rather
+  // than in an effect, which would paint the stale list first. trigger-drawer
+  // resets its own state the same way.
   //
   // Re-seeding also drops back to All. The alternative, re-running the active
   // filter, means a second round trip before the row the user just created can
