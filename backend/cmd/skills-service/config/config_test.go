@@ -71,8 +71,8 @@ func TestApplyEnvOverridesPopulatesGitHubCredentials(t *testing.T) {
 	if c.GitHub.PrivateKeyPath != "/tmp/key.pem" {
 		t.Errorf("PrivateKeyPath: got %q, want %q", c.GitHub.PrivateKeyPath, "/tmp/key.pem")
 	}
-	if c.Marketplace.SourcesConfigPath != "/tmp/marketplace-sources.json" {
-		t.Errorf("SourcesConfigPath: got %q, want %q", c.Marketplace.SourcesConfigPath, "/tmp/marketplace-sources.json")
+	if c.Marketplace.SourcesConfigPath != "/tmp/skills-mapping.yaml" {
+		t.Errorf("SourcesConfigPath: got %q, want %q", c.Marketplace.SourcesConfigPath, "/tmp/skills-mapping.yaml")
 	}
 }
 

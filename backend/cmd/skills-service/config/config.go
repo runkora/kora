@@ -58,9 +58,13 @@ type Config struct {
 	Policy PolicyConfig `yaml:"policy"`
 
 	Marketplace struct {
-		// SourcesConfigPath is the path to the mounted marketplace-sources.json.
+		// SourcesConfigPath is the path to the mounted skills-mapping.yaml.
 		// Loaded from ORBIT_MARKETPLACE_SOURCES_CONFIG — never from YAML.
 		SourcesConfigPath string `yaml:"-"`
+
+		// LocalTenantID, when non-empty, bypasses token auth and uses this
+		// tenant ID directly. Set via LOCAL_TENANT_ID for local dev only.
+		LocalTenantID string `yaml:"-"`
 
 		// CacheTTL is the Redis key TTL for cached skill sets.
 		CacheTTL time.Duration `yaml:"cacheTTL"`
@@ -101,9 +105,13 @@ func (c *Config) CacheTTL() time.Duration {
 func (c *Config) ApplyEnvOverrides() error {
 	dir := os.Getenv("ORBIT_MARKETPLACE_SOURCES_CONFIG")
 	if dir == "" {
-		return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
+    	return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
 	}
-	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "marketplace-sources.json")
+	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "skills-mapping.yaml")
+
+	if v := os.Getenv("LOCAL_TENANT_ID"); v != "" {
+		c.Marketplace.LocalTenantID = v
+	}
 
 	if v := os.Getenv("MARKETPLACE_CACHE_TTL"); v != "" {
 		d, err := time.ParseDuration(v)

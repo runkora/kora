@@ -6,20 +6,35 @@ import (
 	"github.com/clear-route/orbit/internal/skills"
 )
 
-func TestCacheKey(t *testing.T) {
+func TestMarketplaceCacheKey(t *testing.T) {
 	tests := []struct {
-		tenantID        string
-		marketplaceSlug string
-		want            string
+		tenantID string
+		slug     string
+		want     string
 	}{
-		{tenantID: "tenant-a", marketplaceSlug: "clear-route__skills-marketplace", want: "marketplace:tenant-a:clear-route__skills-marketplace"},
-		{tenantID: "tenant-b", marketplaceSlug: "clearroute__core-skills", want: "marketplace:tenant-b:clearroute__core-skills"},
+		{"tenant-a", "clear-route__skills-marketplace", "marketplace:tenant-a:clear-route__skills-marketplace"},
+		{"tenant-b", "clearroute__core-skills", "marketplace:tenant-b:clearroute__core-skills"},
 	}
-
 	for _, tt := range tests {
-		got := skills.CacheKey(tt.tenantID, tt.marketplaceSlug)
+		got := skills.MarketplaceCacheKey(tt.tenantID, tt.slug)
 		if got != tt.want {
-			t.Errorf("CacheKey(%q, %q) = %q, want %q", tt.tenantID, tt.marketplaceSlug, got, tt.want)
+			t.Errorf("MarketplaceCacheKey(%q, %q) = %q, want %q", tt.tenantID, tt.slug, got, tt.want)
+		}
+	}
+}
+
+func TestSkillCacheKey(t *testing.T) {
+	tests := []struct {
+		slug string
+		want string
+	}{
+		{"clear-route__skills__react-expert", "clear-route__skills__react-expert"},
+		{"clearroute__core__go-expert", "clearroute__core__go-expert"},
+	}
+	for _, tt := range tests {
+		got := skills.SkillCacheKey(tt.slug)
+		if got != tt.want {
+			t.Errorf("SkillCacheKey(%q) = %q, want %q", tt.slug, got, tt.want)
 		}
 	}
 }

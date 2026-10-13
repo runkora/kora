@@ -57,10 +57,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	// backgroundCtx ends after the HTTP server stops. The registry watch and
-	// the policy bundle poll stop with it.
+	// backgroundCtx ends after the HTTP server stops. The policy bundle poll
+	// stops with it.
 	backgroundCtx, stopBackground := context.WithCancel(ctx)
-	go registry.Watch(backgroundCtx)
 
 	server, register, err := initServer(backgroundCtx, logger, redis, registry)
 	if err != nil {
@@ -144,8 +143,7 @@ func initControllers(
 
 	gh := ghclient.NewClient(sc.Current.GitHub.APIBaseURL, logger)
 
-	// Keep the existing provider as the default for sources that do not
-	// specify CredentialsRef.
+	// Single GitHub App token provider — all marketplaces share the same credentials.
 	defaultTokens := skills.NewTokenProvider(
 		gh,
 		sc.Current.GitHub.AppID,
@@ -153,11 +151,7 @@ func initControllers(
 		sc.Current.GitHub.PrivateKeyPath,
 	)
 
-	// The pool selects a TokenProvider per source CredentialsRef, falling
-	// back to defaultTokens for sources that omit the field.
-	tokenPool := skills.NewTokenProviderPool(gh, defaultTokens)
-
-	crawler := skills.NewCrawler(gh, tokenPool, logger)
+	crawler := skills.NewCrawler(gh, defaultTokens, logger)
 	cache := skills.NewCache(redis, sc.Current.CacheTTL())
 
 	pol := policy.NewEvaluator(
@@ -177,7 +171,7 @@ func initControllers(
 		verifier,
 		pol,
 		sc.Current.Server.BasePath,
-		"tenant-a",
+		sc.Current.Marketplace.LocalTenantID,
 	)
 
 	return []api.Controller{controller}, nil
