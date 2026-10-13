@@ -310,14 +310,19 @@ the remaining evidence if the aggregate were ever wrong.
 
 1. Add the aggregate query and the `activity` object to the trigger list
    response, with the index the measurement calls for.
-2. Switch the frontend to read `activity`, deleting the three derivations and
-   the 100-row delivery fetch that fed them.
+2. Switch the frontend to read `activity`, deleting the three derivations.
+   **The 100-row fetch stays.** `fleetStats` is a fourth consumer of the same
+   array, and the deliveries tab and drawer read it too, so deleting it here
+   would blank the fleet KPIs on a tenant that is receiving webhooks. See the
+   Neutral consequence above.
 3. Point single-trigger history at `ListDeliveries` with `trigger_id`
-   (Option 2), which needs no new backend work.
+   (Option 2), widening its predicate to the direct-or-fan-out rule the Decision
+   records.
 
 Steps 1 and 2 can ship together or in order; the response is additive, so a
 frontend still deriving in the browser keeps working against a backend that has
-already shipped step 1.
+already shipped step 1. Nothing here removes a consumer's data source, which is
+why step 2 deletes derivations rather than the fetch beneath them.
 
 ### Timeline
 
