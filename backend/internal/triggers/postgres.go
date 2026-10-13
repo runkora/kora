@@ -551,20 +551,10 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 		idx++
 	}
 	if n := len(filter.Status); n > 0 {
-		// One value is emitted as scalar equality, not ANY. A ScalarArrayOp
-		// cannot be used as an index condition on the leading columns the way
-		// a plain equality can, so the planner costs the composite index worse
-		// than the tenant index plus a filter and abandons it. Measured on 300k
-		// rows under the DEFAULT plan_cache_mode: the scalar form read 102 rows
-		// under an index condition using 106 buffers, the ANY form discarded
-		// 101,898 rows by filter using 2,266. The ANY plan is also unstable,
-		// picking either index across sessions; the scalar one never varied.
-		//
-		// Not a generic-plan effect. Postgres chose a custom plan on every
-		// execution here (pg_prepared_statements reported generic_plans = 0),
-		// so this holds for the plans pgx actually gets, not only forced ones.
-		// A single status is what the console sends, so it is the shape that
-		// has to hit the index.
+		// Scalar equality for one value, not ANY: a ScalarArrayOp cannot serve
+		// as an index condition on the leading columns, so the planner abandons
+		// idx_trigger_deliveries_tenant_status. One status is what the console
+		// sends. See the keyset-pagination ADR for the measurements.
 		if n == 1 {
 			query += fmt.Sprintf(` AND status = $%d`, idx)
 			args = append(args, filter.Status[0])

@@ -264,23 +264,18 @@ type RetentionStore interface {
 }
 
 // deliveryCursor is the keyset position of a deliveries page: the next page is
-// every row strictly older than this one. ReceivedAt alone is not a position,
-// because trigger_deliveries.received_at is not unique and a webhook burst
-// lands many rows on the same timestamp; the id breaks that tie so a page
-// boundary never drops or repeats a delivery.
+// every row strictly older than this one. received_at is not unique, so the id
+// breaks ties and keeps a page boundary from dropping or repeating a row.
 type deliveryCursor struct {
 	ReceivedAt time.Time
 	ID         string
 }
 
 // encode renders the cursor as the opaque "<RFC3339Nano>|<id>" value a client
-// echoes back as ?cursor=. Clients must treat it as opaque: the encoding is
-// ours to change.
+// echoes back as ?cursor=. The encoding is ours to change.
 //
-// UTC is not cosmetic. pgx decodes timestamptz into the process's local zone,
-// so on a pod with TZ set the offset renders as "+05:30" and the "+" a client
-// echoes back in a query string decodes to a space, which fails to parse and
-// 400s every page after the first. Z has no such character.
+// UTC is required: pgx decodes timestamptz into the local zone, and a "+05:30"
+// offset round-trips through a query string as a space and fails to parse.
 func (c deliveryCursor) encode() string {
 	return c.ReceivedAt.UTC().Format(time.RFC3339Nano) + "|" + c.ID
 }
@@ -318,18 +313,12 @@ type DeliveryFilter struct {
 	// Several values are OR-ed together.
 	Status []string
 	// Outcome filters on the per-trigger fan-out (AllRunStatuses): a delivery
-	// matches when ANY of its runs holds one of these outcomes.
+	// matches when any of its runs holds one of these outcomes.
 	//
-	// With TriggerID set, the EXISTS narrows to that trigger's own run, but the
-	// outer query still requires trigger_deliveries.trigger_id = TriggerID, and
-	// that summary column holds only the trigger that dispatched LAST. So a
-	// delivery that fanned out to several triggers is reachable only through
-	// whichever one is stamped on it: asking for another trigger's failed run
-	// on that delivery returns nothing, even though the run exists.
-	//
-	// That is a property of how UpdateDeliveryOutcome stamps trigger_id, not of
-	// this filter, and TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun
-	// pins the behavior as it stands. Fixing it means changing the stamp.
+	// With TriggerID set the delivery must also carry that trigger_id, and that
+	// column holds only the trigger that dispatched last, so another trigger's
+	// run on the same delivery is unreachable. Pinned by
+	// TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun.
 	Outcome []string
 	Limit   int
 	// Cursor is the keyset position to read from; nil means the first page.

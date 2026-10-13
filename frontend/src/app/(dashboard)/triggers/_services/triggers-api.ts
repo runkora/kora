@@ -81,21 +81,11 @@ async function sendPage<T>(
   }
   if (!res.ok) return { data: null, nextCursor: null, error: await errorMessage(res) };
 
-  // A 200 whose body will not parse is a failure, not an empty page. Treating
-  // it as empty is indistinguishable from the end of history: the grid says
-  // "no deliveries" and Load more disappears, so a proxy returning an HTML
-  // error page silently truncates the list.
-  //
-  // The read is guarded because this function must not throw, which the header
-  // of this file promises and every caller relies on. res.text() rejects when
-  // the body fails after the headers arrived (a reset connection, a truncated
-  // upstream), and an escaping rejection leaves Load more stuck on a disabled
-  // "Loading..." with no error line and therefore no Retry.
-  //
-  // An empty body is an error too, not an empty page: the route this talks to
-  // always writes one (NextResponse.json), so a zero-length 200 is the same
-  // class of gateway artefact as the HTML error page. JSON.parse('') throws,
-  // so it needs no branch of its own.
+  // An unreadable 200 is an error, not an empty page: empty is
+  // indistinguishable from the end of history, so Load more would disappear
+  // and truncate the list silently. The read is guarded because this function
+  // must not throw (see the file header) and res.text() rejects on a body that
+  // fails after the headers arrive.
   const text = await res.text().catch(() => null);
   const unreadable = {
     data: null,
