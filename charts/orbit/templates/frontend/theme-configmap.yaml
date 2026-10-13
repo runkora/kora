@@ -1,0 +1,15 @@
+{{- if include "orbit.themeEnabled" . }}
+# The theme document, mounted into the frontend pod as
+# /etc/orbit/theme-document/theme.yaml for the init container's check that the
+# bundle was built from it (docs/adr/2026-10-12-white-labelling-theme.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-frontend-theme
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.frontend.labels" . | nindent 4 }}
+data:
+  theme.yaml: |
+    {{- .Values.theme.document | nindent 4 }}
+{{- end }}

@@ -1,0 +1,4 @@
+# A document without the bundle it was built into.
+theme:
+  document: |
+    hadesVersion: 1.0.0

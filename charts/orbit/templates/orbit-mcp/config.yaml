@@ -11,5 +11,6 @@ cmd/orbit-mcp:
     triggers: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-triggers") | toJson }}
     toolGateway: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-tool-gateway") | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.brandConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "orbitMcp" "configMap" "orbit-mcp-config" "modules" (include "orbit.orbitMcp.configModules" . | fromYaml)) }}

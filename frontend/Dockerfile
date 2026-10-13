@@ -90,7 +90,7 @@ RUN pnpm build
 # The theme validator the chart's init container runs against the mounted
 # bundle (white-labelling theme ADR, decision 3). Bundled into the standalone
 # directory so the runner stage's copy below carries it to /app/validate-theme.mjs:
-#   node /app/validate-theme.mjs /etc/orbit/theme /etc/orbit/config/theme.yaml
+#   node /app/validate-theme.mjs /etc/orbit/theme /etc/orbit/theme-document/theme.yaml
 RUN node scripts/bundle-validate-theme.mjs
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────

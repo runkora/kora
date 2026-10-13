@@ -1,0 +1,6 @@
+# A tag, not a digest. The values schema rejects it: a re-pushed tag rolls nothing.
+theme:
+  bundle:
+    image: registry.example.com/acme/kora-theme:1.0.0
+  document: |
+    hadesVersion: 1.0.0
