@@ -50,6 +50,10 @@ jobs:
       fail-fast: false
       matrix:
         target: ${{ fromJson(needs.list-targets.outputs.targets) }}
+    env:
+      # A multi-arch build keeps its own cache. An amd64 build replaces the cache
+      # it writes, and a shared cache would never hold the arm64 layers.
+      CACHE_SUFFIX: ${{ contains(inputs.platforms, 'arm64') && '-multiarch' || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -87,9 +91,9 @@ jobs:
           load: ${{ !inputs.push }}
           set: |
             *.platform=${{ inputs.platforms }}
-            *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }}
-            *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }},mode=max,ignore-error=true
-            kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:kora-sandbox-base
+            *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }}
+            *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }}${{ env.CACHE_SUFFIX }},mode=max,ignore-error=true
+            kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:kora-sandbox-base${{ env.CACHE_SUFFIX }}
             *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.url=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}
