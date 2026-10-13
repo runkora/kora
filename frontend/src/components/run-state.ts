@@ -2,7 +2,7 @@
  * @tier 2 — Orbit-domain-aware: maps run states to a status dot and a label.
  * Used by: the agents pages' run tables and the run page's top bar.
  */
-import type { StatusDotProps } from '@orbit/hades';
+import type { StatusDotProps } from '@clear-route/hades';
 
 export interface RunStateDisplay {
   status: NonNullable<StatusDotProps['status']>;
