@@ -96,7 +96,7 @@ describe('GET /api/trigger-deliveries', () => {
     incoming.set('limit', '25');
     incoming.set('cursor', '2026-10-07T12:00:00Z|d-9');
 
-    const seen = captureUpstream({ deliveries: [], next_cursor: null });
+    const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
     const res = await GET(makeRequest(incoming.toString()));
 
     expect(res.status).toBe(200);
@@ -116,7 +116,7 @@ describe('GET /api/trigger-deliveries', () => {
   // the platform API reads it the same way. Joining them into "failed,missed"
   // would be a single unknown status upstream, matching nothing.
   it('keeps status and outcome repeated rather than comma-joining them', async () => {
-    const seen = captureUpstream({ deliveries: [], next_cursor: null });
+    const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
     await GET(makeRequest('status=failed&status=missed&outcome=denied&outcome=dropped'));
 
     const q = seen.url!.searchParams;
@@ -128,7 +128,7 @@ describe('GET /api/trigger-deliveries', () => {
   });
 
   it('builds the exact upstream URL for a fully specified page request', async () => {
-    const seen = captureUpstream({ deliveries: [], next_cursor: null });
+    const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
     await GET(
       makeRequest(
         'source_id=src-1&trigger_id=trg-1&kind=webhook&status=failed&status=missed&outcome=denied&limit=25&cursor=cur-1',
@@ -143,7 +143,7 @@ describe('GET /api/trigger-deliveries', () => {
   });
 
   it('sends no query string upstream when the browser sent no filters', async () => {
-    const seen = captureUpstream({ deliveries: [] });
+    const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
     const res = await GET(makeRequest());
 
     expect(res.status).toBe(200);
@@ -153,7 +153,7 @@ describe('GET /api/trigger-deliveries', () => {
 
   // Number('abc') is NaN, and `limit=NaN` upstream is a 400 waiting to happen.
   it('drops a limit that is not a number rather than forwarding NaN', async () => {
-    const seen = captureUpstream({ deliveries: [] });
+    const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
     await GET(makeRequest('limit=abc'));
 
     expect(seen.url!.search).toBe('');
@@ -209,7 +209,7 @@ describe('GET /api/trigger-deliveries', () => {
 
   it('returns 401 without calling upstream when the session is invalid', async () => {
     vi.mocked(isSessionValid).mockReturnValue(false);
-    const seen = captureUpstream({ deliveries: [] });
+    const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
 
     const res = await GET(makeRequest('status=failed'));
 
@@ -221,7 +221,7 @@ describe('GET /api/trigger-deliveries', () => {
   it('returns 401 when there is no session at all', async () => {
     vi.mocked(getSession).mockResolvedValue(undefined as never);
     vi.mocked(isSessionValid).mockReturnValue(false);
-    const seen = captureUpstream({ deliveries: [] });
+    const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
 
     const res = await GET(makeRequest());
 
