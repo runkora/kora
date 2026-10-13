@@ -37,7 +37,7 @@ function createOverview(
 }
 
 const meta: Meta<typeof MarketplacePagination> = {
-  title: 'App/Marketplace/Pagination',
+  title: 'Pages/Marketplace/Pagination',
   component: MarketplacePagination,
   tags: ['autodocs'],
   parameters: {

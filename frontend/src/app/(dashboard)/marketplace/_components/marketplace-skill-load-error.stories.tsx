@@ -4,7 +4,7 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { MarketplaceSkillLoadError } from './marketplace-skill-load-error';
 
 const meta: Meta<typeof MarketplaceSkillLoadError> = {
-  title: 'App/Marketplace/SkillLoadError',
+  title: 'Pages/Marketplace/SkillLoadError',
   component: MarketplaceSkillLoadError,
   tags: ['autodocs'],
   parameters: {

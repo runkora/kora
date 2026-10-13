@@ -97,7 +97,7 @@ const initialError = 'The Marketplace catalogue is temporarily unavailable.';
 const refreshError = 'Could not refresh Skills.';
 
 const meta: Meta<typeof MarketplaceOverview> = {
-  title: 'App/Marketplace/Overview',
+  title: 'Pages/Marketplace/Overview',
   component: MarketplaceOverview,
   tags: ['autodocs'],
   parameters: {
