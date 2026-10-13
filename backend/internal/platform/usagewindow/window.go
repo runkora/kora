@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// Period names a reporting window here.
+// Period names a reporting window.
 type Period string
 
 const (
