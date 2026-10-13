@@ -71,6 +71,39 @@ describe('webhook drafts', () => {
     expect(mockCreateTrigger.mock.calls[1]?.[0]).not.toHaveProperty('sender_restriction');
   });
 
+  it('sends coalesce for a webhook draft that carries it, and omits it otherwise', async () => {
+    await createFromWizardDraft(
+      draft({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } }),
+      OPTIONS,
+    );
+    expect(mockCreateTrigger).toHaveBeenCalledWith(
+      expect.objectContaining({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } }),
+    );
+
+    await createFromWizardDraft(draft(), OPTIONS);
+    expect(mockCreateTrigger.mock.calls[1]?.[0]).not.toHaveProperty('coalesce');
+  });
+
+  it('never sends coalesce for a scheduled or manual draft', async () => {
+    const coalesce = { key: 'k', windowSeconds: 30 };
+    await createFromWizardDraft(
+      draft({
+        kind: 'scheduled',
+        source: undefined,
+        eventType: undefined,
+        coalesce,
+        schedule: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
+      }),
+      OPTIONS,
+    );
+    await createFromWizardDraft(
+      draft({ kind: 'manual', source: undefined, eventType: undefined, coalesce }),
+      OPTIONS,
+    );
+    expect(mockCreateTrigger.mock.calls[0]?.[0]).not.toHaveProperty('coalesce');
+    expect(mockCreateTrigger.mock.calls[1]?.[0]).not.toHaveProperty('coalesce');
+  });
+
   it('creates the source first, and passes its one-time secret through', async () => {
     mockCreateSource.mockResolvedValue({
       source: { id: 'src-new', secret: 'whsec_abc' },

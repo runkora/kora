@@ -76,6 +76,32 @@ describe('POST /api/triggers', () => {
     });
   });
 
+  it('forwards coalesce to orbit-triggers unchanged', async () => {
+    let received: Record<string, unknown> | undefined;
+    server.use(
+      http.post(TRIGGERS_URL, async ({ request }) => {
+        received = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json({ id: 't-1', ...received }, { status: 201 });
+      }),
+    );
+
+    const res = await POST(
+      makePostRequest({
+        kind: 'webhook',
+        source_id: 'src-1',
+        name: 'pr-review',
+        agent_type_id: 'agent-1',
+        event_type: 'pull_request',
+        prompt_template: '{{ pull_request.title }}',
+        coalesce: { key: '{{ pull_request.number }}', windowSeconds: 30 },
+      }),
+      { params: Promise.resolve({}) } as never,
+    );
+
+    expect(res.status).toBe(201);
+    expect(received?.coalesce).toEqual({ key: '{{ pull_request.number }}', windowSeconds: 30 });
+  });
+
   it('forwards match_contains to orbit-triggers', async () => {
     let received: Record<string, unknown> | undefined;
     server.use(

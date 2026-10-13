@@ -202,6 +202,56 @@ describe('sender restriction editing', () => {
   });
 });
 
+describe('coalesce editing', () => {
+  it('saves a key and window as the new setting', () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDrawer(trigger(), onEdit);
+    fireEvent.change(screen.getByLabelText('Key'), { target: { value: '{{ pr.number }}' } });
+    fireEvent.change(screen.getByLabelText('Window'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save coalescing' }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
+      coalesce: { key: '{{ pr.number }}', windowSeconds: 30 },
+    });
+  });
+
+  it('seeds from the stored setting', () => {
+    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }));
+    expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('k');
+    expect((screen.getByLabelText('Window') as HTMLInputElement).value).toBe('45');
+  });
+
+  it('clears the setting with null when both are emptied', () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }), onEdit);
+    fireEvent.change(screen.getByLabelText('Key'), { target: { value: '' } });
+    fireEvent.change(screen.getByLabelText('Window'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save coalescing' }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), { coalesce: null });
+  });
+
+  it('blocks saving a half-set pair', () => {
+    renderDrawer(trigger());
+    fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'k' } });
+    expect(screen.getByText('Add a window in seconds, or clear the key.')).toBeTruthy();
+    expect(
+      (screen.getByRole('button', { name: 'Save coalescing' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('is locked when overflow is not wait', () => {
+    renderDrawer(trigger({ overflow: 'replace' }));
+    expect((screen.getByLabelText('Key') as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByText(/needs overflow set to wait/i)).toBeTruthy();
+  });
+
+  it('is absent for a scheduled trigger', () => {
+    renderDrawer(trigger({ kind: 'scheduled' }));
+    expect(screen.queryByText('Coalesce bursts')).toBeNull();
+  });
+});
+
 describe('name editing', () => {
   /**
    * The name lives in Settings, which Tabs mounts only once selected. Radix

@@ -42,10 +42,12 @@ import {
   EmptyState,
 } from '@orbit/hades';
 import { KIND_ICON, LIMITS } from '../_types';
-import type { DeliveryRow, Senders, SourceRow, TriggerRow } from '../_types';
+import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
 import { CatalogPicker } from './catalog-picker';
+import { CoalesceEditor } from './coalesce-editor';
+import type { CoalesceDraft } from './coalesce-editor';
 import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
 import { FilterRowsEditor } from './filter-rows-editor';
@@ -62,8 +64,10 @@ import {
 import {
   describeMatchCondition,
   matchConditionFrom,
+  coalesceFrom,
   matchContainsFrom,
   splitLogins,
+  validateCoalesce,
   validateFilters,
 } from './trigger-wizard/wizard-state';
 import {
@@ -87,6 +91,8 @@ export interface TriggerEditPatch {
   matchContains?: Record<string, string[]>;
   /** Replaces the restriction; both lists empty removes it. */
   senderRestriction?: Senders;
+  /** Replaces the setting; null removes it. */
+  coalesce?: TriggerCoalesce | null;
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
 }
 
@@ -383,6 +389,24 @@ export function TriggerDrawer({
     isEqual: (a, b) =>
       a.logins === b.logins &&
       [...a.associations].sort().join() === [...b.associations].sort().join(),
+  });
+
+  const storedCoalesce = useMemo<CoalesceDraft>(
+    () => ({
+      key: trigger?.coalesce?.key ?? '',
+      window: trigger?.coalesce ? String(trigger.coalesce.windowSeconds) : '',
+    }),
+    [trigger?.coalesce],
+  );
+  const saveCoalesce = useCallback(
+    // Both empty clears the setting; anything else was validated as a pair.
+    (value: CoalesceDraft) =>
+      savePatch({ coalesce: coalesceFrom(value.key, value.window) ?? null }),
+    [savePatch],
+  );
+  const coalesce = useEditableSection(storedCoalesce, editKey, saveCoalesce, {
+    isEqual: (a, b) => a.key.trim() === b.key.trim() && a.window.trim() === b.window.trim(),
+    validate: (value) => validateCoalesce(value.key, value.window),
   });
 
   // The catalogue follows the event being edited.
@@ -781,6 +805,32 @@ export function TriggerDrawer({
                       saveLabel="Save senders"
                       onSave={senders.save}
                       onDiscard={senders.discard}
+                    />
+                  }
+                />
+              )}
+
+              {/* Coalescing: collapse a burst of similar fires into one run. */}
+              {trigger.kind === 'webhook' && (
+                <CoalesceEditor
+                  value={coalesce.value}
+                  onChange={coalesce.setValue}
+                  hideError
+                  disabled={!editable || trigger.overflow !== 'wait'}
+                  note={
+                    trigger.overflow !== 'wait'
+                      ? 'Coalescing needs overflow set to wait. Change overflow to use it.'
+                      : undefined
+                  }
+                  actions={
+                    <EditActions
+                      dirty={coalesce.dirty}
+                      pending={coalesce.pending}
+                      error={coalesce.error}
+                      blocker={coalesce.blocker}
+                      saveLabel="Save coalescing"
+                      onSave={coalesce.save}
+                      onDiscard={coalesce.discard}
                     />
                   }
                 />

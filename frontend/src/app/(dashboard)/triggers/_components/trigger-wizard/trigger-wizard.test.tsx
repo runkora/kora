@@ -323,6 +323,21 @@ describe('shared steps', () => {
     ).toBeTruthy();
   });
 
+  it('offers coalescing to a webhook that waits', () => {
+    render(<StepDelivery {...shared} />);
+    expect(screen.getByText('Coalesce bursts')).toBeTruthy();
+  });
+
+  it('hides coalescing unless overflow is wait', () => {
+    render(<StepDelivery {...shared} state={{ ...state, overflow: 'replace' }} />);
+    expect(screen.queryByText('Coalesce bursts')).toBeNull();
+  });
+
+  it('hides coalescing for scheduled and manual triggers', () => {
+    render(<StepDelivery {...shared} definition={TRIGGER_KINDS.scheduled} />);
+    expect(screen.queryByText('Coalesce bursts')).toBeNull();
+  });
+
   it('hides the queue depth when nothing queues', () => {
     render(<StepDelivery {...shared} state={{ ...state, overflow: 'refuse' }} />);
     expect(screen.queryByText('Max queued deliveries')).toBeNull();

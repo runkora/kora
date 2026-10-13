@@ -61,6 +61,7 @@ export async function createFromWizardDraft(
     ...(draft.senderRestriction !== undefined && {
       sender_restriction: draft.senderRestriction,
     }),
+    ...(draft.kind === 'webhook' && draft.coalesce !== undefined && { coalesce: draft.coalesce }),
     ...(draft.schedule !== undefined && {
       schedule_config: toScheduleConfigRequest(draft.schedule),
     }),

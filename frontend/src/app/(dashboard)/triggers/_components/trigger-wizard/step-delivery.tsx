@@ -30,6 +30,7 @@ import {
 import type { IconName } from '@orbit/hades';
 import { admissionSummary, parallelWord } from './wizard-state';
 import { LIMITS } from '../../_types';
+import { CoalesceEditor } from '../coalesce-editor';
 import type { StepComponentProps, TriggerKind, TriggerOverflow } from './types';
 
 interface OverflowOption {
@@ -199,6 +200,14 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
           </Text>
         </Stack>
       </Callout>
+
+      {/* Coalescing is a webhook feature and needs `wait`; elsewhere it is hidden. */}
+      {definition.id === 'webhook' && state.overflow === 'wait' && (
+        <CoalesceEditor
+          value={{ key: state.coalesceKey, window: state.coalesceWindow }}
+          onChange={(next) => patch({ coalesceKey: next.key, coalesceWindow: next.window })}
+        />
+      )}
 
       <Stack gap="cozy">
         <ToggleRow

@@ -263,3 +263,70 @@ describe('why an arrival ended without dispatching', () => {
     expect(screen.getByText('task: required')).toBeTruthy();
   });
 });
+
+describe('coalescing', () => {
+  it('shows the rendered key', () => {
+    render(
+      <DeliveryDetail
+        delivery={delivery({
+          coalesceKeys: [{ triggerId: 't1', key: 'acme/api#7', keyTooLong: false }],
+        })}
+      />,
+    );
+    expect(screen.getByText('acme/api#7')).toBeTruthy();
+  });
+
+  it('says so when the key was too long', () => {
+    render(
+      <DeliveryDetail
+        delivery={delivery({ coalesceKeys: [{ triggerId: 't1', key: null, keyTooLong: true }] })}
+      />,
+    );
+    expect(screen.getByText('Key too long, not coalesced')).toBeTruthy();
+  });
+
+  it('shows only the named trigger key when scoped', () => {
+    render(
+      <DeliveryDetail
+        delivery={delivery({
+          coalesceKeys: [
+            { triggerId: 't1', key: 'mine', keyTooLong: false },
+            { triggerId: 't2', key: 'theirs', keyTooLong: false },
+          ],
+        })}
+        triggerId="t1"
+      />,
+    );
+    expect(screen.getByText('mine')).toBeTruthy();
+    expect(screen.queryByText('theirs')).toBeNull();
+  });
+
+  it('shows which delivery replaced a superseded run', () => {
+    render(
+      <DeliveryDetail
+        delivery={delivery({
+          status: 'superseded',
+          runs: [
+            {
+              triggerId: 't1',
+              triggerName: 'gh-push',
+              runId: null,
+              status: 'superseded',
+              error: null,
+              supersededBy: 'd-newer',
+              createdAt: null,
+            },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText('Replaced by delivery')).toBeTruthy();
+    expect(screen.getByText('d-newer')).toBeTruthy();
+  });
+
+  it('shows nothing extra for an ordinary delivery', () => {
+    render(<DeliveryDetail delivery={delivery()} />);
+    expect(screen.queryByText('coalesce key')).toBeNull();
+    expect(screen.queryByText('Replaced by delivery')).toBeNull();
+  });
+});

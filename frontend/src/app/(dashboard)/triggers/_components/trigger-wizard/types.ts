@@ -10,7 +10,7 @@
 
 import type * as React from 'react';
 import type { IconName } from '@orbit/hades';
-import type { TriggerKind, TriggerOverflow } from '@orbit/shared/api';
+import type { TriggerCoalesce, TriggerKind, TriggerOverflow } from '@orbit/shared/api';
 import type { Frequency } from './cron';
 import type { FilterRow } from '../filter-rows-editor';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
@@ -60,6 +60,8 @@ export interface TriggerDraft {
   matchContains?: Record<string, string[]>;
   /** Webhook only. Omitted when anyone may fire the trigger. */
   senderRestriction?: Senders;
+  /** Webhook only. Omitted unless both fields are set and overflow is `wait`. */
+  coalesce?: TriggerCoalesce;
   schedule?: { cronExpression: string; timezone: string; catchUp: boolean };
   manualInputs?: {
     name: string;
@@ -149,6 +151,12 @@ export interface WizardState {
   timeoutSeconds: number;
   dedupeEnabled: boolean;
   autopauseEnabled: boolean;
+
+  // ── Coalescing (webhook, overflow `wait`) ──
+  /** Key template; empty means off. */
+  coalesceKey: string;
+  /** Window in seconds, raw while typed; empty means off. */
+  coalesceWindow: string;
 }
 
 /** The tenant-scoped data a step needs but does not own. */

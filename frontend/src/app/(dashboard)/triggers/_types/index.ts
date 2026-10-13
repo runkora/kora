@@ -16,6 +16,7 @@ import type {
   InputField,
   SenderRestriction,
   Trigger,
+  TriggerCoalesce,
   TriggerDelivery,
   TriggerKind,
   TriggerOverflow,
@@ -23,7 +24,7 @@ import type {
   WebhookSource,
 } from '@orbit/shared/api';
 
-export type { InputField, TriggerKind, TriggerOverflow };
+export type { InputField, TriggerCoalesce, TriggerKind, TriggerOverflow };
 
 /** Who may fire a webhook trigger; both lists empty means anyone. */
 export type Senders = Required<SenderRestriction>;
@@ -44,6 +45,8 @@ export const LIMITS = {
   parallel: { min: 1, max: 16 },
   queueDepth: { min: 1, max: 500 },
   timeout: { min: 5, max: 600 },
+  /** Coalescing: window in seconds, and the key template's size in bytes. */
+  coalesce: { window: { min: 1, max: 300 }, keyBytes: 256 },
 };
 
 /** Icon per kind: what wakes this trigger up. One map, so every surface agrees. */
@@ -83,6 +86,8 @@ export interface TriggerRow {
   matchContains: Record<string, string[]>;
   /** Webhook triggers only. Both lists empty means anyone may fire it. */
   senderRestriction: Senders;
+  /** Webhook triggers only. Null when bursts are not coalesced. */
+  coalesce: TriggerCoalesce | null;
   promptTemplate: string;
   /** Scheduled triggers only. */
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp?: boolean };
@@ -138,6 +143,16 @@ export interface DeliveryRow {
   receivedAt: string;
   /** Full per-trigger dispatch fan-out for this delivery. */
   runs: DeliveryRunRow[];
+  /** The coalescing key each matched coalescing trigger rendered for this delivery. */
+  coalesceKeys: DeliveryCoalesceKeyRow[];
+}
+
+export interface DeliveryCoalesceKeyRow {
+  triggerId: string;
+  /** Null when the rendered key was too long to use. */
+  key: string | null;
+  /** The key exceeded the size limit, so this fire did not coalesce. */
+  keyTooLong: boolean;
 }
 
 export interface DeliveryRunRow {
@@ -147,6 +162,8 @@ export interface DeliveryRunRow {
   runId: string | null;
   status: string;
   error: string | null;
+  /** The delivery whose fire replaced this one; set when the status is `superseded`. */
+  supersededBy?: string;
   /**
    * When this outcome was recorded. Against the delivery's receivedAt this is
    * how long the platform took to start the run, which is the only dispatch
@@ -197,6 +214,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
       logins: t.sender_restriction?.logins ?? [],
       associations: t.sender_restriction?.associations ?? [],
     },
+    coalesce: t.coalesce ? { key: t.coalesce.key, windowSeconds: t.coalesce.windowSeconds } : null,
     promptTemplate: t.prompt_template,
     scheduleConfig: t.schedule_config
       ? {
@@ -248,7 +266,13 @@ export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
       runId: r.run_id ?? null,
       status: r.status,
       error: r.error ?? null,
+      ...(r.superseded_by !== undefined && { supersededBy: r.superseded_by }),
       createdAt: r.created_at ?? null,
+    })),
+    coalesceKeys: (d.coalesce_keys ?? []).map((c) => ({
+      triggerId: c.trigger_id,
+      key: c.key ?? null,
+      keyTooLong: c.key_too_long ?? false,
     })),
   };
 }
@@ -277,6 +301,8 @@ export interface TriggerPatch {
   matchContains?: Record<string, string[]>;
   /** Webhook only. Replaces the restriction; both lists empty removes it. */
   senderRestriction?: Senders;
+  /** Webhook only. Replaces the setting; null removes it. */
+  coalesce?: TriggerCoalesce | null;
   scheduleConfig?: TriggerScheduleDraft;
   enabled?: boolean;
   dedupeEnabled?: boolean;
@@ -313,6 +339,8 @@ export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateReques
     ...(patch.senderRestriction !== undefined && {
       sender_restriction: patch.senderRestriction,
     }),
+    // `{}` is how the API removes the setting; omitting it leaves it alone.
+    ...(patch.coalesce !== undefined && { coalesce: patch.coalesce ?? {} }),
     ...(patch.scheduleConfig !== undefined && {
       schedule_config: toScheduleConfigRequest(patch.scheduleConfig),
     }),
@@ -473,6 +501,37 @@ const REDELIVERABLE_STATUSES = new Set(['failed', 'denied', 'dropped', 'supersed
 
 export function isRedeliverable(status: string): boolean {
   return REDELIVERABLE_STATUSES.has(status);
+}
+
+/**
+ * What to show for the key a trigger rendered on a delivery.
+ *
+ * A key too long to use is stated plainly, since the fire ran on its own and
+ * the reader would otherwise wonder why nothing was coalesced.
+ */
+export function coalesceKeyText(entry: DeliveryCoalesceKeyRow): string {
+  if (entry.keyTooLong) return 'Key too long, not coalesced';
+  return entry.key ?? '';
+}
+
+/**
+ * The coalescing keys to show for a delivery. Scoped to one trigger when the
+ * surface is, so a trigger's drawer never shows another trigger's key.
+ */
+export function coalesceKeysFor(d: DeliveryRow, triggerId?: string): DeliveryCoalesceKeyRow[] {
+  return triggerId === undefined
+    ? d.coalesceKeys
+    : d.coalesceKeys.filter((c) => c.triggerId === triggerId);
+}
+
+/**
+ * The runs of a delivery that a newer delivery replaced, with the replacing
+ * delivery's id. Scoped to one trigger when the surface is.
+ */
+export function supersededRuns(d: DeliveryRow, triggerId?: string): DeliveryRunRow[] {
+  return d.runs.filter(
+    (r) => r.supersededBy !== undefined && (triggerId === undefined || r.triggerId === triggerId),
+  );
 }
 
 /** Max characters of a payload excerpt rendered in the Deliveries "Detail" column. */

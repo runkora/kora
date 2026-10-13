@@ -132,6 +132,10 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 			"webhook: fires when source_id delivers an event of event_type matching match_condition; source_id, name and "+
 			"event_type are required. Call triggers.sources.list for source ids and triggers.providers.fields for the field "+
 			"paths an event carries. "+
+			"A webhook trigger can set coalesce so a burst of events about one subject starts one run: key is a template like "+
+			"prompt_template, e.g. {{ repository.full_name }}#{{ pull_request.number }}, and windowSeconds (1 to 300) is how long the "+
+			"first event waits. Events with the same rendered key inside the window start one run from the newest payload; "+
+			"coalesce needs overflow wait, which is the webhook default. "+
 			"scheduled: fires on a cron schedule; schedule_config (cron_expression, timezone, catch_up) is required and "+
 			"source_id and event_type are not used. Check it with triggers.schedule_preview first. "+
 			"manual: fires when someone runs it; source_id and event_type are not used, and manual_config.inputs declares the "+
@@ -157,7 +161,8 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 
 	addTool(srv, "triggers.update",
 		"Update a trigger by id. Only the fields you supply are changed. schedule_config replaces a scheduled trigger's "+
-			"schedule and manual_config replaces a manual trigger's inputs; the trigger's kind cannot be changed.",
+			"schedule and manual_config replaces a manual trigger's inputs; coalesce replaces a webhook trigger's coalescing "+
+			"and an empty object removes it; the trigger's kind cannot be changed.",
 		func(ctx context.Context, a updateTriggerArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
@@ -181,7 +186,8 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 			"Optionally filter by source_id, cap with limit, and bound the time window with received_after (inclusive) "+
 			"and received_before (exclusive), both RFC 3339 timestamps. Set omit_payload to leave the full payload out of "+
 			"each delivery; payload_excerpt, trigger outcomes and runs are kept. Use it for wide listings, since payloads "+
-			"dominate the response size.",
+			"dominate the response size. A coalescing trigger records the key it rendered in coalesce_keys, and a fire a newer "+
+			"one replaced has a superseded run whose superseded_by names the delivery that replaced it.",
 		func(ctx context.Context, a listDeliveriesArgs) (*sdk.CallToolResult, error) {
 			q := url.Values{}
 			if a.SourceID != "" {
@@ -223,6 +229,9 @@ func updateTriggerBody(a updateTriggerArgs) map[string]any {
 	}
 	if a.SenderRestriction != nil {
 		body["sender_restriction"] = a.SenderRestriction
+	}
+	if a.Coalesce != nil {
+		body["coalesce"] = a.Coalesce
 	}
 	if a.ScheduleConfig != nil {
 		body["schedule_config"] = a.ScheduleConfig
@@ -296,6 +305,7 @@ type createTriggerArgs struct {
 	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"optional filter: field path to substrings; the field must contain one of them, ignoring case"`
 	PromptTemplate    string              `json:"prompt_template,omitempty" jsonschema:"the prompt the run starts with; {{ path }} placeholders name delivery fields (e.g. {{ comment.body }}), whose values follow in an untrusted data block; a manual trigger's inputs fill {{ var.key }} placeholders"`
 	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"optional: only these senders can fire it; a sender passes when its login or association is listed"`
+	Coalesce          *coalesceConfig     `json:"coalesce,omitempty" jsonschema:"optional: start one run for a burst of events with the same rendered key (webhook triggers only)"`
 	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"the cron schedule (scheduled triggers only; required for them)"`
 	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"the inputs the caller supplies when firing (manual triggers only)"`
 }
@@ -308,9 +318,15 @@ type updateTriggerArgs struct {
 	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"replaces the contains filter: field path to substrings; an empty map removes it"`
 	PromptTemplate    *string             `json:"prompt_template,omitempty" jsonschema:"new prompt template"`
 	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"replaces the sender restriction; both lists empty removes it"`
+	Coalesce          *coalesceConfig     `json:"coalesce,omitempty" jsonschema:"replaces the coalescing setting; an empty object removes it"`
 	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"replaces a scheduled trigger's schedule (cron_expression, timezone, catch_up)"`
 	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"replaces a manual trigger's inputs"`
 	Enabled           *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`
+}
+
+type coalesceConfig struct {
+	Key           string `json:"key" jsonschema:"template over the event in the prompt_template syntax, e.g. {{ repository.full_name }}#{{ pull_request.number }}; an empty render does not coalesce"`
+	WindowSeconds int    `json:"windowSeconds" jsonschema:"seconds the first event waits for others with the same key, 1 to 300; the window is not extended by later events"`
 }
 
 type scheduleConfig struct {

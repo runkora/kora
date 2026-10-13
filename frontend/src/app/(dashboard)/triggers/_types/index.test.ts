@@ -4,6 +4,11 @@ import {
   DELIVERY_EXCERPT_MAX,
   LIMITS,
   toTriggerUpdateRequest,
+  toDeliveryRow,
+  toTriggerRow,
+  coalesceKeyText,
+  coalesceKeysFor,
+  supersededRuns,
   DELIVERY_SUMMARY_MAX,
   deliveryDetail,
   deliveryDotStatus,
@@ -21,6 +26,7 @@ import {
   type DeliveryRow,
 } from './index';
 import { makeDelivery } from './fixtures';
+import type { Trigger, TriggerDelivery } from '@orbit/shared/api';
 
 /** These tests want a bare arrival: verified, unnamed, at a known instant. */
 function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {
@@ -485,6 +491,7 @@ describe('LIMITS', () => {
   it('is one object, so the wizard and the drawer cannot bound differently', () => {
     expect(LIMITS.queueDepth).toEqual({ min: 1, max: 500 });
     expect(LIMITS.timeout).toEqual({ min: 5, max: 600 });
+    expect(LIMITS.coalesce).toEqual({ window: { min: 1, max: 300 }, keyBytes: 256 });
   });
 });
 
@@ -537,5 +544,133 @@ describe('toTriggerUpdateRequest', () => {
     ).toEqual({
       schedule_config: { cron_expression: '0 2 * * *', timezone: 'UTC', catch_up: false },
     });
+  });
+});
+
+describe('toTriggerUpdateRequest coalesce', () => {
+  it('sends the setting with the camelCase window', () => {
+    expect(
+      toTriggerUpdateRequest({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } }),
+    ).toEqual({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } });
+  });
+
+  it('sends an empty object to clear it', () => {
+    expect(toTriggerUpdateRequest({ coalesce: null })).toEqual({ coalesce: {} });
+  });
+
+  it('omits it when unchanged', () => {
+    expect('coalesce' in toTriggerUpdateRequest({ name: 'renamed' })).toBe(false);
+  });
+});
+
+const API_TRIGGER: Trigger = {
+  id: 't1',
+  tenant_id: 'ten',
+  kind: 'webhook',
+  name: 'pr',
+  agent_type_id: 'at',
+  agent_slug: 'coder',
+  prompt_template: 'go',
+  enabled: true,
+  created_at: '2026-07-01T00:00:00Z',
+  updated_at: '2026-07-01T00:00:00Z',
+};
+
+describe('toTriggerRow coalesce', () => {
+  it('maps a stored setting', () => {
+    const row = toTriggerRow({ ...API_TRIGGER, coalesce: { key: 'k', windowSeconds: 20 } });
+    expect(row.coalesce).toEqual({ key: 'k', windowSeconds: 20 });
+  });
+
+  it('is null when the trigger has none', () => {
+    expect(toTriggerRow(API_TRIGGER).coalesce).toBeNull();
+  });
+});
+
+const API_DELIVERY: TriggerDelivery = {
+  id: 'd2',
+  tenant_id: 'ten',
+  kind: 'webhook',
+  status: 'dispatched',
+  received_at: '2026-07-01T00:00:00Z',
+};
+
+describe('toDeliveryRow coalescing', () => {
+  it('maps keys and the too-long flag', () => {
+    const row = toDeliveryRow({
+      ...API_DELIVERY,
+      coalesce_keys: [
+        { trigger_id: 't1', key: 'acme#7' },
+        { trigger_id: 't2', key_too_long: true },
+      ],
+    });
+    expect(row.coalesceKeys).toEqual([
+      { triggerId: 't1', key: 'acme#7', keyTooLong: false },
+      { triggerId: 't2', key: null, keyTooLong: true },
+    ]);
+  });
+
+  it('maps superseded_by on a run', () => {
+    const row = toDeliveryRow({
+      ...API_DELIVERY,
+      runs: [
+        {
+          id: 'r1',
+          delivery_id: 'd2',
+          trigger_id: 't1',
+          status: 'superseded',
+          superseded_by: 'd9',
+          created_at: '2026-07-01T00:00:01Z',
+        },
+      ],
+    });
+    expect(row.runs[0]?.supersededBy).toBe('d9');
+  });
+
+  it('has no keys and no replacement when the API sends none', () => {
+    const row = toDeliveryRow({
+      ...API_DELIVERY,
+      runs: [
+        {
+          id: 'r1',
+          delivery_id: 'd2',
+          trigger_id: 't1',
+          status: 'dispatched',
+          created_at: '2026-07-01T00:00:01Z',
+        },
+      ],
+    });
+    expect(row.coalesceKeys).toEqual([]);
+    expect(row.runs[0]?.supersededBy).toBeUndefined();
+  });
+});
+
+describe('coalesce display helpers', () => {
+  const keys = [
+    { triggerId: 't1', key: 'acme#7', keyTooLong: false },
+    { triggerId: 't2', key: null, keyTooLong: true },
+  ];
+
+  it('shows the key, or says it was too long', () => {
+    expect(coalesceKeyText(keys[0]!)).toBe('acme#7');
+    expect(coalesceKeyText(keys[1]!)).toBe('Key too long, not coalesced');
+  });
+
+  it('scopes keys to one trigger when asked', () => {
+    const d = row({ coalesceKeys: keys });
+    expect(coalesceKeysFor(d)).toHaveLength(2);
+    expect(coalesceKeysFor(d, 't2')).toEqual([keys[1]]);
+  });
+
+  it('lists only runs that were replaced', () => {
+    const base = { triggerName: null, runId: null, error: null, createdAt: null };
+    const d = row({
+      runs: [
+        { ...base, triggerId: 't1', status: 'superseded', supersededBy: 'd9' },
+        { ...base, triggerId: 't2', status: 'dispatched' },
+      ],
+    });
+    expect(supersededRuns(d).map((r) => r.triggerId)).toEqual(['t1']);
+    expect(supersededRuns(d, 't2')).toEqual([]);
   });
 });

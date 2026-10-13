@@ -86,6 +86,7 @@ function trigger(
     matchCondition: {},
     matchContains: {},
     senderRestriction: { logins: [], associations: [] },
+    coalesce: null,
     promptTemplate: '',
     enabled: true,
     createdAt: ago(20 * DAY),
@@ -119,6 +120,10 @@ export const PR_REVIEW_TRIGGER = trigger({
     'payload.pull_request.head.repo.full_name': ['acme/'],
   },
   senderRestriction: { logins: ['dependabot[bot]', 'jwilkin'], associations: ['MEMBER', 'OWNER'] },
+  coalesce: {
+    key: '{{payload.repository.full_name}}#{{payload.pull_request.number}}',
+    windowSeconds: 30,
+  },
   promptTemplate:
     'Review pull request #{{payload.pull_request.number}} in {{payload.repository.full_name}}.\n\nTitle: {{payload.pull_request.title}}\nAuthor: {{payload.sender.login}}\n\nLook for correctness bugs, missing tests and risky migrations. Leave inline comments and finish with a short summary.',
   maxParallel: 6,
@@ -304,6 +309,7 @@ function delivery(
     payloadPurged: false,
     receivedAt,
     runs: [outcome],
+    coalesceKeys: [],
     ...extra,
   };
 }
@@ -350,7 +356,11 @@ const fanOut: DeliveryRow = (() => {
 })();
 
 export const DELIVERIES: DeliveryRow[] = [
-  delivery(prReview, 2 * MIN, 'dispatched', { payloadExcerpt: PR_EXCERPT, payloadBytes: 17_902 }),
+  delivery(prReview, 2 * MIN, 'dispatched', {
+    payloadExcerpt: PR_EXCERPT,
+    payloadBytes: 17_902,
+    coalesceKeys: [{ triggerId: prReview.id, key: 'acme/platform#1427', keyTooLong: false }],
+  }),
   delivery(depAudit, 7 * MIN, 'dispatched', {
     scheduledAt: ago(7 * MIN),
     payloadBytes: 0,

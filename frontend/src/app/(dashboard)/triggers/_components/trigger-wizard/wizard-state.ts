@@ -6,7 +6,7 @@
 
 import { resolveBrowserZone, timezoneOptions } from './cron';
 import { LIMITS } from '../../_types';
-import type { Senders } from '../../_types';
+import type { Senders, TriggerCoalesce } from '../../_types';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
 import type { FilterOperator, FilterRow } from '../filter-rows-editor';
 import type {
@@ -99,6 +99,9 @@ export function baseState(sources: { id: string }[]): WizardState {
     timeoutSeconds: 30,
     dedupeEnabled: true,
     autopauseEnabled: true,
+
+    coalesceKey: '',
+    coalesceWindow: '',
   };
 }
 
@@ -193,6 +196,34 @@ export function validateTarget(state: WizardState): StepValidation {
   return VALID;
 }
 
+const textEncoder = new TextEncoder();
+
+/**
+ * Why a coalesce key and window cannot be sent, if anything. Both or neither,
+ * the window within bounds, the key within its byte limit: the API's own rules,
+ * so a bad value is caught here instead of as a 400.
+ */
+export function validateCoalesce(key: string, window: string): string | undefined {
+  const k = key.trim();
+  const w = window.trim();
+  if (!k && !w) return undefined;
+  if (!k) return 'Add a key, or clear the window.';
+  if (!w) return 'Add a window in seconds, or clear the key.';
+  const seconds = Number(w);
+  const { min, max } = LIMITS.coalesce.window;
+  if (!/^\d+$/.test(w) || seconds < min || seconds > max)
+    return `Window must be a whole number from ${min} to ${max} seconds.`;
+  if (textEncoder.encode(k).length > LIMITS.coalesce.keyBytes)
+    return `Key must be at most ${LIMITS.coalesce.keyBytes} bytes.`;
+  return undefined;
+}
+
+/** The coalesce setting as the API takes it; undefined when off or not valid. */
+export function coalesceFrom(key: string, window: string): TriggerCoalesce | undefined {
+  if (!key.trim() || validateCoalesce(key, window) !== undefined) return undefined;
+  return { key: key.trim(), windowSeconds: Number(window.trim()) };
+}
+
 /**
  * The Delivery step: the three bounds on the queue, checked together because
  * they are configured together.
@@ -216,6 +247,12 @@ export function validateDelivery(state: WizardState): StepValidation {
       valid: false,
       hint: `Timeout must be between ${LIMITS.timeout.min} and ${LIMITS.timeout.max} seconds.`,
     };
+  // Coalescing needs `wait`; under any other overflow the section is hidden and ignored.
+  const coalesce =
+    state.overflow === 'wait'
+      ? validateCoalesce(state.coalesceKey, state.coalesceWindow)
+      : undefined;
+  if (coalesce !== undefined) return { valid: false, hint: coalesce };
   return VALID;
 }
 
