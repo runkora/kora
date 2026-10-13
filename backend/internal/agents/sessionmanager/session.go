@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -67,6 +69,8 @@ const stopNote = "[Orbit: the user stopped your previous turn before it finished
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrSessionExists   = errors.New("session already exists")
+	// ErrDraining refuses a new session on a pod that is shutting down.
+	ErrDraining = errors.New("session-manager is draining")
 	// ErrSandboxIncomplete means orbit-agents answered without both halves of the
 	// descriptor. An endpoint with no token cannot be used, so it is not cached.
 	ErrSandboxIncomplete = errors.New("sandbox response missing endpoint or exec token")
@@ -105,6 +109,7 @@ type session struct {
 	inferenceURL     string
 	summarizeOnce    sync.Once   // ensures only the first user message triggers summarization
 	intentionalClose atomic.Bool // true when closed by timeout or explicit request
+	cutByShutdown    atomic.Bool // true when a pod drain hit its deadline, which fails the run
 	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
 	budgetExhausted  atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
@@ -165,8 +170,10 @@ type Registry struct {
 	reportGrace time.Duration
 	// workGrace is workIdleGrace, a field so tests can shorten it.
 	workGrace time.Duration
-	mu        sync.RWMutex
-	sessions  map[string]*session
+	// draining is set on SIGTERM. The pod then takes no new sessions and fails readiness.
+	draining atomic.Bool
+	mu       sync.RWMutex
+	sessions map[string]*session
 }
 
 // NewRegistry creates a session registry.
@@ -194,6 +201,9 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 
 	if _, exists := reg.sessions[cfg.RunID]; exists {
 		return ErrSessionExists
+	}
+	if reg.draining.Load() {
+		return ErrDraining
 	}
 
 	workDir := filepath.Join(reg.workspaces, cfg.RunID)
@@ -396,6 +406,40 @@ func (reg *Registry) Close(ctx context.Context, runID string) error {
 	reg.logger.Info(ctx, "Session closed", logging.Field{Key: "run_id", Value: runID})
 	return nil
 }
+
+// Drain stops new sessions and returns when every session has ended or ctx ends.
+// The pod's termination grace period caps the wait.
+func (reg *Registry) Drain(ctx context.Context, poll time.Duration) {
+	reg.draining.Store(true)
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for reg.ActiveCount() > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// CloseAll ends every session as failed. A drain that hits its deadline uses it.
+func (reg *Registry) CloseAll(ctx context.Context) {
+	reg.mu.RLock()
+	ids := slices.Collect(maps.Keys(reg.sessions))
+	for _, s := range reg.sessions {
+		s.cutByShutdown.Store(true)
+	}
+	reg.mu.RUnlock()
+	for _, id := range ids {
+		if err := reg.Close(ctx, id); err != nil && !errors.Is(err, ErrSessionNotFound) {
+			reg.logger.Warn(ctx, "close session at drain deadline failed",
+				logging.Field{Key: "run_id", Value: id}, logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+}
+
+// Draining reports whether the pod is shutting down.
+func (reg *Registry) Draining() bool { return reg.draining.Load() }
 
 // ActiveCount returns the number of currently active sessions.
 func (reg *Registry) ActiveCount() int {
@@ -959,6 +1003,12 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 	}
 }
 
+// endedFailed reports whether the run of a session that ended failed: it was not
+// closed on purpose, or a pod drain cut it off.
+func (s *session) endedFailed() bool {
+	return !s.intentionalClose.Load() || s.cutByShutdown.Load()
+}
+
 // completeDrain removes the session from the registry, notifies orbit-agents of
 // the final run state, and closes the done channel. Called from the drain defer.
 func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
@@ -1011,6 +1061,8 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 				// leaked as an untracked process.
 				reg.mu.Lock()
 				if reg.sessions[s.runID] == s {
+					// Under the lock CloseAll flags either s, copied here, or newS.
+					newS.cutByShutdown.Store(s.cutByShutdown.Load())
 					reg.sessions[s.runID] = newS
 					reg.mu.Unlock()
 					go reg.drain(newCtx, newS, cfg, true)
@@ -1049,7 +1101,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	}
 	reg.mu.Unlock()
 
-	failed := !s.intentionalClose.Load()
+	failed := s.endedFailed()
 	budgetExhausted := failed && s.budgetExhausted.Load()
 	reg.logger.Info(bgCtx, "Session drain complete",
 		logging.Field{Key: "run_id", Value: cfg.RunID},

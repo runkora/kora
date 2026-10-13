@@ -554,6 +554,19 @@ func TestStartRun_AgentTypeNotFound(t *testing.T) {
 
 // ── TerminateRun ──────────────────────────────────────────────────────────────
 
+func TestTerminateRun_IdleRunClosesSession(t *testing.T) {
+	svc, repo, _, sm := newTestService(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStateIdle})
+
+	if err := svc.TerminateRun(context.Background(), run.ID); err != nil {
+		t.Fatalf("TerminateRun: %v", err)
+	}
+	if len(sm.closedSessions) != 1 {
+		t.Errorf("closed sessions = %d, want 1", len(sm.closedSessions))
+	}
+}
+
 func TestTerminateRun_ActiveRun(t *testing.T) {
 	svc, repo, _, sm := newTestService(t)
 	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})

@@ -223,6 +223,14 @@ func (c *Controller) Boot(mux *api.Mux) {
 // handleHealth returns liveness + active session count.
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// A draining pod fails readiness so new runs go to another pod.
+	if c.registry.Draining() {
+		api.JSON(ctx, w, c.logger, http.StatusServiceUnavailable, map[string]any{
+			"status":          "draining",
+			"active_sessions": c.registry.ActiveCount(),
+		})
+		return
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
 		"status":          "ok",
 		"active_sessions": c.registry.ActiveCount(),
@@ -402,6 +410,11 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := c.registry.Create(ctx, cfg); err != nil {
+		if errors.Is(err, ErrDraining) {
+			apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "session-manager is draining", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		if errors.Is(err, ErrSessionExists) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "session already exists", map[string]any{"run_id": req.RunID})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)

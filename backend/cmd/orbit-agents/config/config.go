@@ -102,6 +102,10 @@ type Config struct {
 			PollIntervalSecs int `yaml:"pollIntervalSecs"`
 			// StartBudgetSecs is how long a run may stay pending before it fails.
 			StartBudgetSecs int `yaml:"startBudgetSecs"`
+			// MinReplicas is the session-manager pod count of each agent and its HPA minimum.
+			MinReplicas int32 `yaml:"minReplicas"`
+			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
+			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`
 		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the orbit-tenant-connections

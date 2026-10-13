@@ -441,7 +441,8 @@ func (s *RunService) TerminateRun(ctx context.Context, id string) error {
 	}
 	span.SetAttributes(attribute.String("run_state", string(run.State)))
 
-	if run.State == RunStateActive || run.State == RunStateStarting {
+	// An idle run still holds its session, and a draining pod waits for it.
+	if run.State == RunStateActive || run.State == RunStateStarting || run.State == RunStateIdle {
 		namespace := s.cfg.TenantNamespaceFn(run.TenantID)
 		podURL := sessionmanager.PodURL(at.Slug, run.PodOrdinal, namespace)
 		if err := s.sm.CloseSession(ctx, podURL, id); err != nil && !errors.Is(err, sessionmanager.ErrSessionNotFound) {

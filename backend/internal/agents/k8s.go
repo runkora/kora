@@ -124,6 +124,10 @@ type K8sProvisionerConfig struct {
 	// NodeMaxOldSpaceMB is passed to each session-manager, which caps the heap
 	// of Node processes its runs start. Zero disables the cap.
 	NodeMaxOldSpaceMB int
+	// MinReplicas is the session-manager pod count each agent starts with and the HPA minimum.
+	MinReplicas int32
+	// DrainGracePeriodSecs is how long a terminating session-manager pod may wait for its runs to end.
+	DrainGracePeriodSecs int64
 	// SandboxMount gives each sandbox a working folder on its local disk, which the
 	// sandbox-mount node agent mounts into the session-manager pod at the same path
 	// (docs/adr/2026-10-08-sandbox-workspace-mount.md).
@@ -288,6 +292,10 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 	resources := []func() error{
 		func() error {
 			return ignoreNotFound(p.client.AppsV1().StatefulSets(namespace).Delete(ctx, slug, opts))
+		},
+		func() error {
+			// The agent's runs are gone, so its pods skip the drain grace period.
+			return p.deleteAgentPods(ctx, at, namespace)
 		},
 		func() error {
 			return ignoreNotFound(p.client.CoreV1().Services(namespace).Delete(ctx, slug, opts))
@@ -1683,6 +1691,32 @@ func (p *K8sProvisioner) ensureStatefulSet(ctx context.Context, at AgentType, na
 	return err
 }
 
+// deletedAgentPodGrace is the grace period of an agent pod deleted with its agent.
+const deletedAgentPodGrace = int64(30)
+
+// deleteAgentPods deletes the agent's session-manager pods with a short grace period.
+func (p *K8sProvisioner) deleteAgentPods(ctx context.Context, at AgentType, namespace string) error {
+	pods, err := p.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{LabelSelector: labels.SelectorFromSet(podLabels(at)).String()})
+	if err != nil {
+		return fmt.Errorf("list agent pods: %w", err)
+	}
+	grace := deletedAgentPodGrace
+	for _, pod := range pods.Items {
+		if err := p.client.CoreV1().Pods(namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{GracePeriodSeconds: &grace}); ignoreNotFound(err) != nil {
+			return fmt.Errorf("delete agent pod %s: %w", pod.Name, err)
+		}
+	}
+	return nil
+}
+
+// drainGracePeriod is the pod's termination grace period. Zero keeps the Kubernetes default.
+func drainGracePeriod(secs int64) *int64 {
+	if secs <= 0 {
+		return nil
+	}
+	return &secs
+}
+
 // annotationImagePinned marks a StatefulSet whose session-manager image a local
 // redeploy pinned on purpose; ensureStatefulSet keeps the live image then.
 const annotationImagePinned = "orbit.io/session-manager-image-pinned"
@@ -1745,7 +1779,7 @@ const sidecarProxyConfig = `{"holdApplicationUntilProxyStarts":true,"proxyHeader
 // buildSessionManagerStatefulSet renders an agent type's StatefulSet before
 // manifest patches are applied.
 func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace string, labels map[string]string) appsv1.StatefulSet {
-	replicas := int32(1)
+	replicas := max(p.cfg.MinReplicas, 1)
 	podAnnotations := map[string]string{
 		// The operator's pod webhook adds the SPIRE and identity-proxy
 		// wiring; Istio itself injects only the sidecar.
@@ -1774,6 +1808,8 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 				},
 				Spec: corev1.PodSpec{
 					ServiceAccountName: at.Slug,
+					// The session-manager drains on SIGTERM and exits when its runs end, up to this cap.
+					TerminationGracePeriodSeconds: drainGracePeriod(p.cfg.DrainGracePeriodSecs),
 					// The agent pod makes no Kubernetes API calls, so it gets no token an agent could read.
 					// Cloud identity webhooks project their own token and are unaffected.
 					AutomountServiceAccountToken: new(false),
@@ -1808,6 +1844,8 @@ func (p *K8sProvisioner) buildSessionManagerStatefulSet(at AgentType, namespace 
 								// Claude Code requires a non-empty value to start in --bare mode.
 								{Name: "ANTHROPIC_API_KEY", Value: "orbit-managed"},
 								{Name: "ORBIT_NODE_MAX_OLD_SPACE_MB", Value: strconv.Itoa(p.cfg.NodeMaxOldSpaceMB)},
+								// The session-manager ends its drain before the kubelet stops the pod.
+								{Name: "ORBIT_TERMINATION_GRACE_PERIOD_SECS", Value: strconv.FormatInt(p.cfg.DrainGracePeriodSecs, 10)},
 							},
 							ReadinessProbe: &corev1.Probe{
 								ProbeHandler: corev1.ProbeHandler{
@@ -1891,7 +1929,9 @@ func (p *K8sProvisioner) buildHeadlessService(name, namespace string, labels map
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},
 		Spec: corev1.ServiceSpec{
 			ClusterIP: "None",
-			Selector:  labels,
+			// A draining pod fails readiness and must stay reachable by its DNS name until its runs end.
+			PublishNotReadyAddresses: true,
+			Selector:                 labels,
 			Ports: []corev1.ServicePort{
 				{Name: "http", Port: sessionManagerPort, TargetPort: intstr.FromString("http"), Protocol: corev1.ProtocolTCP},
 			},
@@ -1923,6 +1963,7 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 	// ClusterIP and the selector are immutable or protected; ports are the
 	// mutable part of the spec a patch can change.
 	existing.Spec.Ports = svc.Spec.Ports
+	existing.Spec.PublishNotReadyAddresses = svc.Spec.PublishNotReadyAddresses
 	applyOwnerRef(&existing.ObjectMeta, owner)
 	_, err = p.client.CoreV1().Services(namespace).Update(ctx, existing, metav1.UpdateOptions{})
 	return err
@@ -1931,7 +1972,7 @@ func (p *K8sProvisioner) ensureHeadlessService(ctx context.Context, name, namesp
 func (p *K8sProvisioner) buildHPA(name, namespace string, labels map[string]string) autoscalingv2.HorizontalPodAutoscaler {
 	cpuTarget := int32(70)
 	memTarget := int32(80)
-	minReplicas := int32(1)
+	minReplicas := max(p.cfg.MinReplicas, 1)
 	return autoscalingv2.HorizontalPodAutoscaler{
 		TypeMeta:   metav1.TypeMeta{APIVersion: "autoscaling/v2", Kind: "HorizontalPodAutoscaler"},
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace, Labels: labels},

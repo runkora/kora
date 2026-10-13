@@ -572,6 +572,10 @@ agents:
     pollIntervalSecs: 1
     # -- Seconds a run may stay pending before it fails.
     startBudgetSecs: 180
+    # -- Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs.
+    minReplicas: 2
+    # -- Seconds a terminating session-manager pod waits for its runs to end before it is stopped.
+    drainGracePeriodSecs: 3600
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
   authorizationPolicy:
