@@ -1,36 +1,15 @@
 -- +goose NO TRANSACTION
 -- +goose Up
--- Filtering by status across a tenant's full delivery history is the headline
--- case ("show me every failed one"), and idx_trigger_deliveries_tenant only
--- covers (tenant_id, received_at DESC), so a status filter degrades to a scan
--- of every arrival the tenant ever had.
+-- Serves the status filter and the keyset ORDER BY together. id is left out: it
+-- only breaks received_at ties, and this table is write-hot.
 --
--- received_at DESC matches the keyset ORDER BY so one index serves the filter
--- and the page walk together. That only holds while the query says
--- `status = $n`. A ScalarArrayOp cannot serve as an index condition on the
--- leading columns, so with `status = ANY($n)` the planner costs this index
--- worse than the tenant index plus a filter and abandons it. The single-status
--- case is written as scalar equality for exactly this reason.
--- id is deliberately NOT in the index: it only
--- breaks exact received_at ties, which the existing index already locates
--- cheaply, and this table is write-hot enough that an unnecessary column is a
--- real cost on every insert.
---
--- CONCURRENTLY because this runs as the chart's pre-upgrade hook while the
--- previous orbit-triggers pods are still ingesting webhooks. A plain CREATE
--- INDEX holds a SHARE lock for the whole build, which blocks every INSERT, and
--- inbound webhook ingestion is the one path the platform cannot retry.
+-- See docs/adr/2026-10-07-trigger-deliveries-keyset-pagination.md for why the
+-- single-status query uses scalar equality rather than ANY.
 
--- The DROP is not redundant with IF NOT EXISTS below. An interrupted concurrent
--- build (hook timeout, eviction, OOM) leaves the index present but INVALID, and
--- goose has not recorded the migration, so the Job retries. IF NOT EXISTS would
--- match that invalid index by name, do nothing, and report success, leaving an
--- index the planner never uses but every insert still maintains. Dropping first
--- makes the retry build it for real.
---
--- It is its own StatementBegin block because goose sends a block as one Exec,
--- and two statements in one Exec are an implicit transaction, which both
--- CONCURRENTLY forms refuse: "cannot run inside a transaction block".
+-- DROP first: an interrupted CONCURRENTLY build leaves an INVALID index that
+-- IF NOT EXISTS would match by name and skip, reporting success.
+-- Separate blocks because goose sends one block as a single Exec, and
+-- CONCURRENTLY cannot run in the implicit transaction that creates.
 -- +goose StatementBegin
 DROP INDEX CONCURRENTLY IF EXISTS idx_trigger_deliveries_tenant_status;
 -- +goose StatementEnd
