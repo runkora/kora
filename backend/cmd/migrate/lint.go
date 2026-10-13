@@ -203,11 +203,11 @@ func scanQuoted(s string, i int, quote byte) int {
 // scanDollar returns the index just past a $tag$...$tag$ body starting at i, or
 // i when this is not a dollar quote at all, such as a bare $1 placeholder.
 func scanDollar(s string, i int) int {
-	close := strings.IndexByte(s[i+1:], '$')
-	if close < 0 {
+	tagEnd := strings.IndexByte(s[i+1:], '$')
+	if tagEnd < 0 {
 		return i
 	}
-	tag := s[i : i+close+2]
+	tag := s[i : i+tagEnd+2]
 	for k := 1; k < len(tag)-1; k++ {
 		if c := tag[k]; c != '_' && !isAlnum(c) {
 			return i
