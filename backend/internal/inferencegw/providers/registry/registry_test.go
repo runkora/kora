@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -48,8 +49,25 @@ func secret(name string, data map[string]string) *corev1.Secret {
 	return s
 }
 
+// hermeticAWS keeps the host's AWS settings out of the connectors a test
+// builds. Bedrock loads the default AWS config, which honours AWS_PROFILE and
+// the shared config files; `make test` exports .env, where a developer who has
+// run `make cluster-bedrock-creds` has AWS_PROFILE set, and a profile the SDK
+// cannot resolve fails the build. The test must not depend on any of that.
+//
+// It uses t.Setenv, so tests that call it (directly or via newWatcher) must
+// not call t.Parallel.
+func hermeticAWS(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("AWS_PROFILE", "")
+	t.Setenv("AWS_CONFIG_FILE", filepath.Join(dir, "config"))
+	t.Setenv("AWS_SHARED_CREDENTIALS_FILE", filepath.Join(dir, "credentials"))
+}
+
 func newWatcher(t *testing.T, objs ...client.Object) (*Watcher, client.Client) {
 	t.Helper()
+	hermeticAWS(t)
 	scheme := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(scheme)
 	_ = ip.AddToScheme(scheme)
