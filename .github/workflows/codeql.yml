@@ -11,11 +11,6 @@ on:
     # Weekly, to pick up new queries against an unchanged main.
     - cron: "17 3 * * 2"
 
-# A newer run for the same pull request cancels the older one. Every other event gets its own group and always finishes.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -105,7 +100,7 @@ jobs:
   gate:
     name: CodeQL gate
     needs: [changes, analyze]
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless change detection and every analysis passed

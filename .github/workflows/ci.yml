@@ -9,11 +9,6 @@ on:
 
 # The default token only reads the repository. Jobs that need more
 # declare it themselves.
-# A newer run for the same pull request cancels the older one. Every other event gets its own group and always finishes.
-concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
-  cancel-in-progress: true
-
 permissions:
   contents: read
 
@@ -147,11 +142,10 @@ jobs:
     secrets: inherit
 
   # A reusable workflow call reports per inner job only, never the calling job.
-  # The gates skip in a cancelled run, so a superseded run leaves no failing check.
   backend-gate:
     name: Backend
     needs: [changes, backend]
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless change detection and the backend suite passed
@@ -164,7 +158,7 @@ jobs:
   frontend-gate:
     name: Frontend
     needs: [changes, frontend]
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless change detection and the frontend suite passed
@@ -177,7 +171,7 @@ jobs:
   charts-gate:
     name: Charts
     needs: [changes, charts]
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
@@ -187,7 +181,7 @@ jobs:
   images-gate:
     name: Images
     needs: [changes, images]
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
@@ -197,7 +191,7 @@ jobs:
   docs-gate:
     name: Docs
     needs: [changes, docs]
-    if: ${{ !cancelled() }}
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - run: |
