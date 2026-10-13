@@ -55,13 +55,18 @@ function delivery(id: string, receivedAt: string, status = 'failed') {
 }
 
 /** Records every deliveries request the browser makes, and answers in order. */
-function stubDeliveries(
+async function stubDeliveries(
   page: Page,
   pages: Array<{ data: unknown[]; next_cursor: string | null } | { status: number }>,
 ) {
   const seen: URL[] = [];
   let i = 0;
-  void page.route('**/api/trigger-deliveries*', (route: Route) => {
+  // Awaited rather than fire-and-forget: page.route() is asynchronous and
+  // openDeliveries() navigates immediately after, so an unawaited registration
+  // lets the first deliveries request race it and escape to the real BFF - the
+  // one thing this spec exists to intercept. The other route helpers in e2e/
+  // await theirs for the same reason.
+  await page.route('**/api/trigger-deliveries*', (route: Route) => {
     seen.push(new URL(route.request().url()));
     const body = pages[Math.min(i, pages.length - 1)];
     i += 1;
@@ -102,7 +107,7 @@ test.describe('/triggers — Deliveries paging', () => {
   });
 
   test('filters on the server and pages with the cursor', async ({ page }) => {
-    const seen = stubDeliveries(page, [
+    const seen = await stubDeliveries(page, [
       {
         data: [delivery('d1', '2026-10-07T12:00:02Z'), delivery('d2', '2026-10-07T12:00:01Z')],
         next_cursor: '2026-10-07T12:00:01Z|d2',
@@ -144,7 +149,7 @@ test.describe('/triggers — Deliveries paging', () => {
   // here; the linked case is asserted precisely in delivery-detail.test.tsx,
   // which can inject a resolver.
   test('renders the run id as text when no agent slug can be resolved', async ({ page }) => {
-    stubDeliveries(page, [{ data: [delivery('d1', '2026-10-07T12:00:00Z')], next_cursor: null }]);
+    await stubDeliveries(page, [{ data: [delivery('d1', '2026-10-07T12:00:00Z')], next_cursor: null }]);
 
     await openDeliveries(page);
     await page.getByRole('combobox').first().selectOption('failed');
@@ -160,7 +165,7 @@ test.describe('/triggers — Deliveries paging', () => {
   });
 
   test('a failed page says so and offers Retry', async ({ page }) => {
-    const seen = stubDeliveries(page, [
+    const seen = await stubDeliveries(page, [
       { status: 502 },
       { data: [delivery('d1', '2026-10-07T12:00:00Z')], next_cursor: null },
     ]);

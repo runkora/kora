@@ -262,9 +262,48 @@ export async function listDeliveries(
   if (opts.cursor) qs.set('cursor', opts.cursor);
   if (opts.omitPayload) qs.set('omit_payload', 'true');
   const q = qs.toString();
-  const body = await request<{ deliveries?: TriggerDelivery[]; next_cursor?: string | null }>(
-    `/trigger-deliveries${q ? `?${q}` : ''}`,
-    accessToken,
-  );
-  return { deliveries: body?.deliveries ?? [], nextCursor: body?.next_cursor ?? null };
+  const body = await request<{
+    deliveries?: unknown;
+    has_next_page?: unknown;
+    next_cursor?: unknown;
+  }>(`/trigger-deliveries${q ? `?${q}` : ''}`, accessToken);
+
+  // The platform API always writes all three keys, so a body missing one is a
+  // malformed 200 - version skew, a truncated upstream, a proxy's error page -
+  // and not a page. `next_cursor ?? null` read that as "last page", and this
+  // layer then re-wrapped it as a well-formed `{ data, next_cursor }`, leaving
+  // the browser's own guard nothing to catch: Load more disappeared and the list
+  // was silently truncated. Refusing here keeps the failure visible, and
+  // withAuth turns it into a real error response rather than an empty grid.
+  //
+  // has_next_page carries the check because it is the only field that is always
+  // a plain boolean. `deliveries` is null on an empty page - Go marshals the nil
+  // slice the repository returns for no rows - so an array check would reject a
+  // tenant's first visit.
+  const env = body as
+    | { deliveries?: unknown; has_next_page?: unknown; next_cursor?: unknown }
+    | null
+    | undefined;
+  if (env == null || typeof env.has_next_page !== 'boolean') {
+    throw new ApiError(502, 'bad_upstream_response', 'deliveries response was not a page');
+  }
+  const cursor = env.next_cursor;
+  if (!('next_cursor' in env) || (cursor !== null && typeof cursor !== 'string')) {
+    throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no next_cursor');
+  }
+  if (env.deliveries !== null && !Array.isArray(env.deliveries)) {
+    throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no deliveries');
+  }
+  // Upstream derives has_next_page as `nextCursor != ""` and writes next_cursor
+  // only when non-empty, so the two cannot disagree. If they do, this is not the
+  // envelope this client was written against, and trusting either one would put
+  // the page boundary somewhere neither side meant.
+  if (env.has_next_page !== (cursor !== null)) {
+    throw new ApiError(
+      502,
+      'bad_upstream_response',
+      'deliveries response disagreed with itself about a next page',
+    );
+  }
+  return { deliveries: (env.deliveries ?? []) as TriggerDelivery[], nextCursor: cursor };
 }

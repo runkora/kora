@@ -74,34 +74,60 @@ describe('listDeliveries (server client)', () => {
     expect(page.nextCursor).toBeNull();
   });
 
-  it('reports nextCursor null when the backend omits next_cursor entirely', async () => {
-    respondWith({ deliveries: [makeDelivery('d-1')] });
+  it('refuses a body that omits next_cursor rather than calling it the last page', async () => {
+    // This test used to assert nextCursor === null here, which encoded the bug.
+    // The upstream always writes next_cursor, so coercing its absence to null
+    // reports "last page"; the BFF then re-wraps that as a well-formed
+    // `{ data, next_cursor }`, the browser's own guard sees nothing wrong, and
+    // Load more vanishes - the list is truncated in silence.
+    respondWith({ deliveries: [makeDelivery('d-1')], has_next_page: true });
 
-    const page = await listDeliveries('test-access-token');
-
-    expect(page.nextCursor).toBeNull();
+    await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);
   });
 
-  it('resolves an empty page when the backend returns no deliveries key', async () => {
+  it('refuses an empty object rather than calling it an empty page', async () => {
+    // `{}` is a gateway artefact, not a result: the upstream always writes all
+    // three keys. Reading it as an empty final page is indistinguishable from a
+    // tenant that genuinely has no deliveries, which is how an error page from
+    // something in between used to truncate the list without saying so.
     respondWith({});
 
+    await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);
+  });
+
+  it('refuses a bodyless 204, which this endpoint never sends', async () => {
+    // The list endpoint always answers 200 with an envelope, so a 204 came from
+    // something in between. Accepting it causes the same silent truncation.
+    server.use(http.get(UPSTREAM, () => new HttpResponse(null, { status: 204 })));
+
+    await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);
+  });
+
+  it('accepts a null deliveries array as a genuinely empty page', async () => {
+    // Go marshals the nil slice the repository returns for no rows, so an empty
+    // page really does arrive as `"deliveries": null`. Validating that field
+    // with Array.isArray would reject a tenant's first visit, which is why
+    // has_next_page carries the check instead.
+    respondWith({ deliveries: null, has_next_page: false, next_cursor: null });
+
     expect(await listDeliveries('test-access-token')).toEqual({
       deliveries: [],
       nextCursor: null,
     });
   });
 
-  it('resolves an empty page for a bodyless 204', async () => {
-    server.use(http.get(UPSTREAM, () => new HttpResponse(null, { status: 204 })));
+  it('refuses an envelope whose has_next_page contradicts its next_cursor', async () => {
+    // Upstream derives has_next_page as `nextCursor != ""` and writes
+    // next_cursor only when non-empty, so these two cannot legitimately
+    // disagree. When they do, trusting either one puts the page boundary
+    // somewhere neither side meant.
+    respondWith({ deliveries: [makeDelivery('d-1')], has_next_page: false, next_cursor: 'cur-2' });
 
-    expect(await listDeliveries('test-access-token')).toEqual({
-      deliveries: [],
-      nextCursor: null,
-    });
+    await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);
   });
 
   it('builds the upstream query from the options, repeating status and outcome', async () => {
-    const seen = respondWith({ deliveries: [], next_cursor: null });
+    const seen = respondWith({ deliveries: [], has_next_page: false, next_cursor: null });
 
     await listDeliveries('test-access-token', {
       sourceId: 'src-1',
@@ -123,7 +149,7 @@ describe('listDeliveries (server client)', () => {
   });
 
   it('asks for the bare path when no options are given', async () => {
-    const seen = respondWith({ deliveries: [] });
+    const seen = respondWith({ deliveries: [], has_next_page: false, next_cursor: null });
 
     await listDeliveries('test-access-token');
 
@@ -132,7 +158,7 @@ describe('listDeliveries (server client)', () => {
   });
 
   it('omits a null cursor instead of sending the string "null"', async () => {
-    const seen = respondWith({ deliveries: [] });
+    const seen = respondWith({ deliveries: [], has_next_page: false, next_cursor: null });
 
     await listDeliveries('test-access-token', { cursor: null, status: [], outcome: [] });
 
@@ -144,7 +170,7 @@ describe('listDeliveries (server client)', () => {
     server.use(
       http.get(UPSTREAM, ({ request }) => {
         auth = request.headers.get('authorization');
-        return HttpResponse.json({ deliveries: [] });
+        return HttpResponse.json({ deliveries: [], has_next_page: false, next_cursor: null });
       }),
     );
 
