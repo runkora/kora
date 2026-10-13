@@ -7,6 +7,7 @@ import type { ThemeManifest } from './manifest';
 
 export const MANIFEST: ThemeManifest = {
   version: '1.4.2',
+  contractVersion: '1.3',
   modes: ['dark', 'light'],
   tokens: [
     { name: '--hades-raw-black', kind: 'color', format: 'hex-or-oklch', modes: ['dark', 'light'] },
