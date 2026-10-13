@@ -42,3 +42,6 @@ next-env.d.ts
 # next dev writes these when it detects an AI coding agent (AI_AGENT, CLAUDECODE and similar)
 /AGENTS.md
 /CLAUDE.md
+
+# Built Storybook (make frontend-storybook-build); shipped as a release asset, never committed
+storybook-static/

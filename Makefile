@@ -1189,9 +1189,9 @@ frontend-storybook: ## Start Storybook — Hades + App/Shared components (port 6
 	@cd $(FRONTEND_DIR) && pnpm storybook
 
 .PHONY: frontend-storybook-build
-frontend-storybook-build: ## Build Storybook as a static site
+frontend-storybook-build: ## Build Storybook as a static site with preview.json (KORA_VERSION=x.y.z)
 	@echo "$(COLOR_YELLOW)Building Storybook...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm build-storybook
+	@cd $(FRONTEND_DIR) && pnpm build-storybook && node scripts/write-storybook-preview-json.mjs storybook-static $(or $(KORA_VERSION),0.0.0-dev)
 	@echo "$(COLOR_GREEN)✓ Storybook built$(COLOR_RESET)"
 
 .PHONY: frontend-storybook-hades

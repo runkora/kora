@@ -13,7 +13,12 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'jsdom',
-    include: ['src/**/*.test.ts?(x)', 'scripts/**/*.test.ts', 'eslint/**/*.test.mjs'],
+    include: [
+      'src/**/*.test.ts?(x)',
+      'scripts/**/*.test.ts',
+      'eslint/**/*.test.mjs',
+      '.storybook/theme-preview/**/*.test.ts',
+    ],
     exclude: [
       '**/node_modules/**',
       'src/**/*.integration.test.ts?(x)',

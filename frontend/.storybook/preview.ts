@@ -2,6 +2,7 @@ import type { Decorator, Preview } from '@storybook/react';
 import '../src/packages/hades/src/tokens/tokens.css';
 import './canvas.css';
 import './docs.css';
+import { withThemePreview } from './theme-preview/decorator';
 
 // Sets the selected brand and theme on <html>, where Hades' token selectors apply.
 const withBrand: Decorator = (Story, context) => {
@@ -13,7 +14,7 @@ const withBrand: Decorator = (Story, context) => {
 };
 
 const preview: Preview = {
-  decorators: [withBrand],
+  decorators: [withBrand, withThemePreview],
   globalTypes: {
     brand: {
       description: 'Brand candidate',

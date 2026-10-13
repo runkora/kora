@@ -96,6 +96,34 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: .github/scripts/write-compatibility.sh
 
+      # The built Storybook is a release asset: the Pages/ stories a theme
+      # producer previews a white-label theme on. Hosted by no one.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: "10"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Build and archive Storybook
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          make frontend-storybook-build KORA_VERSION="${VERSION}"
+          test -f frontend/storybook-static/preview.json
+          mkdir -p dist
+          (cd frontend/storybook-static && zip -qr "${GITHUB_WORKSPACE}/dist/kora-storybook-${TAG}.zip" .)
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -117,4 +145,4 @@ jobs:
               flags+=(--notes-start-tag "${previous}")
             fi
           fi
-          gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml
+          gh release create "${TAG}" "${flags[@]}" dist/*.tgz dist/kora-storybook-*.zip images.txt compatibility.yaml

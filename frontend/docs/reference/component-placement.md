@@ -36,6 +36,8 @@ The `title` field in a story's `meta` object sets its position in the Storybook 
 | Tier 2: molecules | `App/Molecules/`   | `title: 'App/Molecules/ScopePicker'`     |
 | Tier 2: organisms | `App/Organisms/`   | `title: 'App/Organisms/ConnectionCards'` |
 
+The built Storybook also ships as a kora release asset, `kora-storybook-vX.Y.Z.zip`, with a `preview.json` and a `postMessage` protocol for previewing a white-label theme on every `Pages/` story. See [`.storybook/theme-preview/PROTOCOL.md`](../../.storybook/theme-preview/PROTOCOL.md). A page added under the `Pages/` prefix is exposed by being there.
+
 ### Choosing atom, molecule or organism
 
 The Hades sub-tier follows what a component is built from:
