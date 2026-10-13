@@ -281,9 +281,7 @@ export async function listDeliveries(
   // slice the repository returns for no rows - so an array check would reject a
   // tenant's first visit.
   const env = body as
-    | { deliveries?: unknown; has_next_page?: unknown; next_cursor?: unknown }
-    | null
-    | undefined;
+    { deliveries?: unknown; has_next_page?: unknown; next_cursor?: unknown } | null | undefined;
   if (env == null || typeof env.has_next_page !== 'boolean') {
     throw new ApiError(502, 'bad_upstream_response', 'deliveries response was not a page');
   }
@@ -296,7 +294,11 @@ export async function listDeliveries(
     !('next_cursor' in env) ||
     (cursor !== null && (typeof cursor !== 'string' || cursor === ''))
   ) {
-    throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no usable next_cursor');
+    throw new ApiError(
+      502,
+      'bad_upstream_response',
+      'deliveries response had no usable next_cursor',
+    );
   }
   if (env.deliveries !== null && !Array.isArray(env.deliveries)) {
     throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no deliveries');
