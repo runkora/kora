@@ -36,11 +36,11 @@ runs:
         pr_tree=$(gh api "repos/$REPO/git/commits/$pr_sha" --jq .tree.sha) || result "Could not read $pr_sha." false
         [ "$queue_tree" = "$pr_tree" ] || result "Entry files differ from #$pr head $pr_sha." false
 
-        # The latest finished run of each check decides. Cancelled runs are superseded duplicates.
+        # Only GitHub Actions check runs count, as in the required status checks. The latest finished run decides, and cancelled runs are superseded duplicates.
         while IFS= read -r name; do
           [ -n "$name" ] || continue
           conclusion=$(gh api -X GET "repos/$REPO/commits/$pr_sha/check-runs" -f check_name="$name" -f per_page=100 \
-            --jq '[.check_runs[] | select(.conclusion != null and .conclusion != "cancelled")] | sort_by(.completed_at) | last | .conclusion // "missing"') \
+            --jq '[.check_runs[] | select(.app.id == 15368 and .conclusion != null and .conclusion != "cancelled")] | sort_by(.completed_at) | last | .conclusion // "missing"') \
             || result "Could not read check '$name' on $pr_sha." false
           [ "$conclusion" = success ] || result "Check '$name' on #$pr head $pr_sha is $conclusion." false
         done <<< "$CHECKS"
