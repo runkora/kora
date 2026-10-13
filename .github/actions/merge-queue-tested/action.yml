@@ -1,0 +1,48 @@
+name: merge-queue-tested
+description: Report whether a merge queue entry has the same files as its pull request head, and the named checks passed on that head.
+
+inputs:
+  checks:
+    description: Check names that must have passed on the pull request head, one per line.
+    required: true
+
+outputs:
+  tested:
+    description: "'true' when the entry's files were already tested on the pull request head."
+    value: ${{ steps.compare.outputs.tested }}
+
+runs:
+  using: composite
+  steps:
+    - id: compare
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        REPO: ${{ github.repository }}
+        HEAD_REF: ${{ github.event.merge_group.head_ref }}
+        QUEUE_SHA: ${{ github.event.merge_group.head_sha }}
+        CHECKS: ${{ inputs.checks }}
+      run: |
+        set -euo pipefail
+        # Any lookup failure reports false, so the full suite runs.
+        result() { echo "$1"; echo "tested=$2" >> "$GITHUB_OUTPUT"; exit 0; }
+
+        # The queue names its branch gh-readonly-queue/<base>/pr-<number>-<base sha>.
+        pr=$(sed -nE 's#.*/pr-([0-9]+)-[0-9a-f]+$#\1#p' <<< "$HEAD_REF")
+        [ -n "$pr" ] || result "No pull request number in $HEAD_REF." false
+
+        pr_sha=$(gh api "repos/$REPO/pulls/$pr" --jq .head.sha) || result "Could not read #$pr." false
+        queue_tree=$(gh api "repos/$REPO/git/commits/$QUEUE_SHA" --jq .tree.sha) || result "Could not read $QUEUE_SHA." false
+        pr_tree=$(gh api "repos/$REPO/git/commits/$pr_sha" --jq .tree.sha) || result "Could not read $pr_sha." false
+        [ "$queue_tree" = "$pr_tree" ] || result "Entry files differ from #$pr head $pr_sha." false
+
+        # The latest finished run of each check decides. Cancelled runs are superseded duplicates.
+        while IFS= read -r name; do
+          [ -n "$name" ] || continue
+          conclusion=$(gh api -X GET "repos/$REPO/commits/$pr_sha/check-runs" -f check_name="$name" -f per_page=100 \
+            --jq '[.check_runs[] | select(.conclusion != null and .conclusion != "cancelled")] | sort_by(.completed_at) | last | .conclusion // "missing"') \
+            || result "Could not read check '$name' on $pr_sha." false
+          [ "$conclusion" = success ] || result "Check '$name' on #$pr head $pr_sha is $conclusion." false
+        done <<< "$CHECKS"
+
+        result "Entry files match #$pr head $pr_sha, and its checks passed." true

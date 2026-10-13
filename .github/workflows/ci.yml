@@ -26,6 +26,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      checks: read
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
@@ -35,7 +36,20 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # A merge queue entry with the same files as its pull request head skips every suite when the head passed.
+      - id: tested
+        if: github.event_name == 'merge_group'
+        uses: ./.github/actions/merge-queue-tested
+        with:
+          checks: |
+            Backend
+            Frontend
+            Charts
+            Docs
+            Images
+
       - id: filter
+        if: steps.tested.outputs.tested != 'true'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |
@@ -80,6 +94,7 @@ jobs:
       # The every quantifier makes each negation exclude; the patterns mirror
       # .dockerignore.
       - id: imagecode
+        if: steps.tested.outputs.tested != 'true'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           predicate-quantifier: every
