@@ -54,6 +54,14 @@ jobs:
       # A multi-arch build keeps its own cache. An amd64 build replaces the cache
       # it writes, and a shared cache would never hold the arm64 layers.
       CACHE_SUFFIX: ${{ contains(inputs.platforms, 'arm64') && '-multiarch' || '' }}
+      # Every image except the frontend compiles Go in RUN cache mounts, and
+      # the registry cache does not carry cache mounts. These jobs restore a
+      # shared Go build and module cache into the mounts before the bake.
+      GO_CACHE: ${{ matrix.target != 'orbit-frontend' }}
+      # One job saves the shared cache, on a push to main only, so a pull
+      # request never writes a cache that other builds read. orbit-agents
+      # compiles the largest dependency set of the backend images.
+      GO_CACHE_SAVE: ${{ matrix.target == 'orbit-agents' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -66,7 +74,8 @@ jobs:
         if: contains(inputs.platforms, 'arm64')
         run: docker run --rm --privileged tonistiigi/binfmt:qemu-v8.1.5 --install arm64
 
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - id: buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       # Login also runs on build-only calls: pulling the layer cache from a
       # private GHCR needs auth.
@@ -75,6 +84,51 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The key changes with go.sum and with the go directive in go.mod, which
+      # pins the Go version. Go keys its build cache by content, so a cache
+      # from an older commit is still correct and the job recompiles only what
+      # changed. The prefix fallback reuses the last cache after a dependency
+      # bump. The cache lives outside the workspace, which is the operator's
+      # build context.
+      - name: Restore the Go caches
+        if: env.GO_CACHE == 'true' && env.GO_CACHE_SAVE != 'true'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/go-cache
+          key: go-image-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}
+          restore-keys: go-image-
+
+      # actions/cache saves in its post step. Post steps run in reverse order,
+      # so the save runs after the cache dance below extracts the mounts. An
+      # actions/cache/save step would run before the extraction.
+      - name: Restore and save the Go caches
+        id: go-cache-save
+        if: env.GO_CACHE_SAVE == 'true'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/go-cache
+          key: go-image-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}
+          restore-keys: go-image-
+
+      # Copies the restored cache into the BuildKit cache mounts now and, in
+      # its post step, copies the mounts back out. A mount id defaults to its
+      # target, so these targets must match the Dockerfiles. The Go builder
+      # stages run on the build platform, so a multi-arch release reads the
+      # same mounts. Only a job that saves extracts.
+      - name: Inject the Go caches into the build
+        if: env.GO_CACHE == 'true'
+        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
+        with:
+          builder: ${{ steps.buildx.outputs.name }}
+          utility-image: ghcr.io/containerd/busybox:1.36@sha256:7b3ccabffc97de872a30dfd234fd972a66d247c8cfc69b0550f276481852627c
+          scratch-dir: ${{ runner.temp }}/cache-dance
+          cache-map: |
+            {
+              "${{ runner.temp }}/go-cache/go-build": "/root/.cache/go-build",
+              "${{ runner.temp }}/go-cache/go-mod": "/go/pkg/mod"
+            }
+          skip-extraction: ${{ env.GO_CACHE_SAVE != 'true' || steps.go-cache-save.outputs.cache-hit == 'true' }}
 
       - uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
         # docker-bake.hcl tags every image with IMAGE_TAG, which defaults to latest.
