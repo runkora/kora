@@ -125,8 +125,7 @@ jobs:
           scratch-dir: ${{ runner.temp }}/cache-dance
           cache-map: |
             {
-              "${{ runner.temp }}/go-cache/go-build": "/root/.cache/go-build",
-              "${{ runner.temp }}/go-cache/go-mod": "/go/pkg/mod"
+              "${{ runner.temp }}/go-cache/go-build": "/root/.cache/go-build"
             }
           skip-extraction: ${{ env.GO_CACHE_SAVE != 'true' || steps.go-cache-save.outputs.cache-hit == 'true' }}
 
