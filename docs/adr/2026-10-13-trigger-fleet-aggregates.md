@@ -207,18 +207,24 @@ A trigger that has never fired returns `last_fired_at: null`,
 
 ### Window semantics
 
-- **Anchor.** The window is `(now - 24h, now]`, where `now` is the server's
-  clock at query time, in UTC. One anchor is chosen per request and used for
-  every trigger in it, so two rows in the same response cannot be measured
-  against different instants.
-- **Bucket alignment.** Buckets are aligned to the anchor, not to wall-clock
-  hours: bucket 0 begins exactly 24 hours before `now` and each spans two
-  hours. This matches `sparkline` today, whose index is
-  `floor((t - (now - DAY_MS)) / bucketMs)` clamped to the last bucket. Aligning
-  to wall-clock boundaries instead would change what the chart shows.
-- **An arrival exactly on `now`** falls in the last bucket; one older than the
-  anchor is excluded. `t > now` is excluded, as the browser does today, so a
-  clock skew ahead of the server cannot land a delivery in the future.
+- **The window governs two of the three figures.** It applies to
+  `recent_failures` and `sparkline` only. **`last_fired_at` is unbounded**: the
+  newest matching delivery over all history, however old. Scoping it to the
+  window would make a trigger that last fired 25 hours ago read "never fired",
+  which is the defect in #410 that this decision exists to remove.
+- **Anchor.** `now` is the server's clock at query time, in UTC. One anchor per
+  request, used for every trigger in it, so two rows in the same response cannot
+  be measured against different instants.
+- **Predicate.** `now - received_at <= 24h`. The lower bound is closed, matching
+  `isWithin24h` in `fleet.ts`; writing it as a half-open `(now - 24h, now]` would
+  drop an arrival landing exactly on the boundary.
+- **Bucket alignment.** Buckets align to the anchor, not to wall-clock hours:
+  bucket 0 begins exactly 24 hours before `now`, each spans two hours. Aligning
+  to wall-clock boundaries would change what the chart shows.
+- **Future timestamps.** `sparkline` excludes `received_at > now`;
+  `recent_failures` does not. That asymmetry is existing behaviour. Giving
+  `recent_failures` the same guard would change a displayed number, which the
+  Non-Goals above require to be declared rather than slipped in.
 
 ### What counts, and for which figure
 
