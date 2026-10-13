@@ -121,8 +121,17 @@ async function sendPage<T>(
   // always writes it, so a body without it is malformed, and `?? null` would
   // read that as "last page": Load more disappears and the list is silently
   // truncated, which is the whole failure this guard exists to stop.
+  // An empty string is refused with the absent case rather than accepted as a
+  // cursor. It is not null, so the grid offers Load more; but the request
+  // builder only serializes a truthy cursor, so the click omits it, the
+  // backend answers page one, and those rows are appended to the ones already
+  // on screen with Load more still showing. That is an unbounded duplicate
+  // loop, not a page walk. The contract is null or a non-empty opaque string.
   const cursor = (body as { next_cursor?: unknown }).next_cursor;
-  if (!('next_cursor' in body) || (cursor !== null && typeof cursor !== 'string')) {
+  if (
+    !('next_cursor' in body) ||
+    (cursor !== null && (typeof cursor !== 'string' || cursor === ''))
+  ) {
     return unreadable;
   }
   return { data: body.data as T, nextCursor: cursor, error: null };

@@ -287,9 +287,16 @@ export async function listDeliveries(
   if (env == null || typeof env.has_next_page !== 'boolean') {
     throw new ApiError(502, 'bad_upstream_response', 'deliveries response was not a page');
   }
+  // '' is refused with the absent case: it is not null, so a consumer offers
+  // Load more, but a falsy cursor is omitted from the next request and the
+  // backend answers page one again - an unbounded duplicate loop rather than a
+  // page walk. The contract is null or a non-empty opaque string.
   const cursor = env.next_cursor;
-  if (!('next_cursor' in env) || (cursor !== null && typeof cursor !== 'string')) {
-    throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no next_cursor');
+  if (
+    !('next_cursor' in env) ||
+    (cursor !== null && (typeof cursor !== 'string' || cursor === ''))
+  ) {
+    throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no usable next_cursor');
   }
   if (env.deliveries !== null && !Array.isArray(env.deliveries)) {
     throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no deliveries');
