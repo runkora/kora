@@ -63,7 +63,7 @@ The product identity is fixed in code. The colour palette, corner radii, fonts, 
 - Branding of CLI output and of any surface outside the dashboard and the agent runtime messages it shows.
 - Sign-in and consent pages hosted by the client's identity provider. Those carry the provider's own branding.
 - Email branding. No email templates exist today.
-- Shipping Storybook, or any design-tooling artefact, to clients as a client-facing product. A preview build published for whoever produces a theme is not a client deliverable.
+- Shipping Storybook, or any design-tooling artefact, to clients as a client-facing product, or publishing a preview build for whoever produces a theme. kora provides no preview templates to third parties at this stage; decision 6 of the white-labelling theme ADR records why and leaves the option open to revisit.
 
 ---
 
@@ -168,7 +168,7 @@ The following are architectural decisions and are deferred to the white-labellin
 3. Where validation runs and how an invalid theme fails the deploy before the instance serves a page.
 4. Startup loading, rendering the effective theme in the first HTML response, serving fonts and logos, and the agnostic Hades slot components that render the product name, logo and favicon from the effective theme, with the kora logo moved out of Hades into the default theme.
 5. Product-name wiring and the hardcoded-string check: the source trees it covers, the classes of string literal it inspects, and the names it searches for.
-6. Template exposure, for the P1 requirement: whether selected real page templates can be exposed for rendering outside the app, which ones, and how they are delivered alongside each contract major. This decision may conclude that it is not viable.
+6. Template exposure, for the P1 requirement: whether selected real page templates can be exposed for rendering outside the app, which ones, and how they are delivered alongside each contract major. The decision concluded that it is not viable at this stage.
 
 How the pinned design system version is exposed to the instance is subsection 2 of the design system versioning ADR; the contract subsection cites it rather than deciding it again.
 
@@ -241,7 +241,7 @@ The last column is not a contract change, because kora defaults are outside the 
 - [ ] The contract boundary rules are documented explicitly, as the numbered list in the Hades Design System PRD, and the ADR contract subsection cites them. No decision about what a theme can set, or about what counts as a contract change, is made outside them.
 
 **Should Have (P1):**
-- [ ] kora exposes selected real page templates for rendering outside the app, per contract major, so that a consumer of white-labelling can preview a theme on the product's actual pages rather than on compositions of components. kora does not know which consumers exist, only that they will. Which templates, how they are delivered alongside each contract major, and whether this is viable at all given the templates live in the app rather than in Hades, are decided in decision 6 of the white-labelling theme ADR.
+- [ ] kora exposes selected real page templates for rendering outside the app, per contract major, so that a consumer of white-labelling can preview a theme on the product's actual pages rather than on compositions of components. kora does not know which consumers exist, only that they will. **Not viable at this stage, and not delivered:** publishing the templates, as a built Storybook or otherwise, is too complex for the sole purpose of theme previews and would lower the security rating ahead of release. kora provides no preview templates to third parties for now; the requirement stays open to revisit, and decision 6 of the white-labelling theme ADR records the options and the reasoning.
 
 **Nice to Have (P2):**
 - None.

@@ -21,11 +21,11 @@ The platform the theme has to fit:
 - Kubernetes API objects are bounded by etcd at roughly one megabyte, so fonts and logos cannot travel inside a ConfigMap, a Secret or a custom resource.
 - The charts require Kubernetes 1.34 and are tested to 1.36. Image volumes, which mount an OCI image directly into a pod, are beta and off by default in 1.34, beta and on by default in 1.35, where a cluster administrator can still disable the gate, and stable with the gate locked on in 1.36.
 - The operator already reads image configs from registries with the cluster's pull secrets, for the `SandboxImage` resource.
-- Storybook renders every top-level page as a story under the `Pages/` prefix, from the real page components with mock data.
+- Storybook renders every top-level page as a story under the `Pages/` prefix, from the real page components with mock data. It is a development tool, and nothing publishes it.
 
 ### Problem Statement
 
-Decide how a theme is expressed, how it and its brand assets reach a deployment and its pods, where it is validated so an invalid theme fails before an instance serves, how the frontend renders it without a flash of the kora default, how the backend learns the product name, how new hardcoded product-name literals are kept out, and whether real pages can be exposed for preview outside the app.
+Decide how a theme is expressed, how it and its brand assets reach a deployment and its pods, where it is validated so an invalid theme fails before an instance serves, how the frontend renders it without a flash of the kora default, how the backend learns the product name, how new hardcoded product-name literals are kept out, and whether kora provides real pages to third parties for previewing a theme.
 
 ### Goals
 
@@ -205,27 +205,26 @@ An entry under `tokens` or `slots` whose key the running manifest does not know 
 
 **Options considered:**
 
-1. **Publish the built Storybook as a release asset.** The static build of every story under `Pages/` is zipped and attached to each kora GitHub Release, the same way Hades ships as a release and with nothing hosted by kora. It is a preview aid for whoever produces a theme, not a client deliverable, which is what the PRD's non-goal excludes. A preview decorator accepts a theme over `postMessage` and injects the same CSS Decision 4's generator produces. The pages stay in the app, which contract boundary rule 4 allows, because a page change is never a contract change.
+1. **Publish the built Storybook as a release asset.** Considered and rejected for now. The static build of every story under `Pages/` would be attached to each kora GitHub Release, with a preview decorator that accepts a theme over `postMessage`. It is too complex at this stage for the one purpose of previewing templates: it adds a release step, a decorator, a versioned message protocol and a published artefact that kora would have to keep secure and supported, and it would lower the security rating ahead of release. It remains the most likely route if the need returns, because the pages could stay in the app, which contract boundary rule 4 allows, since a page change is never a contract change. The option is open to revisiting.
 2. **Publish the page components as a package.** The pages are client components tied to Next's app router, its navigation mocks and the Tier 2 domain components; decoupling every page from Next and keeping it decoupled on every change is a permanent tax.
 3. **A running instance in a preview mode.** Needs a runtime theme override, which the PRD rules out, plus authentication and data.
-4. **Conclude not viable.** The P1 goes unmet.
+4. **Conclude not viable at this stage.** The P1 goes unmet, and kora provides no preview templates to third parties.
 
-**Chosen: Option 1.**
+**Chosen: Option 4.**
 
-- **The asset.** `kora-storybook-vX.Y.Z.zip`, built on every kora release tag from `build-storybook`, named with the kora version because the pages are kora's. Inside it, `preview.json` records the kora version, the Hades version and contract version the release pins, and the embedding protocol version, so a downloaded archive is self-describing.
-- **Discovery.** A consumer that needs the latest pages for contract major N walks kora releases newest first, reads the pinned contract version each publishes in its compatibility statement, and takes the first whose contract major matches. No new mapping exists. When kora moves to the next contract major, the last release on the previous major is the final preview for that major, which is correct: themes for that major target the instances running those kora versions.
-- **The protocol.** The consumer sends the iframe a message carrying the theme document and a map from bundle asset paths to URLs the consumer serves. The decorator validates the document with the Hades validator at the pinned version, builds the CSS through the generator with the supplied resolver, and injects it. The message shape carries its own version, independent of kora's and Hades', bumped only when the shape changes. The protocol is documented with the asset, because kora does not know its consumers.
-- **Which pages.** Everything under the `Pages/` Storybook prefix. The ADR names the prefix rather than a list, so a page added to Storybook is exposed by being there.
+- kora does not publish, package or host page templates for third parties. A producer of themes previews them on their own compositions of Hades components, against the contract.
+- The decision is revisited if a consumer needs real-page previews badly enough to justify the cost. Option 1 is the starting point, and it would amend this decision rather than supersede it.
+- Nothing in the theme contract, the Hades package or the instance depends on the outcome, so reversing it later changes no contract.
 
 ---
 
 ## Decision
 
-**Chosen Option:** Decision 1 Option 1; Decision 2 values, OCI image, image volume; Decision 3 in-deploy validation, one code path, same contract major only, versions on health; Decision 4 Option 1; Decision 5 chart extraction, everything a client's people or agents read, a lint rule on each side; Decision 6 Option 1.
+**Chosen Option:** Decision 1 Option 1; Decision 2 values, OCI image, image volume; Decision 3 in-deploy validation, one code path, same contract major only, versions on health; Decision 4 Option 1; Decision 5 chart extraction, everything a client's people or agents read, a lint rule on each side; Decision 6 not viable at this stage.
 
 ### Rationale
 
-The theme is install configuration, so it travels as values, and its assets are too large for any API object, so they travel as an image, which is the one large-blob path Kubernetes provides for free. Validation inside the deploy makes "a malformed theme fails the deploy" a property of the chart rather than of a consumer's diligence, and placing it in an init container that uses the frontend image means no new artefact and the exact Hades version the instance runs. Passing the committed document into the chart lets the chart hand the product name to the backend through the path every service already walks, and the equality check in the init container turns the only way the two copies can diverge, a stale bundle, into a failed deploy with a message. Image volumes remove a copy step and a base image at the cost of a prerequisite that applies only to deployments that use a theme, recorded in the prerequisites contract. Exposing pages as a published Storybook build costs a release step and a decorator, keeps the pages where they live, and lets a consumer render a theme on the real product without kora hosting anything.
+The theme is install configuration, so it travels as values, and its assets are too large for any API object, so they travel as an image, which is the one large-blob path Kubernetes provides for free. Validation inside the deploy makes "a malformed theme fails the deploy" a property of the chart rather than of a consumer's diligence, and placing it in an init container that uses the frontend image means no new artefact and the exact Hades version the instance runs. Passing the committed document into the chart lets the chart hand the product name to the backend through the path every service already walks, and the equality check in the init container turns the only way the two copies can diverge, a stale bundle, into a failed deploy with a message. Image volumes remove a copy step and a base image at the cost of a prerequisite that applies only to deployments that use a theme, recorded in the prerequisites contract. Page templates are not provided to third parties, because a published Storybook would add a release step, a protocol and a published artefact for the sole purpose of theme previews, at a cost to the security rating before release; the option stays open to revisit.
 
 ---
 
@@ -235,7 +234,7 @@ The theme is install configuration, so it travels as values, and its assets are 
 
 - A theme change is a values change, reviewed in the deployment repository, rolled out by the standard rolling update and rolled back by a revert.
 - An invalid theme never serves a page: the frontend rollout stalls on the init container and the previous pods keep serving.
-- One Hades module validates, loads and generates CSS, used by the init container, the instance and the preview. No rule exists twice.
+- One Hades module validates, loads and generates CSS, used by the init container and the instance. No rule exists twice.
 - No operator change, no custom resource, no new published tool.
 - The frontend's contract is a directory at a fixed path, so the vehicle that mounts it could change without touching the loader.
 
@@ -246,11 +245,11 @@ The theme is install configuration, so it travels as values, and its assets are 
 - Every theme is an image, so a colours-only theme still needs a registry push.
 - The document lives in two places, the repository file and the bundle, held equal by the init container rather than by construction.
 - Validation feedback arrives at rollout rather than in a pull request check, unless a consumer runs the validator in their own pipeline.
+- Theme producers get no kora-supplied preview of the real pages, so they preview on their own compositions of Hades components and see the pages only once deployed.
 
 ### Neutral
 
 - The kora logo and mark leave Hades for the app's default theme, and three call sites change to the slot component.
-- A Storybook archive is attached to every kora release.
 - The versioning ADR's deferred question on runtime exposure is answered: the version on the health route, no manifest endpoint.
 
 ---
@@ -266,7 +265,6 @@ The theme is install configuration, so it travels as values, and its assets are 
 
 - The server-only theme module, the inline style and preload links in the root layout, the `/theme/<hash>/assets/<path>` route handler, metadata icons from the theme, the health field, the brand provider, and the `local/no-product-name-literal` ESLint rule.
 - A `validate-theme` entry point in the image for the init container.
-- The Storybook decorator and `preview.json`, and the `build-storybook` step in the release workflow with the archive attached to the release.
 
 ### Backend
 
@@ -296,7 +294,6 @@ The implementation lands as separate pull requests, each stacked on the previous
 - A malformed theme stalls the frontend rollout with a message naming the fault; a stale bundle does the same; the previous pods keep serving throughout.
 - A theme that sets colours only, with no assets, deploys and renders.
 - The CI rules fail on a new product-name literal in either tree.
-- The Storybook archive, embedded with a theme sent over the protocol, renders every `Pages/` story under that theme.
 
 ### Monitoring
 
