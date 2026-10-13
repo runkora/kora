@@ -51,24 +51,26 @@ trigger on the page read "never fired" while its history was intact in Postgres.
 
 This is the same defect as #412 in a different surface: **a predicate evaluated
 after a cap is wrong at any cap size**, because the cap is spent on rows the
-predicate would have discarded. #412 moved the delivery list's filter and page
-boundary into SQL. The fleet view's three derivations were left in the browser,
-so they still read a capped, unfiltered window.
+predicate would have discarded. #412 moves the delivery list's filter and page
+boundary into SQL; its implementation (clear-route/orbit#454) is open at the
+time of writing, so that ADR is not on `main` yet and is referenced here by
+filename rather than linked. The fleet view's three derivations are untouched by
+it either way, so they still read a capped, unfiltered window.
 
 ### Goals
 
 - "Last fired", recent failures, and the sparkline reflect a trigger's real
   history, not whatever fell inside the newest 100 tenant-wide arrivals.
 - The fleet view costs one request, not one per trigger.
-- A trigger's own history remains reachable through the existing `trigger_id`
-  filter, which `ListDeliveries` already supports.
+- A trigger's own history stays reachable through the `trigger_id` filter on
+  `ListDeliveries`, whose predicate is widened to match the fan-out rule.
 
 ### Non-Goals
 
 - Changing what the fleet view *displays*. The three figures and the 12-bucket
   sparkline shape stay as they are; only where they are computed changes.
 - Real-time push. The page refreshes on its existing cadence.
-- Reworking the deliveries list itself. #412 already did that.
+- Reworking the deliveries list itself. #412 covers that.
 
 ---
 
@@ -108,15 +110,21 @@ the browser.
 **Description:** Call `ListDeliveries` once per trigger with `trigger_id` set.
 
 **Pros:**
-- Correct, and needs no new backend surface: the filter already exists.
 - Each response is naturally scoped, so nothing can crowd anything out.
+- The request shape already exists, so only the predicate needs work.
 
 **Cons:**
 - The fleet renders every trigger a tenant has, so this is N requests for one
   page.
 - Each request returns full delivery rows to compute three scalars.
+- **The filter as it stands is not sufficient.** `postgres.go` emits
+  `AND trigger_id = $n` against `trigger_deliveries` only, so a fan-out delivery
+  where this trigger appears solely in `trigger_delivery_runs` is omitted. That
+  is a narrower predicate than the one `lastFired` uses, so the detail view
+  would disagree with the row that opened it.
 
-Right for a *single* trigger's history; wrong for the fleet.
+Right for a *single* trigger's history, once that predicate is widened; wrong
+for the fleet either way.
 
 ### Option 3: Server-computed aggregates on the trigger list (chosen)
 
@@ -156,7 +164,10 @@ dispatches.
 
 ## Decision
 
-Adopt **Option 3**, with Option 2 for single-trigger history.
+Adopt **Option 3**, with Option 2 for single-trigger history **once its filter
+is widened** to the direct-or-fan-out predicate below. Reusing the current
+`trigger_id` filter unchanged would ship a detail view that silently omits
+fan-out arrivals.
 
 ### Response shape
 
@@ -221,7 +232,13 @@ assumes they do will be wrong:
 - **`recent_failures`** and **`sparkline`** are run-level. They count rows in
   `trigger_delivery_runs` for this trigger whose parent delivery falls in the
   window, classified by run status: `dispatched` is `started`, the failure
-  outcomes are `failed`, everything else is `other`.
+  outcomes are `failed`, everything else is `other`. One delivery with three
+  matching runs contributes three, which is what the browser counts today.
+- A delivery that matches **directly but started no run** therefore moves
+  `last_fired_at` and contributes nothing to the other two. That asymmetry is
+  existing behaviour, not an oversight: the deduplication required for
+  `last_fired_at` must not be applied to the run-level counters, or the chart
+  and the badge would both change, and changing the display is a non-goal.
 
 An aggregate that reads only `trigger_deliveries.trigger_id` will disagree with
 the detail panel on any multi-trigger arrival. As #412 found, the join form of
@@ -232,10 +249,10 @@ must not be computed by a join that double-counts a delivery with several runs.
 
 `idx_trigger_deliveries_trigger` is on `(trigger_id)` alone. A 24-hour
 per-trigger aggregate wants the time column beside it, in the shape #412
-established for `(tenant_id, status, received_at DESC)`. The exact columns are
-to be measured rather than asserted here. The migration follows the
-`CONCURRENTLY` rules recorded in #412 and the session lock in
-clear-route/orbit#516.
+proposes for `(tenant_id, status, received_at DESC)`. The exact columns are to
+be measured rather than asserted here. The migration follows the `CONCURRENTLY`
+rules #412 records and the session lock from clear-route/orbit#516, both of
+which are themselves unmerged at the time of writing.
 
 ### Rationale
 
@@ -253,8 +270,8 @@ the remaining evidence if the aggregate were ever wrong.
 
 - "Last fired" and the failure count mean what they say, for a trigger that
   fired once a month as readily as one firing every minute.
-- The fleet view stops shipping up to 100 full delivery rows, payloads included,
-  to compute three scalars per trigger.
+- Per-trigger figures stop depending on a tenant-wide window, so one noisy
+  source can no longer blank out every other trigger's history.
 - The three derivations move behind one contract, so the Triggers page and the
   agent Triggers tab cannot drift apart in how they count.
 
@@ -274,6 +291,14 @@ the remaining evidence if the aggregate were ever wrong.
 
 - Option 4 remains available if measurement shows the aggregate is too costly
   for `last_fired_at` specifically; this decision does not foreclose it.
+- **The 100-row fetch does not go away with this change.** `fleetStats` derives
+  the fleet-wide KPIs - deliveries in 24h, success rate, started and failed
+  totals, latency percentiles - from the same capped array, and the deliveries
+  tab and drawer consume it too. Those KPIs therefore carry the identical defect
+  at tenant scope, and this decision does not fix them. They need the same
+  treatment as one tenant-level aggregate; until then the fetch stays and the
+  KPIs stay capped. Recorded explicitly so the implementation does not delete
+  the fetch and silently take the KPIs with it.
 - The frontend still renders the same three things, so no visual change ships
   with this work.
 
