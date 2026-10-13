@@ -2,6 +2,8 @@
  * Compares two npm version ranges, for the peer dependency rows of the
  * versioning ADR's classification table: a new range that accepts every
  * version the old one did is widened, and any other change is narrowed.
+ * Overlapping and touching alternatives are merged first, so a union is judged
+ * by what it covers, not by how it is written.
  *
  * Handles the forms a peer range takes in practice: `*`, `>=`, `>`, `<=`,
  * `<`, `=`, bare and partial versions, `^`, `~`, whitespace-separated
@@ -45,8 +47,7 @@ function parseRange(text: string): Interval[] {
         .filter(Boolean)
         .reduce(intersectWith, ANY as Interval | null),
     );
-  const out = alternatives.filter((i): i is Interval => i !== null && !isEmpty(i));
-  return out;
+  return normalize(alternatives.filter((i): i is Interval => i !== null && !isEmpty(i)));
 }
 
 function intersectWith(acc: Interval | null, comparator: string): Interval | null {
@@ -146,6 +147,44 @@ function isEmpty(i: Interval): boolean {
   if (i.lo === null || i.hi === null) return false;
   const c = compareVersions(i.lo, i.hi);
   return c > 0 || (c === 0 && !(i.loInclusive && i.hiInclusive));
+}
+
+/**
+ * Merges alternatives that overlap or touch, so `>=1 <2 || >=2 <4` is the one
+ * interval `>=1 <4`. Without it a union that covers a range between its
+ * alternatives would look narrower than it is.
+ */
+function normalize(intervals: readonly Interval[]): Interval[] {
+  const sorted = [...intervals].sort(byLowerBound);
+  const out: Interval[] = [];
+  for (const next of sorted) {
+    const last = out[out.length - 1];
+    if (last && connects(last, next)) out[out.length - 1] = merge(last, next);
+    else out.push(next);
+  }
+  return out;
+}
+
+function byLowerBound(a: Interval, b: Interval): number {
+  if (a.lo === null || b.lo === null) return a.lo === b.lo ? 0 : a.lo === null ? -1 : 1;
+  const c = compareVersions(a.lo, b.lo);
+  if (c !== 0) return c;
+  return a.loInclusive === b.loInclusive ? 0 : a.loInclusive ? -1 : 1;
+}
+
+/** `a` starts no later than `b`; true when `b` begins inside `a` or exactly where it ends. */
+function connects(a: Interval, b: Interval): boolean {
+  if (a.hi === null || b.lo === null) return true;
+  const c = compareVersions(b.lo, a.hi);
+  return c < 0 || (c === 0 && (a.hiInclusive || b.loInclusive));
+}
+
+function merge(a: Interval, b: Interval): Interval {
+  if (a.hi === null || b.hi === null) return { ...a, hi: null, hiInclusive: true };
+  const c = compareVersions(a.hi, b.hi);
+  if (c > 0) return a;
+  if (c < 0) return { ...a, hi: b.hi, hiInclusive: b.hiInclusive };
+  return { ...a, hiInclusive: a.hiInclusive || b.hiInclusive };
 }
 
 /** True when every interval of `a` lies inside a single interval of `b`. */
