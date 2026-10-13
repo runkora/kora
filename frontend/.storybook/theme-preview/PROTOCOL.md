@@ -47,8 +47,8 @@ On `ok: true` the generated CSS is injected as `<style data-theme-preview>` in t
 
 A message whose `version` is not `1` is rejected with `ok: false` and an error at path `version`; nothing is injected. A message of type `kora-theme-preview` with a malformed body is answered the same way, and a message of any other type is ignored. The listener never throws.
 
-The theme is validated with the Hades validator at the version in `preview.json`, so the preview and a real deploy accept and reject the same documents. Each asset is fetched from the URL you supplied; a path the document references that is missing from `assets` is reported as a missing file.
+The theme is validated with the Hades validator at the contract version in `preview.json`, so the preview and a real deploy accept and reject the same documents. Each asset is fetched from the URL you supplied; a path the document references that is missing from `assets` is reported as a missing file.
 
 ## Discovery
 
-To find the pages for Hades major N, walk kora releases newest first, read the `hades:` line of each release's `compatibility.yaml`, and take the first whose major is N. The archive's own `preview.json` (`{ "kora", "hades", "protocol" }`) records the same versions and the protocol version, so a downloaded archive is self-describing.
+To find the pages for contract major N, walk kora releases newest first, read the `hades-contract:` line of each release's `compatibility.yaml`, and take the first whose major is N. The archive's own `preview.json` (`{ "kora", "hades", "contract", "protocol" }`) records the same versions and the protocol version, so a downloaded archive is self-describing.

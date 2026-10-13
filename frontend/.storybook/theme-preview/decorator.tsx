@@ -6,7 +6,7 @@
  * See PROTOCOL.md and the white-labelling theme ADR, Decision 6.
  */
 import type { Decorator } from '@storybook/react';
-import { HADES_VERSION } from '../../src/packages/hades/src/version';
+import { CONTRACT_VERSION } from '../../src/packages/hades/src/version';
 import manifest from '../../src/packages/hades/manifest.json';
 import {
   generateThemeCss,
@@ -46,7 +46,7 @@ export const defaultDeps: ThemeMessageDeps = {
   validate: (document, readAsset) =>
     validateTheme(document, {
       manifest: manifest as unknown as ThemeManifest,
-      hadesVersion: HADES_VERSION,
+      contractVersion: CONTRACT_VERSION,
       readAsset,
     }),
   generateCss: (theme, resolveAsset) => generateThemeCss(theme, { resolveAsset }),

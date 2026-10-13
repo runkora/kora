@@ -2,8 +2,9 @@
 /**
  * Writes preview.json into a built Storybook, so a downloaded archive is
  * self-describing. Usage: node write-storybook-preview-json.mjs <outputDir> <koraVersion>
- * The Hades version is read from src/packages/hades/package.json; the
- * protocol version from .storybook/theme-preview/protocol.ts.
+ * The Hades version is read from src/packages/hades/package.json and the
+ * contract version from its manifest.json; the protocol version from
+ * .storybook/theme-preview/protocol.ts.
  */
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -19,6 +20,9 @@ if (!outDir) {
 const hades = JSON.parse(
   readFileSync(join(root, 'src/packages/hades/package.json'), 'utf8'),
 ).version;
+const contract = JSON.parse(
+  readFileSync(join(root, 'src/packages/hades/manifest.json'), 'utf8'),
+).contractVersion;
 const protocolSource = readFileSync(join(root, '.storybook/theme-preview/protocol.ts'), 'utf8');
 const protocol = Number(/PROTOCOL_VERSION = (\d+)/.exec(protocolSource)?.[1]);
 if (!Number.isInteger(protocol)) {
@@ -27,5 +31,8 @@ if (!Number.isInteger(protocol)) {
 }
 
 const file = join(resolve(outDir), 'preview.json');
-writeFileSync(file, `${JSON.stringify({ kora: koraVersion, hades, protocol }, null, 2)}\n`);
+writeFileSync(
+  file,
+  `${JSON.stringify({ kora: koraVersion, hades, contract, protocol }, null, 2)}\n`,
+);
 console.log(`wrote ${file}`);
