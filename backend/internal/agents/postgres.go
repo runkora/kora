@@ -232,10 +232,10 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO runs
 			(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
-			 trigger_id, trigger_name, delivery_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+			 trigger_id, trigger_name, delivery_id, initial_message)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 		run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
-		triggerID, triggerName, deliveryID,
+		triggerID, triggerName, deliveryID, run.InitialMessage,
 	)
 	if err != nil {
 		return fmt.Errorf("insert run: %w", err)
@@ -246,10 +246,11 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 // selectRun joins agent_types so every run read carries the agent's
 // identity_mode (runs always reference an existing agent type — DeleteAgentType
 // force-deletes its runs first, so the inner join never drops rows).
-const selectRun = `
-	SELECT r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
-	       r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id
-	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
+const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
+
+const runColumns = `
+	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
+	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id`
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
 	row := r.pool.QueryRow(ctx, selectRun+` WHERE r.id=$1`, id)
@@ -338,6 +339,80 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrd
 	}
 	return nil
 }
+
+// ClaimPendingRuns claims up to limit pending runs whose not_before is at or
+// before now, oldest first, and stamps claimed_at with now. SKIP LOCKED lets
+// every orbit-agents replica claim at once without taking the same run twice.
+// The truncated now is the claim token that ReleaseRunClaim checks.
+func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, now time.Time) ([]Run, error) {
+	rows, err := r.pool.Query(ctx, `
+		WITH claimed AS (
+		    UPDATE runs SET claimed_at = $2, updated_at = $2
+		    WHERE id IN (
+		        SELECT id FROM runs
+		        WHERE  state = 'pending' AND claimed_at IS NULL AND not_before <= $2
+		        ORDER  BY created_at
+		        LIMIT  $1
+		        FOR UPDATE SKIP LOCKED)
+		    RETURNING id, initial_message)
+		SELECT `+runColumns+`, c.initial_message
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id JOIN claimed c ON c.id = r.id
+		ORDER BY r.created_at`,
+		limit, claimToken(now))
+	if err != nil {
+		return nil, fmt.Errorf("claim pending runs: %w", err)
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		var msg string
+		run, err := scanRun(rows, &msg)
+		if err != nil {
+			return nil, err
+		}
+		run.InitialMessage = msg
+		out = append(out, *run)
+	}
+	return out, rows.Err()
+}
+
+// ReleaseRunClaim returns a run claimed at claimedAt to the queue, to be claimed
+// again after notBefore. The claim token stops a worker whose claim went stale
+// from releasing a run that another worker now holds. Returns ErrConflict when
+// the run is gone, has left pending and starting, or another worker holds it.
+func (r *PostgresRepository) ReleaseRunClaim(ctx context.Context, id string, claimedAt, notBefore time.Time) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE runs SET state = 'pending', pod_ordinal = -1, started_at = NULL,
+		       claimed_at = NULL, not_before = $3, updated_at = $4
+		WHERE  id = $1 AND claimed_at = $2 AND state IN ('pending', 'starting')`,
+		id, claimToken(claimedAt), notBefore, time.Now().UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("release run claim: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// ReclaimStaleRunClaims releases pending runs claimed before cutoff by a worker
+// that never came back, and returns their IDs. A run a dead worker left in
+// starting stays for the stale-run reaper.
+func (r *PostgresRepository) ReclaimStaleRunClaims(ctx context.Context, cutoff time.Time) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+		UPDATE runs SET claimed_at = NULL, updated_at = $2
+		WHERE  state = 'pending' AND claimed_at < $1
+		RETURNING id`, cutoff, time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("reclaim stale run claims: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// claimToken rounds t to the microsecond precision Postgres stores, so a claim
+// time read back compares equal to the one written.
+func claimToken(t time.Time) time.Time { return t.UTC().Truncate(time.Microsecond) }
 
 // MarkRunFailed unconditionally transitions a run to the failed terminal state and
 // stamps completed_at. Unlike SetRunState it is not a compare-and-swap — it cleans
@@ -627,16 +702,17 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	return &at, nil
 }
 
-func scanRun(s scanner) (*Run, error) {
+// scanRun scans the runColumns, then extra into the given destinations.
+func scanRun(s scanner, extra ...any) (*Run, error) {
 	var r Run
 	var state, identityMode string
 	var triggerID, triggerName, deliveryID *string
-	err := s.Scan(
+	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode,
 		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID,
-	)
+	}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
