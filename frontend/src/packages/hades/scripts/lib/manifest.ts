@@ -41,6 +41,8 @@ export interface ManifestSlot {
 
 export interface Manifest {
   readonly version: string;
+  /** The theme contract version, `MAJOR.MINOR`: `CONTRACT_VERSION` in `src/version.ts`. */
+  readonly contractVersion: string;
   readonly modes: readonly Mode[];
   readonly tokens: readonly ManifestToken[];
   readonly mapping: Readonly<Record<string, ManifestMapping>>;
@@ -83,6 +85,7 @@ export class SurfaceMismatchError extends Error {
 export function buildManifest(
   css: string,
   version: string,
+  contractVersion: string,
   surface: SurfaceInput = SURFACE,
 ): Manifest {
   const sheet = readTokenSheet(css);
@@ -128,7 +131,15 @@ export function buildManifest(
       modes: [...s.modes],
     }));
 
-  return { version, modes: MODES, tokens, mapping, slots, productName: surface.productName };
+  return {
+    version,
+    contractVersion,
+    modes: MODES,
+    tokens,
+    mapping,
+    slots,
+    productName: surface.productName,
+  };
 }
 
 /** Stable JSON with a trailing newline, as checked in. */
@@ -140,7 +151,15 @@ export function parseManifest(text: string): Manifest {
   const parsed: unknown = JSON.parse(text);
   if (typeof parsed !== 'object' || parsed === null) throw new Error('manifest is not an object');
   const m = parsed as Partial<Manifest>;
-  for (const key of ['version', 'modes', 'tokens', 'mapping', 'slots', 'productName'] as const) {
+  for (const key of [
+    'version',
+    'contractVersion',
+    'modes',
+    'tokens',
+    'mapping',
+    'slots',
+    'productName',
+  ] as const) {
     if (!(key in m)) throw new Error(`manifest is missing "${key}"`);
   }
   return m as Manifest;

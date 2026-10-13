@@ -1,11 +1,13 @@
 /**
  * Classifies the Hades change at head against the last `hades/v*` release, or
- * against `--base <ref>` while no release exists, and checks the version bump
- * in `package.json` meets the floor the classification sets.
+ * against `--base <ref>` while no release exists, on two axes, and checks the
+ * version bumps meet the two floors the classification sets: `package.json`
+ * `version` for the package, and `manifest.json` `contractVersion` for the
+ * theme contract.
  *
  *   node scripts/classify.ts [--base <ref>] [--format text|markdown|json]
  *
- * Exit 1 when a release exists and the bump is below the floor. Before the
+ * Exit 1 when a release exists and either bump is below its floor. Before the
  * first release the report is labelled "no baseline" and nothing is enforced.
  * See the design system versioning ADR, SD-3 and SD-4.
  */
@@ -17,12 +19,18 @@ import { fileURLToPath } from 'node:url';
 import {
   classify,
   compareSemver,
+  contractFloorMet,
   floorMet,
+  formatContractVersion,
   formatSemver,
   isDocumentationOnly,
+  parseContractVersion,
   parseSemver,
+  requiredContractVersion,
   requiredVersion,
   type Classification,
+  type ContractLevel,
+  type ContractVersion,
   type Level,
   type Semver,
 } from './lib/classify.ts';
@@ -151,6 +159,18 @@ if (!parsedHeadVersion) {
 // Narrowed here so the closures below see a Semver, not Semver | null.
 const headVersion: Semver = parsedHeadVersion;
 
+const parsedHeadContract = parseContractVersion(headManifest.contractVersion);
+if (!parsedHeadContract) {
+  console.error(
+    `manifest.json contractVersion "${headManifest.contractVersion}" is not MAJOR.MINOR. Run: make hades-manifest`,
+  );
+  process.exit(1);
+}
+const headContract: ContractVersion = parsedHeadContract;
+const baseContract: ContractVersion | null = baseManifest?.contractVersion
+  ? parseContractVersion(baseManifest.contractVersion)
+  : null;
+
 const changedFiles = [
   ...(gitOrNull('diff', '--name-only', baseline.ref, '--', packageRel) ?? '').split('\n'),
   ...(gitOrNull('ls-files', '--others', '--exclude-standard', '--', packageRel) ?? '').split('\n'),
@@ -200,71 +220,102 @@ const classification: Classification = classify({
   findReads,
 });
 
-// ─── Floor ───────────────────────────────────────────────────────────────────
+// ─── Floors ──────────────────────────────────────────────────────────────────
 
 const enforced = baseline.isRelease && baseline.version !== null && baseline.version.major >= 1;
-const required = baseline.version ? requiredVersion(classification.level, baseline.version) : null;
-const met = baseline.version ? floorMet(classification.level, baseline.version, headVersion) : true;
-const failed = enforced && !met;
+const required = baseline.version
+  ? requiredVersion(classification.package, baseline.version)
+  : null;
+const met = baseline.version
+  ? floorMet(classification.package, baseline.version, headVersion)
+  : true;
+const requiredContract = baseContract
+  ? requiredContractVersion(classification.contract, baseContract)
+  : null;
+const contractMet = baseContract
+  ? contractFloorMet(classification.contract, baseContract, headContract)
+  : true;
+const failed = enforced && (!met || !contractMet);
 
 // ─── Report ──────────────────────────────────────────────────────────────────
 
-const REVIEW_QUESTION =
+const REVIEW_QUESTIONS = [
   'Does any token keep its name, kind and format but change what it means, such as an accent repurposed as a status colour? ' +
-  'That is a major whatever the table says, and no script decides it.';
+    'That is a contract major whatever the table says, and no script decides it.',
+  'Does any prop narrow its type, or any exported function tighten its signature? ' +
+    'That is a package major, and the classifier reads member names and optionality, not types.',
+];
 
-function floorLine(level: Level): string {
-  if (!baseline.version || !required) return 'no version at the baseline; nothing to enforce';
-  const suffix = enforced
-    ? met
+function status(isMet: boolean): string {
+  return enforced
+    ? isMet
       ? 'met'
       : 'NOT MET'
-    : met
+    : isMet
       ? 'met (not enforced before the first release)'
       : 'not met (not enforced before the first release)';
-  return `${level} requires at least ${formatSemver(required)}; head is ${formatSemver(headVersion)}: ${suffix}`;
+}
+
+function packageFloorLine(level: Level): string {
+  if (!baseline.version || !required) return 'no version at the baseline; nothing to enforce';
+  return `${level} requires at least ${formatSemver(required)}; head is ${formatSemver(headVersion)}: ${status(met)}`;
+}
+
+function contractFloorLine(level: ContractLevel): string {
+  if (!baseContract || !requiredContract)
+    return 'no contract version at the baseline; nothing to enforce';
+  return `${level} requires at least ${formatContractVersion(requiredContract)}; head is ${formatContractVersion(headContract)}: ${status(contractMet)}`;
 }
 
 function renderText(): string {
   const lines = [
-    `Hades classification: ${classification.level}`,
-    `Baseline: ${baseline.label}${baseline.version ? ` (version ${formatSemver(baseline.version)})` : ''}`,
-    `Head version: ${formatSemver(headVersion)}`,
-    `Floor: ${floorLine(classification.level)}`,
+    `Hades classification: package ${classification.package}, contract ${classification.contract}`,
+    `Baseline: ${baseline.label}${baseline.version ? ` (version ${formatSemver(baseline.version)}${baseContract ? `, contract ${formatContractVersion(baseContract)}` : ''})` : ''}`,
+    `Head: version ${formatSemver(headVersion)}, contract ${formatContractVersion(headContract)}`,
+    `Package floor:  ${packageFloorLine(classification.package)}`,
+    `Contract floor: ${contractFloorLine(classification.contract)}`,
     '',
   ];
   if (!baseManifest) lines.push('No manifest at the baseline; manifest rules not applied.', '');
-  lines.push(classification.findings.length === 0 ? 'No findings.' : 'Findings:');
+  lines.push(
+    classification.findings.length === 0 ? 'No findings.' : 'Findings (contract / package):',
+  );
   for (const f of classification.findings) {
-    lines.push(`  ${f.level.padEnd(5)}  ${f.rule.padEnd(26)}  ${f.subject}: ${f.detail}`);
+    lines.push(
+      `  ${f.contract.padEnd(5)} / ${f.package.padEnd(5)}  ${f.rule.padEnd(26)}  ${f.subject}: ${f.detail}`,
+    );
     for (const m of f.matches ?? []) lines.push(`         ${m}`);
   }
-  lines.push('', `Review question: ${REVIEW_QUESTION}`);
+  for (const q of REVIEW_QUESTIONS) lines.push('', `Review question: ${q}`);
   return lines.join('\n');
 }
 
 function renderMarkdown(): string {
   const rows = classification.findings.map((f) => {
     const matches = (f.matches ?? []).map((m) => `<br><code>${escapeHtml(m)}</code>`).join('');
-    return `| ${f.level} | ${f.rule} | \`${f.subject}\` | ${escapeHtml(f.detail)}${matches} |`;
+    return `| ${f.contract} | ${f.package} | ${f.rule} | \`${f.subject}\` | ${escapeHtml(f.detail)}${matches} |`;
   });
   return [
     '<!-- hades-classification -->',
-    `### Hades classification: **${classification.level}**`,
+    `### Hades classification: package **${classification.package}**, contract **${classification.contract}**`,
     '',
-    '| | |',
-    '|---|---|',
-    `| Baseline | ${escapeHtml(baseline.label)} |`,
-    `| Version at baseline | ${baseline.version ? formatSemver(baseline.version) : 'none'} |`,
-    `| Version at head | ${formatSemver(headVersion)} |`,
-    `| Floor | ${escapeHtml(floorLine(classification.level))} |`,
+    '| | Package | Contract |',
+    '|---|---|---|',
+    `| Baseline | ${escapeHtml(baseline.label)} | |`,
+    `| At baseline | ${baseline.version ? formatSemver(baseline.version) : 'none'} | ${baseContract ? formatContractVersion(baseContract) : 'none'} |`,
+    `| At head | ${formatSemver(headVersion)} | ${formatContractVersion(headContract)} |`,
+    `| Floor | ${escapeHtml(packageFloorLine(classification.package))} | ${escapeHtml(contractFloorLine(classification.contract))} |`,
     '',
     ...(baseManifest ? [] : ['No manifest at the baseline; manifest rules not applied.', '']),
     ...(rows.length === 0
       ? ['No findings.']
-      : ['| Level | Rule cited | Subject | Detail |', '|---|---|---|---|', ...rows]),
+      : [
+          '| Contract | Package | Rule cited | Subject | Detail |',
+          '|---|---|---|---|---|',
+          ...rows,
+        ]),
     '',
-    `**Review question.** ${REVIEW_QUESTION}`,
+    ...REVIEW_QUESTIONS.map((q) => `**Review question.** ${q}`).flatMap((q) => [q, '']),
   ].join('\n');
 }
 
@@ -283,19 +334,27 @@ const outputs: Record<string, () => string> = {
   json: () =>
     JSON.stringify(
       {
-        level: classification.level,
+        package: classification.package,
+        contract: classification.contract,
         baseline: {
           ref: baseline.ref,
           label: baseline.label,
           version: baseline.version ? formatSemver(baseline.version) : null,
+          contractVersion: baseContract ? formatContractVersion(baseContract) : null,
           isRelease: baseline.isRelease,
         },
-        headVersion: formatSemver(headVersion),
-        required: required ? formatSemver(required) : null,
-        floorMet: met,
+        head: {
+          version: formatSemver(headVersion),
+          contractVersion: formatContractVersion(headContract),
+        },
+        required: {
+          version: required ? formatSemver(required) : null,
+          contractVersion: requiredContract ? formatContractVersion(requiredContract) : null,
+        },
+        floorMet: { package: met, contract: contractMet },
         enforced,
         findings: classification.findings,
-        reviewQuestion: REVIEW_QUESTION,
+        reviewQuestions: REVIEW_QUESTIONS,
       },
       null,
       2,

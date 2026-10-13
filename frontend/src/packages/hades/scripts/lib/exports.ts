@@ -1,7 +1,7 @@
 /**
  * The package's component API as the classifier sees it: every name exported
  * from `src/index.ts`, and for every exported type the names of its own
- * members. Read from the TypeScript syntax tree alone, no type checker, so it
+ * members and which of them are required. Read from the TypeScript syntax tree alone, no type checker, so it
  * works on a file set read from git at a release tag as well as from disk.
  *
  * Own members only: a props interface that extends an HTML attribute type or a
@@ -15,6 +15,13 @@ export interface ExportSurface {
   readonly exports: readonly string[];
   /** Own member names per exported type that could be resolved, sorted. */
   readonly props: Readonly<Record<string, readonly string[]>>;
+  /** The subset of `props` a consumer must supply: members not marked optional. */
+  readonly required: Readonly<Record<string, readonly string[]>>;
+}
+
+interface TypeMembers {
+  readonly names: string[];
+  readonly required: string[];
 }
 
 /** Reads a package-relative path, or returns null when it does not exist. */
@@ -25,17 +32,20 @@ const ENTRY = 'src/index.ts';
 export function readExportSurface(read: FileReader): ExportSurface {
   const exportsSet = new Set<string>();
   const props: Record<string, string[]> = {};
+  const required: Record<string, string[]> = {};
   for (const entry of collectExports(ENTRY, read, new Set())) {
     exportsSet.add(entry.name);
     if (entry.isType) {
       const members = resolveTypeMembers(entry.name, entry.file, read, new Set());
-      if (members) props[entry.name] = members;
+      if (members) {
+        props[entry.name] = members.names;
+        required[entry.name] = members.required;
+      }
     }
   }
-  return {
-    exports: [...exportsSet].sort(),
-    props: Object.fromEntries(Object.entries(props).sort(([a], [b]) => a.localeCompare(b))),
-  };
+  const byName = (record: Record<string, string[]>) =>
+    Object.fromEntries(Object.entries(record).sort(([a], [b]) => a.localeCompare(b)));
+  return { exports: [...exportsSet].sort(), props: byName(props), required: byName(required) };
 }
 
 interface ExportedName {
@@ -141,7 +151,7 @@ function resolveTypeMembers(
   file: string,
   read: FileReader,
   seen: Set<string>,
-): string[] | null {
+): TypeMembers | null {
   const key = `${file}#${name}`;
   if (seen.has(key)) return null;
   seen.add(key);
@@ -150,7 +160,7 @@ function resolveTypeMembers(
   const sf = parse(file, text);
   for (const stmt of sf.statements) {
     if (ts.isInterfaceDeclaration(stmt) && stmt.name.text === name) {
-      return memberNames(stmt.members);
+      return readMembers(stmt.members);
     }
     if (ts.isTypeAliasDeclaration(stmt) && stmt.name.text === name) {
       return typeNodeMembers(stmt.type);
@@ -178,23 +188,31 @@ function resolveTypeMembers(
   return null;
 }
 
-function typeNodeMembers(node: ts.TypeNode): string[] | null {
-  if (ts.isTypeLiteralNode(node)) return memberNames(node.members);
+function typeNodeMembers(node: ts.TypeNode): TypeMembers | null {
+  if (ts.isTypeLiteralNode(node)) return readMembers(node.members);
   if (ts.isIntersectionTypeNode(node)) {
-    const own = node.types.flatMap((t) => (ts.isTypeLiteralNode(t) ? memberNames(t.members) : []));
-    return own.length > 0 ? [...new Set(own)].sort() : null;
+    const parts = node.types.flatMap((t) =>
+      ts.isTypeLiteralNode(t) ? [readMembers(t.members)] : [],
+    );
+    const names = [...new Set(parts.flatMap((p) => p.names))].sort();
+    const required = [...new Set(parts.flatMap((p) => p.required))].sort();
+    return names.length > 0 ? { names, required } : null;
   }
   return null;
 }
 
-function memberNames(members: ts.NodeArray<ts.TypeElement>): string[] {
+function readMembers(members: ts.NodeArray<ts.TypeElement>): TypeMembers {
   const names: string[] = [];
+  const required: string[] = [];
   for (const m of members) {
     if ((ts.isPropertySignature(m) || ts.isMethodSignature(m)) && m.name) {
-      if (ts.isIdentifier(m.name) || ts.isStringLiteral(m.name)) names.push(m.name.text);
+      if (ts.isIdentifier(m.name) || ts.isStringLiteral(m.name)) {
+        names.push(m.name.text);
+        if (!m.questionToken) required.push(m.name.text);
+      }
     }
   }
-  return names.sort();
+  return { names: names.sort(), required: required.sort() };
 }
 
 function dirname(p: string): string {
