@@ -331,10 +331,10 @@ Each `hades/vX.Y.Z` tag publishes `@clear-route/hades` to the GitHub Packages np
 //npm.pkg.github.com/:_authToken=${NPM_TOKEN}
 ```
 
-**A patch-range pin.** The version promises the theme contract, not the component API: a minor may rename an export or a prop, so a caret range can break a build. Pin a patch range and move minors deliberately:
+**A caret range is safe, and the contract version is a separate number.** The package follows Semantic Versioning: a removed export, a removed or newly required prop, a narrowed peer range or a removed token is a major, so a caret range such as `^1.2.0` will not take a breaking change. The theme contract has its own version, `CONTRACT_VERSION`, exported from the package and recorded as `contractVersion` in `manifest.json`. A consumer that renders themes reads it to decide whether a theme is compatible: a theme passes when its contract major equals the instance's, whatever the package version.
 
-```json
-"@clear-route/hades": "~1.2.0"
+```ts
+import { CONTRACT_VERSION } from '@clear-route/hades';
 ```
 
 **React 19 and the declared peers.** Every runtime dependency except `@tanstack/react-table` is a peer dependency; install each at the range `package.json` declares.

@@ -3,10 +3,12 @@ name: Hades Release
 # A Hades release is a `hades/vX.Y.Z` tag on a main commit where
 # frontend/src/packages/hades/package.json carries X.Y.Z. The first jobs verify
 # that and run the Hades tests (the design system versioning ADR, SD-1); the
-# rest pack the tarball, prove it builds outside kora, publish it to GitHub
-# Packages and create the GitHub Release (the Hades delivery ADR). A failure
-# anywhere deletes the tag so the version can be re-cut once the cause is
-# fixed; nothing is published before the smoke build has passed.
+# rest pack the tarball, prove it builds outside kora, create the GitHub
+# Release and publish it to GitHub Packages (the Hades delivery ADR). Publishing
+# is last because a published package version can be neither removed nor
+# published again, so everything that can fail and be undone runs before it. A
+# failure anywhere deletes the release, if one was created, and the tag, so the
+# version can be re-cut once the cause is fixed.
 
 on:
   push:
@@ -147,40 +149,9 @@ jobs:
       - name: Smoke build
         run: bash .github/scripts/hades-smoke-build.sh "$RUNNER_TEMP/hades-pack/clear-route-hades-$VERSION.tgz"
 
-  publish:
-    name: Publish to GitHub Packages
-    needs: [verify, pack-and-smoke]
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    env:
-      VERSION: ${{ needs.verify.outputs.version }}
-    steps:
-      # registry-url and scope write the job's .npmrc; NODE_AUTH_TOKEN is the
-      # workflow token, which can publish to the package linked to this
-      # repository through package.json's repository field.
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          registry-url: https://npm.pkg.github.com
-          scope: '@clear-route'
-
-      - name: Download the tarball
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: hades-tarball
-          path: ${{ runner.temp }}/hades-pack
-
-      - name: Publish the tarball
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npm publish "$RUNNER_TEMP/hades-pack/clear-route-hades-$VERSION.tgz"
-
   release:
     name: Create the GitHub release
-    needs: [verify, publish]
+    needs: [verify, pack-and-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -213,20 +184,63 @@ jobs:
           if [ -n "$previous" ]; then
             flags+=(--notes-start-tag "$previous")
           fi
-          flags+=(--notes "\`@clear-route/hades@$VERSION\` on GitHub Packages. Tarball SHA-256: \`$checksum\`")
+          # The release states the contract version and whether this release
+          # changed it, read from the manifest attached to the previous release.
+          contract=$(jq -r .contractVersion frontend/src/packages/hades/manifest.json)
+          contract_note="Contract version: \`$contract\`"
+          if [ -n "$previous" ]; then
+            before=$(gh release download "$previous" --pattern manifest.json --output - | jq -r '.contractVersion // "none"')
+            if [ "$before" = "$contract" ]; then
+              contract_note="$contract_note (unchanged)"
+            else
+              contract_note="$contract_note (was \`$before\`)"
+            fi
+          fi
+          flags+=(--notes "\`@clear-route/hades@$VERSION\` for GitHub Packages. Tarball SHA-256: \`$checksum\`. $contract_note.")
           gh release create "$TAG" "${flags[@]}" \
             "$tarball" \
             frontend/src/packages/hades/manifest.json \
             frontend/src/packages/hades/CONTRACT.md
 
-  # Leaves nothing behind on failure: the tag is deleted so the same version
-  # can be re-cut once the cause is fixed. A failure up to and including
-  # publish leaves nothing published. A failure in release alone leaves the
-  # version on GitHub Packages, which refuses a second publish of it: delete
-  # that package version there before re-cutting the tag.
+  # Last: see the header. A failure here leaves nothing published.
+  publish:
+    name: Publish to GitHub Packages
+    needs: [verify, release]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      # registry-url and scope write the job's .npmrc; NODE_AUTH_TOKEN is the
+      # workflow token, which can publish to the package linked to this
+      # repository through package.json's repository field.
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://npm.pkg.github.com
+          scope: '@clear-route'
+
+      - name: Download the tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hades-tarball
+          path: ${{ runner.temp }}/hades-pack
+
+      - name: Publish the tarball
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish "$RUNNER_TEMP/hades-pack/clear-route-hades-$VERSION.tgz"
+
+  # Leaves nothing behind on failure: the release, if one was created, and the
+  # tag are deleted so the same version can be re-cut once the cause is fixed.
+  # Publish is the last job, so a failure in any job before it, or in publish
+  # itself, leaves no package version on GitHub Packages.
   cleanup:
-    name: Delete the tag on failure
-    needs: [verify, test, pack-and-smoke, publish, release]
+    name: Delete the release and the tag on failure
+    needs: [verify, test, pack-and-smoke, release, publish]
     if: failure()
     runs-on: ubuntu-latest
     permissions:
@@ -234,6 +248,12 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Delete the release, if one was created
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes || true
 
       - name: Delete the tag
         env:
