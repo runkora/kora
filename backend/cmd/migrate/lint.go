@@ -111,16 +111,94 @@ func parseMigration(service, name, body string) migration {
 	return m
 }
 
+// statements splits SQL on top-level semicolons, comments removed first. The
+// split is quote-aware: a semicolon inside a string literal, a quoted
+// identifier or a dollar-quoted body is data, not a terminator.
+//
+// That matters because concurrentBlockViolations counts what this returns, so a
+// naive split would read
+//
+//	CREATE INDEX CONCURRENTLY idx ON widgets ((kind || ';'));
+//
+// as two statements and reject a block that is legitimately one.
 func statements(sql string) []string {
 	sql = blockComment.ReplaceAllString(sql, "")
 	sql = lineComment.ReplaceAllString(sql, "")
+
 	var out []string
-	for stmt := range strings.SplitSeq(sql, ";") {
-		if s := strings.TrimSpace(stmt); s != "" {
+	var cur strings.Builder
+	flush := func() {
+		if s := strings.TrimSpace(cur.String()); s != "" {
 			out = append(out, s)
 		}
+		cur.Reset()
 	}
+
+	for i := 0; i < len(sql); {
+		switch c := sql[i]; c {
+		case ';':
+			flush()
+			i++
+		case '\'', '"':
+			end := scanQuoted(sql, i, c)
+			cur.WriteString(sql[i:end])
+			i = end
+		case '$':
+			if end := scanDollar(sql, i); end > i {
+				cur.WriteString(sql[i:end])
+				i = end
+				continue
+			}
+			cur.WriteByte(c)
+			i++
+		default:
+			cur.WriteByte(c)
+			i++
+		}
+	}
+	flush()
 	return out
+}
+
+// scanQuoted returns the index just past the '...' or "..." run starting at i,
+// treating a doubled quote as an escape. An unterminated run consumes the rest
+// of the input, so a malformed file cannot split into surprising pieces.
+func scanQuoted(s string, i int, quote byte) int {
+	for j := i + 1; j < len(s); j++ {
+		if s[j] != quote {
+			continue
+		}
+		if j+1 < len(s) && s[j+1] == quote {
+			j++
+			continue
+		}
+		return j + 1
+	}
+	return len(s)
+}
+
+// scanDollar returns the index just past a $tag$...$tag$ body starting at i, or
+// i when this is not a dollar quote at all, such as a bare $1 placeholder.
+func scanDollar(s string, i int) int {
+	close := strings.IndexByte(s[i+1:], '$')
+	if close < 0 {
+		return i
+	}
+	tag := s[i : i+close+2]
+	for k := 1; k < len(tag)-1; k++ {
+		if c := tag[k]; c != '_' && !isAlnum(c) {
+			return i
+		}
+	}
+	rest := s[i+len(tag):]
+	if k := strings.Index(rest, tag); k >= 0 {
+		return i + len(tag) + k + len(tag)
+	}
+	return len(s)
+}
+
+func isAlnum(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // violations lists every clause of the content rule the file breaks.

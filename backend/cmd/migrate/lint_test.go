@@ -226,3 +226,61 @@ func TestLintMigrations_AcceptsConcurrentlyInSeparateBlocks(t *testing.T) {
 		t.Fatalf("correctly split CONCURRENTLY migration rejected: %v", err)
 	}
 }
+
+// statements counts what the block-splitting rule enforces, so a semicolon that
+// is data rather than a terminator must not inflate the count. Without
+// quote-awareness each of these reads as two statements and the rule rejects a
+// block that is legitimately one.
+func TestStatements_IgnoresSemicolonsInsideQuotes(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"single-quoted literal":   "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || ';'));",
+		"doubled-quote escape":    "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || 'it''s;here'));",
+		"quoted identifier":       `CREATE INDEX CONCURRENTLY idx ON widgets ("od;d");`,
+		"dollar-quoted body":      "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || $tag$a;b$tag$));",
+		"bare dollar placeholder": "SELECT $1;",
+	}
+	for name, sql := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if n := len(statements(sql)); n != 1 {
+				t.Fatalf("statements(%q) = %d statements, want 1", sql, n)
+			}
+		})
+	}
+}
+
+// Real terminators must still split, or the quote handling would hide genuine
+// multi-statement blocks from the rule it exists to feed.
+func TestStatements_StillSplitsOnRealTerminators(t *testing.T) {
+	t.Parallel()
+
+	sql := "DROP INDEX CONCURRENTLY IF EXISTS idx; CREATE INDEX CONCURRENTLY idx ON widgets (kind);"
+	if n := len(statements(sql)); n != 2 {
+		t.Fatalf("statements() = %d, want 2", n)
+	}
+}
+
+// The lint rule itself must not reject a one-statement block whose literal
+// happens to contain a semicolon.
+func TestLintMigrations_AcceptsSemicolonInsideALiteral(t *testing.T) {
+	t.Parallel()
+
+	err := lintMigrations(map[string]fs.FS{
+		"a": fstest.MapFS{
+			"20260101000000_create_widgets.sql": file(cleanUp),
+			"20260102000000_add_index.sql": file(
+				"-- +goose NO TRANSACTION\n" +
+					"-- +goose Up\n" +
+					"-- +goose StatementBegin\n" +
+					"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widgets_kind ON widgets ((kind || ';'));\n" +
+					"-- +goose StatementEnd\n" +
+					"-- +goose Down\n",
+			),
+		},
+	})
+	if err != nil {
+		t.Fatalf("one statement with a quoted semicolon rejected: %v", err)
+	}
+}
