@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // ---- helpers ----------------------------------------------------------------
@@ -436,5 +437,28 @@ func TestLoadService_RejectsUnknownKubernetesField(t *testing.T) {
 
 	if _, err := LoadService[kubeConfig]("cmd/svc", "production"); err == nil {
 		t.Fatal("LoadService() expected an error for resources.limit, got nil")
+	}
+}
+
+type durationConfig struct {
+	CacheTTL time.Duration `yaml:"cacheTTL"`
+}
+
+func TestLoad_DurationFromYAML(t *testing.T) {
+	root := makeTempProject(
+		t,
+		"internal/myfeature",
+		"local",
+		"cacheTTL: 12h\n",
+	)
+	chdirTo(t, root)
+
+	cfg, err := Load[durationConfig]("internal/myfeature", "local")
+	if err != nil {
+		t.Fatalf("Load() unexpected error: %v", err)
+	}
+
+	if cfg.CacheTTL != 12*time.Hour {
+		t.Errorf("CacheTTL = %s, want 12h", cfg.CacheTTL)
 	}
 }

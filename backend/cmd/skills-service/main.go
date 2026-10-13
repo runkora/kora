@@ -1,4 +1,3 @@
-
 package main
 
 import (
@@ -14,6 +13,7 @@ import (
 	sc "github.com/clear-route/orbit/cmd/skills-service/config"
 	"github.com/clear-route/orbit/internal/platform/api"
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
+	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -181,8 +181,16 @@ func initControllers(
 // route/scope vocabulary with the policy service. The caller passes it to
 // routescopes.KeepRegistered, which owns the initial registration and the
 // periodic self-heal loop.
+
 func initScopeRegistration(logger logging.Logger) func(context.Context) error {
-	client := routescopes.NewClient(sc.Current.Policy.PolicyServiceURL, logger)
+	identityClient := identityclient.NewClient(sc.Current.Identity.InternalURL, logger)
+	selfToken := identityClient.SelfTokenSource()
+
+	client := routescopes.NewClient(
+		sc.Current.Policy.PolicyServiceURL,
+		selfToken,
+		logger,
+	)
 
 	return func(registerCtx context.Context) error {
 		scopedRoutes := routescopes.FilterScopedRoutes(
