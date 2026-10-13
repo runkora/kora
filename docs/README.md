@@ -11,6 +11,7 @@ Use this index to find kora's guides, architecture, engineering reference, and d
 - [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
 - [MCP servers](guides/mcp-servers.md): give agents and humans governed access to a set of tools.
 - [Local development](guides/local-development.md): set up the development environment and work against the local cluster.
+- [Advanced customisations](guides/advanced-customisations.md): shape the Kubernetes objects kora creates for an agent type.
 - [Troubleshooting](guides/troubleshooting.md): diagnose common failures in the local environment.
 - [Backend golden path](guides/backend-golden-path.md): add a backend feature from storage through to its HTTP API.
 - [Policy and roles](guides/policy-and-roles.md): configure roles, grants, and route access.
