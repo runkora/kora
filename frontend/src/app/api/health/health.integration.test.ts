@@ -20,9 +20,10 @@ describe('GET /api/health', () => {
     vi.mocked(getTheme).mockReset();
   });
 
-  it('reports ok, the running Hades version and the loaded theme hash', async () => {
+  it('reports ok, the running Hades and contract versions and the loaded theme hash', async () => {
     vi.mocked(getTheme).mockResolvedValue({
       hadesVersion: '1.0.0',
+      contractVersion: '1.0',
       theme: { hash: 'c'.repeat(64) },
     } as Loaded);
 
@@ -32,16 +33,26 @@ describe('GET /api/health', () => {
     expect(await res.json()).toEqual({
       status: 'ok',
       hadesVersion: '1.0.0',
+      contractVersion: '1.0',
       theme: { hash: 'c'.repeat(64) },
     });
   });
 
   it('reports theme null when no bundle is mounted', async () => {
-    vi.mocked(getTheme).mockResolvedValue({ hadesVersion: '1.0.0', theme: null } as Loaded);
+    vi.mocked(getTheme).mockResolvedValue({
+      hadesVersion: '1.0.0',
+      contractVersion: '1.0',
+      theme: null,
+    } as Loaded);
 
     const res = await GET();
 
-    expect(await res.json()).toEqual({ status: 'ok', hadesVersion: '1.0.0', theme: null });
+    expect(await res.json()).toEqual({
+      status: 'ok',
+      hadesVersion: '1.0.0',
+      contractVersion: '1.0',
+      theme: null,
+    });
   });
 
   it('fails when the theme failed to load, so the pod never becomes ready', async () => {

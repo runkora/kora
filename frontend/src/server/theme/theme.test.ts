@@ -37,6 +37,7 @@ describe('loadThemeFrom', () => {
   it('loads a valid bundle and derives the brand, the CSS and the report', async () => {
     const loaded = await loadThemeFrom(VALID);
     expect(loaded.hadesVersion).toBe(manifest.version);
+    expect(loaded.contractVersion).toBe(manifest.contractVersion);
     expect(loaded.theme).not.toBeNull();
     const { theme, brand, css, report } = loaded;
     const hash = theme!.hash;
@@ -72,7 +73,8 @@ describe('loadThemeFrom', () => {
     expect(info).toHaveBeenCalledTimes(1);
     const line = String(info.mock.calls[0]![0]);
     expect(line).toContain(`Hades ${manifest.version}`);
-    expect(line).toContain('theme written for Hades 1.0.0');
+    expect(line).toContain(`contract ${manifest.contractVersion}`);
+    expect(line).toContain('theme written for contract 1.0');
     expect(line).toContain(loaded.theme!.hash);
     expect(line).toContain('token --hades-raw-not-a-token');
     expect(line).toContain('slot not-a-slot');
@@ -116,6 +118,7 @@ describe('loadThemeFrom', () => {
     expect(loaded.fontPreloads).toEqual([]);
     expect(loaded.report).toEqual({ ignored: [], fallThrough: [] });
     expect(loaded.hadesVersion).toBe(manifest.version);
+    expect(loaded.contractVersion).toBe(manifest.contractVersion);
     expect(String(info.mock.calls[0]![0])).toContain('no bundle');
   });
 });

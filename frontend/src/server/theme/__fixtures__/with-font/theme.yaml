@@ -1,7 +1,7 @@
 # A theme with a sans font slot and a favicon for both modes, for the preload
 # links, the `@font-face` rule, the two-entry favicon metadata and the woff2
 # content type.
-hadesVersion: 1.0.0
+contractVersion: "1.0"
 productName: Fontic
 slots:
   font.sans: fonts/sans.woff2
