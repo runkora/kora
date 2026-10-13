@@ -351,7 +351,8 @@ func (g *loopGuard) reset() {
 
 // observe folds one event into the counts and returns the verdict. A warning
 // fires once per streak; a pause resets the counts.
-func (g *loopGuard) observe(ev Event, limits Guardrails) (loopVerdict, loopFinding) {
+// product is the configured product name the warnings and pause reasons read.
+func (g *loopGuard) observe(ev Event, limits Guardrails, product string) (loopVerdict, loopFinding) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	switch ev.Type {
@@ -360,7 +361,7 @@ func (g *loopGuard) observe(ev Event, limits Guardrails) (loopVerdict, loopFindi
 		if json.Unmarshal(ev.Payload, &p) != nil {
 			return loopOK, loopFinding{}
 		}
-		return g.observeCall(p, limits)
+		return g.observeCall(p, limits, product)
 	case EventTypeToolResult:
 		var p ToolResultPayload
 		if json.Unmarshal(ev.Payload, &p) != nil {
@@ -382,7 +383,7 @@ func (g *loopGuard) observe(ev Event, limits Guardrails) (loopVerdict, loopFindi
 	return loopOK, loopFinding{}
 }
 
-func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails) (loopVerdict, loopFinding) {
+func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails, product string) (loopVerdict, loopFinding) {
 	call := normaliseCall(p)
 	wait := waitTools[call.name] || (call.shell && isSleepCommand(call.command))
 	g.countRepeat(p.ID, call, wait)
@@ -394,18 +395,18 @@ func (g *loopGuard) observeCall(p ToolUsePayload, limits Guardrails) (loopVerdic
 	// the other still fires on the next.
 	switch {
 	case g.repeats >= limits.RepeatedCallPause:
-		repeated.text = fmt.Sprintf("kora paused this run: the agent made the same %s call %d times in a row, including after a warning. Send a message to continue.", p.Name, g.repeats)
+		repeated.text = fmt.Sprintf("%s paused this run: the agent made the same %s call %d times in a row, including after a warning. Send a message to continue.", product, p.Name, g.repeats)
 		return loopPause, repeated
 	case wait && g.waits >= limits.WaitRearmPause:
-		waiting.text = fmt.Sprintf("kora paused this run: the agent re-armed a wait (Monitor, Cron or sleep) %d times with no progress, including after a warning. Send a message to continue.", g.waits)
+		waiting.text = fmt.Sprintf("%s paused this run: the agent re-armed a wait (Monitor, Cron or sleep) %d times with no progress, including after a warning. Send a message to continue.", product, g.waits)
 		return loopPause, waiting
 	case g.repeats >= limits.RepeatedCallWarn && !g.warnedRepeat:
 		g.warnedRepeat = true
-		repeated.text = fmt.Sprintf("kora guardrail: your last %d tool calls were the same %s call with the same input. Repeating it will not change the result. Try a different approach, or stop and tell the user what is blocking you. If the repetition continues, kora will pause this run for the user.", g.repeats, p.Name)
+		repeated.text = fmt.Sprintf("%s guardrail: your last %d tool calls were the same %s call with the same input. Repeating it will not change the result. Try a different approach, or stop and tell the user what is blocking you. If the repetition continues, %s will pause this run for the user.", product, g.repeats, p.Name, product)
 		return loopWarn, repeated
 	case wait && g.waits >= limits.WaitRearmWarn && !g.warnedWait:
 		g.warnedWait = true
-		waiting.text = fmt.Sprintf("kora guardrail: you have re-armed a wait (Monitor, Cron or sleep) %d times with no progress in between. More waiting will not unblock this. Stop waiting: tell the user what you are waiting for and why, then end your turn. If the waiting continues, kora will pause this run for the user.", g.waits)
+		waiting.text = fmt.Sprintf("%s guardrail: you have re-armed a wait (Monitor, Cron or sleep) %d times with no progress in between. More waiting will not unblock this. Stop waiting: tell the user what you are waiting for and why, then end your turn. If the waiting continues, %s will pause this run for the user.", product, g.waits, product)
 		return loopWarn, waiting
 	}
 	return loopOK, loopFinding{}
@@ -438,7 +439,7 @@ func (g *loopGuard) countRepeat(id string, call toolCall, wait bool) {
 // message; a pause records a run error and interrupts the turn, which leaves
 // the run idle for the user.
 func (reg *Registry) applyLoopGuard(ctx context.Context, s *session, ev Event) {
-	verdict, finding := s.guard.observe(ev, reg.limits(s))
+	verdict, finding := s.guard.observe(ev, reg.limits(s), reg.brand.ProductName())
 	switch verdict {
 	case loopWarn:
 		reg.logger.Warn(ctx, "Loop guard warning sent to the agent",

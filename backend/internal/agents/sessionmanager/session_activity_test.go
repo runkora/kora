@@ -121,7 +121,7 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 func startScripted(t *testing.T, idle time.Duration) (*Registry, *scriptRunner, *stateNotifier) {
 	t.Helper()
 	n := newStateNotifier()
-	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, idle)
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), n, idle, testBrand)
 	r := newScriptRunner()
 	if err := reg.Create(context.Background(), SessionConfig{RunID: "run-1", Runner: r}); err != nil {
 		t.Fatalf("Create: %v", err)
@@ -263,7 +263,7 @@ func TestInterrupt_NextMessageTellsModelTheUserStopped(t *testing.T) {
 		}
 	}
 	got := resumed.sentTexts()
-	want := []string{stopNote + "carry on", "and again"}
+	want := []string{stopNote("Acme") + "carry on", "and again"}
 	if !slices.Equal(got, want) {
 		t.Errorf("sent = %q, want %q", got, want)
 	}
@@ -383,7 +383,7 @@ func TestInterrupt_RuntimeThatSurvivesTheStop(t *testing.T) {
 	if err := reg.Send(context.Background(), "run-1", "carry on"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if got := r.sentTexts(); !slices.Equal(got, []string{stopNote + "carry on"}) {
+	if got := r.sentTexts(); !slices.Equal(got, []string{stopNote("Acme") + "carry on"}) {
 		t.Errorf("sent = %q, want the stop note first", got)
 	}
 	reg.mu.RLock()

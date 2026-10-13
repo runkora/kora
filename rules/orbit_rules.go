@@ -59,6 +59,14 @@
 // traceparent injection, and structured logging.
 //
 // See docs/adr/2026-03-19-multi-service-backend-deployment-structure.md
+//
+// # docs/adr/2026-10-12-white-labelling-theme.md: White-labelling theme
+//
+// Every string a client's people or agents read takes the product name from
+// internal/platform/brand. A literal "kora" or "orbit" in prose inside the
+// speaking packages is the leak the theme exists to prevent.
+//
+// See docs/adr/2026-10-12-white-labelling-theme.md
 package gorules
 
 import "github.com/quasilyte/go-ruleguard/dsl"
@@ -306,4 +314,64 @@ func noDirectWriteHeader(m dsl.Matcher) {
 		Report(`docs/adr/2026-02-17-controller-based-http-routing.md: use api.JSON or api.ErrorResponse instead of calling WriteHeader directly — ` +
 			`a bare WriteHeader writes no JSON envelope, records nothing on the OTel span, and emits no structured log line. ` +
 			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
+}
+
+// noProductNameLiteral flags a string literal that names the product in prose
+// inside a speaking package, where the name must come from
+// internal/platform/brand so a white-labelled install never shows it.
+//
+// Enforces: docs/adr/2026-10-12-white-labelling-theme.md — white-labelling theme, Decision 5.
+//
+// The match is the whole word "kora" or "orbit", case-insensitively, not
+// adjacent to '-', '_' or '/', nor to a '.' followed by a letter or digit, so
+// identifier-shaped literals such as "orbit.io", "kora-base", "orbit-system"
+// and "ORBIT_RUN_ID" pass and prose fails, including a sentence ending
+// "kora.". Raw strings are covered. Struct tags are not: gogrep has no pattern
+// for an ast.Field tag, so a jsonschema description must be neutral or move
+// to code (see internal/orbitmcp/tools_agents.go), and review guards the tag.
+//
+// ruleguard refuses a bare `$s` pattern, so the rule names each position a
+// literal can occupy: an argument of a method call whose receiver is not a
+// logging.Logger (log lines keep the kora name, as the ADR's identifier list
+// says), an argument of a plain function call, a composite-literal element,
+// a const or var initialiser, a return value or assignment, and an operand
+// of +. The positions are one rule because ruleguard tries a group's rules in
+// order on each node and stops at the first report.
+//
+// The rule is scoped to the packages whose strings people or agents read:
+// internal/agents, internal/orbitmcp, internal/egressgw and
+// internal/platform/sandboximages. Residual exceptions (an X.509 subject, a
+// config-table key that is not prose) are path-scoped exclusions in
+// .golangci.yml, never inline //nolint directives.
+//
+// Bad:
+//
+//	fmt.Sprintf("kora paused this run: ...", n)
+//
+// Good:
+//
+//	fmt.Sprintf("%s paused this run: ...", product, n)
+func noProductNameLiteral(m dsl.Matcher) {
+	m.Match(`$recv.$method($*_, $s, $*_)`).
+		Where(m.File().PkgPath.Matches(`^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`) &&
+			m["s"].Node.Is("BasicLit") &&
+			m["s"].Text.Matches(`(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`) &&
+			!m["recv"].Type.Implements(`github.com/clear-route/orbit/internal/platform/logging.Logger`)).
+		At(m["s"]).
+		Report(`docs/adr/2026-10-12-white-labelling-theme.md: the product name must come from internal/platform/brand, not a literal — ` +
+			`a white-labelled install must never show the kora name in text its people or agents read. ` +
+			`Take the name from the brand the component is given. See docs/adr/2026-10-12-white-labelling-theme.md`)
+
+	m.Match(`$fn($*_, $s, $*_)`,
+		`$_{$*_, $s, $*_}`, `$_{$*_, $_: $s, $*_}`,
+		`const $_ = $s`, `var $_ = $s`, `const $_ $_ = $s`, `var $_ $_ = $s`,
+		`return $s`, `$_ = $s`, `$_ := $s`,
+		`$s + $_`, `$_ + $s`).
+		Where(m.File().PkgPath.Matches(`^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`) &&
+			m["s"].Node.Is("BasicLit") &&
+			m["s"].Text.Matches(`(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`)).
+		At(m["s"]).
+		Report(`docs/adr/2026-10-12-white-labelling-theme.md: the product name must come from internal/platform/brand, not a literal — ` +
+			`a white-labelled install must never show the kora name in text its people or agents read. ` +
+			`Take the name from the brand the component is given. See docs/adr/2026-10-12-white-labelling-theme.md`)
 }

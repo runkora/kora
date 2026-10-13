@@ -136,8 +136,8 @@ func TestResolveConnection_OwnerResolution(t *testing.T) {
 			if !errors.As(err, &d) || d.Reason != DenialConnectionUnresolved {
 				t.Fatalf("err = %v, want a connection_unresolved denial", err)
 			}
-			if !strings.Contains(d.Message(), tc.wantInMsg) {
-				t.Errorf("message %q does not contain %q", d.Message(), tc.wantInMsg)
+			if !strings.Contains(d.Message("kora"), tc.wantInMsg) {
+				t.Errorf("message %q does not contain %q", d.Message("kora"), tc.wantInMsg)
 			}
 		})
 	}
@@ -221,7 +221,7 @@ func TestResolveConnection_NodeOwnersDoNotLeak(t *testing.T) {
 		pol.scopes = holdsFabrikamAcme
 		_, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ nodes(ids: [\"PR_fabrikam\", \"PR_acme\"]) { id } }"}`))
 		d := denial(t, err)
-		if body := d.Message(); strings.Contains(body, "fabrikam,") || strings.Contains(body, "acme from") || !strings.Contains(d.Unresolved, "different connections") {
+		if body := d.Message("kora"); strings.Contains(body, "fabrikam,") || strings.Contains(body, "acme from") || !strings.Contains(d.Unresolved, "different connections") {
 			t.Errorf("denial body names owners: %q", body)
 		}
 	})

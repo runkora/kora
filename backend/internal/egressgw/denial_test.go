@@ -139,7 +139,7 @@ func TestProxy_DenialBodyPerReason(t *testing.T) {
 // The upstream refusing a credential is not fixable by a grant, so the body
 // points at the upstream permission and carries no credential material.
 func TestHandleBrokerError_CredentialRefused(t *testing.T) {
-	p := &ProxyHandler{logger: logging.NewLoggerWithOutput(io.Discard)}
+	p := &ProxyHandler{brand: testBrand, logger: logging.NewLoggerWithOutput(io.Discard)}
 	cause := errors.New("installation permissions rejected; token ghs_secret")
 	err := deny(DenialCredentialRefused, "api.github.com",
 		&credentials.Connection{Name: "github"},
@@ -179,9 +179,9 @@ func TestDeny_NotGrantedQualified(t *testing.T) {
 	if d.RequiredScope != "connection:github:pulls:orbit:read" {
 		t.Errorf("RequiredScope = %q, want connection:github:pulls:orbit:read", d.RequiredScope)
 	}
-	want := "kora egress policy denied api.github.com: this agent is not granted pulls:read for orbit on connection github. To allow it, grant connection:github:pulls:orbit:read."
-	if d.Message() != want {
-		t.Errorf("Message() = %q, want %q", d.Message(), want)
+	want := "Acme egress policy denied api.github.com: this agent is not granted pulls:read for orbit on connection github. To allow it, grant connection:github:pulls:orbit:read."
+	if d.Message("Acme") != want {
+		t.Errorf("Message() = %q, want %q", d.Message("Acme"), want)
 	}
 }
 

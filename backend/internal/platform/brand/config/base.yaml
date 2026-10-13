@@ -1,0 +1,5 @@
+# Product name read by every service that produces text a client's people or
+# agents read (docs/adr/2026-10-12-white-labelling-theme.md, Decision 5). The
+# chart renders the theme's name over this at
+# /etc/orbit/config/internal/platform/brand.yaml.
+productName: kora

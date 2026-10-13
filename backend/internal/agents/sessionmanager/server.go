@@ -15,6 +15,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -61,6 +62,9 @@ type ControllerConfig struct {
 	// NodeMaxOldSpaceMB caps the heap of Node processes a run starts on the agent
 	// pod, which shares one memory limit across every run. Zero disables the cap.
 	NodeMaxOldSpaceMB int
+
+	// Brand names the product where a runner shows the agent a provider name.
+	Brand brand.Brand
 }
 
 // Controller implements the session-manager's internal HTTP API.
@@ -374,6 +378,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
 			MCPServers:          req.MCPServers,
+			Brand:               c.cfg.Brand,
 		})
 	case "opencode":
 		inferenceURL = inferenceURLForRun(c.cfg.InferenceGatewayURL, req.RunID)
@@ -390,6 +395,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 			SessionManagerURL:   fmt.Sprintf("http://localhost:%d", c.cfg.SelfPort),
 			ToolGatewayURL:      toolGatewayURLForRun(c.cfg.ToolGatewayURL, req.RunID),
 			MCPServers:          req.MCPServers,
+			Brand:               c.cfg.Brand,
 		})
 	default:
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, fmt.Sprintf("unsupported framework %q", req.Framework), nil)

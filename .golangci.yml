@@ -121,6 +121,16 @@ linters:
     #     excluded via path rules in this file.
     #
     #   See docs/adr/0005-controller-based-http-routing.md
+    #
+    # White-labelling theme (docs/adr/2026-10-12-white-labelling-theme.md)
+    #   - a prose "kora" / "orbit" string literal in a speaking package
+    #     (internal/agents, internal/orbitmcp, internal/egressgw,
+    #     internal/platform/sandboximages) — the name must come from
+    #     internal/platform/brand. Identifier-shaped literals (orbit.io,
+    #     kora-base) and arguments to logging.Logger methods are not matched.
+    #     The residual exceptions are path-scoped exclusions in this file.
+    #
+    #   See docs/adr/2026-10-12-white-labelling-theme.md
     gocritic:
       enabled-checks:
         - ruleguard
@@ -351,12 +361,10 @@ linters:
         linters:
           - errcheck
           - unparam
-      # ruleguard reports "empty rule set" on packages where none of our custom
-      # ADR-0022 rules fire (i.e. no OTel span calls exist). This is a known
-      # gocritic/ruleguard quirk — it is not a real violation.
-      - linters:
-          - gocritic
-        text: "ruleguard: execution error: used Run\\(\\) with an empty rule set"
+      # No exclusion for ruleguard's "used Run() with an empty rule set": that
+      # message appears on every file when rules/orbit_rules.go fails to load
+      # (a DSL construct the bundled ruleguard rejects), and nowhere when it
+      # loads. Excluding it would silently switch off every Tier 1 rule.
 
       # The sandbox-mount node agent's export directories are walked by NFS
       # clients as the squashed user, so they must be world-searchable (0755).
@@ -462,6 +470,31 @@ linters:
         linters:
           - gocritic
         text: "calling WriteHeader directly"
+
+      # The egress gateway's per-tenant CA signs leaf certificates whose X.509
+      # subject names the issuer. A certificate subject is an identifier, not
+      # prose a client's people or agents read, so it keeps the kora name
+      # (docs/adr/2026-10-12-white-labelling-theme.md, Decision 5).
+      - path: "internal/egressgw/tlsca/"
+        linters:
+          - gocritic
+        text: "product name must come from internal/platform/brand"
+
+      # codexProvider and openCodeProvider are the config-table keys of the one
+      # model provider each runner writes, and the OpenCode key prefixes the
+      # model id. They are identifiers the runtimes key on, not prose; the
+      # provider's display name beside them reads the brand. Scoped to the
+      # declaration line so prose elsewhere in these files is still checked.
+      - path: "internal/agents/sessionmanager/runner_codex.go"
+        linters:
+          - gocritic
+        text: "product name must come from internal/platform/brand"
+        source: 'const codexProvider = "orbit"'
+      - path: "internal/agents/sessionmanager/runner_opencode.go"
+        linters:
+          - gocritic
+        text: "product name must come from internal/platform/brand"
+        source: 'const openCodeProvider = "orbit"'
 
       # orbit-session-runner is a thin exec() wrapper: its entire purpose is to
       # exec the binary supplied as argv[3] after applying Landlock restrictions.

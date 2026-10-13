@@ -13,6 +13,7 @@ import (
 	smConfig "github.com/clear-route/orbit/cmd/session-manager/config"
 	"github.com/clear-route/orbit/internal/agents/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
@@ -23,6 +24,14 @@ import (
 
 func main() {
 	ctx := context.Background()
+
+	// Session pods are not chart-rendered: orbit-agents sets ORBIT_PRODUCT_NAME
+	// on this pod and brand.Load reads it over the image's default. Loaded
+	// before observability so a bad name exits with nothing to flush.
+	b, err := brand.Load()
+	if err != nil {
+		log.Fatalf("Failed to load brand: %v", err)
+	}
 
 	shutdownObs, err := initObservability(ctx)
 	if err != nil {
@@ -57,7 +66,7 @@ func main() {
 		metrics.Shutdown(shutdownCtx, logger)
 	}()
 
-	server, registry := initServer(ctx, logger, metrics)
+	server, registry := initServer(ctx, logger, metrics, b)
 	run(ctx, logger, server, registry, metrics)
 }
 
@@ -87,7 +96,7 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap) (*http.Server, *sessionmanager.Registry) {
+func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *sessionmanager.Registry) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
@@ -106,7 +115,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 	verifier := token.NewVerifierFromConfig(ctx, token.LoadConfig())
 
 	idleTimeout := time.Duration(cfg.Session.IdleTimeoutSecs) * time.Second
-	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout)
+	registry := sessionmanager.NewRegistry(logger, cfg.Workspaces.BasePath, notifier, idleTimeout, b)
 	controller := sessionmanager.NewController(logger, sessionmanager.ControllerConfig{
 		ClaudeBinaryPath:    cfg.Claude.BinaryPath,
 		WrapperPath:         cfg.Runner.WrapperPath,
@@ -120,6 +129,7 @@ func initServer(ctx context.Context, logger logging.Logger, metrics *platformmet
 		ToolGatewayURL:      cfg.ToolGateway.URL,
 		OTLPEndpoint:        observability.DefaultConfig.OTLPEndpoint,
 		NodeMaxOldSpaceMB:   cfg.Runner.NodeMaxOldSpaceMB,
+		Brand:               b,
 	}, registry, verifier)
 
 	// Per-route, not in the global chain below: it must run after RoutePattern

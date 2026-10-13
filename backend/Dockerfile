@@ -35,6 +35,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 #
 #   1. cmd/${SERVICE}/config          — service-owned settings.
 #   2. internal/platform/observability/config — imported by all runtime binaries.
+#      internal/platform/brand/config         — the product name; imported by
+#                                               every binary that speaks to
+#                                               people or agents.
 #   3. internal/platform/storage/config       — imported by binaries that touch
 #                                               Postgres/Redis; harmless for
 #                                               those that do not.
@@ -45,6 +48,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 RUN mkdir -p /configs && \
     find /app/cmd/${SERVICE}/config \
          /app/internal/platform/observability/config \
+         /app/internal/platform/brand/config \
          /app/internal/platform/storage/config \
          /app/internal/identity/config \
          /app/internal/platform/token/config \

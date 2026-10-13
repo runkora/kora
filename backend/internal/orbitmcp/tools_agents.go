@@ -12,7 +12,7 @@ import (
 // registerAgentTools wires the agents domain: the agent-type (agent definition)
 // lifecycle. Reads forward the caller's token to orbit-agents; writes do the
 // same and the agents service enforces the real platform scope (agents:types:*).
-func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
+func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client, product string) {
 	base := b.Agents + "/api/v1/agent-types"
 
 	addTool(srv, "agents.list",
@@ -32,7 +32,8 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 
 	addEnumTool(srv, "agents.create",
 		"Create an agent type (agent definition) in the caller's tenant. Returns the created agent type. "+
-			"Supplying name, slug and model_id is enough — grant_scopes are auto-derived from the model.",
+			"Supplying name, slug and model_id is enough — grant_scopes are auto-derived from the model. "+
+			guardrailsDescription(product),
 		map[string][]any{"framework": agentFrameworks, "identity_mode": agentIdentityModes},
 		func(ctx context.Context, a createAgentArgs) (*sdk.CallToolResult, error) {
 			if a.Name == "" || a.Slug == "" {
@@ -43,7 +44,8 @@ func registerAgentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 
 	addEnumTool(srv, "agents.update",
 		"Update an agent type by id. Only the fields you supply are changed; omitted fields are left untouched. "+
-			"If you change model_id without setting grant_scopes, the inference grant_scopes are re-derived to match.",
+			"If you change model_id without setting grant_scopes, the inference grant_scopes are re-derived to match. "+
+			guardrailsDescription(product),
 		map[string][]any{"framework": agentFrameworks},
 		func(ctx context.Context, a updateAgentArgs) (*sdk.CallToolResult, error) {
 			if a.AgentTypeID == "" {
@@ -115,12 +117,21 @@ type createAgentArgs struct {
 }
 
 // guardrailsArg is an agent type's loop-guard thresholds. Each warn is at least
-// 1 and each pause is greater than its warn; there is no off switch.
+// 1 and each pause is greater than its warn; there is no off switch. The field
+// descriptions are struct tags and so cannot read the product name; they name
+// the platform's actions in the passive voice, and the tool description that
+// carries them (guardrailsDescription) names the product.
 type guardrailsArg struct {
-	RepeatedCallWarn  *int `json:"repeated_call_warn,omitempty" jsonschema:"identical consecutive tool calls before kora warns the agent (default 4)"`
-	RepeatedCallPause *int `json:"repeated_call_pause,omitempty" jsonschema:"identical consecutive tool calls before kora pauses the run; greater than repeated_call_warn (default 8)"`
-	WaitRearmWarn     *int `json:"wait_rearm_warn,omitempty" jsonschema:"waits re-armed with no progress before kora warns the agent (default 6)"`
-	WaitRearmPause    *int `json:"wait_rearm_pause,omitempty" jsonschema:"waits re-armed with no progress before kora pauses the run; greater than wait_rearm_warn (default 12)"`
+	RepeatedCallWarn  *int `json:"repeated_call_warn,omitempty" jsonschema:"identical consecutive tool calls before the agent is warned (default 4)"`
+	RepeatedCallPause *int `json:"repeated_call_pause,omitempty" jsonschema:"identical consecutive tool calls before the run is paused; greater than repeated_call_warn (default 8)"`
+	WaitRearmWarn     *int `json:"wait_rearm_warn,omitempty" jsonschema:"waits re-armed with no progress before the agent is warned (default 6)"`
+	WaitRearmPause    *int `json:"wait_rearm_pause,omitempty" jsonschema:"waits re-armed with no progress before the run is paused; greater than wait_rearm_warn (default 12)"`
+}
+
+// guardrailsDescription is the sentence on the tools that take guardrailsArg,
+// built at registration so it reads the product name.
+func guardrailsDescription(product string) string {
+	return "Guardrails are the loop-guard thresholds: " + product + " warns the agent at each warn count and pauses the run at each pause count."
 }
 
 // connectorArg is one credential connection the agent may use and the actions

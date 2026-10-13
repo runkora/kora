@@ -74,7 +74,7 @@ func testSandbox(addr string) Sandbox {
 
 func newTestRegistryForCanary(t *testing.T) *Registry {
 	t.Helper()
-	return NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), NoopNotifier{}, time.Minute)
+	return NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), NoopNotifier{}, time.Minute, testBrand)
 }
 
 // TestAwaitEgressReady_PassesOnFirstSuccess verifies that awaitEgressReady

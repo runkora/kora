@@ -58,6 +58,10 @@ type TenantReconciler struct {
 	// SandboxBase is registered in every tenant namespace as kora-base.
 	SandboxBase SandboxBase
 
+	// ProductName is the configured product name the sandbox image
+	// descriptions read (internal/platform/brand).
+	ProductName string
+
 	// SandboxBundled holds the bundled sandbox images keyed as in si.Bundled.
 	// Enabled ones are registered in every tenant namespace, and the rest are removed.
 	SandboxBundled map[string]BundledSandboxImage

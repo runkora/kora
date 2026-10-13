@@ -39,6 +39,7 @@ import (
 
 	egc "github.com/clear-route/orbit/cmd/egress-gateway/config"
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
@@ -139,7 +140,12 @@ func realMain() error {
 	if err != nil {
 		return fmt.Errorf("build upstream transport: %w", err)
 	}
-	proxyHandler := egressgw.NewProxyHandler(broker, forward, logger)
+	// The product name reaches the denial messages agents read.
+	b, err := brand.Load()
+	if err != nil {
+		return fmt.Errorf("load brand: %w", err)
+	}
+	proxyHandler := egressgw.NewProxyHandler(broker, forward, b, logger)
 	connectHandler := egressgw.NewConnectHandler(caBundle, proxyHandler, connRegistry, logger)
 
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())

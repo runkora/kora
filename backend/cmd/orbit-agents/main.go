@@ -14,6 +14,7 @@ import (
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
 	"github.com/clear-route/orbit/internal/platform/api"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -115,7 +116,14 @@ func realMain() error {
 	idClient := identityclient.NewClient(agentsConfig.Current.Platform.IdentityServiceURL, logger)
 	selfToken := idClient.SelfTokenSource()
 
-	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken, metrics)
+	// The product name reaches the capabilities brief, the default environment
+	// and, through the session pods' environment, the session-manager.
+	b, err := brand.Load()
+	if err != nil {
+		return fmt.Errorf("load brand: %w", err)
+	}
+
+	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken, metrics, b)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
@@ -180,7 +188,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error
 	return db, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap, b brand.Brand) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -213,7 +221,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		}
 	}
 
-	patches, workloads, err := loadProvisioning(cfg, patchDir)
+	patches, workloads, err := loadProvisioning(cfg, patchDir, b)
 	if err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
@@ -223,7 +231,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		logging.Field{Key: "workloads_file", Value: cfg.Agents.WorkloadsFile},
 	)
 
-	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, provisionerConfig(cfg, patches, workloads), pc)
+	k8s, err := agents.NewK8sProvisioner(cfg.Kubernetes.InCluster, logger, provisionerConfig(cfg, patches, workloads, b), pc)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("initialize k8s provisioner: %w", err)
 	}
@@ -260,6 +268,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		StartBudget:       time.Duration(cfg.Agents.Scheduling.StartBudgetSecs) * time.Second,
 		StartPollInterval: time.Duration(cfg.Agents.Scheduling.PollIntervalSecs) * time.Second,
 		WorkerConcurrency: cfg.Agents.Scheduling.WorkerConcurrency,
+		Brand:             b,
 	}, logger)
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{

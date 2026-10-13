@@ -24,7 +24,7 @@ import (
 // mountinfo file holds the given lines, with a short wait.
 func folderRegistry(t *testing.T, notifier Notifier, lines ...string) *Registry {
 	t.Helper()
-	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), notifier, time.Minute)
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), notifier, time.Minute, testBrand)
 	reg.mountInfo = filepath.Join(t.TempDir(), "mountinfo")
 	reg.folderWait = 300 * time.Millisecond
 	setMountInfo(t, reg, lines...)
@@ -197,7 +197,7 @@ func TestCachedSandbox_WaitsForFolder(t *testing.T) {
 
 // The descriptor records the folder's sandbox pod, so a restarted session-manager can wait for the mount again.
 func TestSandboxDescriptor_RecordsFolder(t *testing.T) {
-	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), nil, time.Minute)
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), t.TempDir(), nil, time.Minute, testBrand)
 	dir, ok := reg.runDir("run-1")
 	if !ok {
 		t.Fatal("runDir refused run-1")
@@ -221,7 +221,7 @@ func TestSandboxDescriptor_RecordsFolder(t *testing.T) {
 // so the session-manager never writes into another run's files.
 func TestSandboxDescriptor_RefusesSymlinkOutOfWorkspace(t *testing.T) {
 	workspaces := t.TempDir()
-	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), workspaces, nil, time.Minute)
+	reg := NewRegistry(logging.NewLoggerWithOutput(io.Discard), workspaces, nil, time.Minute, testBrand)
 	victim := filepath.Join(workspaces, "run-2", "notes.txt")
 	if err := os.MkdirAll(filepath.Dir(victim), 0o700); err != nil {
 		t.Fatal(err)
