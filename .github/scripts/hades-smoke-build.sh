@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Smoke build: proves a packed Hades tarball builds in a minimal Vite app outside kora.
+# Smoke build: proves a packed Hades tarball builds in a minimal Vite app outside kora. Needs the public npm registry.
 # Usage: .github/scripts/hades-smoke-build.sh <path/to/runkora-hades-X.Y.Z.tgz>
 set -euo pipefail
 
@@ -25,7 +25,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Install every peer dependency at the range the package declares.
+# Install each peer dependency at the range the package declares.
 pkg=$(tar -xzOf "$tarball" package/package.json)
 version=$(printf '%s' "$pkg" | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
 peers=()
@@ -93,8 +93,7 @@ cat > index.html <<'EOF'
 </html>
 EOF
 
-# tokens.css imports tailwindcss itself, so do not add a second import.
-# Tailwind skips node_modules, so @source points it at the installed package.
+# tokens.css is the single Tailwind entry. The @source makes Tailwind scan the installed package.
 cat > src/index.css <<'EOF'
 @import '@runkora/hades/src/tokens/tokens.css';
 @source '../node_modules/@runkora/hades/src';
@@ -109,12 +108,13 @@ cat > src/main.tsx <<'EOF'
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Button } from '@runkora/hades';
+import { validateTheme } from '@runkora/hades/theme';
 import './index.css';
 
 function App() {
   return (
     <main>
-      <Button variant="secondary">Hades smoke build</Button>
+      <Button variant="secondary">Hades smoke build ({typeof validateTheme})</Button>
     </main>
   );
 }
@@ -142,7 +142,7 @@ fi
 echo "type-checking and building"
 npm run build --silent
 
-# Check that Hades reached the output: the page text in the JS, a token in the CSS.
+# Proves the page carried Hades through: its text in the bundle and a tokens.css token in the CSS.
 js=$(find dist/assets -name '*.js' | head -1)
 css=$(find dist/assets -name '*.css' | head -1)
 if [ -z "$js" ] || [ -z "$css" ]; then

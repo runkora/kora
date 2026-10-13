@@ -1114,11 +1114,11 @@ HADES_DIR := $(FRONTEND_DIR)/src/packages/hades
 HADES_NODE := node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
 
 .PHONY: hades-manifest
-hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json) from tokens.css and surface.ts
+hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json) and theme.schema.json from tokens.css and surface.ts
 	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts
 
 .PHONY: hades-manifest-check
-hades-manifest-check: ## Verify manifest.json is what tokens.css and surface.ts generate
+hades-manifest-check: ## Verify manifest.json and theme.schema.json are what tokens.css and surface.ts generate
 	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts --check
 
 .PHONY: hades-check

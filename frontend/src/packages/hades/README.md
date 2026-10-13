@@ -254,12 +254,19 @@ frontend/src/packages/hades/
 │   │   ├── tokens.css            # Design token definitions (@theme block)
 │   │   ├── surface.ts            # Theme surface declaration: token kinds, slots, product-name bounds
 │   │   └── tokens.stories.tsx    # Storybook token showcase
-│   └── index.ts                  # Public API — all exports live here
+│   ├── theme/                    # The theme module: validator, loader, CSS generator (@runkora/hades/theme)
+│   │   ├── validate.ts           # validateTheme(): document, tokens, slots, assets, the report
+│   │   ├── css.ts                # generateThemeCss() and fontPreloads()
+│   │   ├── formats.ts            # The value-format patterns, shared with theme.schema.json
+│   │   ├── assets.ts             # SVG and WOFF2 checks
+│   │   └── index.ts              # The subpath's public API
+│   └── index.ts                  # Public API — all component exports live here
 ├── scripts/
-│   ├── manifest.ts               # Generates manifest.json (make hades-manifest)
+│   ├── manifest.ts               # Generates manifest.json and theme.schema.json (make hades-manifest)
 │   └── lib/                      # The pure parts of the generator, with their tests
 ├── .storybook/                   # Storybook configuration
 ├── manifest.json                 # The theme surface manifest, generated, checked in
+├── theme.schema.json             # JSON Schema of the theme document, generated from the manifest, checked in
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -279,11 +286,11 @@ Nothing is promised below `1.0.0`. From the first final release at or above it, 
 
 ### The manifest
 
-`manifest.json` is the theme surface: every settable token, how each semantic name resolves to raw tokens, the asset slots, and the product-name bounds. It is generated, never edited:
+`manifest.json` is the theme surface: every settable token, how each semantic name resolves to raw tokens, the asset slots, and the product-name bounds. It is generated, never edited, and the same run generates `theme.schema.json` from it:
 
 ```bash
-make hades-manifest          # regenerate after changing tokens.css or surface.ts
-make hades-manifest-check    # what `make check` runs: fails on drift
+make hades-manifest          # regenerate both after changing tokens.css or surface.ts
+make hades-manifest-check    # what `make check` runs: fails on drift in either file
 ```
 
 The generator reads token names from the `:root` blocks of `src/tokens/tokens.css` (every `--hades-raw-*` property is settable, in both modes, by rule) and everything else from `src/tokens/surface.ts`: the kind of each token, the slots with their formats, and the product-name bounds. A raw token declared in one file and not the other fails generation, so adding a token means touching both.
@@ -296,6 +303,12 @@ The generator reads token names from the `:root` blocks of `src/tokens/tokens.cs
 | `slots`       | One entry per asset slot: `name`, `kind`, `formats` (the extensions its URL path may end in), `modes` (empty when one URL serves both modes).                                                                              |
 | `productName` | `minLength`, `maxLength` and a Unicode `pattern`, applied after trimming.                                                                                                                                                  |
 
+### The theme module and the schema
+
+`@runkora/hades/theme` is the validator, the loader and the CSS generator for a white-labelling theme, in one pure module: no React, no DOM, no Node built-ins, so the same code runs in the frontend's init container, its server module and a browser preview. `validateTheme(text, { manifest, contractVersion, readAsset })` takes the `theme.yaml` text (JSON is YAML), the manifest, the instance's `CONTRACT_VERSION` and an async reader from bundle path to bytes, and resolves to either `{ ok: true, theme, report }` or `{ ok: false, errors, report }`. It collects every fault rather than stopping at the first; each error carries the document path it names, such as `tokens.--hades-raw-black.dark`. The report lists every unknown token or slot it ignored and every identity value (`productName`, `logo.dark`, `logo.light`, `favicon.dark`, `favicon.light`) the theme leaves to the default. The theme carries the validated values, every referenced asset's bytes and a SHA-256 hash over the document and those assets. `generateThemeCss(theme, { resolveAsset })` turns it into the one `<style>` string the root layout inlines, and `fontPreloads(theme, { resolveAsset })` lists the font URLs to preload. The rules, from the [white-labelling theme ADR](../../../../docs/adr/2026-10-12-white-labelling-theme.md): a known token with a malformed value, a missing or oversized asset, an SVG with a script, an event attribute or an external reference, a non-WOFF2 font, an unknown top-level key, a font slot set together with its family token, or a `contractVersion` in another contract major each fail; an unknown token or slot is ignored and reported; a missing value never fails.
+
+`theme.schema.json` is the JSON Schema (draft 2020-12) of the document, generated from the manifest, so a producer can check a theme before a deploy with any schema validator. Its value patterns are the regular expressions the validator compiles, imported from `src/theme/formats.ts` and defined once; what the schema cannot express (trimming the product name, reading the assets, the font-slot rule, the same-contract-major rule) the validator still applies. The document's one required key, `contractVersion`, must be a quoted string such as `contractVersion: "1.0"`: unquoted, YAML reads `1.0` as the number 1 and `1.10` as 1.1, so the validator refuses a number and says to quote it. A theme passes when its contract major equals the instance's, whatever its minor. Quote any YAML value that contains ` #`, such as a shadow ending in a hex colour: unquoted, YAML reads it as a comment.
+
 ### No kora identity
 
 Hades contains no kora identity. The kora default is a theme like any other, owned by the app, and the kora logo is an asset of that theme, not a Hades component. Hades provides the agnostic components that render whatever a theme supplies for a slot.
@@ -304,7 +317,7 @@ Hades contains no kora identity. The kora default is a theme like any other, own
 
 ## Consuming Hades from another repository
 
-Each final kora release `vX.Y.Z` publishes `@runkora/hades@X.Y.Z` to the GitHub Packages npm registry and attaches the tarball and `manifest.json` to kora's GitHub Release. A release candidate attaches the same files and publishes no package. The package ships TypeScript source, `tokens.css`, the manifest and this README: no compiled JavaScript, no fonts, no Storybook, no stories, no tests. The rules are in the [Hades delivery ADR](../../../../docs/adr/2026-10-11-hades-delivery-to-external-consumers.md); a consumer needs the following.
+Each final kora release `vX.Y.Z` publishes `@runkora/hades@X.Y.Z` to the GitHub Packages npm registry and attaches the tarball, `manifest.json` and `theme.schema.json` to kora's GitHub Release. A release candidate attaches the same files and publishes no package. The package ships TypeScript source, `tokens.css`, the theme module, the manifest, the theme schema, the contract and this README: no compiled JavaScript, no fonts, no Storybook, no stories, no tests. The rules are in the [Hades delivery ADR](../../../../docs/adr/2026-10-11-hades-delivery-to-external-consumers.md); a consumer needs the following.
 
 **Registry and token.** An `.npmrc` with the scope mapped to the registry, and a token that has `read:packages` for this repository (a personal access token (classic), or, for a workflow in a repository granted access to the package, its own `GITHUB_TOKEN`; the GitHub Packages npm registry accepts neither fine-grained personal access tokens nor GitHub App installation tokens):
 
@@ -315,7 +328,7 @@ Each final kora release `vX.Y.Z` publishes `@runkora/hades@X.Y.Z` to the GitHub 
 
 **The package version is the kora release version.** Nothing checks that a release containing a breaking change to the exports, props, peer ranges or tokens is a major, so pin an exact version or review each upgrade rather than relying on a caret range. A consumer that renders themes decides whether a theme is compatible by comparing the theme's `koraVersion` with this version: a theme passes when its major equals the package's major. Every release carries its own `manifest.json`, so a consumer can read the surface of any release. Below `1.0.0` nothing is promised.
 
-**React 19 and the declared peers.** Every runtime dependency except `@tanstack/react-table` is a peer dependency; install each at the range `package.json` declares.
+**React 19 and the declared peers.** Every runtime dependency except `@tanstack/react-table` and `yaml` (the theme module's parser) is a peer dependency; install each at the range `package.json` declares.
 
 **Tailwind v4, with `tokens.css` as the entry.** `tokens.css` contains `@import 'tailwindcss'` itself, so it is the single Tailwind entry: never add a second one. Tailwind does not scan `node_modules`, so an `@source` must point at the installed package for its components' utilities to be generated:
 
