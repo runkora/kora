@@ -430,7 +430,7 @@ describe('useRun — activity, delivery and stops', () => {
       {
         kind: 'notice',
         message:
-          'Orbit asked the agent to change approach: Monitor re-armed 6 times with no new output.',
+          'kora asked the agent to change approach: Monitor re-armed 6 times with no new output.',
       },
       expect.objectContaining({ kind: 'notice', tone: 'error' }),
     ]);

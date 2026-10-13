@@ -7,6 +7,7 @@
 
 import { memo } from 'react';
 import { Icon, Stack, Text } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import type { AgentTurn, AgentElement, ToolCall } from '../_types';
 import { useRunContext } from '../_context/run-context';
 import { ThinkingBlock } from './thinking-block';
@@ -75,6 +76,7 @@ export const AgentTurnItem = memo(function AgentTurnItem({
   isGenerating?: boolean;
 }) {
   const { agentName, model, showAllCalls, slug } = useRunContext();
+  const { productName } = useBrand();
 
   const reasoningActive = isGenerating && turn.elements.length === 0;
   const { groups, childrenOf } = groupElements(turn.elements);
@@ -162,7 +164,7 @@ export const AgentTurnItem = memo(function AgentTurnItem({
                     >
                       <Icon name="circle-x" size="xs" />
                       <Text size="supporting" color="muted">
-                        {el.byGuardrail ? 'Stopped by Orbit' : 'Stopped by you'}
+                        {el.byGuardrail ? `Stopped by ${productName}` : 'Stopped by you'}
                       </Text>
                     </Stack>
                   );

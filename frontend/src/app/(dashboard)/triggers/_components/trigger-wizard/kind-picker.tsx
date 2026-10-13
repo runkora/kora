@@ -4,8 +4,9 @@
  * run. Rendered entirely from the kind registry. */
 
 import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
-import type { TriggerKind } from './types';
+import { brandedCopy, type TriggerKind } from './types';
 
 export interface KindPickerProps {
   onSelect: (kind: TriggerKind) => void;
@@ -16,6 +17,7 @@ export interface KindPickerProps {
  * is chosen later and is a separate concern.
  */
 export function KindPicker({ onSelect }: KindPickerProps) {
+  const { productName } = useBrand();
   return (
     <Stack gap="relaxed">
       <Stack gap="snug">
@@ -35,7 +37,7 @@ export function KindPicker({ onSelect }: KindPickerProps) {
                     onSelect={(v) => onSelect(v as TriggerKind)}
                     icon={def.icon}
                     title={def.title}
-                    description={def.description}
+                    description={brandedCopy(def.description, productName)}
                   />
                   <Text size="micro" mono color="subtle" truncate>
                     {def.example}
@@ -67,7 +69,7 @@ export function KindPicker({ onSelect }: KindPickerProps) {
                 onSelect={() => undefined}
                 icon={k.icon}
                 title={k.title}
-                description={k.description}
+                description={brandedCopy(k.description, productName)}
               />
             ))}
           </Grid>

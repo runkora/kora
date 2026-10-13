@@ -23,6 +23,7 @@ import {
   Textarea,
   ConfirmDialog,
 } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import type { AgentFramework } from '@orbit/shared/api';
 import { FrameworkCards } from '../../_components/motif/framework-cards';
 import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-cards';
@@ -58,6 +59,7 @@ interface AgentConfigurationTabProps {
 
 export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConfigurationTabProps) {
   const cfg = useAgentConfiguration();
+  const { productName } = useBrand();
   const [active, setActive] = useState(initialSection);
   // Capacity has a stored value on every live agent; "off" here means "leave
   // it as it is", so the row dims but nothing is unset on save.
@@ -295,12 +297,12 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
             <SectionHeading
               icon="shield"
               title="Guardrails"
-              description="Set the ceilings kora enforces at runtime: spend, capacity and loop limits."
+              description={`Set the ceilings ${productName} enforces at runtime: spend, capacity and loop limits.`}
             />
             <Stack direction="horizontal" align="baseline" gap="snug">
               <Eyebrow>Limits</Eyebrow>
               <Text as="span" size="micro" color="subtle">
-                Every limit is optional. Switch on the ones you want kora to enforce.
+                Every limit is optional. Switch on the ones you want {productName} to enforce.
               </Text>
             </Stack>
             <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />

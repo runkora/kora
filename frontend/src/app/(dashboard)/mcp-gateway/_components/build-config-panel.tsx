@@ -13,7 +13,13 @@ import {
   Stack,
   Text,
 } from '@clear-route/hades';
-import { MCP_CLIENTS, buildMcpConfig, isCommandClient, type McpClient } from '@orbit/lib/mcp';
+import {
+  MCP_CLIENTS,
+  PLATFORM_MCP_SERVER,
+  buildMcpConfig,
+  isCommandClient,
+  type McpClient,
+} from '@orbit/lib/mcp';
 import type { McpServer } from '../_types';
 import { serverRollupScope } from '../_types';
 import { ServerAvatar } from './server-avatar';
@@ -165,7 +171,7 @@ export function BuildConfigPanel({ servers, selected, onClose }: BuildConfigPane
                   border: '1px solid var(--color-border-subtle)',
                 }}
               >
-                <ServerAvatar name={s.name} accent={s.name === 'orbit'} size="xs" />
+                <ServerAvatar name={s.name} accent={s.name === PLATFORM_MCP_SERVER} size="xs" />
                 <Text
                   as="span"
                   mono

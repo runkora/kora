@@ -28,6 +28,7 @@ import {
   EmptyState,
   ConfirmDialog,
 } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import type { RoleEntry } from '../_types';
@@ -55,6 +56,7 @@ interface RolesTabProps {
 
 export function RolesTab({ initialRoles, availableScopes, initialError }: RolesTabProps) {
   const router = useRouter();
+  const { productName } = useBrand();
   const { scopes: sessionScopes } = usePermissions();
   const canWrite = hasScope(sessionScopes, 'platform:roles:write');
   const [roles, setRoles] = useState(initialRoles);
@@ -122,8 +124,8 @@ export function RolesTab({ initialRoles, availableScopes, initialError }: RolesT
       {/* Info box */}
       <Callout>
         <Text size="caption" color="muted">
-          Roles map OIDC role claims to platform scopes. When a human authenticates, kora resolves
-          the union of scopes from all matching roles.
+          Roles map OIDC role claims to platform scopes. When a human authenticates, {productName}{' '}
+          resolves the union of scopes from all matching roles.
         </Text>
       </Callout>
 

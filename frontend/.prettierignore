@@ -3,3 +3,5 @@ pnpm-lock.yaml
 node_modules/
 src/packages/hades/manifest.json
 src/packages/hades/theme.schema.json
+# Theme fixtures: the chart-rendered document copy is deliberately oddly formatted.
+src/server/theme/__fixtures__/

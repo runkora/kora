@@ -39,7 +39,7 @@ const eslintConfig = defineConfig([
   // ---- server-only guard ---------------------------------------------------
   // Every file in src/server/ and every Route Handler must import "server-only".
   {
-    files: ['src/server/**/*.{ts,tsx}', 'src/app/api/**/route.ts'],
+    files: ['src/server/**/*.{ts,tsx}', 'src/app/**/route.ts'],
     ignores: ['**/*.test.{ts,tsx}', '**/*.integration.test.{ts,tsx}'],
     rules: {
       'local/require-server-only': 'error',
@@ -242,6 +242,31 @@ const eslintConfig = defineConfig([
     files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
     rules: {
       'local/no-hades-compound-in-server-component': 'error',
+    },
+  },
+
+  // ---- Product-name literal ban --------------------------------------------
+  // The product name is a deployment value (white-labelling theme ADR, decision
+  // 5): a theme can rename it, so copy that spells `kora` or `orbit` as a word
+  // is a leak. Read it from the brand instead: useBrand().productName in client
+  // components, getBrand() from @orbit/server/theme in server code.
+  // Identifier-shaped literals pass (orbit.io, kora-base, ORBIT_API_KEY), as do
+  // import sources, object keys, computed member keys and literal types.
+  //
+  // Mock data is excluded until it goes: the *-mock-data.ts modules beside the
+  // dashboard pages and model-gateway/_data/mock.ts. Tests and stories are
+  // excluded because they assert on the default brand.
+  {
+    files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
+    ignores: [
+      '**/*.test.{ts,tsx}',
+      '**/*.integration.test.{ts,tsx}',
+      '**/*.stories.{ts,tsx}',
+      '**/*-mock-data.ts',
+      '**/_data/mock.ts',
+    ],
+    rules: {
+      'local/no-product-name-literal': 'error',
     },
   },
 

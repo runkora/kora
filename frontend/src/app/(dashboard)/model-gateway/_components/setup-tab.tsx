@@ -31,6 +31,8 @@ import {
   Text,
   Callout,
 } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
+import { deriveSlug } from '@orbit/lib/slug';
 import { ScopeChip } from '@orbit/components';
 import { GATEWAY_BASE_URL_FALLBACK, gatewayBaseUrlFromWindow } from '../_utils';
 
@@ -68,6 +70,7 @@ function Step({
 // ── Agent tab content ─────────────────────────────────────────────────────────
 
 function ClaudeCodeGuide({ baseUrl }: { baseUrl: string }) {
+  const { productName } = useBrand();
   return (
     <Stack gap="none">
       <Step number={1} title="Set the gateway endpoint">
@@ -85,7 +88,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
       <Step number={2} title="Map model aliases to your virtual models" isLast>
         <Text size="supporting" color="muted">
           Claude Code uses <Code>ANTHROPIC_DEFAULT_*_MODEL</Code> environment variables to select
-          models by tier. Set each to the virtual model ID provisioned for you in kora.
+          models by tier. Set each to the virtual model ID provisioned for you in {productName}.
         </Text>
         <CodeBlock
           text={`export ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-4-6
@@ -103,28 +106,30 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`}
 }
 
 function CodexGuide({ baseUrl }: { baseUrl: string }) {
+  const { productName } = useBrand();
+  const providerKey = deriveSlug(productName);
   return (
     <Stack gap="none">
       <Step number={1} title="Set the active provider and model">
         <Text size="supporting" color="muted">
-          Tell Codex to use kora and select your default virtual model by adding the following to
-          your Codex config file.
+          Tell Codex to use {productName} and select your default virtual model by adding the
+          following to your Codex config file.
         </Text>
         <CodeBlock
-          text={`model_provider = "orbit"
+          text={`model_provider = "${providerKey}"
 model = "anthropic/claude-sonnet-4-6"`}
           filename="~/.codex/config.toml"
         />
       </Step>
 
-      <Step number={2} title="Register the kora provider" isLast>
+      <Step number={2} title={`Register the ${productName} provider`} isLast>
         <Text size="supporting" color="muted">
           Add the provider definition that Codex will look up when{' '}
-          <Code>model_provider = &quot;orbit&quot;</Code> is set.
+          <Code>model_provider = &quot;{providerKey}&quot;</Code> is set.
         </Text>
         <CodeBlock
-          text={`[model_providers.orbit]
-name     = "kora"
+          text={`[model_providers.${providerKey}]
+name     = "${productName}"
 base_url = "${baseUrl}/v1"
 env_key  = "ORBIT_API_KEY"
 wire_api = "responses"`}
@@ -137,8 +142,8 @@ wire_api = "responses"`}
             </Heading>
             <Text size="caption" color="muted">
               Codex reads the bearer token from the environment variable named by{' '}
-              <Code>env_key</Code>. Export your kora API key as <Code>ORBIT_API_KEY</Code> in your
-              shell profile.
+              <Code>env_key</Code>. Export your {productName} API key as <Code>ORBIT_API_KEY</Code>{' '}
+              in your shell profile.
             </Text>
           </Stack>
         </Callout>
@@ -159,20 +164,22 @@ wire_api = "responses"`}
 }
 
 function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
+  const { productName } = useBrand();
+  const providerKey = deriveSlug(productName);
   return (
     <Stack gap="none">
-      <Step number={1} title="Add kora as a provider" isLast>
+      <Step number={1} title={`Add ${productName} as a provider`} isLast>
         <Text size="supporting" color="muted">
           OpenCode supports custom OpenAI-compatible providers via its config file. Add the
-          following to register kora and expose your virtual models.
+          following to register {productName} and expose your virtual models.
         </Text>
         <CodeBlock
           text={`{
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "orbit": {
+    "${providerKey}": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "kora",
+      "name": "${productName}",
       "options": {
         "baseURL": "${baseUrl}/v1",
         "apiKey": "{env:ORBIT_API_KEY}"
@@ -211,6 +218,7 @@ function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
 }
 
 function VSCodeGuide({ baseUrl }: { baseUrl: string }) {
+  const { productName } = useBrand();
   return (
     <Stack gap="none">
       <Step number={1} title="Export the key where VS Code can see it">
@@ -258,7 +266,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
         </Callout>
       </Step>
 
-      <Step number={3} title="Or register kora as an OpenAI-compatible provider" isLast>
+      <Step number={3} title={`Or register ${productName} as an OpenAI-compatible provider`} isLast>
         <Text size="supporting" color="muted">
           Extensions that accept a custom OpenAI-compatible endpoint (Continue, Cline, Roo Code and
           similar) take the gateway directly. Point them at the <Code>/v1</Code> base URL and your
@@ -268,7 +276,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
           text={`{
   "models": [
     {
-      "title": "kora — Claude Sonnet 4.6",
+      "title": "${productName} — Claude Sonnet 4.6",
       "provider": "openai",
       "model": "anthropic/claude-sonnet-4-6",
       "apiBase": "${baseUrl}/v1",
@@ -304,6 +312,7 @@ const subscribeNoop = () => () => {};
 const getServerBaseUrl = () => GATEWAY_BASE_URL_FALLBACK;
 
 export function SetupTab() {
+  const { productName } = useBrand();
   const baseUrl = useSyncExternalStore(subscribeNoop, gatewayBaseUrlFromWindow, getServerBaseUrl);
 
   return (
@@ -313,8 +322,8 @@ export function SetupTab() {
         <CardHeader>
           <CardTitle>Provision an API key</CardTitle>
           <CardDescription>
-            All agents authenticate to the kora Model Gateway using a personal API key. Create one
-            now and export it to your environment before continuing.
+            All agents authenticate to the {productName} Model Gateway using a personal API key.
+            Create one now and export it to your environment before continuing.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -391,8 +400,8 @@ export function SetupTab() {
         <CardHeader>
           <CardTitle>Configure your agent</CardTitle>
           <CardDescription>
-            Select your LLM coding agent below and follow the steps to point it at the kora Model
-            Gateway.
+            Select your LLM coding agent below and follow the steps to point it at the {productName}{' '}
+            Model Gateway.
           </CardDescription>
         </CardHeader>
         <CardContent>

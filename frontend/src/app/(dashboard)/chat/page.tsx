@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Button,
   ChatBubble,
@@ -18,6 +18,7 @@ import {
   Textarea,
   TypingIndicator,
 } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import { MessageContent } from './_components/message-content';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -36,41 +37,42 @@ interface Message {
 
 const MODELS = ['kora-3 Opus', 'kora-3 Sonnet', 'kora-3 Haiku'] as const;
 
-const SUGGESTIONS = [
-  {
-    icon: 'shield' as const,
-    title: 'Policy engine deep dive',
-    desc: 'How does OPA integration work in kora?',
-    prompt:
-      'Explain how the kora policy engine works with OPA integration, including how policies are evaluated before agent actions execute.',
-  },
-  {
-    icon: 'bot' as const,
-    title: 'Agent authentication flow',
-    desc: 'Walk me through identity verification',
-    prompt:
-      'Walk me through how agent authentication and identity verification works in kora, from SPIFFE SVID to session JWT.',
-  },
-  {
-    icon: 'square-terminal' as const,
-    title: 'Generate a Go service template',
-    desc: 'Bootstrap a new feature package',
-    prompt:
-      'Generate a Go service template for a new kora feature package following the DDD-lite repository pattern.',
-  },
-  {
-    icon: 'code-2' as const,
-    title: 'Credential broker pattern',
-    desc: 'How are credentials scoped and issued?',
-    prompt:
-      'Explain the credential broker pattern and how scoped just-in-time credentials are provisioned in kora.',
-  },
-] as const;
+/** The suggestion chips; the product is named by the brand. */
+function suggestionsFor(productName: string) {
+  return [
+    {
+      icon: 'shield' as const,
+      title: 'Policy engine deep dive',
+      desc: `How does OPA integration work in ${productName}?`,
+      prompt: `Explain how the ${productName} policy engine works with OPA integration, including how policies are evaluated before agent actions execute.`,
+    },
+    {
+      icon: 'bot' as const,
+      title: 'Agent authentication flow',
+      desc: 'Walk me through identity verification',
+      prompt: `Walk me through how agent authentication and identity verification works in ${productName}, from SPIFFE SVID to session JWT.`,
+    },
+    {
+      icon: 'square-terminal' as const,
+      title: 'Generate a Go service template',
+      desc: 'Bootstrap a new feature package',
+      prompt: `Generate a Go service template for a new ${productName} feature package following the DDD-lite repository pattern.`,
+    },
+    {
+      icon: 'code-2' as const,
+      title: 'Credential broker pattern',
+      desc: 'How are credentials scoped and issued?',
+      prompt: `Explain the credential broker pattern and how scoped just-in-time credentials are provisioned in ${productName}.`,
+    },
+  ] as const;
+}
 
 // ─── Mock AI responses ────────────────────────────────────────────────────────
 
-const RESPONSES = {
-  policy: `kora's policy engine is built on Open Policy Agent (OPA), which evaluates structured Rego policies before any agent action executes — never after.
+/** Canned replies for the demo; the product is named by the brand. */
+function responsesFor(productName: string) {
+  return {
+    policy: `${productName}'s policy engine is built on Open Policy Agent (OPA), which evaluates structured Rego policies before any agent action executes — never after.
 
 Here's the end-to-end evaluation flow:
 
@@ -103,7 +105,7 @@ func (s *Service) Enforce(ctx context.Context, req Request) (Decision, error) {
 
 Policy bundles are versioned Rego files that live alongside your infrastructure code, loaded into the OPA engine at startup and hot-reloaded on change.`,
 
-  auth: `Agent authentication in kora follows a zero-trust, identity-first model. Every agent must prove its identity before any action is permitted — there are no anonymous operations.
+    auth: `Agent authentication in ${productName} follows a zero-trust, identity-first model. Every agent must prove its identity before any action is permitted — there are no anonymous operations.
 
 **The Authentication Flow**
 
@@ -126,13 +128,13 @@ if err != nil {
     return fmt.Errorf("token exchange: %w", err)
 }
 
-// resp.Token is used for all subsequent kora API calls
+// resp.Token is used for all subsequent ${productName} API calls
 agent.SetToken(resp.Token)
 \`\`\`
 
-This ensures every kora operation is tied to a verified, auditable identity — a core principle of the nervous-system architecture.`,
+This ensures every ${productName} operation is tied to a verified, auditable identity — a core principle of the nervous-system architecture.`,
 
-  template: `Here's a complete Go feature package template following kora's DDD-lite architecture. Each feature owns its full stack: repository interface, PostgreSQL implementation, service layer, and HTTP handlers.
+    template: `Here's a complete Go feature package template following ${productName}'s DDD-lite architecture. Each feature owns its full stack: repository interface, PostgreSQL implementation, service layer, and HTTP handlers.
 
 \`\`\`go
 // internal/myfeature/models.go
@@ -196,7 +198,7 @@ func (s *Service) Create(ctx context.Context, name string) (*MyEntity, error) {
 
 Key conventions: no ORMs (raw SQL via pgx/v5), inject \`*logging.Logger\` never use globals, features never import each other — share only through platform contracts.`,
 
-  credential: `The credential broker is kora's "motor cortex" — it translates policy decisions into scoped, time-limited access grants that agents can act on without ever seeing raw credentials.
+    credential: `The credential broker is ${productName}'s "motor cortex" — it translates policy decisions into scoped, time-limited access grants that agents can act on without ever seeing raw credentials.
 
 **Core Principles**
 
@@ -246,9 +248,9 @@ func (s *Service) Issue(ctx context.Context, req BrokerRequest) (*Credential, er
 
 Even a fully compromised agent can only access what was explicitly scoped for that specific operation window.`,
 
-  fallback: `That's a great question about kora's control plane architecture.
+    fallback: `That's a great question about ${productName}'s control plane architecture.
 
-kora is the nervous system for autonomous agents — providing coordination, identity, and governance infrastructure rather than being a framework, model router, or LLM wrapper.
+${productName} is the nervous system for autonomous agents — providing coordination, identity, and governance infrastructure rather than being a framework, model router, or LLM wrapper.
 
 The four pillars of the architecture:
 
@@ -257,8 +259,9 @@ The four pillars of the architecture:
 3. **Observable** — All agent behaviour flows through the structured event spine
 4. **Least-privilege** — Credentials are scoped, time-limited, and issued just-in-time
 
-Is there a specific aspect of kora you'd like me to dig deeper into? I can explain the policy engine, credential broker, agent identity lifecycle, event spine architecture, or help you generate Go service templates.`,
-};
+Is there a specific aspect of ${productName} you'd like me to dig deeper into? I can explain the policy engine, credential broker, agent identity lifecycle, event spine architecture, or help you generate Go service templates.`,
+  };
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -270,7 +273,8 @@ function formatTime(date: Date): string {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-function getAIResponse(userInput: string): string {
+function getAIResponse(userInput: string, productName: string): string {
+  const RESPONSES = responsesFor(productName);
   const lower = userInput.toLowerCase();
   if (lower.includes('policy') || lower.includes('opa') || lower.includes('rego')) {
     return RESPONSES.policy;
@@ -306,6 +310,8 @@ function getAIResponse(userInput: string): string {
 // ─── ChatPage ─────────────────────────────────────────────────────────────────
 
 export default function ChatPage() {
+  const { productName } = useBrand();
+  const suggestions = useMemo(() => suggestionsFor(productName), [productName]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -379,7 +385,7 @@ export default function ChatPage() {
       textareaRef.current.style.height = 'auto';
     }
 
-    const responseText = getAIResponse(userMsg.content);
+    const responseText = getAIResponse(userMsg.content, productName);
     const thinkingMs = 500 + Math.random() * 600;
 
     setTimeout(() => {
@@ -394,7 +400,7 @@ export default function ChatPage() {
       setMessages((prev) => [...prev, assistantMsg]);
       streamResponse(assistantMsg.id, responseText);
     }, thinkingMs);
-  }, [canSubmit, input, streamResponse]);
+  }, [canSubmit, input, streamResponse, productName]);
 
   // ── Keyboard handler ──
 
@@ -458,18 +464,18 @@ export default function ChatPage() {
               <Icon name="sparkles" size="xl" container circle containerVariant="accent" />
             </Stack>
             <Stack marginBottom="snug" gap="none">
-              <Heading variant="section">How can kora help?</Heading>
+              <Heading variant="section">How can {productName} help?</Heading>
             </Stack>
             <Stack marginBottom="spacious" maxWidth="card" gap="none">
               <Text size="supporting" color="muted">
                 The AI-powered control plane assistant. Ask about agent architecture, generate code,
-                or explore kora&apos;s design.
+                or explore {productName}&apos;s design.
               </Text>
             </Stack>
 
             {/* Suggestion chips */}
             <Grid cols={{ base: 1, sm: 2 }} gap="snug">
-              {SUGGESTIONS.map((s) => {
+              {suggestions.map((s) => {
                 return (
                   <Button
                     key={s.title}
@@ -558,7 +564,7 @@ export default function ChatPage() {
                 autoResize
                 rows={1}
                 maxRows={6}
-                placeholder="Message kora…"
+                placeholder={`Message ${productName}…`}
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
@@ -621,7 +627,7 @@ export default function ChatPage() {
              * mt-2 wrapper: spacing between the input card and the disclaimer.
              */}
             <Text size="micro" color="subtle" align="center">
-              kora AI can make mistakes. Verify important information before acting.
+              {productName} AI can make mistakes. Verify important information before acting.
             </Text>
           </Form>
         </Stack>

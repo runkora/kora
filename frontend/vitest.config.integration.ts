@@ -41,6 +41,16 @@ export default defineConfig({
       'server-only': path.resolve(__dirname, './src/test-utils/server-only-shim.js'),
       // Workspace package — must come before the generic @orbit alias so that
       // Vite's first-match resolution picks the package src, not ./src/hades.
+      // The subpath exports go first for the same reason: the bare alias would
+      // otherwise swallow them.
+      '@clear-route/hades/theme': path.resolve(
+        __dirname,
+        './src/packages/hades/src/theme/index.ts',
+      ),
+      '@clear-route/hades/manifest.json': path.resolve(
+        __dirname,
+        './src/packages/hades/manifest.json',
+      ),
       '@clear-route/hades': path.resolve(__dirname, './src/packages/hades/src/index.ts'),
       '@orbit/test-utils': path.resolve(__dirname, './src/test-utils'),
       // Mirror the tsconfig.json paths block so @orbit/* imports resolve.

@@ -4,6 +4,7 @@ import { redirect } from 'next/navigation';
 import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@clear-route/hades';
 
 import { getSession, isSessionValid } from '@orbit/server/session';
+import { getBrand } from '@orbit/server/theme';
 import { mcpConsentToken } from '@orbit/server/mcp-consent';
 import { listGrantedTools, listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
 import {
@@ -119,10 +120,11 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
   // above — confirm it's one this client actually registered.
   const clientLookup = await fetchMcpOAuthClient(clientId, session.accessToken);
   if (clientLookup.kind === 'not_found') {
+    const { productName } = await getBrand();
     return (
       <ConsentError
         title="Unknown application"
-        message="This application is not registered with kora."
+        message={`This application is not registered with ${productName}.`}
       />
     );
   }

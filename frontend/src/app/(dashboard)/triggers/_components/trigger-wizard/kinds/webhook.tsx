@@ -16,6 +16,7 @@ import {
   Text,
   FieldRow,
 } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import type { IconName } from '@clear-route/hades';
 import {
   describeMatchCondition,
@@ -69,6 +70,7 @@ function catalogProvider(state: WizardState, sources: { id: string; provider: st
 
 function StepSource({ state, patch, context }: StepComponentProps) {
   const { sources, ingestHost } = context;
+  const { productName } = useBrand();
   const catalog = useSourceCatalog(
     catalogProvider(state, sources),
     state.sourceChoice === NEW_SOURCE ? '' : state.sourceChoice,
@@ -89,8 +91,8 @@ function StepSource({ state, patch, context }: StepComponentProps) {
         <Stack gap="tight">
           <SectionLabel>Deliver to</SectionLabel>
           <Text size="caption" color="subtle">
-            The kora endpoint your provider posts events to. Triggers listen on a source; several
-            triggers can share one.
+            The {productName} endpoint your provider posts events to. Triggers listen on a source;
+            several triggers can share one.
           </Text>
         </Stack>
         <RadioGroup
@@ -292,15 +294,16 @@ export const webhookKind: TriggerKindDefinition = {
   id: 'webhook',
   icon: 'webhook',
   title: 'Webhook',
-  description: 'An external service posts a signed event to a kora endpoint.',
+  description: (productName) =>
+    `An external service posts a signed event to a ${productName} endpoint.`,
   example: 'GitHub · Alertmanager',
   steps: [
     {
       id: 'source',
       railTitle: 'Source',
       railSub: 'Where it comes from',
-      description:
-        'Choose the source that posts to kora, which of its events starts a run, and what the agent is asked to do.',
+      description: (productName) =>
+        `Choose the source that posts to ${productName}, which of its events starts a run, and what the agent is asked to do.`,
       Component: StepSource,
       validate: validateSource,
     },

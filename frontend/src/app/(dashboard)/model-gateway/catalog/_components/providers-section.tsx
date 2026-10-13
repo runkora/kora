@@ -3,6 +3,7 @@
 
 import { useMemo } from 'react';
 import { Alert, CodeBlock, Icon, Stack, Text } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import { SmartTable, StatusBadge } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtDate } from '@orbit/utils';
@@ -37,6 +38,7 @@ function providerMatchesSearch(p: ProviderStatusWire, q: string): boolean {
 }
 
 export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
+  const { productName } = useBrand();
   const columns = useMemo<DataTableColumn<ProviderStatusWire>[]>(
     () => [
       {
@@ -161,8 +163,8 @@ export function ProvidersSection({ providers, error }: ProvidersSectionProps) {
     return (
       <Stack gap="snug">
         <Text size="supporting" color="muted">
-          No providers are registered. Apply an InferenceProvider resource in the kora system
-          namespace, with its API key in a Secret labelled orbit.io/inference-provider=true.
+          No providers are registered. Apply an InferenceProvider resource in the {productName}{' '}
+          system namespace, with its API key in a Secret labelled orbit.io/inference-provider=true.
         </Text>
         <CodeBlock text={EXAMPLE} filename="openrouter.yaml" />
       </Stack>

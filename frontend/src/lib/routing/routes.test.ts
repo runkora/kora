@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from './routes';
+import { APP_ROUTES, PUBLIC_PATHS, THEME_ASSET_PREFIX, isSafeRedirectPath } from './routes';
 import { ApiRoute } from './api-routes';
 
 /**
@@ -144,4 +144,12 @@ describe('isSafeRedirectPath', () => {
   // any string input — malformed paths are normalised, not thrown. If this
   // function is ever security-reviewed, consider removing the try/catch or
   // documenting a concrete input that would exercise the catch branch.
+});
+
+describe('THEME_ASSET_PREFIX', () => {
+  it('is a root-relative directory prefix the middleware can match on', () => {
+    expect(THEME_ASSET_PREFIX).toMatch(/^\/.+\/$/);
+    expect('/theme/abc/assets/logo.svg'.startsWith(THEME_ASSET_PREFIX)).toBe(true);
+    expect('/themes'.startsWith(THEME_ASSET_PREFIX)).toBe(false);
+  });
 });

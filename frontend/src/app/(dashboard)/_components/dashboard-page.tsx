@@ -26,6 +26,7 @@ import {
   TableRow,
   Text,
 } from '@clear-route/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import { StatusBadge } from '@orbit/components';
 import { EventFeedItem } from './event-feed-item';
 import { APP_ROUTES } from '@orbit/lib/routing';
@@ -155,13 +156,14 @@ export function DashboardPage({
   tenantCap,
   windowDays = 7,
 }: DashboardPageProps) {
+  const { productName } = useBrand();
   const displayedAgents = agentTypes.slice(0, 6);
 
   return (
     <Stack gap="relaxed">
       <Stack gap="tight">
         <Heading variant="title">Dashboard</Heading>
-        <Text color="muted">Real-time overview of the kora control plane.</Text>
+        <Text color="muted">Real-time overview of the {productName} control plane.</Text>
       </Stack>
 
       {/* ── Inventory stat cards ── */}

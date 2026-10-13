@@ -302,6 +302,7 @@ All product JSX must use Hades (`@clear-route/hades`). Raw HTML primitives are b
 | `local/no-hades-classname`          | `className` on any Hades component                                                             | Use the component's own props                                                                                     |
 | `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                      | `<Icon name="…" />`: **no escape hatch**. Add icons to `src/packages/hades/src/components/icon/registry.ts` only. |
 | `local/no-hades-disable-comment`    | Any `eslint-disable` targeting a Hades rule                                                    | There is no escape hatch; use the correct Hades component                                                         |
+| `local/no-product-name-literal`     | The whole word `kora` or `orbit` in a string, template literal or JSX text, unless joined through `-`, `_`, `.` or `/` (`orbit.io`, `kora-base` pass) | `useBrand().productName` (client) or `getBrand()` from `@orbit/server/theme` (server). Mock data, tests and stories are excluded. |
 
 **Common HTML → Hades replacements:**
 
