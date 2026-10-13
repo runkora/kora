@@ -21,8 +21,6 @@ const ident = `(?:"?\w+"?\.)?"?(\w+)"?`
 const cte = `(?:WITH\b.*?\)\s*)?`
 
 var (
-	lineComment   = regexp.MustCompile(`--[^\n]*`)
-	blockComment  = regexp.MustCompile(`(?s)/\*.*?\*/`)
 	createTable   = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?` + ident)
 	dmlStart      = regexp.MustCompile(`(?is)^\s*` + cte + `(INSERT|DELETE|UPDATE|SELECT)\b`)
 	updateTarget  = regexp.MustCompile(`(?is)^\s*` + cte + `UPDATE\s+(?:ONLY\s+)?` + ident)
@@ -111,20 +109,14 @@ func parseMigration(service, name, body string) migration {
 	return m
 }
 
-// statements splits SQL on top-level semicolons, comments removed first. The
-// split is quote-aware: a semicolon inside a string literal, a quoted
-// identifier or a dollar-quoted body is data, not a terminator.
+// statements splits SQL into statements on top-level semicolons.
 //
-// That matters because concurrentBlockViolations counts what this returns, so a
-// naive split would read
-//
-//	CREATE INDEX CONCURRENTLY idx ON widgets ((kind || ';'));
-//
-// as two statements and reject a block that is legitimately one.
+// Comments and quoted runs are recognised in the same pass, because either can
+// contain the other: a `--` inside a string literal does not open a comment, and
+// a semicolon inside either is data rather than a terminator. Stripping comments
+// first with a regex gets that backwards, and concurrentBlockViolations counts
+// what this returns, so a miscount accepts a block that cannot run.
 func statements(sql string) []string {
-	sql = blockComment.ReplaceAllString(sql, "")
-	sql = lineComment.ReplaceAllString(sql, "")
-
 	var out []string
 	var cur strings.Builder
 	flush := func() {
@@ -135,29 +127,60 @@ func statements(sql string) []string {
 	}
 
 	for i := 0; i < len(sql); {
-		switch c := sql[i]; c {
-		case ';':
-			flush()
-			i++
-		case '\'', '"':
-			end := scanQuoted(sql, i, c)
+		switch {
+		case strings.HasPrefix(sql[i:], "--"):
+			if j := strings.IndexByte(sql[i:], '\n'); j >= 0 {
+				i += j // keep the newline, it still separates tokens
+			} else {
+				i = len(sql)
+			}
+		case strings.HasPrefix(sql[i:], "/*"):
+			i = skipBlockComment(sql, i)
+		case sql[i] == '\'' || sql[i] == '"':
+			end := scanQuoted(sql, i, sql[i])
 			cur.WriteString(sql[i:end])
 			i = end
-		case '$':
+		case sql[i] == '$':
 			if end := scanDollar(sql, i); end > i {
 				cur.WriteString(sql[i:end])
 				i = end
 				continue
 			}
-			cur.WriteByte(c)
+			cur.WriteByte(sql[i])
+			i++
+		case sql[i] == ';':
+			flush()
 			i++
 		default:
-			cur.WriteByte(c)
+			cur.WriteByte(sql[i])
 			i++
 		}
 	}
 	flush()
 	return out
+}
+
+// skipBlockComment returns the index just past the /* */ run starting at i.
+// Postgres block comments nest, so this tracks depth rather than stopping at the
+// first */.
+func skipBlockComment(s string, i int) int {
+	depth := 0
+	for j := i; j < len(s); {
+		switch {
+		case strings.HasPrefix(s[j:], "/*"):
+			depth++
+			j += 2
+		case strings.HasPrefix(s[j:], "*/"):
+			depth--
+			j += 2
+			if depth == 0 {
+				return j
+			}
+		default:
+			j++
+		}
+	}
+	return len(s)
 }
 
 // scanQuoted returns the index just past the '...' or "..." run starting at i,
