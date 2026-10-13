@@ -112,6 +112,20 @@ describe('listDeliveries (browser client)', () => {
     });
   });
 
+  it('reports an error for an empty-string next_cursor', async () => {
+    // '' is not null, so the grid would offer Load more; but the request
+    // builder only serializes a truthy cursor, so the click omits it and the
+    // backend answers page one, appending rows already on screen and leaving
+    // Load more showing. An unbounded duplicate loop is worse than an error.
+    respondWith({ data: [makeDelivery('d-1')], next_cursor: '' });
+
+    await expect(listDeliveries()).resolves.toEqual({
+      deliveries: [],
+      nextCursor: null,
+      error: 'The server returned a response that could not be read.',
+    });
+  });
+
   it('accepts a genuinely empty page, which has data but no rows', async () => {
     respondWith({ data: [], next_cursor: null });
 

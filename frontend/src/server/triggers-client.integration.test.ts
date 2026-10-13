@@ -116,6 +116,15 @@ describe('listDeliveries (server client)', () => {
     });
   });
 
+  it('refuses an empty-string next_cursor', async () => {
+    // Not null, so a consumer offers Load more; but a falsy cursor is omitted
+    // from the next request, so the backend answers page one and the rows on
+    // screen are appended again. The contract is null or a non-empty string.
+    respondWith({ deliveries: [makeDelivery('d-1')], has_next_page: true, next_cursor: '' });
+
+    await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);
+  });
+
   it('refuses an envelope whose has_next_page contradicts its next_cursor', async () => {
     // Upstream derives has_next_page as `nextCursor != ""` and writes
     // next_cursor only when non-empty, so these two cannot legitimately
