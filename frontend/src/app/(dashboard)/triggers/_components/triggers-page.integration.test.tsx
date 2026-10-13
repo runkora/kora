@@ -323,6 +323,31 @@ describe('TriggersPage deliveries paging', () => {
     expect(screen.getByText('Could not load deliveries.')).toBeInTheDocument();
   });
 
+  it('does not claim "no deliveries" while the retry is still in flight', async () => {
+    // fetchDeliveries opens every request with `error: null`, so between the
+    // Retry click and the response landing the page has no rows, no cursor and
+    // no error. The grid fell through to "No failed deliveries" there: the same
+    // untrue claim the error arm above exists to prevent, about a request that
+    // is still running.
+    renderPage([serverRow('d1')], 'cursor-1');
+    await openDeliveriesTab();
+
+    await userEvent.selectOptions(statusFilter(), 'failed');
+    (await request(0)).fail('deliveries backend is unavailable');
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+
+    // The retry is deliberately left in flight.
+    await request(1);
+    await waitFor(() => {
+      expect(screen.getByText('Loading deliveries...')).toBeInTheDocument();
+    });
+    expect(screen.queryByText('No failed deliveries.')).not.toBeInTheDocument();
+  });
+
   it('announces the failure to assistive technology', async () => {
     renderPage([serverRow('d1')], 'cursor-1');
     await openDeliveriesTab();

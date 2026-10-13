@@ -416,11 +416,19 @@ export function TriggersPage({
               // A failed request clears the rows, so without this the grid
               // would say "No failed deliveries" next to the error: a claim
               // about the data from a request that never returned any.
-              page.error !== null
-                ? 'Could not load deliveries.'
-                : page.applied === 'all'
-                  ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
-                  : `No ${page.applied} deliveries.`
+              //
+              // loading is checked first because the request opener clears
+              // error, so a retry after a failed filter change sits with no
+              // rows, no cursor and no error. Falling through to "No failed
+              // deliveries" there states the same untrue thing the error arm
+              // exists to prevent, about a request still in flight.
+              page.loading
+                ? 'Loading deliveries...'
+                : page.error !== null
+                  ? 'Could not load deliveries.'
+                  : page.applied === 'all'
+                    ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
+                    : `No ${page.applied} deliveries.`
             }
           />
           {/* Below the grid, because it extends the set the grid pages over
