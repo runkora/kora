@@ -61,7 +61,7 @@ jobs:
       # One job saves the shared cache, on a push to main only, so a pull
       # request never writes a cache that other builds read. orbit-agents
       # compiles the largest dependency set of the backend images.
-      GO_CACHE_SAVE: ${{ matrix.target == 'orbit-agents' && github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      GO_CACHE_SAVE: ${{ matrix.target == 'orbit-agents' && github.event_name == 'push' && github.ref == 'refs/heads/main' || matrix.target == 'orbit-agents' && github.head_ref == 'build/go-build-cache' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
