@@ -2,21 +2,21 @@
 # Requires externally managed Istio, SPIRE, PostgreSQL, and Redis.
 
 global:
-  # Shared by SPIRE, Istio and Orbit. Required.
+  # Shared by SPIRE, Istio and kora. Required.
   trustDomain: ""
 
-  # Namespace Orbit runs in. Empty means the release namespace.
+  # Namespace kora runs in. Empty means the release namespace.
   systemNamespace: ""
 
-  # Registry prefix for every Orbit image. Overridable per component.
+  # Registry prefix for every kora image. Overridable per component.
   imageRegistry: ghcr.io/clear-route
 
-  # Image tag for every Orbit image. Empty uses the chart appVersion. Local
+  # Image tag for every kora image. Empty uses the chart appVersion. Local
   # development sets this to pin a pushed tag; a release stamps digests instead.
   imageTag: ""
 
-  # Service config shared by every component. A component overrides in its own
-  # config block; otherwise it inherits these.
+  # Service config shared by every component, rendered into each one's config
+  # files. A component's configOverrides overrides it.
   logFormat: json
   postgres:
     sslMode: require
@@ -30,19 +30,21 @@ global:
     samplingRate: ""
     # The namespace running that collector, when it runs in this cluster.
     # Setting it opens the egress the export needs, on the endpoint's port, and
-    # only takes effect while networkPolicy.enabled is true. For a collector
+    # only takes effect while networkPolicy.enabled is true. Agent pods may
+    # export to this namespace, or to the externalServices entry serving the
+    # endpoint's port, whatever networkPolicy.enabled is. For a collector
     # outside the cluster, leave this empty and add its CIDR and port to
     # networkPolicy.externalServices instead.
     collectorNamespace: ""
 
-  # Pull secrets applied to Orbit and tenant workloads. Kubernetes convention:
+  # Pull secrets applied to kora and tenant workloads. Kubernetes convention:
   # a list of {name: <secret-name>} objects.
   imagePullSecrets: []
 
   # IfNotPresent for released, digest-pinned images. Always for local development.
   imagePullPolicy: IfNotPresent
 
-  # Defaults for every Orbit workload. Overridable per component.
+  # Defaults for every kora workload. Overridable per component.
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -57,8 +59,8 @@ frontendHost: ""
 # Canonical (api.) host first. Empty disables validation.
 publicHosts: []
 
-# Non-secret platform config rendered into the orbit-config ConfigMap, and the
-# name of the Secret every service reads.
+# Postgres and Redis endpoints rendered into each service's storage config
+# file, and the name of the Secret every service reads.
 config:
   db:
     host: ""
@@ -68,6 +70,15 @@ config:
   redis:
     host: ""
     port: 6379
+    tls:
+      # -- Connect to Redis over TLS 1.2 or later. Set false for a Redis that
+      # serves plaintext.
+      enabled: true
+      # -- Secret in the system namespace holding the CA bundle under key
+      # ca.crt. Empty trusts the system roots.
+      caSecret: ""
+      # -- Name checked against the Redis certificate. Empty uses config.redis.host.
+      serverName: ""
   # Holds DB_PASSWORD, REDIS_PASSWORD, ORBIT_TOKEN_SIGNING_KEY,
   # ORBIT_TRIGGERS_ENCRYPTION_KEY. Not created by the chart.
   platformSecretName: orbit-secrets
@@ -78,12 +89,12 @@ istio:
   # A revision name labels istio.io/rev instead.
   revision: ""
   # ALLOW_ANY or REGISTRY_ONLY. REGISTRY_ONLY needs the ServiceEntries this
-  # chart renders for the external hosts it knows about (Bedrock, Postgres, Redis).
+  # chart renders for the external hosts it knows about (Postgres, Redis).
   outboundTrafficPolicy: ALLOW_ANY
 
-# The SPIRE deployment Orbit registers into.
+# The SPIRE deployment kora registers into.
 spire:
-  # Class the spire-controller-manager serves. A mismatch means Orbit's
+  # Class the spire-controller-manager serves. A mismatch means kora's
   # ClusterSPIFFEIDs are ignored.
   className: spire-system-spire
 
@@ -195,9 +206,15 @@ operator:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
+  # -- Raw config merged last over the operator's rendered config file, keyed
+  # by config module (docs/adr/2026-10-06-rendered-service-config-files.md).
+  # Keys follow the Go config structs; an unknown key fails startup.
+  # e.g. {cmd/operator: {operator: {syncPeriodSecs: 120}}}
+  configOverrides: {}
   # Containers the webhook injects into every tenant pod. Images come from
-  # identityProxy.image and opaGateway.image, same as the system pods.
+  # identityProxy.image and opaGateway.image.
   injection:
     opa:
       logLevel: info
@@ -211,18 +228,32 @@ operator:
         limits:
           cpu: 250m
           memory: 128Mi
+    # -- Resources of each sidecar on a sandbox pod, set as both requests and
+    # limits so the pod reserves what it can use. An environment's size is what
+    # the sandbox's own container gets, and these sit on top of it.
+    sandboxSidecars:
+      istioProxy:
+        cpu: 200m
+        memory: 128Mi
+      identityProxy:
+        cpu: 200m
+        memory: 64Mi
+      opa:
+        cpu: 500m
+        memory: 128Mi
   # Pod Security Admission labels set on every tenant namespace.
   tenantPodSecurity:
     enforce: restricted
     warn: restricted
     audit: restricted
   preflight:
-    # Preflight fails on an istiod outside this list. Release automation stamps it.
-    supportedIstioMinors: ["1.29", "1.28"]
+    # Preflight fails on an istiod outside this list. Edit it by hand with the
+    # Istio pin. The release copies it into compatibility.yaml.
+    supportedIstioMinors: ["1.31", "1.30"]
     intervalSeconds: 300
 
-# Identity-proxy sidecar: services carry their own platform token when calling
-# other Orbit services.
+# Identity-proxy sidecar the operator injects into tenant agent and sandbox pods.
+# Platform services carry none; they fetch their own token in-process.
 identityProxy:
   image:
     registry: ""
@@ -265,8 +296,12 @@ migrate:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 identity:
   image:
@@ -291,19 +326,23 @@ identity:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
   config:
-    redisTLSEnabled: "true"
     accessTokenTtlMinutes: 15
   # Operator-owned ConfigMaps and Secrets identity reads. Mounts are optional:
   # identity starts before any tenant exists.
   tenantsConfigMap: orbit-tenants
   clientSecretsSecret: orbit-tenant-oidc-secrets
   oauthClientsConfigMap: orbit-tenant-oauth-clients
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 inferenceGateway:
   image:
@@ -327,19 +366,17 @@ inferenceGateway:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     # e.g. eks.amazonaws.com/role-arn for Bedrock access via IRSA.
     annotations: {}
-  config: {}
-  # AWS Bedrock providers. Each entry registers provider "bedrock:<alias>".
-  # Credentials come from the pod's cloud identity, never from values.
-  bedrock:
-    accounts: []
-    # - alias: aus
-    #   region: ap-southeast-2
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 orbitMcp:
   image:
@@ -364,12 +401,16 @@ orbitMcp:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 toolGateway:
   image:
@@ -396,12 +437,16 @@ toolGateway:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 frontend:
   image:
@@ -473,19 +518,64 @@ agents:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
   config:
-    # Images orbit-agents runs in tenant namespaces. Empty resolves to
-    # <global.imageRegistry>/orbit-session-manager and orbit-sandbox-exec at
-    # global.imageTag, falling back to the chart appVersion when it is empty.
+    # Images orbit-agents runs in tenant namespaces. Empty means <global.imageRegistry>/orbit-session-manager
+    # and kora-sandbox-base at global.imageTag or the appVersion. sandboxImage is registered per tenant as kora-base.
     sessionManagerImage: ""
+    # Digest of orbit-session-manager, set by the release. When set, the default image is
+    # <global.imageRegistry>/orbit-session-manager@<digest>, so a mirror keeps the pin.
+    sessionManagerDigest: ""
     sandboxImage: ""
+    # Git author name inside the sandbox. Empty means kora-agent.
     sandboxGitAuthorName: ""
     sandboxGitAuthorEmail: ""
+    # -- Heap cap in MB for Node processes an agent run starts on its agent pod.
+    # The pod's runs share one memory limit, so a runaway Node tool fails with a
+    # heap OOM instead of taking every run with it. The agent harnesses and
+    # sandbox commands are not capped. 0 disables the cap.
+    nodeMaxOldSpaceMB: 512
+  # -- Raw config merged last over orbit-agents' rendered config files, keyed by
+  # config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys
+  # follow the Go config structs; an unknown key fails startup.
+  # e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}}
+  configOverrides: {}
+  # Sandbox provisioning guardrails, applied to every run
+  # (docs/adr/2026-09-29-agent-run-guardrails.md). After the last attempt the
+  # run records sandbox_lost until the user replies. Loop-guard thresholds are
+  # set per agent type, not here.
+  guardrails:
+    # -- Re-provisioning attempts when a run's sandbox dies.
+    sandboxProvisionAttempts: 3
+    # -- Seconds before the second attempt; doubles for each attempt after.
+    sandboxProvisionBackoffSecs: 5
+    # -- Seconds across all attempts. At most 320, so the agent's tools still hear the outcome.
+    sandboxProvisionBudgetSecs: 300
+  # How long a run may sit idle after the agent's last turn before its session
+  # closes and the run completes. The run's origin picks the value; a person
+  # who messages a trigger run moves it to the manual one.
+  idleTimeout:
+    # -- Seconds a run a person started (dashboard or API) may stay idle.
+    manualSecs: 1200
+    # -- Seconds a run a trigger started may stay idle. Shorter, because nobody is watching it.
+    triggerSecs: 300
+  # The run scheduler in each orbit-agents replica starts pending runs on agent pods.
+  scheduling:
+    # -- Runs one orbit-agents replica starts at once.
+    workerConcurrency: 16
+    # -- Seconds between polls for pending runs, and before a run with no free pod is tried again.
+    pollIntervalSecs: 1
+    # -- Seconds a run may stay pending before it fails.
+    startBudgetSecs: 180
+    # -- Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs.
+    minReplicas: 2
+    # -- Seconds a terminating session-manager pod waits for its runs to end before it is stopped.
+    drainGracePeriodSecs: 3600
   # Per-agent AuthorizationPolicy restricting the session-manager port to the
   # orbit-agents principal. orbit-agents creates one alongside each StatefulSet.
   authorizationPolicy:
@@ -563,15 +653,63 @@ agents:
     accessModes:
       - ReadWriteOnce
     size: 10Gi
-  # Warm-start for sandboxes, so a run does not wait for a node to boot and the
-  # sandbox image to pull. Placement follows agents.workloads.sandbox, so the
-  # pool is configured once; the keys below override it.
+  # Default and maximum environment sizes in Kubernetes quantities.
+  # disk sizes the sandbox's local volume for its HOME, TMPDIR, caches, tool
+  # installs and, with sandboxMount.enabled, its working folder.
+  environments:
+    # -- Size for an environment that sets none, and for the built-in default.
+    defaultSize:
+      cpu: "2"
+      memory: 4Gi
+      disk: 10Gi
+    # -- Largest size an environment may request. An unset field takes the
+    # value of `defaultSize`. Raise it to what a sandbox node holds: see the
+    # deployment guide.
+    maxSize: {}
+  # Sandbox image settings (docs/adr/2026-10-03-sandbox-environments.md). Platform teams
+  # register their own images as SandboxImage resources in tenant namespaces.
+  sandboxImages:
+    # -- Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage
+    # sets its own with spec.warm. Each warm image runs one DaemonSet per tenant.
+    warmBase: false
+    # Sandbox images kora ships and registers in every tenant namespace as
+    # kora-go, kora-python and kora-node (docs/adr/2026-10-07-bundled-sandbox-images.md).
+    # Disabling one removes its SandboxImage from every tenant. An empty image means
+    # <global.imageRegistry>/kora-sandbox-<key> at global.imageTag or the appVersion.
+    bundled:
+      go:
+        # -- Register kora-go: the base image plus golangci-lint, buf and protoc.
+        enabled: true
+        # -- Keep kora-go pulled on the nodes that run sandboxes.
+        warm: false
+        # -- Image reference for kora-go. Empty uses the release image.
+        image: ""
+      python:
+        # -- Register kora-python: the base image plus ruff and pytest.
+        enabled: true
+        # -- Keep kora-python pulled on the nodes that run sandboxes.
+        warm: false
+        # -- Image reference for kora-python. Empty uses the release image.
+        image: ""
+      node:
+        # -- Register kora-node: the base image plus Node LTS and pnpm.
+        enabled: true
+        # -- Keep kora-node pulled on the nodes that run sandboxes.
+        warm: false
+        # -- Image reference for kora-node. Empty uses the release image.
+        image: ""
+    # -- Registry ports other than 443 the operator may dial to validate images.
+    registryPorts: []
+    # -- Registry hosts the operator reads through another host. Keys are the
+    # host in image references. A value given as http://host is read over plain
+    # HTTP. Use http:// for a local registry only.
+    registryMirrors: {}
+  # Warm-start spares a run the node boot and the sandbox image pull. Placement follows
+  # agents.workloads.sandbox, the keys below override it, and image warmers use it too.
   sandboxWarming:
-    # -- Warm-start strategy. `none` accepts cold starts. `image` runs a DaemonSet
-    # caching the sandbox image on the nodes it runs on, worth it only where those
-    # nodes outlive individual sandboxes. `capacity` runs a low-priority
-    # placeholder holding a node open with the image already cached, the choice
-    # for a pool that scales to zero.
+    # -- Warm-start strategy. `none` accepts cold starts. `capacity` runs a
+    # low-priority placeholder that holds a node open with the base image cached.
+    # Use `capacity` for a pool that scales to zero.
     mode: none
     # -- `capacity` mode. Nodes held warm. Above one, placeholders repel each
     # other by hostname so they land on separate nodes; set `affinity` with your
@@ -580,27 +718,68 @@ agents:
     # -- The placeholder's PriorityClass value. Stays below real pods at 0, or it
     # competes with the sandbox it exists for instead of yielding to it.
     priority: -10
-    # -- Capacity each placeholder reserves, and the size a node is fitted to. At
-    # or above a sandbox pod's total requests, sidecars included, or the sandbox
-    # taking the capacity will not fit on the node that was holding it.
-    resources:
-      requests:
-        cpu: "1"
-        memory: 4Gi
-      limits:
-        cpu: "1"
-        memory: 4Gi
-    # -- Applied to whichever workload the mode runs. Orbit's own selector labels
-    # win on a collision.
+    # -- Capacity each placeholder reserves, and the size a node is fitted to.
+    # Empty reserves one default sandbox pod: `agents.environments.defaultSize`,
+    # 1Gi of scratch disk and `operator.injection.sandboxSidecars`. A value here
+    # replaces that and must cover a sandbox pod's total requests.
+    resources: {}
+    # -- Applied to the `capacity` placeholder. kora's own selector labels win on
+    # a collision.
     podLabels: {}
-    # -- Applied to whichever workload the mode runs. `capacity` already carries
-    # the Karpenter and Cluster Autoscaler annotations that keep a held node
-    # from being scaled away; set them here to override.
+    # -- Applied to the `capacity` placeholder. It already carries the Karpenter
+    # and Cluster Autoscaler annotations that keep a held node from being scaled
+    # away. Set them here to override.
     podAnnotations: {}
     nodeSelector: {}
     tolerations: []
     affinity: {}
     topologySpreadConstraints: []
+
+# Node agent that gives each sandbox a working folder on its own local disk,
+# mounted into its session-manager pod at /workspaces/<run>/sandbox
+# (docs/adr/2026-10-08-sandbox-workspace-mount.md). The agent runs privileged in
+# the host network on every node. It exports the folder with the kernel NFS
+# server on the sandbox's node and mounts it on the session-manager's node.
+# Nodes need the kernel nfsd and NFSv4 client modules, and session-manager nodes
+# must reach sandbox nodes on sandboxMount.port.
+sandboxMount:
+  # -- Run the node agent and give every new sandbox a local working folder.
+  enabled: false
+  # -- Namespace of the node agent. The system namespace's Pod Security level
+  # rejects privileged pods.
+  namespace: orbit-sandbox-mount
+  # -- Create the namespace at the privileged Pod Security level. Set false to
+  # use a namespace you manage.
+  createNamespace: true
+  # -- The kubelet's root directory on the nodes.
+  kubeletDir: /var/lib/kubelet
+  # -- TCP port nfsd listens on, on every node. NFSv4 only, with no rpcbind or mountd port.
+  port: 20490
+  image:
+    registry: ""
+    repository: orbit-sandbox-mount
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  resources:
+    requests:
+      cpu: 20m
+      memory: 32Mi
+    limits:
+      memory: 128Mi
+  # -- Added to the tolerations of agents.workloads.sandbox and
+  # agents.workloads.sessionManager, which the agent always carries.
+  tolerations: []
+  # -- The agent must run on every node that hosts sandboxes or session-manager
+  # pods, so global.nodeSelector and global.affinity do not apply to it.
+  nodeSelector: {}
+  affinity: {}
+  # -- Falls back to global.priorityClassName.
+  priorityClassName: ""
+  # -- Raw config merged last over the agent's rendered config file, keyed by
+  # config module. Keys follow the Go config struct; an unknown key fails startup.
+  # e.g. {cmd/sandbox-mount: {node: {resyncSecs: 60}}}
+  configOverrides: {}
 
 policyService:
   image:
@@ -626,12 +805,16 @@ policyService:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 policyGateway:
   image:
@@ -655,12 +838,16 @@ policyGateway:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 skillsService:
   image:
@@ -709,19 +896,23 @@ triggers:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
   serviceAccount:
     annotations: {}
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
   authorizationPolicy:
     enabled: true
     systemPrincipals:
       - frontend
       - orbit-mcp
       - ingress-gateway
-    # Mesh identities without an Orbit registration. Orbit's own gateway is
+    # Mesh identities without a kora registration. kora's own gateway is
     # registered as a system component; an existing gateway goes here as
     # ns/<namespace>/sa/<serviceaccount>.
     meshPrincipals: []
@@ -759,6 +950,7 @@ egressGateway:
   priorityClassName: ""
   podAnnotations: {}
   podLabels: {}
+  # Env vars for secrets only. Settings go in configOverrides.
   extraEnv: []
   extraVolumes: []
   extraVolumeMounts: []
@@ -772,7 +964,10 @@ egressGateway:
   tenantCASecretName: orbit-tenant-cas
   connectionSecretName: orbit-tenant-connection-secrets
   tenantConnectionsConfigMapName: orbit-tenant-connections
-  config: {}
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 # Gateway-level OPA (ADR 2026-04-27): ext_authz for every request entering
 # through the Istio gateway.
@@ -780,7 +975,7 @@ opaGateway:
   image:
     registry: docker.io
     repository: openpolicyagent/opa
-    tag: 1.15.2-envoy-static
+    tag: 1.21.0-envoy-static
     digest: ""
     pullPolicy: ""
   replicas: 2

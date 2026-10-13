@@ -1,6 +1,6 @@
 # Reference: Component Placement, Three-Tier Model
 
-**Audience:** Engineers (human and AI) creating or extracting any reusable UI component in the Orbit frontend.
+**Audience:** Engineers (human and AI) creating or extracting any reusable UI component in the kora frontend.
 **Last updated:** 2026-04-28
 **Authoritative ADR:** [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md)
 
@@ -14,11 +14,11 @@ All UI components belong to exactly one of three tiers. The tier determines the 
 
 | Tier  | Name             | Filesystem path                                       | Import path                             | Storybook title prefix                                                  |
 | ----- | ---------------- | ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| **1** | Terra            | `frontend/src/packages/terra/src/components/`         | `import { X } from '@orbit/terra'`      | `Terra/Atoms/`, `Terra/Molecules/`, `Terra/Layout/`, `Terra/Organisms/` |
-| **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@orbit/components'` | `App/Shared/`                                                           |
+| **1** | Hades            | `frontend/src/packages/hades/src/components/`         | `import { X } from '@orbit/hades'`      | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
+| **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@orbit/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
 | **3** | Feature-scoped   | `frontend/src/app/(dashboard)/[feature]/_components/` | relative import                         | none required                                                           |
 
-> **`App/Shared/` is a Storybook `title` field value: a sidebar path, not a filesystem directory.** Setting `title: 'App/Shared/MetricCard'` in a story file's meta places it under `App → Shared → MetricCard` in the Storybook sidebar. The story file itself lives at `frontend/src/components/`.
+> **`App/Atoms/` and its siblings are Storybook `title` field values: sidebar paths, not filesystem directories.** Setting `title: 'App/Atoms/StatusBadge'` in a story file's meta places it under `App → Atoms → StatusBadge` in the Storybook sidebar. The story file itself lives at `frontend/src/components/`.
 
 ---
 
@@ -26,17 +26,30 @@ All UI components belong to exactly one of three tiers. The tier determines the 
 
 The `title` field in a story's `meta` object sets its position in the Storybook sidebar. These are sidebar hierarchy strings, not filesystem paths.
 
-| Tier               | Story title prefix | Example                              |
-| ------------------ | ------------------ | ------------------------------------ |
-| Tier 1: atoms      | `Terra/Atoms/`     | `title: 'Terra/Atoms/Icon'`          |
-| Tier 1: molecules  | `Terra/Molecules/` | `title: 'Terra/Molecules/Modal'`     |
-| Tier 1: layout     | `Terra/Layout/`    | `title: 'Terra/Layout/Stack'`        |
-| Tier 1: organisms  | `Terra/Organisms/` | `title: 'Terra/Organisms/DataTable'` |
-| Tier 2: app shared | `App/Shared/`      | `title: 'App/Shared/StatusBadge'`    |
+| Tier              | Story title prefix | Example                                  |
+| ----------------- | ------------------ | ---------------------------------------- |
+| Tier 1: atoms     | `Hades/Atoms/`     | `title: 'Hades/Atoms/Icon'`              |
+| Tier 1: molecules | `Hades/Molecules/` | `title: 'Hades/Molecules/Modal'`         |
+| Tier 1: layout    | `Hades/Layout/`    | `title: 'Hades/Layout/Stack'`            |
+| Tier 1: organisms | `Hades/Organisms/` | `title: 'Hades/Organisms/DataTable'`     |
+| Tier 2: atoms     | `App/Atoms/`       | `title: 'App/Atoms/StatusBadge'`         |
+| Tier 2: molecules | `App/Molecules/`   | `title: 'App/Molecules/ScopePicker'`     |
+| Tier 2: organisms | `App/Organisms/`   | `title: 'App/Organisms/ConnectionCards'` |
+
+### Choosing atom, molecule or organism
+
+The Hades sub-tier follows what a component is built from:
+
+| Sub-tier  | Rule                                                                                    | Examples                                                   |
+| --------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Atoms     | A single primitive. Uses no other Hades component beyond `Icon`, layout and typography. | `Button`, `Badge`, `Progress`, `NavItem`                   |
+| Molecules | Composes atoms for one job.                                                             | `CodeBlock`, `Indicator`, `PageSectionHeader`, `FormField` |
+| Organisms | Composes molecules or many atoms and owns its own state or flow.                        | `DataTable`, `Wizard`                                      |
+| Layout    | Arranges other content and has no content of its own.                                   | `Stack`, `Grid`, `PageLayout`                              |
 
 ---
 
-## Terra Authoring Conventions (Tier 1)
+## Hades Authoring Conventions (Tier 1)
 
 New Tier 1 components must follow these patterns (per [terra-frontend-design-system](../../../docs/adr/2026-03-25-terra-frontend-design-system.md)):
 
@@ -47,26 +60,33 @@ New Tier 1 components must follow these patterns (per [terra-frontend-design-sys
 - Static Tailwind class strings in variant maps: no dynamic string concatenation
 - A Storybook story file in the same directory with `tags: ['autodocs']`
 
+**Exception: Dialog-shell composites.** A component whose entire job is to manage
+a Radix `Dialog` lifecycle (open state, focus, scroll lock) behind a small,
+deliberately curated prop surface, not a generic element consumers decorate with
+arbitrary DOM props, is exempt from the `forwardRef` + `ComponentPropsWithoutRef`
+rule. `Modal` (`open`/`onClose`/`size`/`children`) is the existing precedent;
+`BottomSheet` (`open`/`onOpenChange`/`title`/`children`) follows the same shape
+for the same reason.
+
 ---
 
-## Available Terra Components (Tier 1)
+## Available Hades Components (Tier 1)
 
-All components below are exported from `@orbit/terra`. Never import from sub-paths.
+All components below are exported from `@orbit/hades`. Never import from sub-paths.
 
-> **`frontend/src/packages/terra/src/index.ts` is the authoritative export list.** This table is a curated view with usage notes; when the two disagree, the index is correct. If a lint error tells you to use a component, it exists in the index. Check there first, then add it here.
+> **`frontend/src/packages/hades/src/index.ts` is the authoritative export list.** This table is a curated view with usage notes; when the two disagree, the index is correct. If a lint error tells you to use a component, it exists in the index. Check there first, then add it here.
 
 ### Layout
 
-| Component           | Use instead of                  | Notes                                                                                                                        |
-| ------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Stack`             | `<div className="flex …">`      | Flex container. Props: `direction`, `gap`, `align`, `justify`, `wrap`, `asChild`, responsive variants.                       |
-| `Grid`              | `<div className="grid …">`      | CSS grid container. Props: `cols`, `gap`, `asChild`, responsive variants.                                                    |
-| `Section`           | `<section>`                     | Content grouping with optional `heading` + `description` (renders a semantic `<section>` + `<h2>`).                          |
-| `Navigation`        | `<nav>`                         | Sidebar nav landmark. Takes `aria-label` (default `'Main'`). This is what `no-raw-nav` tells you to use.                     |
-| `List`, `ListItem`  | `<ul>` / `<ol>` / `<li>`        | Semantic list container (`<ul>`, or `<ol>` via `ordered`) + item. Props: `gap`, `separator`. Use for `no-raw-list-elements`. |
-| `PageSectionHeader` | hand-rolled section header      | Section header: `title` (`Heading variant="title"`) + optional `description` + right-aligned `action`.                       |
-| `Show`              | `hidden md:block` / `md:hidden` | Responsive visibility gate. `<Show above="md">` or `<Show below="lg">`. Breakpoints: `sm`, `md`, `lg`, `xl`.                 |
-| `PageLayout`        | bare page `<div>`               | Top-level page shell for all dashboard pages (organism).                                                                     |
+| Component          | Use instead of                  | Notes                                                                                                                        |
+| ------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `Stack`            | `<div className="flex …">`      | Flex container. Props: `direction`, `gap`, `align`, `justify`, `wrap`, `asChild`, responsive variants.                       |
+| `Grid`             | `<div className="grid …">`      | CSS grid container. Props: `cols`, `gap`, `asChild`, responsive variants.                                                    |
+| `Section`          | `<section>`                     | Content grouping with optional `heading` + `description` (renders a semantic `<section>` + `<h2>`).                          |
+| `Navigation`       | `<nav>`                         | Sidebar nav landmark. Takes `aria-label` (default `'Main'`). This is what `no-raw-nav` tells you to use.                     |
+| `List`, `ListItem` | `<ul>` / `<ol>` / `<li>`        | Semantic list container (`<ul>`, or `<ol>` via `ordered`) + item. Props: `gap`, `separator`. Use for `no-raw-list-elements`. |
+| `Show`             | `hidden md:block` / `md:hidden` | Responsive visibility gate. `<Show above="md">` or `<Show below="lg">`. Breakpoints: `sm`, `md`, `lg`, `xl`.                 |
+| `PageLayout`       | bare page `<div>`               | Top-level page shell for all dashboard pages (organism).                                                                     |
 
 ### Typography
 
@@ -81,17 +101,20 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 
 | Component                                                 | Use instead of                     | Notes                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Icon`                                                    | `import { X } from 'lucide-react'` | **Always use this. Never import from `lucide-react` directly.** Props: `name` (`IconName`), `size` (`2xs`–`xl`), `color`, `container`, `containerVariant` (`accent`, `surface`, `muted`). To add a new icon: propose the icon name and source to a human engineer for approval, then add to `src/packages/terra/src/components/icon/registry.ts`. |
+| `Icon`                                                    | `import { X } from 'lucide-react'` | **Always use this. Never import from `lucide-react` directly.** Props: `name` (`IconName`), `size` (`2xs`–`xl`), `color`, `container`, `containerVariant` (`accent`, `surface`, `muted`). To add a new icon: propose the icon name and source to a human engineer for approval, then add to `src/packages/hades/src/components/icon/registry.ts`. |
+| `KoraMark`                                                | the Kora brand mark                | The circle cut in half, as an SVG. Props: `size` (height in px), `title`.                                                                                                                                                                                                                                                                         |
+| `CopyButton`                                              | custom copy button                 | Icon button that copies `value` and shows a check. Never submits a surrounding form.                                                                                                                                                                                                                                                              |
 | `Button`                                                  | `<button>`                         | Variants: `default`, `destructive`, `outline`, `secondary`, `ghost`, `link`. Sizes: `sm`, `md`, `lg`, `icon-sm`, `icon`.                                                                                                                                                                                                                          |
 | `Badge`                                                   | styled `<span>`                    | Variants: `default`, `secondary`, `destructive`, `outline`.                                                                                                                                                                                                                                                                                       |
+| `TruncatingBadge`                                         | `Badge` in a shrinkable wrapper    | Props: `label`, `variant` (`secondary`, `outline`, `elevated`), `textColor`. Ends in an ellipsis with the full label as the tooltip.                                                                                                                                                                                                              |
 | `Alert`                                                   | custom warning divs                | Informational / warning / error banner.                                                                                                                                                                                                                                                                                                           |
 | `Callout`                                                 | `<aside>` info box                 | Bordered informational callout box. Variants: `info`, `warning`, `success`, `error`. This is what `no-raw-aside` points you to.                                                                                                                                                                                                                   |
 | `Input`                                                   | `<input>`                          | Has `hasError?: boolean`, `mono`, `compact`, and `startAdornment?` / `endAdornment?` (React nodes pinned inside the field edges: currency signs, unit labels; named to avoid the HTML `prefix` attribute).                                                                                                                                        |
 | `Textarea`                                                | `<textarea>`                       | Multi-line text input.                                                                                                                                                                                                                                                                                                                            |
 | `NativeSelect`                                            | `<select>`                         | Native select with consistent styling.                                                                                                                                                                                                                                                                                                            |
-| `Checkbox`                                                | `<input type="checkbox">`          | Styled checkbox. Supports `checked`, `indeterminate`, `onChange`, sizes `sm`/`md`/`lg`. Use for `no-raw-form-elements`.                                                                                                                                                                                                                           |
+| `Checkbox`                                                | `<input type="checkbox">`          | Styled checkbox. Supports `checked`, `indeterminate`, `onChange`, sizes `md`/`lg`. Use for `no-raw-form-elements`.                                                                                                                                                                                                                                |
 | `RadioGroup`, `RadioGroupItem`                            | `<input type="radio">`             | Single-select group (Radix). `RadioGroupItem` is the bare 18 px circle: compose with `Label`/`Text` or `Card selected` for card pickers. `value`/`onValueChange` or `defaultValue`.                                                                                                                                                               |
-| `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent` | hand-rolled expand/collapse        | Radix expand/collapse region with `aria-expanded` wiring; unstyled beyond `data-slot` hooks. `open`/`onOpenChange` or `defaultOpen`. Trigger supports `asChild`.                                                                                                                                                                                  |
+| `Collapsible`, `CollapsibleTrigger`, `CollapsibleContent` | hand-rolled expand/collapse        | Radix expand/collapse region with `aria-expanded` wiring. `CollapsibleContent` animates open/close height by default (respects `prefers-reduced-motion`); all other visual treatment is left to the composition. `open`/`onOpenChange` or `defaultOpen`. Trigger supports `asChild`.                                                              |
 | `Toggle`                                                  | custom toggle                      | Toggle switch.                                                                                                                                                                                                                                                                                                                                    |
 | `ToggleRow`                                               | hand-rolled label + control row    | Labelled control row (label + optional description + a leading control like `Toggle`/`Checkbox`).                                                                                                                                                                                                                                                 |
 | `Label`                                                   | `<label>`                          | Accessible label.                                                                                                                                                                                                                                                                                                                                 |
@@ -104,7 +127,7 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 | `OrbitalLoader`                                           | custom spinner                     | Branded loading animation. Sizes `sm` / `md`.                                                                                                                                                                                                                                                                                                     |
 | `StatusDot`                                               | styled coloured `<span>` dot       | Status dot mapped to `--color-status-*` tokens. Optional `glow` halo for live/active states.                                                                                                                                                                                                                                                      |
 | `Indicator`                                               | absolutely-positioned dot          | Overlays a small notification status dot on the top-right of a child element.                                                                                                                                                                                                                                                                     |
-| `StepDot`, `StepConnector`                                | hand-rolled step markers           | Numbered step dots + connectors for onboarding/wizard flows and rank indicators. `StepDot` sizes `sm`/`md`/`lg` (30 px, mono) and `state` (`pending`/`current`/`complete`) for wizard rails; `StepConnector complete` tints the line accent.                                                                                                      |
+| `StepDot`, `StepConnector`                                | hand-rolled step markers           | Numbered step dots + connectors for onboarding/wizard flows and rank indicators. `StepDot` sizes `md`/`lg` (30 px, mono) and `state` (`pending`/`current`/`complete`) for wizard rails; `StepConnector complete` tints the line accent.                                                                                                           |
 | `Eyebrow`                                                 | hand-rolled ALL-CAPS `<span>`      | Compact uppercase overline label (11 px, bold, widened tracking, subtle). Replaces `Text as="span" size="micro" weight="heavy" color="subtle" transform="uppercase"`.                                                                                                                                                                             |
 | `SectionHeading`                                          | hand-rolled step/section header    | Builder-motif section opener: accent icon tile + `subsection` title + optional muted purpose statement. Props: `icon` (`IconName`), `title`, `description?`.                                                                                                                                                                                      |
 | `DragCard`                                                | custom draggable card              | Card with `dragging` / `dropTarget` visual states for drag-and-drop lists.                                                                                                                                                                                                                                                                        |
@@ -119,7 +142,7 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 | `FormField`                                                                                    | Composes `Label`, `Field`, `FieldHint`, `FieldError` with auto-wired aria attributes. Use `useFormField()` in custom inputs to read `id`, `hasError`, `errorId`.                                                                                                                                                                                                                                             |
 | `ChatBubble`, `ChatBubbleActions`                                                              | Chat message bubble. `direction="start"` (inbound/AI) or `direction="end"` (user/outbound). `ChatBubbleActions` must be a direct child of `ChatBubble` to inherit `group-hover` visibility.                                                                                                                                                                                                                  |
 | `InputSurface`, `TypingIndicator`, `StreamingCursor`                                           | Chat primitives: styled chat-input container, animated "AI is typing" dots, and blinking streaming cursor.                                                                                                                                                                                                                                                                                                   |
-| `SidePanel`, `SidePanelHeader`, `SidePanelBody`, `SidePanelFooter`, `SidePanelAccessibleTitle` | Slide-over side panel (sizes `sm`/`md`/`lg`). This is what `no-raw-aside` / `no-raw-footer` point you to for panel chrome.                                                                                                                                                                                                                                                                                   |
+| `SidePanel`, `SidePanelHeader`, `SidePanelBody`, `SidePanelFooter`, `SidePanelAccessibleTitle` | Slide-over side panel (sizes `md`/`lg`). This is what `no-raw-aside` / `no-raw-footer` point you to for panel chrome.                                                                                                                                                                                                                                                                                        |
 | `ButtonGroup`                                                                                  | Horizontal row of buttons fused into a single segmented control.                                                                                                                                                                                                                                                                                                                                             |
 | `NavItem`                                                                                      | Sidebar nav item with `active` state and icon slot.                                                                                                                                                                                                                                                                                                                                                          |
 | `Tooltip`, `TooltipProvider`, `TooltipTrigger`, `TooltipContent`                               | Hover tooltip (Radix). Wrap app root with `TooltipProvider`.                                                                                                                                                                                                                                                                                                                                                 |
@@ -129,6 +152,12 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 | `SectionNav`                                                                                   | Vertical section rail: tile buttons with a numbered `StepDot` when inactive and an accent icon tile when active. Props: `sections` (`{ key, title, sub?, icon }[]`), `active`, `onSelect(key)`.                                                                                                                                                                                                              |
 | `SaveBar`                                                                                      | Floating bottom-centre save bar for dirty forms: pulsing status dot, optional error, Discard + Save actions; success state hides the actions. Props: `visible`, `saving?`, `success?`, `error?`, `onSave`, `onDiscard`, plus `dirtyLabel?`/`successLabel?`/`saveLabel?`/`discardLabel?`.                                                                                                                     |
 | `Progress`                                                                                     | Horizontal progress bar. Sizes `hairline` (2 px) / `sm` / `md` / `lg`; status-token colour variants.                                                                                                                                                                                                                                                                                                         |
+| `Donut`                                                                                        | Ring split into proportional segments with the total in the centre. Takes `segments`, `size` and `thickness`; `donutSegmentColor` gives a legend the matching dot colours.                                                                                                                                                                                                                                   |
+| `PageSectionHeader`                                                                            | Section header: `title` (`Heading variant="title"`) + optional `description` + right-aligned `action`. Replaces hand-rolled headers.                                                                                                                                                                                                                                                                         |
+| `StatCard`                                                                                     | One headline figure with a label, optional icon, `detail`, `delta` and `footer` slot. A `breakdown` draws a `Donut` with a legend. Tones: `default`, `healthy`, `degraded`, `error`.                                                                                                                                                                                                                         |
+| `CopyField`                                                                                    | Read-only value that copies on click. Props: `value`, `label`, `mono`, `bordered`, `wrap`, `fullWidth`, `ariaLabel`. Never submits a surrounding form.                                                                                                                                                                                                                                                       |
+| `EmptyState`                                                                                   | Zero-state placeholder: `icon`, `title`, `description`, optional `action`.                                                                                                                                                                                                                                                                                                                                   |
+| `ConfirmDialog`                                                                                | Destructive-action confirmation built on `Modal`: `open`, `onClose`, `title`, `description`, `confirmLabel`, `onConfirm`, `confirming?`, `error?`.                                                                                                                                                                                                                                                           |
 
 ### Data Display
 
@@ -146,10 +175,11 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 
 ### Hooks
 
-| Hook                       | Notes                                                                                           |
-| -------------------------- | ----------------------------------------------------------------------------------------------- |
-| `useDialog(open, onClose)` | Syncs a `<dialog>` element with React `open`/`onClose`. Returns `{ ref, handleBackdropClick }`. |
-| `useFormField()`           | Reads `id`, `hasError`, `errorId` from `FormField` context. Use inside custom input components. |
+| Hook                       | Notes                                                                                                                        |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `useDialog(open, onClose)` | Syncs a `<dialog>` element with React `open`/`onClose`. Returns `{ ref, handleBackdropClick }`.                              |
+| `useCopy(value)`           | Writes `value` to the clipboard. Returns `{ status, copy }`; `status` is `idle`, `copied` or `failed` and resets after 1.5s. |
+| `useFormField()`           | Reads `id`, `hasError`, `errorId` from `FormField` context. Use inside custom input components.                              |
 
 ---
 
@@ -163,15 +193,15 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 | `local/no-raw-interactive-elements` | `<button>`                                                                                         | `Button`                                                                                                            |
 | `local/no-raw-list-elements`        | `<ul>`, `<ol>`, `<li>`                                                                             | `List`, `List ordered`, `ListItem` (or `Stack` for pure layout containers)                                          |
 | `local/no-raw-form-elements`        | `<form>`, `<label>`, `<input>`, `<output>`                                                         | `Form`, `Label` (or `Checkbox` for labelled checkboxes), `Input` / `Checkbox`, `Output`                             |
-| `local/no-terra-classname`          | `className` on any Terra component                                                                 | Use the component's own props                                                                                       |
-| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                          | `<Icon name="…">`: **no escape hatch**. Add new icons to `src/packages/terra/src/components/icon/registry.ts` only. |
-| `local/no-terra-disable-comment`    | Any `eslint-disable` comment targeting a Terra rule                                                | There is no escape hatch. Use the correct Terra component                                                           |
+| `local/no-hades-classname`          | `className` on any Hades component                                                                 | Use the component's own props                                                                                       |
+| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                          | `<Icon name="…">`: **no escape hatch**. Add new icons to `src/packages/hades/src/components/icon/registry.ts` only. |
+| `local/no-hades-disable-comment`    | Any `eslint-disable` comment targeting a Hades rule                                                | There is no escape hatch. Use the correct Hades component                                                           |
 
 ---
 
 ## Structural ESLint rules (server/client boundary + filenames)
 
-Beyond the Terra design-system rules, three structural rules in
+Beyond the Hades design-system rules, three structural rules in
 `frontend/eslint.config.mjs` are **error-severity** and are among the most common
 first-PR failures. They enforce the App Router server/client boundary and a
 consistent filename convention. None have an escape hatch.
@@ -180,7 +210,7 @@ consistent filename convention. None have an escape hatch.
 | ------------------------------------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `local/require-server-only`          | `src/server/**/*.{ts,tsx}` and every Route Handler `src/app/api/**/route.ts` | Fires unless `import 'server-only'` is the **first** import in the file. Both a missing guard and a guard that is not first fail. Prevents server-only modules (backend URLs, session secret) leaking into the client bundle.                                   | Add `import 'server-only';` as the very first import (after any JSDoc block).                        |
 | `local/require-use-client-for-hooks` | `src/app/**/*.{ts,tsx}` except Route Handlers                                | Fires when a file imports a React client hook (`useState`, `useEffect`, `useRef`, …) from `react`, or a navigation hook (`useRouter`, `usePathname`, `useSearchParams`, …) from `next/navigation`, but has no `"use client"` directive.                         | Add `"use client";` as the first line of the file.                                                   |
-| `local/require-kebab-filename`       | all `src/**/*.{js,jsx,ts,tsx}` (including the Terra package)                 | Fires when a filename stem is not kebab-case (e.g. `HealthStatus.tsx`, `myComponent.ts`). Prevents case-sensitivity mismatches between macOS (case-insensitive) and Linux CI (case-sensitive). Dot-files and Next.js dynamic segments (`[id].tsx`) are skipped. | Rename the file to kebab-case (the error message suggests the exact name, e.g. `health-status.tsx`). |
+| `local/require-kebab-filename`       | all `src/**/*.{js,jsx,ts,tsx}` (including the Hades package)                 | Fires when a filename stem is not kebab-case (e.g. `HealthStatus.tsx`, `myComponent.ts`). Prevents case-sensitivity mismatches between macOS (case-insensitive) and Linux CI (case-sensitive). Dot-files and Next.js dynamic segments (`[id].tsx`) are skipped. | Rename the file to kebab-case (the error message suggests the exact name, e.g. `health-status.tsx`). |
 
 ## Checking Your Work
 
@@ -203,16 +233,12 @@ When you add a new component at any tier, update this document in the **same PR*
 
 Tier 2 components live at `frontend/src/components/` and are exported from `frontend/src/components/index.ts`. Import all Tier 2 components via `@orbit/components` (the `@orbit/*` path alias maps to `./src/*`).
 
-| Component           | Description                                                                                                                                                                                                                                             |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `EmptyState`        | Zero-state placeholder card: icon + title + description + optional CTA. Key props: `icon: IconName`, `title`, `description`, `action?: ReactNode`.                                                                                                      |
-| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                                                                 |
-| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                                                                |
-| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2).                                             |
-| `ConfirmDialog`     | Destructive-action confirmation modal (composes Terra `Modal`). Key props: `open`, `onClose`, `title`, `description`, `confirmLabel`, `onConfirm`, `confirming?`, `error?`, `children?`.                                                                |
-| `MetricCard`        | KPI display card: icon + label + value + optional delta row + optional breakdown list + optional "View all" footer link. Key props: `icon: ReactNode`, `label`, `value`, `delta?: { text, positive, positiveIsBad? }`, `breakdown?`, `href?`.           |
-| `EventFeedItem`     | Single row in a `divide-y` activity feed: status dot + primary label (mono) + optional meta + message + timestamp. Key props: `status: OrbitStatus`, `label`, `meta?`, `message`, `timestamp`. Rendered as `<li>`, wrap in `<ul className="divide-y">`. |
-| `ThemeToggle`       | Light/dark theme switch. Calls `setTheme(...)` from `next-themes`; renders sun/dark and moon/light buttons. No props. See [Theming](./terra-design-system.md#theming-light--dark).                                                                      |
+| Component           | Description                                                                                                                                                                                                 |
+| ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/hades` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                     |
+| `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                    |
+| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/hades`** (promoted from Tier 2). |
+| `RUN_STATE_DISPLAY` | Maps each run state to a status dot and a label (`pending` is Queued). Used by the agents run tables and the run page top bar. Type: `RunStateDisplay`.                                                     |
 
 Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/reference/app-components.md`.
 
@@ -220,10 +246,10 @@ Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/
 
 ## Related Documents
 
-| Document                                                                                                                      | What it covers                                                                          |
-| ----------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                                  | Full Terra component usage guide: props, examples, every lint rule explained            |
-| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API: EmptyState, StatusBadge, ConfirmDialog, MetricCard, EventFeedItem |
-| [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)                      |
-| [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                           |
-| [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                                           | Full Terra export list: source of truth for available component names                   |
+| Document                                                                                                                      | What it covers                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [`frontend/docs/reference/hades-design-system.md`](./hades-design-system.md)                                                  | Full Hades component usage guide: props, examples, every lint rule explained |
+| [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API: StatusBadge                                            |
+| [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)           |
+| [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                |
+| [`frontend/src/packages/hades/src/index.ts`](../../src/packages/hades/src/index.ts)                                           | Full Hades export list: source of truth for available component names        |

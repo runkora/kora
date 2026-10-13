@@ -1,22 +1,24 @@
-# Deploying Orbit
+# Deploying kora
 
-Orbit is two Helm charts. `orbit-crds` installs the custom resources; `orbit` installs the operator, the cluster-scoped identity and gateway resources, and the platform services.
+kora is two Helm charts. `orbit-crds` installs the custom resources; `orbit` installs the operator, the cluster-scoped identity and gateway resources, and the platform services.
 
-The `orbit` chart installs the operator alongside the platform services. Once running, the operator watches the Orbit CRDs and reconciles them into live tenants: it creates tenant namespaces, mints the per-tenant CA and OPA config, aggregates the registries, and serves the admission webhooks. 
+The `orbit` chart installs the operator alongside the platform services. Once running, the operator watches the kora CRDs and reconciles them into live tenants: it creates tenant namespaces, mints the per-tenant CA and OPA config, aggregates the registries, and serves the admission webhooks. 
 
 ## Installation paths
 
 | Path | When |
 |---|---|
-| Reference Helmfile | A blank cluster. Installs SPIRE, Istio, and both Orbit charts in dependency order. |
+| Reference Helmfile | A blank cluster. Installs SPIRE, Istio, and both kora charts in dependency order. |
 | Direct Helm | You already run SPIRE and Istio. Install the two charts against your own values. |
 | Argo CD | GitOps. An app-of-apps applies the same releases with sync waves. |
 
 ## Before you begin
 
-Orbit installs the identity, policy, and connectivity layers that govern agents. Orbit is designed to run in a Kubernetes cluster with Istio and Spire.
+kora installs the identity, policy, and connectivity layers that govern agents. kora is designed to run in a Kubernetes cluster with Istio and Spire.
 
 ### Kubernetes cluster
+
+kora is tested on Kubernetes 1.34 to 1.36. The charts require 1.34 or later.
 
 The cluster must provide:
 
@@ -25,43 +27,43 @@ The cluster must provide:
 - A StorageClass for agent workspace volumes, either the cluster default or one named in `agents.workspace.storageClassName`. `ReadWriteMany` when sandboxes run on their own node pool.
 - Working cluster DNS and a route from workloads to the Kubernetes API.
 - A `LoadBalancer` implementation for the default gateway, or another way to expose the Istio gateway when using `NodePort` or `ClusterIP`.
-- Pod Security Admission that admits the privileged SPIRE and Istio node components. The SPIFFE CSI driver and the Istio CNI must run privileged, whilst Orbit namespaces run at restricted.
+- Pod Security Admission that admits the privileged SPIRE and Istio node components. The SPIFFE CSI driver and the Istio CNI must run privileged, whilst kora namespaces run at restricted.
 
 See [connectivity](../architecture/connectivity.md) for the request path and [identity](../architecture/identity.md) for the SPIRE and Istio trust model.
 
 ### Istio
 
-Orbit runs on Istio in sidecar mode and handles its own sidecar injection through an admission webhook. You must install Istio before installing Orbit, by following the [Istio install guide](https://istio.io/latest/docs/setup/install/) or the reference Helmfile in this repository. The mesh must provide:
+kora runs on Istio in sidecar mode and handles its own sidecar injection through an admission webhook. You must install Istio before installing kora, by following the [Istio install guide](https://istio.io/latest/docs/setup/install/) or the reference Helmfile in this repository. kora supports Istio 1.30 and 1.31. The reference install pins 1.31.1. The operator's preflight rejects any other Istio version. The mesh must provide:
 
-- Sidecar injection on Orbit's namespaces, through `istio-injection: enabled` or an `istio.io/rev` label matching a live revision. Set the revision in the chart's `istio.revision` value when you run a revisioned control plane.
-- `meshConfig.trustDomain` equal to Orbit's `global.trustDomain`.
+- Sidecar injection on kora's namespaces, through `istio-injection: enabled` or an `istio.io/rev` label matching a live revision. Set the revision in the chart's `istio.revision` value when you run a revisioned control plane.
+- `meshConfig.trustDomain` equal to kora's `global.trustDomain`.
 - `pilot.cni.enabled: true` on istiod, with the Istio CNI DaemonSet running. The `restricted` profile of orbit's namespaces reject the `istio-init` container.
 
 ### SPIRE
 
-Orbit registers workload identities into an existing SPIRE deployment. You must install SPIRE before installing Orbit, using the [spiffe/spire chart](https://github.com/spiffe/helm-charts-hardened), or by following the reference Helmfile in this repository. It must provide:
+kora registers workload identities into an existing SPIRE deployment. You must install SPIRE before installing kora, using the [spiffe/spire chart](https://github.com/spiffe/helm-charts-hardened), or by following the reference Helmfile in this repository. The reference install pins the `spire` chart 0.30.2 (SPIRE 1.15.3) and `spire-crds` 0.6.1. It must provide:
 
-- A trust domain equal to Orbit's.
+- A trust domain equal to kora's.
 - The SPIFFE CSI driver `csi.spiffe.io` registered, and spire-controller-manager present with the `ClusterSPIFFEID` CRD served.
-- The chart's default `ClusterSPIFFEID` disabled or set `fallback: true`, so it does not race Orbit's own registrations.
+- The chart's default `ClusterSPIFFEID` disabled or set `fallback: true`, so it does not race kora's own registrations.
 - Agent SDS enabled with `defaultSVIDName: default`, `defaultBundleName: ROOTCA`, `defaultAllBundlesName: ALL`.
-- A controller-manager class matching the chart's `spire.className` value (`spire-system-spire` by default). A mismatch means Orbit's `ClusterSPIFFEID`s are ignored.
+- A controller-manager class matching the chart's `spire.className` value (`spire-system-spire` by default). A mismatch means kora's `ClusterSPIFFEID`s are ignored.
 
-The reference Helmfile and the Argo CD example install a SPIRE the minimum spec required for Orbit.
+The reference Helmfile and the Argo CD example install a SPIRE the minimum spec required for kora.
 
-The platform's SPIFFE trust domain is part of every workload identity Orbit issues and should be treated as permanent. It is important you choose this upfront before installation. Changing it later is an identity migration, not a routine update.
+The platform's SPIFFE trust domain is part of every workload identity kora issues and should be treated as permanent. It is important you choose this upfront before installation. Changing it later is an identity migration, not a routine update.
 
 ### Database, cache, and storage
 
-PostgreSQL and Redis must be reachable from the system namespace. Orbit does not provision, back up, patch, or replicate either service.
+PostgreSQL and Redis must be reachable from the system namespace. kora does not provision, back up, patch, or replicate either service.
 
-The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`orbit-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the services' credentials. That role needs `CREATE` on schema `public` and owns every table the migrations create. PostgreSQL 13 through 17 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
+The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (`orbit-migrate`) runs every pending migration before any workload rolls; Argo CD runs it as a `PreSync` hook. The Job connects with the services' credentials. That role needs `CREATE` on schema `public` and owns every table the migrations create. PostgreSQL 14 through 18 are supported. The Job runs without an Istio sidecar and needs the same network path to the database as the services.
 
 - Use private endpoints and TLS in production.
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
-- When the mesh restricts egress, set the value `istio.outboundTrafficPolicy: REGISTRY_ONLY`, and the orbit chart then renders `ServiceEntry` resources for the external hosts it knows about, including Postgres and Redis.
+- When the mesh restricts egress, set `istio.outboundTrafficPolicy: REGISTRY_ONLY`. The chart renders a `ServiceEntry` for Postgres and Redis. The operator renders one for each [model provider](model-providers.md#network-access).
 
-Each agent runs against its own workspace on a persistent volume. Orbit requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. Set `agents.workspace.storageClassName`, `accessModes` and `size` to use a different class. Agent and sandbox pods run as uid 100 and set `fsGroup: 100`. If your cluster needs a different group for root-owned writable volumes, patch `spec.template.spec.securityContext.fsGroup` on the `StatefulSet` and `spec.securityContext.fsGroup` on the sandbox `Pod`.
+Each agent runs against its own workspace on a persistent volume. kora requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. Set `agents.workspace.storageClassName`, `accessModes` and `size` to use a different class. Agent and sandbox pods run as uid 100 and set `fsGroup: 100`. If your cluster needs a different group for root-owned writable volumes, patch `spec.template.spec.securityContext.fsGroup` on the `StatefulSet` and `spec.securityContext.fsGroup` on the sandbox `Pod`.
 
 ### Sandbox node pools
 
@@ -87,13 +89,13 @@ agents:
 
 A sandbox mounts its session-manager's workspace volume, so the moment the two run on different nodes that volume must be `ReadWriteMany` on a network filesystem, as above. The chart refuses to render a split placement over a workspace that is not `ReadWriteMany`, and `orbit-agents` repeats the check at startup and when it provisions an agent type. The check compares node selectors and required node affinity; pod anti-affinity can separate pods without naming a pool and is not inspected.
 
-On a `ReadWriteOnce` workspace, Orbit pins each sandbox to the node running the session-manager replica whose workspace it mounts, since matching node selectors alone leave a pool free to place them apart. A sandbox waits for room on that node rather than starting elsewhere and failing to attach.
+On a `ReadWriteOnce` workspace, kora pins each sandbox to the node running the session-manager replica whose workspace it mounts, since matching node selectors alone leave a pool free to place them apart. A sandbox waits for room on that node rather than starting elsewhere and failing to attach.
 
 When adopting this topology, you should do so before creating agents. A `StatefulSet`'s `volumeClaimTemplates` are immutable. An agent created against a `ReadWriteOnce` class keeps that volume even after the class changes. Migrating an existing agent requires moving its workspace data to a new claim, or deleting and recreating the agent.
 
 #### Sandbox warming
 
-When running on a dedicated pool that scales to zero, a new sandbox request has to wait for a node to boot and the image to pull. Orbit provides an out of the box sandbox warmer that provisions a low-priority placeholder pod, holding a node open with the sandbox image already cached.
+When running on a dedicated pool that scales to zero, a new sandbox request has to wait for a node to boot and the image to pull. kora provides an out of the box sandbox warmer that provisions a low-priority placeholder pod, holding a node open with the sandbox image already cached.
 
 Warming is off by default. Enable it in the chart values:
 
@@ -103,24 +105,155 @@ agents:
     mode: capacity
     replicas: 1
     priority: -10          # below real agent workloads
-    resources:             # reserved per replica
-      requests: { cpu: "1", memory: 4Gi }
-      limits: { cpu: "1", memory: 4Gi }
 ```
 
 Placement of sandbox warmers follows `agents.workloads.sandbox`.
 
-`resources` is the capacity each placeholder reserves on a node. Leave at default, or raise to hold a larger warm node for a heavier sandbox image.
+Each placeholder reserves one default sandbox pod: the default size, 1Gi of disk and the sandbox sidecars. Set `resources` to reserve a different amount. It must cover a sandbox pod's total requests.
 
 `replicas` is how many warm nodes you need.
 
-`mode: image` instead runs a DaemonSet that caches the image on node pools that do not scale to zero.
+To keep an image pulled on a pool that does not scale to zero, set `warm` on its `SandboxImage`.
+
+#### Scale-out sandboxes
+
+A scale-out install runs sandboxes on their own node pool with a `ReadWriteMany` workspace. Package installs and builds are slow on the network filesystem behind that workspace. Set `sandboxMount.enabled` to give every sandbox a working folder on its node's local disk at `/workspaces/<run>/sandbox`. The agent's file tools and the sandbox see the same files in that folder, and the folder ends with the sandbox.
+
+```yaml
+agents:
+  workspace:
+    storageClassName: shared-files   # a ReadWriteMany StorageClass
+    accessModes:
+      - ReadWriteMany
+  workloads:
+    sandbox:
+      nodeSelector: { workload-tier: orbit-sandbox }
+sandboxMount:
+  enabled: true
+```
+
+The chart deploys the node agent `orbit-sandbox-mount` as a privileged DaemonSet in the `orbit-sandbox-mount` namespace. The agent exports each sandbox's folder with the kernel NFS server to its session-manager's node and mounts it into the running session-manager pod.
+
+The cluster must provide:
+
+*   A node kernel with the NFS server and NFSv4 client modules.
+*   Admission for a privileged pod that uses the host network and the host PID namespace.
+*   TCP `sandboxMount.port` (default 20490) open from session-manager nodes to sandbox nodes. NFS uses no other port.
+
+Check each requirement before you enable the feature:
+
+1.  **Check Privileged Admission:** Run a server-side dry run of a privileged pod in a namespace at the privileged Pod Security level.
+
+    ```bash
+    kubectl create namespace orbit-sandbox-mount
+    kubectl label namespace orbit-sandbox-mount pod-security.kubernetes.io/enforce=privileged
+    kubectl -n orbit-sandbox-mount run privileged-check --image=busybox --restart=Never --dry-run=server \
+      --overrides='{"spec":{"hostNetwork":true,"hostPID":true,"containers":[{"name":"privileged-check","image":"busybox","securityContext":{"privileged":true}}]}}'
+    ```
+
+2.  **Check the NFS Server Module:** Load the module on a sandbox node. A zero exit status means the kernel has the NFS server.
+
+    ```bash
+    kubectl debug node/<sandbox-node> -it --profile=sysadmin --image=busybox -- chroot /host modprobe nfsd
+    ```
+
+3.  **Check the NFS Port:** Connect from a session-manager node to the port on a sandbox node. A refused connection means the port is open. A timeout means a firewall drops it.
+
+    ```bash
+    kubectl debug node/<session-manager-node> -it --image=busybox -- nc -z -v -w 3 <sandbox-node-address> 20490
+    ```
+
+Leave `sandboxMount.enabled` off on a platform that fails a check. Sandboxes then work on the shared workspace volume.
+
+If the session-manager's node cannot reach the port, the sandbox fails to start with "the node agent cannot reach the NFS port on the sandbox node". The node agent's log on the session-manager's node lists the port and both nodes.
+
+The DaemonSet carries the sandbox and session-manager tolerations plus any in `sandboxMount.tolerations`. Set `sandboxMount.createNamespace: false` to run it in a namespace you manage.
+
+NFS does not authenticate callers. Each folder is exported only to its session-manager's node address, and the tenant NetworkPolicies deny agent and sandbox pods the NFS port. A host-network workload, or a pod whose traffic your CNI masquerades to the node address, can still reach the export. Restrict host network access to trusted system workloads, and deny other workloads egress to node addresses on `sandboxMount.port`.
+
+### Sandbox images and environments
+
+A sandbox runs the image of its environment. kora publishes the base image `kora-sandbox-base` with the general command-line tools, Go and Python. Platform teams build their own images `FROM` it and register each one as a `SandboxImage` in the tenant namespace:
+
+```yaml
+apiVersion: orbit.io/v1alpha1
+kind: SandboxImage
+metadata:
+  name: acme-go
+  namespace: orbit-tenant-acme
+spec:
+  image: ghcr.io/acme/sandbox-go:1.4.0
+  description: Go with buf and golangci-lint.
+  warm: true
+  pullSecretRef:
+    name: acme-registry
+```
+
+*   **`image`:** The image reference, given as a tag or a digest such as `ghcr.io/acme/sandbox-go@sha256:...`.
+*   **`description`:** Shown to people who choose an image for an environment.
+*   **`warm`:** Keeps the image pulled on every node that runs sandboxes. The operator runs one DaemonSet per warm image in the tenant namespace, placed like the sandboxes.
+*   **`pullSecretRef`:** A `kubernetes.io/dockerconfigjson` Secret in the same namespace. The operator reads the registry with it and sandboxes pull with it. The Secrets in `global.imagePullSecrets` also apply.
+
+The operator reads the image config from the registry. It accepts an image that runs as uid 100 and carries the `io.orbit.sandbox.base` label. The base image sets both. The operator writes the resolved digest to `status.digest`, and sandboxes pull the image by that digest. Inspect an image with:
+
+```bash
+kubectl -n orbit-tenant-acme get sandboximages
+kubectl -n orbit-tenant-acme describe sandboximage acme-go
+```
+
+The `Valid` condition states why the operator rejected an image. An environment cannot select an image that is not valid. The operator re-reads each image every sync period, and new sandboxes pick up a moved tag after the next read.
+
+The operator keeps a `SandboxImage` named `kora-base` in every tenant namespace. It points at `agents.config.sandboxImage`, and `agents.sandboxImages.warmBase` sets its `warm` flag. Every tenant reconcile restores it.
+
+kora also publishes three bundled images built on the base image, and the operator registers each enabled one in every tenant namespace:
+
+*   **`kora-go`:** `kora-sandbox-go`, with `golangci-lint`, `buf` and `protoc`.
+*   **`kora-python`:** `kora-sandbox-python`, with `ruff` and `pytest`.
+*   **`kora-node`:** `kora-sandbox-node`, with Node LTS and `pnpm`.
+
+Each one is enabled with `warm: false` by default. An empty `image` uses the release image from `global.imageRegistry`. Set `image` to a mirror or to your own build:
+
+```yaml
+agents:
+  sandboxImages:
+    bundled:
+      go: { enabled: true, warm: true, image: "" }
+      python: { enabled: true, warm: false, image: "" }
+      node: { enabled: false }
+```
+
+Disabling a bundled image deletes its `SandboxImage` from every tenant namespace. An environment that selects it can no longer start a sandbox, and the agent receives a message that the image is not registered. Running sandboxes keep running. The operator changes only the bundled `SandboxImage` resources it created. If a tenant registers its own `SandboxImage` under a bundled name, the operator leaves it in place, does not register the bundled image in that namespace, and logs the conflict.
+
+An environment combines a sandbox image with a size, egress hosts and connectors. Users with `agents:environments:write` create environments through the API or the Environments page and attach them to agents. An agent with no environment runs its sandboxes on `kora-base` at the default size. Helm values set the default size and the largest size an environment can request:
+
+```yaml
+agents:
+  environments:
+    defaultSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
+    maxSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
+```
+
+`disk` sizes a node-local volume in each sandbox that holds its `HOME`, `TMPDIR`, the Go, npm and pip caches, user-level tool installs and, with `sandboxMount.enabled`, its working folder.
+
+The sandbox container gets exactly its environment's size. The pod also runs sidecars (`operator.injection.sandboxSidecars`, 900m CPU and 320Mi memory by default) and 1Gi of scratch disk on top of the size. `maxSize` starts equal to `defaultSize`. To offer larger sizes, set each `maxSize` field to the largest value that fits one sandbox node:
+
+```text
+maxSize.cpu    = node allocatable CPU     - DaemonSet CPU requests    - sidecar CPU
+maxSize.memory = node allocatable memory  - DaemonSet memory requests - sidecar memory
+maxSize.disk   = node allocatable ephemeral storage - 1Gi
+```
+
+For example, a node with 3900m CPU, 14Gi memory and 20Gi ephemeral storage allocatable, running DaemonSets that request 500m CPU and 1Gi memory, holds a sandbox of up to 2.5 CPU, 12.6Gi memory and 19Gi disk. Round each value down to a size you want to offer, such as `{ cpu: "2", memory: 12Gi, disk: 18Gi }`.
+
+`kubectl describe node <node>` shows the node's allocatable resources and the requests of the pods on it. A run on a size that fits no node fails with the scheduler's reason.
+
+The operator needs `agents.sandboxImages.registryPorts` for a registry on a port other than 443. `agents.sandboxImages.registryMirrors` maps a registry host in image references to the host the operator reads from, as the nodes' registry mirrors do. A mirror given as `http://host` is read over plain HTTP, such as the local k3d registry.
 
 ### Pod metadata and cloud identity for agents
 
 `agents.workloads.common.podLabels` and `podAnnotations` reach both provisioned pods, for cost allocation, network policy selection, backup exclusion or an admission controller of your own. The per-workload blocks take the same keys and win where both set one.
 
-Orbit owns the labels identifying a pod to SPIRE, the sidecar injector and its StatefulSet, and the annotations wiring it into the mesh. Setting one of those fails `orbit-agents` at startup naming the key, rather than silently moving a pod off its attested identity.
+kora owns the labels identifying a pod to SPIRE, the sidecar injector and its StatefulSet, and the annotations wiring it into the mesh. Setting one of those fails `orbit-agents` at startup naming the key, rather than silently moving a pod off its attested identity.
 
 `agents.workloads.sessionManager.serviceAccount.annotations` annotates the ServiceAccount provisioned for each agent, which is where cloud identity goes:
 
@@ -139,16 +272,16 @@ Everything in `agents.workloads` and `agents.workspace` applies before manifest 
 
 ### DNS and TLS
 
-Choose a hostname for your dashboard, for example `orbit.example.com`. Orbit derives the API hostname by adding the `api.` prefix:
+Choose a hostname for your dashboard, for example `orbit.example.com`. kora derives the API hostname by adding the `api.` prefix:
 
 - `orbit.example.com` serves the dashboard and BFF (`frontendHost`).
 - `api.orbit.example.com` serves the platform APIs, inference API, MCP endpoints, and OAuth discovery documents.
 
 Create DNS records for both names resolving to the same Istio gateway, fronted by a cloud `LoadBalancer`.
 
-The gateway certificate must be valid for both names. Provision a `kubernetes.io/tls` Secret in the gateway's namespace, directly or through cert-manager, and set `gateway.tls.credentialName` to it. Orbit terminates public TLS at the Istio gateway. Inside the mesh, service-to-service mTLS uses SPIRE identities.
+The gateway certificate must be valid for both names. Provision a `kubernetes.io/tls` Secret in the gateway's namespace, directly or through cert-manager, and set `gateway.tls.credentialName` to it. kora terminates public TLS at the Istio gateway. Inside the mesh, service-to-service mTLS uses SPIRE identities.
 
-Register `https://orbit.example.com/auth/callback` as an allowed redirect URI for the OIDC client. Orbit's services must be able to reach the issuer and its discovery endpoints from the system namespace.
+Register `https://orbit.example.com/auth/callback` as an allowed redirect URI for the OIDC client. kora's services must be able to reach the issuer and its discovery endpoints from the system namespace.
 
 ### Artifact access
 
@@ -177,7 +310,7 @@ The platform services read these keys from `orbit-secrets`, which can be customi
 
 The dashboard reads `BFF_SESSION_SECRET` from a separate secret, `orbit-frontend-secrets` by default. This can be configured via `frontend.existingSecret`. You must use at least 32 random characters.
 
-Your secret manager owns rotation. The Orbit operator does not watch these Secrets, and only picks up a rotated Connection or OIDC client secret on its next periodic reconcile.
+Your secret manager owns rotation. The kora operator does not watch these Secrets, and only picks up a rotated Connection or OIDC client secret on its next periodic reconcile.
 
 ## Configure the chart
 
@@ -200,6 +333,8 @@ config:
   redis:
     host: redis.example.internal
     port: 6379
+    tls:
+      caSecret: redis-ca      # only for a private CA
   platformSecretName: orbit-secrets
 
 networkPolicy:
@@ -218,20 +353,33 @@ ingressGateway:
     type: LoadBalancer
 ```
 
-`global` holds the values every service shares: trust domain, image registry and tag, log format, Postgres SSL mode, and OTLP settings. A component can override any of them.
+Redis TLS is on by default. Set `config.redis.tls.enabled: false` for a Redis that serves plaintext.
+
+`global` holds the values every service shares: trust domain, image registry and tag, log format, Postgres SSL mode, and OTLP settings.
+
+The chart renders each service's settings into a ConfigMap of config files mounted at `/etc/orbit/config` ([rendered service config files](../adr/2026-10-06-rendered-service-config-files.md)). A component's `configOverrides` merges last, keyed by config module, and its keys follow the Go config structs:
+
+```yaml
+policyService:
+  configOverrides:
+    internal/platform/observability:
+      logFormat: console
+```
+
+An unknown key in `configOverrides` fails the service at startup. A component's `extraEnv` is for secrets only.
 
 Image tags resolve as follows:
 
 | `global.imageTag` | Result |
 |---|---|
 | Empty (default) | The chart's `appVersion`. A release stamps per-component digests. |
-| A tag | Every Orbit image uses it.  |
+| A tag | Every kora image uses it.  |
 
 Use the narrowest CIDRs and ports in `networkPolicy.externalServices` that cover your services. Omit the entry when Postgres and Redis are reached through destinations your cluster network policy already allows.
 
 ## Telemetry
 
-Orbit exports traces and metrics over OTLP, configure your endpoint as follows:
+kora exports traces and metrics over OTLP, configure your endpoint as follows:
 
 ```yaml
 global:
@@ -241,13 +389,15 @@ global:
     samplingRate: "1.0"
 ```
 
-`collectorNamespace` opens the egress on the endpoint's port. Without it the default-deny policy drops the traffic. For a collector outside the cluster, leave it empty and add the collector's CIDR and port to `networkPolicy.externalServices`. Agent pods export to the same endpoint, providing telemetry for their run. 
+`collectorNamespace` opens the egress on the endpoint's port. Without it the default-deny policy drops the traffic. For a collector outside the cluster, leave it empty, add the collector's CIDR and port to `networkPolicy.externalServices`, and create a `ServiceEntry` for the collector host so the mesh routes to it. Agent pods export to the same endpoint, providing telemetry for their run; their egress policy admits the collector and no other external host ([agent pod egress lockdown](../adr/2026-09-30-agent-pod-egress-lockdown.md)).
+
+An external collector is the one external address an agent can reach. On a shared SaaS endpoint, a prompt-injected agent could export data under an attacker's own key to the attacker's account on the same service. If that matters for your install, run an in-cluster collector that forwards to the external one and point `otlpEndpoint` at it.
 
 Point your service mesh's own telemetry at the same collector to get the mesh hop and the application span in one trace.
 
 ## Run behind an existing gateway
 
-By default Orbit creates its own ingress gateway. Set `gateway.create: false` to front Orbit with an Istio gateway you already operate. Orbit then renders no `Gateway` resource, and binds its `VirtualService`s to the provided gateway.
+By default kora creates its own ingress gateway. Set `gateway.create: false` to front kora with an Istio gateway you already operate. kora then renders no `Gateway` resource, and binds its `VirtualService`s to the provided gateway.
 
 There are four points of configuration documented in `deploy/reference/values/gateway-byo.yaml`:
 
@@ -256,13 +406,13 @@ There are four points of configuration documented in `deploy/reference/values/ga
  3. A `ClusterSPIFFEID` registering your gateway's pods.
  4. SPIRE wiring in your gateway's own values, pointing its Envoy at SPIRE for certificates instead of istiod.
 
-Points 3 and 4 give your gateway a SPIRE identity, required to interact with Orbit's own pods. See [identity](../architecture/identity.md) and [runtime topology](../architecture/runtime-topology.md) for a detailed look at the trust model.
+Points 3 and 4 give your gateway a SPIRE identity, required to interact with kora's own pods. See [identity](../architecture/identity.md) and [runtime topology](../architecture/runtime-topology.md) for a detailed look at the trust model.
 
 ## Install
 
 ### Reference Helmfile (blank cluster)
 
-The reference Helmfile in `deploy/reference/` installs SPIRE, Istio, and the two Orbit charts in dependency order. 
+The reference Helmfile in `deploy/reference/` installs SPIRE, Istio, and the two kora charts in dependency order. 
 
 Copy `deploy/reference/` into your own repository, and edit the two files: `environments/example.yaml` (or whatever you name it) for the cluster facts, and `values/orbit.yaml` for the chart config.
 
@@ -272,11 +422,11 @@ To apply from your local copy:
 helmfile -e example apply
 ```
 
-If SPIRE and Istio are already running in your cluster, you can skip the helmfile and use helm directly for the Orbit charts.
+If SPIRE and Istio are already running in your cluster, you can skip the helmfile and use helm directly for the kora charts.
 
 ### Direct Helm (existing mesh)
 
-With SPIRE and Istio already running, you install the two Orbit charts directly. First label the system namespace, then install `orbit-crds`, and then `orbit`.
+With SPIRE and Istio already running, you install the two kora charts directly. First label the system namespace, then install `orbit-crds`, and then `orbit`.
 
 ```bash
 kubectl create namespace orbit-system
@@ -310,9 +460,9 @@ The `orbit` Application includes the settings that stop ArgoCD and the operator 
 |---|---|
 | `managedNamespaceMetadata` | Labels the system namespace (`istio-injection`, PSA `restricted`). |
 | `ignoreDifferences` | Fields the operator writes on objects Argo CD does not own: the webhook `caBundle` and `failurePolicy`. |
-| `prune: false` on `orbit-crds` | Stops ArgoCD from pruning the Orbit CRDs. Removing one cascade-deletes every tenant, connection, etc. of that kind across the cluster.  |
+| `prune: false` on `orbit-crds` | Stops ArgoCD from pruning the kora CRDs. Removing one cascade-deletes every tenant, connection, etc. of that kind across the cluster.  |
 
-The app-of-apps installs SPIRE, Istio, and the Orbit charts. Add your `OrbitTenant`, `Connection`, `OAuthClient`, and `MCPServer` CRs as a separate `Application` with a sync wave after `orbit-crds`. This ensures their `prune: true` is independent of the `orbit-crds` `prune: false`. 
+The app-of-apps installs SPIRE, Istio, and the kora charts. Add your `OrbitTenant`, `Connection`, `OAuthClient`, and `MCPServer` CRs as a separate `Application` with a sync wave after `orbit-crds`. This ensures their `prune: true` is independent of the `orbit-crds` `prune: false`. 
 
 ## Verify the installation
 
@@ -333,7 +483,7 @@ Now that the platform is running, you can configure it through the following gui
 - [Tenants](tenants.md): onboard a tenant so its team can sign in and get their own workspace.
 - [Model providers](model-providers.md): connect the platform to upstream inference providers.
 - [Connections](connections.md): register external services agents can reach without holding credentials.
-- [OAuth clients](oauth-clients.md): configure clients that authenticate users against Orbit.
+- [OAuth clients](oauth-clients.md): configure clients that authenticate users against kora.
 - [MCP servers](mcp-servers.md): give agents and humans governed access to a set of tools.
 - [Policy and roles](policy-and-roles.md): decide what each person and agent is allowed to do.
 
@@ -359,7 +509,7 @@ A failed migration fails the upgrade before any workload changes. Under Helm the
 
 ## References
 
-- [Install and distribution model](../adr/2026-09-04-install-and-distribution-model.md): why Orbit ships as two charts and the operator manages only tenants.
-- [Enforcement sidecar injection and preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md): how Orbit injects its sidecars and runs preflight on the mesh before install.
+- [Install and distribution model](../adr/2026-09-04-install-and-distribution-model.md): why kora ships as two charts and the operator manages only tenants.
+- [Enforcement sidecar injection and preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md): how kora injects its sidecars and runs preflight on the mesh before install.
 - [Service mesh and network enforcement](../adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md): the mesh and NetworkPolicy enforcement the platform runs on.
 - [Manifest patches](../adr/2026-09-15-manifest-patches-configmap.md): how operators patch the resources orbit-agents provisions in tenant namespaces.

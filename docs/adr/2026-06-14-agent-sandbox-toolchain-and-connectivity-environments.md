@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md -->
 
-**Status:** Accepted
+**Status:** Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md)
 **Date:** 2026-06-14
 **Deciders:** Justin Wilkin
 **Technical Story:** Make a sandboxed agent *effective* at real engineering work without weakening the JIT-credential-brokering governance model established in [2026-06-06-jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md).
@@ -13,7 +13,7 @@
 
 The egress-gateway ADR built the *governance* spine for a sandboxed agent: a per-tenant egress gateway that intercepts outbound TLS, a connection/adapter model that injects credentials just-in-time, and per-agent connectivity (`egress:<host>:connect`) and connector (`connection:<name>:<action>`) grants. The agent never holds a credential, and every outbound call is policy-checked at the edge.
 
-That answers *how it connects* safely. It does **not** yet answer *is the agent any good at its job once it's in there?* This ADR turns to agent **effectiveness** — and the central insight is that, because Orbit enforces **below** the agent (structural credential isolation, the transparent egress chokepoint, governed exec, per-run identity), effectiveness and security are **decoupled at the toolchain level**. The agent cannot escape the egress redirect or obtain a raw secret *regardless of what binaries are in its image*. We are therefore free to make the sandbox a genuinely capable engineering workstation; the mantra is preserved by controls that already exist, not by starving the box.
+That answers *how it connects* safely. It does **not** yet answer *is the agent any good at its job once it's in there?* This ADR turns to agent **effectiveness** — and the central insight is that, because kora enforces **below** the agent (structural credential isolation, the transparent egress chokepoint, governed exec, per-run identity), effectiveness and security are **decoupled at the toolchain level**. The agent cannot escape the egress redirect or obtain a raw secret *regardless of what binaries are in its image*. We are therefore free to make the sandbox a genuinely capable engineering workstation; the mantra is preserved by controls that already exist, not by starving the box.
 
 ### Background
 

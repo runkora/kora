@@ -22,7 +22,7 @@ func discardLogger() logging.Logger { return logging.NewLoggerWithOutput(io.Disc
 // ProvisionSandbox does.
 func writeDescriptor(t *testing.T, workspaces, runID, endpoint, token string) {
 	t.Helper()
-	dir := filepath.Join(workspaces, runID, ".sandbox")
+	dir := filepath.Join(workspaces, runID, ".sandbox-exec")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -268,7 +268,7 @@ func TestHandleProvisionSandbox_UnhostedRunIsNotFound(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-elsewhere/provision-sandbox", nil)
+	r := httptest.NewRequest(http.MethodPost, "/internal/session/run-elsewhere/provision-sandbox", strings.NewReader("{}"))
 	r.SetPathValue("runID", "run-elsewhere")
 	r.Header.Set(runTokenHeader, tok)
 

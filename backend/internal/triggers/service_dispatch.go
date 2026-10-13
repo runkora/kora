@@ -97,8 +97,8 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 		return
 	}
 
-	// The timeout bounds starting the run, not running it: a long-running agent
-	// is not a failure, but an agent that never accepts the start is.
+	// The timeout bounds the start request, which returns once orbit-agents has
+	// queued the run. A run that later fails to start does not reach this outcome.
 	dispatchCtx, cancel := context.WithTimeout(ctx, t.dispatchTimeout())
 	defer cancel()
 

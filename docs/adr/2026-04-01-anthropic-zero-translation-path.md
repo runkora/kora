@@ -2,8 +2,8 @@
 
 **Status:** Accepted
 **Date:** 2026-04-01
-**Deciders:** Orbit platform team
-**Technical Story:** The `POST /v1/messages` (Anthropic Messages API) handler originally converted the incoming Anthropic wire format through Orbit's internal `ChatCompletionRequest`/`ChatCompletionResponse` domain types before forwarding to the provider. This lossy conversion silently dropped tool use, multi-turn system prompts, and other Anthropic-specific fields, meaning Claude Code and other Anthropic-native clients would behave incorrectly when routed through Orbit.
+**Deciders:** kora platform team
+**Technical Story:** The `POST /v1/messages` (Anthropic Messages API) handler originally converted the incoming Anthropic wire format through kora's internal `ChatCompletionRequest`/`ChatCompletionResponse` domain types before forwarding to the provider. This lossy conversion silently dropped tool use, multi-turn system prompts, and other Anthropic-specific fields, meaning Claude Code and other Anthropic-native clients would behave incorrectly when routed through kora.
 
 ---
 
@@ -74,7 +74,7 @@ AnthropicMessages(ctx context.Context, params anthropic.MessageNewParams) (*anth
 AnthropicMessagesStream(ctx context.Context, params anthropic.MessageNewParams) (<-chan AnthropicStreamEvent, error)
 ```
 
-The handler decodes directly into `anthropic.MessageNewParams` (using its own `UnmarshalJSON`), calls the service layer's `AnthropicMessages`/`AnthropicMessagesStream` methods, and serializes the response directly from `*anthropic.Message` or from raw `AnthropicStreamEvent` channel values. No intermediate Orbit domain types are involved in the request/response path.
+The handler decodes directly into `anthropic.MessageNewParams` (using its own `UnmarshalJSON`), calls the service layer's `AnthropicMessages`/`AnthropicMessagesStream` methods, and serializes the response directly from `*anthropic.Message` or from raw `AnthropicStreamEvent` channel values. No intermediate kora domain types are involved in the request/response path.
 
 Usage metrics are recorded from `msg.Usage.InputTokens`/`msg.Usage.OutputTokens` on the response — the token counts the service layer needs are available on the SDK type without requiring a full conversion.
 
@@ -107,7 +107,7 @@ Capture the raw `POST /v1/messages` body bytes and forward them directly to the 
 
 ### Rationale
 
-The lossy translation bugs were not implementation defects that could be patched — they were a consequence of using a schema-mismatched intermediate type. Option A would require maintaining permanent coupling between the Orbit domain model and the Anthropic API schema. Option C bypasses all the infrastructure Orbit provides. Option B uses the SDK-generated types as the transport boundary, which is the correct layering: the provider SDK owns the wire format, Orbit owns the routing and policy.
+The lossy translation bugs were not implementation defects that could be patched — they were a consequence of using a schema-mismatched intermediate type. Option A would require maintaining permanent coupling between the kora domain model and the Anthropic API schema. Option C bypasses all the infrastructure kora provides. Option B uses the SDK-generated types as the transport boundary, which is the correct layering: the provider SDK owns the wire format, kora owns the routing and policy.
 
 ---
 
@@ -116,13 +116,13 @@ The lossy translation bugs were not implementation defects that could be patched
 ### Positive
 
 - `POST /v1/messages` is now byte-compatible with the Anthropic API: tools, vision, multi-turn system prompts, streaming, and all other features work correctly for Claude Code and other Anthropic-native clients.
-- New Anthropic API features (extended thinking, document blocks, etc.) are handled transparently by SDK upgrades with no Orbit code changes.
+- New Anthropic API features (extended thinking, document blocks, etc.) are handled transparently by SDK upgrades with no kora code changes.
 - The `stop_reason` double-mapping, tool-use drop, and `system` type bugs are eliminated structurally, not by patching.
 
 ### Negative
 
 - `anthropic.MessageNewParams` and `*anthropic.Message` appear at the service and handler layers. This is a deliberate exception to the "SDK types confined to the convert package" guideline, justified by the correctness requirement.
-- Cross-dialect failover on the Anthropic path is not supported: if Bedrock rejects a `POST /v1/messages` request, Orbit cannot transparently retry via the OpenAI path on Azure/Vertex without lossy conversion.
+- Cross-dialect failover on the Anthropic path is not supported: if Bedrock rejects a `POST /v1/messages` request, kora cannot transparently retry via the OpenAI path on Azure/Vertex without lossy conversion.
 
 ### Neutral
 
@@ -234,10 +234,42 @@ func (c *Connector) ChatCompletion(ctx context.Context, req ChatCompletionReques
 
 ---
 
+## Amendment 1 (2026-10-07): Trailing system messages fold for non-Anthropic models
+
+**Status:** Accepted
+
+Touches *How does it connect?* The gateway changes what it sends upstream for one request shape. *Who is this agent?* and *What can it access?* are unchanged.
+
+**Context.** Claude Code uses the `mid-conversation-system-2026-04-07` beta and ends every request with a `system`-role message. The `compatible` connector forwards these requests unchanged. Some hosts serving non-Anthropic models on the Anthropic Messages API continue a trailing system message as reasoning and never start the assistant turn. The tool call stays in a `thinking` block, the turn ends with no `tool_use`, and Claude Code stops.
+
+**Options.**
+
+*   **Option A (chosen):** Fold the trailing system messages into the last user turn in the gateway for non-Anthropic models.
+*   **Option B (rejected):** Exclude the misbehaving host through aggregator provider routing. It fixes one host for one model, and the next host with the same behavior fails the same way.
+
+**Decision.**
+
+*   Before the `compatible` connector forwards an Anthropic Messages request, it moves the text blocks of the `system`-role messages that end the request into the user message before them. The system messages are removed.
+*   The fold applies to the non-streaming and streaming messages paths in `backend/internal/inferencegw/providers/compatible/`.
+*   A model whose family is `anthropic` (`inferencegw.InferFamily`) or whose id contains `claude` is forwarded unchanged.
+*   A request with no trailing system message is forwarded unchanged. A request whose trailing system messages follow an assistant turn is forwarded unchanged.
+*   System messages earlier in the conversation are forwarded unchanged.
+*   The Bedrock, Vertex AI and Azure messages paths are unchanged. Bedrock and Vertex AI refuse non-Claude models on this path, and the Azure Anthropic endpoint hosts only Claude models.
+
+**Consequences.**
+
+*   A non-Anthropic model on the messages API sees the trailing system text at the end of the user turn.
+*   The upstream request for a non-Anthropic model differs from the client's request. Requests for Anthropic models keep the zero-translation goal.
+*   A model id that `InferFamily` cannot place is treated as non-Anthropic and folded.
+*   Non-text blocks in a trailing system message are dropped with the message.
+
+---
+
 ## Related Decisions
 
 - [inference-gateway-architecture](2026-04-01-inference-gateway-architecture.md) — Inference Gateway architecture.
 - [provider-model-catalog-and-alias-routing](2026-04-01-provider-model-catalog-and-alias-routing.md) — Provider model catalog and alias routing; implemented concurrently with this ADR.
+- [crd-inference-providers](2026-10-01-crd-inference-providers.md): the `compatible` connector that Amendment 1 changes.
 
 ---
 
@@ -249,4 +281,4 @@ func (c *Connector) ChatCompletion(ctx context.Context, req ChatCompletionReques
 
 ---
 
-**Last Updated:** 2025-07-22
+**Last Updated:** 2026-10-07 (Amendment 1: trailing system messages fold for non-Anthropic models)

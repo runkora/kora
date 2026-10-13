@@ -75,7 +75,7 @@ func realMain() error {
 		TelemetryCollector: observability.CollectorAuthority(),
 	}
 	compiler := bundle.NewCompiler(bundleCfg, routeStore)
-	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, bundle.NewTenantRegistry(), logger)
+	bundleSrv := bundle.NewServer(compiler, grantRepo, vocabRepo, roleRepo, tenantBudgetRepo, principalRolesRepo, bundle.NewTenantRegistry(psc.Current.Bundle.TenantsPath), logger)
 
 	// Pre-compile bundles for every known tenant: registered, with grants, or
 	// with routes.
@@ -96,7 +96,7 @@ func realMain() error {
 	//
 	// The call is direct — no HTTP round-trip, since the service owns the route
 	// store — so it goes through KeepRegistered rather than the routescopes
-	// client, and none of the client's sidecar-token concerns apply. The reason
+	// client, and needs no token. The reason
 	// to use the shared helper anyway is its retry: the route store is
 	// in-memory and survives as long as the process, but the scope declarations
 	// are upserted into Postgres, so a database blip at boot used to leave the
@@ -191,8 +191,8 @@ func policyServiceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/policy/routes", Method: "GET", RequiredScope: ""},
 		// /routes/register is called by other platform services at startup with
 		// a SYSTEM/SERVICE SPIFFE-derived token; gated by platform:routes:write
-		// in the future. For now allow any authenticated SYSTEM caller — Istio
-		// AuthorizationPolicy already restricts this path to in-mesh callers.
+		// in the future. The handler limits each caller to its own service, and
+		// Istio AuthorizationPolicy restricts this path to in-mesh callers.
 		{PathPrefix: "/api/v1/policy/routes/register", Method: "POST", RequiredScope: ""},
 	}
 }

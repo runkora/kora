@@ -40,37 +40,20 @@ func (c *Connector) AnthropicMessages(ctx context.Context, params anthropic.Mess
 		}
 	}
 
-	stream := c.anthropicClient.Messages.NewStreaming(ctx, params)
-	defer stream.Close()
-
-	var (
-		accumulated anthropic.Message
-		eventCount  int
-	)
-	for stream.Next() {
-		eventCount++
-		event := stream.Current()
-		if err := accumulated.Accumulate(event); err != nil {
-			c.logger.Error(ctx, "bedrock: AnthropicMessages accumulate error",
-				logging.Field{Key: "error", Value: err.Error()},
-				logging.Field{Key: "event_type", Value: event.Type},
-			)
-			return nil, convert.MapAnthropicError(inferencegw.ProviderBedrock, err)
-		}
-	}
-	if err := stream.Err(); err != nil && !errors.Is(err, io.EOF) {
+	accumulated, eventCount, err := convert.AccumulateAnthropicStream(c.anthropicClient.Messages.NewStreaming(ctx, params), inferencegw.ProviderBedrock)
+	if err != nil {
 		c.logger.Error(ctx, "bedrock: AnthropicMessages stream error",
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "events_before_error", Value: fmt.Sprintf("%d", eventCount)},
 		)
-		return nil, convert.MapAnthropicError(inferencegw.ProviderBedrock, err)
+		return nil, err
 	}
 
 	c.logger.Debug(ctx, "bedrock: AnthropicMessages done",
 		logging.Field{Key: "event_count", Value: fmt.Sprintf("%d", eventCount)},
 		logging.Field{Key: "stop_reason", Value: string(accumulated.StopReason)},
 	)
-	return &accumulated, nil
+	return accumulated, nil
 }
 
 // AnthropicMessagesStream is the zero-translation streaming path for POST /v1/messages.

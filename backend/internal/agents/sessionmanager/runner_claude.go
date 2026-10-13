@@ -13,7 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/clear-route/orbit/internal/agents/toolscopes"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -30,10 +30,6 @@ type ClaudeRunnerConfig struct {
 
 	// Model is the agent type's model, passed as --model (e.g. "anthropic/claude-sonnet-5").
 	Model string
-
-	// AllowedTools is the set of Claude Code tool names the agent may use
-	// (e.g. ["Bash", "Edit", "Read"]). Derived from the agent type's tool_scopes.
-	AllowedTools []string
 
 	// SystemPrompt is appended to Claude's default system prompt via
 	// --append-system-prompt. Empty means no additional prompt is injected.
@@ -79,7 +75,9 @@ type ClaudeRunnerConfig struct {
 //
 //	claude --print --output-format stream-json --input-format stream-json
 //	       --verbose --include-partial-messages --dangerously-skip-permissions
-//	       [--resume ID] [--bare] [--model M] [--tools T,...]
+//	       --settings <claudeAttributionSettings>
+//	       [--resume ID] [--bare] [--model M]
+//	       --disallowedTools <claudeExcludedTools> [--append-system-prompt P]
 //
 // Each user message is sent as a JSON line on stdin. Stdout is parsed line by
 // line: text and thinking deltas are accumulated in memory; one message_complete
@@ -91,13 +89,16 @@ type ClaudeRunner struct {
 	stdin             io.WriteCloser
 	events            chan Event
 	once              sync.Once
-	textBuf           strings.Builder // accumulates text_delta chunks; reset per turn
+	textBuf           turnText        // accumulates text_delta chunks; reset per turn
 	thinkingBuf       strings.Builder // accumulates thinking_delta chunks; reset per turn
 	textBlockEmitted  bool            // true if ≥1 text_block was emitted this turn
 	budgetHit         bool            // true if a BUDGET_EXCEEDED rejection was seen this turn; reset per turn
 	capturedSessionID string          // set once from the system/init event
 	sessionIDMu       sync.Mutex      // protects capturedSessionID
 	interrupted       atomic.Bool     // true after Interrupt() — suppresses error events
+	workChanged       chan struct{}   // signaled on each background_tasks_changed
+	backgroundTasks   atomic.Int64    // live, non-ambient background tasks (subagents, shell commands) the CLI last reported
+	turnEnded         atomic.Bool     // true once message_stop closed the turn; a stop after that has nothing to cut
 }
 
 // NewClaudeRunner creates a runner with the given configuration.
@@ -106,12 +107,18 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 		cfg.BinaryPath = "claude"
 	}
 	return &ClaudeRunner{
-		cfg:    cfg,
-		events: make(chan Event, 64),
+		cfg:         cfg,
+		events:      make(chan Event, 64),
+		workChanged: make(chan struct{}, 1),
 	}
 }
 
-// Start spawns the Claude Code subprocess. workDir is the run's workspace directory.
+// claudeAttributionSettings disables Claude Code's own commit trailer and
+// pull-request footer. Orbit is the control plane of record for who ran an
+// agent and under what authority; a second, unverifiable identity string
+// baked into the subprocess's default settings would contradict that.
+const claudeAttributionSettings = `{"attribution":{"commit":"","pr":""}}`
+
 // buildFlags returns the Claude Code CLI flags for this runner configuration.
 // Extracted to keep Start() cyclomatic complexity within bounds.
 func (r *ClaudeRunner) buildFlags() []string {
@@ -122,6 +129,7 @@ func (r *ClaudeRunner) buildFlags() []string {
 		"--verbose",
 		"--include-partial-messages",
 		"--dangerously-skip-permissions",
+		"--settings", claudeAttributionSettings,
 	}
 	if r.cfg.ResumeSessionID != "" {
 		args = append(args, "--resume", r.cfg.ResumeSessionID)
@@ -132,7 +140,7 @@ func (r *ClaudeRunner) buildFlags() []string {
 	if r.cfg.Model != "" {
 		args = append(args, "--model", r.cfg.Model)
 	}
-	args = append(args, "--tools", scopesToClaudeTools(r.cfg.AllowedTools))
+	args = append(args, "--disallowedTools", strings.Join(claudeExcludedTools, ","))
 	if r.cfg.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", r.cfg.SystemPrompt)
 	}
@@ -155,34 +163,38 @@ func (r *ClaudeRunner) buildExecCommand(workDir string, args []string) (cmd stri
 }
 
 // buildRunEnv constructs the subprocess environment from the inherited base env
-// plus ExtraEnv, with HOME and TMPDIR stripped from both sources then replaced
+// plus claudeOfflineEnv and ExtraEnv, with HOME and TMPDIR stripped from both sources then replaced
 // by the per-run isolation values. Any key set in ExtraEnv is also stripped
 // from the inherited env. Stripping is necessary because on Linux getenv()
 // returns the first match — a pre-existing HOME=, TMPDIR=, or e.g.
 // ANTHROPIC_BASE_URL= would shadow the per-run values if it appeared earlier
 // in the slice. See docs/adr/2026-06-04-per-session-home-isolation.md.
 func (r *ClaudeRunner) buildRunEnv(baseEnv []string, runHome, tmpDir string) []string {
+	extra := append(append([]string{}, claudeOfflineEnv...), r.cfg.ExtraEnv...)
 	overridden := map[string]bool{"HOME": true, "TMPDIR": true}
-	for _, e := range r.cfg.ExtraEnv {
+	for _, e := range extra {
 		if k, _, ok := strings.Cut(e, "="); ok {
 			overridden[k] = true
 		}
 	}
 
-	env := make([]string, 0, len(baseEnv)+len(r.cfg.ExtraEnv)+2)
+	env := make([]string, 0, len(baseEnv)+len(extra)+2)
 	for _, e := range baseEnv {
 		if k, _, ok := strings.Cut(e, "="); ok && overridden[k] {
 			continue
 		}
 		env = append(env, e)
 	}
-	for _, e := range r.cfg.ExtraEnv {
+	for _, e := range extra {
 		if !strings.HasPrefix(e, "HOME=") && !strings.HasPrefix(e, "TMPDIR=") {
 			env = append(env, e)
 		}
 	}
 	return append(env, "HOME="+runHome, "TMPDIR="+tmpDir)
 }
+
+// maxClaudeLineBytes bounds one stream-json line from Claude Code.
+const maxClaudeLineBytes = 32 * 1024 * 1024
 
 // isBudgetExceededMessage recognizes the inference gateway's 429
 // BUDGET_EXCEEDED rejection surfaced through the agent runtime's error result.
@@ -201,19 +213,11 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 	}
 	args = append(args, "--mcp-config", mcpConfigPath)
 
-	// Per-run home: isolates ~/.claude/ (session transcripts, memories) from
-	// sibling runs on the same pod. See docs/adr/2026-06-04-per-session-home-isolation.md.
-	runHome := filepath.Join(workDir, ".runhome")
-	if err := os.MkdirAll(runHome, 0o700); err != nil {
-		return fmt.Errorf("create run home: %w", err)
+	// Per-run home, tmp and local dirs. See docs/adr/2026-06-04-per-session-home-isolation.md.
+	if _, err := runHomeDirs(workDir); err != nil {
+		return err
 	}
-
-	// Per-run tmp directory lives inside the workspace so it is covered by the
-	// same Landlock rule as the rest of the run's files. See docs/adr/2026-06-04-per-session-home-isolation.md.
-	tmpDir := filepath.Join(workDir, ".tmp")
-	if err := os.MkdirAll(tmpDir, 0o700); err != nil {
-		return fmt.Errorf("create run tmpdir: %w", err)
-	}
+	runHome, tmpDir := runfs.HomeDir(workDir), runfs.TmpDir(workDir)
 
 	cmd, cmdArgs := r.buildExecCommand(workDir, args)
 	r.cmd = exec.CommandContext(ctx, cmd, cmdArgs...)
@@ -246,7 +250,6 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 		logging.Field{Key: "pid", Value: r.cmd.Process.Pid},
 		logging.Field{Key: "model", Value: r.cfg.Model},
 		logging.Field{Key: "bare", Value: r.cfg.Bare},
-		logging.Field{Key: "tool_count", Value: len(r.cfg.AllowedTools)},
 	)
 
 	go r.logStderr(ctx, stderr)
@@ -256,6 +259,7 @@ func (r *ClaudeRunner) Start(ctx context.Context, workDir string) error {
 
 // Send writes a user text message to Claude Code's stdin.
 func (r *ClaudeRunner) Send(_ context.Context, text string) error {
+	r.turnEnded.Store(false)
 	return r.writeInput(claudeInputMessage{
 		Type: "user",
 		Message: claudeInputMessageBody{
@@ -331,7 +335,7 @@ func (r *ClaudeRunner) writeInput(msg claudeInputMessage) error {
 	return err
 }
 
-// Events returns the channel of Orbit standard events.
+// Events returns the channel of kora standard events.
 func (r *ClaudeRunner) Events() <-chan Event {
 	return r.events
 }
@@ -363,7 +367,11 @@ func (r *ClaudeRunner) NewResumeRunner() Runner {
 	}
 	cfg := r.cfg
 	cfg.ResumeSessionID = id
-	return NewClaudeRunner(cfg)
+	resumed := NewClaudeRunner(cfg)
+	// A resumed session starts between turns: a stop before its first message
+	// has no turn to record.
+	resumed.turnEnded.Store(true)
+	return resumed
 }
 
 // Close sends EOF to stdin and waits for the subprocess to exit.
@@ -405,13 +413,15 @@ func (r *ClaudeRunner) logStderr(ctx context.Context, stderr io.Reader) {
 	}
 }
 
-// transform reads Claude Code's stream-json stdout and emits Orbit events.
+// transform reads Claude Code's stream-json stdout and emits kora events.
 // Runs in its own goroutine; closes r.events when stdout is exhausted.
 func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 	defer close(r.events)
 
+	// One line carries a whole tool result, and subagent results pass a
+	// megabyte; a line over the limit would end the scan and the session's events.
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 1024*1024), maxClaudeLineBytes)
 
 	for scanner.Scan() {
 		line := scanner.Bytes()
@@ -435,6 +445,13 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 		r.dispatch(ctx, wrapper)
 	}
 
+	// SIGINT ends the process without a usable result, so the stopped turn is
+	// recorded here, once stdout is exhausted.
+	if r.interrupted.Load() && !r.turnEnded.Load() {
+		r.flushPartial()
+		r.emit(EventTypeTurnStopped, TurnStoppedPayload{Reason: "user"})
+	}
+
 	if err := scanner.Err(); err != nil {
 		r.cfg.Logger.Error(ctx, "agent stdout scan error",
 			logging.Field{Key: "run_id", Value: r.cfg.RunID},
@@ -453,26 +470,34 @@ func (r *ClaudeRunner) transform(ctx context.Context, stdout io.Reader) {
 func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 	switch w.Type {
 	case "stream_event":
+		// A subagent's deltas belong to its Agent call, whose result carries its
+		// answer; merging them would splice subagent text into the parent's turn.
+		if w.ParentToolUseID != "" {
+			return
+		}
 		var ev claudeStreamEvent
 		if err := json.Unmarshal(w.Event, &ev); err == nil {
 			r.handleStreamEvent(ev)
 		}
 	case "assistant":
-		r.handleAssistant(ctx, w.Message)
+		r.handleAssistant(ctx, w.Message, w.ParentToolUseID)
 	case "user":
-		r.handleUser(w.Message)
-	case "system":
-		if w.Subtype == "init" && w.SessionID != "" {
-			r.sessionIDMu.Lock()
-			r.capturedSessionID = w.SessionID
-			r.sessionIDMu.Unlock()
+		r.handleUser(w.Message, w.ParentToolUseID)
+	case "tool_progress":
+		p := ToolProgressPayload{
+			ToolUseID:       w.ToolUseID,
+			ToolName:        w.ToolName,
+			ParentToolUseID: w.ParentToolUseID,
+			ElapsedSeconds:  w.ElapsedTimeSeconds,
 		}
-		r.cfg.Logger.Info(ctx, "agent system event",
-			logging.Field{Key: "run_id", Value: r.cfg.RunID},
-			logging.Field{Key: "framework", Value: "claude-code"},
-			logging.Field{Key: "subtype", Value: w.Subtype},
-			logging.Field{Key: "session_id", Value: w.SessionID},
-		)
+		// A heartbeat names itself "<call>-heartbeat-N" and puts the running
+		// call in parent_tool_use_id; report it against the call.
+		if w.Heartbeat && w.ParentToolUseID != "" {
+			p.ToolUseID, p.ParentToolUseID = w.ParentToolUseID, ""
+		}
+		r.emit(EventTypeToolProgress, p)
+	case "system":
+		r.handleSystem(ctx, w)
 	case "result":
 		r.handleResult(ctx, w)
 	default:
@@ -484,6 +509,34 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 			)
 		}
 	}
+}
+
+// handleSystem processes a "system" wrapper: provider retries, the session init
+// that names the session, and the set of live background tasks.
+func (r *ClaudeRunner) handleSystem(ctx context.Context, w claudeOutputWrapper) {
+	if w.Subtype == "background_tasks_changed" {
+		r.setBackgroundTasks(w.Tasks)
+	}
+	if w.Subtype == "api_retry" {
+		r.emit(EventTypeAPIRetry, APIRetryPayload{
+			Attempt:      w.Attempt,
+			MaxRetries:   w.MaxRetries,
+			RetryDelayMs: w.RetryDelayMs,
+			ErrorStatus:  w.ErrorStatus,
+			Error:        rawString(w.Error),
+		})
+	}
+	if w.Subtype == "init" && w.SessionID != "" {
+		r.sessionIDMu.Lock()
+		r.capturedSessionID = w.SessionID
+		r.sessionIDMu.Unlock()
+	}
+	r.cfg.Logger.Info(ctx, "agent system event",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "framework", Value: "claude-code"},
+		logging.Field{Key: "subtype", Value: w.Subtype},
+		logging.Field{Key: "session_id", Value: w.SessionID},
+	)
 }
 
 // handleResult processes a "result" wrapper (the final event Claude emits per turn).
@@ -515,13 +568,13 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 			logging.Field{Key: "stop_reason", Value: w.StopReason},
 			logging.Field{Key: "result", Value: msg},
 		)
-		code := "agent_error"
 		if budgetHit || isBudgetExceededMessage(msg) {
 			// The inference gateway rejected the run's LLM calls with 403
 			// BUDGET_EXCEEDED — a budget ceiling is met, not a fault.
-			code = "budget_exhausted"
+			r.emit(EventTypeRunError, RunErrorPayload{Code: "budget_exhausted", Message: msg})
+			return
 		}
-		r.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})
+		r.endTurnWithError("agent_error", msg)
 		return
 	}
 
@@ -545,26 +598,22 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 		logging.Field{Key: "text_len", Value: textLen},
 		logging.Field{Key: "thinking_len", Value: r.thinkingBuf.Len()},
 	)
-	// An empty turn with a non-standard stop reason signals a silent failure
-	// (e.g. inference gateway returning 5xx after exhausted retries).
-	// textBlockEmitted=true means text was already flushed before tool calls,
-	// so the turn has content even if textBuf is now empty.
-	if textLen == 0 && !r.textBlockEmitted && w.StopReason != "end_turn" {
+	// Claude Code reports an API error it gave up on as an empty success with the
+	// error in the result. An empty turn without one goes to the session's empty-turn guard.
+	if !r.turnHadText() {
 		if r.interrupted.Load() {
 			return // SIGINT caused the empty turn — runner will restart via --resume
 		}
-		msg := w.Result
-		if msg == "" {
-			msg = fmt.Sprintf("Agent produced an empty response (stop_reason=%q) — the inference gateway may have returned an error", w.StopReason)
+		if w.StopReason != "end_turn" && w.Result != "" {
+			r.cfg.Logger.Error(ctx, "agent empty turn — possible inference error",
+				logging.Field{Key: "run_id", Value: r.cfg.RunID},
+				logging.Field{Key: "framework", Value: "claude-code"},
+				logging.Field{Key: "stop_reason", Value: w.StopReason},
+				logging.Field{Key: "result", Value: w.Result},
+			)
+			r.endTurnWithError("empty_response", w.Result)
+			return
 		}
-		r.cfg.Logger.Error(ctx, "agent empty turn — possible inference error",
-			logging.Field{Key: "run_id", Value: r.cfg.RunID},
-			logging.Field{Key: "framework", Value: "claude-code"},
-			logging.Field{Key: "stop_reason", Value: w.StopReason},
-			logging.Field{Key: "result", Value: msg},
-		)
-		r.emit(EventTypeRunError, RunErrorPayload{Code: "empty_response", Message: msg})
-		return
 	}
 	r.emit(EventTypeMessageComplete, MessageCompletePayload{
 		Text:     r.textBuf.String(),
@@ -574,6 +623,37 @@ func (r *ClaudeRunner) handleResult(ctx context.Context, w claudeOutputWrapper) 
 	r.thinkingBuf.Reset()
 	r.textBlockEmitted = false
 	r.emit(EventTypeMessageStop, nil)
+}
+
+// turnHadText reports whether the turn wrote anything: text still buffered,
+// text recorded before a tool call, or text taken by a mid-turn message.
+func (r *ClaudeRunner) turnHadText() bool {
+	return r.textBuf.Len() > 0 || r.textBlockEmitted || r.textBuf.wasTaken()
+}
+
+// endTurnWithError records a failed turn. The subprocess keeps reading input
+// after an error result, so the turn ends with message_stop. The empty-turn
+// guard fails a trigger run whose errored turn wrote nothing.
+func (r *ClaudeRunner) endTurnWithError(code, msg string) {
+	r.flushPartial()
+	r.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})
+	r.emit(EventTypeMessageStop, nil)
+}
+
+// flushPartial emits whatever text and thinking a turn cut short has
+// accumulated, marked interrupted, so it keeps what the agent already said.
+func (r *ClaudeRunner) flushPartial() {
+	if r.textBuf.Len() == 0 && r.thinkingBuf.Len() == 0 {
+		return
+	}
+	r.emit(EventTypeMessageComplete, MessageCompletePayload{
+		Text:        r.textBuf.String(),
+		Thinking:    r.thinkingBuf.String(),
+		Interrupted: true,
+	})
+	r.textBuf.Reset()
+	r.thinkingBuf.Reset()
+	r.textBlockEmitted = false
 }
 
 // emitBudgetExhaustedTurn ends a budget-truncated turn: flushes any content the
@@ -588,15 +668,7 @@ func (r *ClaudeRunner) emitBudgetExhaustedTurn(ctx context.Context, w claudeOutp
 		logging.Field{Key: "stop_reason", Value: w.StopReason},
 		logging.Field{Key: "text_len", Value: r.textBuf.Len()},
 	)
-	if r.textBuf.Len() > 0 || r.thinkingBuf.Len() > 0 {
-		r.emit(EventTypeMessageComplete, MessageCompletePayload{
-			Text:     r.textBuf.String(),
-			Thinking: r.thinkingBuf.String(),
-		})
-		r.textBuf.Reset()
-		r.thinkingBuf.Reset()
-		r.textBlockEmitted = false
-	}
+	r.flushPartial()
 	r.emit(EventTypeRunError, RunErrorPayload{
 		Code:    "budget_exhausted",
 		Message: "The run's LLM calls were rejected with BUDGET_EXCEEDED — a budget ceiling was reached and the turn was cut short after retries.",
@@ -628,7 +700,10 @@ func (r *ClaudeRunner) handleStreamEvent(ev claudeStreamEvent) {
 // Before the first tool_use, any accumulated text in textBuf is flushed as a
 // durable text_block event. This preserves the original interleaved order during
 // replay without re-streaming individual character deltas.
-func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) {
+//
+// parentToolUseID is set for a subagent's messages. Only the main thread's
+// text is flushed: the parent's buffer is not the subagent's to cut.
+func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage, parentToolUseID string) {
 	if msg == nil {
 		return
 	}
@@ -646,7 +721,7 @@ func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) 
 	}
 
 	// Flush the text accumulated before these tool calls as a text_block event.
-	if r.textBuf.Len() > 0 {
+	if parentToolUseID == "" && r.textBuf.Len() > 0 {
 		r.emit(EventTypeTextBlock, TextBlockPayload{Content: r.textBuf.String()})
 		r.textBuf.Reset()
 		r.textBlockEmitted = true
@@ -659,31 +734,73 @@ func (r *ClaudeRunner) handleAssistant(ctx context.Context, msg *claudeMessage) 
 				logging.Field{Key: "tool", Value: block.Name},
 				logging.Field{Key: "tool_use_id", Value: block.ID},
 			)
-			r.emit(EventTypeToolUse, ToolUsePayload{ID: block.ID, Name: block.Name, Input: block.Input})
+			r.emit(EventTypeToolUse, ToolUsePayload{ID: block.ID, Name: block.Name, Input: block.Input, ParentToolUseID: parentToolUseID})
 		}
 	}
 }
 
 // handleUser emits tool_result events from a user message carrying tool results.
-func (r *ClaudeRunner) handleUser(msg *claudeMessage) {
+func (r *ClaudeRunner) handleUser(msg *claudeMessage, parentToolUseID string) {
 	if msg == nil {
 		return
 	}
 	for _, block := range msg.Content {
-		if block.Type == "tool_result" {
-			r.emit(EventTypeToolResult, ToolResultPayload{
-				ToolUseID: block.ToolUseID,
-				Content:   block.Content,
-				IsError:   block.IsError,
-			})
+		if block.Type != "tool_result" {
+			continue
+		}
+		content := toolResultText(block.Content)
+		r.emit(EventTypeToolResult, newToolResult(block.ToolUseID, content, block.IsError, parentToolUseID))
+	}
+}
+
+// toolResultText returns a tool result's content as text. MCP, Agent, and
+// runtime tools return an array of blocks: text blocks are joined, and other
+// blocks (images) are named rather than inlined.
+func toolResultText(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) != nil {
+		return string(raw)
+	}
+	parts := make([]string, 0, len(blocks))
+	for _, b := range blocks {
+		if b.Type == "text" {
+			parts = append(parts, b.Text)
+		} else {
+			parts = append(parts, "["+b.Type+"]")
 		}
 	}
+	return strings.Join(parts, "\n")
+}
+
+// rawString returns a JSON string's value, or empty for any other JSON.
+func rawString(raw json.RawMessage) string {
+	var s string
+	_ = json.Unmarshal(raw, &s)
+	return s
 }
 
 func (r *ClaudeRunner) emit(t EventType, payload any) {
 	ev, err := newEvent(t, payload)
 	if err != nil {
 		return
+	}
+	// A turn can start without a message (a background task waking the agent),
+	// so any turn activity reopens it.
+	switch {
+	case t == EventTypeMessageStop:
+		r.turnEnded.Store(true)
+	case !isStatusEvent(t):
+		r.turnEnded.Store(false)
 	}
 	r.events <- ev
 }
@@ -699,15 +816,26 @@ func isExitKilled(err error) bool {
 		strings.Contains(s, "context canceled")
 }
 
-// scopesToClaudeTools converts Orbit tool scope names to the Claude Code --tools
-// flag value. The scope→tool mapping (and the always-on auto scopes) live in the
-// shared toolscopes package so this and the agents API stay in lockstep.
-func scopesToClaudeTools(scopes []string) string {
-	tools := toolscopes.ClaudeTools(scopes)
-	if len(tools) == 0 {
-		return "default"
-	}
-	return strings.Join(tools, ",")
+// claudeExcludedTools are the Claude Code built-ins that cannot work headless or would reach the network outside the sandbox.
+// Every agent gets all other built-in tools; this list is platform policy, not agent configuration.
+var claudeExcludedTools = []string{
+	"WebSearch",        // Anthropic server-side tool, not served through the inference gateway.
+	"WebFetch",         // fetches from the session-manager container, outside the sandbox's egress policy.
+	"AskUserQuestion",  // auto-rejected in headless stream-json mode: nobody can answer it.
+	"PushNotification", // calls Anthropic's hosted service from the session-manager container, outside the egress policy.
+	"DesignSync",       // calls Claude Design from the session-manager container, outside the egress policy.
+}
+
+// claudeOfflineEnv turns off Claude Code's background calls to Anthropic, which
+// the agent pod's egress policy blocks. CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC
+// is not used: it would also stop OTLP export to the platform collector.
+var claudeOfflineEnv = []string{
+	"DISABLE_AUTOUPDATER=1",
+	"DISABLE_TELEMETRY=1",
+	"DISABLE_ERROR_REPORTING=1",
+	"DISABLE_FEEDBACK_COMMAND=1",
+	"CLAUDE_CODE_DISABLE_FEEDBACK_SURVEY=1",
+	"CLAUDE_CODE_DISABLE_OFFICIAL_MARKETPLACE_AUTOINSTALL=1",
 }
 
 // ── Claude Code JSON wire types ──────────────────────────────────────────────
@@ -731,13 +859,36 @@ type claudeInputContent struct {
 
 // claudeOutputWrapper is the top-level envelope for every stdout line.
 type claudeOutputWrapper struct {
-	Type       string          `json:"type"`
-	Subtype    string          `json:"subtype"`
-	StopReason string          `json:"stop_reason"`
-	Result     string          `json:"result"`     // error message when Subtype == "error"
-	SessionID  string          `json:"session_id"` // present on system/init
-	Event      json.RawMessage `json:"event"`      // when Type == "stream_event"
-	Message    *claudeMessage  `json:"message"`    // when Type == "assistant" | "user"
+	Type            string          `json:"type"`
+	Subtype         string          `json:"subtype"`
+	StopReason      string          `json:"stop_reason"`
+	Result          string          `json:"result"`             // error message when Subtype == "error"
+	SessionID       string          `json:"session_id"`         // present on system/init
+	Event           json.RawMessage `json:"event"`              // when Type == "stream_event"
+	Message         *claudeMessage  `json:"message"`            // when Type == "assistant" | "user"
+	ParentToolUseID string          `json:"parent_tool_use_id"` // set on a subagent's messages; null decodes as ""
+
+	// system/api_retry
+	Attempt      int             `json:"attempt"`
+	MaxRetries   int             `json:"max_retries"`
+	RetryDelayMs int             `json:"retry_delay_ms"`
+	ErrorStatus  *int            `json:"error_status"`
+	Error        json.RawMessage `json:"error"` // a class name here; raw so another line's shape cannot fail the decode
+
+	// system/background_tasks_changed
+	Tasks []claudeBackgroundTask `json:"tasks"`
+
+	// tool_progress
+	ToolUseID          string `json:"tool_use_id"`
+	ToolName           string `json:"tool_name"`
+	ElapsedTimeSeconds int    `json:"elapsed_time_seconds"`
+	Heartbeat          bool   `json:"heartbeat"`
+}
+
+// claudeBackgroundTask is one entry of a background_tasks_changed event.
+type claudeBackgroundTask struct {
+	// Ambient marks a task that is not activity, such as a live-update watcher.
+	Ambient bool `json:"ambient"`
 }
 
 // claudeStreamEvent is the inner event inside a "stream_event" wrapper.
@@ -763,6 +914,34 @@ type claudeContentItem struct {
 	Name      string          `json:"name"`
 	Input     json.RawMessage `json:"input"`
 	ToolUseID string          `json:"tool_use_id"`
-	Content   string          `json:"content"`
+	Content   json.RawMessage `json:"content"` // a string, or an array of blocks from MCP and Agent tools
 	IsError   bool            `json:"is_error"`
 }
+
+// setBackgroundTasks records the CLI's set of live background tasks. The event
+// carries the whole set, so each one replaces the last and a missed event cannot
+// leave a stale count.
+func (r *ClaudeRunner) setBackgroundTasks(tasks []claudeBackgroundTask) {
+	var n int64
+	for _, t := range tasks {
+		if !t.Ambient {
+			n++
+		}
+	}
+	r.backgroundTasks.Store(n)
+	select {
+	case r.workChanged <- struct{}{}:
+	default:
+	}
+}
+
+// WorkChanged signals that the count of work in flight was reported; see InFlightWork.
+func (r *ClaudeRunner) WorkChanged() <-chan struct{} { return r.workChanged }
+
+// InFlightWork is the number of subagents and background commands still running.
+// The agent ends its turn while they run and resumes when one finishes, so the
+// session is not idle until this is zero.
+func (r *ClaudeRunner) InFlightWork() int { return int(r.backgroundTasks.Load()) }
+
+// TakeText hands over the text streamed so far; see Runner.
+func (r *ClaudeRunner) TakeText() string { return r.textBuf.take() }

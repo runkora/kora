@@ -220,7 +220,7 @@ func githubEgressHosts(baseHost string) []string {
 // reserves the colon for IPv6 literals), and the rego matcher compares against
 // the CONNECT :authority with its port already removed (_connect_host in
 // authz.rego). A kubernetes baseHost is conventionally "host:443", which would
-// otherwise yield the ungrantable scope "egress:host:443:connect".
+// otherwise yield the ungrantable scope "egress:host:443:connector".
 func declaredHostOnly(baseHost string) []string {
 	h := strings.ToLower(strings.TrimSpace(baseHost))
 	if h == "" {

@@ -44,8 +44,8 @@ func TestWrapExec(t *testing.T) {
 	})
 }
 
-// OpenCode takes the shell its tool commands run through from opencode.json.
-func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
+// OpenCode takes the shell its tool commands run through from its config.
+func TestOpenCodeConfig_ShellPath(t *testing.T) {
 	const shellPath = "/opt/orbit/shell/bash"
 
 	read := func(t *testing.T, cfg OpenCodeRunnerConfig) map[string]any {
@@ -55,16 +55,13 @@ func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
 		cfg.RunID = "run-1"
 		cfg.InferenceGatewayURL = "http://orbit-inference-gateway"
 		r := NewOpenCodeRunner(cfg)
-		if err := r.writeOpenCodeConfig(workDir); err != nil {
-			t.Fatalf("writeOpenCodeConfig: %v", err)
-		}
-		data, err := os.ReadFile(filepath.Join(workDir, "opencode.json"))
+		data, err := r.openCodeConfig(workDir)
 		if err != nil {
-			t.Fatalf("read opencode.json: %v", err)
+			t.Fatalf("openCodeConfig: %v", err)
 		}
 		var out map[string]any
 		if err := json.Unmarshal(data, &out); err != nil {
-			t.Fatalf("unmarshal opencode.json: %v", err)
+			t.Fatalf("unmarshal config: %v", err)
 		}
 		return out
 	}
@@ -89,10 +86,15 @@ func TestWriteOpenCodeConfig_ShellPath(t *testing.T) {
 // which run is asking.
 func TestRunEnv(t *testing.T) {
 	c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090}}
+	t.Setenv("PATH", "/usr/bin:/bin")
 
 	got := c.runEnv("run-42", "tok-42")
 	want := []string{
 		"WORKSPACE=/workspaces/run-42",
+		// Replayed in the sandbox, so it reaches Go and user-level installs, after the system dirs.
+		"PATH=/usr/bin:/bin:/usr/local/go/bin:/usr/local/cargo/bin:/workspaces/.runlocal/run-42/.local/bin:/workspaces/.runlocal/run-42/go/bin:/workspaces/.runlocal/run-42/.cargo/bin",
+		// The sandbox mounts its local disk at the same path.
+		"GOCACHE=/workspaces/.runlocal/run-42/.cache/go-build",
 		"ORBIT_SESSION_MANAGER_URL=http://localhost:8090",
 		"ORBIT_RUN_ID=run-42",
 		"ORBIT_RUN_TOKEN=tok-42",
@@ -101,6 +103,40 @@ func TestRunEnv(t *testing.T) {
 		if !slices.Contains(got, w) {
 			t.Errorf("run env %v is missing %q", got, w)
 		}
+	}
+}
+
+// The cap reaches Node processes a run starts on the agent pod, and replaces any
+// NODE_OPTIONS the pod itself carries.
+func TestRunEnv_NodeHeapCap(t *testing.T) {
+	tests := []struct {
+		name string
+		mb   int
+		want string
+	}{
+		{name: "capped", mb: 512, want: "--max-old-space-size=512"},
+		{name: "disabled", mb: 0, want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Controller{cfg: ControllerConfig{WorkspacesBasePath: "/workspaces", SelfPort: 8090, NodeMaxOldSpaceMB: tt.mb}}
+			env := withRunEnv([]string{"NODE_OPTIONS=--max-old-space-size=8192"}, c.runEnv("run-42", "tok-42"))
+			var got []string
+			for _, e := range env {
+				if v, ok := strings.CutPrefix(e, "NODE_OPTIONS="); ok {
+					got = append(got, v)
+				}
+			}
+			if tt.want == "" {
+				if !slices.Equal(got, []string{"--max-old-space-size=8192"}) {
+					t.Errorf("NODE_OPTIONS = %v, want the inherited value untouched", got)
+				}
+				return
+			}
+			if !slices.Equal(got, []string{tt.want}) {
+				t.Errorf("NODE_OPTIONS = %v, want exactly [%s]", got, tt.want)
+			}
+		})
 	}
 }
 
@@ -128,19 +164,47 @@ func TestCodexConfig_MCPServers(t *testing.T) {
 	}
 	got := string(data)
 
-	// sandbox_mode is a top-level key: TOML puts a key after a table header inside
-	// that table, which silently disabled it and brought the panic back.
+	// sandbox_mode and approval_policy are top-level keys: TOML puts a key after a
+	// table header inside that table, which silently disables it.
 	if idx := strings.Index(got, "["); idx >= 0 {
-		if strings.Index(got, "sandbox_mode") > idx {
-			t.Error("sandbox_mode must appear before the first table header, or it is nested in that table")
+		for _, key := range []string{"sandbox_mode", "approval_policy"} {
+			if strings.Index(got, key) > idx {
+				t.Errorf("%s must appear before the first table header, or it is nested in that table", key)
+			}
+		}
+	}
+
+	// Each server table carries its keys ahead of any subtable such as
+	// [mcp_servers.runtime.env], or they land in the subtable and Codex rejects the file.
+	for server, keys := range map[string][]string{
+		"runtime": {`default_tools_approval_mode = "approve"`, `env_vars = ["ORBIT_RUN_TOKEN"]`},
+		"github":  {`default_tools_approval_mode = "approve"`},
+	} {
+		header := "[mcp_servers." + server + "]\n"
+		start := strings.Index(got, header)
+		if start < 0 {
+			t.Fatalf("config.toml has no %s table:\n%s", header, got)
+		}
+		table := got[start+len(header):]
+		if end := strings.Index(table, "\n["); end >= 0 {
+			table = table[:end]
+		}
+		for _, key := range keys {
+			if !strings.Contains(table, key) {
+				t.Errorf("%s table is missing %q:\n%s", header, key, table)
+			}
 		}
 	}
 
 	for _, want := range []string{
 		// Without this Codex panics on a missing bubblewrap and runs nothing.
 		`sandbox_mode = "danger-full-access"`,
+		// Headless: an approval request would wait forever for a human.
+		`approval_policy = "never"`,
 		// The one-shot shell tool, which is the shape orbit-shell implements.
 		"unified_exec = false",
+		// A login-shell snapshot from this pod would replace the sandbox's PATH.
+		"shell_snapshot = false",
 		"[mcp_servers.runtime]",
 		`command = "orbit-runtime-mcp"`,
 		`ORBIT_SESSION_MANAGER_URL = "http://localhost:8090"`,
@@ -164,12 +228,9 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 		ToolGatewayURL:      "http://orbit-tool-gateway/run/run-1",
 		MCPServers:          []string{"github"},
 	})
-	if err := r.writeOpenCodeConfig(workDir); err != nil {
-		t.Fatalf("writeOpenCodeConfig: %v", err)
-	}
-	data, err := os.ReadFile(filepath.Join(workDir, "opencode.json"))
+	data, err := r.openCodeConfig(workDir)
 	if err != nil {
-		t.Fatalf("read opencode.json: %v", err)
+		t.Fatalf("openCodeConfig: %v", err)
 	}
 	var cfg struct {
 		MCP map[string]struct {
@@ -181,7 +242,7 @@ func TestOpenCodeConfig_MCPServers(t *testing.T) {
 		} `json:"mcp"`
 	}
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		t.Fatalf("unmarshal opencode.json: %v", err)
+		t.Fatalf("unmarshal config: %v", err)
 	}
 
 	rt, ok := cfg.MCP["runtime"]

@@ -2,7 +2,7 @@
 
 Secrets are values that, if leaked, would require a security incident response: passwords, API keys, tokens, certificates, private keys. These never go in YAML config files or version control.
 
-Orbit reads secrets from environment variables at runtime.
+kora reads secrets from environment variables at runtime.
 
 ---
 
@@ -67,7 +67,7 @@ Nothing to generate. The test user is `dev@orbit.local.clearroute.io` with passw
 
 | Variable | Where Set | Description |
 |---|---|---|
-| `APP_ENV` | chart values / deployment env | Environment: `local`, `development`, `production`. Not a secret but controls config loading. In-cluster it is injected as an env var, not read from `.env`. |
+| `APP_ENV` | `.env` for host-run binaries | Environment: `local` or `production` (the default). Not a secret but selects the `{env}.yaml` config layer. The chart does not set it. |
 
 ### Database
 
@@ -121,9 +121,10 @@ The application code is identical regardless: it always reads `os.Getenv`.
 
 1. Add `os.Getenv("YOUR_VAR")` with a fail-fast check in the relevant service initializer
 2. If it is machine-local, generate it into `.env` in the `env` target in the `Makefile`, and wire it into `orbit-secrets` via `scripts/cluster/create-secrets.sh`
-3. If it is an optional override, document it in `.env.example`
-4. Add it to this reference table above
-5. Add it to the relevant deployment secret store for staging/production
+3. Add the key to the `orbit.platformEnv` key list of each workload that reads it (`charts/orbit/templates/<service>/deployment*.yaml`, or `migrate/job.yaml`) and to the expected keys in `backend/internal/platform/config/chart_secrets_test.go`. A pod receives only the `orbit-secrets` keys listed there
+4. If it is an optional override, document it in `.env.example`
+5. Add it to this reference table above
+6. Add it to the relevant deployment secret store for staging/production
 
 ---
 

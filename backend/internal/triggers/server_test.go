@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"slices"
 	"testing"
 	"time"
 
@@ -538,5 +540,122 @@ func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
 	}
 	if got := eval.scopeAsked(); got != "trigger:"+trig.ID+":fire" {
 		t.Errorf("checked scope %q, want the specific trigger's fire scope", got)
+	}
+}
+
+func TestHandleProviderEventTypes(t *testing.T) {
+	c, _, _ := newTestController(t)
+
+	w := call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/github/event-types",
+		map[string]string{"provider": ProviderGitHub}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
+	}
+	got := decode[EventTypesResponse](t, w)
+	if !slices.Contains(got.Declared, "issue_comment") || !slices.Equal(got.Associations, []string{"OWNER", "MEMBER", "COLLABORATOR"}) {
+		t.Errorf("response = %+v", got)
+	}
+
+	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/alertmanager/event-types",
+		map[string]string{"provider": ProviderAlertmanager}, nil)
+	if am := decode[EventTypesResponse](t, w); !slices.Equal(am.Declared, []string{"alert.firing", "alert.resolved"}) ||
+		am.Associations == nil || len(am.Associations) != 0 {
+		t.Errorf("alertmanager = %+v, want its two types and an empty association list", am)
+	}
+
+	w = call(t, c.handleProviderEventTypes, http.MethodGet, "/trigger-providers/gitlab/event-types",
+		map[string]string{"provider": "gitlab"}, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown provider status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleProviderFields(t *testing.T) {
+	c, _, _ := newTestController(t)
+
+	w := call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/alertmanager/fields?event_type=alert.firing",
+		map[string]string{"provider": ProviderAlertmanager}, nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (%s), want 200", w.Code, w.Body.String())
+	}
+	got := decode[FieldsResponse](t, w)
+	var pattern bool
+	for _, f := range got.Fields {
+		if f.Path == "commonLabels.<name>" && f.Pattern {
+			pattern = true
+		}
+	}
+	if !pattern {
+		t.Errorf("fields = %+v, want the commonLabels pattern field", got.Fields)
+	}
+
+	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/github/fields?event_type=issue_comment",
+		map[string]string{"provider": ProviderGitHub}, nil)
+	paths := map[string]bool{}
+	for _, f := range decode[FieldsResponse](t, w).Fields {
+		paths[f.Path] = true
+	}
+	for _, want := range []string{"comment.body", "issue.title", "sender.login", metaEventType} {
+		if !paths[want] {
+			t.Errorf("issue_comment fields are missing %s", want)
+		}
+	}
+
+	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/github/fields",
+		map[string]string{"provider": ProviderGitHub}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("missing event_type status = %d, want 400", w.Code)
+	}
+
+	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/github/fields?event_type=%20",
+		map[string]string{"provider": ProviderGitHub}, nil)
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("blank event_type status = %d, want 400", w.Code)
+	}
+
+	w = call(t, c.handleProviderFields, http.MethodGet, "/trigger-providers/gitlab/fields?event_type=push",
+		map[string]string{"provider": "gitlab"}, nil)
+	if w.Code != http.StatusNotFound {
+		t.Errorf("unknown provider status = %d, want 404", w.Code)
+	}
+}
+
+func TestHandleListDeliveries_TimeAndPayload(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	src := mustSource(t, deps.sources)
+	now := time.Now()
+	for i, id := range []string{"old", "new"} {
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{
+			ID: id, TenantID: testTenant, SourceID: src.ID, EventType: "push", Status: StatusSkipped,
+			Payload: []byte(`{"a":1}`), PayloadExcerpt: "x", ReceivedAt: now.Add(time.Duration(i-2) * time.Hour),
+		})
+	}
+	list := func(query string) (int, []Delivery) {
+		w := call(t, c.handleListDeliveries, http.MethodGet, "/trigger-deliveries?"+query, nil, nil)
+		if w.Code != http.StatusOK {
+			return w.Code, nil
+		}
+		return w.Code, decode[struct {
+			Deliveries []Delivery `json:"deliveries"`
+		}](t, w).Deliveries
+	}
+
+	cut := url.QueryEscape(now.Add(-90 * time.Minute).UTC().Format(time.RFC3339))
+	if code, got := list("received_after=" + cut); code != 200 || len(got) != 1 || got[0].ID != "new" {
+		t.Errorf("received_after: %d %+v, want only new", code, got)
+	}
+	if code, got := list("received_before=" + cut); code != 200 || len(got) != 1 || got[0].ID != "old" {
+		t.Errorf("received_before: %d %+v, want only old", code, got)
+	}
+	if _, got := list(""); len(got) != 2 || len(got[0].Payload) == 0 {
+		t.Errorf("default listing = %+v, want payloads", got)
+	}
+	if _, got := list("omit_payload=true"); len(got) != 2 || len(got[0].Payload) != 0 || got[0].PayloadExcerpt != "x" {
+		t.Errorf("omit_payload listing = %+v, want excerpt without payload", got)
+	}
+	for _, q := range []string{"received_after=yesterday", "received_before=2026-13-01T00:00:00Z"} {
+		if code, _ := list(q); code != http.StatusBadRequest {
+			t.Errorf("%s: status %d, want 400", q, code)
+		}
 	}
 }

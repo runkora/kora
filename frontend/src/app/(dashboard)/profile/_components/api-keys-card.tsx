@@ -3,8 +3,18 @@
  * needs an API keys listing card.
  */
 
-import { Card, CardHeader, CardTitle, CardContent, Grid, Icon, Stack, Text } from '@orbit/terra';
-import { EmptyState, StatusBadge } from '@orbit/components';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Grid,
+  Icon,
+  Stack,
+  Text,
+  EmptyState,
+} from '@orbit/hades';
+import { StatusBadge } from '@orbit/components';
 import { fmtExpiry, isExpired } from '@orbit/utils';
 import type { ListPATsResult } from '@orbit/server/services/identity-server';
 import { ScopeList } from './scope-list';

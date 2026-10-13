@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Icon, Stack, Text } from '@orbit/terra';
+import { Button, Icon, Stack, Text } from '@orbit/hades';
 
 // ── Props (all fetched server-side, passed as serialisable data) ──────────────
 
@@ -124,7 +124,7 @@ function ConsentCard(
           >
             It wants to connect to the{' '}
             <Strong>
-              {(p.server?.displayName ?? 'Orbit').replace(/\s*MCP\s*$/i, '') || 'Orbit'}
+              {(p.server?.displayName ?? 'kora').replace(/\s*MCP\s*$/i, '') || 'kora'}
             </Strong>{' '}
             MCP server and call its tools <Strong>as you</Strong>.
           </Text>
@@ -261,7 +261,7 @@ function ConsentCard(
             marginTop: 5,
           }}
         >
-          By authorising, Orbit issues a short-lived token that acts as you, bounded by your grants;
+          By authorising, kora issues a short-lived token that acts as you, bounded by your grants;
           {p.clientName} re-authorises when it expires. You can revoke it any time from{' '}
           <Text as="span" mono style={{ fontSize: 11 }}>
             Connections
@@ -601,7 +601,7 @@ function ResultCard({ children }: { children: React.ReactNode }) {
 }
 
 function Strong({ children }: { children: React.ReactNode }) {
-  // Inherit the surrounding sentence's size/line-height — otherwise Terra's Text
+  // Inherit the surrounding sentence's size/line-height — otherwise Hades' Text
   // default size makes bold words jump larger than the text around them.
   return (
     <Text

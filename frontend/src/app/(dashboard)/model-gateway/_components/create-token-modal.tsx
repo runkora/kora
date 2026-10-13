@@ -12,7 +12,7 @@ import {
   ModalHeader,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { createToken } from '../_actions/tokens';
 import { ScopePicker } from '@orbit/components';
 import type { CreatePATResponse } from '@orbit/shared/api';
@@ -39,7 +39,6 @@ export function CreateTokenModal({
   const [name, setName] = useState('');
   const [expiresInDays, setExpiresInDays] = useState<string>('90');
   const [selectedScopes, setSelectedScopes] = useState<string[]>([]);
-  const [scopeSearch, setScopeSearch] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,21 +50,9 @@ export function CreateTokenModal({
       setName('');
       setExpiresInDays('90');
       setSelectedScopes([]);
-      setScopeSearch('');
       setError(null);
     }
   }, [open]);
-
-  const handleToggleScope = useCallback((scope: string, checked: boolean) => {
-    setSelectedScopes((prev) => (checked ? [...prev, scope] : prev.filter((s) => s !== scope)));
-  }, []);
-
-  const handleToggleScopeGroup = useCallback((scopes: string[], checked: boolean) => {
-    setSelectedScopes((prev) => {
-      const without = prev.filter((s) => !scopes.includes(s));
-      return checked ? [...without, ...scopes] : without;
-    });
-  }, []);
 
   const handleSubmit = useCallback(
     async (e: React.FormEvent) => {
@@ -176,12 +163,10 @@ export function CreateTokenModal({
               </Text>
             ) : (
               <ScopePicker
-                availableScopes={availableScopes}
-                selectedScopes={selectedScopes}
-                onToggle={handleToggleScope}
-                onToggleGroup={handleToggleScopeGroup}
-                search={scopeSearch}
-                onSearchChange={setScopeSearch}
+                scopes={availableScopes}
+                selected={selectedScopes}
+                onChange={setSelectedScopes}
+                searchable
               />
             )}
             <Text size="caption" color="subtle">

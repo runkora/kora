@@ -1,6 +1,6 @@
 {{- if .Values.gateway.create }}
 {{- if and (ne (default "" .Values.global.systemNamespace) "") (ne .Values.global.systemNamespace .Release.Namespace) }}
-{{- fail "gateway.create=true installs the bundled Istio gateway in .Release.Namespace, but global.systemNamespace names a different namespace, which would separate the gateway workload from the Gateway and policies that select it. Install Orbit with its release namespace equal to global.systemNamespace, or set gateway.create=false." }}
+{{- fail "gateway.create=true installs the bundled Istio gateway in .Release.Namespace, but global.systemNamespace names a different namespace, which would separate the gateway workload from the Gateway and policies that select it. Install kora with its release namespace equal to global.systemNamespace, or set gateway.create=false." }}
 {{- end }}
 # Istio Gateway for the two external hosts (ADR 2026-07-04):
 #   <frontendHost>      the dashboard and BFF

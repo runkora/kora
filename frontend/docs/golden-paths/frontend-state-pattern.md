@@ -25,7 +25,7 @@ The example throughout this guide uses a fictional `Widget` resource. Replace ev
 
 - You have a backend endpoint to connect to (e.g. `GET /v1/widgets`).
 - You know the approximate JSON response shape from the Go backend.
-- Orbit is running (`make up`). Frontend changes ship with `make redeploy SERVICE=frontend`.
+- kora is running (`make up`). Frontend changes ship with `make redeploy SERVICE=frontend`.
 
 ---
 

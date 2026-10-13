@@ -39,7 +39,7 @@ func TestEnsure_ExistingResourcesPickUpPatches(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	const ns = "orbit-tenant-acme"
 	existingSS := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -87,13 +87,13 @@ patch: |
 
 	ctx := context.Background()
 	labels := agentTypeLabels(at)
-	if err := p.ensureStatefulSet(ctx, at, ns, labels, metav1.OwnerReference{}); err != nil {
+	if err := p.ensureStatefulSet(ctx, at, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureStatefulSet: %v", err)
 	}
-	if err := p.ensureHPA(ctx, at.Slug, ns, labels, metav1.OwnerReference{}); err != nil {
+	if err := p.ensureHPA(ctx, at.Slug, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureHPA: %v", err)
 	}
-	if err := p.ensureHeadlessService(ctx, at.Slug, ns, labels, metav1.OwnerReference{}); err != nil {
+	if err := p.ensureHeadlessService(ctx, at.Slug, ns, labels, metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureHeadlessService: %v", err)
 	}
 

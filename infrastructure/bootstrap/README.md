@@ -1,9 +1,9 @@
-# Orbit Local Cluster Bootstrap
+# kora Local Cluster Bootstrap
 
 This directory contains the **k3d cluster creation config** for local development.
 
 Run this **once** to create the k3d cluster. After the cluster exists, use
-`deploy/local/` to install Orbit and its platform dependencies via Helm.
+`deploy/local/` to install kora and its platform dependencies via Helm.
 
 ## Prerequisites
 
@@ -27,7 +27,7 @@ This will:
 
 ## After cluster creation
 
-Install SPIRE, Istio and Orbit from the reference Helmfile:
+Install SPIRE, Istio and kora from the reference Helmfile:
 
 ```bash
 make cluster-platform   # build + push missing images; secrets and TLS;

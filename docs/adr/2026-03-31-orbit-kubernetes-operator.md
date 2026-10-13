@@ -1,9 +1,9 @@
-# Orbit Kubernetes Operator
+# kora Kubernetes Operator
 
 **Status:** Superseded by [install-and-distribution-model](2026-09-04-install-and-distribution-model.md)
 **Date:** 2026-03-31
 **Deciders:** Engineering Team
-**Technical Story:** [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) established two Helm charts as the distribution artifact for Orbit. The current installation experience requires operators to use Helmfile, manage install ordering (SPIRE CRDs → SPIRE → Istio → orbit-platform → orbit), imperatively create ConfigMaps and Secrets, and understand the dependency graph to add a tenant. As Orbit targets both self-hosted enterprise clusters and our own production EKS deployment, this complexity is an adoption barrier and an operational gap. A Kubernetes operator that manages the complete platform lifecycle — from SPIRE and Istio installation through to tenant provisioning — closes both gaps with a single CRD surface. The operator owns the full release sequence; Helmfile is no longer required.
+**Technical Story:** [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) established two Helm charts as the distribution artifact for kora. The current installation experience requires operators to use Helmfile, manage install ordering (SPIRE CRDs → SPIRE → Istio → orbit-platform → orbit), imperatively create ConfigMaps and Secrets, and understand the dependency graph to add a tenant. As kora targets both self-hosted enterprise clusters and our own production EKS deployment, this complexity is an adoption barrier and an operational gap. A Kubernetes operator that manages the complete platform lifecycle — from SPIRE and Istio installation through to tenant provisioning — closes both gaps with a single CRD surface. The operator owns the full release sequence; Helmfile is no longer required.
 
 ---
 
@@ -20,7 +20,7 @@ The current operator experience is:
 4. Imperatively create `orbit-secrets` Secret in each namespace (from a secrets manager or manually)
 5. Imperatively create `orbit-tenants` ConfigMap from the tenant registry file
 5. To add a tenant: create a namespace manually, add it to `platform-values.yaml`, re-run `helm upgrade orbit-platform`, add config to `config/tenants.yaml`, re-apply `orbit-tenants` ConfigMap, restart the identity service
-7. To upgrade Orbit: coordinate a version bump across two charts with a dependency between them
+7. To upgrade kora: coordinate a version bump across two charts with a dependency between them
 
 This is not a viable operational model for self-hosted enterprise deployments, and it is not the model we want for our own EKS deployment. Every step above is a potential misconfiguration.
 
@@ -28,7 +28,7 @@ This is not a viable operational model for self-hosted enterprise deployments, a
 
 The operator must work in both contexts:
 
-**Local development (k3d):** Engineers run `make dev-cluster` today to create the k3d cluster. With the operator, the next step is `make cluster-operator` (installs the bootstrap chart) followed by `kubectl apply -f deploy/local/orbit-platform.yaml`. The operator installs SPIRE, Istio, and the Orbit charts in the correct order — no Helmfile, no `make cluster-platform`. The same `kubectl` workflow used in EKS is exercised locally from day one.
+**Local development (k3d):** Engineers run `make dev-cluster` today to create the k3d cluster. With the operator, the next step is `make cluster-operator` (installs the bootstrap chart) followed by `kubectl apply -f deploy/local/orbit-platform.yaml`. The operator installs SPIRE, Istio, and the kora charts in the correct order — no Helmfile, no `make cluster-platform`. The same `kubectl` workflow used in EKS is exercised locally from day one.
 
 **Production (EKS and customer self-hosted):** Operators have their own GitOps tooling (ArgoCD, Flux, or Helmfile). They install the operator bootstrap chart once, then declare `OrbitPlatform` and `OrbitTenant` resources in their repository. Git becomes the source of truth for platform state. Secrets come from their existing secret management solution.
 
@@ -68,7 +68,7 @@ The Helm charts (`charts/orbit-platform/` and `charts/orbit/`) are not replaced 
 ### Problem Statement
 
 We need:
-1. A single CRD (`OrbitPlatform`) that declares the desired state of the Orbit platform in a cluster
+1. A single CRD (`OrbitPlatform`) that declares the desired state of the kora platform in a cluster
 2. A CRD (`OrbitTenant`) that declares a tenant — its OIDC configuration, the namespace it operates in, and references to its secrets
 3. A controller (the operator) that reconciles those CRDs against cluster state, driving the Helm charts and managing all ancillary resources
 4. A bootstrap chart (`charts/orbit-operator/`) that is the only thing operators need to install manually — everything else is managed by the CRDs
@@ -76,11 +76,11 @@ We need:
 
 ### Goals
 
-- Operators deploy the entire Orbit platform by applying two things: the operator bootstrap chart, and an `OrbitPlatform` CR — the operator handles SPIRE, Istio, and all Orbit charts from there
+- Operators deploy the entire kora platform by applying two things: the operator bootstrap chart, and an `OrbitPlatform` CR — the operator handles SPIRE, Istio, and all kora charts from there
 - Adding a tenant requires applying one `OrbitTenant` CR — no namespace creation, no ConfigMap patching, no manual helm commands
 - The operator works identically in local k3d and production EKS — same CRDs, same controller binary, no divergent tooling paths
 - Secrets are managed via `secretRef` pointing at pre-existing `Secret` objects — compatible with ESO, Vault, manual, or any other secret source
-- Upgrade Orbit by bumping `spec.version` in the `OrbitPlatform` CR — the operator sequences all chart upgrades in dependency order
+- Upgrade kora by bumping `spec.version` in the `OrbitPlatform` CR — the operator sequences all chart upgrades in dependency order
 - `deploy/local/` and the Makefile remain the local dev workflow — they install the bootstrap chart and apply CRDs using `kubectl apply`
 - Existing `charts/orbit-platform/` and `charts/orbit/` are unchanged — the operator drives them, not replaces them
 
@@ -124,7 +124,7 @@ We need:
 - Cannot work identically in local k3d and production EKS without two divergent tooling paths
 - SPIRE/Istio enforcement is documentation, not code — operators who skip steps get silent failures
 
-### Option B: Orbit Kubernetes Operator with `OrbitPlatform` and `OrbitTenant` CRDs (chosen)
+### Option B: kora Kubernetes Operator with `OrbitPlatform` and `OrbitTenant` CRDs (chosen)
 
 **Description:** A `controller-runtime`-based Go operator that watches `OrbitPlatform` and `OrbitTenant` custom resources and reconciles cluster state. It installs/upgrades the Helm charts in the correct order, manages per-tenant namespaces and secrets, validates OIDC configuration, and surfaces health via CR status fields. A minimal bootstrap chart (`charts/orbit-operator/`) installs the operator itself.
 
@@ -146,7 +146,7 @@ We need:
 
 ### Option C: Terraform / Pulumi provider
 
-**Description:** An infrastructure-as-code provider that manages the Orbit platform as Terraform or Pulumi resources.
+**Description:** An infrastructure-as-code provider that manages the kora platform as Terraform or Pulumi resources.
 
 **Pros:**
 - Operators already familiar with Terraform have a low adoption barrier
@@ -163,7 +163,7 @@ We need:
 
 ## Decision
 
-**Chosen Option:** Option B — Orbit Kubernetes Operator with `OrbitPlatform` and `OrbitTenant` CRDs
+**Chosen Option:** Option B — kora Kubernetes Operator with `OrbitPlatform` and `OrbitTenant` CRDs
 
 ### Rationale
 
@@ -177,7 +177,7 @@ The decision to drive the existing Helm charts (rather than replacing them with 
 
 ### `OrbitPlatform` — Cluster-scoped
 
-One per cluster. Declares the desired state of the entire Orbit platform.
+One per cluster. Declares the desired state of the entire kora platform.
 
 ```yaml
 apiVersion: orbit.io/v1alpha1
@@ -321,7 +321,7 @@ The operator maintains the `orbit-tenants` ConfigMap consumed by the identity se
 2. Rebuilds the `orbit-tenants` ConfigMap in `orbit-system` by assembling the current state of all `OrbitTenant` CRs into the [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) tenant registry YAML format
 3. Marks the tenant `Ready` and records `status.lastReconciledAt` — the identity service picks up ConfigMap changes via its file watcher
 
-The operator does NOT manage the tenant's own application secrets (database passwords, API keys, etc.). Those are the tenant's infrastructure concern, managed independently of Orbit.
+The operator does NOT manage the tenant's own application secrets (database passwords, API keys, etc.). Those are the tenant's infrastructure concern, managed independently of kora.
 
 [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md)'s `config/tenants.yaml` file format is preserved exactly — the operator writes it, rather than a human editing it manually.
 
@@ -508,7 +508,7 @@ The operator pod itself runs with `sidecar.istio.io/inject: "false"` — it inst
 
 - `deploy/local/` structure changes: values files are supplemented by `OrbitPlatform` and `OrbitTenant` CRs; `make cluster-platform` is replaced by `make cluster-operator` + `kubectl apply`
 - `scripts/cluster/create-secrets.sh` is retained for local dev — it creates the Secret that `spec.secrets.platformSecretRef` points at
-- Tenant application secrets (DB passwords, API keys) are explicitly out of scope — the operator manages only Orbit platform secrets (OIDC client secrets, signing keys)
+- Tenant application secrets (DB passwords, API keys) are explicitly out of scope — the operator manages only kora platform secrets (OIDC client secrets, signing keys)
 
 ---
 
@@ -630,11 +630,11 @@ The imperative `kubectl create configmap orbit-config`, `kubectl create configma
 
 **On the operator owning the full release sequence:**
 
-The operator's `OrbitPlatform` reconciler drives ALL chart releases in order: `spire-crds`, `spire`, `istio-base`, `istiod`, `gateway`, `orbit-platform`, `orbit`. This is a deliberate break from the earlier [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) model where Helmfile owned the third-party charts and the operator owned only the Orbit charts.
+The operator's `OrbitPlatform` reconciler drives ALL chart releases in order: `spire-crds`, `spire`, `istio-base`, `istiod`, `gateway`, `orbit-platform`, `orbit`. This is a deliberate break from the earlier [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) model where Helmfile owned the third-party charts and the operator owned only the kora charts.
 
 The reason for giving the operator ownership of the full sequence is environment parity: if the operator does not install SPIRE and Istio, local dev must use a different toolchain (Helmfile) than production (operator), which creates the divergence problem [helm-chart-distribution-and-gitops-repository-structure](2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md) was designed to eliminate.
 
-The operator acknowledges that SPIRE and Istio have their own upgrade considerations (CA rollover windows, control plane/data plane version skew). It handles this by waiting for readiness at each step rather than fire-and-forget helm installs, and by surfacing per-release health in `status.conditions`. SPIRE and Istio version pins live in the operator's own `version.go` constants alongside the orbit-platform and orbit chart versions — a single version bump in `spec.version` advances all of them together, which is what "Orbit version X requires SPIRE Y and Istio Z" actually means.
+The operator acknowledges that SPIRE and Istio have their own upgrade considerations (CA rollover windows, control plane/data plane version skew). It handles this by waiting for readiness at each step rather than fire-and-forget helm installs, and by surfacing per-release health in `status.conditions`. SPIRE and Istio version pins live in the operator's own `version.go` constants alongside the orbit-platform and orbit chart versions — a single version bump in `spec.version` advances all of them together, which is what "kora version X requires SPIRE Y and Istio Z" actually means.
 
 Operators who manage their own SPIRE and Istio upgrades independently set `spec.spire.enabled: false` and `spec.istio.enabled: false` — the operator validates they are present but does not touch them.
 

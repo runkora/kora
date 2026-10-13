@@ -2,7 +2,7 @@
 name: ui-component
 description: >-
   Create new UI components, promote existing ones across tiers, or verify a component is in the
-  right tier. Applies the three-tier placement decision tree (Terra / App-shared / Feature-scoped),
+  right tier. Applies the three-tier placement decision tree (Hades / App-shared / Feature-scoped),
   implements with correct patterns (forwardRef, cva, cn, data-slot, @tier JSDoc), and produces or
   updates the co-located Storybook story. Use when asked to "add a component", "create a
   component", "promote a component", "check the tier", "wire up Storybook", "what tier does this
@@ -25,7 +25,7 @@ with the lint+tsc gate passing.
 ## Before you start
 
 Read `frontend/docs/reference/component-placement.md` and skim
-`frontend/docs/reference/terra-design-system.md` so you have the current Terra inventory and
+`frontend/docs/reference/hades-design-system.md` so you have the current Hades inventory and
 ESLint rule table in mind. The tier decision tree and all authoring conventions live there; treat
 them as the authority, not your training data.
 
@@ -41,14 +41,14 @@ Ask the user:
 2. **Component name** — what it's called.
 3. **Consumers** — which file(s) or feature areas use (or will use) it? How many, and do they
    span more than one feature area?
-4. **Orbit domain knowledge** — does it reference any Orbit-specific vocabulary: agent/principal
+4. **kora domain knowledge** — does it reference any kora-specific vocabulary: agent/principal
    types, model or provider names, status tokens (e.g. `OrbitStatus`), or permission/role
-   concepts? A component that renders a plain spinner knows nothing about Orbit; one that renders
+   concepts? A component that renders a plain spinner knows nothing about kora; one that renders
    an agent status badge is domain-aware.
 
 For an **existing** component (promote or verify):
 - Read its current implementation file to find: current path, `@tier` JSDoc comment (if present),
-  any Orbit-specific imports.
+  any kora-specific imports.
 - Check whether a story file exists alongside it.
 - `grep -r "from '.*ComponentName'" frontend/src --include="*.tsx" --include="*.ts" -l` — enumerate
   real consumers (substitute the actual component name for `ComponentName`).
@@ -63,11 +63,11 @@ Apply this decision tree **in order, stopping at the first match**:
    Report this and stop unless the user says otherwise.
 2. **Tier 3 (Feature-scoped)** — all consumers live in the same feature area
    (`src/app/(dashboard)/{feature}/`). Path: `src/app/(dashboard)/{feature}/_components/`.
-3. **Tier 1 (Terra)** — consumers span two or more feature areas **and** the component has zero
-   Orbit domain knowledge. Requires a **human approval gate before any code is written** (see
+3. **Tier 1 (Hades)** — consumers span two or more feature areas **and** the component has zero
+   kora domain knowledge. Requires a **human approval gate before any code is written** (see
    below).
 4. **Tier 2 (App-shared)** — consumers span two or more feature areas **and** the component is
-   Orbit-domain-aware. Path: `src/components/`.
+   kora-domain-aware. Path: `src/components/`.
 
 Surface your determination with one paragraph of reasoning. For Tier 1, also confirm with the
 user which Storybook category fits: Atoms / Molecules / Layout / Organisms.
@@ -79,19 +79,19 @@ decision tree above to determine whether the component should move up. Present t
 
 - **Current tier** and **why it was placed there** (from `@tier` JSDoc or by inference).
 - **Evidence for promotion**: new consumers found outside the original scope, loss of any
-  Orbit domain knowledge since it was written, etc.
+  kora domain knowledge since it was written, etc.
 - **Recommendation**: promote, stay, or "promote only if X".
 
 For a Tier 3 component, the trigger for promotion to Tier 2 is a second feature area importing
 it. Run the consumer grep to verify — don't assume.
 
-For a Tier 2 component, the trigger for promotion to Tier 1 is absence of Orbit domain knowledge
+For a Tier 2 component, the trigger for promotion to Tier 1 is absence of kora domain knowledge
 *across the entire implementation*: no status tokens, no principal types, no model/provider names,
 no permission vocabulary. If any domain knowledge exists, the component stays at Tier 2.
 
 ### Tier 1 hard gate
 
-Before writing a single line in `src/packages/terra/`, present a short proposal:
+Before writing a single line in `src/packages/hades/`, present a short proposal:
 
 - Component name and description
 - Minimal props API
@@ -105,7 +105,7 @@ a revision request. This gate has no escape hatch — it is a hard project rule.
 
 ## Phase 2 — Implement
 
-### Tier 1 — Terra (`frontend/src/packages/terra/src/components/{name}/`)
+### Tier 1 — Hades (`frontend/src/packages/hades/src/components/{name}/`)
 
 Create three files:
 
@@ -158,14 +158,14 @@ Key invariants:
 - `cva()` for variant maps — static Tailwind strings only (no template literals, no dynamic values)
 - `.displayName` set on every sub-component
 - `className?: never` on tightly-scoped atoms; `/** @internal */ className?: string` only when
-  composing inside Terra
+  composing inside Hades
 
 **`index.ts`** — re-export only:
 ```ts
 export { {Name}, {name}Variants, type {Name}Props } from './{name}'
 ```
 
-**Update `frontend/src/packages/terra/src/index.ts`** — add the export under the correct section
+**Update `frontend/src/packages/hades/src/index.ts`** — add the export under the correct section
 comment (`// ─── Atoms`, `// ─── Molecules`, `// ─── Layout`, `// ─── Organisms`).
 
 ### Tier 2 — App-shared (`frontend/src/components/{name}.tsx`)
@@ -173,7 +173,7 @@ comment (`// ─── Atoms`, `// ─── Molecules`, `// ─── Layout`, 
 ```tsx
 /** @tier 2 — Orbit-domain-aware: {note domain knowledge used}. Used by: {feature areas}. */
 'use client'  // only if this file uses React hooks
-import { ... } from '@orbit/terra'
+import { ... } from '@orbit/hades'
 // Import Orbit types as needed; no raw HTML
 
 export interface {Name}Props { ... }
@@ -181,7 +181,7 @@ export interface {Name}Props { ... }
 export function {Name}({ ... }: {Name}Props) {
   return (
     <Stack ...>
-      {/* Terra primitives only — raw HTML here fails pnpm lint */}
+      {/* Hades primitives only — raw HTML here fails pnpm lint */}
     </Stack>
   )
 }
@@ -194,7 +194,7 @@ Then add an export to `frontend/src/components/index.ts`.
 ```tsx
 /** @tier 3 — {feature}-scoped. Promote to src/components/ if a second feature needs this. */
 'use client'  // only if this file uses React hooks
-import { ... } from '@orbit/terra'
+import { ... } from '@orbit/hades'
 
 export function {Name}({ ... }: {Name}Props) { ... }
 ```
@@ -221,7 +221,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { {Name} } from './{name}'
 
 const meta: Meta<typeof {Name}> = {
-  title: 'Terra/{Atoms|Molecules|Layout|Organisms}/{Name}',
+  title: 'Hades/{Atoms|Molecules|Layout|Organisms}/{Name}',
   component: {Name},
   tags: ['autodocs'],
   parameters: {
@@ -249,8 +249,8 @@ export const Default: Story = {
 /** Showcase story — render() for multi-instance or composite layouts. */
 export const AllVariants: Story = {
   render: () => (
-    // raw <div> is permitted here because ESLint Terra rules are suppressed in
-    // src/packages/terra/** story files
+    // raw <div> is permitted here because ESLint Hades rules are suppressed in
+    // src/packages/hades/** story files
     <div className="flex flex-wrap gap-2 p-4">
       ...
     </div>
@@ -293,7 +293,7 @@ If the user explicitly requests a story anyway, create it without a `title` pref
 Update the `title` field to match the new tier's prefix. Add or remove the `parameters` block:
 - Tier 3 → 2: remove `parameters.layout` and `parameters.backgrounds`; set `title: 'App/Shared/…'`
 - Tier 2 → 1: add `parameters.layout: 'centered'` and the orbit `backgrounds` preset; set
-  `title: 'Terra/{category}/…'`
+  `title: 'Hades/{category}/…'`
 
 ---
 
@@ -308,9 +308,9 @@ Both must exit zero before the task is done. Do not declare success until they d
 **Common violations to check:**
 - Missing barrel export in `index.ts` — lint and tsc only catch this if something already imports
   from the barrel; always verify manually that the new component is exported
-- Raw `<div>` / `<span>` / `<p>` in a component file outside `src/packages/terra/` — replace with
-  Terra primitives
-- `className` passed to a Terra component that declares `className?: never` — remove it
+- Raw `<div>` / `<span>` / `<p>` in a component file outside `src/packages/hades/` — replace with
+  Hades primitives
+- `className` passed to a Hades component that declares `className?: never` — remove it
 - Missing `data-slot` on a new Tier 1 component's root element
 - `import { X } from 'lucide-react'` — replace with `<Icon name="…" />`
 - Story `title` doesn't match the tier prefix → Storybook sidebar placement is wrong (not a lint
@@ -322,19 +322,19 @@ Both must exit zero before the task is done. Do not declare success until they d
 
 | Tier | Path | Import | Story title prefix | Story required |
 |---|---|---|---|---|
-| 1 — Terra | `src/packages/terra/src/components/{name}/` | `@orbit/terra` | `Terra/{Category}/{Name}` | Yes (always) |
+| 1 — Hades | `src/packages/hades/src/components/{name}/` | `@orbit/hades` | `Hades/{Category}/{Name}` | Yes (always) |
 | 2 — App-shared | `src/components/{name}.tsx` | `@orbit/components` | `App/Shared/{Name}` | Yes (always) |
 | 3 — Feature-scoped | `src/app/(dashboard)/{feature}/_components/{name}.tsx` | relative | — | No |
 
 ## Hard-won gotchas
 
-1. **Tier 1 gate is absolute** — never write Terra code first and ask permission second. The rule
+1. **Tier 1 gate is absolute** — never write Hades code first and ask permission second. The rule
    has no `eslint-disable` escape hatch; a violation is a lint failure.
-2. **No `className` on Terra components** — `no-terra-classname` ESLint rule bans it. Use the
+2. **No `className` on Hades components** — `no-hades-classname` ESLint rule bans it. Use the
    component's own props; if none exist for the use case, that's a missing prop, not a reason to
    reach for `className`.
-3. **ESLint Terra rules are suppressed inside `src/packages/terra/**`** — raw `<div>` in a story
-   render function inside the Terra package is fine. Everywhere else it fails lint.
+3. **ESLint Hades rules are suppressed inside `src/packages/hades/**`** — raw `<div>` in a story
+   render function inside the Hades package is fine. Everywhere else it fails lint.
 4. **Storybook runs outside the component tree** — CSS variable tokens don't resolve. The three
    background presets in `preview.ts` use hardcoded hex values for this reason; don't change them.
 5. **`pnpm tsc --noEmit` from `frontend/`** — not the repo root. The root `tsconfig.json` does

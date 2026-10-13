@@ -79,7 +79,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p.forward(w, r, upstream, decision)
 }
 
-// forward swaps the platform token for the minted credential, drops Orbit-only
+// forward swaps the platform token for the minted credential, drops kora-only
 // request headers, and proxies the request to the upstream URL via the
 // configured transport. The response (including streaming bodies) is piped
 // straight back to the caller.
@@ -134,24 +134,26 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 }
 
 // handleBrokerError maps a Broker.Authorize sentinel to the right HTTP error
-// response. The broker's errors are already structured; we don't expose
-// internal reasons to the caller (especially policy denials) beyond a coarse
-// code.
+// response. A policy denial names the host, action and what would allow it;
+// nothing else about the tenant's grants or connections is exposed.
 func (p *ProxyHandler) handleBrokerError(w http.ResponseWriter, r *http.Request, err error) {
 	var apiErr *platformapi.APIError
+	var denial *Denial
 	switch {
 	case errors.Is(err, ErrUnauthenticated):
 		apiErr = platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "unauthenticated", nil)
 	case errors.Is(err, ErrMissingHost):
 		apiErr = platformapi.BadRequestError(platformapi.ErrCodeValidationFailed, "missing destination host", nil)
 	// The operator's own faults are matched before the caller's. A connection
-	// Orbit cannot read denies the call, but it is not a policy decision, and
+	// kora cannot read denies the call, but it is not a policy decision, and
 	// wrapping one in ErrForbidden anywhere upstream would otherwise report it
 	// as a denial and send an operator hunting a grant.
 	case errors.Is(err, credentials.ErrInvalidConfig):
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "connection configuration is invalid", nil)
 	case errors.Is(err, credentials.ErrUnsupportedAdapter):
 		apiErr = platformapi.InternalError(platformapi.ErrCodeInternalError, "unsupported adapter", nil)
+	case errors.As(err, &denial):
+		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, denial.Message(), denial.Details())
 	case errors.Is(err, ErrForbidden):
 		apiErr = platformapi.ForbiddenError(platformapi.ErrCodeForbidden, "egress denied", nil)
 	case errors.Is(err, ErrTenantMismatch):

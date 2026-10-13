@@ -2,8 +2,8 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import { Badge, Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+import { Badge, Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 
 const PLANNED: { icon: IconName; title: string; desc: string }[] = [
   {
@@ -20,11 +20,6 @@ const PLANNED: { icon: IconName; title: string; desc: string }[] = [
     icon: 'wrench',
     title: 'Max tool calls per run',
     desc: 'Runaway-loop protection.',
-  },
-  {
-    icon: 'triangle-alert',
-    title: 'Halt on repeated failures',
-    desc: 'Stop the run after consecutive tool errors.',
   },
   {
     icon: 'eye-off',
@@ -50,7 +45,7 @@ export function PlannedLimits() {
         </Stack>
         {PLANNED.map((p) => (
           <Stack key={p.title} gap="none">
-            <Separator span="full" />
+            <Separator />
             <Stack direction="horizontal" align="center" gap="cozy" padding="cozy" disabled>
               <Icon
                 name={p.icon}

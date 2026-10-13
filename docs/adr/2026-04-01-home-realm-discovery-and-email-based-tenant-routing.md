@@ -9,7 +9,7 @@
 
 ## Context
 
-[browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) (Browser-Based Authentication Flow and BFF Session Architecture) defines the mechanics of the PKCE browser login flow: a browser-side `oidc-client-ts` `UserManager` initiates the Authorization Code Flow, the OIDC provider returns an `id_token`, and the BFF exchanges it for an Orbit platform session via `POST /identity/sessions` with `grant_type: oidc_id_token`.
+[browser-auth-flow-and-bff-session-architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) (Browser-Based Authentication Flow and BFF Session Architecture) defines the mechanics of the PKCE browser login flow: a browser-side `oidc-client-ts` `UserManager` initiates the Authorization Code Flow, the OIDC provider returns an `id_token`, and the BFF exchanges it for a kora platform session via `POST /identity/sessions` with `grant_type: oidc_id_token`.
 
 [tenant-registration-and-oidc-provider-binding](2026-03-31-tenant-registration-and-oidc-provider-binding.md) introduced a multi-tenant OIDC registry: each tenant has its own OIDC issuer URL, client ID, and set of scopes. The identity service validates that the `id_token` issuer matches the OIDC provider registered for the tenant in the registry.
 

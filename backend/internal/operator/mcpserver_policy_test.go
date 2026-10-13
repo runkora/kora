@@ -305,7 +305,7 @@ func TestValidator_MarkerLabelOnlyExemptsWithTheContainersAbsent(t *testing.T) {
 	mcp.Labels = map[string]string{podLabelMCPServer: "github"}
 	mcp.Spec.Containers = []corev1.Container{{Name: "server"}}
 	if reason := v.rejectionReason(mcp, ns); reason != "" {
-		t.Errorf("an MCP pod should be admitted without Orbit's containers, got %q", reason)
+		t.Errorf("an MCP pod should be admitted without kora's containers, got %q", reason)
 	}
 
 	forged := injectedPod()

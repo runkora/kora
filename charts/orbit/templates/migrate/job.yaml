@@ -24,6 +24,7 @@ spec:
       annotations:
         # A plain Postgres connection needs no SVID and no Envoy.
         sidecar.istio.io/inject: "false"
+        checksum/config: {{ include (print $.Template.BasePath "/migrate/config.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "migrate") | nindent 8 }}
     spec:
       # No API access and no mesh identity: the default ServiceAccount with no
@@ -34,6 +35,8 @@ spec:
       {{- include "orbit.scheduling" (dict "root" $ "name" "migrate") | nindent 6 }}
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
+      volumes:
+        {{- include "orbit.configVolume" (dict "root" $ "name" "migrate" "configMap" "orbit-migrate-config" "modules" (include "orbit.migrate.configModules" . | fromYaml)) | nindent 8 }}
       containers:
         - name: migrate
           image: {{ include "orbit.image" (dict "root" $ "name" "migrate") | quote }}
@@ -42,26 +45,9 @@ spec:
           args: ["up"]
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}
-          # Rendered inline rather than through orbit-config: that ConfigMap is
-          # an ordinary release resource and does not exist when the hook runs.
           env:
-            - name: DB_HOST
-              value: {{ required "config.db.host must be set" .Values.config.db.host | quote }}
-            - name: DB_PORT
-              value: {{ .Values.config.db.port | quote }}
-            - name: DB_NAME
-              value: {{ .Values.config.db.name | quote }}
-            - name: DB_USER
-              value: {{ .Values.config.db.user | quote }}
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.config.platformSecretName }}
-                  key: DB_PASSWORD
-            - name: ORBIT_POSTGRES_SSL_MODE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "migrate" "field" "postgresSSLMode" "default" .Values.global.postgres.sslMode) | quote }}
-            - name: ORBIT_LOG_FORMAT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "migrate" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
-            {{- include "orbit.extraEnv" (dict "root" $ "name" "migrate") | nindent 12 }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "migrate" "keys" (list "DB_PASSWORD")) | nindent 12 }}
           resources:
             {{- toYaml .Values.migrate.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}

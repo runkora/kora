@@ -21,7 +21,7 @@ type reprovisionNotifier struct {
 	calls    int
 }
 
-func (n *reprovisionNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool) (Sandbox, error) {
+func (n *reprovisionNotifier) ProvisionSandbox(_ context.Context, _ string, _ string, _ bool) (Sandbox, error) {
 	n.calls++
 	return Sandbox{Endpoint: n.endpoint, ExecToken: "tok-" + n.endpoint}, nil
 }
@@ -68,7 +68,7 @@ func hostSession(reg *Registry, runID string) {
 // because ProvisionSandbox treats a missing token as a cache miss.
 func writeEndpoint(t *testing.T, workspaces, runID, endpoint string) string {
 	t.Helper()
-	dir := filepath.Join(workspaces, runID, ".sandbox")
+	dir := filepath.Join(workspaces, runID, ".sandbox-exec")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -95,7 +95,7 @@ func TestProvisionSandbox_LiveCacheReused(t *testing.T) {
 	hostSession(reg, "run-1")
 	writeEndpoint(t, ws, "run-1", live)
 
-	got, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
+	got, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false)
 	if err != nil {
 		t.Fatalf("ProvisionSandbox: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestProvisionSandbox_DeadCacheReprovisions(t *testing.T) {
 	hostSession(reg, "run-1")
 	file := writeEndpoint(t, ws, "run-1", dead)
 
-	got, err := reg.ProvisionSandbox(context.Background(), "run-1", false)
+	got, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false)
 	if err != nil {
 		t.Fatalf("ProvisionSandbox: %v", err)
 	}
@@ -150,7 +150,7 @@ func TestProvisionSandbox_RejectsRunNotHostedHere(t *testing.T) {
 	reg, _ := newTestRegistry(t, n)
 	hostSession(reg, "run-mine")
 
-	_, err := reg.ProvisionSandbox(context.Background(), "run-theirs", false)
+	_, err := reg.ProvisionSandbox(context.Background(), "run-theirs", "", false)
 	if !errors.Is(err, ErrSessionNotFound) {
 		t.Fatalf("expected ErrSessionNotFound, got %v", err)
 	}
@@ -171,12 +171,12 @@ func TestSandbox_RemembersAcrossADeletedDescriptor(t *testing.T) {
 		t.Fatal("a run with no sandbox must report none")
 	}
 
-	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false); err != nil {
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); err != nil {
 		t.Fatalf("ProvisionSandbox: %v", err)
 	}
 
 	// The agent deletes its own descriptor.
-	if err := os.RemoveAll(filepath.Join(ws, "run-1", ".sandbox")); err != nil {
+	if err := os.RemoveAll(filepath.Join(ws, "run-1", ".sandbox-exec")); err != nil {
 		t.Fatalf("remove descriptor: %v", err)
 	}
 
@@ -194,5 +194,19 @@ func TestSandbox_UnknownRun(t *testing.T) {
 	reg, _ := newTestRegistry(t, &reprovisionNotifier{endpoint: "10.0.0.8:50051"})
 	if _, ok, _ := reg.Sandbox(context.Background(), "run-elsewhere"); ok {
 		t.Error("expected no sandbox for a run this pod does not host")
+	}
+}
+
+// A run ID that is not a single path segment fails before orbit-agents is asked for a sandbox.
+func TestProvisionSandbox_BadRunIDNeverProvisions(t *testing.T) {
+	n := &reprovisionNotifier{endpoint: "10.0.0.1:50051"}
+	reg, _ := newTestRegistry(t, n)
+	hostSession(reg, "../run-1")
+
+	if _, err := reg.ProvisionSandbox(context.Background(), "../run-1", "", false); err == nil {
+		t.Fatal("expected an error for a run ID with a path separator")
+	}
+	if n.calls != 0 {
+		t.Errorf("orbit-agents was called %d times, want none", n.calls)
 	}
 }

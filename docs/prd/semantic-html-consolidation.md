@@ -11,7 +11,7 @@
 
 ## Executive Summary
 
-The Orbit dashboard frontend currently contains 53 raw `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` elements in product code (`src/app/**` and `src/components/**`). The existing ESLint rule (`no-raw-layout-elements`) only bans these elements conditionally — when they carry Tailwind layout-mode classes — leaving a significant gap in design-system enforcement. This PRD defines the work to eliminate all 53 instances and upgrade the lint rule to enforce an unconditional ban, consistent with the treatment already applied to `<div>` and `<section>`.
+The kora dashboard frontend currently contains 53 raw `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` elements in product code (`src/app/**` and `src/components/**`). The existing ESLint rule (`no-raw-layout-elements`) only bans these elements conditionally — when they carry Tailwind layout-mode classes — leaving a significant gap in design-system enforcement. This PRD defines the work to eliminate all 53 instances and upgrade the lint rule to enforce an unconditional ban, consistent with the treatment already applied to `<div>` and `<section>`.
 
 ---
 
@@ -31,13 +31,13 @@ The Orbit dashboard frontend currently contains 53 raw `<header>`, `<article>`, 
 
 ### User Pain Points
 
-- **Developers** have no sanctioned Terra alternative for info callout boxes, slide panels, or semantic nav — so they reach for raw HTML.
+- **Developers** have no sanctioned Hades alternative for info callout boxes, slide panels, or semantic nav — so they reach for raw HTML.
 - **Reviewers** cannot catch misuse because the lint rule only fires on layout-class presence, not element identity.
 - **AI coding agents** see these raw elements as precedent and reproduce them in generated code.
 
 ### Business Impact
 
-- Partial enforcement erodes confidence in the Terra rule system.
+- Partial enforcement erodes confidence in the Hades rule system.
 - Semantic HTML misuse (`<article>` for a stat row, `<aside>` for a scrollable list) degrades the document model without accessibility benefit.
 - Missing patterns (`Callout`, `SidePanel`) are recreated inline each time a new feature is built.
 
@@ -56,42 +56,42 @@ The Orbit dashboard frontend currently contains 53 raw `<header>`, `<article>`, 
 - `grep -rn "<header\b\|<article\b\|<nav\b\|<aside\b\|<footer\b" frontend/src/app frontend/src/components` returns zero results.
 - `pnpm lint` passes with zero errors.
 - `pnpm tsc --noEmit` passes with zero errors.
-- Every new Terra component has a Storybook story.
+- Every new Hades component has a Storybook story.
 
 ### Non-Goals
 
 - Visual redesign of any migrated component.
-- Banning `<main>` — it is rendered exclusively by Terra's `PageLayout` and has no product-code instances.
-- Changes to Terra source internals (Terra is deliberately exempt from product-code rules).
+- Banning `<main>` — it is rendered exclusively by Hades' `PageLayout` and has no product-code instances.
+- Changes to Hades source internals (Hades is deliberately exempt from product-code rules).
 
 ---
 
 ## Proposed Solution
 
-### New Terra Components (Tier 1)
+### New Hades Components (Tier 1)
 
-Four new components provide compliant alternatives for patterns that currently have no Terra equivalent.
+Four new components provide compliant alternatives for patterns that currently have no Hades equivalent.
 
-**`Callout` (`Terra/Atoms/Callout`)** — Informational callout box. Two variants: `info` (accent tint) and `warning` (degraded tint). Replaces 8 info-box `<aside>` instances and 1 warning-banner `<aside>`. Accepts `children` and `variant`. Renders `<aside>` internally.
+**`Callout` (`Hades/Atoms/Callout`)** — Informational callout box. Two variants: `info` (accent tint) and `warning` (degraded tint). Replaces 8 info-box `<aside>` instances and 1 warning-banner `<aside>`. Accepts `children` and `variant`. Renders `<aside>` internally.
 
-**`TableToolbarShell` (`Terra/Molecules/Table`)** — The bare toolbar container that `TableToolbar` renders internally. Accepts arbitrary `children`. `TableToolbar` is refactored to compose on top of it, guaranteeing both always share identical padding and border tokens. Replaces `<header>` in 2 loading skeleton files.
+**`TableToolbarShell` (`Hades/Molecules/Table`)** — The bare toolbar container that `TableToolbar` renders internally. Accepts arbitrary `children`. `TableToolbar` is refactored to compose on top of it, guaranteeing both always share identical padding and border tokens. Replaces `<header>` in 2 loading skeleton files.
 
-**`Navigation` (`Terra/Layout/Navigation`)** — A semantic `<nav>` wrapper for the primary sidebar navigation list. Accepts `children` (a list of `NavItem` elements) and an optional `aria-label`. Renders `<nav>` internally. Replaces the raw `<nav>` in `dashboard-sidebar.tsx`.
+**`Navigation` (`Hades/Layout/Navigation`)** — A semantic `<nav>` wrapper for the primary sidebar navigation list. Accepts `children` (a list of `NavItem` elements) and an optional `aria-label`. Renders `<nav>` internally. Replaces the raw `<nav>` in `dashboard-sidebar.tsx`.
 
-**`SidePanel` (`Terra/Molecules/SidePanel`)** — A Radix `Dialog`-based slide-over panel from the right edge. Provides `SidePanelHeader`, `SidePanelBody`, and `SidePanelFooter` sub-components. Handles backdrop, Escape-to-close, focus trap, and ARIA automatically via Radix. Replaces 5 raw elements in `editor-panel.tsx`. Renders `<aside>` for the panel shell internally.
+**`SidePanel` (`Hades/Molecules/SidePanel`)** — A Radix `Dialog`-based slide-over panel from the right edge. Provides `SidePanelHeader`, `SidePanelBody`, and `SidePanelFooter` sub-components. Handles backdrop, Escape-to-close, focus trap, and ARIA automatically via Radix. Replaces 5 raw elements in `editor-panel.tsx`. Renders `<aside>` for the panel shell internally.
 
 **`PageLayout.sidebarFooter` prop extension** — Rather than a standalone `Footer` component, `PageLayout` gains an optional `sidebarFooter?: React.ReactNode` prop. When provided, `PageLayout` renders it as a semantically correct `<footer>` pinned to the bottom of the sidebar `<aside>` shell. When omitted the sidebar renders exactly as today. `dashboard-sidebar.tsx` is updated to pass its user/logout strip via this prop rather than using a raw `<footer>` element.
 
 ### ESLint Rule Upgrade
 
-The `no-raw-layout-elements` rule is extended to ban all five elements unconditionally, matching the existing treatment of `<div>` and `<section>`. Five new message IDs are added pointing to the correct Terra replacement.
+The `no-raw-layout-elements` rule is extended to ban all five elements unconditionally, matching the existing treatment of `<div>` and `<section>`. Five new message IDs are added pointing to the correct Hades replacement.
 
 ### Migration Strategy for Remaining 34 Instances
 
 - Layout containers with no semantic value → `Stack` (drop the raw element)
-- Interactive content cards → Terra `Card` with `interactive` prop
-- Progress bar wrappers → Terra `Progress` (already exists)
-- Warning/error banners inside modals → Terra `Alert`
+- Interactive content cards → Hades `Card` with `interactive` prop
+- Progress bar wrappers → Hades `Progress` (already exists)
+- Warning/error banners inside modals → Hades `Alert`
 - Breadcrumb `<nav>` → `Stack` with `aria-label="Breadcrumb"`
 - Suggestion chips `<nav>` in chat → `Grid` (not genuinely navigation)
 
@@ -182,19 +182,19 @@ The `no-raw-layout-elements` rule is extended to ban all five elements unconditi
 ## Functional Requirements
 
 **Must Have (P0):**
-- [x] `Callout` added to Terra with `info` and `warning` variants; all callout `<aside>` instances replaced ✅
-- [x] `TableToolbarShell` added to Terra; `TableToolbar` refactored to compose on top; toolbar skeleton `<header>` instances replaced ✅
-- [x] `Navigation` added to Terra; sidebar `<nav>` replaced ✅
-- [x] `SidePanel` added to Terra with `SidePanelHeader`, `SidePanelBody`, `SidePanelFooter`; all `editor-panel.tsx` raw elements replaced ✅
+- [x] `Callout` added to Hades with `info` and `warning` variants; all callout `<aside>` instances replaced ✅
+- [x] `TableToolbarShell` added to Hades; `TableToolbar` refactored to compose on top; toolbar skeleton `<header>` instances replaced ✅
+- [x] `Navigation` added to Hades; sidebar `<nav>` replaced ✅
+- [x] `SidePanel` added to Hades with `SidePanelHeader`, `SidePanelBody`, `SidePanelFooter`; all `editor-panel.tsx` raw elements replaced ✅
 - [x] `PageLayout.sidebarFooter` prop added; sidebar user/logout `<footer>` migrated ✅
 - [x] `no-raw-layout-elements` rule upgraded to unconditionally ban all five elements with new message IDs ✅
 - [x] All 53 instances removed; `pnpm lint` passes with zero errors ✅
-- [x] All new Terra components have Storybook stories exported from the Terra barrel ✅
+- [x] All new Hades components have Storybook stories exported from the Hades barrel ✅
 
 **Should Have (P1):**
-- [ ] `terra-design-system.md` quick-reference table updated with all five newly banned elements
+- [ ] `hades-design-system.md` quick-reference table updated with all five newly banned elements
 - [ ] Golden-path verification checklist updated
-- [ ] `no-terra-disable-comment` rule updated to include the five new message IDs
+- [ ] `no-hades-disable-comment` rule updated to include the five new message IDs
 
 ---
 
@@ -203,12 +203,12 @@ The `no-raw-layout-elements` rule is extended to ban all five elements unconditi
 ### In Scope
 - All 49 instances across 18 files in `src/app/**` and `src/components/**`
 - `no-raw-layout-elements` rule upgrade in `frontend/eslint.config.mjs`
-- 4 new Terra Tier 1 components with full [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) authoring conventions
+- 4 new Hades Tier 1 components with full [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) authoring conventions
 - Golden-path doc update
 
 ### Out of Scope
 - `<footer>` and `<main>` — handled by existing patterns
-- Terra internal source — deliberately exempt
+- Hades internal source — deliberately exempt
 - Visual changes to any migrated component
 
 ---
@@ -216,7 +216,7 @@ The `no-raw-layout-elements` rule is extended to ban all five elements unconditi
 ## Dependencies
 
 - `@radix-ui/react-dialog` — already installed; `SidePanel` reuses it.
-- Terra authoring conventions: `data-slot`, `React.forwardRef`, `cn`, `cva` per [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md).
+- Hades authoring conventions: `data-slot`, `React.forwardRef`, `cn`, `cva` per [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md).
 - `pnpm lint` must continue to pass throughout migration (phased approach).
 
 ---
@@ -226,7 +226,7 @@ The `no-raw-layout-elements` rule is extended to ban all five elements unconditi
 | Phase | Work |
 |-------|------|
 | 0 | Write PRD + ADR (this document) |
-| 1 | New Terra components: `Callout`, `TableToolbarShell`, `Navigation`, `SidePanel` + Storybook + barrel |
+| 1 | New Hades components: `Callout`, `TableToolbarShell`, `Navigation`, `SidePanel` + Storybook + barrel |
 | 2 | ESLint rule upgrade — unconditional ban on all four elements |
 | 3 | Migrate all `<aside>` instances (24) |
 | 4 | Migrate all `<article>` instances (13) |
@@ -248,7 +248,7 @@ After Phase 1 banned layout and structural HTML elements, AI coding agents were 
 
 **Elements to ban (unconditionally):** `<ul>`, `<ol>`, `<li>`, `<form>`, `<label>`, `<input>`, `<output>`
 
-### New Terra components
+### New Hades components
 
 | Component | Description |
 |-----------|-------------|
@@ -261,16 +261,16 @@ After Phase 1 banned layout and structural HTML elements, AI coding agents were 
 ### Acceptance criteria
 
 - `no-raw-list-elements` and `no-raw-form-elements` ESLint rules are active and error-level.
-- Both rules are in the `no-terra-disable-comment` guard set.
+- Both rules are in the `no-hades-disable-comment` guard set.
 - Zero instances of `<ul>`, `<ol>`, `<li>`, `<form>`, `<label>`, `<input>`, `<output>` remain in `src/app/**` or `src/components/**`.
-- All five new Terra components are exported from the `@orbit/terra` barrel.
+- All five new Hades components are exported from the `@orbit/hades` barrel.
 - `make check` passes with no lint errors.
 
 ### Implementation status
 
 | Step | Status |
 |------|--------|
-| New Terra components (`Form`, `Checkbox`, `List`, `ListItem`, `Output`) | ✅ Complete (2026-04-29) |
+| New Hades components (`Form`, `Checkbox`, `List`, `ListItem`, `Output`) | ✅ Complete (2026-04-29) |
 | ESLint rules (`no-raw-list-elements`, `no-raw-form-elements`) | ✅ Complete (2026-04-29) |
 | Migrate all product-code instances | ✅ Complete (2026-04-29) |
 | Update [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) | ✅ Complete (2026-04-29) |

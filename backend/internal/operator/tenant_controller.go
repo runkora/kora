@@ -52,6 +52,16 @@ type TenantReconciler struct {
 	// namespace into every tenant namespace.
 	ImagePullSecrets []string
 
+	// Collector is the in-cluster OTLP collector agent pods may export to.
+	Collector AgentCollector
+
+	// SandboxBase is registered in every tenant namespace as kora-base.
+	SandboxBase SandboxBase
+
+	// SandboxBundled holds the bundled sandbox images keyed as in si.Bundled.
+	// Enabled ones are registered in every tenant namespace, and the rest are removed.
+	SandboxBundled map[string]BundledSandboxImage
+
 	// Preflight reports the latest prerequisites result. While it fails, tenants
 	// are reconciled but held at Degraded so no workload is admitted.
 	Preflight PreflightSource
@@ -168,6 +178,15 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			run:  func(ctx context.Context) error { return r.ensureImagePullSecrets(ctx, tenant) },
 		},
 		{
+			// The base image every environment without its own image runs.
+			name: "base sandbox image",
+			run:  func(ctx context.Context) error { return r.ensureBaseSandboxImage(ctx, tenant) },
+		},
+		{
+			name: "bundled sandbox images",
+			run:  func(ctx context.Context) error { return r.ensureBundledSandboxImages(ctx, tenant) },
+		},
+		{
 			name: "OPA config",
 			run:  func(ctx context.Context) error { return r.ensureOPAConfig(ctx, tenant) },
 		},
@@ -192,6 +211,17 @@ func (r *TenantReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 			// of callers that can reach it.
 			name: "sandbox ingress NetworkPolicy",
 			run:  func(ctx context.Context) error { return r.ensureSandboxIngressPolicy(ctx, tenant) },
+		},
+		{
+			// Agent pods reach only the platform services they need
+			// (docs/adr/2026-09-30-agent-pod-egress-lockdown.md).
+			name: "agent egress NetworkPolicy",
+			run:  func(ctx context.Context) error { return r.ensureAgentEgressPolicy(ctx, tenant) },
+		},
+		{
+			// Has the agent pod's Envoy refuse any other host at once.
+			name: "agent egress Sidecar",
+			run:  func(ctx context.Context) error { return r.ensureAgentEgressSidecar(ctx, tenant) },
 		},
 		{
 			// Aggregated OIDC client secrets: confidential tenants need
@@ -621,7 +651,7 @@ func (r *TenantReconciler) applyPreflightGate(ctx context.Context, tenant *Orbit
 }
 
 // tenantNamespaceLabels returns the labels every tenant namespace must carry:
-// Orbit's markers, the Istio injection label for the configured revision, and
+// kora's markers, the Istio injection label for the configured revision, and
 // the Pod Security Admission levels. Re-applied on every reconcile.
 // staleInjectionLabel is the Istio injection label the configured mode does
 // not use: istio-injection under a named revision, istio.io/rev otherwise.

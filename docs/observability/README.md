@@ -1,12 +1,12 @@
 # Observability
 
-OpenTelemetry-based observability for Orbit, providing distributed tracing, structured logging, and automatic log-trace correlation.
+OpenTelemetry-based observability for kora, providing distributed tracing, structured logging, and automatic log-trace correlation.
 
 ## Overview
 
-Orbit implements OpenTelemetry-based distributed tracing with automatic log correlation. This provides complete visibility into agent request execution paths and performance characteristics.
+kora implements OpenTelemetry-based distributed tracing with automatic log correlation. This provides complete visibility into agent request execution paths and performance characteristics.
 
-Orbit is a multi-service backend: it compiles to a set of binaries under `backend/cmd/` (the main API is `cmd/identity`; the full set is listed in the [binary table](../code-organization.md#binaries-backendcmd)), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
+kora is a multi-service backend: it compiles to a set of binaries under `backend/cmd/` (the main API is `cmd/identity`; the full set is listed in the [binary table](../code-organization.md#binaries-backendcmd)), all of which share the `internal/platform/observability` layer and emit OTel telemetry. Examples below use `cmd/identity` (the main API, listening on `:8080`), but the same instrumentation applies to every service.
 
 ## Documentation Structure
 
@@ -44,28 +44,13 @@ Orbit is a multi-service backend: it compiles to a set of binaries under `backen
 
 ## Configuration
 
-Service identity (name, version) comes from each binary's YAML config via `observability.serviceName` and `app.version`, and the environment is selected by `APP_ENV`. The shared observability tunables load from `internal/platform/observability/config/base.yaml` (plus its `{APP_ENV}.yaml` overlay) and can be overridden per-process with these environment variables:
-
-```bash
-# Environment selector — picks which config overlay loads and sets the
-# deployment.environment resource attribute.
-# Values: "local" | "development" | "production" (default: "production")
-APP_ENV=local
-
-# Trace export (override the YAML-loaded platform defaults)
-ORBIT_OTLP_ENDPOINT=http://localhost:4317   # Collector URL (empty = export disabled)
-                                            # http:// is plaintext, https:// is TLS
-
-# Sampling & logging
-ORBIT_SAMPLING_RATE=0.1              # Fraction of root spans to sample (0.0–1.0)
-ORBIT_LOG_FORMAT=console             # Log output style: "console" or "json"
-```
+Service identity (name, version) comes from each binary's YAML config via `observability.serviceName` and `app.version`. `APP_ENV` selects the environment: `local` or `production` (the default). The shared tunables `otlpEndpoint`, `samplingRate` and `logFormat` load from the `internal/platform/observability` config module, which the chart renders from `global.observability` and `global.logFormat`. See [configuration.md](configuration.md).
 
 ### Exporter selection
 
 The trace exporter is chosen at startup, in priority order:
 
-1. **OTLP endpoint set** (`ORBIT_OTLP_ENDPOINT` non-empty): export to the OTLP collector (Jaeger, Tempo, …) in *any* environment. The endpoint's scheme sets the transport: `http://` is plaintext, `https://` is TLS. An endpoint without a scheme is rejected at startup.
+1. **OTLP endpoint set** (`otlpEndpoint` non-empty): export to the OTLP collector (Jaeger, Tempo, …) in *any* environment. The endpoint's scheme sets the transport: `http://` is plaintext, `https://` is TLS. An endpoint without a scheme is rejected at startup.
 2. **`APP_ENV=local`, no endpoint**: stdout exporter, for laptop development.
 3. **Anything else with no endpoint** is a no-op: spans are created but not exported; logs still carry `trace_id`/`span_id` for correlation. This covers the development cluster until a collector is deployed, and any production misconfiguration.
 
@@ -134,7 +119,7 @@ See [tracing.md](tracing.md) for detailed usage patterns.
 
 ## Trace Propagation
 
-Orbit uses **W3C TraceContext** standard for trace propagation:
+kora uses **W3C TraceContext** standard for trace propagation:
 
 1. **Incoming requests**: `TracingMiddleware` extracts trace context from the `traceparent` header and starts a `SpanKindServer` span
 2. **Downstream calls**: `httpclient.Base.Do()` automatically injects `traceparent`/`tracestate` headers and opens a `SpanKindClient` child span. Never do this manually
@@ -156,9 +141,9 @@ docker run -d --name jaeger \
   -p 4317:4317 \
   -p 16686:16686 \
   jaegertracing/all-in-one:latest
-
-export ORBIT_OTLP_ENDPOINT=http://localhost:4317
 ```
+
+Set `otlpEndpoint: http://localhost:4317` in `internal/platform/observability/config/local.yaml`.
 
 Access UI at http://localhost:16686
 
@@ -172,7 +157,7 @@ Recommended stack:
 
 All three systems integrate seamlessly with trace_id correlation.
 
-## Benefits for Orbit
+## Benefits for kora
 
 As a control plane for autonomous agents, observability is critical:
 
@@ -216,9 +201,9 @@ curl http://localhost:8080/api/v1/example/health
 # Start Jaeger
 docker run -d -p4317:4317 -p16686:16686 jaegertracing/all-in-one:latest
 
-# Configure Orbit
-export APP_ENV=production
-export ORBIT_OTLP_ENDPOINT=http://localhost:4317
+# Configure Orbit: set otlpEndpoint: http://localhost:4317 in
+# internal/platform/observability/config/local.yaml
+export APP_ENV=local
 
 # Start Orbit
 go run cmd/identity/main.go

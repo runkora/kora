@@ -672,3 +672,27 @@ func TestChatCompletionsStreamState_FunctionCallWireFormat(t *testing.T) {
 		t.Error("no function_call item found in response.completed output")
 	}
 }
+
+// Codex drops an output_item.added message without a content array and then
+// rejects every text delta for it.
+func TestChatCompletionChunkToResponsesEvents_AddedItemCarriesEmptyContent(t *testing.T) {
+	s := convert.NewChatCompletionsStreamState()
+	var chunk openai.ChatCompletionChunk
+	if err := json.Unmarshal([]byte(`{"id":"c1","model":"m","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"role":"assistant","content":"pong"}}]}`), &chunk); err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range convert.ChatCompletionChunkToResponsesEvents(chunk, s) {
+		if ev.Type != "response.output_item.added" {
+			continue
+		}
+		raw, err := json.Marshal(ev.Item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `"content":[]`) {
+			t.Errorf("added item = %s, want an empty content array", raw)
+		}
+		return
+	}
+	t.Fatal("no response.output_item.added event")
+}

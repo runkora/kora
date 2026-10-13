@@ -14,7 +14,7 @@ spec:
   source:
     repoURL: https://spiffe.github.io/helm-charts-hardened
     chart: spire-crds
-    targetRevision: 0.5.0
+    targetRevision: 0.6.1
   destination:
     server: https://kubernetes.default.svc
     namespace: spire-system
@@ -34,7 +34,7 @@ spec:
   source:
     repoURL: https://spiffe.github.io/helm-charts-hardened
     chart: spire
-    targetRevision: 0.28.3
+    targetRevision: 0.30.2
     helm:
       values: |
         global:
@@ -45,7 +45,7 @@ spec:
           controllerManager:
             identities:
               clusterSPIFFEIDs:
-                # The chart's catch-all registration would race Orbit's own.
+                # The chart's catch-all registration would race kora's own.
                 default:
                   enabled: false
           nodeAttestor:
@@ -67,7 +67,6 @@ spec:
           workloadAttestors:
             k8s:
               enabled: true
-              skipKubeletVerification: true
               disableContainerSelectors: true
               useNewContainerLocator: false
         spiffe-csi-driver:
@@ -91,9 +90,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://istio-release.storage.googleapis.com/charts
+    repoURL: ghcr.io/istio/release/charts
     chart: base
-    targetRevision: 1.29.1
+    targetRevision: 1.31.1
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
@@ -111,9 +110,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://istio-release.storage.googleapis.com/charts
+    repoURL: ghcr.io/istio/release/charts
     chart: cni
-    targetRevision: 1.29.1
+    targetRevision: 1.31.1
   destination:
     server: https://kubernetes.default.svc
     namespace: istio-system
@@ -131,9 +130,9 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://istio-release.storage.googleapis.com/charts
+    repoURL: ghcr.io/istio/release/charts
     chart: istiod
-    targetRevision: 1.29.1
+    targetRevision: 1.31.1
     helm:
       values: |
         meshConfig:
@@ -182,7 +181,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "3"
 spec:
   project: default
-  # orbit's values are environment-specific: database, redis, hosts, bedrock.
+  # orbit's values are environment-specific: database, redis, hosts.
   # Point the second source at your own GitOps values repository and path.
   sources:
     - repoURL: ghcr.io/clear-route/charts

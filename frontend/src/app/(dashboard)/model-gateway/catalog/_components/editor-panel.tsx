@@ -20,9 +20,9 @@ import {
   Text,
   Toggle,
   Icon,
-} from '@orbit/terra';
-import { ConfirmDialog } from '@orbit/components';
-import type { VirtualModel, ProviderModel } from '../_types/catalog';
+  ConfirmDialog,
+} from '@orbit/hades';
+import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
 import { RoutesTab } from './routes-tab';
@@ -33,6 +33,7 @@ interface EditorPanelProps {
   onSaved: (vm: VirtualModel) => void;
   onDeleted: (id: string) => void;
   providerModels: ProviderModel[];
+  providers: Provider[];
 }
 
 export function EditorPanel({
@@ -41,6 +42,7 @@ export function EditorPanel({
   onSaved,
   onDeleted,
   providerModels,
+  providers,
 }: EditorPanelProps) {
   const [draft, setDraft] = useState<VirtualModel | null>(model);
   const [saving, setSaving] = useState(false);
@@ -219,7 +221,12 @@ export function EditorPanel({
           <Separator />
 
           {/* Routes content */}
-          <RoutesTab model={draft} onChange={setDraft} providerModels={providerModels} />
+          <RoutesTab
+            model={draft}
+            onChange={setDraft}
+            providerModels={providerModels}
+            providers={providers}
+          />
         </Stack>
       </SidePanelBody>
 

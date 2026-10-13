@@ -7,10 +7,13 @@ metadata:
   name: example-config
   namespace: orbit-tenant-example
 data:
-  DB_HOST: orbit-postgres
-  DB_NAME: orbit
-  DB_PORT: "5432"
-  DB_USER: orbit
+  # Mounted as the storage config file the loader merges last.
+  storage.yaml: |
+    postgres:
+      host: orbit-postgres
+      port: 5432
+      database: orbit
+      user: orbit
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -60,10 +63,12 @@ spec:
               containerPort: 8081
               protocol: TCP
           envFrom:
-            - configMapRef:
-                name: example-config
             - secretRef:
                 name: orbit-secrets
+          volumeMounts:
+            - name: config-files
+              mountPath: /etc/orbit/config
+              readOnly: true
           livenessProbe:
             httpGet:
               path: /health
@@ -87,6 +92,13 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+      volumes:
+        - name: config-files
+          configMap:
+            name: example-config
+            items:
+              - key: storage.yaml
+                path: internal/platform/storage.yaml
 ---
 apiVersion: v1
 kind: Service

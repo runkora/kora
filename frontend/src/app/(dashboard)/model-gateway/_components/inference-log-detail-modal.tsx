@@ -1,10 +1,18 @@
 'use client';
 
-import { Badge, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/terra';
+import {
+  CopyField,
+  Badge,
+  Modal,
+  ModalBody,
+  ModalHeader,
+  Separator,
+  Stack,
+  Text,
+} from '@orbit/hades';
 import type { InferenceUsageRecord } from '../_types';
 import { fmtCost, fmtDate, fmtNum, fmtTime } from '@orbit/utils';
 import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';
-import { CopyRow } from '@orbit/components';
 
 // ── DetailRow ─────────────────────────────────────────────────────────────────
 
@@ -79,15 +87,17 @@ export function InferenceLogDetailModal({
                   Identity
                 </Text>
               </Stack>
-              <CopyRow label="Request ID" value={record.id} mono />
-              <CopyRow label="Principal ID" value={record.principal_id} mono />
+              <CopyField label="Request ID" value={record.id} mono wrap />
+              <CopyField label="Principal ID" value={record.principal_id} mono wrap />
               <DetailRow label="Principal type">
                 <Text size="supporting" mono>
                   {record.principal_type}
                 </Text>
               </DetailRow>
-              {record.token_id && <CopyRow label="API key ID" value={record.token_id} mono />}
-              {keyName && <CopyRow label="API key name" value={keyName} />}
+              {record.token_id && (
+                <CopyField label="API key ID" value={record.token_id} mono wrap />
+              )}
+              {keyName && <CopyField label="API key name" value={keyName} wrap />}
               <DetailRow label="API dialect">
                 <Text size="supporting" mono>
                   {record.api_dialect}
@@ -104,13 +114,14 @@ export function InferenceLogDetailModal({
                   Model
                 </Text>
               </Stack>
-              <CopyRow
+              <CopyField
                 label="Virtual model ID"
                 value={record.virtual_model_id ?? record.model_id}
                 mono
+                wrap
               />
               {record.virtual_model_id && record.virtual_model_id !== record.model_id && (
-                <CopyRow label="Provider model ID" value={record.model_id} mono />
+                <CopyField label="Provider model ID" value={record.model_id} mono wrap />
               )}
               {record.provider && (
                 <DetailRow label="Provider">

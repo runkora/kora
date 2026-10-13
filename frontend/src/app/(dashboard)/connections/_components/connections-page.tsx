@@ -3,16 +3,17 @@
 /** @tier 3 — connections-scoped. Read-only UI for the /connections list page. */
 
 import { useMemo, useState } from 'react';
-import { Badge, DataTable, Heading, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
+import { DataTable, EmptyState, Heading, Stack, Text, TruncatingBadge } from '@orbit/hades';
+import type { DataTableColumn } from '@orbit/hades';
+import { ScopeChipList, scopeColumnFilter } from '@orbit/components';
 import { adapterLabel } from '../_types';
 import type { ConnectionRow } from '../_types';
 import { ConnectionDetailModal } from './connection-detail-modal';
+import { UsedByList } from './used-by-list';
 
-// Rows commonly carry a dozen-plus actions; showing them all made rows wrap to
-// several lines. The rest are one click away in the detail modal.
-const MAX_INLINE_ACTIONS = 3;
+// Rows commonly carry a dozen-plus actions. Show as many as fit in two lines;
+// the rest are one click away in the "+N more" overlay and the detail modal.
+const MAX_ACTION_ROWS = 2;
 
 interface ConnectionsPageProps {
   rows: ConnectionRow[];
@@ -45,7 +46,10 @@ export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
-        gridWidth: '180px',
+        // Room for `constellation-kubernetes` + 50% (about 300px of mono text); longer
+        // names truncate, with the full name on hover.
+        gridWidth: '19rem',
+        minWidth: '8rem', // shrinks toward this only when the viewport is too narrow
         cell: (row) => (
           <Text mono size="supporting" weight="emphasis">
             {row.name}
@@ -58,72 +62,55 @@ export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
         locked: true,
         sortable: true,
         sortAccessor: (row) => adapterLabel(row.adapter),
-        gridWidth: '150px',
+        // The `Kubernetes` badge + 50%; longer labels truncate.
+        gridWidth: '8.5rem',
+        minWidth: '6rem',
         cell: (row) => (
-          <Badge variant="secondary" size="sm">
-            {adapterLabel(row.adapter)}
-          </Badge>
+          // Horizontal row so the badge keeps its natural width instead of
+          // stretching to fill the cell.
+          <Stack direction="horizontal" minWidth="none">
+            <TruncatingBadge
+              label={adapterLabel(row.adapter)}
+              variant="secondary"
+              textColor="muted"
+            />
+          </Stack>
         ),
       },
       {
         id: 'actions',
         header: 'Grantable actions',
         locked: true,
-        gridWidth: 'minmax(0, 1.4fr)',
-        cell: (row) => {
-          if (row.actions.length === 0) {
-            return (
-              <Text size="supporting" color="muted">
-                —
-              </Text>
-            );
-          }
-          const shown = row.actions.slice(0, MAX_INLINE_ACTIONS);
-          const remaining = row.actions.length - shown.length;
-          return (
-            <Stack
-              direction="horizontal"
-              align="center"
-              gap="tight"
-              minWidth="none"
-              overflow="hidden"
-            >
-              {shown.map((action) => (
-                <Badge key={action} variant="elevated" size="sm" mono>
-                  {action}
-                </Badge>
-              ))}
-              {remaining > 0 && (
-                <Text size="caption" color="subtle" truncate>
-                  +{remaining} more
-                </Text>
-              )}
-            </Stack>
-          );
-        },
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '16rem',
+        wrap: true,
+        filter: scopeColumnFilter(rows, (row) => row.actions),
+        cell: (row) => <ScopeChipList scopes={row.actions} maxRows={MAX_ACTION_ROWS} />,
       },
       {
         id: 'usedBy',
         header: 'Used by',
         locked: true,
-        gridWidth: 'minmax(0, 1fr)',
-        cell: (row) =>
-          row.usedBy.length === 0 ? (
-            <Text size="supporting" color="muted">
-              Not attached
-            </Text>
-          ) : (
-            <Stack direction="horizontal" gap="tight" wrap minWidth="none">
-              {row.usedBy.map((usage) => (
-                <Badge key={usage.slug} variant="outline" size="sm">
-                  {usage.name}
-                </Badge>
-              ))}
-            </Stack>
-          ),
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '14rem',
+        wrap: true,
+        filter: {
+          mode: 'client',
+          searchable: true,
+          // Keyed on slug, the unique field; two agent types can share a name.
+          options: [
+            ...new Map(
+              rows.flatMap((row) => row.usedBy.map((u): [string, string] => [u.slug, u.name])),
+            ).entries(),
+          ]
+            .sort(([, a], [, b]) => a.localeCompare(b))
+            .map(([slug, name]) => ({ value: slug, label: name })),
+          filterFn: (row, selected) => row.usedBy.some((u) => selected.has(u.slug)),
+        },
+        cell: (row) => <UsedByList usages={row.usedBy} />,
       },
     ],
-    [],
+    [rows],
   );
 
   return (

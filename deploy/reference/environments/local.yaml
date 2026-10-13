@@ -1,9 +1,9 @@
 # Local k3d: Helmfile release inputs. The orbit chart's values live in
 # values/orbit.yaml and values/orbit.local.yaml.
 versions:
-  spireCrds: "0.5.0"
-  spire: "0.28.3"
-  istio: "1.29.1"
+  spireCrds: "0.6.1"
+  spire: "0.30.2"
+  istio: "1.31.1"
 
 systemNamespace: orbit-system
 trustDomain: orbit.test

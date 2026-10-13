@@ -1,36 +1,8 @@
 # App-level shared components
 
-This document is the authoritative index of Tier 2 app-shared components: components that are Orbit-domain-aware, used by two or more distinct dashboard features, but not generic enough for Terra. All components import from `@orbit/components`.
+This document is the authoritative index of Tier 2 app-shared components: components that are kora-domain-aware, used by two or more distinct dashboard features, but not generic enough for Hades. All components import from `@orbit/components`.
 
 Before writing any UI boilerplate, check this list. If a component already covers the need, use it. If it almost covers the need, extend it via props rather than creating a new file.
-
----
-
-## EmptyState
-
-**Import:** `import { EmptyState } from '@orbit/components'`
-
-**When to use:** Any section that can have zero items and needs a centred placeholder with an icon, title, description, and an optional CTA button.
-
-**When not to use:** Full-page error states (use `Alert variant="error"` from `@orbit/terra`); loading skeletons (use Terra `Skeleton`).
-
-```tsx
-interface EmptyStateProps {
-  icon: IconName;
-  title: string;
-  description: string;
-  action?: React.ReactNode;
-}
-```
-
-```tsx
-<EmptyState
-  icon="key"
-  title="No API keys yet"
-  description="Create a key to start making requests to the inference gateway."
-  action={<Button size="sm">Create your first key</Button>}
-/>
-```
 
 ---
 
@@ -56,131 +28,73 @@ interface StatusBadgeProps {
 
 ---
 
-## ConfirmDialog
+## ScopeChipList, ScopeChip and scopeColumnFilter
 
-**Import:** `import { ConfirmDialog } from '@orbit/components'`
+**Import:** `import { ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components'`
 
-**When to use:** Any destructive action that requires user confirmation: delete, revoke, reset. Composes `Modal` from Terra internally.
-
-**When not to use:** Non-destructive confirmations where a simple button pair suffices; use a standard inline form instead.
+**When to use:** Any place a kora scope string is shown. `ScopeChip` is one highlighted scope (truncating, with the full scope as its tooltip). `ScopeChipList` shows a list of them, collapsing the surplus into a "+N more" button that opens an overlay with every scope. `scopeColumnFilter` builds the searchable multi-select column filter for a scope column.
 
 ```tsx
-interface ConfirmDialogProps {
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  description: string;
-  confirmLabel: string;
-  onConfirm: () => void;
-  confirming?: boolean;
-  error?: string | null;
-  children?: React.ReactNode; // extra body content below description
+interface ScopeChipListProps {
+  scopes: readonly string[];
+  max?: number; // chips shown before "+N more"; default 3
+  maxRows?: number; // instead of a count: as many as fit in this many rows
 }
+
+// In a DataTable column:
+{ id: 'scopes', header: 'Scopes', wrap: true, filter: scopeColumnFilter(rows, (r) => r.scopes),
+  cell: (r) => <ScopeChipList scopes={r.scopes} maxRows={2} /> }
 ```
 
+See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules around these.
+
+---
+
+## ClampedList
+
+**Import:** `import { ClampedList } from '@orbit/components'`
+
+**When to use:** A list in a cell that shows as many items as fit in `maxRows` rows, with the rest behind a "+N more" overlay. It is the layer under `ScopeChipList`: give it `items`, `getKey`, `renderItem` and a `noun` for the trigger's accessible name. Anything that follows the table layout golden path for a collection column can render through it.
+
 ```tsx
-<ConfirmDialog
-  open={!!deleteTarget}
-  title="Delete Role"
-  description={`Remove "${deleteTarget?.role}" and all its scope mappings? This cannot be undone.`}
-  confirmLabel="Delete"
-  confirming={isDeleting}
-  error={deleteError}
-  onConfirm={() => void handleDelete(deleteTarget.role)}
-  onClose={() => setDeleteTarget(null)}
+<ClampedList
+  items={row.connectors}
+  getKey={(c) => c.connection}
+  renderItem={(c) => (
+    <TruncatingBadge label={c.connection} variant="outline" textColor="foreground" />
+  )}
+  noun="connectors"
+  maxRows={2}
 />
 ```
 
 ---
 
-## MetricCard
+## PrincipalBadge
 
-**Import:** `import { MetricCard } from '@orbit/components'`
+**Import:** `import { PrincipalBadge } from '@orbit/components'`
 
-**When to use:** Any KPI/metric display in an overview or dashboard: icon + label + value + optional delta + optional breakdown rows + optional "View all" link.
-
-```tsx
-interface MetricCardProps {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  delta?: { text: string; positive: boolean; positiveIsBad?: boolean };
-  breakdown?: Array<{ label: string; value: string | number }>;
-  href?: string; // renders "View all →" footer link
-}
-```
+**When to use:** Anywhere a principal's type (agent, human, PAT, service) is shown. One colour per type, so the type reads the same on every page. In a table give it its own column rather than placing it beside the name.
 
 ```tsx
-// Metric with delta
-<MetricCard
-  icon={<Icon name="activity" />}
-  label="Total Requests"
-  value={fmtNumCompact(requests.total)}
-  delta={{ text: '▲ 3.2% vs last 7 days', positive: true }}
-/>
-
-// Metric with breakdown and footer link (policy-style)
-<MetricCard
-  icon={<Icon name="shield-check" />}
-  label="Grants"
-  value={stats.grants.total}
-  href={APP_ROUTES.policy.grants}
-  breakdown={[{ label: 'Human', value: 12 }, { label: 'Agent', value: 34 }]}
-/>
+{ id: 'type', header: 'Type', cell: (g) => <PrincipalBadge type={g.principal_type} /> }
 ```
 
 ---
 
-## EventFeedItem
+## useClampedRows
 
-**Import:** `import { EventFeedItem } from '@orbit/components'`
+**Import:** `import { useClampedRows } from '@orbit/components'`
 
-**When to use:** A single row in a `<ul className="divide-y">` activity feed or event list. Status dot + primary label + optional meta + message + timestamp.
+**When to use:** A wrapping list in a cell that should show as many items as fit in a fixed number of rows, then a "+N more" trigger. It is a hook, so the caller owns the markup: render every item, then a trigger element marked `data-clamp-trigger` with no children. The hook hides what does not fit and writes the trigger's text. See `ScopeChipList` and the connections `UsedByList` for both usages.
 
-```tsx
-interface EventFeedItemProps {
-  status: OrbitStatus;
-  label: string; // primary identifier, monospace (e.g. event type)
-  meta?: string; // supporting identifier (e.g. agent name)
-  message: string;
-  timestamp: string;
-}
-```
+## RUN_STATE_DISPLAY
+
+`RUN_STATE_DISPLAY` maps a run state to the status dot and label every run surface shows. A `pending` run reads Queued, `starting` reads Starting and `active` reads Running.
 
 ```tsx
-<ul className="divide-y divide-border-subtle">
-  {events.map((evt) => (
-    <EventFeedItem
-      key={evt.id}
-      status={evt.severity}
-      label={evt.type}
-      meta={evt.agent}
-      message={evt.message}
-      timestamp={evt.ts}
-    />
-  ))}
-</ul>
-```
+import { RUN_STATE_DISPLAY } from '@orbit/components';
 
----
-
-## ThemeToggle
-
-**Import:** `import { ThemeToggle } from '@orbit/components'`
-
-**When to use:** The user-facing control that switches between the light and dark
-themes (typically placed in the dashboard header).
-
-**How it works:** Calls `setTheme(...)` from `next-themes`, which flips the
-`data-theme` attribute on `<html>`. Terra's design tokens re-colour the entire UI
-from that attribute, so no other wiring is needed. It renders both a sun (switch
-to dark) and a moon (switch to light) `Button`; `globals.css` shows the one that
-matches the active theme so the control is correct at first paint. Takes no props.
-
-For how theming works end-to-end and how to author theme-aware components (use
-tokens, never hardcoded colours), see
-[Theming](./terra-design-system.md#theming-light--dark) in the Terra reference.
-
-```tsx
-<ThemeToggle />
+const dot = RUN_STATE_DISPLAY[run.state];
+<StatusDot status={dot.status} role="img" aria-label={dot.label} />;
 ```

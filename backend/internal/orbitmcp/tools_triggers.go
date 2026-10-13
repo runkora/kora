@@ -3,6 +3,7 @@ package orbitmcp
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/url"
 	"strconv"
 
@@ -21,7 +22,34 @@ func registerTriggerTools(srv *sdk.Server, b Backends, jc *orbitjson.Client) {
 	triggers := base + "/triggers"
 
 	registerTriggerSourceTools(srv, sources, jc)
+	registerTriggerProviderTools(srv, base+"/trigger-providers", jc)
 	registerTriggerBindingTools(srv, base, triggers, jc)
+}
+
+// registerTriggerProviderTools wires each provider's schema catalog: the event
+// types a trigger can listen for and the fields it can template or filter on.
+func registerTriggerProviderTools(srv *sdk.Server, providers string, jc *orbitjson.Client) {
+	addTool(srv, "triggers.providers.event_types",
+		"List the event types a webhook provider (e.g. github, alertmanager) sends, from its published schema, "+
+			"and the sender associations a trigger's sender_restriction may name (empty when the provider identifies no sender).",
+		func(ctx context.Context, a providerArgs) (*sdk.CallToolResult, error) {
+			if a.Provider == "" {
+				return toolError(errors.New("provider is required")), nil
+			}
+			return jsonResult(jc.Get(ctx, callerToken(ctx), providers+"/"+url.PathEscape(a.Provider)+"/event-types", nil))
+		})
+
+	addTool(srv, "triggers.providers.fields",
+		"List the fields of one provider event type, by schema path (e.g. comment.body), with descriptions and "+
+			"allowed values. These paths are what prompt_template placeholders and match_condition keys name.",
+		func(ctx context.Context, a providerFieldsArgs) (*sdk.CallToolResult, error) {
+			if a.Provider == "" || a.EventType == "" {
+				return toolError(errors.New("provider and event_type are required")), nil
+			}
+			q := url.Values{}
+			q.Set("event_type", a.EventType)
+			return jsonResult(jc.Get(ctx, callerToken(ctx), providers+"/"+url.PathEscape(a.Provider)+"/fields", q))
+		})
 }
 
 // registerTriggerSourceTools wires the webhook trigger sources (the endpoints
@@ -98,40 +126,43 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 			return jsonResult(jc.Get(ctx, callerToken(ctx), triggers+"/"+url.PathEscape(a.ID), nil))
 		})
 
-	addTool(srv, "triggers.create",
-		"Create a trigger: when the given source delivers an event of event_type matching match_condition, start "+
-			"a run of the target agent (by agent_type_id or agent_slug) using prompt_template. Call triggers.sources.list "+
-			"for source ids and agents.list for agent ids.",
+	addEnumTool(srv, "triggers.create",
+		"Create a trigger that starts a run of the target agent (by agent_type_id or agent_slug) using prompt_template. "+
+			"kind picks what fires it; omitted, it is webhook. "+
+			"webhook: fires when source_id delivers an event of event_type matching match_condition; source_id, name and "+
+			"event_type are required. Call triggers.sources.list for source ids and triggers.providers.fields for the field "+
+			"paths an event carries. "+
+			"scheduled: fires on a cron schedule; schedule_config (cron_expression, timezone, catch_up) is required and "+
+			"source_id and event_type are not used. Check it with triggers.schedule_preview first. "+
+			"manual: fires when someone runs it; source_id and event_type are not used, and manual_config.inputs declares the "+
+			"values the caller supplies, which fill {{ var.key }} placeholders in prompt_template (e.g. {{ var.ticket }} for an "+
+			"input named ticket). Call agents.list for agent ids.",
+		map[string][]any{"kind": triggerKinds},
 		func(ctx context.Context, a createTriggerArgs) (*sdk.CallToolResult, error) {
-			if a.SourceID == "" || a.Name == "" {
-				return toolError(errors.New("source_id and name are required")), nil
+			if err := validateCreateTrigger(&a); err != nil {
+				return toolError(err), nil
 			}
 			return jsonResult(jc.Post(ctx, callerToken(ctx), triggers, a))
 		})
 
+	addTool(srv, "triggers.schedule_preview",
+		"Preview the next fire times of a schedule_config (cron_expression, timezone) without creating a trigger. "+
+			"Returns an error for an invalid cron expression or timezone.",
+		func(ctx context.Context, a schedulePreviewArgs) (*sdk.CallToolResult, error) {
+			if a.ScheduleConfig == nil {
+				return toolError(errors.New("schedule_config is required")), nil
+			}
+			return jsonResult(jc.Post(ctx, callerToken(ctx), triggers+"/schedule-preview", a))
+		})
+
 	addTool(srv, "triggers.update",
-		"Update a trigger by id. Only the fields you supply are changed.",
+		"Update a trigger by id. Only the fields you supply are changed. schedule_config replaces a scheduled trigger's "+
+			"schedule and manual_config replaces a manual trigger's inputs; the trigger's kind cannot be changed.",
 		func(ctx context.Context, a updateTriggerArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			body := map[string]any{}
-			if a.Name != nil {
-				body["name"] = *a.Name
-			}
-			if a.EventType != nil {
-				body["event_type"] = *a.EventType
-			}
-			if a.MatchCondition != nil {
-				body["match_condition"] = a.MatchCondition
-			}
-			if a.PromptTemplate != nil {
-				body["prompt_template"] = *a.PromptTemplate
-			}
-			if a.Enabled != nil {
-				body["enabled"] = *a.Enabled
-			}
-			return jsonResult(jc.Patch(ctx, callerToken(ctx), triggers+"/"+url.PathEscape(a.ID), body))
+			return jsonResult(jc.Patch(ctx, callerToken(ctx), triggers+"/"+url.PathEscape(a.ID), updateTriggerBody(a)))
 		})
 
 	addTool(srv, "triggers.delete",
@@ -147,11 +178,23 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 
 	addTool(srv, "triggers.deliveries.list",
 		"List recorded trigger deliveries — the history of received source events and the runs they started. "+
-			"Optionally filter by source_id and cap with limit.",
+			"Optionally filter by source_id, cap with limit, and bound the time window with received_after (inclusive) "+
+			"and received_before (exclusive), both RFC 3339 timestamps. Set omit_payload to leave the full payload out of "+
+			"each delivery; payload_excerpt, trigger outcomes and runs are kept. Use it for wide listings, since payloads "+
+			"dominate the response size.",
 		func(ctx context.Context, a listDeliveriesArgs) (*sdk.CallToolResult, error) {
 			q := url.Values{}
 			if a.SourceID != "" {
 				q.Set("source_id", a.SourceID)
+			}
+			if a.ReceivedAfter != "" {
+				q.Set("received_after", a.ReceivedAfter)
+			}
+			if a.ReceivedBefore != "" {
+				q.Set("received_before", a.ReceivedBefore)
+			}
+			if a.OmitPayload {
+				q.Set("omit_payload", "true")
 			}
 			if a.Limit > 0 {
 				q.Set("limit", strconv.Itoa(a.Limit))
@@ -160,7 +203,71 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 		})
 }
 
+// updateTriggerBody carries only the fields the caller supplied.
+func updateTriggerBody(a updateTriggerArgs) map[string]any {
+	body := map[string]any{}
+	if a.Name != nil {
+		body["name"] = *a.Name
+	}
+	if a.EventType != nil {
+		body["event_type"] = *a.EventType
+	}
+	if a.MatchCondition != nil {
+		body["match_condition"] = a.MatchCondition
+	}
+	if a.MatchContains != nil {
+		body["match_contains"] = a.MatchContains
+	}
+	if a.PromptTemplate != nil {
+		body["prompt_template"] = *a.PromptTemplate
+	}
+	if a.SenderRestriction != nil {
+		body["sender_restriction"] = a.SenderRestriction
+	}
+	if a.ScheduleConfig != nil {
+		body["schedule_config"] = a.ScheduleConfig
+	}
+	if a.ManualConfig != nil {
+		body["manual_config"] = a.ManualConfig
+	}
+	if a.Enabled != nil {
+		body["enabled"] = *a.Enabled
+	}
+	return body
+}
+
+// validateCreateTrigger applies the per-kind required fields and defaults an
+// omitted kind to webhook, so the request always names its kind to the backend.
+func validateCreateTrigger(a *createTriggerArgs) error {
+	if a.Name == "" {
+		return errors.New("name is required")
+	}
+	switch a.Kind {
+	case "", triggerKindWebhook:
+		a.Kind = triggerKindWebhook
+		if a.SourceID == "" || a.EventType == "" {
+			return errors.New("source_id, name and event_type are required")
+		}
+	case triggerKindScheduled:
+		if a.ScheduleConfig == nil {
+			return errors.New("schedule_config is required for a scheduled trigger")
+		}
+	case triggerKindManual:
+	default:
+		return fmt.Errorf("kind must be one of webhook, scheduled or manual, got %q", a.Kind)
+	}
+	return nil
+}
+
 // ── tool argument types ───────────────────────────────────────────────────────
+
+const (
+	triggerKindWebhook   = "webhook"
+	triggerKindScheduled = "scheduled"
+	triggerKindManual    = "manual"
+)
+
+var triggerKinds = []any{triggerKindWebhook, triggerKindScheduled, triggerKindManual}
 
 type triggerIDArgs struct {
 	ID string `json:"id" jsonschema:"the id"`
@@ -179,25 +286,75 @@ type updateSourceArgs struct {
 }
 
 type createTriggerArgs struct {
-	SourceID       string              `json:"source_id" jsonschema:"the webhook source id this trigger listens on"`
-	Name           string              `json:"name" jsonschema:"the trigger name"`
-	AgentTypeID    string              `json:"agent_type_id,omitempty" jsonschema:"target agent type id (or use agent_slug)"`
-	AgentSlug      string              `json:"agent_slug,omitempty" jsonschema:"target agent slug (or use agent_type_id)"`
-	EventType      string              `json:"event_type,omitempty" jsonschema:"the source event type to fire on (e.g. push, issues)"`
-	MatchCondition map[string][]string `json:"match_condition,omitempty" jsonschema:"optional field→allowed-values filter on the event payload"`
-	PromptTemplate string              `json:"prompt_template,omitempty" jsonschema:"the prompt the started run receives (may reference event fields)"`
+	Kind              string              `json:"kind,omitempty" jsonschema:"what fires the trigger: webhook (default), scheduled or manual"`
+	SourceID          string              `json:"source_id,omitempty" jsonschema:"the webhook source id this trigger listens on (webhook triggers only)"`
+	Name              string              `json:"name" jsonschema:"the trigger name"`
+	AgentTypeID       string              `json:"agent_type_id,omitempty" jsonschema:"target agent type id (or use agent_slug)"`
+	AgentSlug         string              `json:"agent_slug,omitempty" jsonschema:"target agent slug (or use agent_type_id)"`
+	EventType         string              `json:"event_type,omitempty" jsonschema:"the provider event type to fire on (e.g. issue_comment); see triggers.providers.event_types (webhook triggers only)"`
+	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"optional filter: field path (e.g. action) to allowed values; a delivery must match every entry"`
+	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"optional filter: field path to substrings; the field must contain one of them, ignoring case"`
+	PromptTemplate    string              `json:"prompt_template,omitempty" jsonschema:"the prompt the run starts with; {{ path }} placeholders name delivery fields (e.g. {{ comment.body }}), whose values follow in an untrusted data block; a manual trigger's inputs fill {{ var.key }} placeholders"`
+	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"optional: only these senders can fire it; a sender passes when its login or association is listed"`
+	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"the cron schedule (scheduled triggers only; required for them)"`
+	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"the inputs the caller supplies when firing (manual triggers only)"`
 }
 
 type updateTriggerArgs struct {
-	ID             string              `json:"id" jsonschema:"the trigger id"`
-	Name           *string             `json:"name,omitempty" jsonschema:"new name"`
-	EventType      *string             `json:"event_type,omitempty" jsonschema:"new event type"`
-	MatchCondition map[string][]string `json:"match_condition,omitempty" jsonschema:"new match condition"`
-	PromptTemplate *string             `json:"prompt_template,omitempty" jsonschema:"new prompt template"`
-	Enabled        *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`
+	ID                string              `json:"id" jsonschema:"the trigger id"`
+	Name              *string             `json:"name,omitempty" jsonschema:"new name"`
+	EventType         *string             `json:"event_type,omitempty" jsonschema:"new event type"`
+	MatchCondition    map[string][]string `json:"match_condition,omitempty" jsonschema:"new match condition"`
+	MatchContains     map[string][]string `json:"match_contains,omitempty" jsonschema:"replaces the contains filter: field path to substrings; an empty map removes it"`
+	PromptTemplate    *string             `json:"prompt_template,omitempty" jsonschema:"new prompt template"`
+	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"replaces the sender restriction; both lists empty removes it"`
+	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"replaces a scheduled trigger's schedule (cron_expression, timezone, catch_up)"`
+	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"replaces a manual trigger's inputs"`
+	Enabled           *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`
+}
+
+type scheduleConfig struct {
+	CronExpression string `json:"cron_expression" jsonschema:"standard 5-field cron expression (e.g. 0 9 * * 1-5)"`
+	Timezone       string `json:"timezone" jsonschema:"IANA timezone name (e.g. Australia/Sydney)"`
+	CatchUp        bool   `json:"catch_up,omitempty" jsonschema:"run a fire that was due while the platform was down; off by default"`
+}
+
+type manualConfig struct {
+	Inputs []manualInput `json:"inputs,omitempty" jsonschema:"the inputs the caller supplies when firing; each fills {{ var.<name> }} in prompt_template"`
+}
+
+type manualInput struct {
+	Name        string   `json:"name" jsonschema:"the input name, used as the {{ var.name }} placeholder key"`
+	Type        string   `json:"type" jsonschema:"text, number, boolean or choice"`
+	Label       string   `json:"label,omitempty" jsonschema:"label shown on the input form"`
+	Description string   `json:"description,omitempty" jsonschema:"help text shown on the input form"`
+	Required    bool     `json:"required,omitempty" jsonschema:"the caller must supply a value"`
+	Default     string   `json:"default,omitempty" jsonschema:"value used when the caller supplies none"`
+	Choices     []string `json:"choices,omitempty" jsonschema:"the permitted values when type is choice"`
+}
+
+type schedulePreviewArgs struct {
+	ScheduleConfig *scheduleConfig `json:"schedule_config" jsonschema:"the schedule to preview"`
+}
+
+type senderRestriction struct {
+	Logins       []string `json:"logins,omitempty" jsonschema:"sender logins allowed to fire the trigger"`
+	Associations []string `json:"associations,omitempty" jsonschema:"sender associations allowed to fire the trigger, from triggers.providers.event_types"`
+}
+
+type providerArgs struct {
+	Provider string `json:"provider" jsonschema:"the webhook provider (e.g. github, alertmanager)"`
+}
+
+type providerFieldsArgs struct {
+	Provider  string `json:"provider" jsonschema:"the webhook provider (e.g. github, alertmanager)"`
+	EventType string `json:"event_type" jsonschema:"the provider event type (e.g. issue_comment)"`
 }
 
 type listDeliveriesArgs struct {
-	SourceID string `json:"source_id,omitempty" jsonschema:"filter deliveries by source id"`
-	Limit    int    `json:"limit,omitempty" jsonschema:"max number of deliveries to return"`
+	SourceID       string `json:"source_id,omitempty" jsonschema:"filter deliveries by source id"`
+	Limit          int    `json:"limit,omitempty" jsonschema:"max number of deliveries to return"`
+	ReceivedAfter  string `json:"received_after,omitempty" jsonschema:"only deliveries received at or after this RFC 3339 timestamp (optional)"`
+	ReceivedBefore string `json:"received_before,omitempty" jsonschema:"only deliveries received before this RFC 3339 timestamp (optional)"`
+	OmitPayload    bool   `json:"omit_payload,omitempty" jsonschema:"leave the full payload out of each delivery (optional); payload_excerpt is kept"`
 }

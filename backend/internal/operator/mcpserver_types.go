@@ -1,12 +1,12 @@
 // MCPServer CRD Go types for MCP server registration (Phase 3 — MCP Tool Gateway).
 //
-// An MCPServer declares one MCP server Orbit governs. There are two types,
+// An MCPServer declares one MCP server kora governs. There are two types,
 // distinguished only by where the CR is applied:
 //
-//   - Global: applied in orbit-system (e.g. the platform Orbit MCP). tenant_id
+//   - Global: applied in orbit-system (e.g. the platform kora MCP). tenant_id
 //     is "" and its tools' scopes appear in every tenant's catalog. Only a
 //     global server may set callerIdentity: forward (act AS the caller against
-//     first-party Orbit APIs).
+//     first-party kora APIs).
 //   - Tenant: applied in a tenant namespace (a tenant's own MCP server). tenant_id
 //     is the owning tenant. callerIdentity: forward is REJECTED — otherwise a
 //     tenant admin (who holds CR-apply RBAC in their namespace) could harvest
@@ -48,7 +48,7 @@ const (
 	// server acts as itself with its own backend credential.
 	CallerIdentityNone = "none"
 	// CallerIdentityForward: the gateway forwards the caller's bearer so the
-	// server acts AS the caller against first-party Orbit APIs. Valid ONLY on
+	// server acts AS the caller against first-party kora APIs. Valid ONLY on
 	// global (orbit-system) servers.
 	CallerIdentityForward = "forward"
 )
@@ -60,7 +60,7 @@ const transportStreamableHTTP = "streamable-http"
 // MCPServer — namespaced; orbit-system for global, tenant namespace for tenant
 // -----------------------------------------------------------------------------
 
-// MCPServer declares one MCP server Orbit governs.
+// MCPServer declares one MCP server kora governs.
 //
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status

@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-The Orbit dashboard currently contains placeholder navigation items and stub pages that were created as scaffolding during initial development. These items represent unbuilt features and create a misleading, cluttered navigation experience. At the same time the dashboard home page shows entirely static mock data. This PRD covers removing the noise and replacing the dashboard home with real, live data derived from the platform's existing features.
+The kora dashboard currently contains placeholder navigation items and stub pages that were created as scaffolding during initial development. These items represent unbuilt features and create a misleading, cluttered navigation experience. At the same time the dashboard home page shows entirely static mock data. This PRD covers removing the noise and replacing the dashboard home with real, live data derived from the platform's existing features.
 
 ---
 
@@ -71,7 +71,7 @@ The dashboard home page (`/`) renders entirely static, hard-coded mock data (fak
 ### Primary User Stories
 
 **As a** platform operator,  
-**I want to** open the Orbit dashboard and see only navigation items I can actually use,  
+**I want to** open the kora dashboard and see only navigation items I can actually use,  
 **So that** I can navigate confidently without encountering dead ends.
 
 **Acceptance Criteria:**
@@ -95,7 +95,7 @@ The dashboard home page (`/`) renders entirely static, hard-coded mock data (fak
 
 ### Secondary User Stories
 
-**As a** developer evaluating Orbit,  
+**As a** developer evaluating kora,  
 **I want to** see a clean, complete-feeling navigation,  
 **So that** placeholder items don't undermine confidence in the platform's maturity.
 
@@ -219,7 +219,7 @@ The sidebar becomes shorter and cleaner — only the Control Plane, Policy, and 
 
 **Why not chosen:**
 - Still adds clutter and signals incomplete features to users.
-- Tooltip affordance for nav items is not in the Terra design system.
+- Tooltip affordance for nav items is not in the Hades design system.
 
 ### Alternative 2: Keep Security and System groups but hide all items via scope guards
 
@@ -283,4 +283,4 @@ The Phase 1 dashboard met the goal of showing real data, but in practice it was 
 
 - [ADR: Nav Cleanup and Live Dashboard](../adr/2026-06-19-nav-cleanup-and-live-dashboard.md)
 - [ADR: Frontend Scaffolding and Toolchain](../adr/2026-03-17-frontend-scaffolding-and-toolchain.md)
-- [ADR: Terra Design System](../adr/2026-03-25-terra-frontend-design-system.md)
+- [ADR: Hades Design System](../adr/2026-03-25-terra-frontend-design-system.md)

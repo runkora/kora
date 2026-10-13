@@ -3,7 +3,7 @@
 **Status:** Proposed
 **Date:** 2026-05-13
 **Deciders:** Frontend Team, Platform Engineering
-**Technical Story:** [Profile Page PRD](../prd/profile-page.md) — Orbit has no centralised view where users can inspect their identity, permissions, or API tokens. The profile page gives every authenticated user a single screen answering "who am I, what can I do, and what tokens have I issued?" — accessible from a popover menu in the sidebar footer.
+**Technical Story:** [Profile Page PRD](../prd/profile-page.md) — kora has no centralised view where users can inspect their identity, permissions, or API tokens. The profile page gives every authenticated user a single screen answering "who am I, what can I do, and what tokens have I issued?" — accessible from a popover menu in the sidebar footer.
 
 ---
 
@@ -11,7 +11,7 @@
 
 ### Background
 
-The Orbit control plane frontend follows the BFF (Backend for Frontend) architecture with iron-session sealed cookies (ADR-0030). Permissions are projected from OPA into the session as a cached scope set (ADR-0037). User profiles are persisted on login via the identity service's `user_profiles` table (ADR-0042). Personal access tokens (PATs) are listed via the identity service's `GET /identity/tokens` endpoint (ADR-0033).
+The kora control plane frontend follows the BFF (Backend for Frontend) architecture with iron-session sealed cookies (ADR-0030). Permissions are projected from OPA into the session as a cached scope set (ADR-0037). User profiles are persisted on login via the identity service's `user_profiles` table (ADR-0042). Personal access tokens (PATs) are listed via the identity service's `GET /identity/tokens` endpoint (ADR-0033).
 
 The frontend golden path pattern (`frontend/docs/golden-paths/frontend-state-pattern.md`) defines a 10-step structure for data-driven dashboard pages: types → server service → BFF route → API route registry → client service → hook → context → tab shell → RSC page → feature components. This pattern is designed for pages with client-side state management, mutations, and reactive updates.
 
@@ -31,7 +31,7 @@ Two architectural questions must be resolved:
 - Replace the standalone logout button with a popover menu that provides navigation to profile, future settings, and logout
 - Fetch all data server-side from existing APIs — no new backend endpoints required
 - Handle individual API failures gracefully without blocking the entire page
-- Follow established frontend conventions (Terra enforcement, component tiers, file naming, lint rules)
+- Follow established frontend conventions (Hades enforcement, component tiers, file naming, lint rules)
 
 ### Non-Goals
 
@@ -48,7 +48,7 @@ Two architectural questions must be resolved:
 * **Server-side data fetching** — access tokens must never reach the browser (BFF pattern). All API calls use the server-side `orbitClient`.
 * **Independent error boundaries** — the three data sources (session, policy gateway, identity service) have different availability profiles. A policy gateway outage should not prevent the user from seeing their identity or API keys.
 * **Feature boundary isolation** — per the golden path pattern, each feature owns its client-initiated data lifecycle (Steps 3–8: BFF route, API route registry, client service, hook, context, tab shell) and its components (Step 10). Server-side API call helpers that wrap backend endpoints are infrastructure, not feature-specific concerns — they belong in a shared location when multiple features call the same endpoint.
-* **Terra component enforcement** — all UI must use Terra (`@orbit/terra`) or app-shared (`@orbit/components`) primitives. Raw HTML is banned by ESLint with zero escape hatches (`AGENTS.md` § Frontend Development).
+* **Hades component enforcement** — all UI must use Hades (`@orbit/hades`) or app-shared (`@orbit/components`) primitives. Raw HTML is banned by ESLint with zero escape hatches (`AGENTS.md` § Frontend Development).
 * **Golden path scoping** — the golden path's Steps 3–8 exist for client-initiated data fetching and state management (BFF routes, API route registry, client services, hooks, context, tab shells). A read-only page with no client-initiated data fetching correctly omits these steps while still following the golden path (Steps 1, 2, 9, 10).
 
 ---
@@ -157,7 +157,7 @@ The route is nested under the `(dashboard)` layout group, inheriting the sidebar
 
 ### Sidebar User Menu
 
-The existing `SidebarUserFooter` client component (`(dashboard)/_components/sidebar-user-footer.tsx`) is modified to wrap the user info area in a Terra `Popover` trigger. The current component renders an `Icon`, email `Text`, name `Text`, and `LogoutButton` in a horizontal `Stack`.
+The existing `SidebarUserFooter` client component (`(dashboard)/_components/sidebar-user-footer.tsx`) is modified to wrap the user info area in a Hades `Popover` trigger. The current component renders an `Icon`, email `Text`, name `Text`, and `LogoutButton` in a horizontal `Stack`.
 
 The modification:
 1. Wrap the `Stack` (minus `LogoutButton`) in a `Popover` trigger
@@ -281,14 +281,14 @@ Each card component receives its own result object (discriminated union) and han
 
 ### Component Architecture
 
-All components use existing Terra (Tier 1) and app-shared (Tier 2) primitives. New components are Tier 3 (feature-scoped) with `@tier 3` JSDoc annotations.
+All components use existing Hades (Tier 1) and app-shared (Tier 2) primitives. New components are Tier 3 (feature-scoped) with `@tier 3` JSDoc annotations.
 
 **Reused Tier 2 components (`@orbit/components`):**
 
 | Component | File | Used by profile card |
 |-----------|------|---------------------|
 | `ScopeChip` | `src/components/scope-chip.tsx` | `RolesPermissionsCard`, `ApiKeysCard` — renders scope strings as syntax-highlighted badges (resource type in accent, separator in subtle, action in foreground). Already used by the policy evaluate tab and model-gateway keys tab. |
-| `StatusBadge` | `src/components/status-badge.tsx` | `ApiKeysCard` — renders PAT expiry status. The `PAT` type (`shared/api.ts`) has no `status` field; derive from `expires_at` using the existing `isExpired()` utility (`src/utils/format.ts`). Mapping: not expired → `status="healthy" label="Active"`, expired → `status="error" label="Expired"`. Note: the existing keys tab (`model-gateway/_components/keys-tab.tsx`) uses a raw Terra `Badge` for this; the profile page uses `StatusBadge` as the preferred Tier 2 abstraction. |
+| `StatusBadge` | `src/components/status-badge.tsx` | `ApiKeysCard` — renders PAT expiry status. The `PAT` type (`shared/api.ts`) has no `status` field; derive from `expires_at` using the existing `isExpired()` utility (`src/utils/format.ts`). Mapping: not expired → `status="healthy" label="Active"`, expired → `status="error" label="Expired"`. Note: the existing keys tab (`model-gateway/_components/keys-tab.tsx`) uses a raw Hades `Badge` for this; the profile page uses `StatusBadge` as the preferred Tier 2 abstraction. |
 | `EmptyState` | `src/components/empty-state.tsx` | `ApiKeysCard` — zero-state when no PATs exist or the listing fails. |
 | `CopyButton` | `src/components/copy-button.tsx` | `UserIdentityCard` — click-to-copy with visual feedback. Consolidates 5 existing clipboard implementations across model-gateway (`token-created-modal`, `model-detail-modal`, `setup-tab`), policy (`vocabulary-tab`), and chat (`message-content`). Adopts the `useRef` + `useEffect` timer cleanup pattern from `vocabulary-tab.tsx`. |
 
@@ -300,13 +300,13 @@ Both the evaluate tab and the profile page now render `ScopesExplainResponse` �
 
 **Tier 3 — `profile/_components/`:**
 
-| Component | Client? | Purpose | Key Terra/Tier 2 components |
+| Component | Client? | Purpose | Key Hades/Tier 2 components |
 |-----------|---------|---------|----------------------------|
 | `UserIdentityCard` | Yes — copy-to-clipboard | Name, email, principal ID (copyable), tenant | `Card`, `CardHeader`, `CardContent`, `Stack`, `Text`, `Icon`, `Code`, `CopyButton` (Tier 2) |
 | `RolesPermissionsCard` | Yes — expand/collapse | OIDC roles, direct grants, effective scopes | `Card`, `CardHeader`, `CardContent`, `Stack`, `Text`, `ScopeChip` (Tier 2), `Separator`, `Button` |
 | `ApiKeysCard` | No | Read-only PAT listing | `Card`, `CardHeader`, `CardContent`, `Stack`, `Text`, `ScopeChip` (Tier 2), `StatusBadge` (Tier 2), `EmptyState` (Tier 2) |
 
-All client components use `'use client'` as the first line. All components use Terra imports only — no raw HTML elements.
+All client components use `'use client'` as the first line. All components use Hades imports only — no raw HTML elements.
 
 **Example JSDoc annotation:**
 
@@ -319,7 +319,7 @@ All client components use `'use client'` as the first line. All components use T
 `profile/loading.tsx` — Suspense skeleton that mirrors the real layout:
 
 ```typescript
-import { Card, Skeleton, Stack } from '@orbit/terra';
+import { Card, Skeleton, Stack } from '@orbit/hades';
 
 export default function ProfileLoading() {
   return (
@@ -383,7 +383,7 @@ export default function ProfileLoading() {
 |------|--------|
 | `frontend/src/app/(dashboard)/model-gateway/_services/tokens-server.ts` | Remove `listPATsFromIdentity()` and its result type; re-export from `@orbit/server/services/identity-server` |
 | `frontend/src/app/(dashboard)/policy/_services/policy-server.ts` | Remove `fetchScopesExplain()` and `policyGatewayFetch()`; import `policyGatewayFetch` from `@orbit/server/services/policy-gateway-server` for remaining PDP functions (e.g., `checkSimulate`); re-export `fetchScopesExplain` from shared |
-| `frontend/src/app/(dashboard)/_components/sidebar-user-footer.tsx` | Wrap user info in Terra `Popover` trigger; move `LogoutButton` into popover content; add "View Profile" `AppLink` and "Settings" (disabled) |
+| `frontend/src/app/(dashboard)/_components/sidebar-user-footer.tsx` | Wrap user info in Hades `Popover` trigger; move `LogoutButton` into popover content; add "View Profile" `AppLink` and "Settings" (disabled) |
 | `frontend/src/lib/routing/routes.ts` | Add `profile: '/profile'` to `APP_ROUTES` registry (required for `AppLink` type-safe routing) |
 | `frontend/src/components/index.ts` | Add `CopyButton` export |
 
@@ -415,12 +415,12 @@ Per the golden path and `AGENTS.md` conventions:
 - [ ] RSC page has NO `'use client'` directive and NO React hooks
 - [ ] RSC page calls `isSessionValid(session)` before any fetch
 - [ ] All client components have `'use client'` as first line
-- [ ] All components use Terra (`@orbit/terra`) or `@orbit/components` — no raw HTML elements
+- [ ] All components use Hades (`@orbit/hades`) or `@orbit/components` — no raw HTML elements
 - [ ] Scopes rendered via `ScopeChip` (`@orbit/components`) — not raw `Badge`
 - [ ] PAT status rendered via `StatusBadge` (`@orbit/components`) — not raw `Badge`
 - [ ] No `import { X } from 'lucide-react'` — use `<Icon name="..." />` only
-- [ ] No `className` props on Terra components
-- [ ] No `eslint-disable` comments targeting Terra rules
+- [ ] No `className` props on Hades components
+- [ ] No `eslint-disable` comments targeting Hades rules
 - [ ] All Tier 3 components have `@tier 3` JSDoc annotation with promotion trigger
 - [ ] All filenames are kebab-case
 - [ ] `loading.tsx` mirrors real layout exactly
@@ -461,7 +461,7 @@ Per the golden path and `AGENTS.md` conventions:
 - [ADR-0033](2026-04-02-personal-access-tokens.md) — PAT model and listing endpoint
 - [ADR-0037](2026-04-14-frontend-policy-projection.md) — Permission projection into session; `GET /policy/scopes` for session enrichment (the `/scopes/explain` variant is an extension of this endpoint, implemented in `policy/_services/policy-server.ts`)
 - [ADR-0042](2026-04-19-user-profiles-table-for-principal-attribution.md) — `user_profiles` table and `GET /identity/users/{id}` endpoint
-- [ADR-0046](2026-05-04-frontend-component-consolidation.md) — Three-tier component model; Terra and app-shared components
+- [ADR-0046](2026-05-04-frontend-component-consolidation.md) — Three-tier component model; Hades and app-shared components
 
 ---
 
@@ -469,7 +469,7 @@ Per the golden path and `AGENTS.md` conventions:
 
 - [Profile Page PRD](../prd/profile-page.md) — Full requirements, user stories, and acceptance criteria
 - [Golden Path: Frontend State Pattern](../../frontend/docs/golden-paths/frontend-state-pattern.md) — 10-step data-driven page pattern (profile page implements Steps 1, 2, 9, 10; omits Steps 3–8 — no client-initiated data fetching)
-- [Terra Design System Reference](../../frontend/docs/reference/terra-design-system.md) — Component props, examples, ESLint rules
+- [Hades Design System Reference](../../frontend/docs/reference/hades-design-system.md) — Component props, examples, ESLint rules
 - [App Components Reference](../../frontend/docs/reference/app-components.md) — Tier 2 shared components (EmptyState, StatusBadge)
 - [Component Placement Reference](../../frontend/docs/reference/component-placement.md) — Three-tier model and placement decision tree
 

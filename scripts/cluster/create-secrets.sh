@@ -131,54 +131,10 @@ if should_run "orbit-system"; then
     warn "ORBIT_OIDC_CLIENT_SECRET is empty — skipping (public client mode)"
   fi
 
-  # AWS Bedrock — multi-account. Reads BEDROCK_ACCOUNTS from .env (comma-separated
-  # alias list, e.g. "us,aus"). For each alias, writes BEDROCK_<ALIAS>_REGION and
-  # the credential triple into orbit-secrets. The inference gateway reads these
-  # directly via envFrom; no per-alias env vars are needed in the Helm chart.
-  # Bedrock is skipped entirely when BEDROCK_ACCOUNTS is unset or empty.
-  if [[ -n "${BEDROCK_ACCOUNTS:-}" ]]; then
-    if [[ -n "${AWS_PROFILE:-}" ]]; then
-      ok "Exporting Bedrock credentials from AWS profile '${AWS_PROFILE}'"
-      if ! aws sts get-caller-identity --profile "${AWS_PROFILE}" &>/dev/null; then
-        echo "  Session expired — launching SSO login..."
-        aws sso login --profile "${AWS_PROFILE}"
-      fi
-      CREDS=$(aws configure export-credentials --profile "${AWS_PROFILE}" --format env-no-export) \
-        || fail "Failed to export credentials from profile '${AWS_PROFILE}'"
-      AWS_ACCESS_KEY_ID=$(echo "${CREDS}"     | grep '^AWS_ACCESS_KEY_ID'     | cut -d= -f2-)
-      AWS_SECRET_ACCESS_KEY=$(echo "${CREDS}" | grep '^AWS_SECRET_ACCESS_KEY' | cut -d= -f2-)
-      AWS_SESSION_TOKEN=$(echo "${CREDS}"     | grep '^AWS_SESSION_TOKEN'     | cut -d= -f2- || echo "")
-    fi
-
-    if [[ -n "${AWS_ACCESS_KEY_ID:-}" && -n "${AWS_SECRET_ACCESS_KEY:-}" ]]; then
-      IDENTITY_SECRET_ARGS+=(--from-literal=BEDROCK_ACCOUNTS="${BEDROCK_ACCOUNTS}")
-      IFS=',' read -ra _ALIASES <<< "${BEDROCK_ACCOUNTS}"
-      for _RAW in "${_ALIASES[@]}"; do
-        _ALIAS="${_RAW^^}"
-        _ALIAS="${_ALIAS// /}"
-        [[ -z "${_ALIAS}" ]] && continue
-        _REGION_VAR="BEDROCK_${_ALIAS}_REGION"
-        _REGION="${!_REGION_VAR:-}"
-        [[ -z "${_REGION}" ]] && fail "BEDROCK_${_ALIAS}_REGION is not set in .env"
-        IDENTITY_SECRET_ARGS+=(--from-literal="BEDROCK_${_ALIAS}_REGION=${_REGION}")
-        IDENTITY_SECRET_ARGS+=(--from-literal="BEDROCK_${_ALIAS}_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}")
-        IDENTITY_SECRET_ARGS+=(--from-literal="BEDROCK_${_ALIAS}_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}")
-        [[ -n "${AWS_SESSION_TOKEN:-}" ]] && \
-          IDENTITY_SECRET_ARGS+=(--from-literal="BEDROCK_${_ALIAS}_SESSION_TOKEN=${AWS_SESSION_TOKEN}")
-      done
-      ok "Bedrock credentials included in orbit-secrets for: ${BEDROCK_ACCOUNTS}"
-    else
-      warn "BEDROCK_ACCOUNTS is set but no credentials found — set AWS_PROFILE or AWS_ACCESS_KEY_ID in .env"
-    fi
-  else
-    warn "BEDROCK_ACCOUNTS not set — skipping Bedrock (set BEDROCK_ACCOUNTS in .env to enable)"
-  fi
-
   create_secret "orbit-system" "${IDENTITY_SECRET_ARGS[@]}"
 
   # orbit-frontend-secrets — BFF iron-session cookie signing key.
-  # Kept separate from orbit-secrets so the identity service pod does not receive
-  # unrelated frontend credentials via its envFrom secretRef.
+  # The dashboard loads this Secret whole, named by the chart's frontend.existingSecret.
   kubectl create secret generic orbit-frontend-secrets \
     --namespace orbit-system \
     --from-literal=BFF_SESSION_SECRET="${BFF_SESSION_SECRET}" \

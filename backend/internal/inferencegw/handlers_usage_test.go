@@ -696,47 +696,6 @@ func TestHandleGetRunUsage_MissingClaims(t *testing.T) {
 	}
 }
 
-// ── GET /usage/agent-type/{agentTypeID} ───────────────────────────────────────
-
-func TestHandleGetAgentTypeUsage(t *testing.T) {
-	t.Parallel()
-	usage := newMockUsageRepo()
-	svc := &Service{usage: usage, logger: logging.NewLoggerWithOutput(io.Discard)}
-	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
-
-	req := httptest.NewRequest(http.MethodGet, "/usage/agent-type/type-abc", nil)
-	req.SetPathValue("agentTypeID", "type-abc")
-	req = req.WithContext(token.WithClaims(req.Context(), humanClaimsForHandler("t1", "u1")))
-	w := httptest.NewRecorder()
-	c.handleGetAgentTypeUsage(w, req)
-
-	if w.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusOK, w.Body)
-	}
-	var got AgentTypeUsage
-	if err := json.NewDecoder(w.Body).Decode(&got); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	if got.AgentTypeID != "type-abc" {
-		t.Errorf("AgentTypeID = %q, want type-abc", got.AgentTypeID)
-	}
-}
-
-func TestHandleGetAgentTypeUsage_MissingClaims(t *testing.T) {
-	t.Parallel()
-	svc := &Service{usage: newMockUsageRepo(), logger: logging.NewLoggerWithOutput(io.Discard)}
-	c := &Controller{svc: svc, logger: logging.NewLoggerWithOutput(io.Discard)}
-
-	req := httptest.NewRequest(http.MethodGet, "/usage/agent-type/type-abc", nil)
-	req.SetPathValue("agentTypeID", "type-abc")
-	w := httptest.NewRecorder()
-	c.handleGetAgentTypeUsage(w, req)
-
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want %d; body: %s", w.Code, http.StatusUnauthorized, w.Body)
-	}
-}
-
 // ── GET /usage — Bedrock alias provider filter ────────────────────────────────
 
 func TestHandleListUsage_BedrockAliasProvider_Accepted(t *testing.T) {

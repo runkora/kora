@@ -1,4 +1,4 @@
-// Server Component: the sub-components are imported by name because terra is a
+// Server Component: the sub-components are imported by name because hades is a
 // 'use client' entrypoint and SidebarLayout.Main does not survive that boundary.
 import {
   Card,
@@ -8,7 +8,7 @@ import {
   SidebarLayoutSidebar,
   Skeleton,
   Stack,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 /**
  * The MCP server detail page fetches one server's metadata and tool catalog in

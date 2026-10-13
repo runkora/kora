@@ -20,7 +20,7 @@ The GitHub connector work surfaced the fix — qualify the *grant*, not the conn
 Two platform invariants constrain the design:
 
 - **Hierarchy is `covers`, never `*`.** Scopes parse as `<resource_type>:<path…>:<action>`; breadth comes from the `scope_covers` prefix rule (same resource type and action, coverer's path is a prefix — `authz.rego`/`authz_gateway.rego`, mirrored in `policyservice/api/service.go`). There is no wildcard matching anywhere in the policy layer.
-- **The vocabulary is static.** Scope vocabulary is registered by services from adapter metadata (`internal/platform/connections`). Resources like repositories and namespaces are unbounded, tenant-private, and change upstream without any Orbit-side event — they can never be enumerated into the vocabulary.
+- **The vocabulary is static.** Scope vocabulary is registered by services from adapter metadata (`internal/platform/connections`). Resources like repositories and namespaces are unbounded, tenant-private, and change upstream without any kora-side event — they can never be enumerated into the vocabulary.
 
 **Which of the three questions this touches:** *What can it access?* — grants gain a resource dimension. Identity flow and connection mechanics are unchanged.
 
@@ -40,7 +40,7 @@ An admin attaching a connector to an agent can choose *which actions* but not *o
 - More than one qualifier segment per scope (e.g. AWS `account` + `region` simultaneously). The grammar reserves exactly one segment in v1; a second axis is a future amendment with its own ordering argument.
 - Choosing the AWS qualifier axis — named here only as the motivating future instance.
 - Qualifier-aware **tool** scoping in the MCP gateway — this ADR is about connection (egress credential) scopes.
-- A new Terra multiselect atom. The attachment UI (defined in Surfaces below) composes existing Terra primitives at Tier 2; promoting a generic multiselect into Terra is a separate proposal through the ui-component process if the composition earns it.
+- A new Hades multiselect atom. The attachment UI (defined in Surfaces below) composes existing Hades primitives at Tier 2; promoting a generic multiselect into Hades is a separate proposal through the ui-component process if the composition earns it.
 
 ---
 
@@ -77,7 +77,7 @@ An admin attaching a connector to an agent can choose *which actions* but not *o
 
 #### Option 3: Enumerate resources into the published vocabulary
 
-**Why not chosen:** The vocabulary is static, gateway-published metadata; repositories and namespaces are unbounded and change without Orbit-side events. It would also still need the covering-parent form to express "all current and future resources" — at which point per-resource entries add registration churn and picker noise for nothing structural validation doesn't already give.
+**Why not chosen:** The vocabulary is static, gateway-published metadata; repositories and namespaces are unbounded and change without kora-side events. It would also still need the covering-parent form to express "all current and future resources" — at which point per-resource entries add registration churn and picker noise for nothing structural validation doesn't already give.
 
 ### Decision B — Segment ordering
 
@@ -137,7 +137,7 @@ Mint-time application stays adapter-private: GitHub narrows `InstallationTokenRe
 1. **Grant time** — policy service validates a qualified connection scope structurally: known scope shape plus one extra path segment (lowercase, no `:` or `/`), mirroring how `egress:<host>:connect` is validated without vocabulary enumeration. Qualified scopes never enter the vocabulary.
 2. **Attachment time** — the connector attachment compiles the admin's resource selection into qualified grant scopes ("all resources" → the unqualified category scopes), always adding the adapter's declared baseline actions unqualified. `requires` edges live on vocabulary entries only, so baselines must come from attachment compilation, not `requires` (a qualified grant neither covers nor is covered by the vocabulary leaf).
 3. **Request time** — the adapter classifies `(action, qualifier)`; the broker denies out-of-ceiling qualifiers, then evaluates policy with `PathSegments: [name, category, qualifier]`. Unqualified and parent grants cover by prefix; qualified grants must match. A request naming no resource produces an unqualified requirement, which a strictly qualified grant deliberately does **not** satisfy — fail closed. Extraction must be **canonical**: the extracted value must identify the same resource the upstream will serve under this connection's authority. A request naming a resource outside that authority (e.g. a foreign repository owner through a GitHub connection) is denied at classification, never qualified ambiguously — otherwise name collisions across authorities would let a qualified grant match resources it never meant (GitHub's public repos being the concrete case).
-4. **Mint time** (per-adapter, where the upstream supports it) — the credential is narrowed to the request's qualifier, so the token bounds the resource even outside Orbit's gate.
+4. **Mint time** (per-adapter, where the upstream supports it) — the credential is narrowed to the request's qualifier, so the token bounds the resource even outside kora's gate.
 
 ### Instances
 
@@ -151,12 +151,12 @@ Kubernetes cluster-scoped resources (nodes, namespaces themselves, discovery) cl
 
 ### Surfaces
 
-Defined here, not deferred, so the mechanism ships with its UI. All attachment surfaces already share one component — `ConnectionCards` (`src/components/connection-cards.tsx`, Tier 2), the motif's collapsible tri-state connection cards rendered by the agent builder's Tools step, the agent detail Configuration tab, and the environments form. One extension to that component covers every attachment surface; no new page and no new Terra component.
+Defined here, not deferred, so the mechanism ships with its UI. All attachment surfaces already share one component — `ConnectionCards` (`src/components/connection-cards.tsx`, Tier 2), the motif's collapsible tri-state connection cards rendered by the agent builder's Tools step, the agent detail Configuration tab, and the environments form. One extension to that component covers every attachment surface; no new page and no new Hades component.
 
 **Attachment time — the `ConnectionCards` extension:**
 
 - For a connection whose adapter declares a qualifier dimension, the expanded card gains a **resource scope block** between the card header and the action rows, visible once the connection is selected. It follows the motif's radio pattern: two options, labeled from the adapter's qualifier metadata — **"All repositories"** (default; likewise "All namespaces" for `kubernetes`) and **"Selected repositories"**. The component reads the dimension's name from adapter metadata and stays adapter-generic.
-- Choosing "Selected" reveals a multiselect **composed from existing Terra primitives** (`Popover` + `Input` filter + `Checkbox` rows + `Badge` chips) — Terra has no multiselect atom, and this composition stays Tier 2; if it proves generically reusable, promotion goes through the ui-component approval process separately, not assumed here.
+- Choosing "Selected" reveals a multiselect **composed from existing Hades primitives** (`Popover` + `Input` filter + `Checkbox` rows + `Badge` chips) — Hades has no multiselect atom, and this composition stays Tier 2; if it proves generically reusable, promotion goes through the ui-component approval process separately, not assumed here.
 - The multiselect is fed **lazily** (on first open) by the brokered enumeration endpoint, offering the intersection of the live upstream listing and the connection's ceiling. Manual entry is permitted (GitOps-managed grants may reference resources the enumeration call cannot see; structural validation still applies), with manually entered values not present in the enumeration visually flagged.
 - **Scope previews tell the truth**, per the motif's existing rule (each action row already shows its compiled `connection:<name>:<action>` string in mono): under "All", rows keep the unqualified form; under a selection, rows show the qualified form (`connection:github-main:issues:orbit:read`), expanding one preview line per selected resource or a count when the selection is large. The card's summary line gains the qualifier state ("2 repositories").
 - **Baseline actions** (`metadata:read`, `cluster:read`) render as an implied, non-uncheckable row marked "added automatically", so the compiled grant never contains a scope the admin didn't see.

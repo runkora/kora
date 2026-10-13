@@ -234,7 +234,7 @@ A patch is rejected if, compared with the built object, it changes any of:
 - `apiVersion`, `kind`, `metadata.name`, `metadata.namespace`, `metadata.ownerReferences`.
 - The identity labels `spiffe.io/agent`, `spiffe.io/spire-managed-identity`, `orbit.io/identity-proxy`, `orbit.io/tenant`, `orbit.io/agent-type`, `orbit.io/role`, `orbit.io/run-id` and `orbit.io/agent-slug`, on the resource and on the StatefulSet pod template.
 - `spec.selector`, `spec.serviceName`, `spec.scaleTargetRef`, and the StatefulSet's VolumeClaimTemplate names.
-- `serviceAccountName` on the Pod and the StatefulSet pod template.
+- `serviceAccountName`, `automountServiceAccountToken` and `enableServiceLinks` on the Pod and the StatefulSet pod template.
 - Pod `securityContext.runAsNonRoot`, `runAsUser` and `seccompProfile`, and every container's `securityContext`.
 - The sandbox Pod's PVC `claimName`s and the `volumeMounts` of every container and init container.
 
@@ -244,7 +244,7 @@ Fields absent from both objects are equal, so a patch may add volumes, container
 
 - `K8sProvisionerConfig.Patches []manifestpatch.Patch` replaces `ManifestOverrides`.
 - `ensureServiceAccount`, `ensureStatefulSet` (and its `VolumeClaimTemplates[0]` as `PersistentVolumeClaim`), `ensureHeadlessService`, `ensureHPA`, `ensurePDB` and `ProvisionSandbox` call `manifestpatch.Apply` on the built object.
-- `ProvisionAgentType` runs on agent-type create and update and before every run. When the resource already exists, it writes the patched object's mutable fields onto the live one:
+- `ProvisionAgentType` runs on agent-type create and at every orbit-agents startup. Run start creates only missing resources ([Run Scheduling](2026-10-12-run-scheduling.md)). When the resource already exists, `ProvisionAgentType` writes the patched object's mutable fields onto the live one:
 
   | Kind | Synced on reconcile | Create-only |
   |------|--------------------|-------------|

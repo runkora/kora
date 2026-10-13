@@ -24,12 +24,19 @@ export type GatewayModelsResult = { ok: true; models: ModelRow[] } | GatewayFetc
 export type GatewayRawModelsResult =
   { ok: true; models: ModelsListResponse['data'] } | GatewayFetchError;
 
+// `capability` is forwarded to the gateway's `?capability=` filter (any-of
+// semantics). Pass it as repeated values or one comma-separated string.
 async function fetchFromGateway(
   accessToken: string,
+  capability: string[] = [],
 ): Promise<{ ok: true; body: ModelsListResponse } | GatewayFetchError> {
+  const query = new URLSearchParams();
+  for (const c of capability) query.append('capability', c);
+  const qs = query.size > 0 ? `?${query.toString()}` : '';
+
   let res: Response;
   try {
-    res = await fetch(`${config.inferenceGatewayUrl}/models`, {
+    res = await fetch(`${config.inferenceGatewayUrl}/models${qs}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
       signal: AbortSignal.timeout(10_000),
@@ -60,8 +67,11 @@ async function fetchFromGateway(
 }
 
 // Returns models transformed into ModelRow display objects (for model-gateway UI).
-export async function fetchModelsFromGateway(accessToken: string): Promise<GatewayModelsResult> {
-  const result = await fetchFromGateway(accessToken);
+export async function fetchModelsFromGateway(
+  accessToken: string,
+  capability: string[] = [],
+): Promise<GatewayModelsResult> {
+  const result = await fetchFromGateway(accessToken, capability);
   if (!result.ok) return result;
   return { ok: true, models: (result.body.data ?? []).map(toModelRow) };
 }
@@ -69,8 +79,9 @@ export async function fetchModelsFromGateway(accessToken: string): Promise<Gatew
 // Returns raw ModelObject[] as returned by the inference gateway (for BFF routes).
 export async function fetchRawModelsFromGateway(
   accessToken: string,
+  capability: string[] = [],
 ): Promise<GatewayRawModelsResult> {
-  const result = await fetchFromGateway(accessToken);
+  const result = await fetchFromGateway(accessToken, capability);
   if (!result.ok) return result;
   return { ok: true, models: result.body.data ?? [] };
 }

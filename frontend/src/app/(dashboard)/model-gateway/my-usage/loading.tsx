@@ -17,7 +17,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 function KPICardSkeleton() {
   return (

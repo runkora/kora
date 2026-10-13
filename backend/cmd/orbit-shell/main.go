@@ -10,7 +10,7 @@ package main
 // "bash" basename symlink (/opt/orbit/shell/bash) and sets CLAUDE_CODE_SHELL to it.
 // This was validated empirically against the real claude binary.
 //
-// It checks $WORKSPACE/.sandbox/endpoint on every invocation:
+// It checks $WORKSPACE/.sandbox-exec/endpoint on every invocation:
 //   - absent  → exec the real local /bin/bash with the given args (snapshot generation
 //     and any pre-provision commands run in-pod)
 //   - present → dial the gRPC exec server in the sandbox pod and stream the command
@@ -33,6 +33,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -78,16 +79,21 @@ func readSandbox() sandbox {
 	if workspace == "" {
 		return sandbox{}
 	}
-	dir := filepath.Join(workspace, ".sandbox")
+	dir := filepath.Join(workspace, runfs.ExecDir)
 	return sandbox{
-		endpoint: readTrimmed(filepath.Join(dir, "endpoint")),
-		token:    readTrimmed(filepath.Join(dir, "exec-token")),
+		endpoint: readTrimmed(filepath.Join(dir, runfs.EndpointFile)),
+		token:    readTrimmed(filepath.Join(dir, runfs.ExecTokenFile)),
 	}
 }
 
 // runTokenHeader carries this run's credential to the session-manager. It must
 // match sessionmanager.runTokenHeader.
 const runTokenHeader = "X-Orbit-Run-Token"
+
+// provisionTimeout sits above the session-manager's worst case for a provision
+// (its retry budget, at most 320s, plus the 90s egress canary), so its verdict
+// arrives. orbit-runtime-mcp uses the same bound.
+const provisionTimeout = 420 * time.Second
 
 // readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
 func readTrimmed(path string) string {
@@ -239,7 +245,7 @@ func fetchSandbox() (sandbox, bool, error) {
 // reprovisionSandbox asks the session-manager to (re)provision the run's sandbox
 // and returns the fresh gRPC endpoint. The session-manager liveness-checks the
 // existing endpoint and replaces a dead sandbox, then rewrites
-// $WORKSPACE/.sandbox/endpoint, which we re-read here.
+// $WORKSPACE/.sandbox-exec/endpoint, which we re-read here.
 func reprovisionSandbox() (sandbox, error) {
 	smURL := os.Getenv("ORBIT_SESSION_MANAGER_URL")
 	runID := os.Getenv("ORBIT_RUN_ID")
@@ -248,7 +254,7 @@ func reprovisionSandbox() (sandbox, error) {
 	}
 
 	url := fmt.Sprintf("%s/internal/session/%s/provision-sandbox", smURL, runID)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), provisionTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader([]byte("{}")))
 	if err != nil {
@@ -262,6 +268,13 @@ func reprovisionSandbox() (sandbox, error) {
 	}
 	defer resp.Body.Close() //nolint:errcheck
 	if resp.StatusCode/100 != 2 {
+		// The session-manager words a lost sandbox for the model; pass it through.
+		var apiErr struct {
+			Message string `json:"message"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&apiErr) == nil && apiErr.Message != "" {
+			return sandbox{}, errors.New(apiErr.Message)
+		}
 		return sandbox{}, fmt.Errorf("provision-sandbox returned %d", resp.StatusCode)
 	}
 	// Drain the body so the connection can be reused / cleanly closed.

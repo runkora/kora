@@ -9,12 +9,12 @@
 
 ## Context
 
-[unified-identity-model](2026-03-05-unified-identity-model.md) defines Orbit's unified identity model. One of the two supported identity sources is `FEDERATED` — identities asserted by an external OIDC provider and mapped into an Orbit `Principal` at session creation time. The identity service must:
+[unified-identity-model](2026-03-05-unified-identity-model.md) defines kora's unified identity model. One of the two supported identity sources is `FEDERATED` — identities asserted by an external OIDC provider and mapped into a kora `Principal` at session creation time. The identity service must:
 
 1. Initiate an OIDC authorization flow with an external provider
 2. Receive and verify the provider's ID token
 3. Map standard claims (`sub`, `email`, `name`, `preferred_username`) to an internal `Principal`
-4. Issue a signed Orbit platform JWT in exchange
+4. Issue a signed kora platform JWT in exchange
 
 The platform has no frontend at this stage of development. All human operator authentication must work from a terminal.
 
@@ -22,7 +22,7 @@ The platform has no frontend at this stage of development. All human operator au
 
 Three problems must be solved simultaneously:
 
-1. **Provider coupling**: If the identity service is implemented against a single provider's SDK (e.g., the Microsoft MSAL library), switching providers or adding a second provider requires modifying application code. Orbit must remain provider-agnostic.
+1. **Provider coupling**: If the identity service is implemented against a single provider's SDK (e.g., the Microsoft MSAL library), switching providers or adding a second provider requires modifying application code. kora must remain provider-agnostic.
 
 2. **Headless authentication**: Without a browser-based redirect flow, human operators need a mechanism to authenticate from the CLI. The OAuth 2.0 Device Authorization Grant (RFC 8628) is the standard solution — the user is given a short code, visits a URL on any device, and approves the request. The backend polls until authorization completes.
 
@@ -47,7 +47,7 @@ Three problems must be solved simultaneously:
 
 ## Decision Drivers
 
-* **Provider agnosticism**: Orbit will support multiple enterprise identity providers over time. Vendor lock-in at the SDK level is unacceptable.
+* **Provider agnosticism**: kora will support multiple enterprise identity providers over time. Vendor lock-in at the SDK level is unacceptable.
 * **Standards compliance**: The Device Authorization Grant is an IETF standard (RFC 8628). Implementing against the standard means any compliant provider works without modification.
 * **Local development independence**: Requiring cloud credentials for `make dev-up` creates friction that slows onboarding and makes the CI environment harder to reason about.
 * **Real protocol testing**: A real local OIDC provider (not a mock) validates that the full token issuance, claim extraction, and session lifecycle work correctly against actual OIDC protocol responses — not hand-crafted test fixtures.
@@ -127,7 +127,7 @@ Three problems must be solved simultaneously:
 
 ### Rationale
 
-The provider-agnostic OIDC approach aligns directly with Orbit's design principle of open standards over vendor lock-in. `go-oidc/v3` consumes the standard `/.well-known/openid-configuration` discovery document; the application has no awareness of which specific provider is behind the issuer URL.
+The provider-agnostic OIDC approach aligns directly with kora's design principle of open standards over vendor lock-in. `go-oidc/v3` consumes the standard `/.well-known/openid-configuration` discovery document; the application has no awareness of which specific provider is behind the issuer URL.
 
 Dex is the right choice for the local mock because it is not a mock — it is a real OIDC server that speaks the full protocol. Testing the device code flow against Dex exercises `authorization_pending` polling, token endpoint exchange, ID token signature verification, and claim extraction exactly as they will behave against Entra or any other production provider.
 
@@ -142,7 +142,7 @@ The fail-safe design (`issuerUrl: ""` → `ErrOIDCNotConfigured` → HTTP 400) m
 ### Positive
 
 - Any OIDC-compliant provider works without code changes — Entra, Google Workspace, Okta, Keycloak, Auth0, and others can be configured purely via environment variables
-- Local development authentication is fully self-contained — `make dev-up` + `make auth-device` produces a valid Orbit session token against the local Dex instance with no cloud dependencies
+- Local development authentication is fully self-contained — `make dev-up` + `make auth-device` produces a valid kora session token against the local Dex instance with no cloud dependencies
 - The full Device Authorization Grant protocol is exercised in local integration testing — not just the application's claim parsing logic
 - New engineers can authenticate on day one with `dev@orbit.local.clearroute.io` / `password` without any cloud account provisioning
 - The identity service's `OIDCConfig.IssuerURL` is a single field — pointing at Entra is a one-line change in the environment
@@ -151,12 +151,12 @@ The fail-safe design (`issuerUrl: ""` → `ErrOIDCNotConfigured` → HTTP 400) m
 
 - Dex adds a third container to the Tier 1 Docker Compose stack — `make dev-up` now starts Postgres, Redis, and Dex
 - The `config/dex/.env` file must be generated before the first `make dev-up` via `make dex-env` — this is a one-time step but adds to the onboarding checklist
-- Dex is an additional piece of infrastructure to keep updated; the pinned image version (`ghcr.io/dexidp/dex:v2.41.1`) must be periodically reviewed
+- Dex is an additional piece of infrastructure to keep updated; the pinned Dex image must be reviewed periodically
 
 ### Neutral
 
 - The `ORBIT_OIDC_ISSUER_URL` environment variable overrides the YAML `issuerUrl` value at runtime — this is intentional and allows pointing at a real provider without modifying committed YAML files
-- The `tenant_id` field in the device auth request payload is an Orbit application concept, not forwarded to the OIDC provider — it exists for future multi-tenant session scoping
+- The `tenant_id` field in the device auth request payload is a kora application concept, not forwarded to the OIDC provider — it exists for future multi-tenant session scoping
 
 ---
 
@@ -234,7 +234,7 @@ make dex-hash password=mypass  # uses a custom password
 | `POST` | `/api/v1/identity/device` | Initiate Device Authorization Grant — returns `user_code` and `verification_uri` |
 | `POST` | `/api/v1/identity/session` | Poll for token (`grant_type: urn:ietf:params:oauth:grant-type:device_code`) |
 | `POST` | `/api/v1/identity/refresh` | Refresh an access token using a refresh token |
-| `POST` | `/api/v1/identity/exchange` | Exchange a SPIFFE SVID for an Orbit platform token (workload identity) |
+| `POST` | `/api/v1/identity/exchange` | Exchange a SPIFFE SVID for a kora platform token (workload identity) |
 | `DELETE` | `/api/v1/identity/revoke` | Revoke a session (adds JTI to Redis blocklist) |
 
 ### Pointing at a Real Provider
@@ -255,10 +255,10 @@ No code changes are required. The OIDC discovery endpoint is fetched at service 
 
 ### Success Criteria
 
-- `make dev-up && make auth-device` produces a valid Orbit platform JWT signed with the local signing key against local Dex
-- Setting `ORBIT_OIDC_ISSUER_URL` to a real Entra tenant and running `make auth-device` produces a valid Orbit platform JWT — no code changes required
+- `make dev-up && make auth-device` produces a valid kora platform JWT signed with the local signing key against local Dex
+- Setting `ORBIT_OIDC_ISSUER_URL` to a real Entra tenant and running `make auth-device` produces a valid kora platform JWT — no code changes required
 - Setting `issuerUrl: ""` in `local.yaml` (and unsetting the env override) causes `POST /api/v1/identity/device` to return HTTP 400 with `{"code":"oidc_not_configured"}`
-- The JTI in the issued Orbit JWT differs from the Dex ID token JTI — the platform issues its own token; it does not forward the provider token
+- The JTI in the issued kora JWT differs from the Dex ID token JTI — the platform issues its own token; it does not forward the provider token
 
 ### Monitoring
 

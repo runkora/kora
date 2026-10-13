@@ -18,8 +18,8 @@ import {
   TabsList,
   TabsTrigger,
   Text,
-} from '@orbit/terra';
-import { ConfirmDialog } from '@orbit/components';
+  ConfirmDialog,
+} from '@orbit/hades';
 import { createFromWizardDraft } from '../_services/create-from-wizard';
 import { useTriggerActions } from './use-trigger-actions';
 import type { TriggerNotice } from './use-trigger-actions';

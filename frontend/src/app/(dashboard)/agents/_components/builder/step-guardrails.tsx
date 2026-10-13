@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped. Builder step 4: enforced ceilings + the planned block. */
 
-import { Eyebrow, SectionHeading, Stack, Text } from '@orbit/terra';
+import { Eyebrow, SectionHeading, Stack, Text } from '@orbit/hades';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { GuardrailsFields, type GuardrailValues } from '../motif/guardrail-rows';
 import { PlannedLimits } from '../motif/planned-limits';
@@ -15,13 +15,13 @@ export function StepGuardrails() {
       <SectionHeading
         icon="shield"
         title="Guardrails"
-        description="Set the ceilings Orbit enforces at runtime: spend and capacity limits."
+        description="Set the ceilings kora enforces at runtime: spend, capacity and loop limits."
       />
 
       <Stack direction="horizontal" align="baseline" gap="snug">
         <Eyebrow>Limits</Eyebrow>
         <Text as="span" size="micro" color="subtle">
-          Every limit is optional. Switch on the ones you want Orbit to enforce.
+          Every limit is optional. Switch on the ones you want kora to enforce.
         </Text>
       </Stack>
 

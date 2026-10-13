@@ -13,7 +13,7 @@
 
 ### Background
 
-During initial scaffolding of the Orbit frontend, several navigation items and their corresponding route entries were created as forward-references — placeholders for features not yet built. These included:
+During initial scaffolding of the kora frontend, several navigation items and their corresponding route entries were created as forward-references — placeholders for features not yet built. These included:
 
 - **Control Plane group**: `Event Spine` (`/events`) and `Credentials` (`/credentials`) — both `wip: true`.
 - **Security group**: `Identity` (`/identity`) — the only item in the group, `wip: true`.
@@ -86,7 +86,7 @@ The platform is now shipping real features and real agents run in production. Th
 
 **Cons:**
 - `coming-soon` pages add maintenance burden and are considered bad UX practice.
-- Terra nav items do not have a built-in tooltip variant; adding one requires Terra modifications.
+- Hades nav items do not have a built-in tooltip variant; adding one requires Hades modifications.
 - Still adds noise; users want functional nav, not a roadmap.
 
 ---
@@ -214,7 +214,7 @@ The Inference KPIs and trend reuse the existing model-gateway components `Analyt
 ## Related Decisions
 
 - [2026-03-17-frontend-scaffolding-and-toolchain.md](2026-03-17-frontend-scaffolding-and-toolchain.md) — Established the Next.js app-router pattern this change follows.
-- [2026-03-25-terra-frontend-design-system.md](2026-03-25-terra-frontend-design-system.md) — Terra component constraints honoured throughout.
+- [2026-03-25-terra-frontend-design-system.md](2026-03-25-terra-frontend-design-system.md) — Hades component constraints honoured throughout.
 - [2026-05-04-frontend-component-consolidation.md](2026-05-04-frontend-component-consolidation.md) — Component-tier model followed for any new sub-components.
 
 ---

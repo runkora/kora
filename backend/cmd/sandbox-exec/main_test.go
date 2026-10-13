@@ -1,9 +1,16 @@
 package main
 
 import (
+	"bytes"
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
+	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"google.golang.org/grpc"
 )
 
 // TestFilterEnv_BlocksHijackVariables locks that env vars capable of hijacking
@@ -54,27 +61,36 @@ func TestFilterEnv_AllowsSafeVariables(t *testing.T) {
 	}
 }
 
-// TestSetRunHome_ScopesHomeUnderWorkspace locks that HOME is overridden to
-// {WORKSPACE}/.runhome, mirroring orbit-session-runner's per-run home
-// (docs/adr/2026-06-04-per-session-home-isolation.md) so kubeconfig and tool
-// caches never land in the sandbox pod's shared default home. Part of the
-// fix for https://github.com/clear-route/orbit/issues/134.
-func TestSetRunHome_ScopesHomeUnderWorkspace(t *testing.T) {
-	workspace := t.TempDir()
+// TestSetRunHome_PutsHomeOnLocalDisk locks that HOME, TMPDIR and the caches
+// sit on the sandbox's local disk, off the shared workspace volume
+// (docs/adr/2026-10-08-sandbox-workspace-mount.md).
+func TestSetRunHome_PutsHomeOnLocalDisk(t *testing.T) {
+	workspace := filepath.Join(t.TempDir(), "run-1")
 	t.Setenv("WORKSPACE", workspace)
-	originalHome := os.Getenv("HOME")
-	t.Cleanup(func() { os.Setenv("HOME", originalHome) }) //nolint:errcheck
+	for _, key := range []string{"HOME", "TMPDIR", "NPM_CONFIG_PREFIX", "NPM_CONFIG_CACHE", "PYTHONUSERBASE", "PIP_BREAK_SYSTEM_PACKAGES", "PIP_CACHE_DIR", "GOPATH", "GOMODCACHE", "GOCACHE", "CARGO_HOME", "PATH"} {
+		t.Setenv(key, os.Getenv(key))
+	}
 
 	if err := setRunHome(); err != nil {
 		t.Fatalf("setRunHome: %v", err)
 	}
 
-	wantHome := filepath.Join(workspace, ".runhome")
-	if got := os.Getenv("HOME"); got != wantHome {
-		t.Errorf("HOME = %q, want %q", got, wantHome)
+	local := filepath.Join(filepath.Dir(workspace), ".runlocal", "run-1")
+	for key, want := range map[string]string{
+		"HOME":    local,
+		"TMPDIR":  "/tmp",
+		"GOCACHE": filepath.Join(local, ".cache", "go-build"),
+	} {
+		if got := os.Getenv(key); got != want {
+			t.Errorf("%s = %q, want %q", key, got, want)
+		}
 	}
-	if fi, err := os.Stat(wantHome); err != nil || !fi.IsDir() {
-		t.Errorf("run home dir not created at %q: %v", wantHome, err)
+	if fi, err := os.Stat(local); err != nil || !fi.IsDir() {
+		t.Errorf("home dir not created at %q: %v", local, err)
+	}
+	// Nothing is created in the workspace: a sandbox's HOME is not carried between sandboxes.
+	if _, err := os.Stat(filepath.Join(workspace, ".runhome")); !os.IsNotExist(err) {
+		t.Errorf("workspace .runhome exists or errored: %v", err)
 	}
 }
 
@@ -91,5 +107,39 @@ func TestSetRunHome_NoWorkspaceIsNoop(t *testing.T) {
 	}
 	if got := os.Getenv("HOME"); got != originalHome {
 		t.Errorf("HOME = %q, want unchanged %q", got, originalHome)
+	}
+}
+
+// fakeExecStream collects a command's stdout from Execute.
+type fakeExecStream struct {
+	grpc.ServerStream
+	stdout bytes.Buffer
+}
+
+func (f *fakeExecStream) Context() context.Context { return context.Background() }
+
+func (f *fakeExecStream) Send(r *execpb.ExecuteResponse) error {
+	f.stdout.Write(r.GetStdout())
+	return nil
+}
+
+func TestExecute_CommandEnvOmitsServerSettings(t *testing.T) {
+	t.Setenv("SHELL", "/bin/sh")
+	t.Setenv(execauth.TokenEnv, "secret-exec-token")
+	t.Setenv("SANDBOX_EXEC_PORT", "50051")
+	t.Setenv("WORKSPACE_PROBE", "kept")
+
+	stream := &fakeExecStream{}
+	if err := (&execServer{}).Execute(&execpb.ExecuteRequest{Command: "env"}, stream); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	env := stream.stdout.String()
+	for _, key := range []string{execauth.TokenEnv, "SANDBOX_EXEC_PORT"} {
+		if strings.Contains(env, key+"=") {
+			t.Errorf("command env contains %s", key)
+		}
+	}
+	if !strings.Contains(env, "WORKSPACE_PROBE=kept") {
+		t.Error("command env lost the pod environment")
 	}
 }

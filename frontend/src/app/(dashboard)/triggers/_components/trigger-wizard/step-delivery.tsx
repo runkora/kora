@@ -26,8 +26,8 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import { admissionSummary, parallelWord } from './wizard-state';
 import { LIMITS } from '../../_types';
 import type { StepComponentProps, TriggerKind, TriggerOverflow } from './types';
@@ -172,7 +172,7 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
         <FormField
           label="Timeout"
           id="wizard-timeout"
-          hint="Bounds starting the run, not running it. Dispatch is abandoned after this window."
+          hint="Bounds the start request, which returns once the run is queued. Dispatch is abandoned after this window."
         >
           <Input
             id="wizard-timeout"

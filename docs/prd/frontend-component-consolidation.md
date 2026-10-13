@@ -10,9 +10,9 @@
 
 ## Executive Summary
 
-The Orbit control plane frontend has accumulated 22 recurring UI patterns — metric cards, modal dialogs, status badges, empty states, section headers, and more — that are implemented inline, independently, in each page or feature tab that needs them. There is no shared abstraction layer between the Terra design system and the product pages. This PRD defines the work to extract those patterns into reusable components placed at the correct level of the component hierarchy, eliminating duplication and establishing a stable, consistent UI vocabulary for all current and future dashboard features.
+The kora control plane frontend has accumulated 22 recurring UI patterns — metric cards, modal dialogs, status badges, empty states, section headers, and more — that are implemented inline, independently, in each page or feature tab that needs them. There is no shared abstraction layer between the Hades design system and the product pages. This PRD defines the work to extract those patterns into reusable components placed at the correct level of the component hierarchy, eliminating duplication and establishing a stable, consistent UI vocabulary for all current and future dashboard features.
 
-A Phase 0 of Terra primitive additions (Icon, ChatBubble, Show, Card `interactive`, Text enhancements) has been completed ([embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)). Phase 1 (`Modal`, `useDialog`, `FormField`) is complete. The remaining phases address the full suite of app-level shared components.
+A Phase 0 of Hades primitive additions (Icon, ChatBubble, Show, Card `interactive`, Text enhancements) has been completed ([embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md)). Phase 1 (`Modal`, `useDialog`, `FormField`) is complete. The remaining phases address the full suite of app-level shared components.
 
 ---
 
@@ -20,7 +20,7 @@ A Phase 0 of Terra primitive additions (Icon, ChatBubble, Show, Card `interactiv
 
 ### Current State
 
-The Terra design system (`@orbit/terra`) provides low-level primitives: `Button`, `Card`, `Badge`, `Stack`, `Grid`, `Heading`, `Text`, `Separator`, `Progress`, `Alert`. Product pages assemble these primitives into higher-order patterns — a metric card, a confirm dialog, an empty state — but every page or tab does so independently. There is no intermediate layer.
+The Hades design system (`@orbit/hades`) provides low-level primitives: `Button`, `Card`, `Badge`, `Stack`, `Grid`, `Heading`, `Text`, `Separator`, `Progress`, `Alert`. Product pages assemble these primitives into higher-order patterns — a metric card, a confirm dialog, an empty state — but every page or tab does so independently. There is no intermediate layer.
 
 The result is that logically identical UI constructs — `StatCard` in `(dashboard)/page.tsx`, `KPICard` in `model-gateway/_components/overview-tab.tsx`, and `KPICard` in `policy/_components/overview-tab.tsx` — are three separate implementations of the same component. The same duplication applies to modal dialogs (5+ implementations of a raw `<dialog>` scaffold), status badges (5+ separate variant maps), empty states (the policy version is extracted but every other section reimplements it inline), and section headers (3 byte-identical occurrences). A `formatDate` utility function is copy-pasted into three separate files.
 
@@ -55,7 +55,7 @@ The result is that logically identical UI constructs — `StatCard` in `(dashboa
 - The `formatDate`, `formatTimestamp`, and `fmtCost` helper functions exist once, in `@orbit/utils`, and all call sites import from there.
 - New features that need a metric card, modal dialog, empty state, or status badge reach for the shared component rather than building inline.
 - `pnpm lint` passes with zero errors after migration — no `no-raw-layout-elements`, `no-raw-inline-elements`, or similar violations introduced by the refactor.
-- Every new Terra component (Tier 1) has a Storybook story under `Terra/<Category>/<Name>`. Every Tier 2 shared component has a Storybook story whose `title` is `App/Shared/<ComponentName>` — this is the Storybook sidebar path, not a filesystem directory.
+- Every new Hades component (Tier 1) has a Storybook story under `Hades/<Category>/<Name>`. Every Tier 2 shared component has a Storybook story whose `title` is `App/Shared/<ComponentName>` — this is the Storybook sidebar path, not a filesystem directory.
 
 ### Non-Goals
 
@@ -63,8 +63,8 @@ The result is that logically identical UI constructs — `StatCard` in `(dashboa
 - This does **not** redesign any component visually — extracted components must be visually identical to the pattern they replace.
 - This does **not** introduce a new state management pattern — components remain stateless presentational units that accept controlled props.
 - This does **not** address chart or data-visualisation component wrappers beyond the `ChartLegend` utility row.
-- This does **not** migrate the Terra design system to a different component foundation.
-- This does **not** add animation or motion primitives to Terra — the typing-indicator bounce and streaming cursor remain explicitly deferred (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) Notes).
+- This does **not** migrate the Hades design system to a different component foundation.
+- This does **not** add animation or motion primitives to Hades — the typing-indicator bounce and streaming cursor remain explicitly deferred (see [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) Notes).
 
 ---
 
@@ -78,7 +78,7 @@ The result is that logically identical UI constructs — `StatCard` in `(dashboa
 
 **Acceptance Criteria:**
 - [ ] `MetricCard`, `EmptyState`, `PageSectionHeader`, `StatusBadge` are importable from `frontend/src/components/`
-- [ ] `Modal`, `Modal.Header`, `Modal.Body`, `Modal.Footer` are importable from `@orbit/terra`
+- [ ] `Modal`, `Modal.Header`, `Modal.Body`, `Modal.Footer` are importable from `@orbit/hades`
 - [ ] All components are typed with full TypeScript prop interfaces
 - [ ] All components accept and forward `className` for layout overrides where appropriate
 
@@ -89,7 +89,7 @@ The result is that logically identical UI constructs — `StatCard` in `(dashboa
 **So that** the fix is automatically applied everywhere a modal is used.
 
 **Acceptance Criteria:**
-- [ ] All modal dialogs in the dashboard use the single `Modal` component from Terra
+- [ ] All modal dialogs in the dashboard use the single `Modal` component from Hades
 - [ ] The raw `<dialog>` + `useEffect` scaffold no longer appears in any product page or tab file
 - [ ] The `useDialog` hook encapsulates open/close sync logic for cases where the shell cannot be used directly
 
@@ -102,7 +102,7 @@ The result is that logically identical UI constructs — `StatCard` in `(dashboa
 **Acceptance Criteria:**
 - [ ] `ConfirmDialog` exists in `frontend/src/components/`
 - [ ] It accepts `title`, `description`, `confirmLabel`, `confirming`, `error`, `onConfirm`, `onClose`, `open` props
-- [ ] It internally composes `Modal` from Terra, not a raw `<dialog>`
+- [ ] It internally composes `Modal` from Hades, not a raw `<dialog>`
 
 ---
 
@@ -130,21 +130,21 @@ Introduce a three-tier placement model for UI components and migrate every ident
 
 | Tier | Location | Rule |
 |------|----------|------|
-| **1 — Design system primitives** | `frontend/src/packages/terra/` (`@orbit/terra`) | Truly generic, zero domain knowledge, could ship as a standalone library. Must be built from a ShadCN/Radix UI base. |
-| **2 — App-level shared components** | `frontend/src/components/` | Domain-aware but cross-feature. Used by two or more distinct dashboard features. Not generic enough for Terra. |
+| **1 — Design system primitives** | `frontend/src/packages/hades/` (`@orbit/hades`) | Truly generic, zero domain knowledge, could ship as a standalone library. Must be built from a ShadCN/Radix UI base. |
+| **2 — App-level shared components** | `frontend/src/components/` | Domain-aware but cross-feature. Used by two or more distinct dashboard features. Not generic enough for Hades. |
 | **3 — Feature-scoped shared components** | `frontend/src/app/(dashboard)/[feature]/_components/` | Used by two or more files within a single feature area (e.g., model-gateway). Not needed outside that feature. |
 
 Extracted components must be:
 - **Controlled**: they accept data and callbacks via props; they own no server-fetching logic.
 - **Composable**: they do not make assumptions about their container layout.
 - **Typed**: full TypeScript interface for every prop, exported alongside the component.
-- **Compliant**: Terra conventions (`data-slot`, `React.forwardRef`, `cva`, `cn`) for Tier 1; ESLint-clean for all tiers.
+- **Compliant**: Hades conventions (`data-slot`, `React.forwardRef`, `cva`, `cn`) for Tier 1; ESLint-clean for all tiers.
 
 ### Component Placement
 
-#### Tier 1 — Terra (`@orbit/terra`)
+#### Tier 1 — Hades (`@orbit/hades`)
 
-**Phase 0 additions — implemented ([embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) Terra Primitives):**
+**Phase 0 additions — implemented ([embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) Hades Primitives):**
 
 | Component / Change | Description | Status |
 |--------------------|-------------|--------|
@@ -168,7 +168,7 @@ Extracted components must be:
 
 All 5 raw `<dialog>` implementations (create-token-modal, revoke-token-modal, token-created-modal, edit-scopes-modal, model-detail-modal) and all inline policy modals (DeleteGrantModal, CreateGrantModal, DeleteRoleModal, UpsertRoleModal) have been migrated to `Modal`.
 
-These three belong in Terra because they carry zero Orbit domain knowledge: `Modal` is a styled dialog shell, `FormField` is a label/input wrapper, `useDialog` is a DOM sync hook. Any Orbit UI surface — dashboard, embedded widget, admin panel — could use them.
+These three belong in Hades because they carry zero kora domain knowledge: `Modal` is a styled dialog shell, `FormField` is a label/input wrapper, `useDialog` is a DOM sync hook. Any kora UI surface — dashboard, embedded widget, admin panel — could use them.
 
 #### Tier 2 — App-level shared (`frontend/src/components/`)
 
@@ -182,7 +182,7 @@ These three belong in Terra because they carry zero Orbit domain knowledge: `Mod
 | `ConfirmDialog` | `DeleteGrantModal`; `DeleteRoleModal`; `RevokeTokenModal` | Policy (grants, roles), model-gateway (tokens) — and any future destructive action |
 | `EventFeedItem` | `dashboard/page.tsx` events list; `overview-tab.tsx` `RecentLogsCard`; `logs-tab.tsx` | Dashboard home, model-gateway overview, model-gateway logs |
 
-These belong in `frontend/src/components/` (not Terra) because they carry Orbit-specific domain knowledge — `StatusBadge` maps Orbit status tokens (`status-healthy`, `status-error`, `status-degraded`), `MetricCard` uses Orbit heading variants, and `ConfirmDialog` follows the Orbit destructive-action convention — but they are needed by two or more distinct feature areas of the dashboard.
+These belong in `frontend/src/components/` (not Hades) because they carry kora-specific domain knowledge — `StatusBadge` maps kora status tokens (`status-healthy`, `status-error`, `status-degraded`), `MetricCard` uses kora heading variants, and `ConfirmDialog` follows the kora destructive-action convention — but they are needed by two or more distinct feature areas of the dashboard.
 
 #### Tier 3 — Feature-scoped (`[feature]/_components/`)
 
@@ -244,9 +244,9 @@ All Tier 2 components are exported from a single `frontend/src/components/index.
 
 #### 2. Storybook extension — `App/Shared/` category (Phase 2)
 
-The Storybook instance already covers all Terra (Tier 1) components under `Terra/`. A new category `App/Shared/` is added to Storybook for Tier 2 components. Each component gets a minimal story — a `Default` showing canonical usage with Orbit-flavoured content, plus stories for each significant variant.
+The Storybook instance already covers all Hades (Tier 1) components under `Hades/`. A new category `App/Shared/` is added to Storybook for Tier 2 components. Each component gets a minimal story — a `Default` showing canonical usage with kora-flavoured content, plus stories for each significant variant.
 
-This creates a visual catalogue that product developers can browse at a glance — the same function the Terra component grid already serves for primitives, extended up the hierarchy.
+This creates a visual catalogue that product developers can browse at a glance — the same function the Hades component grid already serves for primitives, extended up the hierarchy.
 
 **Scope**: One story file per Tier 2 component, added in Phase 2 at the same time as the component is extracted. Stories live alongside the component in `frontend/src/components/`.
 
@@ -259,7 +259,7 @@ A new golden path document at `frontend/docs/golden-paths/app-components.md` is 
 - Props summary (TypeScript interface)
 - Minimal JSX example
 
-This document is the primary reference for Forge and new engineers. It is updated whenever a Tier 2 component is added or modified. The existing `terra-design-system.md` golden path links to it.
+This document is the primary reference for Forge and new engineers. It is updated whenever a Tier 2 component is added or modified. The existing `hades-design-system.md` golden path links to it.
 
 #### 4. Tier annotation JSDoc headers (all tiers, from Phase 1)
 
@@ -302,9 +302,9 @@ When beginning any frontend component task, an agent must consult these sources 
 | Priority | Source | What to look for |
 |----------|--------|-----------------|
 | 1 | `AGENTS.md` (repo root) — § Frontend Development | Three-tier model summary and banned patterns — read on every frontend task |
-| 2 | `frontend/docs/golden-paths/ui-components.md` | Placement decision tree, full Tier 1 Terra inventory, Tier 2 inventory, `@tier` annotation format |
-| 3 | `frontend/docs/golden-paths/terra-design-system.md` | Full Terra component props, JSX examples, every ESLint rule explained |
-| 4 | `frontend/src/packages/terra/src/index.ts` | Authoritative list of what is actually exported from `@orbit/terra` |
+| 2 | `frontend/docs/golden-paths/ui-components.md` | Placement decision tree, full Tier 1 Hades inventory, Tier 2 inventory, `@tier` annotation format |
+| 3 | `frontend/docs/reference/hades-design-system.md` | Full Hades component props, JSX examples, every ESLint rule explained |
+| 4 | `frontend/src/packages/hades/src/index.ts` | Authoritative list of what is actually exported from `@orbit/hades` |
 | 5 | `frontend/src/components/index.ts` (Phase 2+) | Authoritative list of Tier 2 app-shared components |
 
 An agent must not write a component that already exists in a higher-priority source. If a component *almost* satisfies the need, extend it via props before duplicating it.
@@ -313,7 +313,7 @@ An agent must not write a component that already exists in a higher-priority sou
 
 1. **Check the Tier 1 and Tier 2 inventories** in `ui-components.md`. If an existing component covers the need, use it.
 2. **Run the placement decision tree** ([embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) § Agent placement decision tree). Every new component must pass through the decision tree before a file is created.
-3. **Never reach for a raw HTML element that has a Terra equivalent.** The substitution table is unambiguous:
+3. **Never reach for a raw HTML element that has a Hades equivalent.** The substitution table is unambiguous:
 
 | Banned raw element | Use instead |
 |--------------------|-------------|
@@ -326,7 +326,7 @@ An agent must not write a component that already exists in a higher-priority sou
 | `<hr>` | `Separator` |
 | `<svg>` / Lucide component | `Icon` |
 
-4. **Never import from `lucide-react`** in `src/app/**` or `src/components/**`. Use `<Icon name="..." />`. If the icon is missing from the registry, add it to `src/packages/terra/src/components/icon/registry.ts` (three synchronized edits: lucide import, `IconName` union, `ICON_REGISTRY` map).
+4. **Never import from `lucide-react`** in `src/app/**` or `src/components/**`. Use `<Icon name="..." />`. If the icon is missing from the registry, add it to `src/packages/hades/src/components/icon/registry.ts` (three synchronized edits: lucide import, `IconName` union, `ICON_REGISTRY` map).
 
 ##### Post-task protocol (required in the same PR as the new component)
 
@@ -334,8 +334,8 @@ Every agent that creates a component owns all five of these steps:
 
 1. **Update `ui-components.md`** — add the component to the correct tier table with import path and one-line description. A component absent from this document will be duplicated by the next agent.
 2. **Add `@tier N` annotation** — the component file must open with the appropriate JSDoc block (see Tier annotation section above).
-3. **Add the barrel export** — Tier 1: `frontend/src/packages/terra/src/index.ts`; Tier 2: `frontend/src/components/index.ts`.
-4. **Write a Storybook story** — Tier 1: `title: 'Terra/<Category>/<ComponentName>'`; Tier 2: `title: 'App/Shared/<ComponentName>'` (Storybook sidebar path — not a filesystem directory).
+3. **Add the barrel export** — Tier 1: `frontend/src/packages/hades/src/index.ts`; Tier 2: `frontend/src/components/index.ts`.
+4. **Write a Storybook story** — Tier 1: `title: 'Hades/<Category>/<ComponentName>'`; Tier 2: `title: 'App/Shared/<ComponentName>'` (Storybook sidebar path — not a filesystem directory).
 5. **Verify clean** — run `pnpm lint` and `pnpm tsc --noEmit` from `frontend/` and resolve all issues before marking complete.
 
 A component that skips any step is incomplete. The agent that creates it owns all five steps.
@@ -344,7 +344,7 @@ A component that skips any step is incomplete. The agent that creates it owns al
 
 | Phase | Tier | Agent-ready? | What agents can rely on |
 |-------|------|-------------|------------------------|
-| Phase 0 ✅ | Tier 1 — Terra core | ✅ Yes | All pre-existing Terra components in `@orbit/terra` barrel and documented in `ui-components.md`. `no-direct-lucide-import` enforced. |
+| Phase 0 ✅ | Tier 1 — Hades core | ✅ Yes | All pre-existing Hades components in `@orbit/hades` barrel and documented in `ui-components.md`. `no-direct-lucide-import` enforced. |
 | Phase 1 ✅ | Tier 1 — Phase 1 additions | ✅ Yes | `Modal`, `useDialog`, `FormField` in barrel and documented. All raw `<dialog>` consumers migrated. |
 | Phase 2 ✅ | Tier 2 — app-shared | ✅ Yes | `frontend/src/components/index.ts` barrel exports all Tier 2 components. `app-components.md` golden path documents each component. Import via `@orbit/components`. |
 
@@ -360,7 +360,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 - [ ] Every Tier 2 component has at least a `Default` Storybook story under `App/Shared/`
 - [ ] `frontend/docs/golden-paths/app-components.md` exists and documents every Tier 2 component with import path, usage guidance, and minimal JSX example
 - [ ] Every extracted component file (all tiers) includes a `@tier` JSDoc annotation with promotion trigger
-- [x] `frontend/docs/golden-paths/ui-components.md` covers the tier placement model, all Terra components, banned patterns, and `@tier` annotation format — surfaced via root `AGENTS.md` Frontend Development section (Phase 0 ✅)
+- [x] `frontend/docs/golden-paths/ui-components.md` covers the tier placement model, all Hades components, banned patterns, and `@tier` annotation format — surfaced via root `AGENTS.md` Frontend Development section (Phase 0 ✅)
 - [x] Agent surfacing strategy documented: authority chain, pre/post-task protocols, phase-gated readiness (Phase 1 ✅)
 
 ---
@@ -372,7 +372,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 - Extraction and migration of all 22 identified component patterns to their designated tier location
 - Extraction of 4 formatting utilities into `@orbit/utils`
 - Updating all existing call sites to import from the new canonical location
-- Storybook stories for all Terra (Tier 1) additions; `App/Shared/` Storybook category for Tier 2
+- Storybook stories for all Hades (Tier 1) additions; `App/Shared/` Storybook category for Tier 2
 - TypeScript prop interfaces exported alongside every new component
 - ESLint compliance: all new components must pass `pnpm lint` with zero violations
 - Component discoverability infrastructure (barrel export, `App/Shared/` Storybook, `app-components.md` golden path, `@tier` annotations, `ui-components.md` agent golden path, agent surfacing strategy)
@@ -389,7 +389,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 - `MessageContent`, `TypingIndicator`, and `ChatInputBar` should be promoted from Tier 3 to Tier 2 if AI-generated output rendering is needed outside the chat page (e.g., policy explain, agent scratchpad viewer).
 - `ViewToggle` and `FilterChip` should be promoted to Tier 2 if a second non-policy feature introduces a card/list toggle or a filter bar.
-- `MetricCard` may eventually be promoted to Terra (Tier 1) if a second Orbit surface (e.g., an embedded agent widget) needs a metric display outside the dashboard application.
+- `MetricCard` may eventually be promoted to Hades (Tier 1) if a second kora surface (e.g., an embedded agent widget) needs a metric display outside the dashboard application.
 
 ---
 
@@ -398,9 +398,9 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 ### Functional Requirements
 
 **Must Have (P0):**
-- [x] `Modal`, `ModalHeader`, `ModalBody`, `ModalFooter` added to Terra; all raw `<dialog>` implementations replaced ✅
-- [x] `useDialog` hook added to Terra as a companion to `Modal` ✅
-- [x] `FormField` added to Terra; all 6+ inline label+input+hint stacks replaced ✅
+- [x] `Modal`, `ModalHeader`, `ModalBody`, `ModalFooter` added to Hades; all raw `<dialog>` implementations replaced ✅
+- [x] `useDialog` hook added to Hades as a companion to `Modal` ✅
+- [x] `FormField` added to Hades; all 6+ inline label+input+hint stacks replaced ✅
 - [x] `EmptyState` promoted to `frontend/src/components/`; all inline empty states replaced ✅
 - [x] `ErrorBanner` promoted to `frontend/src/components/`; all inline error text patterns replaced ✅
 - [x] `StatusBadge` created in `frontend/src/components/`; all inline status-to-badge maps replaced ✅
@@ -416,7 +416,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 - [x] `EventFeedItem` created in `frontend/src/components/`; event list rows replaced in dashboard home ✅
 - [x] `ChartLegend`, `StatRow` extracted to `model-gateway/_components/` and `model-gateway/usage/_components/` ✅ — `MiniBar` and `CardDivider` remain inline in `stat-cards.tsx` (CardDivider kept as local helper; MiniBar not a named pattern)
 - [x] `ViewToggle`, `FilterChip`, `PrincipalBadge`, `QuickLinkCard` extracted to `policy/_components/` ✅
-- [x] Chat `MessageContent` extracted to `chat/_components/` ✅ — `TypingIndicator` is a Terra primitive (already done); `SuggestionGrid` and `ChatInputBar` remain inline (page-specific)
+- [x] Chat `MessageContent` extracted to `chat/_components/` ✅ — `TypingIndicator` is a Hades primitive (already done); `SuggestionGrid` and `ChatInputBar` remain inline (page-specific)
 - [x] All extracted components have `@tier` JSDoc annotations ✅
 - [ ] All Tier 2 components have at least one Storybook story under `App/Shared/`
 
@@ -433,7 +433,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 **Compliance:**
 - All new and migrated files must pass `pnpm lint` with zero violations.
-- Terra additions must comply with Terra conventions: `data-slot`, `React.forwardRef`, `cva`/`cn`, `React.ComponentPropsWithoutRef`, ShadCN sub-component composition.
+- Hades additions must comply with Hades conventions: `data-slot`, `React.forwardRef`, `cva`/`cn`, `React.ComponentPropsWithoutRef`, ShadCN sub-component composition.
 - No raw `<div>`, `<span>`, `<strong>`, or other restricted elements in product JSX (enforced by `local/no-raw-layout-elements`, `local/no-raw-inline-elements`).
 
 **Compatibility:**
@@ -446,13 +446,13 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 ### Internal Dependencies
 
-- **Terra design system** (`@orbit/terra`): `Modal` and `FormField` additions depend on the existing Terra package structure and conventions ([terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md)).
+- **Hades design system** (`@orbit/hades`): `Modal` and `FormField` additions depend on the existing Hades package structure and conventions ([terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md)).
 - **`@orbit/utils`**: utility extractions require this package to accept new exports. Verify the barrel export pattern before adding helpers.
 - **ESLint custom rules**: `no-raw-layout-elements`, `no-raw-inline-elements`, and `no-direct-lucide-import` constrain how extracted components are authored. All new components must be written within these constraints from the start.
 
 ### External Dependencies
 
-- **Radix UI** (`@radix-ui/react-dialog`, `@radix-ui/react-label`): required as the primitive base for `Modal` and `FormField` in Terra. Both packages are part of the ShadCN ecosystem that Terra already builds on.
+- **Radix UI** (`@radix-ui/react-dialog`, `@radix-ui/react-label`): required as the primitive base for `Modal` and `FormField` in Hades. Both packages are part of the ShadCN ecosystem that Hades already builds on.
 
 ---
 
@@ -480,20 +480,20 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 - Bugs must still be fixed in N places.
 - Has no effect on the `formatDate` triplication or the 6-occurrence `<input>` className string.
 
-### Alternative 2: Extract everything into Terra regardless of domain specificity
+### Alternative 2: Extract everything into Hades regardless of domain specificity
 
-**Description:** All 22 candidates land in `@orbit/terra`.
+**Description:** All 22 candidates land in `@orbit/hades`.
 
 **Why not chosen:**
-- Terra is domain-free. `MetricCard`, `StatusBadge`, `PrincipalBadge`, and `ConfirmDialog` carry Orbit domain knowledge (status token names, principal types, destructive-action semantics) that does not belong in a portable component library.
-- Terra components require Storybook stories and strict ShadCN conventions — imposing that overhead on every intermediate component is not justified.
+- Hades is domain-free. `MetricCard`, `StatusBadge`, `PrincipalBadge`, and `ConfirmDialog` carry kora domain knowledge (status token names, principal types, destructive-action semantics) that does not belong in a portable component library.
+- Hades components require Storybook stories and strict ShadCN conventions — imposing that overhead on every intermediate component is not justified.
 
 ### Alternative 3: Single `(dashboard)/_components/` for all shared dashboard components
 
-**Description:** Skip the Terra and `src/components/` tiers; put everything under `(dashboard)/_components/`.
+**Description:** Skip the Hades and `src/components/` tiers; put everything under `(dashboard)/_components/`.
 
 **Why not chosen:**
-- `Modal` and `FormField` are genuinely generic and belong in Terra where they can be used by any Orbit surface.
+- `Modal` and `FormField` are genuinely generic and belong in Hades where they can be used by any kora surface.
 - A flat shared directory that mixes chart legends, policy badges, modal shells, and utility rows quickly becomes an undifferentiated dumping ground with no clear ownership.
 
 ---
@@ -504,7 +504,7 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
    - **Status:** Open
    - **Owner:** Frontend
 
-2. **ShadCN `Dialog` vs custom `Modal`**: ShadCN ships a `Dialog` component. Should Terra adopt it verbatim (copy-paste in, as is the ShadCN pattern) and add `Modal.Header`/`Modal.Body`/`Modal.Footer` sub-components on top? Or write a thin wrapper around Radix `Dialog` directly?
+2. **ShadCN `Dialog` vs custom `Modal`**: ShadCN ships a `Dialog` component. Should Hades adopt it verbatim (copy-paste in, as is the ShadCN pattern) and add `Modal.Header`/`Modal.Body`/`Modal.Footer` sub-components on top? Or write a thin wrapper around Radix `Dialog` directly?
    - **Status:** Resolved — implemented as a thin wrapper around Radix `Dialog` directly with named sub-components. ✅
 
 ---
@@ -513,19 +513,19 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 ### Phases
 
-**Phase 0: Tier 1 — Terra primitive foundations (complete)**
-- ✅ `Icon` + `IconName` registry added to Terra with Storybook stories (`Terra/Atoms/Icon`)
+**Phase 0: Tier 1 — Hades primitive foundations (complete)**
+- ✅ `Icon` + `IconName` registry added to Hades with Storybook stories (`Hades/Atoms/Icon`)
 - ✅ `Text as`, `preserveWhitespace`, `micro` size, status colours, `mono`/`tabular`/`truncate` props added; Typography stories updated
-- ✅ `Show` responsive visibility primitive added with Storybook stories (`Terra/Layout/Show`)
+- ✅ `Show` responsive visibility primitive added with Storybook stories (`Hades/Layout/Show`)
 - ✅ `Card interactive` prop added; card Storybook stories updated with `Interactive` and `CardFooterVariants` stories
-- ✅ `ChatBubble` + `ChatBubbleActions` added with Storybook stories (`Terra/Atoms/ChatBubble`)
+- ✅ `ChatBubble` + `ChatBubbleActions` added with Storybook stories (`Hades/Atoms/ChatBubble`)
 - ✅ `no-direct-lucide-import` ESLint rule enforced; all product Lucide imports migrated to `<Icon name="..." />`
 - ✅ Component Grid overview story extended with `Icon` and `ChatBubble` sections; raw Lucide JSX replaced with `<Icon>`
 
-**Phase 1: Tier 1 — Terra modal and form additions (complete)**
-- ✅ `Modal` (with `ModalHeader`, `ModalBody`, `ModalFooter`, `ModalAccessibleTitle` sub-components) added to Terra with Storybook story
-- ✅ `useDialog` hook added to Terra
-- ✅ `FormField` added to Terra with Storybook story
+**Phase 1: Tier 1 — Hades modal and form additions (complete)**
+- ✅ `Modal` (with `ModalHeader`, `ModalBody`, `ModalFooter`, `ModalAccessibleTitle` sub-components) added to Hades with Storybook story
+- ✅ `useDialog` hook added to Hades
+- ✅ `FormField` added to Hades with Storybook story
 - ✅ All 5 raw `<dialog>` implementations (model-gateway modals) migrated to `Modal`
 - ✅ All inline policy modals (DeleteGrantModal, CreateGrantModal, DeleteRoleModal, UpsertRoleModal) migrated to `Modal`
 - ✅ Agent surfacing strategy documented in PRD and ADR; phase-gated readiness table added
@@ -550,8 +550,8 @@ Once the Tier 2 set stabilises (end of Phase 2), an ESLint rule that detects inl
 
 - [x] PRD Approved
 - [x] [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) Created and Accepted
-- [x] Phase 0 complete — Terra primitive foundations in place; all `chat/page.tsx` raw-div suppressions resolved; `no-direct-lucide-import` enforced
-- [x] Phase 1 complete — zero raw `<dialog>` elements remain in product code; `Modal`, `useDialog`, `FormField` in Terra; agent surfacing strategy documented
+- [x] Phase 0 complete — Hades primitive foundations in place; all `chat/page.tsx` raw-div suppressions resolved; `no-direct-lucide-import` enforced
+- [x] Phase 1 complete — zero raw `<dialog>` elements remain in product code; `Modal`, `useDialog`, `FormField` in Hades; agent surfacing strategy documented
 - [ ] Phase 2 complete — zero duplicate `StatCard`/`KPICard`/`EmptyState` implementations remain; `App/Shared/` Storybook category, `app-components.md` golden path, and Tier 2 section of `ui-components.md` all populated; Tier 2 marked agent-ready
 - [ ] Phase 3 complete — all 22 patterns extracted; `@tier` annotations on all components; inventory in `reusable-components.md` fully resolved
 

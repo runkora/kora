@@ -227,9 +227,12 @@ func TestStartRun_Delegated_SessionFailureRevokesMint(t *testing.T) {
 	at := seedDelegatedAgentType(t, repo, "at-del", "t1", "reviewer")
 
 	ctx := WithCallerBearer(withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeHuman, "u1"), "bearer-1")
-	_, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: at.ID})
-	if err == nil {
-		t.Fatal("expected StartRun failure")
+	run, err := startAndSchedule(ctx, f.run, StartRunRequest{AgentTypeID: at.ID})
+	if err != nil {
+		t.Fatalf("startAndSchedule: %v", err)
+	}
+	if run.State != RunStateFailed {
+		t.Fatalf("state = %s, want failed", run.State)
 	}
 	if len(issuer.minted) != 1 {
 		t.Fatalf("expected 1 mint before the session failure, got %d", len(issuer.minted))
@@ -357,7 +360,7 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	repo := newMockRepository()
 	issuer := &fakeDelegationIssuer{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	runSvc := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), RunServiceConfig{
+	runSvc := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
 		MaxConcurrentRunsPerPod: 5,
 		TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 		StaleRunTimeout:         time.Millisecond,

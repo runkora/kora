@@ -18,22 +18,10 @@
  */
 import { redirect } from 'next/navigation';
 
-import {
-  Alert,
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  Heading,
-  Stack,
-  Text,
-} from '@orbit/terra';
-
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { isSafeRedirectPath } from '@orbit/lib/routing';
 
-import { EmailSignInForm } from './_components/email-sign-in-form';
+import { LoginCard } from './_components/login-card';
 
 interface LoginPageProps {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
@@ -64,51 +52,5 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
 
   const message = errorMessage(errorCode);
 
-  /*
-   * Stack constrains the card to max-w-sm (384px) while remaining full-width
-   * on narrow viewports via w-full. Horizontal padding prevents the card from
-   * touching the screen edges on mobile. Centering is provided by (auth)/layout.tsx.
-   */
-  return (
-    <Stack maxWidth="card">
-      <Card>
-        <CardHeader>
-          {/* Eyebrow — product name, not a heading landmark */}
-          <Heading variant="title" color="muted">
-            Orbit
-          </Heading>
-          <CardDescription>
-            Enter your work email to be directed to your organisation&apos;s identity provider.
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent>
-          <Stack gap="comfortable">
-            {/* Error banner — shown only after a failed OIDC round-trip */}
-            {message && (
-              <Alert variant="error">
-                <Text size="caption">{message}</Text>
-              </Alert>
-            )}
-
-            {/*
-             * EmailSignInForm drives Home Realm Discovery (docs/adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md): the user
-             * enters their work email, the BFF resolves the tenant's OIDC
-             * configuration, and the browser is redirected to the correct IdP.
-             * The `next` destination is encoded in the PKCE state so the
-             * callback page can restore it after the provider round-trip.
-             */}
-            <EmailSignInForm next={next} />
-          </Stack>
-        </CardContent>
-
-        {/* CardFooter already applies border-t border-border-subtle */}
-        <CardFooter compact justify="center">
-          <Text size="caption" color="subtle" align="center">
-            Single sign-on via OpenID Connect
-          </Text>
-        </CardFooter>
-      </Card>
-    </Stack>
-  );
+  return <LoginCard message={message} next={next} />;
 }

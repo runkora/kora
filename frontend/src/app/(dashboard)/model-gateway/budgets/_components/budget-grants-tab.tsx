@@ -3,17 +3,9 @@
 
 import { useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import {
-  Badge,
-  Button,
-  Callout,
-  DataTable,
-  Icon,
-  PageSectionHeader,
-  Stack,
-  Text,
-} from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@orbit/hades';
+import type { DataTableColumn } from '@orbit/hades';
+import { PrincipalBadge } from '@orbit/components';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
@@ -39,6 +31,8 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
       {
         id: 'principal',
         header: 'Principal',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '11rem',
         locked: true,
         sortable: true,
         sortAccessor: (g) =>
@@ -51,14 +45,9 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
           );
           return (
             <Stack gap="tight">
-              <Stack direction="horizontal" align="center" gap="tight">
-                <Text size="caption" weight="emphasis">
-                  {display.primary}
-                </Text>
-                <Badge variant="secondary" size="sm">
-                  {g.principal_type.toLowerCase()}
-                </Badge>
-              </Stack>
+              <Text size="caption" weight="emphasis">
+                {display.primary}
+              </Text>
               {display.secondary && (
                 <Text size="caption" color="subtle" mono>
                   {display.secondary}
@@ -69,8 +58,19 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
         },
       },
       {
+        id: 'type',
+        header: 'Type',
+        gridWidth: '6rem',
+        minWidth: '5.5rem',
+        sortable: true,
+        sortAccessor: (g) => g.principal_type,
+        cell: (g) => <PrincipalBadge type={g.principal_type} />,
+      },
+      {
         id: 'budget',
         header: 'Budget',
+        gridWidth: '9rem',
+        minWidth: '7rem',
         sortable: true,
         sortAccessor: (g) => g.budget?.limit_usd ?? 0,
         cell: (g) =>
@@ -94,6 +94,8 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
       {
         id: 'scopes',
         header: 'Scopes',
+        gridWidth: '6rem',
+        minWidth: '4.5rem',
         cell: (g) => (
           <Text size="caption" color="subtle">
             {(g.scopes ?? []).length}
@@ -103,6 +105,8 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
       {
         id: 'created',
         header: 'Created',
+        gridWidth: '7.5rem',
+        minWidth: '6.5rem',
         sortable: true,
         sortAccessor: (g) => g.created_at,
         cell: (g) => (
@@ -114,6 +118,7 @@ export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '4rem',
         cell: (g) => {

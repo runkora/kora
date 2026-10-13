@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-03-17
 **Deciders:** Engineering Team
-**Technical Story:** Establishing the package manager, version enforcement strategy, Next.js routing model, code quality tooling, source directory structure, and BFF security boundary for the Orbit operator dashboard frontend introduced in [monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) and [language-and-framework-selection](2026-02-16-language-and-framework-selection.md).
+**Technical Story:** Establishing the package manager, version enforcement strategy, Next.js routing model, code quality tooling, source directory structure, and BFF security boundary for the kora operator dashboard frontend introduced in [monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) and [language-and-framework-selection](2026-02-16-language-and-framework-selection.md).
 
 ---
 
 ## Context
 
-[monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) and [language-and-framework-selection](2026-02-16-language-and-framework-selection.md) established that the Orbit operator dashboard will be built with Next.js, React, and TypeScript, hosted in a `frontend/` subdirectory of the monorepo. Those decisions deliberately deferred lower-level toolchain questions:
+[monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) and [language-and-framework-selection](2026-02-16-language-and-framework-selection.md) established that the kora operator dashboard will be built with Next.js, React, and TypeScript, hosted in a `frontend/` subdirectory of the monorepo. Those decisions deliberately deferred lower-level toolchain questions:
 
 - Which package manager manages frontend dependencies?
 - How do we prevent version drift between developer machines and CI?
@@ -22,7 +22,7 @@ These are not cosmetic choices. The package manager affects lockfile stability, 
 
 ### Background
 
-Orbit is deployed on an internal platform (not Vercel or another managed Next.js host). The frontend is a single Next.js application that serves as both the operator dashboard UI and the Backend-for-Frontend (BFF) layer that translates browser session cookies into API key calls against the Go control plane. This means the Next.js server process has access to credentials that must never reach the browser.
+kora is deployed on an internal platform (not Vercel or another managed Next.js host). The frontend is a single Next.js application that serves as both the operator dashboard UI and the Backend-for-Frontend (BFF) layer that translates browser session cookies into API key calls against the Go control plane. This means the Next.js server process has access to credentials that must never reach the browser.
 
 [monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) established that the monorepo uses separate dependency management for each component: `go.mod` for the Go backend, `package.json` for the frontend. There is no root-level `package.json`. This means the chosen package manager is scoped entirely to `frontend/` — it does not need to support a polyglot monorepo root, which simplifies the version enforcement problem significantly. If a workspace-protocol dependency (e.g. `workspace:*` for an internal design system package) is introduced in future, a `pnpm-workspace.yaml` at the repo root would be required and this claim would need revision; that change is expected to be covered by the design system ADR.
 
@@ -382,7 +382,7 @@ src/
 
 **pnpm over Yarn Berry**: Yarn Berry's PnP mode introduces compatibility uncertainty with Next.js internals and native modules. The two-version confusion (Classic vs Berry) adds onboarding friction. pnpm's trajectory in the ecosystem is stronger and its Corepack integration is more mature.
 
-**pnpm over Bun**: Bun's binary lockfile makes dependency audits opaque in pull requests — a meaningful concern for a security-focused project. Bun's Node.js compatibility gaps introduce risk in Next.js's server-side rendering paths. The performance advantage is real but not decisive for a control plane dashboard where install time is not a bottleneck. Orbit's deployment target is an internal platform (not a managed host), which removes any hosting-side preference. If Bun's compatibility story matures significantly, this decision should be revisited.
+**pnpm over Bun**: Bun's binary lockfile makes dependency audits opaque in pull requests — a meaningful concern for a security-focused project. Bun's Node.js compatibility gaps introduce risk in Next.js's server-side rendering paths. The performance advantage is real but not decisive for a control plane dashboard where install time is not a bottleneck. kora's deployment target is an internal platform (not a managed host), which removes any hosting-side preference. If Bun's compatibility story matures significantly, this decision should be revisited.
 
 **Two-layer enforcement**: Neither mechanism alone is sufficient. `only-allow` catches the wrong package manager but not the wrong version. The `packageManager` field + Corepack catches the wrong version but does not block `npm install` when Corepack is inactive. Together they cover both failure modes. The `PNPM_VERSION` Makefile variable is the canonical version reference that drives `corepack install -g pnpm@$(PNPM_VERSION)`, making `make setup` self-bootstrapping with only Node as a prerequisite.
 

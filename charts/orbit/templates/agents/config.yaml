@@ -1,0 +1,71 @@
+{{- /*
+orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "orbit.agents.configModules" -}}
+{{- $guardrails := .Values.agents.guardrails }}
+{{- if or (lt (int $guardrails.sandboxProvisionAttempts) 1) (lt (int $guardrails.sandboxProvisionBackoffSecs) 1) (lt (int $guardrails.sandboxProvisionBudgetSecs) 1) (gt (int $guardrails.sandboxProvisionBudgetSecs) 320) }}
+  {{- fail "agents.guardrails: sandboxProvisionAttempts, sandboxProvisionBackoffSecs and sandboxProvisionBudgetSecs must be at least 1, and sandboxProvisionBudgetSecs at most 320" }}
+{{- end }}
+{{- $scheduling := .Values.agents.scheduling }}
+{{- if or (lt (int $scheduling.workerConcurrency) 1) (lt (int $scheduling.pollIntervalSecs) 1) (lt (int $scheduling.startBudgetSecs) 1) }}
+  {{- fail "agents.scheduling: workerConcurrency, pollIntervalSecs and startBudgetSecs must be at least 1" }}
+{{- end }}
+{{- if lt (int $scheduling.drainGracePeriodSecs) 61 }}
+  {{- fail "agents.scheduling.drainGracePeriodSecs must be at least 61: the session-manager's 30 s shutdown timeout plus its 30 s drainMargin (cmd/session-manager/config/config.go)" }}
+{{- end }}
+{{- if or (lt (int $scheduling.minReplicas) 1) (gt (int $scheduling.minReplicas) 10) }}
+  {{- fail "agents.scheduling.minReplicas must be between 1 and 10, the HPA maximum" }}
+{{- end }}
+{{- $idle := .Values.agents.idleTimeout }}
+{{- if or (lt (int $idle.manualSecs) 1) (lt (int $idle.triggerSecs) 1) }}
+  {{- fail "agents.idleTimeout: manualSecs and triggerSecs must be at least 1" }}
+{{- end }}
+cmd/orbit-agents:
+  kubernetes:
+    systemNamespace: {{ include "orbit.systemNamespace" . | toJson }}
+  platform:
+    trustDomain: {{ include "orbit.trustDomain" . | toJson }}
+    identityServiceURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+    policyServiceURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+  policy:
+    bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
+  agents:
+    {{- $sessionManager := include "orbit.imageRef" (dict "root" $ "image" (dict "repository" "orbit-session-manager" "digest" .Values.agents.config.sessionManagerDigest)) }}
+    sessionManagerImage: {{ .Values.agents.config.sessionManagerImage | default $sessionManager | toJson }}
+    sandboxImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
+    {{- /* Quantities render as strings. An unquoted cpu: 8 in values would otherwise fail the strict decode. */}}
+    {{- /* An unset maxSize field takes the default size's value. */}}
+    {{- $default := .Values.agents.environments.defaultSize }}
+    {{- $max := .Values.agents.environments.maxSize | default dict }}
+    environments:
+      {{- range $name, $size := dict "defaultSize" $default "maxSize" (dict "cpu" ($max.cpu | default $default.cpu) "memory" ($max.memory | default $default.memory) "disk" ($max.disk | default $default.disk)) }}
+      {{ $name }}:
+        cpu: {{ $size.cpu | toString | toJson }}
+        memory: {{ $size.memory | toString | toJson }}
+        disk: {{ $size.disk | toString | toJson }}
+      {{- end }}
+    sandboxGitAuthorName: {{ .Values.agents.config.sandboxGitAuthorName | default "kora-agent" | toJson }}
+    sandboxGitAuthorEmail: {{ .Values.agents.config.sandboxGitAuthorEmail | toJson }}
+    imagePullSecrets: {{ include "orbit.imagePullSecretNames" . }}
+    guardrails:
+      sandboxProvisionAttempts: {{ $guardrails.sandboxProvisionAttempts | int }}
+      sandboxProvisionBackoffSecs: {{ $guardrails.sandboxProvisionBackoffSecs | int }}
+      sandboxProvisionBudgetSecs: {{ $guardrails.sandboxProvisionBudgetSecs | int }}
+    idleTimeout:
+      manualSecs: {{ $idle.manualSecs | int }}
+      triggerSecs: {{ $idle.triggerSecs | int }}
+    scheduling:
+      workerConcurrency: {{ $scheduling.workerConcurrency | int }}
+      pollIntervalSecs: {{ $scheduling.pollIntervalSecs | int }}
+      startBudgetSecs: {{ $scheduling.startBudgetSecs | int }}
+      minReplicas: {{ $scheduling.minReplicas | int }}
+      drainGracePeriodSecs: {{ $scheduling.drainGracePeriodSecs | int }}
+    sessionManager:
+      authorizationPolicyEnabled: {{ and .Values.platform.spiffe.enabled .Values.agents.authorizationPolicy.enabled }}
+      nodeMaxOldSpaceMB: {{ .Values.agents.config.nodeMaxOldSpaceMB | int }}
+    sandboxMount: {{ .Values.sandboxMount.enabled }}
+{{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.tokenConfigModule" . }}
+{{- end }}
+{{- include "orbit.configMap" (dict "root" $ "name" "agents" "configMap" "orbit-agents-config" "modules" (include "orbit.agents.configModules" . | fromYaml)) }}

@@ -2,13 +2,14 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"slices"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
-
-	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
 // ============================================================================
@@ -76,6 +77,45 @@ type AnthropicConnector interface {
 // It is invoked when the client calls POST /v1/embeddings.
 type EmbeddingsConnector interface {
 	Embeddings(ctx context.Context, req openai.EmbeddingNewParams) (*openai.CreateEmbeddingResponse, error)
+}
+
+// SystemOneRequest is a System One call. Body is the caller's JSON object,
+// never interpreted beyond its model; Model is the target's model id, which
+// the connector writes over the body's model before sending.
+type SystemOneRequest struct {
+	Body  []byte
+	Model string
+}
+
+// SystemOneResult is a successful System One response. Body is the upstream
+// body unchanged. The token counts come from its usage object and are zero
+// when the upstream sends none.
+type SystemOneResult struct {
+	Body         []byte
+	StatusCode   int
+	InputTokens  int64
+	OutputTokens int64
+}
+
+// SystemOneConnector is the System One decision surface of a provider. It is
+// invoked when the client calls POST /v1/systemone. A connector that does not
+// serve the API returns the error from NewAPINotServedError.
+type SystemOneConnector interface {
+	SystemOne(ctx context.Context, req SystemOneRequest) (*SystemOneResult, error)
+}
+
+// NewAPINotServedError refuses an API the provider does not serve. It is
+// retryable: the virtual model may route to a provider that serves it.
+func NewAPINotServedError(provider ProviderName, api string) error {
+	msg := fmt.Sprintf("provider %s does not serve the %s API", provider, api)
+	return &ConnectorError{
+		Provider:        provider,
+		Code:            "MODEL_NOT_SUPPORTED",
+		Retryable:       true,
+		Underlying:      errors.New(msg),
+		ProviderMessage: msg,
+		HTTPStatus:      http.StatusBadRequest,
+	}
 }
 
 // ResponsesStreamResult is one element emitted on a ResponsesStream channel.
@@ -151,7 +191,30 @@ const (
 	// CapabilityAudioGeneration — model produces audio output (TTS, live audio).
 	// No standard endpoint yet.
 	CapabilityAudioGeneration ModelCapability = "audio"
+
+	// CapabilityDecision — model supports POST /v1/systemone: typed questions
+	// answered with probabilities, not text.
+	CapabilityDecision ModelCapability = "decision"
 )
+
+// knownCapabilities is the single list of valid ModelCapability values. Add new
+// capabilities here (and as consts above) so request validation, such as the
+// GET /v1/models capability filter, picks them up.
+var knownCapabilities = []ModelCapability{
+	CapabilityChat,
+	CapabilityEmbedding,
+	CapabilityImageGeneration,
+	CapabilityVideoGeneration,
+	CapabilityRerank,
+	CapabilityAudioGeneration,
+	CapabilityDecision,
+}
+
+// KnownCapabilities returns every valid ModelCapability, in declaration order.
+// The returned slice is a copy; callers may modify it.
+func KnownCapabilities() []ModelCapability {
+	return slices.Clone(knownCapabilities)
+}
 
 // ============================================================================
 // ProviderModel
@@ -207,6 +270,10 @@ type ProviderModel struct {
 	// e.g. ["chat"] for LLMs, ["embedding"] for embedding models,
 	//      ["image"] for image-generation models.
 	Capabilities []ModelCapability
+
+	// Price is the price the upstream published with the model, per 1M tokens.
+	// Nil when it publishes none.
+	Price *ModelPriceEntry
 }
 
 // PolicyAlias returns the shortest clean alias for use in policy scope
@@ -247,20 +314,7 @@ type ProviderConnector interface {
 	AnthropicConnector
 	EmbeddingsConnector
 	ResponsesConnector
-}
-
-// ============================================================================
-// ConnectorFactory
-// ============================================================================
-
-// ConnectorFactory creates a ProviderConnector from environment-sourced config.
-// Each provider package exports a Factory struct that implements this interface.
-//
-// Build returns (nil, nil) when the provider is disabled (env var not set),
-// allowing main.go to skip registration without treating it as an error.
-type ConnectorFactory interface {
-	Name() ProviderName
-	Build(logger logging.Logger) (ProviderConnector, error)
+	SystemOneConnector
 }
 
 // ============================================================================
@@ -360,27 +414,4 @@ func (p ModelPricing) EstimatedCostUSD(promptTokens, completionTokens, cacheRead
 		(float64(completionTokens)/1_000_000)*p.OutputCostPerMillion +
 		(float64(cacheReadTokens)/1_000_000)*cacheReadPrice +
 		(float64(cacheCreationTokens)/1_000_000)*cacheCreationPrice
-}
-
-// ============================================================================
-// MultiConnectorFactory
-// ============================================================================
-
-// NamedConnector pairs a ProviderConnector with its runtime-assigned name.
-// Used by MultiConnectorFactory to return multiple connectors — one per
-// configured account/environment — from a single Build call.
-type NamedConnector struct {
-	Name      ProviderName
-	Connector ProviderConnector
-}
-
-// MultiConnectorFactory creates zero or more ProviderConnectors from
-// environment-sourced config. Providers that support multiple simultaneous
-// environments (e.g. multiple AWS accounts for Bedrock) implement this
-// interface alongside or instead of ConnectorFactory.
-//
-// Build returns nil when the provider is disabled, allowing main.go to skip
-// registration without treating it as an error.
-type MultiConnectorFactory interface {
-	Build(logger logging.Logger) ([]NamedConnector, error)
 }

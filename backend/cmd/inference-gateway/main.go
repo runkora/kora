@@ -11,10 +11,9 @@ import (
 
 	igc "github.com/clear-route/orbit/cmd/inference-gateway/config"
 	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/azure"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
+	"github.com/clear-route/orbit/internal/inferencegw/providers/registry"
 	"github.com/clear-route/orbit/internal/platform/api"
+	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -23,6 +22,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/clear-route/orbit/internal/platform/token"
+	kubeconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 func main() {
@@ -108,52 +108,41 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 
 func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) ([]api.Controller, func(context.Context) error, error) {
 	// ── Provider connectors ───────────────────────────────────────────────────────────────────────────────
-	// Register factories for every supported provider. Each factory reads its
-	// own env vars via LoadConfig — a nil result means the provider is disabled.
-	// Adding a new provider is a single line here.
-	//
-	// Bedrock uses MultiFactory: set BEDROCK_ACCOUNTS=<alias1>,<alias2> to enable.
-	// Returns nil (provider disabled) when BEDROCK_ACCOUNTS is unset.
-	factories := []inferencegw.ConnectorFactory{
-		vertexai.Factory{},
-		azure.Factory{},
-	}
-
-	connectors := map[inferencegw.ProviderName]inferencegw.ProviderConnector{}
-
-	bedrockConnectors, err := bedrock.MultiFactory{}.Build(logger)
+	// Providers come from the InferenceProvider resources the gateway watches.
+	// The first load seeds the router; the watch keeps it current.
+	restCfg, err := kubeconfig.GetConfig()
 	if err != nil {
-		return nil, nil, fmt.Errorf("bedrock: %w", err)
+		return nil, nil, fmt.Errorf("kubernetes config: %w", err)
 	}
-	for _, nc := range bedrockConnectors {
-		connectors[nc.Name] = nc.Connector
-		logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(nc.Name)})
+	providers, err := registry.NewWatcher(ctx, restCfg, igc.Current.Providers.Namespace, logger)
+	if err != nil {
+		return nil, nil, err
 	}
+	// Prices a compatible upstream publishes with its models are stored on each discovery.
+	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
+	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
+	go pricingCache.Start(ctx)
+	prices := inferencegw.NewDiscoveredPrices(pricingCatalogRepo, pricingCache, logger)
 
-	var c inferencegw.ProviderConnector
-	for _, f := range factories {
-		c, err = f.Build(logger)
-		if err != nil {
-			return nil, nil, fmt.Errorf("provider %s: %w", f.Name(), err)
+	conns, infos := providers.Load(ctx)
+	router := inferencegw.NewRoutingEngine(conns, infos, prices.Record)
+	go func() {
+		if _, discoverErr := router.ListModels(ctx); discoverErr != nil {
+			logger.Warn(ctx, "provider model discovery failed", logging.Field{Key: "error", Value: discoverErr.Error()})
 		}
-		if c != nil {
-			connectors[f.Name()] = c
-			logger.Info(ctx, "provider enabled", logging.Field{Key: "provider", Value: string(f.Name())})
+	}()
+	go func() {
+		if watchErr := providers.Run(ctx, router); watchErr != nil {
+			logger.Error(ctx, "provider watch stopped", logging.Field{Key: "error", Value: watchErr.Error()})
 		}
-	}
-
-	if len(connectors) == 0 {
-		logger.Warn(ctx, "warning: no providers enabled — all inference requests will fail")
-	}
+	}()
 
 	// ── Domain layer ────────────────────────────────────────────────────────────────────────────────
-	router := inferencegw.NewRoutingEngine(connectors)
 	pol := policy.NewEvaluator(igc.Current.Policy.BundleEndpoint, igc.Current.Policy.BundlePollInterval(), logger)
 	pol.Start(ctx)
 
 	usageRepo := inferencegw.NewPostgresInferenceUsageRepository(db.Pool())
 	catalogRepo := inferencegw.NewPostgresCatalogRepository(db.Pool())
-	pricingCatalogRepo := inferencegw.NewPostgresPricingCatalogRepository(db.Pool())
 	catalog := inferencegw.NewCatalogStore(catalogRepo, router)
 
 	// Load the virtual model catalog into the routing engine before accepting
@@ -167,24 +156,10 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		logger.Info(ctx, "virtual model catalog loaded", logging.Field{Key: "models", Value: count})
 	}
 
-	// Warm up the provider model discovery cache in the background. A failure is
-	// non-fatal — the cache will be empty until POST /catalog/provider-models/refresh
-	// is called or the gateway restarts.
-	go func() {
-		if err := catalog.WarmupProviderModels(ctx); err != nil {
-			logger.Warn(ctx, "provider model warm-up failed — provider catalog will be empty until refreshed",
-				logging.Field{Key: "error", Value: err.Error()})
-		} else {
-			logger.Info(ctx, "provider model cache warmed up")
-		}
-	}()
-
 	// Wire scope registration: once now (after catalog load), and again on
 	// every LoadVirtualCatalog call triggered by admin catalog writes.
-	register := initScopeRegistration(logger, router)
-
-	pricingCache := inferencegw.NewDatabasePricingCache(pricingCatalogRepo, igc.Current.Pricing.RefreshInterval(), logger)
-	go pricingCache.Start(ctx)
+	selfToken := identityclient.NewClient(igc.Current.Identity.InternalURL, logger).SelfTokenSource()
+	register := initScopeRegistration(logger, selfToken, router)
 
 	pricingSyncWorker := inferencegw.NewPricingSyncWorker(
 		inferencegw.NewLiteLLMPricingSource(igc.Current.Pricing.SourceURL),
@@ -203,7 +178,7 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	jtiBlocklist := storage.NewJTIBlocklist(redis)
 	controllers := []api.Controller{
 		inferencegw.NewController(ctx, svc, pol, inferenceRoutes(), igc.Current.Server.BasePath, jtiBlocklist, logger),
-		inferencegw.NewCatalogController(catalog, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
+		inferencegw.NewCatalogController(catalog, router, pricingCatalogRepo, verifier, pol, inferenceRoutes(), igc.Current.Server.BasePath, logger),
 	}
 	return controllers, register, nil
 }
@@ -213,8 +188,8 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // re-synced whenever GET /v1/models refreshes the catalog, and returns the
 // register function; the caller hands it to routescopes.KeepRegistered, which
 // owns the initial registration and the periodic self-heal loop.
-func initScopeRegistration(logger logging.Logger, router *inferencegw.RoutingEngine) func(context.Context) error {
-	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, logger)
+func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSource, router *inferencegw.RoutingEngine) func(context.Context) error {
+	client := routescopes.NewClient(igc.Current.Policy.PolicyServiceURL, selfToken, logger)
 
 	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()
@@ -254,6 +229,7 @@ func inferenceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/v1/messages", Method: "POST", RequiredScope: "inference:invoke"},
 		{PathPrefix: "/v1/embeddings", Method: "POST", RequiredScope: "inference:invoke"},
 		{PathPrefix: "/v1/responses", Method: "POST", RequiredScope: "inference:invoke"},
+		{PathPrefix: "/v1/systemone", Method: "POST", RequiredScope: "inference:invoke"},
 		{PathPrefix: "/v1/models", Method: "GET", RequiredScope: "inference:list"},
 		{PathPrefix: "/v1/catalog", Method: "GET", RequiredScope: "platform:catalog:read"},
 		{PathPrefix: "/v1/catalog", Method: "POST", RequiredScope: "platform:catalog:write"},
@@ -282,32 +258,10 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
-		// GET /v1/usage/agent-types and /v1/usage/agent-type/{id} report spend
-		// per agent type rather than the caller's own usage, so they need a scope.
-		//
-		// That scope is agents:types:read, because an agent's spend is an
-		// attribute of the agent: authority to see what it cost follows authority
-		// to see it at all. These two endpoints line up exactly with the reads
-		// that scope already guards in orbit-agents (GET /api/v1/agent-types and
-		// GET /api/v1/agent-types/{id}), so whoever can list an agent can list
-		// what it spent, and nobody gains sight of an agent they could not
-		// already see.
-		//
-		// Deliberately not platform:analytics:read. That scope covers tenant-wide
-		// analytics across every principal, and requiring it here would make cost
-		// an admin-only figure, so the people building agents could not see what
-		// their own agents spend. A caller's own spend, including spend on runs
-		// they delegated, comes from the personal endpoints below and from
-		// /v1/analytics/me, which attribute delegated rows back to the delegator.
-		//
-		// The scope is declared by orbit-agents, not here. The vocabulary is
-		// global once registered, and /v1/budgets below already depends on
-		// platform:budgets:read from the policy service in the same way.
-		//
-		// Prefix matching is segment-bounded, so "/v1/usage/agent-type" does not
-		// cover "/v1/usage/agent-types"; both are listed.
-		{PathPrefix: "/v1/usage/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
-		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:types:read"},
+		// Agent usage needs agents:usage:read; a per-agent scope does not cover it. A new
+		// /v1/usage route needs its own entry or it falls to the open one below.
+		{PathPrefix: "/v1/usage/agent-insights", Method: "GET", RequiredScope: "agents:usage:read"},
+		{PathPrefix: "/v1/usage/agent-type", Method: "GET", RequiredScope: "agents:usage:read"},
 		// GET /v1/usage is the caller's own inference usage log; tenant and
 		// principal come from the verified claims.
 		{PathPrefix: "/v1/usage", Method: "GET", RequiredScope: ""},

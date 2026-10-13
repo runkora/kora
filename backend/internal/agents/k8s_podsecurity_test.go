@@ -2,14 +2,17 @@ package agents
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
@@ -23,7 +26,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 		logger: logging.NewLoggerWithOutput(io.Discard),
 		cfg: K8sProvisionerConfig{
 			SessionManagerImage: "ghcr.io/clear-route/orbit-session-manager:1.0.0",
-			SandboxImage:        "ghcr.io/clear-route/orbit-sandbox-exec:1.0.0",
+			SandboxImage:        "ghcr.io/clear-route/kora-sandbox-base:1.0.0",
 			SandboxGRPCPort:     50051,
 			ImagePullSecrets:    []string{"ghcr-pull", "mirror-pull"},
 			TrustDomain:         "orbit.example.com",
@@ -35,7 +38,7 @@ func podSecurityProvisioner() *K8sProvisioner {
 }
 
 func renderedSandboxPod() *corev1.Pod {
-	return podSecurityProvisioner().buildSandboxPod(Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", nil, "test-exec-token")
+	return buildTestSandboxPod(podSecurityProvisioner(), Run{ID: "run-1", PodOrdinal: 0}, "coder", "orbit-tenant-acme", testSandboxSpec(), "test-exec-token")
 }
 
 func renderedStatefulSet() appsv1.StatefulSet {
@@ -44,7 +47,7 @@ func renderedStatefulSet() appsv1.StatefulSet {
 }
 
 // assertRestrictedPodSpec checks the parts of the restricted Pod Security
-// Standard that Orbit sets itself; the remaining fields are Kubernetes defaults.
+// Standard that kora sets itself; the remaining fields are Kubernetes defaults.
 func assertRestrictedPodSpec(t *testing.T, spec corev1.PodSpec) {
 	t.Helper()
 	sc := spec.SecurityContext
@@ -86,6 +89,9 @@ func assertRestrictedPodSpec(t *testing.T, spec corev1.PodSpec) {
 		if csc.SeccompProfile != nil {
 			t.Errorf("container %s: must inherit the pod seccomp profile, not override it", c.Name)
 		}
+		if csc.ReadOnlyRootFilesystem == nil || !*csc.ReadOnlyRootFilesystem {
+			t.Errorf("container %s: readOnlyRootFilesystem must be true", c.Name)
+		}
 	}
 	want := []corev1.LocalObjectReference{{Name: "ghcr-pull"}, {Name: "mirror-pull"}}
 	if len(spec.ImagePullSecrets) != len(want) {
@@ -109,9 +115,66 @@ func TestSandboxPod_RestrictedPodSecurity(t *testing.T) {
 func TestSessionManagerStatefulSet_RestrictedPodSecurity(t *testing.T) {
 	ss := renderedStatefulSet()
 	assertRestrictedPodSpec(t, ss.Spec.Template.Spec)
-	c := ss.Spec.Template.Spec.Containers[0]
-	if c.SecurityContext.ReadOnlyRootFilesystem != nil {
-		t.Error("session-manager must not set readOnlyRootFilesystem; the agent writes to its home directory")
+}
+
+// Neither runtime pod calls the Kubernetes API or reads service links.
+// Both would hand an agent a token or a map of the tenant namespace.
+func TestRuntimePods_NoServiceAccountTokenOrServiceLinks(t *testing.T) {
+	for name, spec := range map[string]corev1.PodSpec{
+		"sandbox":     renderedSandboxPod().Spec,
+		"statefulset": renderedStatefulSet().Spec.Template.Spec,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if spec.AutomountServiceAccountToken == nil || *spec.AutomountServiceAccountToken {
+				t.Errorf("automountServiceAccountToken = %v, want false", spec.AutomountServiceAccountToken)
+			}
+			if spec.EnableServiceLinks == nil || *spec.EnableServiceLinks {
+				t.Errorf("enableServiceLinks = %v, want false", spec.EnableServiceLinks)
+			}
+		})
+	}
+}
+
+// A read-only root needs writable scratch paths, and every node-disk write must be capped
+// so one pod cannot fill a node.
+func TestRuntimePods_BoundedScratchStorage(t *testing.T) {
+	for name, tc := range map[string]struct {
+		spec  corev1.PodSpec
+		paths []string
+	}{
+		"sandbox":     {renderedSandboxPod().Spec, []string{"/var/tmp", "/home/orbit"}},
+		"statefulset": {renderedStatefulSet().Spec.Template.Spec, []string{"/tmp", "/home/orbit"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c := tc.spec.Containers[0]
+			for _, rl := range []corev1.ResourceList{c.Resources.Requests, c.Resources.Limits} {
+				if _, ok := rl[corev1.ResourceEphemeralStorage]; !ok {
+					t.Errorf("container %s: ephemeral-storage missing from %v", c.Name, rl)
+				}
+			}
+			emptyDirs := map[string]*corev1.EmptyDirVolumeSource{}
+			for _, v := range tc.spec.Volumes {
+				if v.EmptyDir != nil {
+					emptyDirs[v.Name] = v.EmptyDir
+				}
+			}
+			mounted := map[string]bool{}
+			for _, m := range c.VolumeMounts {
+				dir, ok := emptyDirs[m.Name]
+				if !ok {
+					continue
+				}
+				mounted[m.MountPath] = true
+				if dir.SizeLimit == nil || dir.SizeLimit.IsZero() {
+					t.Errorf("scratch volume %s at %s has no sizeLimit", m.Name, m.MountPath)
+				}
+			}
+			for _, p := range tc.paths {
+				if !mounted[p] {
+					t.Errorf("no scratch volume mounted at %s", p)
+				}
+			}
+		})
 	}
 }
 
@@ -127,6 +190,12 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	if got, want := env["ORBIT_AGENTS_URL"], "http://orbit-agents.orbit-prod.svc.cluster.local"; got != want {
 		t.Errorf("ORBIT_AGENTS_URL = %q, want %q", got, want)
 	}
+	if got, want := env["ORBIT_INFERENCE_GATEWAY_URL"], "http://orbit-inference-gateway.orbit-prod.svc.cluster.local"; got != want {
+		t.Errorf("ORBIT_INFERENCE_GATEWAY_URL = %q, want %q", got, want)
+	}
+	if got, want := env["ORBIT_TOOL_GATEWAY_URL"], "http://orbit-tool-gateway.orbit-prod.svc.cluster.local"; got != want {
+		t.Errorf("ORBIT_TOOL_GATEWAY_URL = %q, want %q", got, want)
+	}
 	// Without this a provisioned agent traces nothing, and the only symptom is
 	// an absence of spans.
 	if got, want := env["ORBIT_OTLP_ENDPOINT"], "http://otel-collector.observability.svc:4317"; got != want {
@@ -139,10 +208,28 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	}
 }
 
+// The session-manager caps the Node heap of its runs from this value, so an
+// install's setting must reach every agent pod.
+func TestSessionManagerStatefulSet_PassesNodeHeapCap(t *testing.T) {
+	p := podSecurityProvisioner()
+	p.cfg.NodeMaxOldSpaceMB = 768
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	ss := p.buildSessionManagerStatefulSet(at, "ns", podLabels(at))
+	for _, e := range ss.Spec.Template.Spec.Containers[0].Env {
+		if e.Name == "ORBIT_NODE_MAX_OLD_SPACE_MB" {
+			if e.Value != "768" {
+				t.Errorf("ORBIT_NODE_MAX_OLD_SPACE_MB = %q, want 768", e.Value)
+			}
+			return
+		}
+	}
+	t.Error("session-manager env is missing ORBIT_NODE_MAX_OLD_SPACE_MB")
+}
+
 func TestRuntimePods_NoPullSecretsWhenUnconfigured(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.cfg.ImagePullSecrets = nil
-	if pod := p.buildSandboxPod(Run{ID: "run-1"}, "coder", "ns", nil, "test-exec-token"); pod.Spec.ImagePullSecrets != nil {
+	if pod := buildTestSandboxPod(p, Run{ID: "run-1"}, "coder", "ns", testSandboxSpec(), "test-exec-token"); pod.Spec.ImagePullSecrets != nil {
 		t.Errorf("sandbox imagePullSecrets = %+v, want field omitted", pod.Spec.ImagePullSecrets)
 	}
 	at := AgentType{Slug: "coder", TenantID: "acme"}
@@ -159,7 +246,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	const ns = "orbit-tenant-acme"
 	stale := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
 			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{Annotations: map[string]string{
@@ -177,7 +264,7 @@ func TestEnsureStatefulSet_ExistingDropsStaleTemplateAndEnv(t *testing.T) {
 	}
 	p := podSecurityProvisioner()
 	p.client = fake.NewSimpleClientset(stale)
-	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}); err != nil {
+	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureStatefulSet: %v", err)
 	}
 	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
@@ -209,7 +296,7 @@ func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 	at := AgentType{Slug: "coder", TenantID: "acme"}
 	const ns = "orbit-tenant-acme"
 	stale := &appsv1.StatefulSet{
-		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns, Annotations: map[string]string{annotationImagePinned: "true"}},
 		Spec: appsv1.StatefulSetSpec{
 			Template: corev1.PodTemplateSpec{
 				Spec: corev1.PodSpec{
@@ -221,7 +308,7 @@ func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 	p := podSecurityProvisioner()
 	p.client = fake.NewSimpleClientset(stale)
 
-	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}); err != nil {
+	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}, true); err != nil {
 		t.Fatalf("ensureStatefulSet: %v", err)
 	}
 	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
@@ -231,6 +318,39 @@ func TestEnsureStatefulSet_ExistingPicksUpHardening(t *testing.T) {
 	assertRestrictedPodSpec(t, got.Spec.Template.Spec)
 	if got.Spec.Template.Spec.Containers[0].Image != "old" {
 		t.Error("re-provision must only sync security fields, not replace the container")
+	}
+}
+
+// Run start creates a missing StatefulSet and leaves an existing one alone, so starting a run never rolls pods.
+func TestEnsureStatefulSet_CreateOnly(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	const ns = "orbit-tenant-acme"
+	stale := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: sessionManagerContainerName, Image: "old"}},
+		}}},
+	}
+	p := podSecurityProvisioner()
+	p.client = fake.NewSimpleClientset(stale)
+
+	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}, false); err != nil {
+		t.Fatalf("ensureStatefulSet: %v", err)
+	}
+	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if got.Spec.Template.Spec.SecurityContext != nil || got.Spec.Template.Spec.Containers[0].Image != "old" {
+		t.Error("a create-only provision changed an existing StatefulSet")
+	}
+
+	other := AgentType{Slug: "fresh", TenantID: "acme"}
+	if err := p.ensureStatefulSet(context.Background(), other, ns, podLabels(other), metav1.OwnerReference{}, false); err != nil {
+		t.Fatalf("ensureStatefulSet: %v", err)
+	}
+	if _, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), other.Slug, metav1.GetOptions{}); err != nil {
+		t.Errorf("a create-only provision did not create a missing StatefulSet: %v", err)
 	}
 }
 
@@ -278,5 +398,107 @@ func TestRuntimePods_NoIstioTemplatesAnnotation(t *testing.T) {
 	}
 	if ss.Spec.Template.Annotations["proxy.istio.io/config"] == "" || ss.Spec.Template.Annotations["traffic.sidecar.istio.io/excludeOutboundPorts"] == "" {
 		t.Error("proxy.istio.io/config and excludeOutboundPorts must stay")
+	}
+}
+
+// The rendered templates carry IN_MESH so a reconcile rolls pods created before
+// the operator webhook enforced it.
+func TestRuntimePods_PeerMetadataInMeshOnly(t *testing.T) {
+	for name, ann := range map[string]map[string]string{
+		"sandbox pod":     renderedSandboxPod().Annotations,
+		"session-manager": renderedStatefulSet().Spec.Template.Annotations,
+	} {
+		var cfg struct {
+			Hold         bool `json:"holdApplicationUntilProxyStarts"`
+			ProxyHeaders struct {
+				MetadataExchangeHeaders struct {
+					Mode string `json:"mode"`
+				} `json:"metadataExchangeHeaders"`
+			} `json:"proxyHeaders"`
+		}
+		if err := json.Unmarshal([]byte(ann["proxy.istio.io/config"]), &cfg); err != nil {
+			t.Fatalf("%s proxy config: %v", name, err)
+		}
+		if !cfg.Hold || cfg.ProxyHeaders.MetadataExchangeHeaders.Mode != "IN_MESH" {
+			t.Errorf("%s proxy config = %+v", name, cfg)
+		}
+	}
+}
+
+// An unpinned StatefulSet moves to the rendered session-manager image on
+// reconcile, so a chart upgrade reaches existing agents.
+func TestEnsureStatefulSet_UnpinnedImageFollowsRelease(t *testing.T) {
+	at := AgentType{Slug: "coder", TenantID: "acme"}
+	const ns = "orbit-tenant-acme"
+	stale := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: at.Slug, Namespace: ns},
+		Spec: appsv1.StatefulSetSpec{Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+			Containers: []corev1.Container{{Name: sessionManagerContainerName, Image: "old"}},
+		}}},
+	}
+	p := podSecurityProvisioner()
+	p.client = fake.NewSimpleClientset(stale)
+	if err := p.ensureStatefulSet(context.Background(), at, ns, podLabels(at), metav1.OwnerReference{}, true); err != nil {
+		t.Fatalf("ensureStatefulSet: %v", err)
+	}
+	got, err := p.client.AppsV1().StatefulSets(ns).Get(context.Background(), at.Slug, metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if img := got.Spec.Template.Spec.Containers[0].Image; img == "old" {
+		t.Errorf("unpinned image stayed %q; want the rendered image", img)
+	}
+}
+
+func TestReadyOrdinals(t *testing.T) {
+	const ns, slug = "orbit-tenant-acme", "coder"
+	sel := map[string]string{"app": slug}
+	ss := func(gen, observed int64, rev string) *appsv1.StatefulSet {
+		return &appsv1.StatefulSet{
+			ObjectMeta: metav1.ObjectMeta{Name: slug, Namespace: ns, Generation: gen},
+			Spec:       appsv1.StatefulSetSpec{Selector: &metav1.LabelSelector{MatchLabels: sel}},
+			Status:     appsv1.StatefulSetStatus{ObservedGeneration: observed, UpdateRevision: rev},
+		}
+	}
+	pod := func(name, rev string, ready, deleting bool) *corev1.Pod {
+		st := corev1.ConditionFalse
+		if ready {
+			st = corev1.ConditionTrue
+		}
+		p := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns, Labels: map[string]string{
+				"app": slug, appsv1.ControllerRevisionHashLabelKey: rev,
+			}},
+			Status: corev1.PodStatus{Conditions: []corev1.PodCondition{{Type: corev1.PodReady, Status: st}}},
+		}
+		if deleting {
+			now := metav1.Now()
+			p.DeletionTimestamp = &now
+		}
+		return p
+	}
+	for _, tc := range []struct {
+		name string
+		objs []runtime.Object
+		want []int
+	}{
+		{"no statefulset", nil, nil},
+		{"roll not yet observed", []runtime.Object{ss(2, 1, "r2"), pod("coder-0", "r1", true, false)}, []int{0}},
+		{"not ready", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", false, false)}, nil},
+		{"old revision during a roll", []runtime.Object{ss(2, 2, "r2"), pod("coder-0", "r1", true, false), pod("coder-1", "r2", false, false)}, []int{0}},
+		{"terminating", []runtime.Object{ss(1, 1, "r1"), pod("coder-0", "r1", true, true)}, nil},
+		{"ready current", []runtime.Object{ss(1, 1, "r1"), pod("coder-1", "r1", true, false), pod("coder-0", "r1", true, false), pod("coder-2", "r1", false, false)}, []int{0, 1}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := podSecurityProvisioner()
+			p.client = fake.NewSimpleClientset(tc.objs...)
+			got, err := p.ReadyOrdinals(context.Background(), slug, ns)
+			if err != nil {
+				t.Fatalf("ReadyOrdinals: %v", err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

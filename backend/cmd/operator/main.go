@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/go-logr/logr"
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -24,6 +27,7 @@ import (
 	"github.com/clear-route/orbit/internal/operator/preflight"
 	"github.com/clear-route/orbit/internal/operator/webhookcert"
 	"github.com/clear-route/orbit/internal/platform/config"
+	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/observability"
 )
@@ -43,11 +47,6 @@ func main() {
 	defer shutdownObservability()
 
 	logger := initLogger()
-
-	for _, parseErr := range oc.ResourceParseErrors {
-		logger.Warn(ctx, "malformed resource requirements env var; using empty requirements",
-			logging.Field{Key: "error", Value: parseErr.Error()})
-	}
 
 	operator.Apply(operator.Settings{
 		SystemNamespace: oc.Current.Install.SystemNamespace,
@@ -123,7 +122,7 @@ func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error
 	}
 
 	checks := &preflight.Runner{Client: mgr.GetAPIReader(), Logger: logger, Config: preflightConfig()}
-	if err := mgr.Add(&preflight.Loop{Runner: checks, Interval: install.Preflight.Interval}); err != nil {
+	if err := mgr.Add(&preflight.Loop{Runner: checks, Interval: install.Preflight.Interval()}); err != nil {
 		return err
 	}
 
@@ -230,6 +229,13 @@ func initManager(restCfg *rest.Config) (ctrl.Manager, error) {
 		Scheme: operator.NewScheme(),
 		Cache: cache.Options{
 			SyncPeriod: &syncPeriod,
+			// The operator's Role covers InferenceProviders and ServiceEntries in the system namespace only.
+			ByObject: map[client.Object]cache.ByObject{
+				&ip.InferenceProvider{}:    {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
+				operator.NewServiceEntry(): {Namespaces: map[string]cache.Config{install.SystemNamespace: {}}},
+				// The operator caches only the sandbox image warmer DaemonSets.
+				&appsv1.DaemonSet{}: {Label: operator.WarmerSelector()},
+			},
 		},
 		// Bypass the cache to avoid a cluster-wide Secret informer.
 		Client: client.Options{
@@ -269,6 +275,11 @@ func initWebhooks(mgr ctrl.Manager) {
 				OPAPullPolicy:           corev1.PullPolicy(install.Injection.OPAPullPolicy),
 				OPALogLevel:             install.Injection.OPALogLevel,
 				OPAResources:            install.Injection.OPAResources,
+				SandboxSidecars: operator.SandboxSidecars{
+					IstioProxy:    install.Injection.SandboxSidecars.IstioProxy,
+					IdentityProxy: install.Injection.SandboxSidecars.IdentityProxy,
+					OPA:           install.Injection.SandboxSidecars.OPA,
+				},
 			},
 		},
 	})
@@ -310,6 +321,9 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 			Audit:   install.PodSecurity.Audit,
 		},
 		ImagePullSecrets: install.ImagePullSecrets,
+		SandboxBase:      operator.SandboxBase{Image: install.SandboxImages.BaseImage, Warm: install.SandboxImages.WarmBase},
+		SandboxBundled:   bundledSandboxImages(install.SandboxImages.Bundled),
+		Collector:        agentCollector(install.CollectorNamespace, install.CollectorCIDRs),
 		Preflight:        preflightSource{checks},
 	}
 	if err := tenantReconciler.SetupWithManager(mgr); err != nil {
@@ -319,6 +333,24 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 	// it before the first tenant exists.
 	if err := mgr.Add(manager.RunnableFunc(registry.Sync)); err != nil {
 		return fmt.Errorf("add tenant registry seed: %w", err)
+	}
+
+	providerReconciler := &operator.InferenceProviderReconciler{Client: mgr.GetClient(), Scheme: mgr.GetScheme()}
+	if err := providerReconciler.SetupWithManager(mgr); err != nil {
+		return err
+	}
+
+	sandboxImageReconciler := &operator.SandboxImageReconciler{
+		Client:      mgr.GetClient(),
+		Scheme:      mgr.GetScheme(),
+		Registry:    operator.NewRemoteRegistry(install.SandboxImages.RegistryMirrors),
+		Logger:      logger,
+		PullSecrets: install.ImagePullSecrets,
+		Placement:   operator.WarmerPlacement(install.SandboxImages.WarmerPlacement),
+		Resync:      oc.Current.SyncPeriod(),
+	}
+	if err := sandboxImageReconciler.SetupWithManager(mgr); err != nil {
+		return err
 	}
 
 	mcpServerReconciler := &operator.MCPServerReconciler{
@@ -340,4 +372,31 @@ func (p preflightSource) Latest() (operator.PreflightResult, bool) {
 		return operator.PreflightResult{}, false
 	}
 	return operator.PreflightResult{OK: res.OK(), Failures: res.Failures()}, true
+}
+
+// agentCollector is the collector agent pods may export to, from the tenant
+// collector endpoint: in the cluster when a namespace is set, otherwise at the
+// external CIDRs. The port defaults to 4317, as the chart's collector rule does.
+func agentCollector(namespace string, cidrs []string) operator.AgentCollector {
+	authority := observability.CollectorAuthority()
+	if authority == "" {
+		return operator.AgentCollector{}
+	}
+	host, port := authority, 4317
+	if h, p, err := net.SplitHostPort(authority); err == nil {
+		host = h
+		if n, err := strconv.Atoi(p); err == nil {
+			port = n
+		}
+	}
+	return operator.AgentCollector{Namespace: namespace, Host: host, Port: port, CIDRs: cidrs}
+}
+
+// bundledSandboxImages converts the rendered bundled image settings for the tenant reconciler.
+func bundledSandboxImages(in map[string]oc.BundledSandboxImage) map[string]operator.BundledSandboxImage {
+	out := make(map[string]operator.BundledSandboxImage, len(in))
+	for key, img := range in {
+		out[key] = operator.BundledSandboxImage{Image: img.Image, Enabled: img.Enabled, Warm: img.Warm}
+	}
+	return out
 }

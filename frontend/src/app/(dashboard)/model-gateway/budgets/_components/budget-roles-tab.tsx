@@ -12,8 +12,8 @@ import {
   PageSectionHeader,
   Stack,
   Text,
-} from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+} from '@orbit/hades';
+import type { DataTableColumn } from '@orbit/hades';
 import { usePermissions } from '../../../_components/permissions-provider';
 import { hasScope } from '@orbit/lib/permissions';
 import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
@@ -39,6 +39,8 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
       {
         id: 'role',
         header: 'Role',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '12rem',
         locked: true,
         sortable: true,
         sortAccessor: (r) => r.role,
@@ -58,6 +60,8 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
       {
         id: 'budget',
         header: 'Budget',
+        gridWidth: '10rem',
+        minWidth: '7rem',
         sortable: true,
         sortAccessor: (r) => r.budget?.limit_usd ?? 0,
         cell: (r) =>
@@ -82,6 +86,8 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
       {
         id: 'scopes',
         header: 'Scopes',
+        gridWidth: '6rem',
+        minWidth: '4.5rem',
         cell: (r) => (
           <Text size="caption" color="subtle">
             {(r.scopes ?? []).length}
@@ -91,6 +97,7 @@ export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '4rem',
         cell: (r) => {

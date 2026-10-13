@@ -1,9 +1,5 @@
-import { Stack } from '@orbit/terra';
+import { ScopeGuard } from '../_components';
 
 export default function EnvironmentsLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <Stack asChild padding="comfortable">
-      <main>{children}</main>
-    </Stack>
-  );
+  return <ScopeGuard scope="agents:environments:read">{children}</ScopeGuard>;
 }

@@ -25,6 +25,19 @@ variable "NEXT_PUBLIC_APP_URL" {
   default = "https://orbit.local.clearroute.io:8443"
 }
 
+// Set from versions.hcl, which every build passes as a second file. A build
+// without them fails at the step that needs them. `bake --print` works without
+// them, for the release scripts that only read tags.
+variable "GO_VERSION" {}
+variable "GOLANGCI_LINT_VERSION" {}
+variable "BUF_VERSION" {}
+variable "PNPM_VERSION" {}
+variable "PROTOC_GEN_GO_VERSION" {}
+variable "PROTOC_GEN_GO_GRPC_VERSION" {}
+variable "DEADCODE_VERSION" {}
+variable "GITLEAKS_VERSION" {}
+variable "HELM_VERSION" {}
+
 target "_backend-default" {
   context    = "./backend"
   dockerfile = "Dockerfile"
@@ -53,7 +66,7 @@ target "backend-images" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-${item.service}"
-    "org.opencontainers.image.description" = "Orbit backend service image for ${item.service}"
+    "org.opencontainers.image.description" = "kora backend service image for ${item.service}"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -74,7 +87,7 @@ target "backend-tenant-images" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-${item.service}"
-    "org.opencontainers.image.description" = "Orbit backend service image for ${item.service}"
+    "org.opencontainers.image.description" = "kora backend service image for ${item.service}"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -89,7 +102,7 @@ target "orbit-agents" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-agents"
-    "org.opencontainers.image.description" = "Orbit agents service — agent type registry and run lifecycle management"
+    "org.opencontainers.image.description" = "kora agents service — agent type registry and run lifecycle management"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -104,7 +117,7 @@ target "orbit-triggers" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-triggers"
-    "org.opencontainers.image.description" = "Orbit triggers service — webhook ingestion, trigger management API, manual fire, and the cron scheduler"
+    "org.opencontainers.image.description" = "kora triggers service — webhook ingestion, trigger management API, manual fire, and the cron scheduler"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -119,7 +132,7 @@ target "orbit-shell" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-shell"
-    "org.opencontainers.image.description" = "Orbit shell proxy for agent sandbox environments"
+    "org.opencontainers.image.description" = "kora shell proxy for agent sandbox environments"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -136,7 +149,7 @@ target "orbit-mcp" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-mcp"
-    "org.opencontainers.image.description" = "Orbit MCP server — Orbit's management surface as MCP tools over Streamable HTTP"
+    "org.opencontainers.image.description" = "kora MCP server — kora's management surface as MCP tools over Streamable HTTP"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -151,7 +164,7 @@ target "orbit-runtime-mcp" {
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-runtime-mcp"
-    "org.opencontainers.image.description" = "Orbit MCP server for agent runtime tooling"
+    "org.opencontainers.image.description" = "kora MCP server for agent runtime tooling"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -165,7 +178,7 @@ target "orbit-session-manager" {
   pull       = true
   labels = {
     "org.opencontainers.image.title" = "orbit-session-manager"
-    "org.opencontainers.image.description" = "Orbit session-manager — Go binary + Node.js for Claude Code integration"
+    "org.opencontainers.image.description" = "kora session-manager — Go binary + Node.js for Claude Code integration"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -173,18 +186,111 @@ target "orbit-session-manager" {
   tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-session-manager:${IMAGE_TAG}"]
 }
 
-target "orbit-sandbox-exec" {
+target "orbit-sandbox-mount" {
   context    = "./backend"
-  dockerfile = "Dockerfile.sandbox-exec"
+  dockerfile = "Dockerfile.sandbox-mount"
   pull       = true
   labels = {
-    "org.opencontainers.image.title" = "orbit-sandbox-exec"
-    "org.opencontainers.image.description" = "Orbit sandbox-exec — gRPC exec server for isolated agent run environments"
+    "org.opencontainers.image.title" = "orbit-sandbox-mount"
+    "org.opencontainers.image.description" = "kora node agent that shares each sandbox's local folder with its session-manager pod over kernel NFS"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
   }
-  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-sandbox-exec:${IMAGE_TAG}"]
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/orbit-sandbox-mount:${IMAGE_TAG}"]
+}
+
+target "kora-sandbox-base" {
+  context    = "./backend"
+  dockerfile = "Dockerfile.sandbox-exec"
+  pull       = true
+  args = {
+    SANDBOX_BASE_VERSION = IMAGE_TAG
+    GO_VERSION           = GO_VERSION
+  }
+  labels = {
+    "org.opencontainers.image.title" = "kora-sandbox-base"
+    "org.opencontainers.image.description" = "kora sandbox base image: sandbox-exec, general CLIs, Go and Python"
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-base:${IMAGE_TAG}"]
+}
+
+// Bundled sandbox images (docs/adr/2026-10-07-bundled-sandbox-images.md). Each
+// builds FROM kora-sandbox-base, which the named context resolves to the base
+// target in the same bake run. A matrix job never waits on a pushed base tag.
+target "_sandbox-image" {
+  context  = "./backend"
+  contexts = {
+    kora-sandbox-base = "target:kora-sandbox-base"
+  }
+  labels = {
+    "org.opencontainers.image.source" = REPOSITORY_URL
+    "org.opencontainers.image.url" = REPOSITORY_URL
+    "org.opencontainers.image.licenses" = "Apache-2.0"
+  }
+}
+
+target "kora-sandbox-go" {
+  inherits   = ["_sandbox-image"]
+  dockerfile = "Dockerfile.sandbox-go"
+  args = {
+    GOLANGCI_LINT_VERSION = GOLANGCI_LINT_VERSION
+    BUF_VERSION           = BUF_VERSION
+  }
+  labels = {
+    "org.opencontainers.image.title" = "kora-sandbox-go"
+    "org.opencontainers.image.description" = "kora sandbox image: the base image plus golangci-lint, buf and protoc"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-go:${IMAGE_TAG}"]
+}
+
+target "kora-sandbox-python" {
+  inherits   = ["_sandbox-image"]
+  dockerfile = "Dockerfile.sandbox-python"
+  labels = {
+    "org.opencontainers.image.title" = "kora-sandbox-python"
+    "org.opencontainers.image.description" = "kora sandbox image: the base image plus ruff and pytest"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-python:${IMAGE_TAG}"]
+}
+
+target "kora-sandbox-node" {
+  inherits   = ["_sandbox-image"]
+  dockerfile = "Dockerfile.sandbox-node"
+  args = {
+    PNPM_VERSION = PNPM_VERSION
+  }
+  labels = {
+    "org.opencontainers.image.title" = "kora-sandbox-node"
+    "org.opencontainers.image.description" = "kora sandbox image: the base image plus Node LTS and pnpm"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-node:${IMAGE_TAG}"]
+}
+
+// kora-dev: kora's own development tools at the versions in versions.hcl. The
+// chart does not register it. kora's own deployment does.
+target "kora-sandbox-dev" {
+  inherits   = ["_sandbox-image"]
+  dockerfile = "Dockerfile.sandbox-dev"
+  contexts = {
+    kora-sandbox-go   = "target:kora-sandbox-go"
+    kora-sandbox-node = "target:kora-sandbox-node"
+  }
+  args = {
+    PROTOC_GEN_GO_VERSION      = PROTOC_GEN_GO_VERSION
+    PROTOC_GEN_GO_GRPC_VERSION = PROTOC_GEN_GO_GRPC_VERSION
+    DEADCODE_VERSION           = DEADCODE_VERSION
+    GITLEAKS_VERSION           = GITLEAKS_VERSION
+    HELM_VERSION               = HELM_VERSION
+  }
+  labels = {
+    "org.opencontainers.image.title" = "kora-sandbox-dev"
+    "org.opencontainers.image.description" = "kora sandbox image for kora development: kora's pinned development tools"
+  }
+  tags = ["${REGISTRY}/${IMAGE_NAMESPACE}/kora-sandbox-dev:${IMAGE_TAG}"]
 }
 
 target "orbit-frontend" {
@@ -193,10 +299,11 @@ target "orbit-frontend" {
   pull       = true
   args = {
     NEXT_PUBLIC_APP_URL = NEXT_PUBLIC_APP_URL
+    ORBIT_VERSION       = IMAGE_TAG
   }
   labels = {
     "org.opencontainers.image.title" = "orbit-frontend"
-    "org.opencontainers.image.description" = "Orbit frontend service image"
+    "org.opencontainers.image.description" = "kora frontend service image"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -210,7 +317,7 @@ target "orbit-operator" {
   pull       = true
   labels = {
     "org.opencontainers.image.title" = "orbit-operator"
-    "org.opencontainers.image.description" = "Orbit operator image"
+    "org.opencontainers.image.description" = "kora operator image"
     "org.opencontainers.image.source" = REPOSITORY_URL
     "org.opencontainers.image.url" = REPOSITORY_URL
     "org.opencontainers.image.licenses" = "Apache-2.0"
@@ -229,7 +336,12 @@ group "default" {
     "orbit-mcp",
     "orbit-runtime-mcp",
     "orbit-session-manager",
-    "orbit-sandbox-exec",
+    "orbit-sandbox-mount",
+    "kora-sandbox-base",
+    "kora-sandbox-go",
+    "kora-sandbox-python",
+    "kora-sandbox-node",
+    "kora-sandbox-dev",
     "orbit-frontend",
     "orbit-operator",
   ]

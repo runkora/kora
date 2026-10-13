@@ -1,17 +1,16 @@
 'use client';
 
-/** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, platform tools, connections, egress, environment. */
+/** @tier 3 — agents-scoped. Builder step 3: MCP tool tree, connections, egress, environments. */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Alert, SectionHeading, Separator, Stack, Text } from '@orbit/terra';
+import { Alert, SectionHeading, Separator, Stack, Text } from '@orbit/hades';
 import type { EffectiveAccess } from '@orbit/shared/api';
 import { previewEffectiveAccess } from '../../[slug]/_services/agent-detail-api';
 import { ConnectionCards, EffectiveAccessPanel } from '@orbit/components';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { EgressModeCards } from '../motif/egress-mode-cards';
-import { EnvironmentCard } from '../motif/environment-card';
+import { EnvironmentsCard } from '../motif/environments-card';
 import { countGrantedServers, McpToolTree } from '../motif/mcp-tool-tree';
-import { PlatformToolsCard } from '../motif/platform-tools-card';
 
 /** Section heading shared by every block on this step. */
 function SectionLabel({ title, desc }: { title: string; desc: string }) {
@@ -51,14 +50,14 @@ export function StepTools() {
             .filter(Boolean),
         },
         connectors: fields.connectors,
-        environment_id: fields.environmentId || null,
+        environments: fields.environments,
       }).then((result) => {
         setAccess(result.access);
         setAccessError(result.error);
       });
     }, 400);
     return () => clearTimeout(timer);
-  }, [fields.connectivityMode, fields.connectivityHosts, fields.connectors, fields.environmentId]);
+  }, [fields.connectivityMode, fields.connectivityHosts, fields.connectors, fields.environments]);
 
   return (
     <Stack gap="relaxed">
@@ -91,25 +90,7 @@ export function StepTools() {
         onChange={(scopes) => setField('mcpTools', scopes)}
       />
 
-      <Separator span="full" />
-
-      {/* ── Platform tools ─────────────────────────────────────────────────── */}
-      <Stack gap="cozy">
-        <SectionLabel
-          title="Platform tools"
-          desc="Direct platform capabilities granted to the agent, beyond MCP servers."
-        />
-        {catalogues.status.toolScopes === 'error' && (
-          <Alert variant="error">Tool scopes failed to load: {catalogues.errors.toolScopes}</Alert>
-        )}
-        <PlatformToolsCard
-          scopes={catalogues.toolScopes}
-          granted={fields.toolScopes}
-          onChange={(scopes) => setField('toolScopes', scopes)}
-        />
-      </Stack>
-
-      <Separator span="full" />
+      <Separator />
 
       {/* ── Connections ────────────────────────────────────────────────────── */}
       <Stack gap="cozy">
@@ -131,7 +112,7 @@ export function StepTools() {
         )}
       </Stack>
 
-      <Separator span="full" />
+      <Separator />
 
       {/* ── Network egress ─────────────────────────────────────────────────── */}
       <Stack gap="cozy">
@@ -144,18 +125,20 @@ export function StepTools() {
         />
       </Stack>
 
-      <Separator span="full" />
+      <Separator />
 
-      {/* ── Environment ────────────────────────────────────────────────────── */}
+      {/* ── Environments ───────────────────────────────────────────────────── */}
       <Stack gap="cozy">
         <SectionLabel
-          title="Environment"
-          desc="An environment merges its egress hosts and connections into the agent's effective access. Choose it alongside the access it modifies."
+          title="Environments"
+          desc="The sandboxes this agent can run in. Their egress hosts and connections join the agent's effective access."
         />
-        <EnvironmentCard
+        <EnvironmentsCard
           environments={catalogues.environments}
-          value={fields.environmentId}
-          onChange={(id) => setField('environmentId', id)}
+          value={fields.environments}
+          onChange={(next) => setField('environments', next)}
+          loading={catalogues.status.environments === 'loading'}
+          error={catalogues.status.environments === 'error' ? catalogues.errors.environments : null}
         />
       </Stack>
 

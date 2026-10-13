@@ -18,7 +18,7 @@ spec:
         spiffe.io/component: frontend
         {{- include "orbit.podLabels" (dict "root" $ "name" "frontend") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/frontend/configmap.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "frontend") | nindent 8 }}
     spec:
@@ -28,7 +28,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" false) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "frontend") | nindent 8 }}
       containers:
         - name: orbit-frontend

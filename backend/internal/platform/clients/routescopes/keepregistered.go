@@ -38,9 +38,8 @@ const reregisterInterval = 5 * time.Minute
 // tick. register must be idempotent, which the policy service's registration
 // endpoint is; a tick that changes nothing costs one call.
 //
-// register is the one call that publishes this service's routes and scopes,
-// whatever client it goes through: the anonymous routescopes client, or the
-// authenticated policy client for services whose registration needs a bearer.
+// register is the one call that publishes this service's routes and scopes:
+// the routescopes client over HTTP, or an in-process call in the policy service.
 //
 // The cadence is not a parameter: see [reregisterInterval].
 func KeepRegistered(ctx context.Context, logger logging.Logger, service string, register func(context.Context) error) {

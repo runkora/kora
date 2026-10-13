@@ -2,6 +2,7 @@
 'use client';
 
 import {
+  CopyField,
   Badge,
   Modal,
   ModalBody,
@@ -11,8 +12,8 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
-import { CopyRow, StatusBadge } from '@orbit/components';
+} from '@orbit/hades';
+import { StatusBadge } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow } from '../../_types';
 import { principalDisplay } from './principal-display';
@@ -67,14 +68,14 @@ function SourceRow({ cat }: { cat: BudgetCategoryStatus }) {
       </Stack>
       {/* Indented one step past the label above, as its child. */}
       <Stack gap="none" style={{ paddingInlineStart: '1rem' }}>
-        <CopyRow value={cat.id} mono />
+        <CopyField value={cat.id} mono wrap />
         <Stack
           direction="horizontal"
           wrap
           align="center"
           gap="tight"
           paddingInline="cozy"
-          // 2px + CopyRow's own 8px bottom padding matches the 10px gap above the id.
+          // 2px + CopyField's own 8px bottom padding matches the 10px gap above the id.
           style={{ paddingBlockStart: '2px', paddingBlockEnd: '4px' }}
         >
           {cat.limit_usd > 0 && (
@@ -142,10 +143,10 @@ export function BudgetPrincipalDetailModal({
             {/* Identity */}
             <Stack padding="snug">
               <SectionLabel>Identity</SectionLabel>
-              <CopyRow label="Principal ID" value={principal.principal_id} mono />
-              {principal.email && <CopyRow label="Email" value={principal.email} />}
+              <CopyField label="Principal ID" value={principal.principal_id} mono wrap />
+              {principal.email && <CopyField label="Email" value={principal.email} wrap />}
               {principal.display_name && (
-                <CopyRow label="Display Name" value={principal.display_name} />
+                <CopyField label="Display Name" value={principal.display_name} wrap />
               )}
             </Stack>
 

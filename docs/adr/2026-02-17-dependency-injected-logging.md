@@ -4,13 +4,13 @@
 **Date:** 2026-02-17
 **Last Updated:** 2026-02-16
 **Deciders:** Architecture Team
-**Technical Story:** Establishing logging infrastructure for the Orbit backend with OpenTelemetry readiness
+**Technical Story:** Establishing logging infrastructure for the kora backend with OpenTelemetry readiness
 
 ---
 
 ## Context
 
-The Orbit backend requires a logging strategy that supports modern observability, debugging, and operational monitoring across all features and components. The logging approach must:
+The kora backend requires a logging strategy that supports modern observability, debugging, and operational monitoring across all features and components. The logging approach must:
 - Integrate cleanly with Go idioms and support structured logging
 - Facilitate testing without creating tight coupling between components
 - Enable automatic log-trace correlation with OpenTelemetry (OTEL)

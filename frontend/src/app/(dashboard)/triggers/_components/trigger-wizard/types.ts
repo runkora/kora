@@ -9,9 +9,12 @@
  */
 
 import type * as React from 'react';
-import type { IconName } from '@orbit/terra';
+import type { IconName } from '@orbit/hades';
 import type { TriggerKind, TriggerOverflow } from '@orbit/shared/api';
 import type { Frequency } from './cron';
+import type { FilterRow } from '../filter-rows-editor';
+import type { SenderRestrictionDraft } from '../sender-restriction-editor';
+import type { Senders } from '../../_types';
 
 export type { TriggerKind, TriggerOverflow };
 
@@ -45,7 +48,7 @@ export interface TriggerDraft {
   name: string;
   promptTemplate: string;
   source?: { existingId: string } | { newName: string; provider: string };
-  /** Webhook only. Empty string means any event type. */
+  /** Webhook only. */
   eventType?: string;
   /**
    * Webhook only. field → allowed values; a delivery matches when every clause
@@ -53,6 +56,10 @@ export interface TriggerDraft {
    * is set, which matches every delivery of the chosen event.
    */
   matchCondition?: Record<string, string[]>;
+  /** Webhook only. field → substrings, matched ignoring case; omitted when unset. */
+  matchContains?: Record<string, string[]>;
+  /** Webhook only. Omitted when anyone may fire the trigger. */
+  senderRestriction?: Senders;
   schedule?: { cronExpression: string; timezone: string; catchUp: boolean };
   manualInputs?: {
     name: string;
@@ -93,17 +100,6 @@ export interface TriggerWizardProps {
   onClose: () => void;
 }
 
-/**
- * One row of the webhook match-condition builder.
- *
- * `values` stays a raw string while being edited, split on `|` only when the
- * draft is built: splitting on every keystroke would fight the person typing.
- */
-export interface WizardFilter {
-  field: string;
-  values: string;
-}
-
 /** One row of the manual trigger's field builder. */
 export interface WizardField {
   /** Stable local id — the key is derived from the label and may collide mid-edit. */
@@ -123,10 +119,10 @@ export interface WizardState {
   sourceChoice: string;
   newSourceName: string;
   newSourceProvider: string;
-  /** Empty string means any event type. */
   eventType: string;
   /** Match-condition rows. Empty means every delivery of the event qualifies. */
-  filters: WizardFilter[];
+  filters: FilterRow[];
+  senders: SenderRestrictionDraft;
 
   // ── Schedule ──
   freq: Frequency;
@@ -213,24 +209,16 @@ export interface DoneContentProps {
   secret?: string;
 }
 
-/**
- * One field a delivery of this kind carries.
- *
- * The backend matches `match_condition` and renders `{{ dotted.field }}`
- * placeholders over the same per-adapter map, so one catalog serves the filter
- * picker and the prompt builder alike.
- */
+/** One `var.` value a scheduled or manual fire supplies to the prompt. */
 export interface FieldCatalogEntry {
-  /** Dotted token, e.g. `pr.base_ref`. */
+  /** Dotted token, e.g. `var.date`. */
   token: string;
   /** One line, in the words a person would use. */
   description: string;
   /** A plausible sample value, rendered by the prompt preview. */
   example?: string;
-  /** Picker group heading, e.g. "Pull request". Defaults from the token prefix. */
+  /** Picker group heading, e.g. "Schedule". Defaults from the token prefix. */
   group?: string;
-  /** Webhook event types this field exists for. Omitted means every event. */
-  events?: string[];
 }
 
 /**

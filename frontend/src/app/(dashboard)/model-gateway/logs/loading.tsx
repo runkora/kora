@@ -4,7 +4,7 @@
 // as the Suspense boundary required by the client-side useSearchParams() call
 // inside LogsTab.
 
-import { Card, CardContent, Skeleton, Stack } from '@orbit/terra';
+import { Card, CardContent, Skeleton, Stack } from '@orbit/hades';
 
 export default function LogsLoading() {
   return (

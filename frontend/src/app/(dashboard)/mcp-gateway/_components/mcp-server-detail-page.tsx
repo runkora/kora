@@ -4,8 +4,7 @@
 
 import { useState } from 'react';
 import type { McpCatalogTool } from '@orbit/shared/api';
-import { Icon, SidebarLayout, Stack, Text } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
+import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@orbit/hades';
 import {
   MCP_CLIENTS,
   buildMcpConfig,
@@ -18,7 +17,7 @@ import { buildDomainGroups, relativeTime, serverRollupScope, statusColor } from 
 import { ServerAvatar } from './server-avatar';
 import { ConfigBlock } from './config-block';
 
-// Terra caption/micro variants are leading-none; the spec composed these labels
+// Hades caption/micro variants are leading-none; the spec composed these labels
 // on the default 1.5 line box. `lineHeight` is kept inline where the line box
 // height is load-bearing for the surrounding layout (stacked rows, chip rows).
 // Font sizes 13/15/17/26px sit more than a sub-pixel from any Text/Heading
@@ -432,7 +431,7 @@ function TrustCard({ server }: { server: McpServer }) {
             </Text>
             <Text as="span" size="caption" color="muted" style={{ lineHeight: 1.5, marginTop: 3 }}>
               {delegated
-                ? 'Acts as you: it inherits your Orbit identity and is bound by exactly your grants. It can never exceed what you can do.'
+                ? 'Acts as you: it inherits your kora identity and is bound by exactly your grants. It can never exceed what you can do.'
                 : 'Acts as itself: the gateway injects a dedicated service credential just-in-time. It never sees your identity or tokens.'}
             </Text>
           </Stack>

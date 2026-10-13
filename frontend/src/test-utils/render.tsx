@@ -7,7 +7,7 @@
  */
 import React from 'react';
 import { render, type RenderOptions, type RenderResult } from '@testing-library/react';
-import { TooltipProvider } from '@orbit/terra';
+import { TooltipProvider } from '@orbit/hades';
 import { PreferencesProvider } from '../app/(dashboard)/_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../app/(dashboard)/_preferences/preferences.schema';
 

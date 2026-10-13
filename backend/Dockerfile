@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS builder
 
 # SERVICE must be the name of the directory under cmd/ (e.g. identity, example).
 ARG SERVICE
@@ -40,11 +40,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 #                                               those that do not.
 #   4. internal/identity/config       — only consumed by the identity binary
 #                                       today, small enough to copy universally.
+#   5. internal/platform/token/config — imported by binaries that verify
+#                                       platform tokens.
 RUN mkdir -p /configs && \
     find /app/cmd/${SERVICE}/config \
          /app/internal/platform/observability/config \
          /app/internal/platform/storage/config \
          /app/internal/identity/config \
+         /app/internal/platform/token/config \
          -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \

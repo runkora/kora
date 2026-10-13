@@ -1,4 +1,4 @@
-// Package triggers implements the Orbit Triggers feature: the front door for the
+// Package triggers implements the kora Triggers feature: the front door for the
 // ways something can start in the platform. Three kinds ship today: an inbound
 // webhook, a cron schedule, and a manual fire. See
 // docs/adr/2026-06-20-extended-trigger-types.md and the original
@@ -106,6 +106,8 @@ var (
 	ErrMissingDeliveryID = errors.New("webhook delivery has no provider delivery id")
 	// ErrUnknownProvider is returned when a source references an unregistered adapter.
 	ErrUnknownProvider = errors.New("unknown webhook provider")
+	// ErrProviderNotFound is ErrUnknownProvider for a provider named in a URL path.
+	ErrProviderNotFound = errors.New("webhook provider not found")
 	// ErrValidation indicates a malformed create/update request.
 	ErrValidation = errors.New("validation failed")
 	// ErrTriggerDisabled is returned when trying to fire a disabled trigger.
@@ -339,6 +341,10 @@ type Trigger struct {
 	// ManualConfig declares the inputs a manual trigger accepts. One
 	// declaration drives both the console form and API validation.
 	ManualConfig *ManualConfig `json:"manual_config,omitempty"`
+	// SenderRestriction limits who can fire a webhook trigger; nil fires for every sender.
+	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
+	// MatchContains maps a field to substrings, one of which it must contain.
+	MatchContains map[string][]string `json:"match_contains,omitempty"`
 	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
 	// webhook triggers inherit from their WebhookSource).
 	PrincipalID string    `json:"-"`
@@ -356,8 +362,8 @@ type Trigger struct {
 	MaxQueueDepth int16  `json:"max_queue_depth"`
 
 	// ─── Delivery safety ────────────────────────────────────────────────────
-	// TimeoutSeconds bounds starting the run, not running it: a long-running
-	// agent is not a failure.
+	// TimeoutSeconds bounds the start request, which returns once orbit-agents
+	// has queued the run. A long-running agent is not a failure.
 	TimeoutSeconds   int16 `json:"timeout_seconds"`
 	DedupeEnabled    bool  `json:"dedupe_enabled"`
 	AutopauseEnabled bool  `json:"autopause_enabled"`
@@ -490,7 +496,8 @@ type SourceResponse struct {
 // Kind selects the trigger kind ("webhook", "scheduled", or "manual").
 // Defaults to "webhook" when omitted for backward compatibility.
 //
-// For webhook kind: SourceID, EventType are required; MatchCondition is optional.
+// For webhook kind: SourceID, EventType are required; MatchCondition and
+// SenderRestriction are optional.
 // For scheduled kind: ScheduleConfig is required; SourceID/EventType are ignored.
 // For manual kind: no extra fields required beyond Name/AgentTypeID/PromptTemplate.
 //
@@ -508,6 +515,10 @@ type CreateTriggerRequest struct {
 	PromptTemplate string              `json:"prompt_template"`
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
 	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
+	// SenderRestriction applies to webhook triggers only.
+	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
+	// MatchContains applies to webhook triggers only.
+	MatchContains map[string][]string `json:"match_contains,omitempty"`
 
 	// Embedded, not repeated: create and update accept the same settings with
 	// the same bounds, and JSON field promotion keeps them flat on the wire.
@@ -544,6 +555,11 @@ type UpdateTriggerRequest struct {
 	Enabled        *bool               `json:"enabled,omitempty"`
 	ScheduleConfig *ScheduleConfig     `json:"schedule_config,omitempty"`
 	ManualConfig   *ManualConfig       `json:"manual_config,omitempty"`
+	// SenderRestriction replaces the stored restriction when present; one with
+	// both lists empty removes it.
+	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
+	// MatchContains replaces the stored map when present; an empty map removes it.
+	MatchContains map[string][]string `json:"match_contains,omitempty"`
 	// Editable after creation with exactly the create-time bounds. Changes
 	// apply to the next delivery, not to work already in flight.
 	AdmissionSettings
@@ -601,16 +617,42 @@ type UpdateRetentionRequest struct {
 
 // ─── Event catalog ──────────────────────────────────────────────────────────
 
-// EventTypesResponse answers "what can I write a trigger for on this source?".
+// EventTypesResponse lists the event types a trigger can listen for.
 //
-// Two lists, because neither alone is the answer. Declared is what the adapter
-// models: the event types it parses fields out of, which is what a trigger can
-// match on richly. Observed is what this source has actually sent, which catches
-// the events a provider emits that the adapter has not modeled yet — and tells
-// an admin whose trigger never fires that their event type never arrived.
+// Declared is every event type in the provider's schema. Observed is what a
+// source has sent, including events newer than the schema; a provider's catalog
+// has none.
+// Associations are the values a sender restriction may name, empty when the
+// provider identifies no sender.
 type EventTypesResponse struct {
-	Declared []string `json:"declared"`
-	Observed []string `json:"observed"`
+	Declared     []string `json:"declared"`
+	Observed     []string `json:"observed,omitempty"`
+	Associations []string `json:"associations"`
+}
+
+// FieldsResponse lists the fields a trigger on one event type can reference.
+type FieldsResponse struct {
+	Fields []Field `json:"fields"`
+}
+
+// ─── Sender restriction ─────────────────────────────────────────────────────
+
+// SenderRestriction limits which senders can fire a webhook trigger. A sender
+// passes when its login is listed or its association is listed.
+type SenderRestriction struct {
+	Logins       []string `json:"logins,omitempty"`
+	Associations []string `json:"associations,omitempty"`
+}
+
+// empty reports whether the restriction lets every sender through.
+func (r *SenderRestriction) empty() bool {
+	return r == nil || (len(r.Logins) == 0 && len(r.Associations) == 0)
+}
+
+// WebhookConfig is the kind_config for a webhook trigger.
+type WebhookConfig struct {
+	SenderRestriction *SenderRestriction  `json:"sender_restriction,omitempty"`
+	MatchContains     map[string][]string `json:"match_contains,omitempty"`
 }
 
 // RedeliverResponse is returned from POST /api/v1/trigger-deliveries/{id}/redeliver.
@@ -662,11 +704,9 @@ func (e *InputValidationError) Is(target error) bool { return target == ErrValid
 // errors.Is without reaching for the concrete type.
 var ErrValidationFailed = errors.New("input validation failed")
 
-// dispatchTimeout is how long this trigger gets to start a run.
-//
-// It bounds starting, not running: a long-running agent is not a failure, but
-// an agent that never accepts the start is. Falls back to the package default
-// for triggers created before the setting existed.
+// dispatchTimeout is how long this trigger's start request may take. orbit-agents
+// queues the run and answers at once. Falls back to the package default for
+// triggers created before the setting existed.
 func (t Trigger) dispatchTimeout() time.Duration {
 	if t.TimeoutSeconds <= 0 {
 		return dispatchTimeout

@@ -1,9 +1,9 @@
 'use client';
 
-import { Callout, Grid, Heading, Stack, Text } from '@orbit/terra';
+import { Callout, Grid, Heading, Stack, Text } from '@orbit/hades';
 import type { AnalyticsDays, AnalyticsGranularity, AnalyticsResponse } from '../../_types';
 import type { AnalyticsLoadStatus } from '../../_hooks/use-analytics';
-import type { PeriodPrefKey } from '@orbit/components';
+import type { PeriodPrefKey } from '../../../_preferences/period';
 import { AnalyticsKPICards } from './analytics-kpi-cards';
 import { AnalyticsSpendChart } from './analytics-spend-chart';
 import { AnalyticsTokensChart } from './analytics-tokens-chart';

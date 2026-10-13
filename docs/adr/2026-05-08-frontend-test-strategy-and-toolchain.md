@@ -3,17 +3,17 @@
 **Status:** Accepted
 **Date:** 2026-05-08
 **Deciders:** Engineering Team
-**Technical Story:** [Frontend Test Strategy PRD](../prd/frontend-test-strategy.md) -- establishing a layered, package-aware test architecture for the Orbit frontend.
+**Technical Story:** [Frontend Test Strategy PRD](../prd/frontend-test-strategy.md) -- establishing a layered, package-aware test architecture for the kora frontend.
 
 ---
 
 ## Context
 
-The Orbit frontend has zero test infrastructure. No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or test file exists anywhere in the frontend tree. No `test` script exists in any `package.json`. The CI pipeline has no test step.
+The kora frontend has zero test infrastructure. No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or test file exists anywhere in the frontend tree. No `test` script exists in any `package.json`. The CI pipeline has no test step.
 
 The codebase is not a blank slate -- it is a production-intended frontend with two distinct layers of complexity that any test strategy must accommodate.
 
-**The Terra design system (`@orbit/terra`)** is a fully implemented workspace package at `frontend/src/packages/terra/`. It has 21+ component families built on Radix UI primitives, a semantic token system expressed via Tailwind v4 `@theme` blocks, and Storybook stories for every component. It already has `vite@6.3.5` and `@vitejs/plugin-react@4.5.2` installed as dev dependencies. It has no unit or component tests.
+**The Hades design system (`@orbit/hades`)** is a fully implemented workspace package at `frontend/src/packages/hades/`. It has 21+ component families built on Radix UI primitives, a semantic token system expressed via Tailwind v4 `@theme` blocks, and Storybook stories for every component. It already has `vite@6.3.5` and `@vitejs/plugin-react@4.5.2` installed as dev dependencies. It has no unit or component tests.
 
 **The Next.js 16 App Router application** (`frontend/src/app/`) has a working OIDC auth flow (PKCE, HRD discover, iron-session cookie sealing), a dashboard shell with page-scoped colocated components under `_components/` directories, shared app-level components at `frontend/src/components/`, a Backend-for-Frontend (BFF) layer at `frontend/src/server/` that proxies requests to the Go backend, and BFF route handlers under `frontend/src/app/api/`. All server-side modules are guarded by `import "server-only"`. There are no tests.
 
@@ -29,7 +29,7 @@ frontend/src/
 ├── lib/
 │   ├── oidc-client.ts                # buildUserManager, TenantOidcConfig
 │   └── routing/                      # ApiRoute, isSafeRedirectPath
-├── packages/terra/                   # @orbit/terra workspace package
+├── packages/hades/                   # @orbit/hades workspace package
 ├── server/                           # server-only: client.ts, auth-config.ts, session.ts
 └── shared/                           # HealthResponse and other shared types
 ```
@@ -38,16 +38,16 @@ Note: there is no `_core/` directory. Shared components live in `src/components/
 
 ### Background
 
-Orbit is structured as a pnpm workspace. `frontend/pnpm-workspace.yaml` declares `packages: ['src/packages/*']`, which means Terra is an independent installable package (`@orbit/terra`) consumed by the app via a workspace link. The monorepo's Go backend runs as a separate process; the only interface between the frontend and the backend is the BFF layer at `src/server/client.ts` (`orbitClient`) and the `/api/*` route handlers.
+kora is structured as a pnpm workspace. `frontend/pnpm-workspace.yaml` declares `packages: ['src/packages/*']`, which means Hades is an independent installable package (`@orbit/hades`) consumed by the app via a workspace link. The monorepo's Go backend runs as a separate process; the only interface between the frontend and the backend is the BFF layer at `src/server/client.ts` (`orbitClient`) and the `/api/*` route handlers.
 
-[frontend-scaffolding-and-toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) (frontend scaffolding) established the Next.js 16 App Router application structure. [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) (Terra design system) established the workspace package isolation model, the Tailwind v4 token architecture, and the Storybook-based development workflow. This ADR establishes the test layer that sits alongside those decisions.
+[frontend-scaffolding-and-toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) (frontend scaffolding) established the Next.js 16 App Router application structure. [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) (Hades design system) established the workspace package isolation model, the Tailwind v4 token architecture, and the Storybook-based development workflow. This ADR establishes the test layer that sits alongside those decisions.
 
 ### Problem Statement
 
 We need a set of architectural decisions that establish:
 
 1. Which test runner(s) to use across the workspace, and why
-2. How Terra's tests are isolated from the Next.js app
+2. How Hades' tests are isolated from the Next.js app
 3. How app-level tests handle the `server-only` guard and App Router APIs
 4. How BFF route handlers are tested without a live Go backend, and which parts of the pipeline are exercised
 5. How E2E tests run without a live Go backend or Docker Compose stack
@@ -60,12 +60,12 @@ We need a set of architectural decisions that establish:
 ### Goals
 
 - Establish a layered, package-aware test architecture covering unit, component, integration, and E2E tiers
-- Give Terra its own isolated test suite that runs with no dependency on the Next.js app
+- Give Hades its own isolated test suite that runs with no dependency on the Next.js app
 - Enable BFF route handler tests that exercise the full handler and `orbitClient` pipeline without a live backend
 - Prioritise real application state over module mocking in integration tests -- intercept at the HTTP boundary, not the module boundary
 - Centralise all shared mocking utilities in a single, typed `test-utils/` directory
 - Define a CI execution model rooted in a single `make` target at the repo root
-- Produce coverage reports for both Terra and the app without blocking CI on threshold failures
+- Produce coverage reports for both Hades and the app without blocking CI on threshold failures
 
 ### Non-Goals
 
@@ -79,15 +79,15 @@ We need a set of architectural decisions that establish:
 
 ## Decision Drivers
 
-* **Vite alignment**: Terra already uses Vite as its build system and Storybook bundler. Adding a test runner that shares Vite's module resolution (aliases, ESM, plugin pipeline) eliminates a second transform stack and makes test configuration predictable.
+* **Vite alignment**: Hades already uses Vite as its build system and Storybook bundler. Adding a test runner that shares Vite's module resolution (aliases, ESM, plugin pipeline) eliminates a second transform stack and makes test configuration predictable.
 * **ESM-first codebase**: The entire frontend is written in modern ESM. The codebase includes ESM-only packages (`oidc-client-ts`). Any test runner must support ESM natively without experimental flags.
 * **`server-only` boundary**: Modules under `src/server/` and `src/app/api/` import `server-only` at the top level. This package throws at import time in any non-React-Server-Components environment. Tests must neutralise this without altering production code.
-* **Package isolation**: Terra must be testable without running Next.js. The workspace model requires each package to carry its own test config and run independently.
+* **Package isolation**: Hades must be testable without running Next.js. The workspace model requires each package to carry its own test config and run independently.
 * **State over mocking**: Integration tests should exercise the real application code path -- real `fetch` calls, real response parsing, real `useState` transitions -- and intercept only at the HTTP boundary. Module-level mocking of `orbitClient` would leave the most security-relevant behaviors (`ApiError` parsing, `AbortSignal` timeout, URL construction) untested.
 * **Centralised mocking**: Ad-hoc inline mocks are not acceptable. All MSW handlers and factory functions must live in one canonical location, typed against real application interfaces, so that interface changes surface stale mocks at compile time.
 * **No live backend in tests**: The Go backend is a separate process. Coupling frontend tests to a live backend makes them slow, order-dependent, and fragile on CI.
 * **Makefile-rooted execution**: The repo's developer interface is `make`. Adding frontend tests means wiring them into the existing `make check` target, not requiring developers to remember a separate invocation.
-* **Developer experience**: Full Terra test suite in under 10 seconds cold start; full app integration suite in under 30 seconds cold start; watch mode re-run on a single file in under 3 seconds.
+* **Developer experience**: Full Hades test suite in under 10 seconds cold start; full app integration suite in under 30 seconds cold start; watch mode re-run on a single file in under 3 seconds.
 
 ---
 
@@ -95,7 +95,7 @@ We need a set of architectural decisions that establish:
 
 ### Option 1: Jest
 
-**Description:** Use Jest as the test runner for both Terra and the app.
+**Description:** Use Jest as the test runner for both Hades and the app.
 
 **Pros:**
 - Widely known; most React documentation examples use Jest
@@ -103,17 +103,17 @@ We need a set of architectural decisions that establish:
 - Mature snapshot testing support (though snapshot testing is rejected -- see Option 5)
 
 **Cons:**
-- Terra already uses Vite as its build system; introducing Jest requires a separate Babel or SWC transform pipeline running alongside the existing Vite pipeline -- two transform stacks for the same code
+- Hades already uses Vite as its build system; introducing Jest requires a separate Babel or SWC transform pipeline running alongside the existing Vite pipeline -- two transform stacks for the same code
 - Jest's ESM support is still experimental and requires `--experimental-vm-modules`; the codebase is fully ESM and imports ESM-only packages (`oidc-client-ts`)
-- Path aliases (`@orbit/terra`, `@orbit/test-utils`, `@/server/`) work automatically in Vitest because it shares Vite's resolver; Jest requires a separate `moduleNameMapper` that must be kept in sync with `tsconfig.json` and `vite.config.ts`
+- Path aliases (`@orbit/hades`, `@orbit/test-utils`, `@/server/`) work automatically in Vitest because it shares Vite's resolver; Jest requires a separate `moduleNameMapper` that must be kept in sync with `tsconfig.json` and `vite.config.ts`
 - No benefit from Vite's HMR-aware test reruns; watch mode is slower for a Vite-based project
 
 ### Option 2: Storybook interaction tests as the sole component test strategy
 
-**Description:** Use `@storybook/addon-interactions` (already installed in Terra) to write component tests within Storybook stories, relying on `storybook test` in CI rather than a dedicated test runner.
+**Description:** Use `@storybook/addon-interactions` (already installed in Hades) to write component tests within Storybook stories, relying on `storybook test` in CI rather than a dedicated test runner.
 
 **Pros:**
-- No new tooling to install in Terra; `addon-interactions` is already present
+- No new tooling to install in Hades; `addon-interactions` is already present
 - Stories and tests are colocated -- the documentation and the specification are the same file
 - Visual feedback in the Storybook UI during development
 
@@ -139,12 +139,12 @@ We need a set of architectural decisions that establish:
 
 ### Option 4: Vitest + React Testing Library + Playwright (chosen)
 
-**Description:** Use Vitest as the unified test runner for unit and component tests across Terra and the app, React Testing Library (RTL) for component rendering, and Playwright for E2E tests. Terra carries its own `vitest.config.ts`; the app uses two configs (`vitest.config.unit.ts` and `vitest.config.integration.ts`) for mutually exclusive tier selection. Both app configs include the `server-only` shim alias, the `@orbit/test-utils` path alias, and `setupFiles`. MSW is used from Phase 1 for BFF route and component integration tests. Playwright mocks the Go backend via route interception.
+**Description:** Use Vitest as the unified test runner for unit and component tests across Hades and the app, React Testing Library (RTL) for component rendering, and Playwright for E2E tests. Hades carries its own `vitest.config.ts`; the app uses two configs (`vitest.config.unit.ts` and `vitest.config.integration.ts`) for mutually exclusive tier selection. Both app configs include the `server-only` shim alias, the `@orbit/test-utils` path alias, and `setupFiles`. MSW is used from Phase 1 for BFF route and component integration tests. Playwright mocks the Go backend via route interception.
 
 **Pros:**
-- Vitest shares Vite's module resolver -- all `tsconfig.json` path aliases work automatically with zero additional configuration in both Terra and the app
+- Vitest shares Vite's module resolver -- all `tsconfig.json` path aliases work automatically with zero additional configuration in both Hades and the app
 - Native ESM support; no experimental flags required; ESM-only dependencies (`oidc-client-ts`) resolve without configuration
-- Terra's existing `vite.config.ts` can be extended directly by Vitest
+- Hades' existing `vite.config.ts` can be extended directly by Vitest
 - `@testing-library/react` is the community standard for testing React components; encourages testing from the user's perspective
 - MSW from Phase 1 means `orbitClient`'s full pipeline (URL construction, `AbortSignal` timeout, `ApiError` parsing) is exercised in BFF route tests -- not just the handler dispatch logic
 - The `server-only` shim pattern is well-documented and requires only a one-line alias in Vitest config
@@ -152,7 +152,7 @@ We need a set of architectural decisions that establish:
 - The `test-utils/` directory with typed handlers and factory functions provides a single canonical mocking location; TypeScript surfaces stale mocks when interfaces change
 
 **Cons:**
-- Three Vitest config files (Terra: one; app: two split by tier — `vitest.config.unit.ts` and `vitest.config.integration.ts`) — shared setup changes may need to be applied to both app configs; mitigated by extracting shared options into a common base object
+- Three Vitest config files (Hades: one; app: two split by tier — `vitest.config.unit.ts` and `vitest.config.integration.ts`) — shared setup changes may need to be applied to both app configs; mitigated by extracting shared options into a common base object
 - Playwright adds CI overhead (~80 MB browser binaries) and requires dedicated cache configuration
 - The `server-only` shim means that in tests, modules guarded by `import "server-only"` behave as if the guard is absent — must be documented clearly
 
@@ -165,7 +165,7 @@ We need a set of architectural decisions that establish:
 - Catches unintentional visual structure changes
 
 **Cons:**
-- Terra components are built with CVA. Snapshots capture full resolved className strings (`inline-flex items-center ... bg-accent text-accent-foreground hover:bg-accent-hover`) that are fragile against token renames, Tailwind version upgrades, and CVA internal changes. Every such change triggers a snapshot diff with no behavioral signal.
+- Hades components are built with CVA. Snapshots capture full resolved className strings (`inline-flex items-center ... bg-accent text-accent-foreground hover:bg-accent-hover`) that are fragile against token renames, Tailwind version upgrades, and CVA internal changes. Every such change triggers a snapshot diff with no behavioral signal.
 - In an AI-assisted workflow (Forge), routine component regeneration produces snapshot failures that developers learn to resolve with `--updateSnapshot` without reading -- defeating the purpose entirely.
 - Any value worth pinning (e.g., the string returned by `ApiRoute.session.GET()`) is more clearly expressed as an explicit `toEqual` assertion that reads as a specification rather than as a file diff.
 
@@ -195,7 +195,7 @@ We need a set of architectural decisions that establish:
 
 ### Rationale
 
-The core constraint driving this decision is that Terra already lives in a Vite-based ecosystem. Adding any test runner other than Vitest would require maintaining a second module resolution configuration in sync with `vite.config.ts` and `tsconfig.json` indefinitely.
+The core constraint driving this decision is that Hades already lives in a Vite-based ecosystem. Adding any test runner other than Vitest would require maintaining a second module resolution configuration in sync with `vite.config.ts` and `tsconfig.json` indefinitely.
 
 MSW is elevated to Phase 1 (not deferred to Phase 2 as initially proposed) because the whole point of BFF route tests is to verify the full handler + `orbitClient` + error-mapping pipeline. Testing only the handler dispatch with a mocked `orbitClient` leaves the most security-relevant logic untested. MSW requires minimal Phase 1 investment and the test-utils infrastructure it requires (the typed handler files) is needed regardless.
 
@@ -211,7 +211,7 @@ Module-level mocking via `vi.mock()` is restricted to cases where HTTP intercept
 
 ### Positive
 
-- Terra gains a fast, isolated test suite with no dependency on Next.js; CI can run Terra tests in parallel with app tests
+- Hades gains a fast, isolated test suite with no dependency on Next.js; CI can run Hades tests in parallel with app tests
 - BFF route handlers are fully testable in isolation with `orbitClient`'s real pipeline exercised via MSW; error-mapping, header injection, status code handling, and timeout behavior are all covered
 - Shared `test-utils/` with typed factory functions means a single interface change in `SessionPayload` or `HealthResponse` immediately surfaces stale test data at compile time
 - Playwright's cross-origin support means OIDC auth flow E2E tests are structurally possible without browser security flag workarounds
@@ -220,15 +220,15 @@ Module-level mocking via `vi.mock()` is restricted to cases where HTTP intercept
 
 ### Negative
 
-- Three Vitest config files exist across the workspace (Terra: one; app: two split by tier -- `vitest.config.unit.ts` and `vitest.config.integration.ts`); changes to shared Vitest version, global matchers setup, or alias blocks may need to be applied in multiple places
+- Three Vitest config files exist across the workspace (Hades: one; app: two split by tier -- `vitest.config.unit.ts` and `vitest.config.integration.ts`); changes to shared Vitest version, global matchers setup, or alias blocks may need to be applied in multiple places
 - Playwright browser binaries add CI download time and must be cached explicitly
 - The `server-only` shim is a deliberate deviation from production behavior that must be documented clearly
 - MSW in Phase 1 (not Phase 2) adds slightly more initial setup; mitigated by the `test-utils/` infrastructure serving all future tests
 
 ### Neutral
 
-- Storybook's role is unchanged; it remains the visual development environment for Terra and is not part of the test execution pipeline in Phase 1
-- Coverage thresholds (Terra ≥ 30%, App ≥ 15% for Phase 1) are reported but do not block CI; per-route mandatory test rules are the enforceable gate
+- Storybook's role is unchanged; it remains the visual development environment for Hades and is not part of the test execution pipeline in Phase 1
+- Coverage thresholds (Hades ≥ 30%, App ≥ 15% for Phase 1) are reported but do not block CI; per-route mandatory test rules are the enforceable gate
 - Full-stack system tests (Category B) are explicitly out of scope and will not block Phase 1/2 progress; if ever needed, a dedicated ADR will define them
 
 ---
@@ -240,7 +240,7 @@ Module-level mocking via `vi.mock()` is restricted to cases where HTTP intercept
 | Tier | Scope | Runner | Environment | File suffix | Location |
 |------|-------|--------|-------------|-------------|----------|
 | Unit | Pure TypeScript logic: `lib/routing/`, `shared/` | Vitest | Node | `*.test.ts` | Colocated with source |
-| Component | Terra components | Vitest + RTL | happy-dom | `*.test.tsx` | Colocated within Terra |
+| Component | Hades components | Vitest + RTL | happy-dom | `*.test.tsx` | Colocated within Hades |
 | Integration | BFF route handlers, shared components, page-scoped components | Vitest + RTL + MSW | jsdom + `server-only` shim | `*.integration.test.ts(x)` | Colocated with source |
 | E2E (Category A) | Critical user flows, Go backend mocked | Playwright | Chromium | `*.spec.ts` | `frontend/e2e/` |
 | E2E (Category B) | Full-stack — **explicitly out of scope** | — | — | — | — |
@@ -281,16 +281,16 @@ src/app/(dashboard)/_components/dashboard-sidebar.tsx
 
 There are no `__tests__/` subdirectories, no `tests/` directories at any level, and no top-level `integration/` folder. The suffix is the only structural distinction between tiers.
 
-#### Terra component tests: colocated within the package
+#### Hades component tests: colocated within the package
 
-Terra component tests follow the same colocation rule within the Terra package:
+Hades component tests follow the same colocation rule within the Hades package:
 
 ```
-src/packages/terra/src/components/button/button.tsx
-  └─ src/packages/terra/src/components/button/button.test.tsx    ✓
+src/packages/hades/src/components/button/button.tsx
+  └─ src/packages/hades/src/components/button/button.test.tsx    ✓
 ```
 
-Terra tests never import from `src/test-utils/` and never reference app-level paths.
+Hades tests never import from `src/test-utils/` and never reference app-level paths.
 
 #### E2E tests: `frontend/e2e/`
 
@@ -319,7 +319,7 @@ Helpers, factories, MSW handlers, and `renderWithProviders` live in `frontend/sr
 | Test type | Suffix | Location | pnpm script |
 |-----------|--------|----------|-------------|
 | Unit | `.test.ts(x)` | Colocated with source | `test:unit` |
-| Component (Terra) | `.test.tsx` | Colocated within Terra | `test:unit` |
+| Component (Hades) | `.test.tsx` | Colocated within Hades | `test:unit` |
 | Integration | `.integration.test.ts(x)` | Colocated with source | `test:integration` |
 | E2E — Category A | `.spec.ts` | `frontend/e2e/` | `test:e2e` |
 | E2E — Category B | — | **out of scope** — requires dedicated ADR | n/a |
@@ -327,15 +327,15 @@ Helpers, factories, MSW handlers, and `renderWithProviders` live in `frontend/sr
 
 ### Package Isolation
 
-Terra's `vitest.config.ts` extends the existing `vite.config.ts` using `mergeConfig` from `vitest/config` and uses `happy-dom` as the DOM environment — lightweight and sufficient for straightforward component rendering without the full browser API surface. Terra has only one test tier (component), so a single config file is sufficient.
+Hades' `vitest.config.ts` extends the existing `vite.config.ts` using `mergeConfig` from `vitest/config` and uses `happy-dom` as the DOM environment — lightweight and sufficient for straightforward component rendering without the full browser API surface. Hades has only one test tier (component), so a single config file is sufficient.
 
 The app uses two config files: `vitest.config.unit.ts` and `vitest.config.integration.ts`. Both use `jsdom`, which has better compatibility with Next.js internals and the `NextResponse` API. Both share the same `resolve.alias` block (`server-only` shim + `@orbit/test-utils`) and `setupFiles: ['./src/test-utils/setup.ts']`.
 
-No config is shared between Terra and the app. Terra's config must never reference app-level paths; the app's configs must never reach into Terra source (they consume Terra as a package import via the workspace link).
+No config is shared between Hades and the app. Hades' config must never reference app-level paths; the app's configs must never reach into Hades source (they consume Hades as a package import via the workspace link).
 
 #### `happy-dom` API gaps and Radix UI
 
-Terra's 21+ component families include several Radix UI primitives (Popover, Tooltip, Dialog, DropdownMenu, etc.) that rely on browser APIs `happy-dom` does not implement:
+Hades' 21+ component families include several Radix UI primitives (Popover, Tooltip, Dialog, DropdownMenu, etc.) that rely on browser APIs `happy-dom` does not implement:
 
 | Missing API | Affected Radix primitives |
 |---|---|
@@ -344,7 +344,7 @@ Terra's 21+ component families include several Radix UI primitives (Popover, Too
 | `window.matchMedia` | Any component that reads prefers-reduced-motion |
 | `DOMRect` / `getBoundingClientRect` | Floating positioning |
 
-For any Terra component test that exercises open/close or positioning behaviour on a Radix primitive, switch the environment per-file using Vitest's docblock annotation:
+For any Hades component test that exercises open/close or positioning behaviour on a Radix primitive, switch the environment per-file using Vitest's docblock annotation:
 
 ```ts
 // @vitest-environment jsdom
@@ -436,7 +436,7 @@ export function renderWithProviders(ui: React.ReactElement, options?: RenderOpti
 }
 ```
 
-**Terra does not use `test-utils/`.** Terra tests are isolated component behavior tests that construct any needed props inline. The `test-utils/` directory is app-level only.
+**Hades does not use `test-utils/`.** Hades tests are isolated component behavior tests that construct any needed props inline. The `test-utils/` directory is app-level only.
 
 ### E2E: Two Categories
 
@@ -506,14 +506,14 @@ Module-level mocking (`vi.mock()`) is the only permitted alternative and is rese
 Four granular targets are added to the root `Makefile`, plus a combined convenience target:
 
 ```makefile
-# Run only Terra's component tests (happy-dom, Terra's own vitest.config.ts)
-frontend-test-terra:
-	cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
+# Run only Hades' component tests (happy-dom, Hades' own vitest.config.ts)
+frontend-test-hades:
+	cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
 
-# Run all unit tests: Terra first, then the app (jsdom, vitest.config.unit.ts)
-# App config excludes src/packages/** so Terra tests never run under jsdom
+# Run all unit tests: Hades first, then the app (jsdom, vitest.config.unit.ts)
+# App config excludes src/packages/** so Hades tests never run under jsdom
 frontend-test-unit:
-	cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
+	cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
 	cd $(FRONTEND_DIR) && pnpm run test:unit
 
 frontend-test-integration:
@@ -538,16 +538,16 @@ frontend-check: frontend-lint frontend-type-check frontend-fmt frontend-test
 "test":             "pnpm run test:unit && pnpm run test:integration"
 ```
 
-> **Why two config files, not `--include`/`--exclude` flags?** Vitest's `--include` CLI flag is additive: it appends to the default glob rather than replacing it. Passing `--include '**/*.integration.test.ts?(x)'` still runs all non-integration tests as well. The only reliable way to select exactly one tier is to define the `include` array inside a dedicated config file. `vitest.config.unit.ts` includes `**/*.test.ts?(x)` and excludes `**/*.integration.test.ts?(x)` and `src/packages/**`; `vitest.config.integration.ts` includes only `**/*.integration.test.ts?(x)` and also excludes `src/packages/**`. The `src/packages/**` exclusion is mandatory in both app configs — without it the bare glob would match Terra's test files and run them a second time under `jsdom` with the wrong Vite config. The `--config` flag accepts either config without ambiguity.
+> **Why two config files, not `--include`/`--exclude` flags?** Vitest's `--include` CLI flag is additive: it appends to the default glob rather than replacing it. Passing `--include '**/*.integration.test.ts?(x)'` still runs all non-integration tests as well. The only reliable way to select exactly one tier is to define the `include` array inside a dedicated config file. `vitest.config.unit.ts` includes `**/*.test.ts?(x)` and excludes `**/*.integration.test.ts?(x)` and `src/packages/**`; `vitest.config.integration.ts` includes only `**/*.integration.test.ts?(x)` and also excludes `src/packages/**`. The `src/packages/**` exclusion is mandatory in both app configs — without it the bare glob would match Hades' test files and run them a second time under `jsdom` with the wrong Vite config. The `--config` flag accepts either config without ambiguity.
 
-**Terra pnpm scripts** (in `frontend/src/packages/terra/package.json`):
+**Hades pnpm scripts** (in `frontend/src/packages/hades/package.json`):
 
 ```json
 "test:unit": "vitest run",
 "test":      "pnpm run test:unit"
 ```
 
-Terra has no integration tests — it is a pure rendering library with no HTTP calls. Its `test` script is an alias for `test:unit`. CI uses the explicit Makefile targets (`make frontend-test-terra`, `make frontend-test-unit`, `make frontend-test-integration`) — never a single workspace-wide command. `make frontend-test-terra` is also the isolation target for local development when working exclusively on Terra components.
+Hades has no integration tests — it is a pure rendering library with no HTTP calls. Its `test` script is an alias for `test:unit`. CI uses the explicit Makefile targets (`make frontend-test-hades`, `make frontend-test-unit`, `make frontend-test-integration`) — never a single workspace-wide command. `make frontend-test-hades` is also the isolation target for local development when working exclusively on Hades components.
 
 The Makefile targets are separate CI steps. A unit test failure does not suppress integration test results. Each tier's outcome is independently attributable in CI logs.
 
@@ -572,7 +572,7 @@ coverage: {
 
 **Phase targets (reporting-only, never CI failure conditions):**
 
-| Phase | Terra | App |
+| Phase | Hades | App |
 |-------|-------|-----|
 | Phase 1 | ≥ 30% statements | ≥ 15% statements |
 | Phase 2 | ≥ 50% statements | ≥ 30% statements |
@@ -581,7 +581,7 @@ coverage: {
 **The enforceable gate is per-route, not percentage-based:**
 - Every BFF route handler (`src/app/api/**/route.ts`) must have: one happy-path test, one test per mapped error condition.
 - Every pure utility (`lib/routing/api-routes.ts`, `lib/routing/routes.ts`) must have 100% path coverage.
-- Every new Terra component must ship with at least one rendering test before merge.
+- Every new Hades component must ship with at least one rendering test before merge.
 
 These are enforced by PR convention and review, not by a CI threshold.
 
@@ -617,10 +617,10 @@ All other mocking uses MSW handlers from `test-utils/`.
 **Phase 1 (Foundation):**
 
 1. Create `frontend/src/test-utils/` with: `server-only-shim.js`, `setup.ts` (jest-dom matchers + MSW lifecycle via `server.listen({ onUnhandledRequest: 'error' })`), `render.tsx`, `msw/server.ts` (`setupServer(...defaultHandlers)` — no options here), `msw/handlers/` (auth + health), `factories/` (session + health), `index.ts`
-2. Add `vitest`, `@vitest/coverage-v8`, `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`, `happy-dom` to Terra dev dependencies
-3. Write `frontend/src/packages/terra/vitest.config.ts`
-4. Add `"test:unit": "vitest run"` and `"test": "pnpm run test:unit"` to Terra `package.json`
-5. Write at least 3 Terra component tests (`*.test.tsx`): Button, Badge, Typography
+2. Add `vitest`, `@vitest/coverage-v8`, `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`, `happy-dom` to Hades dev dependencies
+3. Write `frontend/src/packages/hades/vitest.config.ts`
+4. Add `"test:unit": "vitest run"` and `"test": "pnpm run test:unit"` to Hades `package.json`
+5. Write at least 3 Hades component tests (`*.test.tsx`): Button, Badge, Typography
 6. Add `vitest`, `@vitest/coverage-v8`, `@testing-library/react`, `@testing-library/user-event`, `@testing-library/jest-dom`, `jsdom`, `msw` to app dev dependencies
 7. Write `frontend/vitest.config.unit.ts` (includes `**/*.test.ts?(x)`, excludes `**/*.integration.test.ts?(x)` and `src/packages/**`) and `frontend/vitest.config.integration.ts` (includes only `**/*.integration.test.ts?(x)`, also excludes `src/packages/**`); both share the `server-only` shim alias, `@orbit/test-utils` alias, and `setupFiles: ['./src/test-utils/setup.ts']`
 8. Add `"test:unit": "vitest run --config vitest.config.unit.ts"`, `"test:integration": "vitest run --config vitest.config.integration.ts"`, and `"test": "pnpm run test:unit && pnpm run test:integration"` scripts to `frontend/package.json`
@@ -628,7 +628,7 @@ All other mocking uses MSW handlers from `test-utils/`.
 10. Write `health-status.integration.test.tsx` for `src/components/health-status.tsx` (loading, ok, error states) via MSW
 11. Write `dashboard-sidebar.integration.test.tsx` for the dashboard sidebar (nav items, session data) via MSW + `next/navigation` module mock
 12. Write unit tests (`*.test.ts`) for `lib/routing/api-routes.ts` and `lib/routing/routes.ts`
-13. Add `frontend-test-terra`, `frontend-test-unit`, `frontend-test-integration`, and `frontend-test` Makefile targets; wire `frontend-test` into `frontend-check` (`frontend-test-e2e` is Phase 2 — deferred until Playwright is installed)
+13. Add `frontend-test-hades`, `frontend-test-unit`, `frontend-test-integration`, and `frontend-test` Makefile targets; wire `frontend-test` into `frontend-check` (`frontend-test-e2e` is Phase 2 — deferred until Playwright is installed)
 14. Add CI step for `make frontend-test`
 
 **Phase 2 (E2E and Coverage):**
@@ -641,7 +641,7 @@ All other mocking uses MSW handlers from `test-utils/`.
 
 **Phase 3 (Maturity):**
 
-1. Expand Terra coverage to all existing component families (target ≥ 70%)
+1. Expand Hades coverage to all existing component families (target ≥ 70%)
 2. Expand app coverage to target ≥ 45%
 3. Add E2E flows as product pages are built (auth flow, session expiry)
 4. Evaluate cross-workspace coverage aggregation
@@ -654,7 +654,7 @@ All other mocking uses MSW handlers from `test-utils/`.
 ### Success Metrics
 
 - All tests pass green on every PR; no flaky tests in the baseline suite
-- Terra achieves ≥ 30% statement coverage by end of Phase 1; ≥ 70% by end of Phase 3
+- Hades achieves ≥ 30% statement coverage by end of Phase 1; ≥ 70% by end of Phase 3
 - App achieves ≥ 15% statement coverage by end of Phase 1; ≥ 45% by end of Phase 3
 - BFF route handler for `/api/auth/session` has tests covering: POST happy path, 4xx upstream error, upstream timeout, unexpected error, GET with valid session, GET without session
 - `orbitClient`'s `ApiError` parsing is exercised in at least one BFF route test via MSW (not mocked out)
@@ -672,7 +672,7 @@ All other mocking uses MSW handlers from `test-utils/`.
 
 - [monorepo-technology-stack](2026-02-16-monorepo-technology-stack.md) -- monorepo structure; pnpm workspace conventions this ADR builds on
 - [frontend-scaffolding-and-toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) -- Next.js 16 App Router application structure; the BFF layer and server-only boundary this ADR tests
-- [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) -- Terra design system workspace package; the package isolation model this ADR's test configuration mirrors
+- [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) -- Hades design system workspace package; the package isolation model this ADR's test configuration mirrors
 
 ---
 
@@ -695,6 +695,6 @@ All other mocking uses MSW handlers from `test-utils/`.
 
 **The Category A E2E boundary** is a hard constraint: a file in `frontend/e2e/` must never require the Go backend, Postgres, or Redis to be running. If a test ever needs the real backend, it does not belong in `frontend/` at all — it is a system-level concern requiring a separate ADR. This boundary keeps `make check` fast, infrastructure-free, and executable on every PR without Docker Compose.
 
-**DOM environment rationale:** `happy-dom` for Terra, `jsdom` for the app. `happy-dom` is faster and sufficient for isolated component tests that do not require `NextResponse`, `Headers`, or other Web API surface that Next.js depends on internally. `jsdom` provides the compatibility layer that makes App Router API testing reliable. If Terra ever needs a browser API not supported by `happy-dom`, switch per-file using `@vitest-environment jsdom`.
+**DOM environment rationale:** `happy-dom` for Hades, `jsdom` for the app. `happy-dom` is faster and sufficient for isolated component tests that do not require `NextResponse`, `Headers`, or other Web API surface that Next.js depends on internally. `jsdom` provides the compatibility layer that makes App Router API testing reliable. If Hades ever needs a browser API not supported by `happy-dom`, switch per-file using `@vitest-environment jsdom`.
 
 **Last Updated:** 2026-05-07

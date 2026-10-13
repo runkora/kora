@@ -1,6 +1,6 @@
 # Frontend
 
-The Orbit dashboard is a Next.js App Router application with a backend-for-frontend (BFF) layer. Product UI is built with the Terra design system.
+The kora dashboard is a Next.js App Router application with a backend-for-frontend (BFF) layer. Product UI is built with the Hades design system.
 
 ## Set up
 
@@ -16,7 +16,7 @@ Kubernetes injects the deployed application's backend URLs and session secret. P
 
 ## Develop
 
-The product frontend runs in the local cluster. Bring Orbit up, then rebuild and roll the frontend after a change:
+The product frontend runs in the local cluster. Bring kora up, then rebuild and roll the frontend after a change:
 
 ```bash
 make up
@@ -33,6 +33,8 @@ make frontend-type-check
 make frontend-test
 pnpm storybook
 ```
+
+To open Storybook over a VPN, set `STORYBOOK_ALLOWED_HOSTS` in the repository root `.env` (or the shell) to a comma-separated list of hostnames. A leading dot matches the domain and every subdomain, for example `STORYBOOK_ALLOWED_HOSTS=.ts.net`. IP addresses are always accepted.
 
 Run pnpm commands from `frontend/`. The equivalent `make frontend-*` targets run from the repository root.
 
@@ -60,8 +62,8 @@ make frontend-check
 ## Documentation
 
 - [Frontend documentation](docs/README.md): the index for frontend reference material and golden paths.
-- [Terra design system](docs/reference/terra-design-system.md): component APIs, usage, and verification.
+- [Hades design system](docs/reference/hades-design-system.md): component APIs, usage, and verification.
 - [Component placement](docs/reference/component-placement.md): the three-tier component model and `@tier` rules.
-- [App-level components](docs/reference/app-components.md): shared Orbit-aware components exported by `@orbit/components`.
+- [App-level components](docs/reference/app-components.md): shared kora-aware components exported by `@orbit/components`.
 - [Frontend testing](../docs/guides/frontend-testing.md): the test suites and where each kind of test belongs.
-- [Agent development guide](../AGENTS.md): the machine-enforced frontend conventions, including the Terra rules.
+- [Agent development guide](../AGENTS.md): the machine-enforced frontend conventions, including the Hades rules.

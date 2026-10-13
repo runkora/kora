@@ -3,13 +3,13 @@
 **Status:** Accepted
 **Date:** 2026-02-16
 **Deciders:** Architecture Team
-**Technical Story:** Initial technology stack selection for Orbit control plane
+**Technical Story:** Initial technology stack selection for kora control plane
 
 ---
 
 ## Context
 
-Orbit is a control plane for autonomous agents, designed as a "nervous system" that coordinates distributed AI agents through identity management, policy enforcement, and event streaming. The system requires both a robust backend API (for agents to interact with) and a web-based UI (for human operators to monitor and control the system).
+kora is a control plane for autonomous agents, designed as a "nervous system" that coordinates distributed AI agents through identity management, policy enforcement, and event streaming. The system requires both a robust backend API (for agents to interact with) and a web-based UI (for human operators to monitor and control the system).
 
 ### Background
 

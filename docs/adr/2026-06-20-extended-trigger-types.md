@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-06-20-extended-trigger-types.md -->
 
-**Status:** Accepted
+**Status:** Accepted ("Prompt templating and the field map", the empty `event_type` rule in Decision 3, and Decision 7's declared event types superseded by [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) 2026-09-29)
 **Date:** 2026-07-27
 **Deciders:** Justin Wilkin, Platform Engineering
 **Technical Story:** [PRD: Extended Trigger Types](../prd/extended-trigger-types.md)
@@ -34,7 +34,7 @@ Four facts about the code as it stands. Each one bears directly on a decision be
 
 This feature creates agent identity and gates access, so the three questions apply. One of them applies differently here than elsewhere in the platform, and it is worth being exact about why.
 
-**Who is this agent? A trigger's principal is autonomous, not delegated.** Orbit's usual identity story is delegation: a person hands scope to an agent, the agent is accountable to that person, and it can never access more than the delegator. **Triggers are the case where that model does not apply.** A GitHub push at 3am and a cron tick have no human initiator. There is no delegator, and therefore **no delegator ceiling to intersect with**.
+**Who is this agent? A trigger's principal is autonomous, not delegated.** kora's usual identity story is delegation: a person hands scope to an agent, the agent is accountable to that person, and it can never access more than the delegator. **Triggers are the case where that model does not apply.** A GitHub push at 3am and a cron tick have no human initiator. There is no delegator, and therefore **no delegator ceiling to intersect with**.
 
 What holds instead is attribution to *configuration* rather than to *initiation*: an admin created the source or trigger and attached a grant, and that grant is the **sole** bound on what the resulting run can do. Nothing clips it from above.
 
@@ -261,13 +261,13 @@ Rejected: Redis is available, but a second durability story for data that must a
 
 #### 5D: A durable execution engine (Temporal or similar)
 
-Considered seriously, because Orbit intends to build a multi-agent workflow engine later (see Decision 8) and a durable execution engine is a plausible foundation for one.
+Considered seriously, because kora intends to build a multi-agent workflow engine later (see Decision 8) and a durable execution engine is a plausible foundation for one.
 
 **Pros:** Durability, retries, backoff, timeouts and long-running state machines all come as primitives rather than as code. If a workflow pillar arrives, much of it is already built.
 
 **Cons, in the order they matter:**
 
-- **It does not solve the hard part.** Durability is commodity — `SKIP LOCKED`, River, Temporal and SQS all provide it. What no engine provides is Orbit's actual differentiator: carrying *which principal this runs as* and *what authorised it* through deferred execution. That layer gets built either way. Adopting an engine means building it **and** operating the engine.
+- **It does not solve the hard part.** Durability is commodity — `SKIP LOCKED`, River, Temporal and SQS all provide it. What no engine provides is kora's actual differentiator: carrying *which principal this runs as* and *what authorised it* through deferred execution. That layer gets built either way. Adopting an engine means building it **and** operating the engine.
 - **Sequencing.** The workload that would justify it does not exist yet. Designing a durable-execution foundation against one consumer — a per-trigger concurrency limit — bakes in that consumer's assumptions. The workflow engine is the consumer with real requirements, and it should be designed against those.
 - **Operational cost.** Self-hosted Temporal's weight is not its process count (the four server roles can run as one binary); it is history shard management, retention configuration and datastore growth, on a platform already operating SPIRE, Istio, OPA, Postgres, Redis and Dex.
 - **Retry is not currently a benefit.** The PRD excludes automatic retry deliberately: webhook providers already retry, so platform-side retry compounds someone else's backoff. The headline feature is one this feature does not want.
@@ -389,7 +389,7 @@ The declared set is pinned to what `Fields` models, not to what the provider can
 
 ### Decision 8 — A trigger targets *something the platform can start*, not an agent
 
-Orbit intends to build a multi-agent workflow engine as a separate pillar. Triggers are not that engine and must not grow into it. Triggers are the **front door**: the set of ways something can *start* in the platform. What gets started is a separate concern, and today there is exactly one answer.
+kora intends to build a multi-agent workflow engine as a separate pillar. Triggers are not that engine and must not grow into it. Triggers are the **front door**: the set of ways something can *start* in the platform. What gets started is a separate concern, and today there is exactly one answer.
 
 That framing has one concrete consequence, and it is cheap now and a migration later.
 

@@ -42,8 +42,8 @@ func NewPublisher(registry *Registry, introspector *Introspector, client *routes
 // mounted + every server seen-or-retained); otherwise the publish is
 // Upsert-only.
 //
-// One registration attempt per call: a failure (the identity-proxy sidecar not
-// yet holding a token, the policy service still starting) is returned to the
+// One registration attempt per call: a failure (the identity service or the
+// policy service still starting) is returned to the
 // caller. The introspection cycle that drives Publish is itself the retry, so a
 // publish that fails is re-attempted on the next cycle rather than blocking
 // this one.

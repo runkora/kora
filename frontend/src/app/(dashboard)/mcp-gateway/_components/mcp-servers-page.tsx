@@ -15,16 +15,16 @@ import {
   Input,
   Stack,
   Text,
-} from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
+  EmptyState,
+} from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope, statusColor } from '../_types';
-import type { IconName } from '@orbit/terra';
+import type { IconName } from '@orbit/hades';
 import { ServerAvatar } from './server-avatar';
 import { BuildConfigPanel } from './build-config-panel';
 
-// Terra caption/micro variants are leading-none; the spec composed some labels
+// Hades caption/micro variants are leading-none; the spec composed some labels
 // on the default 1.5 line box. `lineHeight` is kept inline where the line box
 // height is load-bearing for the surrounding layout. Font sizes 13/15px sit
 // more than a sub-pixel from any Text variant, so those spec values are kept.
@@ -69,7 +69,7 @@ function Chip({
       as="span"
       size="micro"
       weight={mono ? 'emphasis' : 'regular'}
-      color={mono ? 'subtle' : 'muted'}
+      color="muted"
       mono={mono}
       style={{
         display: 'inline-flex',
@@ -113,7 +113,7 @@ function CapabilityTags({ domains, max = 3 }: { domains: string[]; max?: number 
         <Text
           as="span"
           size="micro"
-          color="subtle"
+          color="muted"
           style={{
             height: 22,
             padding: '0 6px',
@@ -306,7 +306,7 @@ export function McpServersPage({ servers, error }: McpServersPageProps) {
             borderRadius: 'var(--radius-full)',
             // Card subtle = surface-elevated; the spec tray floats one step higher.
             background: 'var(--color-surface-overlay)',
-            // Terra is flat (ADR SD-3, no shadow tokens), but the tray floats over
+            // Hades is flat (ADR SD-3, no shadow tokens), but the tray floats over
             // page content and needs a drop for legibility; expressed through the
             // overlay scrim token rather than a raw colour.
             boxShadow: '0 12px 32px var(--color-overlay)',
@@ -436,7 +436,7 @@ function ServerCard({
               mono
               size="caption"
               weight="emphasis"
-              color="subtle"
+              color="muted"
               style={{ marginTop: 1, lineHeight: 1.5 }}
             >
               {serverRollupScope(server.name)}
@@ -470,8 +470,8 @@ function ServerCard({
         justify="between"
         style={{ padding: '10px 16px', borderTop: '1px solid var(--color-border-subtle)' }}
       >
-        <Text as="span" size="caption" color="subtle">
-          <Text as="span" size="caption" color="muted" weight="strong">
+        <Text as="span" size="caption" color="muted">
+          <Text as="span" size="caption" weight="strong">
             {server.tool_count}
           </Text>{' '}
           tools · synced {relativeTime(server.last_synced)}

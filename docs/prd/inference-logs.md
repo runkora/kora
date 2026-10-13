@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Users of the Orbit Model Gateway authenticate their requests using Personal Access Tokens (PATs). Today, inference requests are recorded in the backend but there is no way for a user to view those logs. This feature surfaces per-request inference logs in the Model Gateway UI, attributed to the PAT that made the request, giving users full visibility into their API usage.
+Users of the kora Model Gateway authenticate their requests using Personal Access Tokens (PATs). Today, inference requests are recorded in the backend but there is no way for a user to view those logs. This feature surfaces per-request inference logs in the Model Gateway UI, attributed to the PAT that made the request, giving users full visibility into their API usage.
 
 ---
 
@@ -18,7 +18,7 @@ Users of the Orbit Model Gateway authenticate their requests using Personal Acce
 
 ### Current State
 
-The Orbit Inference Gateway already writes a usage record (`inference_usage`) for every inference request — capturing model, provider, token counts, estimated cost, latency, and status. However:
+The kora Inference Gateway already writes a usage record (`inference_usage`) for every inference request — capturing model, provider, token counts, estimated cost, latency, and status. However:
 
 - There is no HTTP endpoint to retrieve these records.
 - Usage records currently attribute requests to the **user ID** only (`principal_id = userID`). There is no column identifying *which* PAT was used, making per-key attribution impossible.
@@ -312,11 +312,11 @@ The Orbit Inference Gateway already writes a usage record (`inference_usage`) fo
 
 ### Glossary
 
-- **Principal:** The unified identity abstraction for all actors in Orbit. Every inference request, policy decision, and audit event is attributed to a Principal. A Principal has a `Type` (HUMAN, AGENT, SERVICE, SYSTEM, PAT), a stable `ID`, and a `TenantID`.
-- **PAT (Personal Access Token):** A long-lived, user-issued API key used to authenticate programmatic requests to the Orbit Inference Gateway. PATs are prefixed `orb_` and are never stored in plaintext — only a SHA-256 hash is persisted alongside the PAT record UUID, user ID, display name, and expiry.
-- **JWT (JSON Web Token):** The signed token format used for all Orbit platform tokens. PATs are issued as RS256-signed JWTs carrying `PlatformClaims`. The raw JWT is what a caller presents in the `Authorization: Bearer` or `x-api-key` header.
+- **Principal:** The unified identity abstraction for all actors in kora. Every inference request, policy decision, and audit event is attributed to a Principal. A Principal has a `Type` (HUMAN, AGENT, SERVICE, SYSTEM, PAT), a stable `ID`, and a `TenantID`.
+- **PAT (Personal Access Token):** A long-lived, user-issued API key used to authenticate programmatic requests to the kora Inference Gateway. PATs are prefixed `orb_` and are never stored in plaintext — only a SHA-256 hash is persisted alongside the PAT record UUID, user ID, display name, and expiry.
+- **JWT (JSON Web Token):** The signed token format used for all kora platform tokens. PATs are issued as RS256-signed JWTs carrying `PlatformClaims`. The raw JWT is what a caller presents in the `Authorization: Bearer` or `x-api-key` header.
 - **JTI (JWT ID):** The unique identifier embedded in a JWT's `jti` registered claim. For PATs, the JTI is a UUID generated at creation time and stored on the PAT record. It is used to revoke in-flight tokens via a Redis blocklist. The JTI is distinct from the PAT record UUID.
-- **`inference_usage`:** The Postgres table that records one row per inference request processed by the Orbit Inference Gateway. Fields include: model, provider, token counts, estimated cost (USD), latency (ms), status, and principal attribution.
+- **`inference_usage`:** The Postgres table that records one row per inference request processed by the kora Inference Gateway. Fields include: model, provider, token counts, estimated cost (USD), latency (ms), status, and principal attribution.
 - **`token_id`:** A proposed new column on `inference_usage` that stores the PAT record UUID when a request is authenticated via a PAT. Null for non-PAT principals (human sessions, agents). Enables per-key log attribution and filtering.
 - **`orbit.session_id` claim:** The `OrbitClaims.SessionID` field embedded in every platform JWT. For PAT-issued tokens, this value is the PAT record UUID (set at signing time). For human sessions, it is the session record UUID.
 

@@ -8,7 +8,7 @@
 
 ## Context
 
-The Orbit inference gateway wraps upstream provider errors into a generic `503 provider_error` response. The `ConnectorError` struct carries full structured detail (HTTP status, error code, provider message), but this information is lost at the API boundary and absent from server logs on streaming paths.
+The kora inference gateway wraps upstream provider errors into a generic `503 provider_error` response. The `ConnectorError` struct carries full structured detail (HTTP status, error code, provider message), but this information is lost at the API boundary and absent from server logs on streaming paths.
 
 Three concrete problems:
 
@@ -82,7 +82,7 @@ case errors.Is(err, ErrProviderError):
 
 **Why keep the 503 status?** Changing error HTTP status codes (e.g. returning 429 for THROTTLED) affects client retry behaviour and is a breaking change for integrations that rely on the current status. That decision is deferred to a separate ADR.
 
-**`error_code` in details.** The `details` map carries `error_code` using Orbit's stable code values (THROTTLED, CONTEXT_WINDOW_EXCEEDED, AUTH_FAILED, etc.) — not raw provider strings. Callers can branch on this for targeted handling.
+**`error_code` in details.** The `details` map carries `error_code` using kora's stable code values (THROTTLED, CONTEXT_WINDOW_EXCEEDED, AUTH_FAILED, etc.) — not raw provider strings. Callers can branch on this for targeted handling.
 
 ### 3. Show `error_code` in Logs tab table rows
 

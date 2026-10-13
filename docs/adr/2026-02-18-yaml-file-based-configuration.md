@@ -1,19 +1,19 @@
 # YAML File-Based Configuration with Typed Generic Loader
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-06)
 **Date:** 2026-02-18
 **Deciders:** Engineering Team
-**Technical Story:** Establishing a configuration management strategy for the Orbit control plane that supports multiple environments without requiring every non-secret value to be managed as an environment variable.
+**Technical Story:** Establishing a configuration management strategy for the kora control plane that supports multiple environments without requiring every non-secret value to be managed as an environment variable.
 
 ---
 
 ## Context
 
-Orbit is a control plane for autonomous agents that must run across multiple environments: local development, CI, staging, and production. Each environment requires different values for server ports, base paths, service endpoints, feature flags, log levels, and similar non-sensitive configuration.
+kora is a control plane for autonomous agents that must run across multiple environments: local development, CI, staging, and production. Each environment requires different values for server ports, base paths, service endpoints, feature flags, log levels, and similar non-sensitive configuration.
 
 ### Background
 
-Currently, the Orbit binary is configured entirely through environment variables (e.g., `observability.SetupFromEnv`). This works well for secrets and for twelve-factor app deployments, but it becomes unwieldy as the number of configuration values grows. Managing dozens of environment variables across environments — locally, in `.env` files, in Kubernetes manifests, and in CI pipelines — creates maintenance overhead and room for error.
+Currently, the kora binary is configured entirely through environment variables (e.g., `observability.SetupFromEnv`). This works well for secrets and for twelve-factor app deployments, but it becomes unwieldy as the number of configuration values grows. Managing dozens of environment variables across environments — locally, in `.env` files, in Kubernetes manifests, and in CI pipelines — creates maintenance overhead and room for error.
 
 Go's standard library does not ship with a configuration loading abstraction. The ecosystem offers several approaches ranging from raw environment variable parsing, to generic third-party config libraries (Viper), to structured YAML loading. Each trade-off is meaningful for a control plane with multiple feature domains and a strong emphasis on type safety.
 
@@ -25,7 +25,7 @@ We need a configuration strategy that:
 2. Provides **type safety** — config structs should be verified at compile time, not parsed into `map[string]interface{}` at runtime
 3. Works cleanly across all environments including local development (where the working directory varies depending on how tests are run) and containerised production deployments
 4. Keeps **secrets out of config files** — the approach must not encourage storing sensitive values (API keys, DB passwords, TLS certs) in YAML
-5. Fits Orbit's feature-based architecture — features should own their config shape, not depend on a centralised config struct
+5. Fits kora's feature-based architecture — features should own their config shape, not depend on a centralised config struct
 6. Remains simple and auditable — the implementation should be small enough that any engineer can understand it in minutes
 
 ### Goals
@@ -89,7 +89,7 @@ We need a configuration strategy that:
 
 **Cons:**
 - Large dependency with its own dependency tree (mapstructure, fsnotify, etc.)
-- Configuration is done through a global singleton by default, which conflicts with Orbit's dependency injection philosophy ([dependency-injected-logging](2026-02-17-dependency-injected-logging.md))
+- Configuration is done through a global singleton by default, which conflicts with kora's dependency injection philosophy ([dependency-injected-logging](2026-02-17-dependency-injected-logging.md))
 - Type safety is via `mapstructure` struct tags and reflection, not compile-time generics
 - "All features in one library" introduces capabilities (remote config, file watching) we explicitly do not want yet
 - More surface area to audit for security concerns in a security-critical control plane
@@ -139,11 +139,11 @@ The loader:
 
 ### Rationale
 
-Option 3 delivers type safety, feature autonomy, minimal dependencies, and an implementation small enough to be fully understood and audited in minutes — all of which are primary decision drivers for Orbit.
+Option 3 delivers type safety, feature autonomy, minimal dependencies, and an implementation small enough to be fully understood and audited in minutes — all of which are primary decision drivers for kora.
 
-**Why not Viper (Option 2)?** Viper's global singleton conflicts with Orbit's dependency injection approach ([dependency-injected-logging](2026-02-17-dependency-injected-logging.md)). Its `mapstructure` reflection-based decoding gives up compile-time type safety. Its large feature set introduces capabilities (remote config, fsnotify) that we explicitly do not want yet and that expand the attack surface of a security-critical control plane.
+**Why not Viper (Option 2)?** Viper's global singleton conflicts with kora's dependency injection approach ([dependency-injected-logging](2026-02-17-dependency-injected-logging.md)). Its `mapstructure` reflection-based decoding gives up compile-time type safety. Its large feature set introduces capabilities (remote config, fsnotify) that we explicitly do not want yet and that expand the attack surface of a security-critical control plane.
 
-**Why not environment variables only (Option 1)?** As Orbit grows toward production, the number of non-secret config values (ports, paths, endpoint URLs, timeout values, feature flags) will easily exceed 40+. Managing these as individual env vars across multiple deployment environments creates an operational burden disproportionate to the actual complexity of the values being managed.
+**Why not environment variables only (Option 1)?** As kora grows toward production, the number of non-secret config values (ports, paths, endpoint URLs, timeout values, feature flags) will easily exceed 40+. Managing these as individual env vars across multiple deployment environments creates an operational burden disproportionate to the actual complexity of the values being managed.
 
 **Why not a single app-wide struct (Option 4)?** It directly conflicts with [repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md)'s feature autonomy principle and creates the same "god package" anti-pattern that [repository-pattern-and-code-organization](2026-02-17-repository-pattern-and-code-organization.md) explicitly rejected for repositories.
 
@@ -344,4 +344,12 @@ If the need arises for env-var override of specific YAML keys (e.g., for Kuberne
 **On config layering (future enhancement):**
 As the number of environments grows, the current model requires duplicating all shared values across every environment-specific YAML file (e.g., `local.yaml` and `development.yaml` are currently identical except for `logFormat`). A future improvement is to introduce a `base.yaml` per module that holds all shared defaults, with environment-specific files containing only their overrides — merged at load time via a second `MergeInConfig`-style call. This would eliminate duplication across environment files and make diffs between environments trivially small. This is explicitly deferred until the config surface area grows large enough to justify the added loader complexity. See `docs/product/scratch/config-layering.md` for a short feature sketch.
 
-**Last Updated:** 2026-06-10
+## Amendment 1 (2026-10-06): Rendered service config files
+
+[rendered-service-config-files](2026-10-06-rendered-service-config-files.md) adds a chart-rendered per-install config file that `config.LoadService` and `config.Load` merge as the last layer.
+
+The loader reads each layer with `go.yaml.in/yaml/v3`, deep-merges `base.yaml`, `{env}.yaml` and the rendered file, and decodes the result strictly with `go-viper/mapstructure`. `APP_ENV` defaults to `production` when it is unset.
+
+---
+
+**Last Updated:** 2026-10-06 (Amendment 1: rendered service config files)

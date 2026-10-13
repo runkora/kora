@@ -36,7 +36,7 @@ spec:
         openAPIV3Schema:
           description: >
             Connection declares the credential-source identity of one external
-            service the Orbit egress gateway brokers for a tenant (GitOps,
+            service the kora egress gateway brokers for a tenant (GitOps,
             Amendment 3 of the JIT credential-brokering ADR). It carries the
             adapter, the upstream base host, a reference to a Kubernetes Secret
             (a name, never a value), and adapter-specific config. The operator

@@ -209,7 +209,7 @@ The identity service implements the endpoint the execution-flow ADR specified:
 }
 ```
 
-- **The token carries no `scope` claim.** Orbit tokens identify; authority lives in grants and is evaluated live from bundle data — the same rule platform tokens follow. The delegation token is a pure binding artifact: who delegated, to which agent, for which run, still valid. A scope snapshot at mint would be redundant with the live agent-grant leg of the intersection at best and stale at worst, and effective scope sets are large enough to push a JWT toward header-size limits. This is a deliberate departure from the `scope` field in [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md): the upper-bound role that ADR gave the scope claim is played instead by the agent's live grant, which is revocation-aware. RFC 8693's `scope` returns later as an optional *restriction* if per-run scope subsets are built (see Future Work); the rego's token-scope leg accordingly applies only when a scope claim is present, so an unscoped token defers entirely to live evaluation.
+- **The token carries no `scope` claim.** kora tokens identify; authority lives in grants and is evaluated live from bundle data — the same rule platform tokens follow. The delegation token is a pure binding artifact: who delegated, to which agent, for which run, still valid. A scope snapshot at mint would be redundant with the live agent-grant leg of the intersection at best and stale at worst, and effective scope sets are large enough to push a JWT toward header-size limits. This is a deliberate departure from the `scope` field in [agent-execution-flow-patterns-and-delegation](2026-03-05-agent-execution-flow-patterns-and-delegation.md): the upper-bound role that ADR gave the scope claim is played instead by the agent's live grant, which is revocation-aware. RFC 8693's `scope` returns later as an optional *restriction* if per-run scope subsets are built (see Future Work); the rego's token-scope leg accordingly applies only when a scope claim is present, so an unscoped token defers entirely to live evaluation.
 - `run_id` binds the token to one run (checked in Decision 4).
 - `delegator_principal_type` closes the known gap where the delegator lookup cannot distinguish principal types that share an id string (`TODO(M2)` in `authz_gateway.rego`).
 - `exp` is short (a config default on the order of an hour) and never load-bearing for long runs: the retrieval endpoint re-signs a fresh token from the live issuance record, so the identity-proxy's cache-refresh cycle keeps a valid token for the life of the run. A revoked or tombstoned issuance yields nothing on refresh — fail closed. Live per-action evaluation of the delegator's grants and the JTI blocklist remain the real revocation mechanisms. For a PAT-initiated run, revoking the PAT tombstones the issuance (the record carries the PAT lineage).
@@ -249,8 +249,8 @@ Enforced via the service-layer authorization pattern of [orbit-agents-authorizat
 
 - **Start:** `StartRun` on a delegated agent requires a HUMAN or PAT principal; agents, services, and trigger-initiated starts are refused with a reason naming the identity model. Trigger *binding* is additionally refused at trigger create time (the earlier, friendlier failure), in `internal/triggers` validation, which reads the target agent's mode through the agents platform client. (Update needs no check: both the trigger's agent binding and the agent's identity mode are immutable.)
 - **Steer:** only the starter may send messages to a delegated run. Message-send on someone else's delegated run is refused for everyone, admins included — messages execute with the starter's authority under the starter's name.
-- **Visibility:** run list/get/events for a delegated agent filter to `created_by = caller` unless the caller holds the tenant-admin role; this covers messages, events, and outputs, applied in the repository/service layer, not the frontend.
-- **Governance:** tenant admins retain read and terminate on every run in the tenant.
+- **Visibility:** Run list, get, events and outcome counts for a delegated agent filter to `created_by = caller` unless the caller holds `agents:delegated:read`. The filter covers messages, events, and outputs and is applied in the repository and service layers. The scope is checked once per request through the policy evaluator, and no role is read.
+- **Governance:** A caller holding `agents:delegated:read` can read and terminate every run in the tenant. The platform-admin role holds the scope through the derived admin scopes.
 
 ---
 
@@ -385,7 +385,7 @@ Each phase must pass `make check`; Phases 1–4 carry table-driven unit tests be
 
 ### Positive
 
-- Orbit's central claim — an agent can never access more than its delegator — becomes true for human-initiated runs, enforced per action at both layers.
+- kora's central claim — an agent can never access more than its delegator — becomes true for human-initiated runs, enforced per action at both layers.
 - Fail-closed by construction: every failure mode of every transport collapses to denial, not standing access.
 - Revocation of a person's access or budget reaches their in-flight runs on the next action with zero new machinery.
 - The built RFC 8693 consumer stack is finally exercised; no parallel mechanism is introduced.

@@ -4,7 +4,7 @@
 
 **Status:** Accepted
 **Date:** 2026-06-29
-**Deciders:** Justin Wilkin, Orbit Core Team
+**Deciders:** Justin Wilkin, kora Core Team
 **Technical Story:** [MCP / Tool Gateway PRD](../prd/mcp-tool-gateway.md)
 
 ---
@@ -19,7 +19,7 @@ This is the missing consumption plane. The [2026-03-05 scope-gated-exposure ADR]
 
 ### Problem Statement
 
-A `tools/call` is a single JSON-RPC method on one endpoint; the tool being invoked is in the request *body* (`params.name`), not the URL path. Orbit's Layer-1 OPA sidecar enforces on the *route* and is therefore blind to which tool is called. Per-tool authorisation can only happen in a component that parses MCP semantics. We need that component: an MCP-aware PEP and proxy, with two front doors (human, agent) over one enforcement spine, that reuses the existing grant/scope machinery rather than inventing a parallel access model.
+A `tools/call` is a single JSON-RPC method on one endpoint; the tool being invoked is in the request *body* (`params.name`), not the URL path. kora's Layer-1 OPA sidecar enforces on the *route* and is therefore blind to which tool is called. Per-tool authorisation can only happen in a component that parses MCP semantics. We need that component: an MCP-aware PEP and proxy, with two front doors (human, agent) over one enforcement spine, that reuses the existing grant/scope machinery rather than inventing a parallel access model.
 
 ### Goals
 
@@ -70,7 +70,7 @@ The gateway calls `Query` once per list, passing the server's registered tools a
 
 MVP speaks **Streamable HTTP** (the current MCP transport) on the consumer side and as client to upstreams. The gateway is an MCP server to consumers and an MCP client to upstreams, mapping consumer sessions to upstream sessions. Streaming responses reuse the inference-gateway SSE/flush pattern. Long-running `tools/call`s get an explicit per-call timeout, context-cancellation propagation to the upstream, and backpressure via the streamed channel.
 
-**Caller identity on the upstream hop — default OFF.** The caller's bearer is a full-power `aud=orbit-platform` token; forwarding it to an upstream would hand that server a replayable full-Orbit credential (confused-deputy / exfiltration), which is exactly the risk the gateway exists to contain for third-party and wrapped servers. So **by default the gateway does NOT forward the caller's `Authorization` to the upstream** — the caller's identity is used *only* for the `mcp:<server>:<tool>:use` decision, and the upstream acts as itself. The gateway forwards the caller's token **only** to servers explicitly flagged `spec.callerIdentity: forward` in the [registration CRD](2026-06-29-mcp-server-registration-and-introspection.md) **and only when the server is global (`orbit-system`, Orbit-applied)** — the *acting-as-caller* model, used by the [Orbit MCP](2026-06-30-orbit-mcp.md). The global-only rule is a hard authorisation check, not guidance: a tenant-namespaced server can **never** receive caller identity even if its CR sets the flag (the registration reconcile rejects such a CR, and the gateway independently refuses to forward to non-`orbit-system` servers). Without it, a tenant admin — who holds CR-apply RBAC in their own namespace — could harvest every caller's full-power token via a pod they control. This **auth-token passthrough** is distinct from the JIT backend-credential injection non-goal above. (Hardening, deferred: instead of raw forwarding, exchange the caller's token for a narrowed `aud=<server>` delegated token — RFC 8693 — so even a trusted upstream never holds a full-power token; see the OAuth ADR's Future Work.)
+**Caller identity on the upstream hop — default OFF.** The caller's bearer is a full-power `aud=orbit-platform` token; forwarding it to an upstream would hand that server a replayable full-Orbit credential (confused-deputy / exfiltration), which is exactly the risk the gateway exists to contain for third-party and wrapped servers. So **by default the gateway does NOT forward the caller's `Authorization` to the upstream** — the caller's identity is used *only* for the `mcp:<server>:<tool>:use` decision, and the upstream acts as itself. The gateway forwards the caller's token **only** to servers explicitly flagged `spec.callerIdentity: forward` in the [registration CRD](2026-06-29-mcp-server-registration-and-introspection.md) **and only when the server is global (`orbit-system`, kora-applied)** — the *acting-as-caller* model, used by the [kora MCP](2026-06-30-orbit-mcp.md). The global-only rule is a hard authorisation check, not guidance: a tenant-namespaced server can **never** receive caller identity even if its CR sets the flag (the registration reconcile rejects such a CR, and the gateway independently refuses to forward to non-`orbit-system` servers). Without it, a tenant admin — who holds CR-apply RBAC in their own namespace — could harvest every caller's full-power token via a pod they control. This **auth-token passthrough** is distinct from the JIT backend-credential injection non-goal above. (Hardening, deferred: instead of raw forwarding, exchange the caller's token for a narrowed `aud=<server>` delegated token — RFC 8693 — so even a trusted upstream never holds a full-power token; see the OAuth ADR's Future Work.)
 
 ### Decision 5 — Aggregation & namespacing
 
@@ -132,7 +132,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 
 There is **one token-validation path, not two.** The human's MCP OAuth access token *is* a `PlatformClaims` RS256 JWT ([OAuth ADR](2026-06-29-mcp-oauth-authentication.md)), so the same `mw.AuthMiddleware`/`token.Verifier` validates both the agent's injected platform token and the human's OAuth token; both yield a `*token.PlatformClaims` in context and the enforcement spine is identical. The OAuth-specific middleware does **not** re-validate — its only job is the spec's unauthenticated handshake: on a missing/invalid bearer, reply `401` with `WWW-Authenticate` pointing at the protected-resource metadata, which the gateway serves at `/.well-known/oauth-protected-resource`.
 
-Both doors present the **same kind of token**: an ordinary `aud=orbit-platform` Orbit platform token (the agent's is injected by the sidecar; the human's is minted by the MCP OAuth flow — see the [OAuth ADR](2026-06-29-mcp-oauth-authentication.md)). So the single existing verifier validates both with no special-casing, and there is no per-resource audience to reconcile. Authorisation is by scopes for both.
+Both doors present the **same kind of token**: an ordinary `aud=orbit-platform` kora platform token (the agent's is injected by the sidecar; the human's is minted by the MCP OAuth flow — see the [OAuth ADR](2026-06-29-mcp-oauth-authentication.md)). So the single existing verifier validates both with no special-casing, and there is no per-resource audience to reconcile. Authorisation is by scopes for both.
 
 ### The PEP — list filter & call check
 

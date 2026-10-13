@@ -1,4 +1,4 @@
-# Motif Component Promotion into Terra
+# Motif Component Promotion into Hades
 
 **Date:** 2026-07-17  
 **Status:** Accepted  
@@ -15,7 +15,7 @@ An audit of every other dashboard feature then found the demand that justifies p
 
 ## Decision
 
-**Tier 1 (Terra).** Five new components and two extensions, each replicating the agents implementation byte-for-byte so consumers swap with zero visual change:
+**Tier 1 (Hades).** Five new components and two extensions, each replicating the agents implementation byte-for-byte so consumers swap with zero visual change:
 
 - `Eyebrow` (atom): the uppercase micro label.
 - `SectionHeading` (atom): icon tile + subsection title + purpose line.
@@ -27,9 +27,9 @@ An audit of every other dashboard feature then found the demand that justifies p
 
 **Tier 2 (app-shared).** `EffectiveAccessPanel` and `ModelPicker` move from the agents feature to `src/components/`, with App/Shared stories.
 
-**Stays Tier 3.** `McpToolTree`, `ConnectionCards`, `PlatformToolsCard`, `EgressModeCards`, `EnvironmentCard`, `GuardrailsFields`, `FrameworkCards`, `PlannedLimits` speak agent vocabulary and keep their placement; they consume the promoted pieces. The tri-state collapsible picker anatomy is noted as a future Terra organism once a feature outside agents needs it. An `AvatarTile` (letter tile) is deferred; mcp-gateway's hand-rolled letter tile is the second vote for it.
+**Stays Tier 3.** `McpToolTree`, `ConnectionCards`, `EgressModeCards`, `EnvironmentCard`, `GuardrailsFields`, `FrameworkCards`, `PlannedLimits` speak agent vocabulary and keep their placement; they consume the promoted pieces. The tri-state collapsible picker anatomy is noted as a future Hades organism once a feature outside agents needs it. An `AvatarTile` (letter tile) is deferred; mcp-gateway's hand-rolled letter tile is the second vote for it.
 
-**Storybook** is part of the same change: new stories with autodocs for everything above, a `CodeBlock` story that was missing, and the preview backgrounds recomputed from the live tokens (`#060709` / `#101214`, derived from `--terra-bg-base: 13%`), replacing stale hexes in the config and 34 story files.
+**Storybook** is part of the same change: new stories with autodocs for everything above, a `CodeBlock` story that was missing, and the preview backgrounds recomputed from the live tokens (`#060709` / `#101214`, derived from `--hades-bg-base: 13%`), replacing stale hexes in the config and 34 story files.
 
 ## Migration programme
 
@@ -37,7 +37,7 @@ Consumers move in phases, each shippable and screenshot-verified: (1) policy gra
 
 ## Consequences
 
-- The motif is now API, not convention: the next surface composes it from Terra rather than imitating it.
-- Terra's surface grows by five components and two prop axes, all with the same anatomy the product already ships, so the additions codify rather than speculate.
+- The motif is now API, not convention: the next surface composes it from Hades rather than imitating it.
+- Hades' surface grows by five components and two prop axes, all with the same anatomy the product already ships, so the additions codify rather than speculate.
 - The agents feature shrinks to thin bindings over shared pieces, which is the shape the three-tier model wants.
 - Anyone comparing old screenshots of Storybook will see different background values; the new ones are the correct ones.

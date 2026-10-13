@@ -5,10 +5,13 @@
 // declares the scopes it owns. The policy service upserts those scopes into the
 // vocabulary and compiles the routes into OPA bundles for Envoy enforcement.
 //
-// The calling service's platform token (injected automatically by the
-// identity-proxy sidecar) determines registration scope:
+// The client attaches the calling service's own platform token, taken from the
+// token source it is built with. Platform services pass the identity client's
+// SelfTokenSource, which exchanges the pod's SVID in-process. The token's
+// principal determines registration scope:
 //
-//   - SYSTEM principal  → global registration, compiled into every tenant bundle
+//   - SYSTEM principal  → global registration, compiled into every tenant bundle.
+//     The policy service accepts it only for the caller's own service name.
 //   - SERVICE principal → tenant-scoped registration, compiled into that tenant's bundle only
 //
 // # Register through KeepRegistered, not once at startup
@@ -27,7 +30,7 @@
 //
 // Usage:
 //
-//	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc", logger)
+//	client := routescopes.NewClient("http://orbit-policy-service.orbit-system.svc", identityClient.SelfTokenSource(), logger)
 //	register := func(ctx context.Context) error {
 //	    return client.Register(ctx, "inference-gateway",
 //	        routescopes.FilterScopedRoutes(inferenceRoutes()),
@@ -91,10 +94,14 @@ type registrationRequest struct {
 	SkipPrune bool `json:"skip_prune,omitempty"`
 }
 
+// TokenSource returns the bearer token the registration call carries.
+type TokenSource func(context.Context) (string, error)
+
 // Client registers a service's routes and scopes with the policy service.
 type Client struct {
 	*httpclient.Base
 	serviceURL string
+	token      TokenSource
 }
 
 const (
@@ -103,11 +110,13 @@ const (
 )
 
 // NewClient creates a Client targeting the given policy service base URL,
-// e.g. "http://orbit-policy-service.orbit-system.svc".
-func NewClient(serviceURL string, logger logging.Logger) *Client {
+// e.g. "http://orbit-policy-service.orbit-system.svc". token supplies the
+// caller's own platform token for each registration.
+func NewClient(serviceURL string, token TokenSource, logger logging.Logger) *Client {
 	return &Client{
 		Base:       httpclient.New(tracerName, logger, clientTimeout),
 		serviceURL: serviceURL,
+		token:      token,
 	}
 }
 
@@ -118,8 +127,8 @@ func NewClient(serviceURL string, logger logging.Logger) *Client {
 //
 // One attempt, no retry: the caller's loop owns recovery. [KeepRegistered] is
 // that loop for every service that keeps itself registered, and it already
-// retries with backoff until the policy service (and the identity-proxy sidecar
-// minting this call's token) is up. A second retry layer here only stacks
+// retries with backoff until the policy service and the identity service that
+// mints this call's token are up. A second retry layer here only stacks
 // underneath it, turning one tick of the caller's loop into minutes of blocking.
 func (c *Client) Register(ctx context.Context, service string, routes []RouteScope, scopes []ScopeDeclaration) error {
 	return c.register(ctx, registrationRequest{Service: service, Routes: routes, Scopes: scopes})
@@ -158,7 +167,12 @@ func (c *Client) doRegister(ctx context.Context, reg registrationRequest) error 
 	if err != nil {
 		return fmt.Errorf("build registration request: %w", err)
 	}
+	tok, err := c.token(ctx)
+	if err != nil {
+		return fmt.Errorf("get platform token for registration: %w", err)
+	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tok)
 
 	_, span, resp, err := c.Do(ctx, "routescopes.Client.Register", req)
 	defer span.End()

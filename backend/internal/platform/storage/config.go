@@ -7,15 +7,15 @@ import (
 )
 
 // StorageConfig is the single top-level configuration struct for all storage backends.
-// It is loaded from internal/platform/storage/config/{env}.yaml using two nested keys:
-// "postgres" for PostgreSQL settings and "redis" for Redis settings.
+// It is loaded from internal/platform/storage/config/{env}.yaml and the file the
+// chart renders, using two nested keys: "postgres" and "redis".
 type StorageConfig struct {
 	Postgres PostgresConfig `yaml:"postgres"`
 	Redis    RedisConfig    `yaml:"redis"`
 }
 
-// LoadPostgresConfig loads storage YAML and applies Postgres environment-variable
-// overlays. Use this in services that only need a database connection.
+// LoadPostgresConfig loads storage YAML and the Postgres password. Use this in
+// services that only need a database connection.
 func LoadPostgresConfig() (*PostgresConfig, error) {
 	cfg, err := config.Load[StorageConfig]("internal/platform/storage", config.Environment())
 	if err != nil {

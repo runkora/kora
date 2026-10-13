@@ -5,9 +5,11 @@
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type {
+  AgentInsightsPeriod,
+  AgentInsightsResponse,
+  AgentRunStats,
   AgentType,
   AgentTypeDraft,
-  AgentTypeUsage,
   ConnectionCatalogEntry,
   CreateAgentTypeRequest,
   Environment,
@@ -15,8 +17,9 @@ import type {
   McpServer,
   ModelObject,
   Run,
+  RunState,
+  RunsPageResponse,
   StartRunRequest,
-  ToolScopeDefinition,
 } from '@orbit/shared/api';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';
@@ -41,54 +44,97 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
 }
 
-// ── fetchAgentTypesUsage ──────────────────────────────────────────────────────
-// Returns the 7-day token + spend aggregate per agent type, keyed by agent type
-// id for direct lookup. Never throws; on error returns an empty map.
+// ── fetchPeriodRead ──
+// A period-keyed BFF read: the Agents page rollups or one agent's overview. Never throws;
+// on error `data` is null.
 
-export async function fetchAgentTypesUsage(): Promise<{
-  byAgentType: Record<string, AgentTypeUsage>;
-  error: string | null;
-}> {
+export async function fetchPeriodRead<T>(
+  url: string,
+): Promise<{ data: T | null; error: string | null }> {
   let res: Response;
   try {
-    res = await fetch(ApiRoute.agentTypes.usageAll(), { cache: 'no-store' });
+    res = await fetch(url, { cache: 'no-store' });
   } catch {
-    return { byAgentType: {}, error: 'Network error: could not reach the server.' };
+    return { data: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
-      byAgentType: {},
+      data: null,
       error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
     };
   }
-  const body = (await res.json()) as { data: AgentTypeUsage[] };
-  const byAgentType: Record<string, AgentTypeUsage> = {};
-  for (const u of body.data ?? []) byAgentType[u.agent_type_id] = u;
-  return { byAgentType, error: null };
+  return { data: (await res.json()) as T, error: null };
 }
+
+export const fetchAgentInsights = (period: AgentInsightsPeriod) =>
+  fetchPeriodRead<AgentInsightsResponse>(ApiRoute.agentInsights.window(period));
 
 // ── fetchRuns ─────────────────────────────────────────────────────────────────
 
-export async function fetchRuns(
+/** A page of runs to read: filters, page size and the previous page's cursor. */
+export interface RunPageQuery {
+  states?: readonly RunState[];
+  limit?: number;
+  cursor?: string | null;
+}
+
+/** The BFF query string for a page of runs, with its leading `?` when not empty. */
+export function runPageSearch(query: RunPageQuery): string {
+  const params = new URLSearchParams();
+  if (query.states?.length) params.set('state', query.states.join(','));
+  if (query.limit) params.set('limit', String(query.limit));
+  if (query.cursor) params.set('cursor', query.cursor);
+  const qs = params.toString();
+  return qs ? `?${qs}` : '';
+}
+
+export interface RunPageResult {
+  data: RunRow[];
+  /** The next page's cursor; null on the last page. */
+  nextCursor: string | null;
+  error: string | null;
+}
+
+/** Fetches one page of runs from a BFF run list route. Never throws. */
+export async function fetchRunPage(
+  url: string,
   agentTypes: AgentTypeRow[],
-): Promise<{ data: RunRow[]; error: string | null }> {
+): Promise<RunPageResult> {
   let res: Response;
   try {
-    res = await fetch(ApiRoute.runs.list(), { cache: 'no-store' });
+    res = await fetch(url, { cache: 'no-store' });
   } catch {
-    return { data: [], error: 'Network error: could not reach the server.' };
+    return { data: [], nextCursor: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}) as { message?: string });
     return {
       data: [],
+      nextCursor: null,
       error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
     };
   }
-  const body = (await res.json()) as { data: Run[] };
+  const body = (await res.json()) as RunsPageResponse;
   const byId = indexAgentTypes(agentTypes);
-  return { data: (body.data ?? []).map((r) => toRunRow(r, byId)), error: null };
+  return {
+    data: (body.data ?? []).map((r) => toRunRow(r, byId)),
+    nextCursor: body.next_cursor ?? null,
+    error: null,
+  };
+}
+
+/** One page of the runs of every agent the caller may read. */
+export const fetchRuns = (agentTypes: AgentTypeRow[], query: RunPageQuery = {}) =>
+  fetchRunPage(`${ApiRoute.runs.list()}${runPageSearch(query)}`, agentTypes);
+
+// ── fetchRunStats ─────────────────────────────────────────────────────────────
+
+export async function fetchRunStats(
+  period: AgentInsightsPeriod,
+): Promise<{ data: AgentRunStats | null; error: string | null }> {
+  const result = await fetchPeriodRead<{ data: AgentRunStats | null }>(ApiRoute.runs.stats(period));
+  return { data: result.data?.data ?? null, error: result.error };
 }
 
 // ── fetchStartRun ─────────────────────────────────────────────────────────────
@@ -310,17 +356,6 @@ export function fetchModels(): Promise<{ data: ModelObject[]; error: string | nu
       ((b as { data?: ModelObject[] }).data ?? []).filter(
         (m) => m.status === 'available' && m.capabilities.includes('chat'),
       ),
-    [],
-  );
-}
-
-export function fetchToolScopes(): Promise<{
-  data: ToolScopeDefinition[];
-  error: string | null;
-}> {
-  return fetchCatalogue(
-    ApiRoute.agentTypes.toolScopes(),
-    (b) => (b as { data?: ToolScopeDefinition[] }).data ?? [],
     [],
   );
 }

@@ -1,15 +1,22 @@
 token:
-  # Access token lifetime. Override with ORBIT_ACCESS_TOKEN_TTL_MINUTES for local dev.
+  # Access token lifetime. The chart renders identity.config.accessTokenTtlMinutes.
   accessTokenTtlMinutes: 15
-  # Human refresh token lifetime. Override with ORBIT_REFRESH_TOKEN_TTL_DAYS for local dev.
+  # Human refresh token lifetime.
   refreshTokenTtlDays: 7
   # Default PAT lifetime when the caller does not specify expires_in_days.
   patDefaultTtlDays: 90
   # Maximum PAT lifetime a caller may request.
   patMaxTtlDays: 365
-  # JWT aud claim. Override with ORBIT_TOKEN_AUDIENCE to scope tokens per cluster.
+  # JWT aud claim.
   audience: orbit-platform
   # Delegation token lifetime (delegated-agent-identity ADR, Decision 3). A
   # short backstop, not the revocation mechanism: retrieval re-signs from the
-  # live issuance record. Override with ORBIT_DELEGATION_TOKEN_TTL_MINUTES.
+  # live issuance record.
   delegationTokenTtlMinutes: 60
+
+# Where the chart mounts the operator-rendered tenant registry, OIDC client
+# secrets and pre-registered OAuth clients.
+registry:
+  tenantsPath: /etc/orbit/tenants.yaml
+  clientSecretsPath: /etc/orbit/tenant-secrets/client-secrets.yaml
+  oauthClientsPath: /etc/orbit/oauth-clients/oauth-clients.json

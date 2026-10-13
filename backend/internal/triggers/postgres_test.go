@@ -3,7 +3,9 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -1700,5 +1702,131 @@ func TestPostgres_TouchPendingClaims_FreshensTheWaitingBatch(t *testing.T) {
 	}
 	if len(reclaimed) != 0 {
 		t.Errorf("re-stamped claims were reclaimed anyway: %d rows", len(reclaimed))
+	}
+}
+
+// A webhook trigger's sender restriction round-trips through kind_config, and
+// clearing it writes the empty config back.
+func TestPostgres_WebhookSenderRestriction(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
+		Name: "restricted", AgentTypeID: "at-1", AgentSlug: "code-reviewer",
+		EventType: "issue_comment", PromptTemplate: "{{ comment.body }}", Enabled: true,
+		SenderRestriction: &SenderRestriction{Logins: []string{"alice"}, Associations: []string{"MEMBER"}},
+	}
+	admissionDefaults(tr)
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	got, err := r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.SenderRestriction == nil || got.SenderRestriction.Logins[0] != "alice" || got.SenderRestriction.Associations[0] != "MEMBER" {
+		t.Fatalf("restriction round-trip = %+v", got.SenderRestriction)
+	}
+
+	got.SenderRestriction = nil
+	if err := r.UpdateTrigger(ctx, got, false); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+	cleared, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	if cleared.SenderRestriction != nil {
+		t.Errorf("restriction after clearing = %+v, want nil", cleared.SenderRestriction)
+	}
+}
+
+func TestPostgres_WebhookMatchContains(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+
+	tr := &Trigger{
+		ID: uuid.NewString(), TenantID: tenant, Kind: KindWebhook, SourceID: s.ID,
+		Name: "mentions", AgentTypeID: "at-1", AgentSlug: "code-reviewer",
+		EventType: "issue_comment", PromptTemplate: "{{ comment.body }}", Enabled: true,
+		MatchContains:     map[string][]string{"comment.body": {"@kora-agent"}},
+		SenderRestriction: &SenderRestriction{Associations: []string{"MEMBER"}},
+	}
+	admissionDefaults(tr)
+	if err := r.CreateTrigger(ctx, tr); err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+	got, err := r.GetTrigger(ctx, tenant, tr.ID)
+	if err != nil {
+		t.Fatalf("GetTrigger: %v", err)
+	}
+	if got.MatchContains["comment.body"][0] != "@kora-agent" || got.SenderRestriction == nil {
+		t.Fatalf("round-trip = %+v, %+v", got.MatchContains, got.SenderRestriction)
+	}
+
+	got.MatchContains = nil
+	if err := r.UpdateTrigger(ctx, got, false); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+	cleared, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	if cleared.MatchContains != nil || cleared.SenderRestriction == nil {
+		t.Errorf("after clearing contains = %+v, restriction = %+v", cleared.MatchContains, cleared.SenderRestriction)
+	}
+}
+
+func TestPostgres_ListDeliveriesTimeAndPayload(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	base := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
+	var ids []string
+	for i := range 4 {
+		d := &Delivery{
+			ID: uuid.NewString(), TenantID: tenant, SourceID: s.ID, ProviderDeliveryID: fmt.Sprintf("gh-t%d", i),
+			EventType: "push", Status: StatusVerified, Payload: []byte(`{"big":"body"}`), PayloadExcerpt: "excerpt",
+			ReceivedAt: base.Add(-time.Duration(i) * time.Minute),
+		}
+		if inserted, err := r.InsertDelivery(ctx, d); err != nil || !inserted {
+			t.Fatalf("insert: inserted=%v err=%v", inserted, err)
+		}
+		// The insert takes received_at from the database clock.
+		if _, err := r.pool.Exec(ctx, `UPDATE trigger_deliveries SET received_at = $2 WHERE id = $1`, d.ID, d.ReceivedAt); err != nil {
+			t.Fatalf("set received_at: %v", err)
+		}
+		ids = append(ids, d.ID)
+	}
+	idsOf := func(f DeliveryFilter) []string {
+		f.SourceID, f.Limit = s.ID, 10
+		list, err := r.ListDeliveries(ctx, tenant, f)
+		if err != nil {
+			t.Fatalf("ListDeliveries: %v", err)
+		}
+		var out []string
+		for _, d := range list {
+			out = append(out, d.ID)
+		}
+		return out
+	}
+	// ids[0] is newest. received_after is inclusive and received_before is exclusive.
+	if got := idsOf(DeliveryFilter{ReceivedAfter: base.Add(-2 * time.Minute)}); !slices.Equal(got, ids[:3]) {
+		t.Errorf("received_after = %v, want %v", got, ids[:3])
+	}
+	if got := idsOf(DeliveryFilter{ReceivedBefore: base}); !slices.Equal(got, ids[1:]) {
+		t.Errorf("received_before = %v, want %v", got, ids[1:])
+	}
+	if got := idsOf(DeliveryFilter{ReceivedAfter: base.Add(-2 * time.Minute), ReceivedBefore: base}); !slices.Equal(got, ids[1:3]) {
+		t.Errorf("window = %v, want %v", got, ids[1:3])
+	}
+
+	full, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1})
+	if err != nil || len(full) != 1 || len(full[0].Payload) == 0 {
+		t.Fatalf("default listing = %+v, %v; want the payload", full, err)
+	}
+	slim, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{SourceID: s.ID, Limit: 1, OmitPayload: true})
+	if err != nil || len(slim) != 1 {
+		t.Fatalf("OmitPayload listing = %+v, %v", slim, err)
+	}
+	if len(slim[0].Payload) != 0 || slim[0].PayloadExcerpt != "excerpt" || slim[0].Status != StatusVerified {
+		t.Errorf("OmitPayload delivery = %+v; want no payload, excerpt and status kept", slim[0])
 	}
 }

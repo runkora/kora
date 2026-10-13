@@ -2,7 +2,7 @@
  * api-routes.ts
  *
  * Single source of truth for every BFF (Backend-for-Frontend) API route in
- * the Orbit app.
+ * the kora app.
  *
  * Each entry is keyed by route name, then by HTTP method. Methods are
  * functions so that routes with optional query parameters can be built
@@ -21,6 +21,8 @@
  *   // With body
  *   fetch(ApiRoute.session.POST(), { method: 'POST', body: JSON.stringify({ id_token }) });
  */
+
+import type { AgentInsightsPeriod } from '@orbit/shared/api';
 
 // ── Base segments ─────────────────────────────────────────────────────────────
 
@@ -64,7 +66,7 @@ export const ApiRoute = {
   /**
    * `/api/auth/logout`
    *
-   * Revokes the Orbit tokens server-side (best-effort) and destroys the
+   * Revokes the kora tokens server-side (best-effort) and destroys the
    * iron-session cookie, then redirects to `/login`.
    */
   logout: {
@@ -75,7 +77,7 @@ export const ApiRoute = {
    * `/api/auth/session`
    *
    * POST — called by the OIDC callback page with `{ id_token }` to exchange
-   *        the provider id_token for an Orbit session cookie.
+   *        the provider id_token for a kora session cookie.
    *
    * GET  — returns the public (non-sensitive) portion of the current session
    *        for client components that need to know who is logged in.
@@ -304,6 +306,19 @@ export const ApiRoute = {
     },
   },
 
+  /**
+   * `/api/agents/insights?period=24h|7d|30d|90d`
+   *
+   * GET: the Agents page rollups. Usage, model split, spend over time, budgets
+   * and run outcomes for one window.
+   */
+  agentInsights: {
+    window: (
+      period: AgentInsightsPeriod,
+    ): `${typeof API_BASE}/agents/insights?period=${AgentInsightsPeriod}` =>
+      `${API_BASE}/agents/insights?period=${period}`,
+  },
+
   agentTypes: {
     list: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
     create: (): `${typeof API_BASE}/agents/types` => `${API_BASE}/agents/types`,
@@ -311,7 +326,6 @@ export const ApiRoute = {
       `${API_BASE}/agents/types/${id}`,
     delete: (id: string): `${typeof API_BASE}/agents/types/${string}` =>
       `${API_BASE}/agents/types/${id}`,
-    toolScopes: (): `${typeof API_BASE}/agents/tool-scopes` => `${API_BASE}/agents/tool-scopes`,
     connectors: (): `${typeof API_BASE}/agents/connectors` => `${API_BASE}/agents/connectors`,
     mcpTools: (): `${typeof API_BASE}/agents/mcp-tools` => `${API_BASE}/agents/mcp-tools`,
     effectiveAccess: (id: string): `${typeof API_BASE}/agents/types/${string}/effective-access` =>
@@ -325,21 +339,16 @@ export const ApiRoute = {
     previewEffectiveAccess: (): `${typeof API_BASE}/agents/types/effective-access` =>
       `${API_BASE}/agents/types/effective-access`,
     /**
-     * `/api/agents/types/[typeId]/usage`
+     * `/api/agents/types/overview/[slug]`
      *
-     * GET — returns the agent type's 7-day token breakdown and spend, sourced
-     *       from the inference gateway. Powers the token breakdown and spend
-     *       cards on the agent overview page.
+     * GET: one agent's usage, spend, budget and run stats for one window. Powers
+     *      the agent Overview.
      */
-    usage: (id: string): `${typeof API_BASE}/agents/types/${string}/usage` =>
-      `${API_BASE}/agents/types/${id}/usage`,
-    /**
-     * `/api/agents/types/usage`
-     *
-     * GET — returns the 7-day token breakdown and spend for every agent type in
-     *       the tenant. Powers the total + per-agent cost on the agents list.
-     */
-    usageAll: (): `${typeof API_BASE}/agents/types/usage` => `${API_BASE}/agents/types/usage`,
+    overview: (
+      slug: string,
+      period: AgentInsightsPeriod,
+    ): `${typeof API_BASE}/agents/types/overview/${string}?period=${AgentInsightsPeriod}` =>
+      `${API_BASE}/agents/types/overview/${encodeURIComponent(slug)}?period=${period}`,
     /**
      * `/api/agents/types/drafts`
      *
@@ -378,8 +387,20 @@ export const ApiRoute = {
       `${API_BASE}/trigger-sources/${id}`,
     delete: (id: string): `${typeof API_BASE}/trigger-sources/${string}` =>
       `${API_BASE}/trigger-sources/${id}`,
+    eventTypes: (id: string): `${typeof API_BASE}/trigger-sources/${string}/event-types` =>
+      `${API_BASE}/trigger-sources/${id}/event-types`,
   },
 
+  /** Per-provider schema catalogue: event types, fields and sender associations. */
+  triggerProviders: {
+    eventTypes: (provider: string): `${typeof API_BASE}/trigger-providers/${string}/event-types` =>
+      `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/event-types`,
+    fields: (
+      provider: string,
+      eventType: string,
+    ): `${typeof API_BASE}/trigger-providers/${string}/fields?event_type=${string}` =>
+      `${API_BASE}/trigger-providers/${encodeURIComponent(provider)}/fields?event_type=${encodeURIComponent(eventType)}`,
+  },
   triggers: {
     list: (agentTypeId?: string): string =>
       agentTypeId
@@ -407,6 +428,11 @@ export const ApiRoute = {
 
   runs: {
     list: (): `${typeof API_BASE}/agents/runs` => `${API_BASE}/agents/runs`,
+    /** Run stats across every agent the caller may read, for one window. */
+    stats: (
+      period: AgentInsightsPeriod,
+    ): `${typeof API_BASE}/agents/runs/stats?period=${AgentInsightsPeriod}` =>
+      `${API_BASE}/agents/runs/stats?period=${period}`,
     listForType: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
       `${API_BASE}/agents/types/${typeId}/runs`,
     start: (typeId: string): `${typeof API_BASE}/agents/types/${string}/runs` =>
@@ -499,13 +525,14 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['agentTypes']['delete']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['effectiveAccess']>
   | ReturnType<(typeof ApiRoute)['agentTypes']['previewEffectiveAccess']>
-  | ReturnType<(typeof ApiRoute)['agentTypes']['usage']>
+  | ReturnType<(typeof ApiRoute)['agentTypes']['overview']>
   | ReturnType<(typeof ApiRoute)['environments']['list']>
   | ReturnType<(typeof ApiRoute)['environments']['create']>
   | ReturnType<(typeof ApiRoute)['environments']['detail']>
   | ReturnType<(typeof ApiRoute)['environments']['delete']>
   | ReturnType<(typeof ApiRoute)['runs']['list']>
   | ReturnType<(typeof ApiRoute)['runs']['listForType']>
+  | ReturnType<(typeof ApiRoute)['runs']['stats']>
   | ReturnType<(typeof ApiRoute)['runs']['start']>
   | ReturnType<(typeof ApiRoute)['runs']['detail']>
   | ReturnType<(typeof ApiRoute)['runs']['terminate']>

@@ -35,10 +35,9 @@ import (
 )
 
 // tenantCASecretName is the Secret in each tenant namespace holding the
-// tenant's CA cert + key. The egress gateway pod (in orbit-system) projects
-// these via a per-tenant volume so cabundle.LoadEager can read
-// {root}/{tenant}/ca.{crt,key}; the sandbox pod projects ca.crt only into
-// its trust store.
+// tenant's CA cert + key. The aggregator copies them into orbit-tenant-cas,
+// which the egress gateway mounts and re-reads; the sandbox pod projects
+// ca.crt only into its trust store.
 const tenantCASecretName = "orbit-tenant-ca"
 
 // caCertValidity is how long a freshly-minted tenant CA is valid for. Ten
@@ -120,8 +119,8 @@ func generateTenantCA(tenant string) (certPEM, keyPEM []byte, err error) {
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject: pkix.Name{
-			CommonName:   "Orbit Tenant CA — " + tenant,
-			Organization: []string{"Orbit Egress Gateway"},
+			CommonName:   "kora Tenant CA — " + tenant,
+			Organization: []string{"kora Egress Gateway"},
 		},
 		NotBefore:             now.Add(-1 * time.Minute),
 		NotAfter:              now.Add(caCertValidity),

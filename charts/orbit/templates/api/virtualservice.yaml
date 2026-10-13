@@ -10,7 +10,7 @@
 # wins). The root /.well-known/* discovery documents (RFC 8414/9728) are served
 # at the host root and rewritten to each owning service's internal base path.
 #
-# Binds to the Orbit Gateway, or the existing one named by gateway.name.
+# Binds to the kora Gateway, or the existing one named by gateway.name.
 # Behind a TLS-terminating Ingress (gateway.ingress.enabled) the gateway sees
 # plaintext and would advertise http:// in OAuth metadata; every route forces
 # x-forwarded-proto=https to correct it.

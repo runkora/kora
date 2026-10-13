@@ -6,8 +6,8 @@
  * properties; platform governance is not this surface's story. Mirrors the
  * PlannedLimits row motif: subtle card, flush content, separator-divided rows. */
 
-import { Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+import { Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 
 const NOTICE_ROWS: { icon: IconName; title: string; desc: string }[] = [
   {
@@ -39,7 +39,7 @@ export function DelegatedRunNotice() {
         </Stack>
         {NOTICE_ROWS.map((row) => (
           <Stack key={row.title} gap="none">
-            <Separator span="full" />
+            <Separator />
             <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
               <Icon
                 name={row.icon}

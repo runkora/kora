@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -30,7 +31,7 @@ const (
 
 	// podLabelSpiffeService is matched by the orbit-tenant-service
 	// ClusterSPIFFEID, which issues spiffe://<td>/tenant/<ns>/service/<value>.
-	// An MCP server pod needs it: Orbit's sidecars take their certificates from
+	// An MCP server pod needs it: kora's sidecars take their certificates from
 	// SPIRE, so a pod with no registration has no mesh identity.
 	podLabelSpiffeService = "spiffe.io/service"
 
@@ -40,6 +41,12 @@ const (
 	podAnnotationTenantID        = "orbit.io/tenant-id"
 	podAnnotationProxyConfig     = "proxy.istio.io/config"
 	podAnnotationUserVolumeMount = "sidecar.istio.io/userVolumeMount"
+
+	// Istio's per-pod istio-proxy resources, set on sandbox pods to pin the proxy.
+	podAnnotationProxyCPU         = "sidecar.istio.io/proxyCPU"
+	podAnnotationProxyCPULimit    = "sidecar.istio.io/proxyCPULimit"
+	podAnnotationProxyMemory      = "sidecar.istio.io/proxyMemory"
+	podAnnotationProxyMemoryLimit = "sidecar.istio.io/proxyMemoryLimit"
 
 	spiffeSocketPath  = "unix:///run/secrets/workload-spiffe-uds/socket"
 	spiffeSocketMount = "/run/secrets/workload-spiffe-uds"
@@ -77,9 +84,19 @@ type InjectionConfig struct {
 	OPAPullPolicy corev1.PullPolicy
 	OPALogLevel   string
 	OPAResources  corev1.ResourceRequirements
+
+	// SandboxSidecars pins the sidecars on sandbox pods. An empty list keeps that sidecar's usual resources.
+	SandboxSidecars SandboxSidecars
 }
 
-// PodMutator injects Orbit enforcement dependencies before Istio injection.
+// SandboxSidecars holds each sandbox sidecar's resources, used as both its requests and its limits.
+type SandboxSidecars struct {
+	IstioProxy    corev1.ResourceList
+	IdentityProxy corev1.ResourceList
+	OPA           corev1.ResourceList
+}
+
+// PodMutator injects kora enforcement dependencies before Istio injection.
 type PodMutator struct {
 	Client  client.Client
 	Decoder admission.Decoder
@@ -167,8 +184,8 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error
 		pod.Annotations[podAnnotationTenantID] = tenantName
 	}
 
-	// Orbit's own containers below are overwritten by name. Istio's are not
-	// Orbit's to overwrite, and a pod that declares them itself is trying to
+	// kora's own containers below are overwritten by name. Istio's are not
+	// kora's to overwrite, and a pod that declares them itself is trying to
 	// stand in for the sidecar; refuse it rather than let it through.
 	if name := preDeclaredIstioContainer(&pod.Spec); name != "" {
 		return fmt.Errorf("pod declares its own %q container; Istio injects that", name)
@@ -225,9 +242,36 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error
 	if pod.Labels[podLabelRole] == podRoleSandbox {
 		otlpEndpoint = ""
 	}
-	ensureContainer(&pod.Spec, m.identityProxyContainer(otlpEndpoint))
-	ensureContainer(&pod.Spec, m.opaContainer())
+	idProxy, opa := m.identityProxyContainer(otlpEndpoint), m.opaContainer()
+	if pod.Labels[podLabelRole] == podRoleSandbox {
+		m.pinSandboxSidecars(pod, &idProxy, &opa)
+	}
+	ensureNativeSidecar(&pod.Spec, idProxy)
+	ensureNativeSidecar(&pod.Spec, opa)
 	return nil
+}
+
+// pinSandboxSidecars sets a sandbox pod's sidecar requests equal to their limits, so the pod reserves what it can use.
+func (m *PodMutator) pinSandboxSidecars(pod *corev1.Pod, idProxy, opa *corev1.Container) {
+	pinned := m.Config.SandboxSidecars
+	if len(pinned.IdentityProxy) > 0 {
+		idProxy.Resources = pinnedResources(pinned.IdentityProxy)
+	}
+	if len(pinned.OPA) > 0 {
+		opa.Resources = pinnedResources(pinned.OPA)
+	}
+	if cpu, ok := pinned.IstioProxy[corev1.ResourceCPU]; ok {
+		pod.Annotations[podAnnotationProxyCPU] = cpu.String()
+		pod.Annotations[podAnnotationProxyCPULimit] = cpu.String()
+	}
+	if mem, ok := pinned.IstioProxy[corev1.ResourceMemory]; ok {
+		pod.Annotations[podAnnotationProxyMemory] = mem.String()
+		pod.Annotations[podAnnotationProxyMemoryLimit] = mem.String()
+	}
+}
+
+func pinnedResources(l corev1.ResourceList) corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{Requests: l.DeepCopy(), Limits: l.DeepCopy()}
 }
 
 func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Container {
@@ -324,8 +368,9 @@ func (m *PodMutator) OPAResourcesOrDefault() corev1.ResourceRequirements {
 	}
 }
 
-// mergeProxyConfig sets the SPIRE certificate provider on top of whatever proxy
-// configuration the pod already carries.
+// mergeProxyConfig sets the SPIRE certificate provider and in-mesh-only peer
+// metadata headers on top of whatever proxy configuration the pod already carries.
+// IN_MESH keeps pod details out of plain-HTTP calls that leave the mesh.
 func mergeProxyConfig(existing string) (string, error) {
 	cfg := map[string]any{}
 	if existing != "" {
@@ -343,6 +388,12 @@ func mergeProxyConfig(existing string) (string, error) {
 	meta["PILOT_CERT_PROVIDER"] = "spire"
 	meta["SPIFFE_ENDPOINT_SOCKET"] = spiffeSocketPath
 	cfg["proxyMetadata"] = meta
+	headers, _ := cfg["proxyHeaders"].(map[string]any)
+	if headers == nil {
+		headers = map[string]any{}
+	}
+	headers["metadataExchangeHeaders"] = map[string]any{"mode": "IN_MESH"}
+	cfg["proxyHeaders"] = headers
 	out, err := json.Marshal(cfg)
 	return string(out), err
 }
@@ -361,8 +412,8 @@ func mergeUserVolumeMounts(existing string) (string, error) {
 	return string(out), err
 }
 
-// ensureVolume sets an Orbit-owned volume by name, overwriting any pod-supplied
-// definition of the same name. Every caller here is one of Orbit's own fixed
+// ensureVolume sets a kora-owned volume by name, overwriting any pod-supplied
+// definition of the same name. Every caller here is one of kora's own fixed
 // volume names (workload-socket, id-proxy-sock, orbit-opa-config): a tenant pod
 // that pre-declares one of these itself must not get its definition kept, or the
 // injected sidecar mounts an attacker-controlled volume instead of the real one.
@@ -390,14 +441,19 @@ func preDeclaredIstioContainer(spec *corev1.PodSpec) string {
 	return ""
 }
 
-func ensureContainer(spec *corev1.PodSpec, c corev1.Container) {
-	for i := range spec.Containers {
-		if spec.Containers[i].Name == c.Name {
-			spec.Containers[i] = c
+// ensureNativeSidecar adds c as an init container that keeps running, which Kubernetes stops after the
+// main containers (docs/adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md, Amendment 3).
+func ensureNativeSidecar(spec *corev1.PodSpec, c corev1.Container) {
+	always := corev1.ContainerRestartPolicyAlways
+	c.RestartPolicy = &always
+	spec.Containers = slices.DeleteFunc(spec.Containers, func(x corev1.Container) bool { return x.Name == c.Name })
+	for i := range spec.InitContainers {
+		if spec.InitContainers[i].Name == c.Name {
+			spec.InitContainers[i] = c
 			return
 		}
 	}
-	spec.Containers = append(spec.Containers, c)
+	spec.InitContainers = append(spec.InitContainers, c)
 }
 
 func hasPullSecret(refs []corev1.LocalObjectReference, name string) bool {

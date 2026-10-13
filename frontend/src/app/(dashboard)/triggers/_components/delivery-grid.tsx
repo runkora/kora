@@ -11,8 +11,8 @@
  */
 
 import { useMemo } from 'react';
-import { Badge, DataTable, Stack, StatusDot, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
+import { Badge, DataTable, Stack, StatusDot, Text } from '@orbit/hades';
+import type { DataTableColumn } from '@orbit/hades';
 import {
   deliveryDotStatus,
   deliveryDuration,
@@ -65,6 +65,7 @@ function makeColumns(sourceName: (id: string) => string): DataTableColumn<Delive
       id: 'status',
       header: 'Status',
       gridWidth: '118px',
+      minWidth: '6rem',
       locked: true,
       cell: (row) => (
         <Stack direction="horizontal" gap="snug" align="center" minWidth="none">
@@ -84,6 +85,7 @@ function makeColumns(sourceName: (id: string) => string): DataTableColumn<Delive
       id: 'trigger',
       header: 'Trigger',
       gridWidth: 'minmax(0, 1.1fr)',
+      minWidth: '9rem',
       cell: (row) => (
         <Stack gap="tight" minWidth="none">
           {row.identity.kind === 'none' ? (
@@ -112,6 +114,7 @@ function makeColumns(sourceName: (id: string) => string): DataTableColumn<Delive
       id: 'event',
       header: 'Event',
       gridWidth: '148px',
+      minWidth: '8rem',
       cell: (row) => (
         <Stack direction="horizontal" minWidth="none">
           {row.eventType !== '' && (
@@ -126,6 +129,7 @@ function makeColumns(sourceName: (id: string) => string): DataTableColumn<Delive
       id: 'received',
       header: 'Received',
       gridWidth: '96px',
+      minWidth: '5.5rem',
       cell: (row) => (
         <Text size="supporting" color="muted" title={formatTimestampUtc(row.receivedAt)}>
           {relativeTime(row.receivedAt)}
@@ -136,6 +140,7 @@ function makeColumns(sourceName: (id: string) => string): DataTableColumn<Delive
       id: 'duration',
       header: 'Duration',
       gridWidth: '76px',
+      minWidth: '4.5rem',
       align: 'right',
       cell: (row) => (
         <Text mono tabular size="supporting" color="muted" align="end">
@@ -147,6 +152,7 @@ function makeColumns(sourceName: (id: string) => string): DataTableColumn<Delive
       id: 'detail',
       header: 'Detail',
       gridWidth: 'minmax(0, 1.3fr)',
+      minWidth: '10rem',
       cell: (row) => (
         <Stack direction="horizontal" minWidth="none">
           {row.summary.kind !== 'none' && (

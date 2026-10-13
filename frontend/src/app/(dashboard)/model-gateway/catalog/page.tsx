@@ -1,5 +1,10 @@
 import { getSession, isSessionValid } from '@orbit/server/session';
-import { fetchVirtualModels, fetchProviderModels, fetchPricing } from '../_services/catalog-server';
+import {
+  fetchVirtualModels,
+  fetchProviderModels,
+  fetchPricing,
+  fetchProviders,
+} from '../_services/catalog-server';
 import type { PricingEntryWire } from '../_services/catalog-server';
 import { CatalogTab } from './_components/catalog-tab';
 import type { SyncSummary } from './_components/sync-status-banner';
@@ -34,6 +39,7 @@ export default async function CatalogPage() {
       <CatalogTab
         initialVirtualModels={[]}
         initialProviderModels={[]}
+        initialProviders={[]}
         initialError="Not authenticated"
         syncSummary={{
           lastSyncedAt: null,
@@ -45,15 +51,18 @@ export default async function CatalogPage() {
     );
   }
 
-  const [vmResult, pmResult, pricingResult] = await Promise.all([
+  const [vmResult, pmResult, pricingResult, providersResult] = await Promise.all([
     fetchVirtualModels(session.accessToken),
     fetchProviderModels(session.accessToken),
     fetchPricing(session.accessToken),
+    fetchProviders(session.accessToken),
   ]);
 
   const virtualModels = vmResult.ok ? (vmResult.data.data ?? []) : [];
   const providerModels = pmResult.ok ? (pmResult.data.data ?? []) : [];
   const pricingEntries = pricingResult.ok ? (pricingResult.data.data ?? []) : [];
+  const providers = providersResult.ok ? (providersResult.data.data ?? []) : [];
+  const providersError = providersResult.ok ? null : providersResult.message;
   const error = !vmResult.ok ? vmResult.message : null;
   const syncSummary = buildSyncSummary(pricingEntries, !pricingResult.ok);
 
@@ -61,6 +70,8 @@ export default async function CatalogPage() {
     <CatalogTab
       initialVirtualModels={virtualModels}
       initialProviderModels={providerModels}
+      initialProviders={providers}
+      providersError={providersError}
       initialError={error}
       syncSummary={syncSummary}
     />

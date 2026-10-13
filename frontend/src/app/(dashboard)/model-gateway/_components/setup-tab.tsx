@@ -3,12 +3,13 @@
 // ── SetupTab ────────────────────────────────────────────────────────────────
 //
 // Guides users through configuring a local LLM coding agent to route traffic
-// through the Orbit Model Gateway.
+// through the kora Model Gateway.
 //
 // Structure:
 //   1. Shared intro — how to self-service provision an API key
-//   2. Agent-specific tabs — Claude Code, Codex CLI, OpenCode
+//   2. Agent-specific tabs — Claude Code, Codex CLI, OpenCode, VS Code
 
+import { useSyncExternalStore } from 'react';
 import Link from 'next/link';
 import {
   Anchor,
@@ -29,8 +30,9 @@ import {
   TabsContent,
   Text,
   Callout,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { ScopeChip } from '@orbit/components';
+import { GATEWAY_BASE_URL_FALLBACK, gatewayBaseUrlFromWindow } from '../_utils';
 
 // ── Step ─────────────────────────────────────────────────────────────────────
 
@@ -65,7 +67,7 @@ function Step({
 
 // ── Agent tab content ─────────────────────────────────────────────────────────
 
-function ClaudeCodeGuide() {
+function ClaudeCodeGuide({ baseUrl }: { baseUrl: string }) {
   return (
     <Stack gap="none">
       <Step number={1} title="Set the gateway endpoint">
@@ -74,7 +76,7 @@ function ClaudeCodeGuide() {
           Add the following to your shell profile alongside the key you exported above.
         </Text>
         <CodeBlock
-          text={`export ANTHROPIC_BASE_URL="https://api.orbit.dev.clearroute.io"
+          text={`export ANTHROPIC_BASE_URL="${baseUrl}"
 export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
           filename="~/.zshrc"
         />
@@ -83,7 +85,7 @@ export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
       <Step number={2} title="Map model aliases to your virtual models" isLast>
         <Text size="supporting" color="muted">
           Claude Code uses <Code>ANTHROPIC_DEFAULT_*_MODEL</Code> environment variables to select
-          models by tier. Set each to the virtual model ID provisioned for you in Orbit.
+          models by tier. Set each to the virtual model ID provisioned for you in kora.
         </Text>
         <CodeBlock
           text={`export ANTHROPIC_DEFAULT_SONNET_MODEL=anthropic/claude-sonnet-4-6
@@ -100,12 +102,12 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`}
   );
 }
 
-function CodexGuide() {
+function CodexGuide({ baseUrl }: { baseUrl: string }) {
   return (
     <Stack gap="none">
       <Step number={1} title="Set the active provider and model">
         <Text size="supporting" color="muted">
-          Tell Codex to use Orbit and select your default virtual model by adding the following to
+          Tell Codex to use kora and select your default virtual model by adding the following to
           your Codex config file.
         </Text>
         <CodeBlock
@@ -115,15 +117,15 @@ model = "anthropic/claude-sonnet-4-6"`}
         />
       </Step>
 
-      <Step number={2} title="Register the Orbit provider" isLast>
+      <Step number={2} title="Register the kora provider" isLast>
         <Text size="supporting" color="muted">
           Add the provider definition that Codex will look up when{' '}
           <Code>model_provider = &quot;orbit&quot;</Code> is set.
         </Text>
         <CodeBlock
           text={`[model_providers.orbit]
-name     = "Orbit"
-base_url = "https://api.orbit.dev.clearroute.io/v1"
+name     = "kora"
+base_url = "${baseUrl}/v1"
 env_key  = "ORBIT_API_KEY"
 wire_api = "responses"`}
           filename="~/.codex/config.toml"
@@ -135,7 +137,7 @@ wire_api = "responses"`}
             </Heading>
             <Text size="caption" color="muted">
               Codex reads the bearer token from the environment variable named by{' '}
-              <Code>env_key</Code>. Export your Orbit API key as <Code>ORBIT_API_KEY</Code> in your
+              <Code>env_key</Code>. Export your kora API key as <Code>ORBIT_API_KEY</Code> in your
               shell profile.
             </Text>
           </Stack>
@@ -156,13 +158,13 @@ wire_api = "responses"`}
   );
 }
 
-function OpenCodeGuide() {
+function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
   return (
     <Stack gap="none">
-      <Step number={1} title="Add Orbit as a provider" isLast>
+      <Step number={1} title="Add kora as a provider" isLast>
         <Text size="supporting" color="muted">
           OpenCode supports custom OpenAI-compatible providers via its config file. Add the
-          following to register Orbit and expose your virtual models.
+          following to register kora and expose your virtual models.
         </Text>
         <CodeBlock
           text={`{
@@ -170,9 +172,9 @@ function OpenCodeGuide() {
   "provider": {
     "orbit": {
       "npm": "@ai-sdk/openai-compatible",
-      "name": "Orbit",
+      "name": "kora",
       "options": {
-        "baseURL": "https://api.orbit.dev.clearroute.io/v1",
+        "baseURL": "${baseUrl}/v1",
         "apiKey": "{env:ORBIT_API_KEY}"
       },
       "models": {
@@ -208,9 +210,102 @@ function OpenCodeGuide() {
   );
 }
 
+function VSCodeGuide({ baseUrl }: { baseUrl: string }) {
+  return (
+    <Stack gap="none">
+      <Step number={1} title="Export the key where VS Code can see it">
+        <Text size="supporting" color="muted">
+          VS Code inherits environment variables from the shell that launched it. Export your key in
+          your shell profile, then start VS Code from that shell with <Code>code .</Code> so the
+          value is picked up.
+        </Text>
+        <CodeBlock
+          text={`export ORBIT_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"
+export ANTHROPIC_BASE_URL="${baseUrl}"
+export ANTHROPIC_API_KEY="$ORBIT_API_KEY"`}
+          filename="~/.zshrc"
+        />
+        <Text size="caption" color="subtle">
+          Then reload: <Code>source ~/.zshrc</Code>
+        </Text>
+      </Step>
+
+      <Step number={2} title="Point the Claude Code extension at the gateway">
+        <Text size="supporting" color="muted">
+          The Claude Code extension runs the same CLI underneath, so it reads the same variables.
+          Pin them in your workspace settings if you prefer not to rely on the launching shell.
+        </Text>
+        <CodeBlock
+          text={`{
+  "claudeCode.environmentVariables": [
+    { "name": "ANTHROPIC_BASE_URL", "value": "${baseUrl}" },
+    { "name": "ANTHROPIC_DEFAULT_SONNET_MODEL", "value": "anthropic/claude-sonnet-4-6" },
+    { "name": "ANTHROPIC_DEFAULT_HAIKU_MODEL", "value": "anthropic/claude-haiku-4-5" },
+    { "name": "ANTHROPIC_DEFAULT_OPUS_MODEL", "value": "anthropic/claude-opus-4-7" },
+    { "name": "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY", "value": "1" }
+  ]
+}`}
+          filename=".vscode/settings.json"
+        />
+        <Callout>
+          <Stack gap="snug">
+            <Heading variant="label">Keep the key out of settings files</Heading>
+            <Text size="caption" color="muted">
+              <Code>.vscode/settings.json</Code> is commonly committed. Set{' '}
+              <Code>ANTHROPIC_API_KEY</Code> in your shell profile only, never here.
+            </Text>
+          </Stack>
+        </Callout>
+      </Step>
+
+      <Step number={3} title="Or register kora as an OpenAI-compatible provider" isLast>
+        <Text size="supporting" color="muted">
+          Extensions that accept a custom OpenAI-compatible endpoint (Continue, Cline, Roo Code and
+          similar) take the gateway directly. Point them at the <Code>/v1</Code> base URL and your
+          virtual model IDs.
+        </Text>
+        <CodeBlock
+          text={`{
+  "models": [
+    {
+      "title": "kora — Claude Sonnet 4.6",
+      "provider": "openai",
+      "model": "anthropic/claude-sonnet-4-6",
+      "apiBase": "${baseUrl}/v1",
+      "apiKey": "\${env:ORBIT_API_KEY}"
+    }
+  ]
+}`}
+          filename="~/.continue/config.json"
+        />
+        <Callout>
+          <Stack gap="snug">
+            <Heading variant="label">
+              <Code>apiBase</Code> must include the <Code>/v1</Code> suffix
+            </Heading>
+            <Text size="caption" color="muted">
+              The OpenAI-compatible surface is served under <Code>/v1</Code>. Omitting it causes
+              every request to return 403.
+            </Text>
+          </Stack>
+        </Callout>
+      </Step>
+    </Stack>
+  );
+}
+
 // ── SetupTab (exported) ──────────────────────────────────────────────────────
 
+// useSyncExternalStore plumbing for reading the browser host: the host never
+// changes, so the store has no subscription. Hydration uses the server
+// snapshot (the placeholder), so the snippets match the SSR markup; React then
+// re-renders with the real host after mount.
+const subscribeNoop = () => () => {};
+const getServerBaseUrl = () => GATEWAY_BASE_URL_FALLBACK;
+
 export function SetupTab() {
+  const baseUrl = useSyncExternalStore(subscribeNoop, gatewayBaseUrlFromWindow, getServerBaseUrl);
+
   return (
     <Stack gap="spacious">
       {/* ── Shared: provision an API key ─────────────────────────────────── */}
@@ -218,7 +313,7 @@ export function SetupTab() {
         <CardHeader>
           <CardTitle>Provision an API key</CardTitle>
           <CardDescription>
-            All agents authenticate to the Orbit Model Gateway using a personal API key. Create one
+            All agents authenticate to the kora Model Gateway using a personal API key. Create one
             now and export it to your environment before continuing.
           </CardDescription>
         </CardHeader>
@@ -280,7 +375,7 @@ export function SetupTab() {
                 to version control.
               </Text>
               <CodeBlock
-                text={`export ORBIT_API_KEY="sk-orbit-xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
+                text={`export ORBIT_API_KEY="orb_xxxxxxxx-xxxxxxxx-xxxxxxxx"`}
                 filename="~/.zshrc"
               />
               <Text size="caption" color="subtle">
@@ -296,7 +391,7 @@ export function SetupTab() {
         <CardHeader>
           <CardTitle>Configure your agent</CardTitle>
           <CardDescription>
-            Select your LLM coding agent below and follow the steps to point it at the Orbit Model
+            Select your LLM coding agent below and follow the steps to point it at the kora Model
             Gateway.
           </CardDescription>
         </CardHeader>
@@ -306,18 +401,23 @@ export function SetupTab() {
               <TabsTrigger value="claude-code">Claude Code</TabsTrigger>
               <TabsTrigger value="codex">Codex CLI</TabsTrigger>
               <TabsTrigger value="opencode">OpenCode</TabsTrigger>
+              <TabsTrigger value="vscode">VS Code</TabsTrigger>
             </TabsList>
 
             <TabsContent value="claude-code">
-              <ClaudeCodeGuide />
+              <ClaudeCodeGuide baseUrl={baseUrl} />
             </TabsContent>
 
             <TabsContent value="codex">
-              <CodexGuide />
+              <CodexGuide baseUrl={baseUrl} />
             </TabsContent>
 
             <TabsContent value="opencode">
-              <OpenCodeGuide />
+              <OpenCodeGuide baseUrl={baseUrl} />
+            </TabsContent>
+
+            <TabsContent value="vscode">
+              <VSCodeGuide baseUrl={baseUrl} />
             </TabsContent>
           </Tabs>
         </CardContent>

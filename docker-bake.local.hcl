@@ -2,16 +2,18 @@
 //
 // Overlay for local k3d development — re-tags every image at localhost:5001
 // (the k3d local registry) and adds a :git-sha tag so kubectl describe shows
-// which build is running. Used only by `make redeploy-platform-bake` (the
-// ORBIT_PARALLEL_BUILDS=1 path); CI continues to use docker-bake.hcl alone.
+// which build is running. Used by `make redeploy-platform-bake` (the
+// ORBIT_PARALLEL_BUILDS=1 path), `make redeploy-tenant-bake` and
+// `make redeploy-sandbox-images`; CI continues to use docker-bake.hcl alone.
 //
 // Keep the local-platform group in sync with BAKE_PLATFORM_IMAGES in the
 // Makefile and REDEPLOY_PLATFORM_SERVICES — a service missing here silently
-// never rebuilds on the parallel path.
+// never rebuilds on the parallel path. Keep local-sandbox-images in sync with
+// BAKE_SANDBOX_IMAGES.
 //
 // Usage (typically driven by Makefile):
 //   docker buildx bake -f docker-bake.hcl -f docker-bake.local.hcl \
-//     --load local-platform
+//     -f versions.hcl --load local-platform
 
 variable "GIT_SHA" {
   default = "dev"
@@ -110,13 +112,51 @@ target "orbit-session-manager" {
     "localhost:5001/orbit-session-manager:${GIT_SHA}",
   ]
 }
-target "orbit-sandbox-exec" {
+target "orbit-sandbox-mount" {
   tags = [
-    "localhost:5001/orbit-sandbox-exec:latest",
-    "localhost:5001/orbit-sandbox-exec:${GIT_SHA}",
+    "localhost:5001/orbit-sandbox-mount:latest",
+    "localhost:5001/orbit-sandbox-mount:${GIT_SHA}",
+  ]
+}
+target "kora-sandbox-base" {
+  args = {
+    SANDBOX_BASE_VERSION = GIT_SHA
+  }
+  tags = [
+    "localhost:5001/kora-sandbox-base:latest",
+    "localhost:5001/kora-sandbox-base:${GIT_SHA}",
+  ]
+}
+// The bundled sandbox images and kora-sandbox-dev. They stay out of local-platform, and make up does
+// not build them. Build them with the local-sandbox-images group.
+target "kora-sandbox-go" {
+  tags = [
+    "localhost:5001/kora-sandbox-go:latest",
+    "localhost:5001/kora-sandbox-go:${GIT_SHA}",
+  ]
+}
+target "kora-sandbox-python" {
+  tags = [
+    "localhost:5001/kora-sandbox-python:latest",
+    "localhost:5001/kora-sandbox-python:${GIT_SHA}",
+  ]
+}
+target "kora-sandbox-node" {
+  tags = [
+    "localhost:5001/kora-sandbox-node:latest",
+    "localhost:5001/kora-sandbox-node:${GIT_SHA}",
+  ]
+}
+target "kora-sandbox-dev" {
+  tags = [
+    "localhost:5001/kora-sandbox-dev:latest",
+    "localhost:5001/kora-sandbox-dev:${GIT_SHA}",
   ]
 }
 target "orbit-frontend" {
+  args = {
+    ORBIT_VERSION = GIT_SHA
+  }
   tags = [
     "localhost:5001/orbit-frontend:latest",
     "localhost:5001/orbit-frontend:${GIT_SHA}",
@@ -148,10 +188,15 @@ group "local-platform" {
     "orbit-migrate",
     "orbit-operator",
     "orbit-session-manager",
-    "orbit-sandbox-exec",
+    "orbit-sandbox-mount",
+    "kora-sandbox-base",
   ]
 }
 
 group "local-tenant" {
   targets = ["orbit-example"]
+}
+
+group "local-sandbox-images" {
+  targets = ["kora-sandbox-go", "kora-sandbox-python", "kora-sandbox-node", "kora-sandbox-dev"]
 }

@@ -4,8 +4,10 @@
 // Raw API shapes (AgentType, Run) only appear at the service layer boundary.
 
 import type {
+  AgentEnvironment,
   AgentType,
   AgentBudget,
+  AgentTypeGuardrails,
   AgentIdentityMode,
   RunWithAttribution,
   AgentTypeState,
@@ -14,7 +16,20 @@ import type {
   Connector,
 } from '@orbit/shared/api';
 
-export type { AgentIdentityMode, AgentTypeState, RunState, Connectivity, Connector };
+export type {
+  AgentEnvironment,
+  AgentIdentityMode,
+  AgentTypeState,
+  RunState,
+  Connectivity,
+  Connector,
+};
+
+/** The states of a run in flight. An idle run waits for a message and is not live. */
+export const LIVE_RUN_STATES: readonly RunState[] = ['pending', 'starting', 'active', 'completing'];
+
+/** Runs per page on the agent's Runs tab. */
+export const RUNS_PAGE_SIZE = 50;
 
 export interface AgentTypeRow {
   id: string;
@@ -28,7 +43,6 @@ export interface AgentTypeRow {
   /** Identity model: acts as itself (autonomous) or as the person who runs it (delegated). Immutable. */
   identityMode: AgentIdentityMode;
   state: AgentTypeState;
-  toolScopes: string[];
   grantScopes: string[];
   /** Outbound egress posture (none / whitelist / open) + whitelist hosts. */
   connectivity: Connectivity;
@@ -37,6 +51,8 @@ export interface AgentTypeRow {
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcpTools: string[];
   maxConcurrentRunsPerPod: number;
+  /** Loop-guard thresholds as stored; absent fields take the platform defaults. */
+  guardrails: AgentTypeGuardrails;
   systemPrompt: string;
   createdAt: string;
   updatedAt: string;
@@ -44,8 +60,8 @@ export interface AgentTypeRow {
   modelId: string;
   /** Budget on the agent's policy grant (present on detail reads when configured). */
   budget: AgentBudget | null;
-  /** Attached environment id, or "" when none is attached. */
-  environmentId: string;
+  /** Attached environments. One is the default. Empty means the kora base image. */
+  environments: AgentEnvironment[];
 }
 
 export interface RunRow {
@@ -70,8 +86,6 @@ export interface RunRow {
   createdAt: string;
   /** Elapsed ms: completedAt - startedAt, or now - startedAt for active runs, or null if not started. */
   durationMs: number | null;
-  /** Total tokens consumed by this run, or null if not available. */
-  tokensUsed: number | null;
   /** Number of tool calls made during this run, or null if not available. */
   toolCalls: number | null;
   /** LLM-generated one-sentence summary of the run's task intent, or null if not available. */
@@ -96,18 +110,18 @@ export function toAgentTypeRow(a: AgentType): AgentTypeRow {
     frameworkKey: a.framework,
     identityMode: a.identity_mode ?? 'autonomous',
     state: a.state,
-    toolScopes: a.tool_scopes,
     grantScopes: a.grant_scopes,
     connectivity: a.connectivity ?? { mode: 'none' },
     connectors: a.connectors ?? [],
     mcpTools: a.mcp_tools ?? [],
     maxConcurrentRunsPerPod: a.max_concurrent_runs_per_pod,
+    guardrails: a.guardrails ?? {},
     systemPrompt: a.system_prompt,
     createdAt: a.created_at,
     updatedAt: a.updated_at,
     modelId: a.model_id ?? '',
     budget: a.budget ?? null,
-    environmentId: a.environment_id ?? '',
+    environments: a.environments ?? [],
   };
 }
 
@@ -142,7 +156,6 @@ export function toRunRow(r: RunWithAttribution, agentTypeById: Map<string, Agent
     completedAt: r.completed_at,
     createdAt: r.created_at,
     durationMs,
-    tokensUsed: r.tokens_used ?? null,
     toolCalls: r.tool_calls ?? null,
     summary: r.summary ?? null,
   };
@@ -173,4 +186,96 @@ export function formatRelativeTime(iso: string): string {
   if (diffH < 24) return `${diffH} hour${diffH !== 1 ? 's' : ''} ago`;
   const diffD = Math.floor(diffH / 24);
   return `${diffD} day${diffD !== 1 ? 's' : ''} ago`;
+}
+
+// ── Loop guardrails ───────────────────────────────────────────────────────────
+
+/** Platform defaults for the loop-guard thresholds; they match the agents API. */
+export const LOOP_GUARDRAIL_DEFAULTS = {
+  repeatedCallWarn: 4,
+  repeatedCallPause: 8,
+  waitRearmWarn: 6,
+  waitRearmPause: 12,
+} as const;
+
+/**
+ * The loop thresholds as form values. Each pair has a switch: off sends no
+ * override, so the agent type takes the platform defaults.
+ */
+export interface LoopGuardrailValues {
+  repeatedCallOn: boolean;
+  repeatedCallWarn: string;
+  repeatedCallPause: string;
+  waitRearmOn: boolean;
+  waitRearmWarn: string;
+  waitRearmPause: string;
+}
+
+/** Form values for stored thresholds: a pair is on when either of its fields is set. */
+export function loopGuardrailValues(g: AgentTypeGuardrails | undefined): LoopGuardrailValues {
+  const d = LOOP_GUARDRAIL_DEFAULTS;
+  return {
+    repeatedCallOn: g?.repeated_call_warn != null || g?.repeated_call_pause != null,
+    repeatedCallWarn: String(g?.repeated_call_warn ?? d.repeatedCallWarn),
+    repeatedCallPause: String(g?.repeated_call_pause ?? d.repeatedCallPause),
+    waitRearmOn: g?.wait_rearm_warn != null || g?.wait_rearm_pause != null,
+    waitRearmWarn: String(g?.wait_rearm_warn ?? d.waitRearmWarn),
+    waitRearmPause: String(g?.wait_rearm_pause ?? d.waitRearmPause),
+  };
+}
+
+/** The same rules the API applies to a pair that is on: warn is a whole number of at least 1, pause is greater than warn. */
+export function loopGuardrailErrors(
+  v: LoopGuardrailValues,
+): Partial<Record<'repeatedCall' | 'waitRearm', string>> {
+  const errors: Partial<Record<'repeatedCall' | 'waitRearm', string>> = {};
+  const check = (warnText: string, pauseText: string): string | undefined => {
+    const warn = Number(warnText);
+    const pause = Number(pauseText);
+    if (!Number.isInteger(warn) || warn < 1)
+      return 'Warn after must be a whole number of at least 1.';
+    if (!Number.isInteger(pause) || pause <= warn)
+      return 'Pause after must be greater than warn after.';
+    return undefined;
+  };
+  const repeated = v.repeatedCallOn && check(v.repeatedCallWarn, v.repeatedCallPause);
+  if (repeated) errors.repeatedCall = repeated;
+  const waits = v.waitRearmOn && check(v.waitRearmWarn, v.waitRearmPause);
+  if (waits) errors.waitRearm = waits;
+  return errors;
+}
+
+/** The API payload: the pairs that are switched on. */
+export function loopGuardrailsPayload(v: LoopGuardrailValues): AgentTypeGuardrails {
+  const out: AgentTypeGuardrails = {};
+  if (v.repeatedCallOn) {
+    out.repeated_call_warn = Number(v.repeatedCallWarn);
+    out.repeated_call_pause = Number(v.repeatedCallPause);
+  }
+  if (v.waitRearmOn) {
+    out.wait_rearm_warn = Number(v.waitRearmWarn);
+    out.wait_rearm_pause = Number(v.waitRearmPause);
+  }
+  return out;
+}
+
+// ── Attached environments ─────────────────────────────────────────────────────
+// The API requires exactly one attached environment to be the default.
+// These helpers keep the draft list in that shape as the user edits it.
+
+/** Attaches or detaches an environment. The first attached becomes the default. */
+export function toggleEnvironment(list: AgentEnvironment[], id: string): AgentEnvironment[] {
+  if (!list.some((e) => e.environment_id === id)) {
+    return [...list, { environment_id: id, is_default: list.length === 0 }];
+  }
+  const rest = list.filter((e) => e.environment_id !== id);
+  if (rest.length > 0 && !rest.some((e) => e.is_default)) {
+    return rest.map((e, i) => ({ ...e, is_default: i === 0 }));
+  }
+  return rest;
+}
+
+/** Marks one attached environment as the default. */
+export function setDefaultEnvironment(list: AgentEnvironment[], id: string): AgentEnvironment[] {
+  return list.map((e) => ({ ...e, is_default: e.environment_id === id }));
 }

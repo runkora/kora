@@ -11,9 +11,10 @@
  * (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
  */
 
-import type { IconName } from '@orbit/terra';
+import type { IconName } from '@orbit/hades';
 import type {
   InputField,
+  SenderRestriction,
   Trigger,
   TriggerDelivery,
   TriggerKind,
@@ -23,6 +24,9 @@ import type {
 } from '@orbit/shared/api';
 
 export type { InputField, TriggerKind, TriggerOverflow };
+
+/** Who may fire a webhook trigger; both lists empty means anyone. */
+export type Senders = Required<SenderRestriction>;
 
 // ── Shared vocabulary ─────────────────────────────────────────────────────────
 //
@@ -48,27 +52,6 @@ export const KIND_ICON: Record<TriggerKind, IconName> = {
   scheduled: 'clock',
   manual: 'play',
 };
-
-/**
- * Common event types per provider. Any other value the API accepts still works;
- * this is the vocabulary the console offers, not a constraint.
- */
-export const PROVIDER_EVENTS: Record<string, string[]> = {
-  github: ['push', 'pull_request', 'issues', 'release', 'workflow_run'],
-  alertmanager: ['firing', 'resolved'],
-};
-
-/**
- * The events to offer for a provider, including the trigger's current one.
- *
- * A trigger may listen on an event outside the common list: the backend takes
- * whatever the provider sends. Dropping it from the control would silently
- * rewrite the trigger the moment anything else on the row was saved.
- */
-export function eventOptionsFor(provider: string, current: string): string[] {
-  const common = PROVIDER_EVENTS[provider] ?? [];
-  return current && !common.includes(current) ? [...common, current] : common;
-}
 
 export interface SourceRow {
   id: string;
@@ -96,6 +79,10 @@ export interface TriggerRow {
   /** Webhook triggers only. */
   eventType: string;
   matchCondition: Record<string, string[]>;
+  /** Webhook triggers only. field → substrings, matched ignoring case. */
+  matchContains: Record<string, string[]>;
+  /** Webhook triggers only. Both lists empty means anyone may fire it. */
+  senderRestriction: Senders;
   promptTemplate: string;
   /** Scheduled triggers only. */
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp?: boolean };
@@ -205,6 +192,11 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     agentSlug: t.agent_slug,
     eventType: t.event_type ?? '',
     matchCondition: t.match_condition ?? {},
+    matchContains: t.match_contains ?? {},
+    senderRestriction: {
+      logins: t.sender_restriction?.logins ?? [],
+      associations: t.sender_restriction?.associations ?? [],
+    },
     promptTemplate: t.prompt_template,
     scheduleConfig: t.schedule_config
       ? {
@@ -278,9 +270,13 @@ export interface TriggerScheduleDraft {
 export interface TriggerPatch {
   name?: string;
   promptTemplate?: string;
-  /** Webhook only. Empty string means any event type. */
+  /** Webhook only. */
   eventType?: string;
   matchCondition?: Record<string, string[]>;
+  /** Webhook only. Replaces the contains filters; empty removes them. */
+  matchContains?: Record<string, string[]>;
+  /** Webhook only. Replaces the restriction; both lists empty removes it. */
+  senderRestriction?: Senders;
   scheduleConfig?: TriggerScheduleDraft;
   enabled?: boolean;
   dedupeEnabled?: boolean;
@@ -313,6 +309,10 @@ export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateReques
     ...(patch.promptTemplate !== undefined && { prompt_template: patch.promptTemplate }),
     ...(patch.eventType !== undefined && { event_type: patch.eventType }),
     ...(patch.matchCondition !== undefined && { match_condition: patch.matchCondition }),
+    ...(patch.matchContains !== undefined && { match_contains: patch.matchContains }),
+    ...(patch.senderRestriction !== undefined && {
+      sender_restriction: patch.senderRestriction,
+    }),
     ...(patch.scheduleConfig !== undefined && {
       schedule_config: toScheduleConfigRequest(patch.scheduleConfig),
     }),
@@ -486,7 +486,7 @@ export const DELIVERY_EXCERPT_MAX = 120;
  * `kind`; the panel shows the untrimmed form.
  *
  * Note: `text` for `excerpt` is derived from `payload_excerpt`, which is
- * untrusted webhook data — it is rendered through Terra `<Text>` (React-escaped),
+ * untrusted webhook data — it is rendered through Hades `<Text>` (React-escaped),
  * never as HTML.
  */
 export type DeliveryDetail =

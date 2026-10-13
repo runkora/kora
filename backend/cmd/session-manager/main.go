@@ -34,8 +34,8 @@ func main() {
 		logging.Field{Key: "version", Value: smConfig.Current.App.Version},
 	)
 
-	server := initServer(ctx, logger)
-	run(ctx, logger, server)
+	server, registry := initServer(ctx, logger)
+	run(ctx, logger, server, registry)
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -64,7 +64,7 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger) *http.Server {
+func initServer(ctx context.Context, logger logging.Logger) (*http.Server, *sessionmanager.Registry) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
@@ -96,6 +96,7 @@ func initServer(ctx context.Context, logger logging.Logger) *http.Server {
 		InferenceGatewayURL: cfg.InferenceGateway.URL,
 		ToolGatewayURL:      cfg.ToolGateway.URL,
 		OTLPEndpoint:        observability.DefaultConfig.OTLPEndpoint,
+		NodeMaxOldSpaceMB:   cfg.Runner.NodeMaxOldSpaceMB,
 	}, registry, verifier)
 
 	return apiServer.Server(
@@ -107,10 +108,10 @@ func initServer(ctx context.Context, logger logging.Logger) *http.Server {
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
-	)
+	), registry
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -122,6 +123,16 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	}()
 
 	<-quit
+	// The server keeps serving the runs on this pod while they finish. The kubelet
+	// stops the pod when its termination grace period ends.
+	logger.Info(ctx, "Draining session-manager", logging.Field{Key: "active_sessions", Value: registry.ActiveCount()})
+	drainCtx, cancelDrain := ctx, context.CancelFunc(func() {})
+	if d, limited := smConfig.Current.DrainTimeout(); limited {
+		drainCtx, cancelDrain = context.WithTimeout(ctx, d)
+	}
+	registry.Drain(drainCtx, time.Second)
+	cancelDrain()
+	registry.CloseAll(ctx)
 	logger.Info(ctx, "Shutting down session-manager...")
 
 	shutdownCtx, cancel := context.WithTimeout(ctx, smConfig.Current.ShutdownTimeout())

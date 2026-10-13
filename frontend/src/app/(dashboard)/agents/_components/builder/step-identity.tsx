@@ -11,12 +11,14 @@ import {
   Stack,
   Text,
   Textarea,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
+import { AGENT_SLUG_RULE, SLUG_RE } from '../../_hooks/use-agent-builder';
 import { IdentityModeCards } from '../motif/identity-mode-cards';
 
 export function StepIdentity() {
-  const { fields, setName, setSlug, setField, identityModeAccess } = useAgentBuilderContext();
+  const { fields, setName, setSlug, normaliseSlug, setField, identityModeAccess } =
+    useAgentBuilderContext();
 
   // Mode-qualified create permissions (agents:types:{mode}:write, resolved
   // with prefix covers so agents:types:write enables both). Until the scope
@@ -29,6 +31,8 @@ export function StepIdentity() {
       ? { delegated: 'You do not have permission to create delegated agents.' }
       : null),
   };
+
+  const slugInvalid = fields.slug !== '' && !SLUG_RE.test(fields.slug);
 
   return (
     <Stack gap="relaxed">
@@ -46,11 +50,13 @@ export function StepIdentity() {
               maxLength={128}
             />
           </FormField>
-          <FormField label="Slug" required>
+          <FormField label="Slug" required error={slugInvalid ? AGENT_SLUG_RULE : undefined}>
             <Input
               mono
+              hasError={slugInvalid}
               value={fields.slug}
               onChange={(e) => setSlug(e.target.value)}
+              onBlur={normaliseSlug}
               placeholder="deployment-assistant"
             />
           </FormField>
@@ -68,7 +74,7 @@ export function StepIdentity() {
           />
         </FormField>
 
-        <Separator span="full" />
+        <Separator />
 
         {/* ── Identity model ─────────────────────────────────────────────────── */}
         <Stack gap="cozy">

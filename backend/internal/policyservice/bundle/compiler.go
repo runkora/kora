@@ -3,7 +3,7 @@
 //
 // Each tenant's bundle is compiled on every grant write and cached in memory.
 // The bundle contains:
-//   - policy/authz.rego         — the Orbit authorisation rules
+//   - policy/authz.rego         — the kora authorisation rules
 //   - policy/budget.rego        — the orbit.budget enforcement rules
 //   - data/grants/data.json     — this tenant's grants only
 //   - data/vocabulary/data.json — the scope vocabulary (shared, but bundled per-tenant)

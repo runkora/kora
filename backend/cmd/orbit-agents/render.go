@@ -50,10 +50,12 @@ func loadWorkloads(path string) (workloadsFile, error) {
 // the server and -render produce the same manifests.
 func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, workloads workloadsFile) agents.K8sProvisionerConfig {
 	return agents.K8sProvisionerConfig{
-		Workloads:           workloads.Workloads,
-		Workspace:           workloads.Workspace,
-		SessionManagerImage: cfg.Agents.SessionManagerImage,
-		SandboxImage:        cfg.Agents.SandboxImage,
+		Workloads:              workloads.Workloads,
+		Workspace:              workloads.Workspace,
+		SessionManagerImage:    cfg.Agents.SessionManagerImage,
+		SandboxImage:           cfg.Agents.SandboxImage,
+		DefaultEnvironmentSize: environmentSizes(cfg).Default,
+		SandboxReadyWait:       sandboxGuardrails(cfg).ReadyWait(),
 		// Not configurable: the operator's ingress NetworkPolicy admits this port,
 		// and a pod on a different one would be unreachable.
 		SandboxGRPCPort:            ports.SandboxExecGRPC,
@@ -65,6 +67,10 @@ func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, 
 		TrustDomain:                cfg.Platform.TrustDomain,
 		SystemNamespace:            cfg.Kubernetes.SystemNamespace,
 		AuthorizationPolicyEnabled: cfg.Agents.SessionManager.AuthorizationPolicyEnabled,
+		NodeMaxOldSpaceMB:          cfg.Agents.SessionManager.NodeMaxOldSpaceMB,
+		MinReplicas:                cfg.Agents.Scheduling.MinReplicas,
+		DrainGracePeriodSecs:       cfg.Agents.Scheduling.DrainGracePeriodSecs,
+		SandboxMount:               cfg.Agents.SandboxMount,
 		Patches:                    patches,
 	}
 }

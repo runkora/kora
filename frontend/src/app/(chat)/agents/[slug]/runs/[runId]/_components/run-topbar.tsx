@@ -7,8 +7,9 @@
 
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import { Stack, Text, Button, Badge, StatusDot } from '@orbit/terra';
+import { Stack, Text, Button, Badge, StatusDot, Toggle } from '@orbit/hades';
 import { fmtUsd, fmtTokens } from '@orbit/utils';
+import { RUN_STATE_DISPLAY, type RunStateDisplay } from '@orbit/components';
 import { useRunContext } from '../_context/run-context';
 
 function OrbitalMark({ size = 9 }: { size?: number }) {
@@ -45,6 +46,9 @@ function CanvasIcon() {
   );
 }
 
+/** The dot before the run's state has loaded. */
+const LOADING_DOT: RunStateDisplay = { status: 'idle', label: 'Loading' };
+
 export function RunTopbar() {
   const {
     slug,
@@ -60,6 +64,8 @@ export function RunTopbar() {
     spentUsd,
     perRunLimitUsd,
     tokensUsed,
+    showAllCalls,
+    setShowAllCalls,
   } = useRunContext();
 
   const canvasIsOpen = canvasState.isOpen;
@@ -75,15 +81,9 @@ export function RunTopbar() {
 
   const displayRunId = runId.length > 8 ? runId.slice(-8) : runId;
 
-  const isLive = runState === 'active' || runState === 'starting' || runState === 'completing';
-  const dotStatus =
-    runState === 'failed' || runState === 'budget_exhausted'
-      ? 'error'
-      : isLive
-        ? 'healthy'
-        : runState === 'idle'
-          ? 'degraded'
-          : 'idle';
+  const dot: RunStateDisplay = runState
+    ? (RUN_STATE_DISPLAY[runState] ?? { status: 'idle', label: runState })
+    : LOADING_DOT;
 
   // Run usage meter. perRunLimitUsd is null when the agent has no per-run
   // budget — then there is no ceiling to fill, so the bar is hidden and only
@@ -164,7 +164,14 @@ export function RunTopbar() {
 
       {/* Live status + model + run ID */}
       <Stack direction="horizontal" align="center" style={{ gap: 6 }}>
-        <StatusDot status={dotStatus} size="sm" glow={isLive} aria-label={runState} />
+        <StatusDot
+          status={dot.status}
+          size="sm"
+          glow={dot.status === 'healthy'}
+          pulse={dot.status === 'pending'}
+          role="img"
+          aria-label={dot.label}
+        />
         {model && (
           <Badge variant="dim" size="sm" mono>
             {model}
@@ -267,6 +274,14 @@ export function RunTopbar() {
           title="Tokens used this run"
         >
           {tokensUsed > 0 ? `${fmtTokens(tokensUsed)} tok` : '—'}
+        </Text>
+      </Stack>
+
+      {/* Full transparency on demand: every tool call, ungrouped */}
+      <Stack direction="horizontal" align="center" style={{ gap: 6 }}>
+        <Toggle checked={showAllCalls} onChange={setShowAllCalls} aria-label="Show every call" />
+        <Text as="span" size="supporting" color="muted">
+          Show every call
         </Text>
       </Stack>
 

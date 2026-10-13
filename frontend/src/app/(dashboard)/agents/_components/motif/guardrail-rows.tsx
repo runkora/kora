@@ -13,10 +13,15 @@ import {
   Stack,
   Text,
   Toggle,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
+import {
+  LOOP_GUARDRAIL_DEFAULTS,
+  loopGuardrailErrors,
+  type LoopGuardrailValues,
+} from '../../_types';
 
-export interface GuardrailValues {
+export interface GuardrailValues extends LoopGuardrailValues {
   agentBudgetOn: boolean;
   agentBudgetUsd: string;
   agentBudgetCadence: 'weekly' | 'monthly';
@@ -32,6 +37,7 @@ export function GuardrailRow({
   icon,
   title,
   desc,
+  error,
   children,
 }: {
   on: boolean;
@@ -39,6 +45,7 @@ export function GuardrailRow({
   icon: IconName;
   title: string;
   desc: string;
+  error?: string;
   children?: React.ReactNode;
 }) {
   return (
@@ -67,6 +74,11 @@ export function GuardrailRow({
               <Show above="lg">{children}</Show>
             </Stack>
             {children && <Show below="lg">{children}</Show>}
+            {error && (
+              <Text size="caption" color="status-error" role="alert">
+                {error}
+              </Text>
+            )}
           </Stack>
         </Stack>
       </CardContent>
@@ -81,6 +93,7 @@ export function GuardrailsFields({
   values: GuardrailValues;
   onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
 }) {
+  const loopErrors = loopGuardrailErrors(values);
   return (
     <Stack gap="cozy">
       <GuardrailRow
@@ -168,6 +181,100 @@ export function GuardrailsFields({
           </Text>
         </Stack>
       </GuardrailRow>
+
+      <LoopThresholdRow
+        icon="refresh-cw"
+        title="Repeated calls"
+        desc="Same tool call, same input and result, in a row (platform default when off)"
+        toggle="repeatedCallOn"
+        warn="repeatedCallWarn"
+        pause="repeatedCallPause"
+        error={loopErrors.repeatedCall}
+        values={values}
+        onChange={onChange}
+      />
+      <LoopThresholdRow
+        icon="clock"
+        title="Wait loops"
+        desc="Waits re-armed with no progress in between (platform default when off)"
+        toggle="waitRearmOn"
+        warn="waitRearmWarn"
+        pause="waitRearmPause"
+        error={loopErrors.waitRearm}
+        values={values}
+        onChange={onChange}
+      />
     </Stack>
+  );
+}
+
+/**
+ * One loop-guard threshold pair: Orbit warns the agent at the first number and
+ * pauses the run at the second. The guard always runs; switched off, the agent
+ * type takes the platform defaults, which the disabled inputs show.
+ */
+function LoopThresholdRow({
+  icon,
+  title,
+  desc,
+  toggle,
+  warn,
+  pause,
+  error,
+  values,
+  onChange,
+}: {
+  icon: IconName;
+  title: string;
+  desc: string;
+  toggle: 'repeatedCallOn' | 'waitRearmOn';
+  warn: 'repeatedCallWarn' | 'waitRearmWarn';
+  pause: 'repeatedCallPause' | 'waitRearmPause';
+  error?: string;
+  values: GuardrailValues;
+  onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
+}) {
+  const setOn = (on: boolean) => {
+    onChange(toggle, on);
+    if (!on) {
+      onChange(warn, String(LOOP_GUARDRAIL_DEFAULTS[warn]));
+      onChange(pause, String(LOOP_GUARDRAIL_DEFAULTS[pause]));
+    }
+  };
+  const input = (key: typeof warn | typeof pause, label: string) => (
+    <Stack direction="horizontal" align="center" justify="end" gap="snug">
+      <Text as="span" size="micro" color="subtle">
+        {label}
+      </Text>
+      <Stack maxWidth="form-field-sm">
+        <Input
+          mono
+          compact
+          inputMode="numeric"
+          hasError={Boolean(error)}
+          value={values[key]}
+          onChange={(e) => onChange(key, e.target.value)}
+          aria-label={`${title}: ${label.toLowerCase()}`}
+        />
+      </Stack>
+    </Stack>
+  );
+  return (
+    <GuardrailRow
+      on={values[toggle]}
+      onToggle={setOn}
+      icon={icon}
+      title={title}
+      desc={desc}
+      error={error}
+    >
+      {/* Sized to its content, so the inputs start where the other rows' do when they wrap below. */}
+      <Stack direction="horizontal" shrink={false}>
+        <Stack gap="snug">
+          {input(warn, 'Warn after')}
+          {input(pause, 'Pause after')}
+        </Stack>
+      </Stack>
+    </GuardrailRow>
   );
 }

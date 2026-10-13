@@ -1,7 +1,7 @@
 ---
 name: architecture-diagrams
 description: >-
-  Author, render, and verify Orbit architecture diagrams. Excalidraw sources under
+  Author, render, and verify kora architecture diagrams. Excalidraw sources under
   docs/diagrams/ render to committed SVGs via tools/diagrams (make diagrams / make check);
   sequences are inline Mermaid. Covers the full loop: generate the scene, render, self-verify
   the PNG at natural size, adversarially review it against the code and the already-approved

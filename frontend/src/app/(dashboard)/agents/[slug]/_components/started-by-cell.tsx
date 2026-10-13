@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents/[slug]-scoped. "Started by" cell shared by the Runs and Overview tables. */
 
-import { Badge, Icon, Stack, Text } from '@orbit/terra';
+import { Badge, Icon, Stack, Text } from '@orbit/hades';
 import type { RunRow } from '../../_types';
 
 interface StartedByCellProps {

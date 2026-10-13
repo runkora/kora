@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 -10.5 172 172">
+  <style>
+    .upper { fill: #ece9e2; }
+    .lower { fill: #4d6b80; }
+    @media (prefers-color-scheme: light) {
+      .upper { fill: #0d0f11; }
+      .lower { fill: #445f71; }
+    }
+  </style>
+  <defs>
+    <clipPath id="upper"><rect x="0" y="0" width="150" height="72" /></clipPath>
+    <clipPath id="lower"><rect x="19" y="78" width="152" height="73" /></clipPath>
+  </defs>
+  <circle class="upper" cx="75" cy="75" r="75" clip-path="url(#upper)" />
+  <circle class="lower" cx="95" cy="75" r="76" clip-path="url(#lower)" />
+</svg>

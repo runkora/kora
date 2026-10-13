@@ -6,13 +6,49 @@
  */
 
 import { memo } from 'react';
-import { Stack, Text, OrbitalLoader } from '@orbit/terra';
-import type { AgentTurn, AgentElement } from '../_types';
+import { Icon, Stack, Text } from '@orbit/hades';
+import type { AgentTurn, AgentElement, ToolCall } from '../_types';
 import { useRunContext } from '../_context/run-context';
 import { ThinkingBlock } from './thinking-block';
 import { AgentTextBlock } from './agent-text-block';
-import { ToolRow } from './tool-row';
+import { ActivityGroup } from './activity-group';
 import { ApprovalPrompt } from './approval-prompt';
+
+type Group =
+  | { kind: 'tools'; calls: ToolCall[] }
+  | { kind: 'prose'; items: Exclude<AgentElement, { kind: 'tool' }>[] };
+
+/**
+ * Splits a turn into prose and activity groups in their original order. A
+ * subagent's calls go to childrenOf under their Agent call instead, so they
+ * neither break a group nor show as the parent's own calls.
+ */
+export function groupElements(elements: AgentElement[]): {
+  groups: Group[];
+  childrenOf: Map<string, ToolCall[]>;
+} {
+  const ids = new Set(elements.flatMap((el) => (el.kind === 'tool' ? [el.tool.id] : [])));
+  const childrenOf = new Map<string, ToolCall[]>();
+  const groups: Group[] = [];
+  for (const el of elements) {
+    const last = groups[groups.length - 1];
+    if (el.kind === 'tool') {
+      const parent = el.tool.parentId;
+      if (parent && ids.has(parent)) {
+        childrenOf.set(parent, [...(childrenOf.get(parent) ?? []), el.tool]);
+      } else if (last?.kind === 'tools') {
+        last.calls.push(el.tool);
+      } else {
+        groups.push({ kind: 'tools', calls: [el.tool] });
+      }
+    } else if (last?.kind === 'prose') {
+      last.items.push(el);
+    } else {
+      groups.push({ kind: 'prose', items: [el] });
+    }
+  }
+  return { groups, childrenOf };
+}
 
 function OrbitalMark() {
   return (
@@ -38,36 +74,10 @@ export const AgentTurnItem = memo(function AgentTurnItem({
   turn: AgentTurn;
   isGenerating?: boolean;
 }) {
-  const { agentName, model } = useRunContext();
+  const { agentName, model, showAllCalls, slug } = useRunContext();
 
-  const hasTools = turn.elements.some((el) => el.kind === 'tool');
-  const hasContent = turn.elements.some((el) => el.kind !== 'tool');
-  const reasoningActive = isGenerating && !hasTools && !hasContent;
-
-  // Group consecutive tool elements so they share a fit-content wrapper while
-  // preserving the original interleaved order of text and tool blocks.
-  type Group =
-    | { kind: 'tools'; items: Extract<AgentElement, { kind: 'tool' }>[] }
-    | { kind: 'prose'; items: Exclude<AgentElement, { kind: 'tool' }>[] };
-
-  const groups = turn.elements.reduce<Group[]>((acc, el) => {
-    if (el.kind === 'tool') {
-      const last = acc[acc.length - 1];
-      if (last?.kind === 'tools') {
-        last.items.push(el);
-      } else {
-        acc.push({ kind: 'tools', items: [el] });
-      }
-    } else {
-      const last = acc[acc.length - 1];
-      if (last?.kind === 'prose') {
-        last.items.push(el as Exclude<AgentElement, { kind: 'tool' }>);
-      } else {
-        acc.push({ kind: 'prose', items: [el as Exclude<AgentElement, { kind: 'tool' }>] });
-      }
-    }
-    return acc;
-  }, []);
+  const reasoningActive = isGenerating && turn.elements.length === 0;
+  const { groups, childrenOf } = groupElements(turn.elements);
 
   return (
     <Stack style={{ padding: '16px 20px 16px' }}>
@@ -120,16 +130,20 @@ export const AgentTurnItem = memo(function AgentTurnItem({
         {turn.thinking && <ThinkingBlock thinking={turn.thinking} isActive={reasoningActive} />}
 
         {groups.map((group, gi) => {
+          const isLastGroup = gi === groups.length - 1;
           if (group.kind === 'tools') {
             return (
-              <Stack key={gi} style={{ width: 'fit-content', gap: 4 }}>
-                {group.items.map((el) => (
-                  <ToolRow key={el.tool.id} tool={el.tool} isCommitted={!isGenerating} />
-                ))}
+              <Stack key={gi} style={{ maxWidth: '90ch', minWidth: 0 }}>
+                <ActivityGroup
+                  calls={group.calls}
+                  childrenOf={childrenOf}
+                  live={isGenerating && isLastGroup}
+                  showAll={showAllCalls}
+                  slug={slug}
+                />
               </Stack>
             );
           }
-          const isLastGroup = gi === groups.length - 1;
           return (
             <Stack key={gi} style={{ maxWidth: '90ch', gap: 8 }}>
               {group.items.map((el, i) => {
@@ -137,6 +151,42 @@ export const AgentTurnItem = memo(function AgentTurnItem({
                   const isLiveText = isGenerating && isLastGroup && i === group.items.length - 1;
                   return <AgentTextBlock key={i} content={el.content} isStreaming={isLiveText} />;
                 }
+                if (el.kind === 'stopped')
+                  return (
+                    <Stack
+                      key={`stopped-${i}`}
+                      direction="horizontal"
+                      align="center"
+                      data-stop-marker=""
+                      style={{ gap: 6 }}
+                    >
+                      <Icon name="circle-x" size="xs" />
+                      <Text size="supporting" color="muted">
+                        {el.byGuardrail ? 'Stopped by Orbit' : 'Stopped by you'}
+                      </Text>
+                    </Stack>
+                  );
+                if (el.kind === 'notice')
+                  return (
+                    <Stack
+                      key={`notice-${i}`}
+                      direction="horizontal"
+                      align="center"
+                      data-notice=""
+                      style={{ gap: 6 }}
+                    >
+                      <Icon name={el.tone === 'error' ? 'circle-alert' : 'info'} size="xs" />
+                      <Text
+                        size="supporting"
+                        color={el.tone === 'error' ? undefined : 'muted'}
+                        style={
+                          el.tone === 'error' ? { color: 'var(--color-status-error)' } : undefined
+                        }
+                      >
+                        {el.message}
+                      </Text>
+                    </Stack>
+                  );
                 if (el.kind === 'approval')
                   return (
                     <ApprovalPrompt
@@ -152,13 +202,6 @@ export const AgentTurnItem = memo(function AgentTurnItem({
             </Stack>
           );
         })}
-
-        {/* Orbital loader — shown while streaming, below any existing content */}
-        {isGenerating && (
-          <Stack style={{ padding: '4px 0 2px' }}>
-            <OrbitalLoader size="md" />
-          </Stack>
-        )}
       </Stack>
     </Stack>
   );

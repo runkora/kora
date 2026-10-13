@@ -11,12 +11,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -28,21 +30,11 @@ func main() {
 		port = "50051"
 	}
 
-	// Per-run HOME: this run's sandbox pod is mounted with SubPath: runID (see
-	// internal/agents/k8s.go sandboxContainer), scoping WORKSPACE to this run's
-	// own directory. Mirroring orbit-session-runner's {workDir}/.runhome
-	// (docs/adr/2026-06-04-per-session-home-isolation.md), overriding HOME here
-	// keeps kubeconfig and tool caches (npm, pip, go, etc.) inside that scoped
-	// directory instead of the pod's shared default home.
+	// HOME, TMPDIR and caches go to this sandbox's local disk, off the shared workspace volume
+	// (docs/adr/2026-10-08-sandbox-workspace-mount.md).
 	if err := setRunHome(); err != nil {
-		// Not fatal, and not an isolation risk: a failure here just leaves HOME at
-		// the container's default (/home/orbit), which is on this pod's own
-		// ephemeral filesystem, not the shared workspaces PVC — it cannot expose
-		// or collide with another run's data. The SubPath mount (sandboxContainer
-		// in internal/agents/k8s.go) is the actual isolation boundary and is
-		// unaffected by this fallback; the only consequence is that tool caches
-		// (npm, pip, go, etc.) land in the pod's default home instead of the
-		// scoped workspace, which is a cleanup/reuse concern, not a security one.
+		// Not fatal: HOME stays at the image's home, a pod-local scratch volume.
+		// The workspace SubPath mount is the isolation boundary, and this fallback does not touch it.
 		log.Printf("sandbox-exec: run home not set, falling back to default HOME: %v", err)
 	}
 
@@ -67,6 +59,9 @@ func main() {
 	execToken := os.Getenv(execauth.TokenEnv)
 	if execToken == "" {
 		log.Fatalf("%s is not set: refusing to serve an unauthenticated exec server", execauth.TokenEnv)
+	}
+	if err := hideEnviron(); err != nil {
+		log.Fatalf("hide environ: %v", err)
 	}
 
 	srv := grpc.NewServer(
@@ -136,7 +131,7 @@ func (s *execServer) Execute(req *execpb.ExecuteRequest, stream grpc.ServerStrea
 			cmd.Dir = req.WorkingDir
 		}
 	}
-	cmd.Env = append(os.Environ(), filterEnv(req.Env)...)
+	cmd.Env = append(commandEnv(os.Environ()), filterEnv(req.Env)...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -201,6 +196,18 @@ var deniedEnvNames = map[string]bool{
 	"NSS_WRAPPER_LIB": true,
 }
 
+// serverOnlyEnv is sandbox-exec's own configuration, kept from the commands it runs.
+// Anyone holding the exec token can run commands in this sandbox, so a command must not be able to read it.
+var serverOnlyEnv = []string{execauth.TokenEnv, "SANDBOX_EXEC_PORT"}
+
+// commandEnv is the pod environment a command runs with, minus serverOnlyEnv.
+func commandEnv(env []string) []string {
+	return slices.DeleteFunc(slices.Clone(env), func(e string) bool {
+		key, _, _ := strings.Cut(e, "=")
+		return slices.Contains(serverOnlyEnv, key)
+	})
+}
+
 // filterEnv drops entries from req.Env that would let a caller hijack the
 // subprocess (e.g. LD_PRELOAD, PATH, SHELL) rather than merely configure it,
 // while still allowing arbitrary safe additions (e.g. WORKSPACE, ANTHROPIC_*).
@@ -250,20 +257,28 @@ func streamPipe(stream grpc.ServerStreamingServer[execpb.ExecuteResponse], r int
 	done <- nil
 }
 
-// setRunHome points HOME at {WORKSPACE}/.runhome, so kubeconfig and anything
-// tools write under $HOME lands inside this run's own SubPath-scoped
-// workspace directory rather than the pod's shared default home. A no-op
-// when WORKSPACE is unset (e.g. local/dev invocation outside a sandbox pod).
+// sandboxTmpDir is the sandbox's TMPDIR. The pod mounts the local disk there.
+const sandboxTmpDir = "/tmp"
+
+// setRunHome points HOME, TMPDIR, installs and caches at the sandbox's local disk.
+// It does nothing when WORKSPACE is unset (local/dev invocation).
 func setRunHome() error {
 	workspace := os.Getenv("WORKSPACE")
 	if workspace == "" {
 		return nil
 	}
-	runHome := filepath.Join(workspace, ".runhome")
-	if err := os.MkdirAll(runHome, 0o700); err != nil {
+	home := runfs.LocalDir(workspace)
+	if err := os.MkdirAll(home, 0o700); err != nil {
 		return fmt.Errorf("create run home: %w", err)
 	}
-	return os.Setenv("HOME", runHome)
+	env := append([]string{"HOME=" + home, "TMPDIR=" + sandboxTmpDir}, runfs.InstallEnv(home, os.Getenv("PATH"))...)
+	for _, e := range env {
+		key, value, _ := strings.Cut(e, "=")
+		if err := os.Setenv(key, value); err != nil {
+			return fmt.Errorf("set %s: %w", key, err)
+		}
+	}
+	return nil
 }
 
 // kubeconfigPath is where the rendered kubeconfig lands. kubectl reads

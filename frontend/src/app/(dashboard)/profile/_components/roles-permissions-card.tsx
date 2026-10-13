@@ -13,7 +13,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { ScopeList } from './scope-list';
 import type { ScopesExplainResponse } from '../_types';
 

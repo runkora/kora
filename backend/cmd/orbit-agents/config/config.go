@@ -3,8 +3,6 @@ package agentsConfig
 
 import (
 	"errors"
-	"os"
-	"strings"
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
@@ -16,6 +14,7 @@ import (
 //
 //  1. cmd/orbit-agents/config/base.yaml  — service defaults
 //  2. cmd/orbit-agents/config/{env}.yaml — env overrides (optional)
+//  3. /etc/orbit/config/cmd/orbit-agents.yaml — rendered by the chart
 type Config struct {
 	App struct {
 		Version string `yaml:"version"`
@@ -60,8 +59,15 @@ type Config struct {
 	Agents struct {
 		// SessionManagerImage is the container image for session-manager StatefulSet pods.
 		SessionManagerImage string `yaml:"sessionManagerImage"`
-		// SandboxImage is the default container image for sandbox pods.
+		// SandboxImage is the base image reference that rendered previews use.
+		// Live sandboxes run the digest pinned on the kora-base SandboxImage.
 		SandboxImage string `yaml:"sandboxImage"`
+		// Environments bounds environment sizes. Default also sizes the
+		// built-in default environment. Each dimension is a Kubernetes quantity.
+		Environments struct {
+			DefaultSize EnvironmentSize `yaml:"defaultSize"`
+			MaxSize     EnvironmentSize `yaml:"maxSize"`
+		} `yaml:"environments"`
 		// SandboxGitAuthorName/Email set the git identity (GIT_AUTHOR_* and
 		// GIT_COMMITTER_*) for commits the agent makes inside the sandbox. Set
 		// per-deployment so the platform identity is not baked into the operator.
@@ -72,6 +78,35 @@ type Config struct {
 		ImagePullSecrets []string `yaml:"imagePullSecrets"`
 		// MaxConcurrentRunsPerPod is the default ceiling applied to new agent types.
 		MaxConcurrentRunsPerPod int `yaml:"maxConcurrentRunsPerPod"`
+		// Guardrails are the install's sandbox provisioning settings, sent with
+		// every run (docs/adr/2026-09-29-agent-run-guardrails.md).
+		Guardrails struct {
+			SandboxProvisionAttempts    int `yaml:"sandboxProvisionAttempts"`
+			SandboxProvisionBackoffSecs int `yaml:"sandboxProvisionBackoffSecs"`
+			SandboxProvisionBudgetSecs  int `yaml:"sandboxProvisionBudgetSecs"`
+		} `yaml:"guardrails"`
+		// IdleTimeout is how long a run may sit idle before its session closes,
+		// by how the run started. Sent to the session-manager with each run.
+		IdleTimeout struct {
+			// ManualSecs applies to a run a person started, and to a trigger run once a person messages it.
+			ManualSecs int `yaml:"manualSecs"`
+			// TriggerSecs applies to a run a trigger started.
+			TriggerSecs int `yaml:"triggerSecs"`
+		} `yaml:"idleTimeout"`
+		// Scheduling configures the run scheduler that starts pending runs
+		// (docs/adr/2026-10-12-run-scheduling.md).
+		Scheduling struct {
+			// WorkerConcurrency is how many runs one replica starts at once.
+			WorkerConcurrency int `yaml:"workerConcurrency"`
+			// PollIntervalSecs is how often the scheduler claims pending runs, and how long a released run waits.
+			PollIntervalSecs int `yaml:"pollIntervalSecs"`
+			// StartBudgetSecs is how long a run may stay pending before it fails.
+			StartBudgetSecs int `yaml:"startBudgetSecs"`
+			// MinReplicas is the session-manager pod count of each agent and its HPA minimum.
+			MinReplicas int32 `yaml:"minReplicas"`
+			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
+			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`
+		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the orbit-tenant-connections
 		// ConfigMap. orbit-agents reads it to serve the read-only connection
@@ -87,7 +122,7 @@ type Config struct {
 		// orbit-agents provisions. A missing file means no customization.
 		// See docs/adr/2026-09-16-first-class-workload-placement.md.
 		WorkloadsFile string `yaml:"workloadsFile"`
-		// SessionManager holds env var overrides injected into session-manager pods.
+		// SessionManager holds settings for the session-manager pods orbit-agents provisions.
 		SessionManager struct {
 			// AuthorizationPolicyEnabled creates an Istio AuthorizationPolicy
 			// beside each agent StatefulSet restricting its session-manager
@@ -95,8 +130,23 @@ type Config struct {
 			// chart sets it from platform.spiffe.enabled AND
 			// agents.authorizationPolicy.enabled.
 			AuthorizationPolicyEnabled bool `yaml:"authorizationPolicyEnabled"`
+			// NodeMaxOldSpaceMB caps the V8 heap of Node processes a run starts
+			// on its agent pod, so one runaway run cannot OOM-kill the pod's
+			// other runs. Zero disables the cap.
+			NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 		} `yaml:"sessionManager"`
+		// SandboxMount gives each sandbox a working folder on its local disk at
+		// /workspaces/<run>/sandbox, mounted into the session-manager pod by the
+		// sandbox-mount node agent (docs/adr/2026-10-08-sandbox-workspace-mount.md).
+		SandboxMount bool `yaml:"sandboxMount"`
 	} `yaml:"agents"`
+}
+
+// EnvironmentSize is a sandbox's CPU, memory and local disk.
+type EnvironmentSize struct {
+	CPU    string `yaml:"cpu"`
+	Memory string `yaml:"memory"`
+	Disk   string `yaml:"disk"`
 }
 
 // PolicyConfig configures the in-process OPA policy evaluator.
@@ -154,58 +204,17 @@ func (c *Config) TenantNamespace(tenantID string) string {
 
 // Current holds all non-secret configuration for orbit-agents.
 // Secrets (Postgres DSN) must be supplied via environment variables.
-var Current = func() *Config {
-	cfg := config.MustLoadService[Config]("cmd/orbit-agents", config.Environment())
-	applyEnvOverrides(cfg, os.Getenv)
-	return cfg
-}()
+var Current = config.MustLoadService[Config]("cmd/orbit-agents", config.Environment())
 
 // Validate rejects an in-cluster config that would mint identities in an
 // empty trust domain ("spiffe:///tenant/..."). main calls it at startup; the
 // base YAML carries no trust domain on purpose, so it cannot run at load.
 func Validate(cfg *Config) error {
 	if cfg.Kubernetes.InCluster && cfg.Platform.TrustDomain == "" {
-		return errors.New("ORBIT_TRUST_DOMAIN (platform.trustDomain) must be set when kubernetes.inCluster is true")
+		return errors.New("platform.trustDomain must be set when kubernetes.inCluster is true")
+	}
+	if cfg.Agents.SessionManager.NodeMaxOldSpaceMB < 0 {
+		return errors.New("agents.sessionManager.nodeMaxOldSpaceMB must be a non-negative integer")
 	}
 	return nil
-}
-
-// applyEnvOverrides layers the per-install values the chart sets as env vars
-// over the YAML defaults. getenv is injected so tests can drive it.
-func applyEnvOverrides(cfg *Config, getenv func(string) string) {
-	overrides := []struct {
-		env string
-		dst *string
-	}{
-		{"ORBIT_SYSTEM_NAMESPACE", &cfg.Kubernetes.SystemNamespace},
-		{"ORBIT_TRUST_DOMAIN", &cfg.Platform.TrustDomain},
-		{"ORBIT_SESSION_MANAGER_IMAGE", &cfg.Agents.SessionManagerImage},
-		{"ORBIT_SANDBOX_IMAGE", &cfg.Agents.SandboxImage},
-		{"ORBIT_SANDBOX_GIT_AUTHOR_NAME", &cfg.Agents.SandboxGitAuthorName},
-		{"ORBIT_SANDBOX_GIT_AUTHOR_EMAIL", &cfg.Agents.SandboxGitAuthorEmail},
-		{"ORBIT_MANIFEST_PATCH_DIR", &cfg.Agents.ManifestPatchDir},
-		{"ORBIT_WORKLOADS_FILE", &cfg.Agents.WorkloadsFile},
-	}
-	for _, o := range overrides {
-		if v := getenv(o.env); v != "" {
-			*o.dst = v
-		}
-	}
-	if v := getenv("ORBIT_AGENTS_IMAGE_PULL_SECRETS"); v != "" {
-		cfg.Agents.ImagePullSecrets = splitCommaList(v)
-	}
-	if v := getenv("ORBIT_SESSION_MANAGER_AUTHORIZATION_POLICY_ENABLED"); v != "" {
-		cfg.Agents.SessionManager.AuthorizationPolicyEnabled = v == "true"
-	}
-}
-
-// splitCommaList parses a comma-separated env value, dropping blanks and whitespace.
-func splitCommaList(v string) []string {
-	var out []string
-	for part := range strings.SplitSeq(v, ",") {
-		if p := strings.TrimSpace(part); p != "" {
-			out = append(out, p)
-		}
-	}
-	return out
 }

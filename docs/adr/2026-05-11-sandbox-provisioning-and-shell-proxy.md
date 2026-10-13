@@ -61,7 +61,7 @@ Claude uses a single `Bash` tool throughout. Routing is transparent — Claude n
 
 The agent container's `$SHELL` is set to `/usr/local/bin/orbit-shell`, a thin proxy binary baked into the agent image. On each Bash invocation, the proxy:
 
-1. Checks for `$WORKSPACE/.sandbox/endpoint` (a file written by session-manager when a sandbox is assigned)
+1. Checks for `$WORKSPACE/.sandbox-exec/endpoint` (a file written by session-manager when a sandbox is assigned)
 2. If absent: executes the command locally in the agent container
 3. If present: dials the gRPC endpoint in that file, streams the command, returns output
 
@@ -114,7 +114,7 @@ Claude Code's exact model in `--print` / stream-json mode is confirmed as per-in
 
 5. `orbit-runtime-mcp` returns the tool result to Claude. Claude resumes; its next Bash call routes to the sandbox.
 
-The tool name as seen by Claude is `mcp__runtime__provision_sandbox`. The `--tools` flag in [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) governs built-in tools only; MCP tools are permitted separately and do not need to be listed there.
+The tool name as seen by Claude is `mcp__runtime__provision_sandbox`. The `--disallowedTools` exclusion list in [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) governs built-in tools only; MCP tools are permitted separately.
 
 `orbit-runtime-mcp` is a small binary baked into the agent image alongside `orbit-shell`. It has a single responsibility: receive MCP tool calls and forward them to the session-manager's internal HTTP API. Future runtime tools (e.g. `configure_resources`, `request_secret`) are added here without changes to the session-manager startup flags.
 

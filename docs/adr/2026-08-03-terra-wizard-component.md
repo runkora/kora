@@ -1,4 +1,4 @@
-# Terra Wizard Component
+# Hades Wizard Component
 
 **Date:** 2026-08-03  
 **Status:** Proposed  
@@ -9,7 +9,7 @@
 
 ## Context
 
-The agent builder ([agent-builder](2026-07-17-agent-builder.md)) and the trigger wizard ([extended-trigger-types](2026-06-20-extended-trigger-types.md)) both implement an identical structural pattern: a `Modal size="builder"` containing a hairline progress strip, a vertical step rail on the left, a scrollable content column on the right, and a footer with Back / Continue / Submit controls. Neither implementation lives in Terra — both are Tier 3 inside their feature directory.
+The agent builder ([agent-builder](2026-07-17-agent-builder.md)) and the trigger wizard ([extended-trigger-types](2026-06-20-extended-trigger-types.md)) both implement an identical structural pattern: a `Modal size="builder"` containing a hairline progress strip, a vertical step rail on the left, a scrollable content column on the right, and a footer with Back / Continue / Submit controls. Neither implementation lives in Hades — both are Tier 3 inside their feature directory.
 
 The agent builder ADR stated explicitly: *"The modal-over-context pattern introduced here is intended to be reused. If a second builder-shaped flow adopts it, the shell is the part worth promoting out of the agents feature."* The trigger wizard is that second flow.
 
@@ -21,15 +21,15 @@ The duplication is concrete:
 
 **Modal chrome** — The two-column layout (rail | `Separator orientation="vertical"` | content column with `overflowY="auto"` and `minWidth/maxWidth="document"`), the hairline `Progress` strip, and the sticky footer are structurally identical in both modal components. Both features also share an identical header structure — icon container + title + subtitle chip + grow spacer + optional actions + close button — where only the subtitle content and the actions slot content differ (the agent builder carries a draft-id chip and save-status controls; the trigger wizard carries the kind name and no actions).
 
-The motif-component-promotion ADR ([motif-component-promotion](2026-07-17-motif-component-promotion.md)) established the pattern: promote when a second confirmed consumer exists and the component has no Orbit domain knowledge. All three duplicated pieces — rail, review card, chrome — pass that test.
+The motif-component-promotion ADR ([motif-component-promotion](2026-07-17-motif-component-promotion.md)) established the pattern: promote when a second confirmed consumer exists and the component has no kora domain knowledge. All three duplicated pieces — rail, review card, chrome — pass that test.
 
 ---
 
 ## Options Considered
 
-### Option A: Promote as three separate Terra components
+### Option A: Promote as three separate Hades components
 
-Export `WizardRail`, `WizardStep`, and `WizardReviewCard` as independent Terra Tier 1 components.
+Export `WizardRail`, `WizardStep`, and `WizardReviewCard` as independent Hades Tier 1 components.
 
 **Pros:**
 - Maximum composability — a consumer can use the rail without the chrome, or the review card outside a wizard entirely.
@@ -51,7 +51,7 @@ Export a single `Wizard` compound component with static sub-components: `Wizard.
 - `WizardHeader` is private: it cannot be used outside `<Wizard>`, preventing the misuse pattern of placing a standalone header outside the wizard tree.
 - `Wizard.Step fullPage` brings pre-flow and post-flow screens (kind picker, success panels) inside the wizard, so header and progress bar are managed automatically for all phases.
 - The typed `rail` prop makes the structural contract machine-enforced rather than documented-but-optional.
-- Consistent with how Terra already structures compound components (`Card`/`CardHeader`/`CardContent`; `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`).
+- Consistent with how Hades already structures compound components (`Card`/`CardHeader`/`CardContent`; `Tabs`/`TabsList`/`TabsTrigger`/`TabsContent`).
 
 **Cons:**
 - `Wizard.ReviewCard` is only reachable via the `Wizard` import; it cannot be imported standalone. Acceptable — its purpose is specific to wizard review screens.
@@ -63,7 +63,7 @@ Export a single `Wizard` compound component with static sub-components: `Wizard.
 
 **Option B** — a single `Wizard` compound component.
 
-The compound component pattern matches Terra's existing API conventions and makes the relationship between the pieces unambiguous. `Wizard` owns the `Modal size="builder"` shell and renders a private `WizardHeader` from its own `icon`, `title`, `subtitle`, and `actions` props — callers never construct a header manually. The typed `rail` prop (optional when a fullPage step is active) gives structural enforcement at the one boundary where omission would silently break the layout. `Wizard.Step` accepts a `fullPage` prop that fills the modal body with no rail or footer; the progress bar freezes at its last non-fullPage value, advancing again when a normal step is active. `Wizard.Footer` absorbs the shared footer structure — Back button, step counter, Continue / Submit — with props for the variable parts.
+The compound component pattern matches Hades' existing API conventions and makes the relationship between the pieces unambiguous. `Wizard` owns the `Modal size="builder"` shell and renders a private `WizardHeader` from its own `icon`, `title`, `subtitle`, and `actions` props — callers never construct a header manually. The typed `rail` prop (optional when a fullPage step is active) gives structural enforcement at the one boundary where omission would silently break the layout. `Wizard.Step` accepts a `fullPage` prop that fills the modal body with no rail or footer; the progress bar freezes at its last non-fullPage value, advancing again when a normal step is active. `Wizard.Footer` absorbs the shared footer structure — Back button, step counter, Continue / Submit — with props for the variable parts.
 
 ---
 
@@ -71,7 +71,7 @@ The compound component pattern matches Terra's existing API conventions and make
 
 ### Component structure
 
-One new directory: `frontend/src/packages/terra/src/components/wizard/`
+One new directory: `frontend/src/packages/hades/src/components/wizard/`
 
 ```
 wizard/
@@ -80,7 +80,7 @@ wizard/
 └── index.ts            # Public re-exports
 ```
 
-All sub-components live in a single file. Sub-components are attached as static properties on the root function after definition (`Wizard.Rail = WizardRail`, etc.) — the static-property compound pattern, distinct from Terra's flat export pattern (`CardHeader`, `CardContent`). Sub-components are not re-exported as flat named exports; consumers import them exclusively via the `Wizard` namespace. Prop types are exported flat from `wizard/index.ts` so consumers can type external references.
+All sub-components live in a single file. Sub-components are attached as static properties on the root function after definition (`Wizard.Rail = WizardRail`, etc.) — the static-property compound pattern, distinct from Hades' flat export pattern (`CardHeader`, `CardContent`). Sub-components are not re-exported as flat named exports; consumers import them exclusively via the `Wizard` namespace. Prop types are exported flat from `wizard/index.ts` so consumers can type external references.
 
 ### TypeScript interface
 
@@ -185,7 +185,7 @@ The agents builder's `BUILDER_STEPS` uses `{ key, title, sub }` where `key` is o
 
 ### data-slot values
 
-Each sub-component carries a `data-slot` attribute for structural targeting, consistent with all Terra components:
+Each sub-component carries a `data-slot` attribute for structural targeting, consistent with all Hades components:
 
 | Sub-component | `data-slot` value |
 |---|---|
@@ -200,7 +200,7 @@ Each sub-component carries a `data-slot` attribute for structural targeting, con
 
 ### Row property normalisation
 
-The triggers `ReviewRow` uses `{ key, value, mono? }`; the agents version uses `{ k, v, mono? }`. `WizardReviewCardProps` uses `{ label, value, mono? }` — unambiguous and consistent with Terra's other labelled-value patterns. Both features update their `StepReview` to pass `label` instead of `key`/`k`.
+The triggers `ReviewRow` uses `{ key, value, mono? }`; the agents version uses `{ k, v, mono? }`. `WizardReviewCardProps` uses `{ label, value, mono? }` — unambiguous and consistent with Hades' other labelled-value patterns. Both features update their `StepReview` to pass `label` instead of `key`/`k`.
 
 ### Migration
 
@@ -236,7 +236,7 @@ All stories carry `tags: ['autodocs']`.
 
 ### Exports
 
-`wizard/index.ts` re-exports `Wizard` and the prop types `WizardProps`, `WizardRailProps`, `WizardStepProps`, `WizardFooterProps`, `WizardReviewCardProps`. `WizardHeaderProps` is not exported — `WizardHeader` is a private implementation detail. `src/packages/terra/src/index.ts` gains the barrel re-export. `frontend/docs/reference/component-placement.md` and `frontend/docs/reference/terra-design-system.md` are updated in the same change.
+`wizard/index.ts` re-exports `Wizard` and the prop types `WizardProps`, `WizardRailProps`, `WizardStepProps`, `WizardFooterProps`, `WizardReviewCardProps`. `WizardHeaderProps` is not exported — `WizardHeader` is a private implementation detail. `src/packages/hades/src/index.ts` gains the barrel re-export. `frontend/docs/reference/component-placement.md` and `frontend/docs/reference/hades-design-system.md` are updated in the same change.
 
 ---
 
@@ -244,7 +244,7 @@ All stories carry `tags: ['autodocs']`.
 
 **Good**
 
-- The wizard pattern is now API, not convention. A third wizard author imports `Wizard` from Terra and the structure is immediately clear.
+- The wizard pattern is now API, not convention. A third wizard author imports `Wizard` from Hades and the structure is immediately clear.
 - The `Modal` shell is owned by `Wizard` — callers cannot forget to wrap in it, or use the wrong size.
 - `WizardHeader` is private — it cannot be placed outside the wizard tree, which was an easy mistake to make when managing multi-phase wizards (kind picker, success panels) before `fullPage` existed.
 - `Wizard.Step fullPage` brings pre-flow and post-flow phases inside the wizard. Progress bar, header, and modal are all managed automatically for all phases — no manual `Wizard.Header + Separator` in callers.

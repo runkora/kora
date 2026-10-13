@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { Stack } from '@orbit/terra';
+import { Stack } from '@orbit/hades';
 
 /**
  * Auth layout — centered, no chrome.
@@ -12,8 +12,17 @@ import { Stack } from '@orbit/terra';
  */
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   return (
-    <Stack asChild align="center" justify="center">
-      <main className="min-h-screen">{children}</main>
+    <Stack asChild align="center" justify="center" padding="comfortable">
+      <main
+        className="min-h-screen"
+        style={{
+          // A faint accent glow at the top keeps the page from reading as flat black or flat chalk.
+          background:
+            'radial-gradient(60rem 28rem at 50% 0%, color-mix(in oklch, var(--color-accent) 9%, transparent), transparent)',
+        }}
+      >
+        {children}
+      </main>
     </Stack>
   );
 }

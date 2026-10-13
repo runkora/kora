@@ -5,7 +5,7 @@
 # can run in the same container — framework selection stays a runtime concern.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS builder
 
 WORKDIR /app
 
@@ -35,6 +35,7 @@ RUN mkdir -p /configs && \
     find /app/cmd/session-manager/config \
          /app/internal/platform/observability/config \
          /app/internal/platform/storage/config \
+         /app/internal/platform/token/config \
          -maxdepth 2 -name '*.yaml' 2>/dev/null | while read -r f; do \
         rel="${f#/app/}"; \
         mkdir -p "/configs/$(dirname "$rel")"; \
@@ -50,9 +51,9 @@ WORKDIR /app
 # bash: the REAL /bin/bash — used for shell-snapshot generation and as orbit-shell's
 #       local fallback. It is deliberately left untouched (never replaced by the proxy).
 # git:  required by Claude Code for git operations inside workspaces.
-# go:   required so Claude Code can build/run Go programs in agent workspaces.
 # curl: used to download the Codex musl binary below.
-RUN apk add --no-cache ca-certificates bash git go curl
+# Toolchains (Go and the rest) live only in the sandbox image, where commands run.
+RUN apk add --no-cache ca-certificates bash git curl
 
 # How Claude Code's Bash tool is routed into the sandbox:
 #   - Claude Code IGNORES $SHELL; it resolves its shell from CLAUDE_CODE_SHELL.
@@ -62,7 +63,7 @@ RUN apk add --no-cache ca-certificates bash git go curl
 #   - So orbit-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
 #     basename via the symlink created below, and CLAUDE_CODE_SHELL points at it.
 # orbit-shell routes `-c` commands to the sandbox pod's gRPC exec server when
-# $WORKSPACE/.sandbox/endpoint exists, and otherwise execs the real /bin/bash
+# $WORKSPACE/.sandbox-exec/endpoint exists, and otherwise execs the real /bin/bash
 # (snapshot generation and any pre-provision commands run locally).
 ENV SHELL=/opt/orbit/shell/bash
 ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash

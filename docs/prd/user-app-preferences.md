@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit users currently have no way to persist UI choices across sessions or devices. This PRD defines a lightweight, backend-synced user preferences system that allows users to customise their Orbit experience — column layouts, analytics time windows, favourited models, and more — with changes that follow them across browsers and devices without any additional action on their part.
+kora users currently have no way to persist UI choices across sessions or devices. This PRD defines a lightweight, backend-synced user preferences system that allows users to customise their kora experience — column layouts, analytics time windows, favourited models, and more — with changes that follow them across browsers and devices without any additional action on their part.
 
 ---
 
@@ -18,18 +18,18 @@ Orbit users currently have no way to persist UI choices across sessions or devic
 
 ### Current State
 
-All UI state in Orbit is ephemeral. Column visibility choices, analytics time windows, and any other display customisations are lost the moment a user closes a tab or switches devices. There is no mechanism for a user to declare "I always want to see these columns" and have that be honoured everywhere they use Orbit.
+All UI state in kora is ephemeral. Column visibility choices, analytics time windows, and any other display customisations are lost the moment a user closes a tab or switches devices. There is no mechanism for a user to declare "I always want to see these columns" and have that be honoured everywhere they use kora.
 
 ### User Pain Points
 
-- Reconfiguring table columns on every session is friction that disproportionately affects power users who open Orbit from multiple machines or browsers.
+- Reconfiguring table columns on every session is friction that disproportionately affects power users who open kora from multiple machines or browsers.
 - Analysts who work primarily with certain metrics have no way to de-clutter views by hiding irrelevant columns or charts.
 - Users who share a machine with colleagues cannot each have their own layout without overwriting the other's local storage.
 
 ### Business Impact
 
 - UX friction increases time-to-insight for analysts using the logs, usage, and analytics tables daily.
-- Missing personalisation reinforces a perception of Orbit as a prototype rather than a production-grade platform.
+- Missing personalisation reinforces a perception of kora as a prototype rather than a production-grade platform.
 
 ---
 
@@ -128,8 +128,8 @@ When a user changes a preference, the frontend applies it to local context immed
 - **Preferences API** — `GET /identity/preferences`, `PUT /identity/preferences`, `DELETE /identity/preferences` on the identity service.
 - **`PreferencesContext`** — React context + custom hook (`usePreferences`) for frontend reads/writes.
 - **`preferences.schema.ts`** — Centralised TypeScript file containing the canonical `UserPreferences` type and all hardcoded defaults. The sole source of truth for what constitutes a valid or complete preferences document; the backend returns the stored document as-is and has no knowledge of defaults.
-- **`DataTable` wrapper** — App-level component wrapping Terra's table primitive. `tableId` is a required prop; column visibility is managed internally via `usePreferences`. Terra has no awareness of preferences.
-- **`PeriodSelector`** — App-level component wrapping Terra's period button controls (7d/30d/90d). Accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). Connects to `usePreferences` internally. Terra has no awareness of preferences.
+- **`DataTable` wrapper** — App-level component wrapping Hades' table primitive. `tableId` is a required prop; column visibility is managed internally via `usePreferences`. Hades has no awareness of preferences.
+- **`PeriodSelector`** — App-level component wrapping Hades' period button controls (7d/30d/90d). Accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). Connects to `usePreferences` internally. Hades has no awareness of preferences.
 
 ---
 
@@ -141,7 +141,7 @@ The following categories and keys are in scope for v1. Each key is tagged as eit
 
 Each table gets its own key under `tables.columns.<tableId>` mapping column IDs to a boolean (visible/hidden). Unset columns default to visible.
 
-Column visibility is built into the app-level `DataTable` wrapper component. `tableId` is a required prop; the wrapper connects to `usePreferences` internally and manages column visibility. Terra's underlying table primitive has no awareness of preferences. Every table in the application that uses the wrapper gets preference-backed column visibility with no additional wiring — there is no opt-in step. The tables below are those present at launch; any future table using the wrapper inherits the behaviour for free.
+Column visibility is built into the app-level `DataTable` wrapper component. `tableId` is a required prop; the wrapper connects to `usePreferences` internally and manages column visibility. Hades' underlying table primitive has no awareness of preferences. Every table in the application that uses the wrapper gets preference-backed column visibility with no additional wiring — there is no opt-in step. The tables below are those present at launch; any future table using the wrapper inherits the behaviour for free.
 
 Proposed `tableId` values for v1:
 
@@ -261,7 +261,7 @@ Proposed `tableId` values for v1:
 
 - **Identity service** (Go) — adds the new repository, handlers, and migration. No changes to the auth flow required.
 - **Frontend BFF API routes** — new `/api/preferences` route proxying to the identity service.
-- **Terra Design System** — app-level wrappers (`DataTable`, `PeriodSelector`) sit over Terra primitives; Terra itself has no awareness of preferences.
+- **Hades Design System** — app-level wrappers (`DataTable`, `PeriodSelector`) sit over Hades primitives; Hades itself has no awareness of preferences.
 - **Session context** — `user_id` and `tenant_id` must be available in the BFF session (they already are via `PlatformClaims`).
 
 ### External Dependencies

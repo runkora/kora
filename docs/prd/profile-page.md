@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Orbit has no centralised view where users can inspect their identity, permissions, or API tokens. The profile page gives every authenticated user a single screen answering "who am I, what can I do, and what tokens have I issued?" — accessible from a popover menu in the sidebar footer.
+kora has no centralised view where users can inspect their identity, permissions, or API tokens. The profile page gives every authenticated user a single screen answering "who am I, what can I do, and what tokens have I issued?" — accessible from a popover menu in the sidebar footer.
 
 ---
 
@@ -218,7 +218,7 @@ The profile page displays three cards in a single-column layout:
 
 ### Internal Dependencies
 
-- **Terra Design System** (`@orbit/terra`): Popover, Card, Badge, Stack, Text, Skeleton, Icon components (all exist)
+- **Hades Design System** (`@orbit/hades`): Popover, Card, Badge, Stack, Text, Skeleton, Icon components (all exist)
 - **Session infrastructure** (`@orbit/server/session`): `getSession()` server-side, `useSession()` client-side (exists)
 - **Policy evaluate/explain endpoint**: `GET /api/policy/evaluate/explain` (exists)
 - **Identity users endpoint**: `GET /identity/users/{id}` (exists)
@@ -320,12 +320,12 @@ The profile page displays three cards in a single-column layout:
 
 ### References
 
-- [Terra Design System](../prd/design-system.md) - Component library used for all UI elements
+- [Hades Design System](../prd/design-system.md) - Component library used for all UI elements
 - [Browser Auth Flow](../prd/browser-auth-flow.md) - OIDC authentication flow and session model
 
 ### Glossary
 
-- **Principal ID:** Unique identifier for a user in Orbit, derived from the OIDC `sub` claim.
+- **Principal ID:** Unique identifier for a user in kora, derived from the OIDC `sub` claim.
 - **Scope:** A permission string in `resource:path:action` format (e.g., `platform:grants:read`).
 - **Grant:** A direct assignment of scopes to a principal, stored in `policy_grants`.
 - **Role:** An OIDC role name mapped to a set of scopes via `policy_role_scopes`.

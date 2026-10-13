@@ -6,6 +6,13 @@
  * - `./permissions-provider` is vi.mock'd so `useSession` returns controllable
  *   scopes without needing a live PermissionsProvider + MSW. The provider's own
  *   fetch behaviour is tested separately.
+ * - `next/link` is vi.mock'd with a marker so the "client-side routing" test
+ *   below can assert that nav items render through next/link rather than a
+ *   plain `<a>` (regression coverage for #385). A raw `<a>` forces a full
+ *   document navigation on click, which unmounts the dashboard layout and
+ *   resets PermissionsProvider's RBAC state on every nav click. getByRole
+ *   ('link', ...) alone can't tell the two apart since both render an <a> with
+ *   the same href — this mock makes that distinction testable.
  *
  * Default state (empty scopes) renders Control Plane and Model Gateway groups.
  * Policy group requires `platform:grants:read` and is hidden by default.
@@ -25,6 +32,22 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('./permissions-provider', () => ({
   useSession: vi.fn().mockReturnValue({ scopes: [], user: null, loaded: false }),
+}));
+
+vi.mock('next/link', () => ({
+  default: ({
+    href,
+    onClick,
+    children,
+  }: {
+    href: string;
+    onClick?: () => void;
+    children: React.ReactNode;
+  }) => (
+    <a href={href} onClick={onClick} data-testid="next-link">
+      {children}
+    </a>
+  ),
 }));
 
 import { usePathname } from 'next/navigation';
@@ -68,6 +91,37 @@ describe('DashboardSidebar', () => {
     });
   });
 
+  describe('scoped nav entries', () => {
+    it('hides Environments and Models when the user has no scopes', () => {
+      renderSidebar();
+      expect(screen.queryByRole('link', { name: /environments/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: /^models$/i })).not.toBeInTheDocument();
+    });
+
+    it('shows Environments when the user holds agents:environments:read', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['agents:environments:read'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /environments/i })).toHaveAttribute(
+        'href',
+        APP_ROUTES.environments,
+      );
+    });
+
+    it('shows Models when the user holds inference:list', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['inference:list'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+      expect(screen.getByRole('link', { name: /^models$/i })).toBeInTheDocument();
+    });
+  });
+
   describe('nav link hrefs', () => {
     it('Dashboard link points to APP_ROUTES.home', () => {
       renderSidebar();
@@ -78,6 +132,11 @@ describe('DashboardSidebar', () => {
     });
 
     it('Models link points to the correct route', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['inference:list'],
+        user: null,
+        loaded: true,
+      });
       renderSidebar();
       expect(screen.getByRole('link', { name: /models/i })).toHaveAttribute(
         'href',
@@ -122,6 +181,31 @@ describe('DashboardSidebar', () => {
         'href',
         APP_ROUTES.home,
       );
+    });
+  });
+
+  describe('client-side routing', () => {
+    // Regression test for #385: nav items must render through next/link, not
+    // a plain `<a>`. Both render an <a href="..."> with the same text, so
+    // getByRole('link', ...).toHaveAttribute('href', ...) alone can't tell
+    // them apart — a plain anchor would pass every other test in this file.
+    // Only next/link preserves the dashboard layout (and PermissionsProvider's
+    // RBAC state) across navigation instead of triggering a full page reload.
+    // The mock above tags next/link's output with data-testid="next-link" so
+    // this test can distinguish the two implementations.
+    it('renders every non-wip nav item through next/link', () => {
+      vi.mocked(useSession).mockReturnValueOnce({
+        scopes: ['platform:grants:read', 'agents:environments:read', 'inference:list'],
+        user: null,
+        loaded: true,
+      });
+      renderSidebar();
+
+      const links = screen.getAllByRole('link');
+      expect(links.length).toBeGreaterThan(0);
+      for (const link of links) {
+        expect(link).toHaveAttribute('data-testid', 'next-link');
+      }
     });
   });
 });

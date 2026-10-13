@@ -2,7 +2,7 @@
 
 /**
  * @tier 3 — run-chat-scoped.
- * Renders agent markdown prose using react-markdown + remark-gfm with Terra
+ * Renders agent markdown prose using react-markdown + remark-gfm with Hades
  * component renderers. Falls back to plain pre-wrap text while streaming.
  */
 
@@ -11,7 +11,7 @@ import type { CSSProperties } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import type { Components } from 'react-markdown';
-import { Text, Code, Stack } from '@orbit/terra';
+import { Text, Code, Stack } from '@orbit/hades';
 
 // ── Contexts shared by nested renderers ──────────────────────────────────────
 
@@ -94,7 +94,7 @@ function MdLi({ children }: { children?: React.ReactNode }) {
   );
 }
 
-// ── Terra component map ───────────────────────────────────────────────────────
+// ── Hades component map ───────────────────────────────────────────────────────
 
 const HEADING_STYLES: Record<number, CSSProperties> = {
   1: {

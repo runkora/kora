@@ -21,7 +21,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type {
   ConnectionCatalogEntry,
   ConnectionQualifierEntry,
@@ -54,7 +54,7 @@ function actionScopePreview(connection: string, action: string, resources: strin
 /**
  * The resource scope block for a qualifier-capable connection: an all/selected
  * radio pair labeled from the adapter's qualifier dimension, and under
- * "Selected" a multiselect composed from existing Terra primitives, a Badge
+ * "Selected" a multiselect composed from existing Hades primitives, a Badge
  * chip per resource plus an Input for manual entry. The attachment is what
  * narrows an agent, so anything the upstream credential can reach is valid here.
  */
@@ -292,7 +292,7 @@ export function ConnectionCards({
                 <CollapsibleContent>
                   {qualifier && (
                     <Stack gap="none">
-                      <Separator span="full" />
+                      <Separator />
                       <ResourceScopeBlock
                         connection={conn.name}
                         qualifier={qualifier}
@@ -305,7 +305,7 @@ export function ConnectionCards({
                     const actionOn = current.includes(action);
                     return (
                       <Stack key={action} gap="none">
-                        <Separator span="full" />
+                        <Separator />
                         <Stack
                           direction="horizontal"
                           align="center"
@@ -314,7 +314,6 @@ export function ConnectionCards({
                           paddingInline="relaxed"
                         >
                           <Checkbox
-                            size="sm"
                             checked={actionOn}
                             onChange={(checked) =>
                               setConnectorActions(
@@ -326,13 +325,14 @@ export function ConnectionCards({
                             }
                             aria-label={`Grant ${conn.name} ${action}`}
                           />
-                          <Text as="span" size="caption" mono weight="heavy">
-                            {action}
-                          </Text>
-                          <Stack grow />
-                          <Text as="span" size="micro" mono color="subtle">
-                            {actionScopePreview(conn.name, action, resources)}
-                          </Text>
+                          <Stack gap="tight" grow minWidth="none">
+                            <Text as="span" size="caption" mono weight="heavy">
+                              {action}
+                            </Text>
+                            <Text as="span" size="micro" mono color="subtle" truncate>
+                              {actionScopePreview(conn.name, action, resources)}
+                            </Text>
+                          </Stack>
                         </Stack>
                       </Stack>
                     );
@@ -340,7 +340,7 @@ export function ConnectionCards({
                   {on &&
                     conn.baseline.map((fragment) => (
                       <Stack key={`baseline-${fragment}`} gap="none">
-                        <Separator span="full" />
+                        <Separator />
                         <Stack
                           direction="horizontal"
                           align="center"
@@ -349,23 +349,23 @@ export function ConnectionCards({
                           paddingInline="relaxed"
                         >
                           <Checkbox
-                            size="sm"
                             checked
                             disabled
                             aria-label={`${conn.name} ${fragment} is added automatically`}
                           />
-                          <Stack gap="tight">
-                            <Text as="span" size="caption" mono weight="heavy">
-                              {fragment}
-                            </Text>
-                            <Text as="span" size="micro" color="subtle">
-                              Added automatically
+                          <Stack gap="tight" grow minWidth="none">
+                            <Stack direction="horizontal" align="center" gap="cozy">
+                              <Text as="span" size="caption" mono weight="heavy">
+                                {fragment}
+                              </Text>
+                              <Text as="span" size="micro" color="subtle">
+                                Added automatically
+                              </Text>
+                            </Stack>
+                            <Text as="span" size="micro" mono color="subtle" truncate>
+                              connection:{conn.name}:{fragment}
                             </Text>
                           </Stack>
-                          <Stack grow />
-                          <Text as="span" size="micro" mono color="subtle">
-                            connection:{conn.name}:{fragment}
-                          </Text>
                         </Stack>
                       </Stack>
                     ))}

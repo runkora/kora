@@ -1,0 +1,59 @@
+{{- /*
+orbit-operator config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+The preflight helm test mounts the same ConfigMap.
+*/}}
+{{- define "orbit.operator.configModules" -}}
+{{- /* Image warmers run in the warm-start scheduling with the sandbox priority class. */}}
+{{- $placement := include "orbit.sandboxWarmingScheduling" (dict "root" .) | fromYaml | default dict }}
+{{- with (.Values.agents.workloads.sandbox.priorityClassName | default .Values.agents.priorityClassName | default .Values.global.priorityClassName) }}
+{{- $_ := set $placement "priorityClassName" . }}
+{{- end }}
+{{- /* A sandbox sidecar without both values would be left unpinned. */}}
+{{- range $name := list "istioProxy" "identityProxy" "opa" }}
+{{- $r := index ($.Values.operator.injection.sandboxSidecars | default dict) $name | default dict }}
+{{- if not (and $r.cpu $r.memory) }}
+{{- fail (printf "operator.injection.sandboxSidecars.%s must set both cpu and memory" $name) }}
+{{- end }}
+{{- end }}
+cmd/operator:
+  operator:
+    leaderElection: {{ .Values.operator.leaderElection }}
+  install:
+    trustDomain: {{ include "orbit.trustDomain" . | toJson }}
+    systemNamespace: {{ include "orbit.systemNamespace" . | toJson }}
+    istioNamespace: {{ .Values.istio.namespace | toJson }}
+    istioRevision: {{ .Values.istio.revision | toJson }}
+    spireClassName: {{ .Values.spire.className | toJson }}
+    imagePullSecrets: {{ include "orbit.imagePullSecretNames" . }}
+    {{- /* The collector agent pods may export to: its in-cluster namespace, or the networkPolicy.externalServices ranges serving its port. */}}
+    collectorNamespace: {{ .Values.global.observability.collectorNamespace | toJson }}
+    collectorCIDRs: {{ splitList "," (include "orbit.collectorCIDRs" .) | compact | toJson }}
+    {{- /* The tenant-pod sidecars: identityProxy.image and opaGateway.image. */}}
+    injection:
+      identityProxyImage: {{ include "orbit.imageRef" (dict "root" $ "image" .Values.identityProxy.image) | toJson }}
+      identityProxyPullPolicy: {{ .Values.identityProxy.image.pullPolicy | default .Values.global.imagePullPolicy | toJson }}
+      identityProxyResources: {{ .Values.identityProxy.resources | toJson }}
+      opaImage: {{ include "orbit.imageRef" (dict "root" $ "image" .Values.opaGateway.image) | toJson }}
+      opaPullPolicy: {{ .Values.opaGateway.image.pullPolicy | default .Values.global.imagePullPolicy | toJson }}
+      opaLogLevel: {{ .Values.operator.injection.opa.logLevel | toJson }}
+      bundlePollingMinDelay: {{ .Values.operator.injection.opa.bundlePolling.minDelaySeconds | int }}
+      bundlePollingMaxDelay: {{ .Values.operator.injection.opa.bundlePolling.maxDelaySeconds | int }}
+      opaResources: {{ .Values.operator.injection.opa.resources | toJson }}
+      sandboxSidecars: {{ .Values.operator.injection.sandboxSidecars | toJson }}
+    podSecurity:
+      enforce: {{ .Values.operator.tenantPodSecurity.enforce | toJson }}
+      warn: {{ .Values.operator.tenantPodSecurity.warn | toJson }}
+      audit: {{ .Values.operator.tenantPodSecurity.audit | toJson }}
+    {{- /* The base image registered as kora-base in every tenant namespace, and the placement image warmers run in. */}}
+    sandboxImages:
+      baseImage: {{ include "orbit.sandboxBaseImage" . | toJson }}
+      warmBase: {{ .Values.agents.sandboxImages.warmBase | toJson }}
+      bundled: {{ include "orbit.bundledSandboxImages" . }}
+      registryMirrors: {{ .Values.agents.sandboxImages.registryMirrors | toJson }}
+      warmerPlacement: {{ toJson $placement }}
+    preflight:
+      supportedIstioMinors: {{ .Values.operator.preflight.supportedIstioMinors | toJson }}
+      intervalSeconds: {{ .Values.operator.preflight.intervalSeconds | int }}
+{{ include "orbit.observabilityConfigModule" . }}
+{{- end }}
+{{- include "orbit.configMap" (dict "root" $ "name" "operator" "configMap" "orbit-operator-config" "modules" (include "orbit.operator.configModules" . | fromYaml)) }}

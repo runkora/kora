@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-Creating an agent in Orbit today means filling in one long form of eight configuration sections presented all at once, with nothing to indicate which decisions carry governance weight and which are cosmetic. This replaces it with a five-step guided builder that asks for one class of decision at a time, explains what each is for at the point the user makes it, and shows a complete review before anything is created. The create flow is the first substantial thing a new user does with Orbit, and it should teach the platform's model rather than merely collect values.
+Creating an agent in kora today means filling in one long form of eight configuration sections presented all at once, with nothing to indicate which decisions carry governance weight and which are cosmetic. This replaces it with a five-step guided builder that asks for one class of decision at a time, explains what each is for at the point the user makes it, and shows a complete review before anything is created. The create flow is the first substantial thing a new user does with kora, and it should teach the platform's model rather than merely collect values.
 
 ---
 
@@ -37,7 +37,7 @@ Creating an agent in Orbit today means filling in one long form of eight configu
 ### Business Impact
 
 - Over-granting is the path of least resistance when scopes are a flat checklist with no explanation. Misconfigured agents are a governance risk, and the create flow is where that risk is introduced.
-- Orbit's argument is that agents get a verified identity and are checked against policy before they act. The create flow is where a user should first encounter that argument, and today it presents as a form with no point of view.
+- kora's argument is that agents get a verified identity and are checked against policy before they act. The create flow is where a user should first encounter that argument, and today it presents as a form with no point of view.
 - Abandoned setups and support questions cost time that should not be spent on a create flow.
 
 ---
@@ -50,7 +50,7 @@ Creating an agent in Orbit today means filling in one long form of eight configu
 2. Make the governance model legible at the point of decision rather than in documentation.
 3. Let a user review the complete configuration, and correct any part of it, before the agent is created.
 4. Never silently lose work in progress.
-5. Be honest about what Orbit enforces today and what is planned, so users do not assume a ceiling exists when it does not.
+5. Be honest about what kora enforces today and what is planned, so users do not assume a ceiling exists when it does not.
 
 ### Success Metrics
 
@@ -62,7 +62,7 @@ Creating an agent in Orbit today means filling in one long form of eight configu
 
 ### Non-Goals
 
-- **Response creativity control.** The agent frameworks Orbit runs are agentic harnesses that do not accept a sampling setting, so the control would have no effect for the default framework. A governance control that does not govern is worse than no control.
+- **Response creativity control.** The agent frameworks kora runs are agentic harnesses that do not accept a sampling setting, so the control would have no effect for the default framework. A governance control that does not govern is worse than no control.
 - **New runtime ceilings.** Rate limit, maximum tokens per run, maximum tool calls per run, and halt-on-repeated-failures are shown as planned and are not built here. They are specified separately.
 - **Editing an existing agent.** The agent settings surface already covers this and is unchanged.
 - **An agent catalogue or configuration templates.**
@@ -122,7 +122,7 @@ Creating an agent in Orbit today means filling in one long form of eight configu
 ### Secondary User Stories
 
 **As a** user,  
-**I want to** know which limits Orbit actually enforces,  
+**I want to** know which limits kora actually enforces,  
 **So that** I do not rely on a ceiling that does not exist.
 
 **Acceptance Criteria:**
@@ -135,7 +135,7 @@ Creating an agent in Orbit today means filling in one long form of eight configu
 
 ### High-Level Approach
 
-Replace the single form with a five-step builder. The steps follow the questions Orbit exists to answer, in the order a user needs to answer them: who the agent is, how it behaves, what it can reach, what ceilings apply, and finally a review.
+Replace the single form with a five-step builder. The steps follow the questions kora exists to answer, in the order a user needs to answer them: who the agent is, how it behaves, what it can reach, what ceilings apply, and finally a review.
 
 Each step carries a heading, a one-sentence statement of what the step decides, and only the fields relevant to that decision. A step rail shows progress and lets the user return to any step already visited. A persistent panel explains the identity-first model. The final step is a read-only summary of everything, and the agent is created from there.
 
@@ -146,7 +146,7 @@ Each step carries a heading, a one-sentence statement of what the step decides, 
 1. **Identity.** Name, slug, description, identity model, owner, and team. The slug derives from the name until the user edits it. The identity model decides whether the agent acts on behalf of the human who runs it or acts autonomously as itself.
 2. **Behaviour.** System instructions, the framework the agent runs on, and the model it uses. The model list states how many models the platform has enabled.
 3. **Tools and access.** The MCP servers and individual tools the agent may call, the connections it may use, the network hosts it may reach, and the environment it runs in.
-4. **Guardrails.** The ceilings Orbit enforces: spend per period, spend per run, and concurrency. Planned ceilings are listed separately and marked as not yet enforced.
+4. **Guardrails.** The ceilings kora enforces: spend per period, spend per run, and concurrency. Planned ceilings are listed separately and marked as not yet enforced.
 5. **Review.** Every value, grouped by step, each group linking back to its step. Creating the agent is an explicit action here, and confirmation shows the agent's identity.
 
 Environment sits with tools and access rather than at the end, because it changes which hosts and connections the agent effectively has. Choosing it after configuring those would silently change what the earlier choices mean.
@@ -224,7 +224,7 @@ Environment sits with tools and access rather than at the end, because it change
 - No step requires horizontal scrolling.
 
 **Consistency:**
-- The flow is built entirely from the Terra design system. Any new component is added to Terra and documented there.
+- The flow is built entirely from the Hades design system. Any new component is added to Hades and documented there.
 
 **Reliability:**
 - A draft is not lost by navigation, refresh, or a failed create.
@@ -236,7 +236,7 @@ Environment sits with tools and access rather than at the end, because it change
 ### Internal Dependencies
 
 - **[Delegated Agent Identity](delegated-agent-identity.md):** being designed separately. The identity model control is not shipped ahead of its enforcement, so the identity step gains it later rather than shipping it decoratively.
-- **Terra design system:** the builder needs components Terra does not currently have. Terra changes require human approval before implementation.
+- **Hades design system:** the builder needs components Hades does not currently have. Hades changes require human approval before implementation.
 - **Existing agent configuration surfaces:** tools, connectors, connectivity, environments, and budgets are all sourced from capabilities that already exist.
 
 ---
@@ -249,7 +249,7 @@ Environment sits with tools and access rather than at the end, because it change
 | The identity model control ships before its enforcement, misleading users about what is bound | High | Low | The control is gated on the Delegated Agent Identity work; it is not shipped decoratively |
 | Users read planned ceilings as enforced ones | High | Medium | Planned capabilities are visually separated, labelled, and non-interactive |
 | Retaining every existing field makes a step too heavy | Medium | Medium | Tools and access groups related decisions behind a single purpose statement; heaviness is measured against the review step rather than the form |
-| New design system components diverge from Terra's conventions | Medium | Low | Components are proposed and approved before implementation, and documented in the same change |
+| New design system components diverge from Hades' conventions | Medium | Low | Components are proposed and approved before implementation, and documented in the same change |
 
 ---
 
@@ -258,7 +258,7 @@ Environment sits with tools and access rather than at the end, because it change
 ### Phases
 
 **Phase 1: Design system foundations**
-- The components the builder needs, added to Terra with documentation.
+- The components the builder needs, added to Hades with documentation.
 
 **Phase 2: The builder**
 - The five-step flow, draft persistence, review, and creation.
@@ -281,7 +281,7 @@ Environment sits with tools and access rather than at the end, because it change
 
 - [Delegated Agent Identity](delegated-agent-identity.md) - the identity model this flow selects
 - [Agent Control Plane](agent-control-plane.md) - the agent model this flow creates
-- [Terra Design System](design-system.md) - the design system this flow is built from
+- [Hades Design System](design-system.md) - the design system this flow is built from
 
 ### Glossary
 

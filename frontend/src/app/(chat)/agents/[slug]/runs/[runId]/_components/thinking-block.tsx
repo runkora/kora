@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react';
-import { Stack, Text } from '@orbit/terra';
+import { Stack, Text } from '@orbit/hades';
 import type { ThinkingBlock as ThinkingBlockType } from '../_types';
 
 function ChevronRightIcon({ open }: { open: boolean }) {

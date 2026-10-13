@@ -4,17 +4,34 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Alert, Badge, Button, DataTable, Heading, Icon, Stack, Text } from '@orbit/terra';
-import type { DataTableColumn } from '@orbit/terra';
-import { ConfirmDialog, EmptyState } from '@orbit/components';
-import type { ConnectionCatalogEntry } from '@orbit/shared/api';
+import {
+  Alert,
+  Badge,
+  Button,
+  DataTable,
+  Heading,
+  Icon,
+  Stack,
+  Text,
+  ConfirmDialog,
+  EmptyState,
+  TruncatingBadge,
+} from '@orbit/hades';
+import type { DataTableColumn } from '@orbit/hades';
+import { ClampedList } from '@orbit/components';
+import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';
-import { EnvironmentFormModal } from './environment-form-modal';
+import { EnvironmentWizard } from './environment-wizard';
+import { imageProblem, sizeLabel } from '@orbit/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentsPageProps {
   rows: EnvironmentRow[];
   connections: ConnectionCatalogEntry[];
+  /** Registered sandbox images, or null when the list did not load. */
+  images: SandboxImage[] | null;
+  /** The platform's default and maximum sizes, or null when they did not load. */
+  sizes: EnvironmentSizes | null;
   error: string | null;
 }
 
@@ -24,7 +41,9 @@ function environmentMatchesSearch(row: EnvironmentRow, q: string): boolean {
   const lower = q.toLowerCase();
   return (
     row.name.toLowerCase().includes(lower) ||
+    row.slug.toLowerCase().includes(lower) ||
     row.description.toLowerCase().includes(lower) ||
+    row.sandboxImage.toLowerCase().includes(lower) ||
     row.egressHosts.some((h) => h.toLowerCase().includes(lower)) ||
     row.connectors.some((c) => c.connection.toLowerCase().includes(lower))
   );
@@ -32,7 +51,13 @@ function environmentMatchesSearch(row: EnvironmentRow, q: string): boolean {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageProps) {
+export function EnvironmentsPage({
+  rows,
+  connections,
+  images,
+  sizes,
+  error,
+}: EnvironmentsPageProps) {
   const router = useRouter();
 
   // null = closed; { environment: null } = create; { environment: row } = edit.
@@ -60,6 +85,8 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'name',
         header: 'Name',
+        gridWidth: 'minmax(0, 1.2fr)',
+        minWidth: '10rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
@@ -67,6 +94,9 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
           <Stack gap="none">
             <Text size="supporting" weight="emphasis">
               {row.name}
+            </Text>
+            <Text size="caption" mono color="subtle">
+              {row.slug}
             </Text>
             {row.description && (
               <Text size="caption" color="muted">
@@ -77,8 +107,46 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
         ),
       },
       {
+        id: 'image',
+        header: 'Sandbox image',
+        gridWidth: 'minmax(0, 1.2fr)',
+        minWidth: '10rem',
+        locked: true,
+        sortable: true,
+        sortAccessor: (row) => row.sandboxImage,
+        cell: (row) => {
+          const problem = imageProblem(row.sandboxImage, images);
+          return (
+            <Stack gap="none">
+              <Text size="supporting" mono>
+                {row.sandboxImage}
+              </Text>
+              {problem && (
+                <Text size="caption" color="status-error">
+                  {problem}
+                </Text>
+              )}
+            </Stack>
+          );
+        },
+      },
+      {
+        id: 'size',
+        header: 'Size',
+        gridWidth: '13rem',
+        minWidth: '9rem',
+        locked: true,
+        cell: (row) => (
+          <Text size="supporting" color="muted">
+            {sizeLabel(row.size)}
+          </Text>
+        ),
+      },
+      {
         id: 'egressHosts',
         header: 'Egress hosts',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '12rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.egressHosts.length,
@@ -96,8 +164,19 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       {
         id: 'connectors',
         header: 'Connectors',
+        gridWidth: 'minmax(0, 1.5fr)',
+        minWidth: '10rem',
         locked: true,
+        wrap: true,
         sortable: true,
+        filter: {
+          mode: 'client',
+          searchable: true,
+          options: [...new Set(rows.flatMap((row) => row.connectors.map((c) => c.connection)))]
+            .sort()
+            .map((name) => ({ value: name, label: name })),
+          filterFn: (row, selected) => row.connectors.some((c) => selected.has(c.connection)),
+        },
         sortAccessor: (row) => row.connectors.length,
         cell: (row) =>
           row.connectors.length === 0 ? (
@@ -105,23 +184,32 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
               —
             </Text>
           ) : (
-            <Stack direction="horizontal" gap="tight" wrap>
-              {row.connectors.map((c) => {
+            <ClampedList
+              items={row.connectors}
+              getKey={(c) => c.connection}
+              renderItem={(c) => {
                 const resourceCount = c.resources?.length ?? 0;
                 return (
-                  <Badge key={c.connection} variant="outline" size="sm">
-                    {resourceCount > 0
-                      ? `${c.connection} · ${resourceCount} ${resourceCount === 1 ? 'resource' : 'resources'}`
-                      : c.connection}
-                  </Badge>
+                  <TruncatingBadge
+                    label={
+                      resourceCount > 0
+                        ? `${c.connection} · ${resourceCount} ${resourceCount === 1 ? 'resource' : 'resources'}`
+                        : c.connection
+                    }
+                    variant="outline"
+                    textColor="foreground"
+                  />
                 );
-              })}
-            </Stack>
+              }}
+              noun="connectors"
+              maxRows={2}
+            />
           ),
       },
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '5rem',
         cell: (row) => (
@@ -152,7 +240,7 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
         ),
       },
     ],
-    [],
+    [rows, images],
   );
 
   return (
@@ -162,8 +250,9 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
         <Stack gap="tight">
           <Heading variant="title">Environments</Heading>
           <Text size="supporting" color="muted">
-            An environment bundles egress hosts and connectors an agent type can reference. Attach
-            one to an agent to fold its hosts and connectors into the agent&apos;s effective access.
+            An environment is a sandbox an agent can run in: a sandbox image, a size, and the egress
+            hosts and connections agents get with it. Attach environments to an agent on its
+            configuration page.
           </Text>
         </Stack>
         <Button size="sm" onClick={() => setFormState({ environment: null })}>
@@ -178,7 +267,7 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
         <EmptyState
           icon="layers"
           title="No environments"
-          description="Create an environment to bundle the egress hosts and connectors your agents need, then attach it to an agent type."
+          description="Agents without an environment run on the kora base image. Create an environment to give them a registered image, a size and access."
           action={
             <Button size="sm" onClick={() => setFormState({ environment: null })}>
               <Icon name="plus" size="xs" />
@@ -201,13 +290,15 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
         />
       )}
 
-      {/* Create / edit modal — keyed so its internal state resets per open. */}
+      {/* Create / edit wizard, keyed so its internal state resets per open. */}
       {formState && (
-        <EnvironmentFormModal
+        <EnvironmentWizard
           key={formState.environment?.id ?? 'create'}
-          open
           environment={formState.environment}
+          environments={rows}
           connections={connections}
+          images={images}
+          sizes={sizes}
           onClose={() => setFormState(null)}
           onSaved={() => {
             setFormState(null);
@@ -220,7 +311,7 @@ export function EnvironmentsPage({ rows, connections, error }: EnvironmentsPageP
       <ConfirmDialog
         open={!!deleteCandidate}
         title="Delete environment"
-        description={`Permanently delete "${deleteCandidate?.name ?? ''}"? Agents that reference it will fall back to their own hosts and connectors.`}
+        description={`Permanently delete "${deleteCandidate?.name ?? ''}"? An environment attached to an agent cannot be deleted.`}
         confirmLabel="Delete environment"
         confirming={deleting}
         error={deleteError}

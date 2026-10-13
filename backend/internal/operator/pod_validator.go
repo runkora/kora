@@ -73,10 +73,10 @@ func (v *PodValidator) rejectionReason(pod *corev1.Pod, ns *corev1.Namespace) st
 		return ""
 	}
 	if !hasContainer(pod, containerIdentityProxy) {
-		return "pod has no identity-proxy container; Orbit injection did not run"
+		return "pod has no identity-proxy container; kora injection did not run"
 	}
 	if !hasContainer(pod, containerOPA) {
-		return "pod has no opa container; Orbit injection did not run"
+		return "pod has no opa container; kora injection did not run"
 	}
 	return ""
 }

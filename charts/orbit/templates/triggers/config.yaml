@@ -1,0 +1,17 @@
+{{- /*
+orbit-triggers config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "orbit.triggers.configModules" -}}
+cmd/orbit-triggers:
+  identity:
+    internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+  agents:
+    internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-agents") | toJson }}
+  policy:
+    policyServiceInternalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
+{{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
+{{ include "orbit.tokenConfigModule" . }}
+{{- end }}
+{{- include "orbit.configMap" (dict "root" $ "name" "triggers" "configMap" "orbit-triggers-config" "modules" (include "orbit.triggers.configModules" . | fromYaml)) }}

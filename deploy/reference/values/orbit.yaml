@@ -1,4 +1,4 @@
-# Orbit chart values, the same set `helm show values oci://ghcr.io/clear-route/charts/orbit`
+# kora chart values, the same set `helm show values oci://ghcr.io/clear-route/charts/orbit`
 # prints. Copy this file into your GitOps repository and edit it. A cluster
 # already running SPIRE and Istio installs the chart with this file, no Helmfile.
 #
@@ -8,7 +8,7 @@ global:
   trustDomain: orbit.example.com
   imageRegistry: ghcr.io/clear-route
   imagePullPolicy: IfNotPresent
-  # Shared service config; a component's own config block overrides it.
+  # Shared service config; a component's configOverrides overrides it.
   logFormat: json
   postgres:
     sslMode: require
@@ -59,7 +59,6 @@ operator:
 
 identity:
   config:
-    redisTLSEnabled: "true"
     accessTokenTtlMinutes: 15
 
 inferenceGateway:
@@ -67,8 +66,6 @@ inferenceGateway:
   # this is the IRSA or Pod Identity annotation. See docs/guides/deployment.md.
   serviceAccount:
     annotations: {}
-  bedrock:
-    accounts: []
 
 frontend:
   config:

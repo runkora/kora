@@ -1,6 +1,6 @@
 # Identity
 
-Every principal in Orbit has one verifiable identity. Humans authenticate through their tenant's OIDC provider. An agent workload is attested by SPIRE and exchanges its SPIFFE SVID for an Orbit platform token, proving who it is without ever holding a long-lived secret.
+Every principal in kora has one verifiable identity. Humans authenticate through their tenant's OIDC provider. An agent workload is attested by SPIRE and exchanges its SPIFFE SVID for a kora platform token, proving who it is without ever holding a long-lived secret.
 
 ![Identity](../diagrams/identity.svg)
 
@@ -8,7 +8,7 @@ Every principal in Orbit has one verifiable identity. Humans authenticate throug
 sequenceDiagram
     autonumber
     participant SPIRE as SPIRE agent (node)
-    participant IP as identity-proxy (sidecar)
+    participant IP as identity-proxy (agent pod sidecar)
     participant ID as identity
     participant SVC as platform service
     Note over SPIRE,IP: pod attested (k8s PSAT node + workload selectors)
@@ -19,6 +19,8 @@ sequenceDiagram
     Note over IP: cache, refresh before expiry
     IP->>SVC: outbound request + Authorization: Bearer <JWT>
 ```
+
+Platform services in `orbit-system` make the same exchange in-process through the identity client and carry no identity-proxy. They attach the token only to the platform calls that need it.
 
 Humans and agents share one principal model, so a person can delegate to an agent with a defined scope and full accountability. The agent can never access more than the delegator.
 

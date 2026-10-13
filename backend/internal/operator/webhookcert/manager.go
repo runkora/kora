@@ -1,4 +1,4 @@
-// Package webhookcert manages serving certificates for Orbit admission webhooks.
+// Package webhookcert manages serving certificates for kora admission webhooks.
 package webhookcert
 
 import (

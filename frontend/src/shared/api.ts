@@ -39,14 +39,8 @@ export type ModelCapability =
   | 'image' // POST /v1/images/generations (handler not yet active)
   | 'video' // async video generation (no standard endpoint yet)
   | 'rerank' // POST /v1/rerank (handler not yet active)
-  | 'audio'; // TTS / live audio (no standard endpoint yet)
-
-/** A tool scope definition returned by GET /api/agents/tool-scopes. */
-export interface ToolScopeDefinition {
-  scope: string;
-  description: string;
-  tools: string[];
-}
+  | 'audio' // TTS / live audio (no standard endpoint yet)
+  | 'decision'; // POST /v1/systemone
 
 /** Effective per-million-token prices for a virtual model. */
 export interface ModelObjectPricing {
@@ -298,17 +292,21 @@ export interface McpServer {
 }
 
 /**
- * An Environment is a tenant-scoped, UI-managed bundle of egress hosts and
- * credential connectors an agent type can reference. Attaching an environment to
- * an agent type folds its hosts and connectors into the agent's effective
- * egress + connection grants.
- * Mirrors Go: agents.Environment
+ * An Environment is a prepackaged sandbox: a registered sandbox image, a size,
+ * and the egress hosts and connectors of every agent it is attached to.
+ * Mirrors Go: agents.Environment. See docs/adr/2026-10-03-sandbox-environments.md.
  */
 export interface Environment {
   id: string;
   tenant_id: string;
+  /** What agents select the environment by. It cannot change after create. */
+  slug: string;
+  /** The environment's name for people. */
   name: string;
   description: string;
+  /** SandboxImage name in the tenant namespace. */
+  sandbox_image: string;
+  size: EnvironmentSize;
   /** Egress host patterns this environment grants (exact, "*", or "*.suffix"). */
   egress_hosts: string[];
   /** Credential connectors this environment grants. */
@@ -317,20 +315,59 @@ export interface Environment {
   updated_at: string;
 }
 
+/** A sandbox's CPU, memory and local disk as Kubernetes quantities, e.g. "2", "4Gi". */
+export interface EnvironmentSize {
+  cpu: string;
+  memory: string;
+  disk: string;
+}
+
+/**
+ * The platform's default and maximum environment sizes, from
+ * GET /api/v1/environment-sizes. Mirrors Go: agents.EnvironmentSizes.
+ */
+export interface EnvironmentSizes {
+  default: EnvironmentSize;
+  max: EnvironmentSize;
+}
+
 /** Top-level response from GET /api/v1/environments. */
 export interface EnvironmentsListResponse {
   environments: Environment[];
 }
 
-/**
- * Request body for POST/PUT /api/v1/environments. PUT is a FULL replace — every
- * field is sent.
- */
+/** Request body for POST/PUT /api/v1/environments; PUT replaces in full except the slug. Empty image and size
+ * fields take kora-base and the platform default, and a size above the maximum gets a 400. A create without a
+ * slug derives one from the name, and an update with a different slug gets a 400. */
 export interface EnvironmentRequest {
+  slug?: string;
   name: string;
   description: string;
+  sandbox_image: string;
+  size: EnvironmentSize;
   egress_hosts: string[];
   connectors: Connector[];
+}
+
+/**
+ * A sandbox image a platform team registered in the tenant. Only a valid image
+ * can back an environment. Mirrors Go: agents.SandboxImageView.
+ */
+export interface SandboxImage {
+  name: string;
+  description: string;
+  image: string;
+  digest?: string;
+  valid: boolean;
+  /** Why an invalid image cannot be selected. */
+  problem?: string;
+  warm: boolean;
+}
+
+/** An environment attached to an agent type. Exactly one attached environment is the default. */
+export interface AgentEnvironment {
+  environment_id: string;
+  is_default: boolean;
 }
 
 /**
@@ -347,13 +384,14 @@ export interface AgentType {
   framework: AgentFramework;
   /** Identity model — immutable after creation. Absent on pre-migration payloads (= autonomous). */
   identity_mode?: AgentIdentityMode;
-  tool_scopes: string[];
   grant_scopes: string[];
   connectivity: Connectivity;
   connectors?: Connector[];
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcp_tools?: string[];
   max_concurrent_runs_per_pod: number;
+  /** Loop-guard thresholds; an absent field takes the platform default. */
+  guardrails?: AgentTypeGuardrails;
   state: AgentTypeState;
   created_at: string;
   updated_at: string;
@@ -361,8 +399,8 @@ export interface AgentType {
   model_id?: string;
   /** Budget on the agent's policy grant. Present on detail reads when configured. */
   budget?: AgentBudget;
-  /** Optional environment this agent type references (its hosts + connectors are folded in). */
-  environment_id?: string | null;
+  /** Attached environments. None means the agent runs on the kora base image. */
+  environments?: AgentEnvironment[];
 }
 
 /**
@@ -393,8 +431,6 @@ export interface Run {
   completed_at: string | null;
   created_at: string;
   updated_at: string;
-  /** Total tokens consumed by this run, if available. */
-  tokens_used?: number;
   /** Number of tool calls made during this run, if available. */
   tool_calls?: number;
   /** LLM-generated one-sentence summary of the run's task intent, if available. */
@@ -425,23 +461,133 @@ export interface AgentTypesListResponse {
   data: AgentType[];
 }
 
-/** Top-level response from GET /agents/runs. */
-export interface RunsListResponse {
-  data: Run[];
-}
-
 /**
  * Agent-type 7-day token breakdown and spend.
  * Mirrors Go: inferencegw.AgentTypeUsage
  */
 export interface AgentTypeUsage {
-  agent_type_id: string;
+  /** Agent slug: the last segment of the agent SPIFFE principal the gateway attributes usage to. */
+  agent_slug: string;
   prompt_tokens: number;
   completion_tokens: number;
   cache_read_tokens: number;
   cache_creation_tokens: number;
   total_tokens: number;
   estimated_cost_usd: number;
+}
+
+/** The reporting windows the agent insights routes accept. Mirrors Go: usagewindow.Period. */
+export type AgentInsightsPeriod = '24h' | '7d' | '30d' | '90d';
+
+/** One budget window of an agent. Mirrors Go: inferencegw.BudgetWindow. */
+export interface AgentBudgetWindow {
+  cadence: 'weekly' | 'monthly';
+  limit_usd: number;
+  /** Spend by agent in the window now. It can differ from the spend the limit check counts. */
+  spend_usd: number;
+  /** RFC 3339 time the window resets. */
+  resets_at: string;
+}
+
+/** An agent's budget: a row per agent that has a window limit. Mirrors Go: inferencegw.AgentBudgetRow. */
+export interface AgentBudgetStatus {
+  agent_slug: string;
+  per_run_limit_usd?: number;
+  windows: AgentBudgetWindow[];
+}
+
+/**
+ * Mirrors Go: inferencegw.AgentInsights plus what the BFF adds.
+ * GET /api/agents/insights?period=24h|7d|30d|90d
+ *
+ * Agent traffic across the tenant, as aggregates per agent.
+ */
+export interface AgentInsightsResponse {
+  period: AgentInsightsPeriod;
+  usage: AgentTypeUsage[];
+  total_cost_usd: number;
+  /** Total for the window of the same length that ends where this one starts. */
+  previous_total_usd: number;
+  models: { model_id: string; estimated_cost_usd: number }[];
+  /** Spend per bucket, oldest first, each with where it starts. */
+  trend: { start: string; cost_usd: number }[];
+  /** Absent when the policy bundle could not be read. */
+  budgets?: AgentBudgetStatus[];
+  /** Absent when orbit-agents could not count runs. */
+  outcomes?: { completed: number; failed: number };
+}
+
+/**
+ * Mirrors Go: agents.RunStateCounts.
+ * Every run the caller can see, counted by the state it is in now, whatever its age.
+ */
+export interface RunStateCounts {
+  total: number;
+  /** Absent states have no runs. */
+  by_state: Partial<Record<RunState, number>>;
+  /** Runs in flight: pending, starting, active or completing. */
+  live: number;
+  /** Live runs keyed by agent type id. */
+  live_by_agent_type: Record<string, number>;
+  /** How long the earliest-started live run has been running. */
+  longest_live_ms: number;
+}
+
+/**
+ * Mirrors Go: agents.RunStats.
+ * The run counts and durations of one agent, or of every agent the caller can
+ * read, for a window, from orbit-agents.
+ */
+export interface AgentRunStats {
+  /** Runs created in the window, and the part a trigger started; the rest are manual. */
+  total: number;
+  triggered: number;
+  /** Runs that finished in the window. */
+  completed: number;
+  failed: number;
+  /** Durations of the finished runs, in milliseconds. */
+  durations: {
+    median_ms: number;
+    p95_ms: number;
+    p99_ms: number;
+    longest_ms: number;
+    /** True when `buckets` cover 0 to p99 and slower runs are in `overflow`; false when they cover 0 to the longest run. */
+    capped: boolean;
+    /** Ten equal-width counts from 0 to p99 when capped, otherwise to the longest run. */
+    buckets: number[];
+    overflow: number;
+  };
+  current: RunStateCounts;
+}
+
+/**
+ * Mirrors the GET /api/v1/runs response: one page of runs, newest first.
+ * `next_cursor` is null on the last page.
+ */
+export interface RunsPage {
+  runs: Run[];
+  next_cursor: string | null;
+}
+
+/** A page of runs as the BFF run routes serve it. */
+export interface RunsPageResponse {
+  data: RunWithAttribution[];
+  next_cursor: string | null;
+}
+
+/**
+ * GET /api/agents/types/overview/{slug}?period=24h|7d|30d|90d
+ *
+ * What the agent Overview reads for one window. A part the caller may not read
+ * is absent; a part that failed is absent and named in `failed`.
+ */
+export interface AgentOverviewResponse {
+  period: AgentInsightsPeriod;
+  /** The gateway insights of this one agent. Absent without agents:usage:read. */
+  insights?: AgentInsightsResponse;
+  runStats?: AgentRunStats;
+  /** Parts that errored or timed out, as opposed to refused with 403, which are only absent. */
+  failed?: ('insights' | 'runStats')[];
 }
 
 /** Request body for POST /api/agents/types. */
@@ -453,24 +599,24 @@ export interface CreateAgentTypeRequest {
   framework?: AgentFramework;
   /** Identity model. Omit for the default (autonomous). Immutable after creation. */
   identity_mode?: AgentIdentityMode;
-  tool_scopes?: string[];
   grant_scopes?: string[];
   connectivity?: Connectivity;
   connectors?: Connector[];
   /** Governed MCP tools the agent may call (mcp:<server>:<tool>:use). */
   mcp_tools?: string[];
   max_concurrent_runs_per_pod?: number;
+  /** Loop-guard thresholds; an absent field takes the platform default. */
+  guardrails?: AgentTypeGuardrails;
   model_id?: string;
   /** Budget applied to the agent's policy grant. */
   budget?: AgentBudget;
-  /** Environment to attach (UUID). Omit/empty for none. */
-  environment_id?: string;
+  /** Environments to attach. One is the default. Omit for none (the kora base image). */
+  environments?: AgentEnvironment[];
 }
 
 /** Request body for POST /api/agents/types/:typeId/runs. */
 export interface StartRunRequest {
   task?: string;
-  provision_sandbox?: boolean;
 }
 
 /**
@@ -499,10 +645,17 @@ export interface ConnectorEgress {
   hosts: string[];
 }
 
+/** The hosts one attached environment contributes. Mirrors Go: agents.EnvironmentAccess. */
+interface EnvironmentAccess {
+  id: string;
+  name: string;
+  hosts: string[];
+}
+
 /**
  * The resolved, read-only view of what an agent type can actually reach, as
  * returned by GET /api/v1/agent-types/:id/effective-access. Folds together the
- * agent's own egress posture, its referenced environment, and the auto-egress
+ * agent's own egress posture, its attached environments, and the auto-egress
  * implied by its connectors. Mirrors Go: agents.EffectiveAccess.
  */
 export interface EffectiveAccess {
@@ -510,9 +663,9 @@ export interface EffectiveAccess {
   open: boolean;
   /** Hosts from the agent's own whitelist posture. */
   own_hosts: string[];
-  environment_id?: string;
-  environment_name?: string;
-  /** Hosts contributed by the referenced environment. */
+  /** What each attached environment contributes. */
+  environments: EnvironmentAccess[];
+  /** Union of every attached environment's hosts. */
   environment_hosts: string[];
   /** Per-connector auto-egress, grouped by connection. */
   connector_egress: ConnectorEgress[];
@@ -531,8 +684,8 @@ export interface EffectiveAccess {
 export interface EffectiveAccessPreviewRequest {
   connectivity: Connectivity;
   connectors: Connector[];
-  /** Environment to fold in (UUID). Omit/null/"" for none. */
-  environment_id?: string | null;
+  /** Environments to fold in. Omit or empty for none. */
+  environments?: AgentEnvironment[];
 }
 
 /** Request body for PATCH /api/agents/types/:id. */
@@ -542,8 +695,9 @@ export interface UpdateAgentTypeRequest {
   framework?: AgentFramework;
   system_prompt?: string;
   max_concurrent_runs_per_pod?: number;
+  /** Loop-guard thresholds; an absent field takes the platform default. */
+  guardrails?: AgentTypeGuardrails;
   model_id?: string;
-  tool_scopes?: string[];
   grant_scopes?: string[];
   /** Budget update: omit = unchanged; both limits zero = remove. */
   budget?: AgentBudget;
@@ -551,8 +705,8 @@ export interface UpdateAgentTypeRequest {
   connectors?: Connector[];
   /** Governed MCP tool grants; replaces the set. Omit = unchanged; [] clears. */
   mcp_tools?: string[];
-  /** Environment to attach (UUID); empty string ("") detaches it. Omit = unchanged. */
-  environment_id?: string;
+  /** Replaces the attached environments. Omit leaves them unchanged. [] detaches all. */
+  environments?: AgentEnvironment[];
 }
 
 // ── Triggers ───────────────────────────────────────────────────────────────
@@ -666,6 +820,39 @@ export interface SchedulePreviewResponse {
   timezone: string;
 }
 
+/**
+ * Who may fire a webhook trigger. A sender passes when its login or its
+ * association is listed; both lists empty means anyone.
+ */
+export interface SenderRestriction {
+  logins?: string[];
+  associations?: string[];
+}
+
+/**
+ * GET /trigger-sources/:id/event-types and GET /trigger-providers/:provider/event-types.
+ * Declared types come from the provider's schema, observed ones from what a
+ * source has sent; the provider endpoint has no observed types.
+ */
+export interface TriggerEventTypes {
+  declared: string[];
+  observed?: string[];
+  /** Association values a sender restriction may name; empty when the provider identifies no sender. */
+  associations: string[];
+}
+
+/** One field of a provider event, from its schema. Mirrors Go: triggers.Field. */
+export interface TriggerField {
+  /** Dotted path, e.g. `comment.body`, or `meta.event_type`. */
+  path: string;
+  group: string;
+  description?: string;
+  /** Allowed values, when the schema enumerates them. */
+  enum?: string[];
+  /** A family whose last segment is data, e.g. `commonLabels.<name>`. */
+  pattern?: boolean;
+}
+
 /** A trigger binds a firing condition to an agent. Mirrors Go: triggers.Trigger. */
 export interface Trigger {
   id: string;
@@ -681,11 +868,15 @@ export interface Trigger {
   event_type?: string;
   /** field → allowed values; a delivery matches when every clause is satisfied. Webhook only. */
   match_condition?: Record<string, string[]>;
+  /** field → substrings, matched ignoring case; omitted when unset. Webhook only. */
+  match_contains?: Record<string, string[]>;
   prompt_template: string;
   /** Present for scheduled triggers only. */
   schedule_config?: ScheduleConfig;
   /** Present for manual triggers only: the inputs this trigger accepts. */
   manual_config?: ManualConfig;
+  /** Webhook triggers only. */
+  sender_restriction?: SenderRestriction;
   /**
    * What this trigger starts. "agent" is the only kind today; triggers are the
    * front door for starting work, and what gets started is a separate concern.
@@ -700,7 +891,7 @@ export interface Trigger {
   overflow?: TriggerOverflow;
   max_queue_depth?: number;
 
-  /** Delivery safety. Timeout bounds starting the run, not running it. */
+  /** Delivery safety. Bounds the start request, which returns once the run is queued. Dispatch is abandoned after this window. */
   timeout_seconds?: number;
   dedupe_enabled?: boolean;
   autopause_enabled?: boolean;
@@ -733,11 +924,14 @@ export interface TriggerCreateRequest {
   /** Required for webhook triggers. */
   event_type?: string;
   match_condition?: Record<string, string[]>;
+  match_contains?: Record<string, string[]>;
   prompt_template: string;
   /** Required for scheduled triggers. */
   schedule_config?: ScheduleConfig;
   /** For manual triggers: the inputs the console form and the API validate. */
   manual_config?: ManualConfig;
+  /** Webhook only. */
+  sender_restriction?: SenderRestriction;
   // ── Admission control (all optional; defaults per kind when omitted) ──
   /** Concurrency ceiling, 1..16. */
   max_parallel?: number;
@@ -756,10 +950,14 @@ export interface TriggerUpdateRequest {
   name?: string;
   event_type?: string;
   match_condition?: Record<string, string[]>;
+  /** Replaces the contains filters when present; `{}` removes them. */
+  match_contains?: Record<string, string[]>;
   prompt_template?: string;
   enabled?: boolean;
   /** For scheduled triggers: update the cron schedule. */
   schedule_config?: ScheduleConfig;
+  /** Webhook only. Replaces the restriction; both lists empty removes it. */
+  sender_restriction?: SenderRestriction;
   /**
    * Suppress a repeat of a delivery already seen. Omit to leave unchanged: a
    * PATCH that only renames a trigger must not re-arm its safety settings.
@@ -850,4 +1048,15 @@ export interface TriggerDeliveryRun {
   status: string;
   error?: string;
   created_at: string;
+}
+
+/**
+ * An agent type's loop-guard thresholds (docs/adr/2026-09-29-agent-run-guardrails.md).
+ * Each warn is at least 1 and each pause is greater than its warn.
+ */
+export interface AgentTypeGuardrails {
+  repeated_call_warn?: number;
+  repeated_call_pause?: number;
+  wait_rearm_warn?: number;
+  wait_rearm_pause?: number;
 }

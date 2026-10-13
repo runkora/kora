@@ -197,8 +197,8 @@ func TestCodexHandleNotification_Error(t *testing.T) {
 	if evs[0].Type != EventTypeRunError {
 		t.Errorf("event[0] type = %q, want run_error", evs[0].Type)
 	}
-	if r.textBuf.Len() != 0 {
-		t.Error("textBuf should be reset after error")
+	if r.textBuf.String() != "partial text" {
+		t.Error("the partial text should wait for turn/completed to flush it")
 	}
 }
 
@@ -366,6 +366,43 @@ func TestCodexReadLoop_DispatchResponseDeliveredToPending(t *testing.T) {
 		}
 	case <-t.Context().Done():
 		t.Fatal("timed out waiting for pending response")
+	}
+}
+
+// bufferWriteCloser captures what the runner writes to Codex's stdin.
+type bufferWriteCloser struct{ bytes.Buffer }
+
+func (*bufferWriteCloser) Close() error { return nil }
+
+// An unhandled server request must get an immediate error reply; Codex blocks on it.
+func TestCodexReadLoop_UnknownServerRequestGetsErrorReply(t *testing.T) {
+	r := newTestCodexRunner()
+	stdin := &bufferWriteCloser{}
+	r.stdin = stdin
+
+	fixture := `{"id":7,"method":"mcpServer/elicitation/request","params":{"serverName":"runtime"}}` + "\n"
+	go r.readLoop(t.Context(), strings.NewReader(fixture))
+	collectEvents(r.events)
+
+	var reply struct {
+		ID     *int64          `json:"id"`
+		Result json.RawMessage `json:"result"`
+		Error  *codexRPCError  `json:"error"`
+	}
+	if err := json.Unmarshal(stdin.Bytes(), &reply); err != nil {
+		t.Fatalf("stdin = %q, want one JSON reply: %v", stdin.String(), err)
+	}
+	if reply.ID == nil || *reply.ID != 7 {
+		t.Errorf("reply id = %v, want 7", reply.ID)
+	}
+	if reply.Result != nil {
+		t.Errorf("reply result = %s, want none", reply.Result)
+	}
+	if reply.Error == nil || reply.Error.Code != codexMethodNotFound {
+		t.Fatalf("reply error = %+v, want code %d", reply.Error, codexMethodNotFound)
+	}
+	if !strings.Contains(reply.Error.Message, "mcpServer/elicitation/request") {
+		t.Errorf("reply error message = %q, want it to name the method", reply.Error.Message)
 	}
 }
 
@@ -546,5 +583,40 @@ func TestCodexLogStderr_ScanError_IsLogged(t *testing.T) {
 	}
 	if !strings.Contains(log, "injected scan error") {
 		t.Errorf("expected error text in log; got: %s", log)
+	}
+}
+
+// Codex must not make background calls the agent pod's egress policy blocks.
+// The top-level keys must come before the first table, or TOML puts them in it.
+func TestCodexWriteConfig_Offline(t *testing.T) {
+	r := NewCodexRunner(CodexRunnerConfig{
+		Logger:              logging.NewLoggerWithOutput(io.Discard),
+		RunID:               "test-run",
+		Model:               "anthropic/claude-sonnet-4-6",
+		InferenceGatewayURL: "http://orbit-inference-gateway",
+	})
+	codexHome, err := r.writeCodexConfig(t.TempDir())
+	if err != nil {
+		t.Fatalf("writeCodexConfig() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(codexHome, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := string(data)
+	firstTable := strings.Index(cfg, "\n[")
+	for _, key := range []string{"check_for_update_on_startup = false", `web_search = "disabled"`} {
+		if i := strings.Index(cfg, key); i < 0 || i > firstTable {
+			t.Errorf("%q missing or not top-level in:\n%s", key, cfg)
+		}
+	}
+	for _, table := range []string{"[analytics]\nenabled = false", "[feedback]\nenabled = false"} {
+		if !strings.Contains(cfg, table) {
+			t.Errorf("config.toml lacks %q", table)
+		}
+	}
+	features := cfg[strings.Index(cfg, "[features]"):]
+	if !strings.Contains(features, "plugins = false") {
+		t.Errorf("[features] lacks plugins = false:\n%s", features)
 	}
 }

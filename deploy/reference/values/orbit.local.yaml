@@ -18,10 +18,12 @@ config:
     host: orbit-postgres
   redis:
     host: orbit-redis
+    # The compose Redis serves plaintext.
+    tls:
+      enabled: false
 
 identity:
   config:
-    redisTLSEnabled: "false"
     accessTokenTtlMinutes: 240
 
 frontend:
@@ -33,7 +35,30 @@ opaGateway:
   image:
     registry: orbit-registry:5001
     repository: openpolicyagent/opa
-    tag: 1.15.2-envoy-static
+    tag: 1.21.0-envoy-static
+
+agents:
+  sandboxImages:
+    warmBase: true
+    # make up does not build the bundled images. Run make redeploy-sandbox-images
+    # first, then enable the ones you need.
+    bundled:
+      go:
+        enabled: false
+      python:
+        enabled: false
+      node:
+        enabled: false
+    # Image references name orbit-registry:5001. Inside the cluster the k3d
+    # registry serves plain HTTP on orbit-registry:5000.
+    registryMirrors:
+      orbit-registry:5001: http://orbit-registry:5000
+    registryPorts:
+      - 5000
+
+# The k3d node kernel loads nfsd and the NFS client on demand.
+sandboxMount:
+  enabled: true
 
 operator:
   replicas: 1

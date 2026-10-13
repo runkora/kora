@@ -5,8 +5,16 @@
  * needs a user identity card.
  */
 
-import { Card, CardHeader, CardTitle, CardContent, Icon, Stack, Text } from '@orbit/terra';
-import { CopyField } from '@orbit/components';
+import {
+  CopyField,
+  Card,
+  CardHeader,
+  CardTitle,
+  CardContent,
+  Icon,
+  Stack,
+  Text,
+} from '@orbit/hades';
 import type { IronSession } from 'iron-session';
 import type { SessionPayload } from '@orbit/server/auth-config';
 
@@ -53,7 +61,7 @@ export function UserIdentityCard({ session, profile }: UserIdentityCardProps) {
             </Text>
             <CopyField
               value={principalId}
-              label="Copy principal ID"
+              ariaLabel="Copy principal ID"
               mono
               bordered={false}
               fullWidth={false}

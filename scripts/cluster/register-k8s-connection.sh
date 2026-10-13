@@ -9,7 +9,7 @@
 # Creates a ServiceAccount whose RBAC is deliberately narrow, mints a bound
 # token for it, and applies a Connection CR pointing at the in-cluster API
 # server. The agent authenticates as this ServiceAccount, so the cluster's own
-# RBAC is the outer ceiling on anything Orbit policy allows through.
+# RBAC is the outer ceiling on anything kora policy allows through.
 #
 # baseHost is the k3d server's own hostname, which CoreDNS resolves from its
 # NodeHosts entries and which is on the API server certificate. It is

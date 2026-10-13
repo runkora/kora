@@ -15,8 +15,8 @@ import {
   StatusDot,
   Text,
   Wizard,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { fetchAgentType } from '../../_services/agents-api';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
@@ -220,7 +220,7 @@ function SuccessPanel({ onClose }: { onClose: () => void }) {
     {
       icon: 'wrench',
       label: 'Access',
-      value: `${fields.mcpTools.length} MCP tools · ${fields.toolScopes.length} platform · ${fields.connectors.length} connections`,
+      value: `${fields.mcpTools.length} MCP tools · ${fields.connectors.length} connections`,
     },
     {
       icon: 'dollar-sign',
@@ -302,7 +302,7 @@ function SuccessPanel({ onClose }: { onClose: () => void }) {
             </Stack>
             {summary.map((row) => (
               <Stack key={row.label} gap="none">
-                <Separator span="full" />
+                <Separator />
                 <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                   <Icon name={row.icon} size="xs" color="subtle" label="" />
                   <Text as="span" size="caption" color="subtle">

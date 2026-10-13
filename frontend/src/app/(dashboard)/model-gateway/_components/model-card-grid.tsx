@@ -15,7 +15,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { fmtCost } from '@orbit/utils';
 import type { ModelRow } from '../_types';
 import { AvailabilityDot } from './availability-dot';

@@ -1,18 +1,23 @@
 /**
- * Integration tests for the Effective Price column in the Models tab.
+ * Integration tests for the Models tab: the Effective Price column and the
+ * capability filter.
  *
  * EffectivePriceCell is private, so the tests drive it through the exported
  * ModelsTab and assert on what the table renders.
  */
 import { describe, it, expect } from 'vitest';
-import { screen } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { renderWithProviders } from '@orbit/test-utils';
 import { ModelsTab } from './models-tab';
 import { ModelsProvider } from '../_context/models-context';
 import type { ModelRow, ModelObjectPricing } from '../_types';
 
-function row(id: string, pricing?: ModelObjectPricing): ModelRow {
+function row(
+  id: string,
+  pricing?: ModelObjectPricing,
+  extra: Partial<Pick<ModelRow, 'capabilities' | 'status'>> = {},
+): ModelRow {
   return {
     id,
     name: id,
@@ -26,6 +31,7 @@ function row(id: string, pricing?: ModelObjectPricing): ModelRow {
     status: 'available',
     pricing,
     favourite: false,
+    ...extra,
   };
 }
 
@@ -115,5 +121,80 @@ describe('EffectivePriceCell tooltip', () => {
     expect(
       (await screen.findAllByText('Non-token pricing — see model details')).length,
     ).toBeGreaterThan(0);
+  });
+});
+
+describe('Capability filter', () => {
+  const rows = [
+    row('chat-up', undefined, { capabilities: ['chat'] }),
+    row('chat-down', undefined, { capabilities: ['chat'], status: 'unavailable' }),
+    row('embed-up', undefined, { capabilities: ['embedding'] }),
+    row('multi-up', undefined, { capabilities: ['chat', 'embedding'] }),
+    row('image-up', undefined, { capabilities: ['image'] }),
+  ];
+
+  function visibleIds(): string[] {
+    return screen
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) => rows.find((m) => r.textContent?.includes(m.id))?.id ?? '')
+      .sort();
+  }
+
+  // Header filter buttons are all named "Filter"; Availability precedes Capabilities.
+  async function openCapabilityFilter(user: ReturnType<typeof userEvent.setup>) {
+    const buttons = screen.getAllByRole('button', { name: 'Filter' });
+    await user.click(buttons[buttons.length - 1]);
+    return within(screen.getByRole('group', { name: 'Filter options' }));
+  }
+
+  it('offers only the capabilities present in the loaded models', async () => {
+    const user = userEvent.setup();
+    renderTab(rows);
+    const options = await openCapabilityFilter(user);
+    expect(options.getAllByRole('button').map((b) => b.textContent)).toEqual([
+      'chat',
+      'embedding',
+      'image',
+    ]);
+  });
+
+  it('narrows the rows to the selected capability', async () => {
+    const user = userEvent.setup();
+    renderTab(rows);
+    const options = await openCapabilityFilter(user);
+    await user.click(options.getByRole('button', { name: 'embedding' }));
+    expect(visibleIds()).toEqual(['embed-up', 'multi-up']);
+  });
+
+  it('keeps models matching any of several selected capabilities', async () => {
+    const user = userEvent.setup();
+    renderTab(rows);
+    const options = await openCapabilityFilter(user);
+    await user.click(options.getByRole('button', { name: 'embedding' }));
+    await user.click(options.getByRole('button', { name: 'image' }));
+    expect(visibleIds()).toEqual(['embed-up', 'image-up', 'multi-up']);
+  });
+
+  it('restores every row when the filter is cleared', async () => {
+    const user = userEvent.setup();
+    renderTab(rows);
+    const options = await openCapabilityFilter(user);
+    await user.click(options.getByRole('button', { name: 'image' }));
+    expect(visibleIds()).toEqual(['image-up']);
+    await user.click(screen.getByRole('button', { name: /Clear filter/ }));
+    expect(visibleIds()).toEqual(['chat-down', 'chat-up', 'embed-up', 'image-up', 'multi-up']);
+  });
+
+  it('combines with the availability quick filter', async () => {
+    const user = userEvent.setup();
+    renderTab(rows);
+    const options = await openCapabilityFilter(user);
+    await user.click(options.getByRole('button', { name: 'chat' }));
+    expect(visibleIds()).toEqual(['chat-down', 'chat-up', 'multi-up']);
+
+    await user.keyboard('{Escape}');
+    await user.click(screen.getByRole('button', { name: /^Unavailable/ }));
+    expect(visibleIds()).toEqual(['chat-down']);
   });
 });

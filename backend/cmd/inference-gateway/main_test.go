@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -19,6 +20,9 @@ type registration struct {
 	Routes  []routescopes.RouteScope       `json:"routes"`
 	Scopes  []routescopes.ScopeDeclaration `json:"scopes"`
 }
+
+// testToken stands in for the identity client's self token source.
+func testToken(context.Context) (string, error) { return "self-token", nil }
 
 func capturingPolicyService(t *testing.T, got chan<- registration) *httptest.Server {
 	t.Helper()
@@ -60,8 +64,8 @@ func TestInitScopeRegistrationPublishesScopedRoutes(t *testing.T) {
 	defer srv.Close()
 	withPolicyServiceURL(t, srv.URL)
 
-	router := inferencegw.NewRoutingEngine(nil)
-	register := initScopeRegistration(logging.NewLogger(), router)
+	router := inferencegw.NewRoutingEngine(nil, nil, nil)
+	register := initScopeRegistration(logging.NewLogger(), testToken, router)
 
 	if err := register(t.Context()); err != nil {
 		t.Fatalf("register: %v", err)

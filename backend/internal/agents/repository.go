@@ -15,9 +15,8 @@ type AgentTypeRepository interface {
 	// ListAllAgentTypeSlugs returns the distinct set of agent type slugs across all tenants.
 	// Used by scope registration to build the per-agent-type vocabulary.
 	ListAllAgentTypeSlugs(ctx context.Context) ([]string, error)
-	// ListAgentTypesByEnvironment returns the agent types in a tenant that
-	// reference the given environment. Used to re-reconcile their grants when the
-	// environment changes (the reference model).
+	// ListAgentTypesByEnvironment returns the agent types in a tenant that an
+	// environment is attached to. An edit to the environment recompiles their grants.
 	ListAgentTypesByEnvironment(ctx context.Context, tenantID, environmentID string) ([]AgentType, error)
 	UpdateAgentType(ctx context.Context, at AgentType) error
 	// SetAgentTypeState does a compare-and-swap: only updates if current state matches from.
@@ -29,17 +28,20 @@ type AgentTypeRepository interface {
 type RunRepository interface {
 	CreateRun(ctx context.Context, r Run) error
 	GetRun(ctx context.Context, id string) (*Run, error)
-	// ListRuns returns a tenant's runs newest first, optionally narrowed to one
-	// agent type. limit caps the row count; limit <= 0 returns every match.
-	// vis applies the delegated-run visibility rule INSIDE the query (Decision 6
-	// of docs/adr/2026-07-23-delegated-agent-identity.md): unless vis.SeeAll,
-	// runs of delegated agent types are returned only where created_by equals
-	// vis.Subject. Autonomous-agent runs are never filtered.
-	ListRuns(ctx context.Context, tenantID string, agentTypeID string, vis RunVisibility, limit int) ([]Run, error)
+	// ListRuns returns up to q.Limit runs in q.Scope, newest first, after q.After.
+	ListRuns(ctx context.Context, tenantID string, q RunListQuery) ([]Run, error)
+	// CountRunOutcomes counts the completed and failed runs in scope that
+	// finished in [from, to).
+	CountRunOutcomes(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunOutcomes, error)
+	// RunStats returns the run counts and durations of the runs in scope for
+	// [from, to): runs created in the window are counted by trigger, runs
+	// finished in it by outcome and duration, and every run by current state.
+	RunStats(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunStats, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
-	// AssignPod sets pod_ordinal and transitions pending→starting atomically.
-	AssignPod(ctx context.Context, runID string, podOrdinal int) error
+	// AssignPod sets pod_ordinal and transitions pending→starting atomically,
+	// only while the run is still held under the claim taken at claimedAt.
+	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error
 	// MarkRunFailed unconditionally transitions a run to the failed terminal state
 	// and stamps completed_at. Used to clean up synchronously when a run's start
 	// fails after the row was created, so it never lingers in pending/starting

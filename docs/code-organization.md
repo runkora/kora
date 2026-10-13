@@ -1,6 +1,6 @@
 # Code Organization
 
-The canonical code organization and package layout for the Orbit backend.
+The canonical code organization and package layout for the kora backend.
 
 See [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md) for the multi-binary deployment model and [repository-pattern-and-code-organization](adr/2026-02-17-repository-pattern-and-code-organization.md) for the feature/repository pattern.
 
@@ -19,7 +19,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
 | `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | none |
 | `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085` | none |
-| `orbit-mcp` | Platform-management MCP server: exposes Orbit's own APIs as governed MCP tools | `8095` | none |
+| `orbit-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095` | none |
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
 | `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
 | `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
@@ -28,13 +28,14 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |
-| `orbit-runtime-mcp` | MCP server (stdio) spawned by Claude Code: exposes the `provision_sandbox` tool | stdio | none |
+| `orbit-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
 | `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
-| `orbit-session-runner` | Wrapper that applies Landlock + namespace isolation, then `exec()`s Claude Code | none | none |
+| `orbit-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
+| `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `20490` (host network, `sandboxMount.port`) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
-> The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `provision_sandbox`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
+> The sandbox, shell, MCP and session-runner binaries form the agent execution stack. `session-manager` runs Claude Code through `orbit-session-runner`, and Claude calls `orbit-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`. The sandbox pod runs `sandbox-exec`, and Claude's `Bash` goes through `orbit-shell` to that pod. With `sandboxMount.enabled`, `sandbox-mount` shares the sandbox's local folder with the session-manager pod ([sandbox-workspace-mount](adr/2026-10-08-sandbox-workspace-mount.md)). See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
 
 ### Feature packages (`backend/internal/`)
 
@@ -42,7 +43,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 |---------|------|
 | `identity` | Sessions, refresh tokens, PATs, user profiles, JTI blocklist, tenant registry, principal extraction |
 | `inferencegw` | Inference router, providers, catalog, usage, analytics, virtual models; OpenAI/Anthropic/embeddings/responses handlers |
-| `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/`, `toolscopes/` |
+| `agents` | Agent control plane: types, runs, sessions, pubsub, k8s, authz; sub-packages `sandbox/`, `sessionmanager/` |
 | `policyservice` | Authz data plane; sub-packages `api/`, `bundle/`, `grants/`, `roles/`, `routes/`, `vocabulary/` |
 | `policygw` | Policy-gateway HTTP transport (delegates evaluation to policy-service) |
 | `operator` | K8s reconciliation: tenant/platform controllers, Helm render, Istio templates, pod webhook |
@@ -81,6 +82,7 @@ orbit/
 │   │   ├── orbit-runtime-mcp/        # stdio MCP server (no config/)
 │   │   ├── orbit-shell/              # $SHELL shim (no config/)
 │   │   ├── orbit-session-runner/     # isolation wrapper (no config/)
+│   │   ├── sandbox-mount/            # node agent for sandbox working folders
 │   │   └── example/                  # Reference binary
 │   │
 │   ├── internal/
@@ -97,7 +99,7 @@ orbit/
 │   │   │
 │   │   ├── identity/                 # ✅ feature: identity & auth
 │   │   ├── inferencegw/              # ✅ feature: inference gateway (+ providers/ subtree)
-│   │   ├── agents/                   # ✅ feature: agent control plane (+ sandbox/, sessionmanager/, toolscopes/)
+│   │   ├── agents/                   # ✅ feature: agent control plane (+ sandbox/, sessionmanager/)
 │   │   ├── policyservice/            # ✅ feature: authz data plane (subpackage-per-concern)
 │   │   ├── policygw/                 # ✅ feature: policy-gateway transport
 │   │   ├── operator/                 # ✅ feature: k8s reconciliation
@@ -110,7 +112,7 @@ orbit/
 │   ├── go.mod
 │   └── go.sum
 │
-├── frontend/                         # Next.js app + Terra design system (see frontend/README.md)
+├── frontend/                         # Next.js app + Hades design system (see frontend/README.md)
 ├── charts/                           # Helm charts (platform + tenant)
 ├── config/dex/                       # Local Dex OIDC provider config
 ├── scripts/                          # auth-device.sh, setup helpers
@@ -138,7 +140,7 @@ Infrastructure shared by all features. Platform packages **never import feature 
 |---------|---------|
 | `api` | HTTP `Mux`, `Controller` interface, `DecodeJSON`/`JSON`/`ErrorResponse` helpers, typed `APIError` |
 | `clients` | Typed service-to-service HTTP clients; `httpclient.Base` owns OTel spans + W3C trace propagation + structured logging |
-| `config` | Generic YAML loaders: `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV` |
+| `config` | Generic YAML loaders: `Load[T]` / `MustLoad[T]` and the service variants `LoadService[T]` / `MustLoadService[T]`, keyed by `APP_ENV`, with the chart-rendered file merged last |
 | `logging` | `Logger` interface + implementation; injected via constructors, never global |
 | `middleware` | Request logging, OTel trace injection, platform scope enforcement |
 | `observability` | OTel `TracerProvider` + `MeterProvider` + OTLP exporter setup |
@@ -229,17 +231,17 @@ Redis is a first-class storage primitive. `storage.RedisClient` wraps a `*redis.
 
 ### 5. Service-to-service calls via platform clients
 
-All outbound HTTP to other Orbit services goes through a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`, which automatically opens an OTel `SpanKindClient` span, injects W3C `traceparent`/`tracestate`, sets HTTP semantic-convention attributes, captures upstream error bodies, and emits a structured log line per request.
+All outbound HTTP to other kora services goes through a typed client in `internal/platform/clients/{service}/client.go` that embeds `httpclient.Base`, which automatically opens an OTel `SpanKindClient` span, injects W3C `traceparent`/`tracestate`, sets HTTP semantic-convention attributes, captures upstream error bodies, and emits a structured log line per request.
 
 **Never construct `http.Client{}` directly** in feature or service code (`noRawHttpClientLiteral` enforces this). Typed clients must **not** import `otel/codes` or `otel/trace` directly: `httpclient.Base` owns the span lifecycle.
 
 ### 6. Configuration via `config.LoadService[T]` + `base.yaml`
 
-Each binary has a typed config struct loaded at startup from `backend/cmd/{binary}/config/base.yaml`, keyed by `APP_ENV` (defaults to `local`) with optional `{env}.yaml` overlays:
+Each binary has a typed config struct loaded at startup from `backend/cmd/{binary}/config/base.yaml`, an optional `{APP_ENV}.yaml` overlay (`APP_ENV` defaults to `production`) and the file the chart renders at `/etc/orbit/config/cmd/{binary}.yaml`:
 
 ```go
 // Per-service config loader (most binaries)
-cfg := config.MustLoadService[AppConfig]("identity", config.Environment())
+cfg := config.MustLoadService[AppConfig]("cmd/identity", config.Environment())
 // Generic loader (module-relative) is also available: config.Load[T](module, env)
 ```
 

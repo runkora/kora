@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CopyField,
   Badge,
   Modal,
   ModalBody,
@@ -13,11 +14,10 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { fmtCost } from '@orbit/utils';
 import type { ModelObjectPricing, ModelRow } from '../_types';
 import { AvailabilityDot } from './availability-dot';
-import { CopyRow } from '@orbit/components';
 
 // ── ChipRow ───────────────────────────────────────────────────────────────────
 
@@ -195,9 +195,9 @@ export function ModelDetailModal({ model, onClose }: ModelDetailModalProps) {
                   Identity
                 </Text>
               </Stack>
-              <CopyRow label="Model ID" value={model.id} mono />
-              <CopyRow label="Provider" value={model.owned_by} />
-              <CopyRow label="Display Name" value={model.name} />
+              <CopyField label="Model ID" value={model.id} mono wrap />
+              <CopyField label="Provider" value={model.owned_by} wrap />
+              <CopyField label="Display Name" value={model.name} wrap />
               {model.aliases.length > 0 && <ChipRow label="Aliases" values={model.aliases} />}
             </Stack>
 

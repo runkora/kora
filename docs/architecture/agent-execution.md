@@ -1,6 +1,6 @@
 # Agent execution
 
-Orbit runs each agent as a governed workload in Kubernetes. The agent process lives in a shared runtime pod, every run gets its own isolated sandbox, and the identity and egress paths around it are brokered so the agent never touches a credential. For the whole system, see the root [ARCHITECTURE.md](../../ARCHITECTURE.md).
+kora runs each agent as a governed workload in Kubernetes. The agent process lives in a shared runtime pod, every run gets its own isolated sandbox, and the identity and egress paths around it are brokered so the agent never touches a credential. For the whole system, see the root [ARCHITECTURE.md](../../ARCHITECTURE.md).
 
 ![Agent pod anatomy](../diagrams/agent-pod-anatomy.svg)
 
@@ -15,11 +15,11 @@ ADRs: [run-and-session-lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md
 
 ## Agent runtime pod
 
-Each agent type gets one long-lived StatefulSet pod. Runs are multiplexed onto it. `orbit-agents` sets the per-pod concurrency limit. A pod is not created per run.
+Each agent type gets a long-lived StatefulSet of at least `agents.scheduling.minReplicas` pods (default 2). Runs are multiplexed onto them. `orbit-agents` sets the per-pod concurrency limit. A pod is not created per run.
 
-The `session-manager` container hosts each run. `orbit-session-runner` wraps the agent CLI process and isolates it with user, PID, and mount namespaces plus Landlock. Alongside it, `orbit-runtime-mcp` provides the runtime MCP tools and `orbit-shell` is the shell and tool-exec shim.
+The `session-manager` container hosts each run. `orbit-session-runner` wraps the agent CLI process and confines it with Landlock: its own workspace, no per-process `/proc` entries, and, on kernels that support it, no signals to other runs. Alongside it, `orbit-runtime-mcp` provides the runtime MCP tools and `orbit-shell` is the shell and tool-exec shim.
 
-The operator injects the Istio `istio-proxy`, the Orbit `identity-proxy`, and an OPA `ext_authz` sidecar.
+The operator injects the Istio `istio-proxy`, the kora `identity-proxy`, and an OPA `ext_authz` sidecar.
 
 ADR: [per-session-home-isolation](../adr/2026-06-04-per-session-home-isolation.md).
 
@@ -37,7 +37,7 @@ ADR: [sandbox-provisioning-and-shell-proxy](../adr/2026-05-11-sandbox-provisioni
 
 The agent never handles credentials, and it cannot reach anything unchecked. Every outbound request leaves a pod through its sidecar chain. `istio-proxy` intercepts it, `identity-proxy` injects the platform token, and the `opa` `ext_authz` sidecar authorizes it against policy before it goes anywhere.
 
-`identity-proxy` obtains that token by exchanging the pod's SPIFFE SVID for an Orbit platform JWT at the `identity` service, caching it and reusing it across requests. The node's SPIRE agent delivers the SVID to the sidecars through the SPIFFE CSI socket.
+`identity-proxy` obtains that token by exchanging the pod's SPIFFE SVID for a kora platform JWT at the `identity` service, caching it and reusing it across requests. The node's SPIRE agent delivers the SVID to the sidecars through the SPIFFE CSI socket.
 
 Calls to platform services follow that chain directly over the mesh. For external systems, the sandbox's egress is forced through Envoy to the `egress-gateway`, which runs the same identity and policy checks and then injects a just-in-time credential for the destination service.
 

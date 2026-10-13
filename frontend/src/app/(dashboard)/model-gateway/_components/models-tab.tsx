@@ -2,7 +2,6 @@
 
 import { useState, useMemo } from 'react';
 import {
-  Badge,
   Button,
   Icon,
   SegmentedControl,
@@ -11,9 +10,10 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
+import { BadgeList } from './badge-list';
 import { fmtCost } from '@orbit/utils';
 import type { ModelObjectPricing, ModelRow } from '../_types';
 import { useModelsContext } from '../_context/models-context';
@@ -41,24 +41,12 @@ function modelMatchesSearch(row: ModelRow, q: string): boolean {
   );
 }
 
-// ── Chips ─────────────────────────────────────────────────────────────────────
-
-function Chips({ values }: { values: string[] }) {
-  if (values.length === 0)
-    return (
-      <Text size="caption" color="subtle">
-        —
-      </Text>
-    );
-  return (
-    <Stack direction="horizontal" wrap gap="tight">
-      {values.map((v) => (
-        <Badge key={v} variant="outline" size="sm">
-          {v}
-        </Badge>
-      ))}
-    </Stack>
-  );
+// The family is already printed above the id, so the id line shows only what
+// tells models in the same family apart, which truncation (from the end) would
+// otherwise cut off.
+function withoutFamily(row: ModelRow): string {
+  const prefix = `${row.family}/`;
+  return row.id.startsWith(prefix) ? row.id.slice(prefix.length) : row.id;
 }
 
 // ── Non-token dimension rows ──────────────────────────────────────────────────
@@ -188,6 +176,15 @@ export function ModelsTab() {
     [models],
   );
 
+  // Only capabilities present in the loaded models, so an option never yields an empty table.
+  const capabilityOptions = useMemo(
+    () =>
+      [...new Set(models.flatMap((m) => m.capabilities))]
+        .sort((a, b) => a.localeCompare(b))
+        .map((c) => ({ value: c, label: c })),
+    [models],
+  );
+
   const filteredModels = useMemo(() => {
     if (availabilityFilter === 'all') return models;
     return models.filter((m) => m.status === availabilityFilter);
@@ -226,6 +223,8 @@ export function ModelsTab() {
       {
         id: 'name',
         header: 'Model',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '12rem',
         locked: true,
         sortable: true,
         sortAccessor: (row) => row.name,
@@ -235,7 +234,7 @@ export function ModelsTab() {
               {row.family}
             </Text>
             <Text size="supporting" weight="emphasis" mono>
-              {row.id}
+              {withoutFamily(row)}
             </Text>
           </Stack>
         ),
@@ -243,6 +242,8 @@ export function ModelsTab() {
       {
         id: 'displayName',
         header: 'Name',
+        gridWidth: 'minmax(0, 1.2fr)',
+        minWidth: '8rem',
         defaultVisible: false,
         sortable: true,
         sortAccessor: (row) => row.name,
@@ -255,6 +256,8 @@ export function ModelsTab() {
       {
         id: 'status',
         header: 'Availability',
+        gridWidth: '8rem',
+        minWidth: '6.5rem',
         filter: {
           mode: 'client',
           options: STATUS_OPTIONS,
@@ -272,11 +275,21 @@ export function ModelsTab() {
       {
         id: 'capabilities',
         header: 'Capabilities',
-        cell: (row) => <Chips values={row.capabilities} />,
+        gridWidth: 'minmax(0, 1.5fr)',
+        minWidth: '8rem',
+        filter: {
+          mode: 'client',
+          options: capabilityOptions,
+          // Union: a model matches when it has any selected capability, as the gateway's ?capability= does.
+          filterFn: (row, selected) => row.capabilities.some((c) => selected.has(c)),
+        },
+        cell: (row) => <BadgeList values={row.capabilities} maxRows={2} />,
       },
       {
         id: 'effectivePrice',
         header: 'Effective Price',
+        gridWidth: '9rem',
+        minWidth: '8rem',
         headerTooltip:
           'The per-1M token price for a standard text request, after any platform overrides are applied.',
         sortable: true,
@@ -290,23 +303,30 @@ export function ModelsTab() {
       {
         id: 'dialects',
         header: 'Dialects',
-        cell: (row) => <Chips values={row.dialects} />,
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '6rem',
+        cell: (row) => <BadgeList values={row.dialects} maxRows={2} />,
       },
       {
         id: 'inputModalities',
         header: 'Input',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '6rem',
         defaultVisible: false,
-        cell: (row) => <Chips values={row.input_modalities} />,
+        cell: (row) => <BadgeList values={row.input_modalities} maxRows={2} />,
       },
       {
         id: 'outputModalities',
         header: 'Output',
+        gridWidth: 'minmax(0, 1fr)',
+        minWidth: '6rem',
         defaultVisible: false,
-        cell: (row) => <Chips values={row.output_modalities} />,
+        cell: (row) => <BadgeList values={row.output_modalities} maxRows={2} />,
       },
       {
         id: 'actions',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '2.5rem',
         cell: (row) => (
@@ -324,7 +344,7 @@ export function ModelsTab() {
         ),
       },
     ],
-    [favourites, toggleFavourite],
+    [favourites, toggleFavourite, capabilityOptions],
   );
 
   return (

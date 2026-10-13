@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -88,6 +89,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /api/v1/trigger-deliveries         List recent deliveries (filter ?source_id= ?trigger_id= ?kind=).
 //	POST   /api/v1/trigger-deliveries/{id}/redeliver  Replay a delivery.
 //	GET    /api/v1/trigger-sources/{id}/event-types   Event catalog for a source.
+//	GET    /api/v1/trigger-providers/{provider}/event-types  Event catalog for a provider.
+//	GET    /api/v1/trigger-providers/{provider}/fields       Fields for one event type (?event_type=).
 //	GET    /api/v1/trigger-retention          Read this tenant's payload retention window.
 //	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
 //	POST   /api/v1/triggers/schedule-preview  Preview a schedule's upcoming fires.
@@ -115,6 +118,9 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// Reading a source's event catalog is reading the source: it sits under
 	// the /trigger-sources prefix and takes triggers:read from the route table.
 	mux.HandleWithMiddleware("GET /trigger-sources/{id}/event-types", auth, c.handleSourceEventTypes)
+	// Provider catalogs serve the console before a source exists.
+	mux.HandleWithMiddleware("GET /trigger-providers/{provider}/event-types", auth, c.handleProviderEventTypes)
+	mux.HandleWithMiddleware("GET /trigger-providers/{provider}/fields", auth, c.handleProviderFields)
 
 	mux.HandleWithMiddleware("POST /triggers", auth, c.handleCreateTrigger)
 	mux.HandleWithMiddleware("GET /triggers", auth, c.handleListTriggers)
@@ -399,13 +405,32 @@ func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error 
 
 func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
-	deliveries, err := c.svc.ListDeliveries(ctx, tenantFromCtx(ctx), DeliveryFilter{
-		SourceID:  r.URL.Query().Get("source_id"),
-		TriggerID: r.URL.Query().Get("trigger_id"),
-		Kind:      r.URL.Query().Get("kind"),
-		Limit:     limit,
-	})
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	filter := DeliveryFilter{
+		SourceID:    q.Get("source_id"),
+		TriggerID:   q.Get("trigger_id"),
+		Kind:        q.Get("kind"),
+		OmitPayload: q.Get("omit_payload") == "true",
+		Limit:       limit,
+	}
+	for _, b := range []struct {
+		field string
+		dst   *time.Time
+	}{{"received_after", &filter.ReceivedAfter}, {"received_before", &filter.ReceivedBefore}} {
+		raw := q.Get(b.field)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			apiErr := api.BadRequestError(api.ErrCodeInvalidField, b.field+" must be an RFC 3339 timestamp", map[string]any{"field": b.field})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+			return
+		}
+		*b.dst = t
+	}
+	deliveries, err := c.svc.ListDeliveries(ctx, tenantFromCtx(ctx), filter)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -433,6 +458,26 @@ func (c *Controller) handleRedeliver(w http.ResponseWriter, r *http.Request) {
 func (c *Controller) handleSourceEventTypes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	resp, err := c.sources.SourceEventTypes(ctx, tenantFromCtx(ctx), r.PathValue("id"))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+}
+
+func (c *Controller) handleProviderEventTypes(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	resp, err := c.sources.ProviderEventTypes(r.PathValue("provider"))
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, resp)
+}
+
+func (c *Controller) handleProviderFields(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	resp, err := c.sources.ProviderFields(r.PathValue("provider"), r.URL.Query().Get("event_type"))
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -475,7 +520,8 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	ctx := r.Context()
 	var ive *InputValidationError
 	switch {
-	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound):
+	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound),
+		errors.Is(err, ErrProviderNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
 	case errors.Is(err, ErrTriggerAtCapacity):
 		// 429 rather than 500: the trigger is healthy, it is just busy, and the

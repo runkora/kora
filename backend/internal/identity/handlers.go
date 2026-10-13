@@ -232,7 +232,7 @@ func (c *Controller) handleInitiateDeviceAuth(w http.ResponseWriter, r *http.Req
 //
 // Supported grant_type values:
 //   - "urn:ietf:params:oauth:grant-type:device_code" — poll the upstream OIDC provider
-//   - "oidc_id_token"                                — browser presents a verified id_token; backend issues an Orbit session
+//   - "oidc_id_token"                                — browser presents a verified id_token; backend issues a kora session
 //   - "refresh_token"                                — rotate a human session refresh token
 func (c *Controller) handleSession(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()

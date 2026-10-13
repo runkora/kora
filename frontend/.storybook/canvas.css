@@ -1,0 +1,19 @@
+/* The canvas and docs pages use Hades' background colour, so they change with the brand and theme. */
+body,
+.sb-show-main,
+.docs-story {
+  background: var(--hades-raw-black);
+  color: var(--hades-raw-white);
+  font-family: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+}
+
+/* The app shows one theme button at a time; globals.css does this in the real app. */
+[data-theme-switch='light'] {
+  display: none;
+}
+[data-theme='light'] [data-theme-switch='light'] {
+  display: inline-flex;
+}
+[data-theme='light'] [data-theme-switch='dark'] {
+  display: none;
+}

@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
 	"github.com/clear-route/orbit/internal/agents"
@@ -82,17 +83,36 @@ func realMain() error {
 
 	eval := initPolicyEvaluator(ctx, logger)
 
-	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval)
+	// The identity client authenticates orbit-agents' own service-to-service
+	// calls: its mesh-attested exchange yields the platform token used as the
+	// bearer for the policy client, the session-manager API, delegation
+	// revocation and route registration. One cached token source serves them
+	// all, so the exchange stays off the hot path.
+	// Required, not optional. Without it orbit-agents has no bearer for the
+	// policy client, no bearer for the session-manager API, and no delegation
+	// broker, so the process would come up having silently dropped three
+	// security controls. Local development runs in Kubernetes with a real
+	// identity service (docs/adr/2026-07-10-kubernetes-only-local-development.md),
+	// so an empty value is a broken deployment, not a mode.
+	if agentsConfig.Current.Platform.IdentityServiceURL == "" {
+		return fmt.Errorf("platform.identityServiceURL is required")
+	}
+	idClient := identityclient.NewClient(agentsConfig.Current.Platform.IdentityServiceURL, logger)
+	selfToken := idClient.SelfTokenSource()
+
+	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
-	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, repo, atSvc))
+	go routescopes.KeepRegistered(ctx, logger, "orbit-agents", initScopeRegistration(logger, selfToken, repo, atSvc))
 	go runSvc.StartReaper(ctx)
+	go atSvc.ApplyAll(ctx, repo)
+	runSvc.StartScheduler(ctx)
 	go draftSvc.StartReaper(ctx)
-	run(ctx, logger, server)
+	run(ctx, logger, server, runSvc)
 	return nil
 }
 
@@ -145,26 +165,10 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error
 	return db, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator) (*http.Server, agents.AgentTypeRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error)) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
-
-	// The identity client authenticates orbit-agents' own service-to-service
-	// calls: its mesh-attested exchange yields the SERVICE platform token used
-	// as the bearer for the policy client and for delegation revocation. One
-	// cached token source serves both, so the exchange stays off the hot path.
-	// Required, not optional. Without it orbit-agents has no bearer for the
-	// policy client, no bearer for the session-manager API, and no delegation
-	// broker, so the process would come up having silently dropped three
-	// security controls. Local development runs in Kubernetes with a real
-	// identity service (docs/adr/2026-07-10-kubernetes-only-local-development.md),
-	// so an empty value is a broken deployment, not a mode.
-	if cfg.Platform.IdentityServiceURL == "" {
-		return nil, nil, nil, nil, nil, fmt.Errorf("platform.identityServiceURL is required")
-	}
-	idClient := identityclient.NewClient(cfg.Platform.IdentityServiceURL, logger)
-	selfToken := idClient.SelfTokenSource()
 
 	// Required for the same reason as the identity service. An empty value used
 	// to mean "skip grant management", so agent types would provision with no
@@ -224,13 +228,28 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		TenantNamespaceFn:       cfg.TenantNamespace,
 	}, logger)
 
-	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, agents.RunServiceConfig{
+	sizes := environmentSizes(cfg)
+	if err := sizes.Validate(); err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
+	}
+	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
+		DefaultEnvironmentSize:  sizes.Default,
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
+		SandboxGuardrails:       sandboxGuardrails(cfg),
+		IdleTimeouts: agents.IdleTimeouts{
+			Manual:  cfg.Agents.IdleTimeout.ManualSecs,
+			Trigger: cfg.Agents.IdleTimeout.TriggerSecs,
+		},
+		SandboxMount:      cfg.Agents.SandboxMount,
+		StartBudget:       time.Duration(cfg.Agents.Scheduling.StartBudgetSecs) * time.Second,
+		StartPollInterval: time.Duration(cfg.Agents.Scheduling.PollIntervalSecs) * time.Second,
+		WorkerConcurrency: cfg.Agents.Scheduling.WorkerConcurrency,
 	}, logger)
 
-	envSvc := agents.NewEnvironmentService(repo, repo, k8s, agents.EnvironmentServiceConfig{
+	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,
+		EnvironmentSizes:  sizes,
 	}, logger)
 
 	draftSvc := agents.NewDraftService(repo, authz, agents.DraftServiceConfig{
@@ -247,10 +266,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	catalog := agents.NewConnectionCatalog(cfg.Agents.ConnectionRegistryPath, logger)
 	catalogController := agents.NewConnectionCatalogController(catalog, verifier, logger)
 
-	// Wire the grant scope resolver: it folds a referenced environment's egress +
-	// connectors and each connector's adapter-declared auto-egress into the agent's
-	// effective grant (env store + connection catalog back it). The agent type
-	// service uses the same env store to validate references at config time.
+	// The scope resolver adds the attached environments' egress, connectors and connector auto-egress to each agent's grant.
+	// The agent type service validates attachments against the same environment store.
 	resolver := agents.NewScopeResolver(repo, catalog)
 	k8s.SetScopeResolver(resolver)
 	atSvc.SetEnvironmentLookup(repo)
@@ -260,14 +277,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	// Delegated identity model (docs/adr/2026-07-23-delegated-agent-identity.md,
 	// Decision 3): StartRun on a delegated agent mints a delegation forwarding
 	// the CALLER's bearer; terminal run states revoke it with orbit-agents' own
-	// exchanged SERVICE token (the same token source the policy client uses).
-	// Without an identity service URL the broker stays nil and delegated runs
-	// fail closed.
-	if idClient != nil {
-		broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
-		runSvc.SetDelegationBroker(broker)
-		atSvc.SetDelegationBroker(broker)
-	}
+	// exchanged token (the same token source the policy client uses).
+	broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
+	runSvc.SetDelegationBroker(broker)
+	atSvc.SetDelegationBroker(broker)
 
 	server := apiServer.Server(
 		ctx,
@@ -283,6 +296,26 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	return server, repo, atSvc, runSvc, draftSvc, nil
 }
 
+// sandboxGuardrails reads the install's sandbox provisioning settings.
+func sandboxGuardrails(cfg *agentsConfig.Config) agents.SandboxGuardrails {
+	return agents.SandboxGuardrails{
+		ProvisionAttempts:    cfg.Agents.Guardrails.SandboxProvisionAttempts,
+		ProvisionBackoffSecs: cfg.Agents.Guardrails.SandboxProvisionBackoffSecs,
+		ProvisionBudgetSecs:  cfg.Agents.Guardrails.SandboxProvisionBudgetSecs,
+	}
+}
+
+// environmentSizes converts the configured environment sizes.
+func environmentSizes(cfg *agentsConfig.Config) agents.EnvironmentSizes {
+	size := func(s agentsConfig.EnvironmentSize) agents.EnvironmentSize {
+		return agents.EnvironmentSize{CPU: s.CPU, Memory: s.Memory, Disk: s.Disk}
+	}
+	return agents.EnvironmentSizes{
+		Default: size(cfg.Agents.Environments.DefaultSize),
+		Max:     size(cfg.Agents.Environments.MaxSize),
+	}
+}
+
 // agentTypeSlugLister is the single repository method scope registration needs:
 // the slugs that expand into the per-agent-type scope vocabulary.
 type agentTypeSlugLister interface {
@@ -294,8 +327,8 @@ type agentTypeSlugLister interface {
 // whenever an agent type is created or deleted, and returns the register
 // function; the caller hands it to routescopes.KeepRegistered, which owns the
 // initial registration and the periodic self-heal loop.
-func initScopeRegistration(logger logging.Logger, repo agentTypeSlugLister, atSvc *agents.AgentTypeService) func(context.Context) error {
-	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, logger)
+func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSource, repo agentTypeSlugLister, atSvc *agents.AgentTypeService) func(context.Context) error {
+	client := routescopes.NewClient(agentsConfig.Current.Platform.PolicyServiceURL, selfToken, logger)
 
 	register := func(registerCtx context.Context) error {
 		slugs, err := repo.ListAllAgentTypeSlugs(registerCtx)
@@ -356,6 +389,8 @@ func agentRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/environments/", Method: "GET", RequiredScope: "agents:environments:read"},
 		{PathPrefix: "/api/v1/environments/", Method: "PUT", RequiredScope: "agents:environments:write"},
 		{PathPrefix: "/api/v1/environments/", Method: "DELETE", RequiredScope: "agents:environments:write"},
+		{PathPrefix: "/api/v1/sandbox-images", Method: "GET", RequiredScope: "agents:environments:read"},
+		{PathPrefix: "/api/v1/environment-sizes", Method: "GET", RequiredScope: "agents:environments:read"},
 		// Starting a run is authenticated-only at the route layer, on the same
 		// reasoning as the agent-type writes above: the scope that governs it is
 		// per-agent (agents:runs:{slug}:write), and the slug comes from the agent
@@ -371,6 +406,11 @@ func agentRoutes() []routescopes.RouteScope {
 		// that legitimately hold it.
 		{PathPrefix: "/api/v1/runs", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/runs", Method: "GET", RequiredScope: "agents:runs:read"},
+		// Run outcome counts: the same scope and delegated-run rule as GET /runs.
+		{PathPrefix: "/api/v1/run-outcomes", Method: "GET", RequiredScope: "agents:runs:read"},
+		// One agent's run counts and durations. A sibling prefix: under /api/v1/agent-types/ the
+		// longer match would conflict with the agents:types:read binding.
+		{PathPrefix: "/api/v1/run-stats/", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "GET", RequiredScope: "agents:runs:read"},
 		{PathPrefix: "/api/v1/runs/", Method: "DELETE", RequiredScope: "agents:runs:write"},
 		{PathPrefix: "/api/v1/runs/", Method: "POST", RequiredScope: "agents:runs:write"},
@@ -392,8 +432,10 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 		{Scope: "agents:types:autonomous:write", ResourceType: "agents", PathSegments: []string{"types", "autonomous"}, Action: "write", Description: "Create and mutate autonomous agent types (higher privilege: confers standing authority the agent holds on its own, whoever starts it)"},
 		{Scope: "agents:runs:read", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "read", Description: "View runs and stream agent events"},
 		{Scope: "agents:runs:write", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "write", Description: "Start, message, and terminate runs"},
-		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list connectivity environments"},
-		{Scope: "agents:environments:write", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "write", Description: "Create, edit, and delete connectivity environments"},
+		{Scope: "agents:usage:read", ResourceType: "agents", PathSegments: []string{"usage"}, Action: "read", Description: "View every agent's usage, spend and budgets (prefix-covers the per-agent usage scopes)"},
+		{Scope: "agents:delegated:read", ResourceType: "agents", PathSegments: []string{"delegated"}, Action: "read", Description: "View the runs of delegated agents that other people started, with their messages, events and outputs"},
+		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list sandbox environments and the registered sandbox images"},
+		{Scope: "agents:environments:write", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "write", Description: "Create, edit, and delete sandbox environments"},
 	}
 	for _, slug := range slugs {
 		decls = append(decls,
@@ -411,12 +453,19 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 				Action:       "write",
 				Description:  "Start, message, and terminate runs for the " + slug + " agent type",
 			},
+			routescopes.ScopeDeclaration{
+				Scope:        "agents:usage:" + slug + ":read",
+				ResourceType: "agents",
+				PathSegments: []string{"usage", slug},
+				Action:       "read",
+				Description:  "View usage, spend and budget for the " + slug + " agent type",
+			},
 		)
 	}
 	return decls
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc *agents.RunService) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -430,9 +479,14 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), agentsConfig.Current.ShutdownTimeout())
 	defer cancel()
 
+	// Let a run start in flight finish rather than leave the run in starting. Open
+	// run streams hold Shutdown until its timeout, so the wait runs beside it.
+	scheduled := make(chan struct{})
+	go func() { runSvc.WaitScheduler(shutdownCtx); close(scheduled) }()
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	<-scheduled
 
 	logger.Info(ctx, "orbit-agents shutdown complete")
 }

@@ -25,7 +25,7 @@ OpenCode exposes two programmatic modes: `opencode serve` (HTTP server with REST
 
 ## Decision
 
-**OpenCode runs as a persistent `opencode acp --cwd <workDir>` subprocess**, one process per session. The runner communicates with it over bidirectional JSON-RPC 2.0 JSONL on stdin/stdout, receives `session/update` notifications for token-level text streaming, and routes all outbound LLM calls through the Orbit inference gateway via a written `opencode.json` config file.
+**OpenCode runs as a persistent `opencode acp --cwd <workDir>` subprocess**, one process per session. The runner communicates with it over bidirectional JSON-RPC 2.0 JSONL on stdin/stdout, receives `session/update` notifications for token-level text streaming, and routes all outbound LLM calls through the kora inference gateway via a written `opencode.json` config file.
 
 ---
 
@@ -121,7 +121,7 @@ The runner acts as the **client** (it sends requests; OpenCode is the server). T
 }
 ```
 
-`Send` writes the request and returns immediately. The read loop goroutine receives `session/update` notifications as the turn progresses, and emits Orbit events from them. When the `session/prompt` response finally arrives, the read loop emits `message_complete` + `message_stop`.
+`Send` writes the request and returns immediately. The read loop goroutine receives `session/update` notifications as the turn progresses, and emits kora events from them. When the `session/prompt` response finally arrives, the read loop emits `message_complete` + `message_stop`.
 
 **Turn complete response:**
 
@@ -174,18 +174,18 @@ OpenCode performs all filesystem reads/writes and shell executions **internally*
 
 ---
 
-## `session/update` → Orbit Event Mapping
+## `session/update` → kora Event Mapping
 
 All `session/update` notifications carry a `params.update` object. The `update.sessionUpdate` field is the discriminant:
 
-| `sessionUpdate` value | Orbit action |
+| `sessionUpdate` value | kora action |
 |---|---|
 | `agent_message_chunk` | Emit `text_delta` (`update.content.text`); accumulate into buffer |
 | `agent_thought_chunk` | Emit `thinking_delta`; accumulate into buffer |
 | `tool_call` (status `pending` or `in_progress`) | Emit `tool_use` (`toolCallId`, `title`, `rawInput`) |
 | `tool_call` (status `completed`) | Emit `tool_result` (`toolCallId`, `rawOutput`) |
 | `tool_call` (status `failed`) | Emit `tool_result` with `is_error: true` |
-| `usage_update` | Record token usage; no Orbit event |
+| `usage_update` | Record token usage; no kora event |
 | All other variants | Ignore (`user_message_chunk`, `plan`, `config_option_update`, etc.) |
 
 Turn end is signalled by the **`session/prompt` response** (not a notification). On receiving it, the read loop emits `message_complete` (flushed text buffer) then `message_stop`.
@@ -288,7 +288,7 @@ No base image change is required.
 - `framework: "opencode"` agent types now run OpenCode, not Claude Code — the silent fallthrough is eliminated.
 - Token-level text streaming via `session/update` / `agent_message_chunk` notifications matches Claude Code's streaming UX.
 - No TCP port allocation — `opencode acp` uses stdin/stdout, consistent with all other runners.
-- No changes to `run_events` schema, SSE relay, or frontend — Orbit standard event format is framework-agnostic.
+- No changes to `run_events` schema, SSE relay, or frontend — kora standard event format is framework-agnostic.
 - No base image change required — OpenCode installed via npm on the existing `node:22-alpine` base.
 - Proper JSON-RPC 2.0 protocol — a standard library can be used for the read loop if desired.
 
@@ -309,11 +309,38 @@ No base image change is required.
 
 ---
 
+## Amendment 1 (2026-09-30): OpenCode uses only the agent's model, through the gateway
+
+**Status:** Accepted
+
+Touches *How does it connect?* and *What can it access?* Every OpenCode model call carries the run's kora identity through the inference gateway, so gateway policy and budgets apply. Identity (*Who is this agent?*) is unchanged.
+
+**Context.** The per-run `opencode.json` set a `baseURL` on the `anthropic` and `openai` providers but named no model. With no model configured, OpenCode's ACP server picks the top model of its own hosted `opencode` provider, which loads without a key and offers free models (`opencode/big-pickle`). Turns went to opencode.ai directly, outside the gateway. The `baseURL` also lacked the `/v1` segment, and the gateway's `/messages` endpoint serves only Anthropic models.
+
+**Decision.**
+
+- The run's OpenCode config declares one provider, `orbit`, using `@ai-sdk/openai-compatible` (bundled with OpenCode) at `{gateway}/run/{run_id}/v1`. Chat completions serves every gateway model. The agent type's model is the provider's only model.
+- `enabled_providers` is `["orbit"]`, and `model` and `small_model` are `orbit/{agent model}`. OpenCode loads no other provider, including its hosted one.
+- The config reaches OpenCode as `OPENCODE_CONFIG_CONTENT` rather than a file in the workspace. OpenCode merges that variable after every config file, so an `opencode.json` or `.opencode/` directory the agent writes, or a cloned repository carries, cannot re-enable a provider or change the model.
+- `Start` fails when the model is empty, as it does for an empty gateway URL.
+- `share` is `disabled` and `autoupdate` is `false`. The `webfetch` and `websearch` tools are denied, since both fetch from the session-manager container outside the sandbox's egress policy.
+- The run's global OpenCode config directory (`$HOME/.config/opencode`) is created read-only. OpenCode installs `@opencode-ai/plugin` from npm into every config directory it can write at start, and skips one it cannot.
+- The subprocess runs with `OPENCODE_DISABLE_MODELS_FETCH`, `OPENCODE_DISABLE_AUTOUPDATE`, `OPENCODE_DISABLE_SHARE`, `OPENCODE_DISABLE_DEFAULT_PLUGINS` and `OPENCODE_DISABLE_LSP_DOWNLOAD` set.
+
+**Consequences.**
+
+- The LLM Routing section and the other mentions of a written `opencode.json` above no longer describe the runner. The `Model` field in `OpenCodeRunnerConfig` is used, not stored for later.
+- The declared model carries no context or output limit. OpenCode then caps output at 32,000 tokens and does not compact a long session on its own; a session that outgrows the model's context fails at the gateway.
+- Claude models reach the gateway as chat completions rather than Anthropic Messages. OpenCode still marks cache breakpoints with `cache_control` on the request.
+- A workspace that carries its own `.opencode/` directory still makes OpenCode install `@opencode-ai/plugin` from the npm registry into it in the background. Only `OPENCODE_DISABLE_PROJECT_CONFIG` stops it, and that also drops the repository's own `AGENTS.md` instructions, so it is not set. The turn does not wait for the install, and a failure is only logged.
+
+---
+
 ## Related Decisions
 
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Claude Code subprocess model; OpenCode was explicitly deferred here
 - [codex-agent-runner](2026-06-04-codex-agent-runner.md) — Codex runner; documents the shared framework dispatch wiring changes; must be implemented first
-- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Orbit standard event format consumed by this runner
+- [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — kora standard event format consumed by this runner
 - [agent-workspace-model](2026-05-11-agent-workspace-model.md) — Workspace directory; `opencode.json` is written here before process start
 
 ---

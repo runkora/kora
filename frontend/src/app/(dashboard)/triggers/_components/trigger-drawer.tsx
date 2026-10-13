@@ -12,6 +12,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import {
+  CopyButton,
   Alert,
   Button,
   Card,
@@ -38,23 +39,31 @@ import {
   Toggle,
   ToggleRow,
   SegmentedControl,
-} from '@orbit/terra';
-import { CopyButton, EmptyState } from '@orbit/components';
-import { KIND_ICON, LIMITS, eventOptionsFor } from '../_types';
-import type { DeliveryRow, SourceRow, TriggerRow } from '../_types';
+  EmptyState,
+} from '@orbit/hades';
+import { KIND_ICON, LIMITS } from '../_types';
+import type { DeliveryRow, Senders, SourceRow, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
+import { CatalogPicker } from './catalog-picker';
+import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
 import { FilterRowsEditor } from './filter-rows-editor';
+import type { FilterRow } from './filter-rows-editor';
+import { SenderRestrictionEditor } from './sender-restriction-editor';
+import type { SenderRestrictionDraft } from './sender-restriction-editor';
+import { useSourceCatalog } from './use-source-catalog';
 import {
-  catalogPatterns,
+  eventTypeCatalog,
+  schemaCatalog,
   scheduledCatalog,
   toTemplateCatalog,
-  webhookCatalog,
 } from './trigger-wizard/field-catalog';
 import {
   describeMatchCondition,
   matchConditionFrom,
+  matchContainsFrom,
+  splitLogins,
   validateFilters,
 } from './trigger-wizard/wizard-state';
 import {
@@ -64,7 +73,6 @@ import {
   timezoneOptions,
 } from './trigger-wizard/cron';
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
-import type { EditFilterRow } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
 
 /**
@@ -74,9 +82,11 @@ import { useEditableSection } from './use-editable-section';
 export interface TriggerEditPatch {
   name?: string;
   promptTemplate?: string;
-  /** Empty string means any event type. */
   eventType?: string;
   matchCondition?: Record<string, string[]>;
+  matchContains?: Record<string, string[]>;
+  /** Replaces the restriction; both lists empty removes it. */
+  senderRestriction?: Senders;
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
 }
 
@@ -332,17 +342,18 @@ export function TriggerDrawer({
   const storedFilters = useMemo(
     () => ({
       eventType: trigger?.eventType ?? '',
-      filters: filtersFromMatchCondition(trigger?.matchCondition),
+      filters: filtersFromMatchCondition(trigger?.matchCondition, trigger?.matchContains),
     }),
-    [trigger?.eventType, trigger?.matchCondition],
+    [trigger?.eventType, trigger?.matchCondition, trigger?.matchContains],
   );
   const saveFilters = useCallback(
-    (value: { eventType: string; filters: EditFilterRow[] }) =>
+    (value: { eventType: string; filters: FilterRow[] }) =>
       // Sent together: the event narrows which fields exist, so a filter and
       // the event it belongs to must never land as two separate states.
       savePatch({
         eventType: value.eventType,
         matchCondition: matchConditionFrom(value.filters) ?? {},
+        matchContains: matchContainsFrom(value.filters) ?? {},
       }),
     [savePatch],
   );
@@ -353,6 +364,35 @@ export function TriggerDrawer({
     // wizard's, from the same function.
     validate: (value) => validateFilters(value.filters).hint,
   });
+
+  const storedSenders = useMemo(
+    () => ({
+      logins: (trigger?.senderRestriction.logins ?? []).join(', '),
+      associations: trigger?.senderRestriction.associations ?? [],
+    }),
+    [trigger?.senderRestriction],
+  );
+  const saveSenders = useCallback(
+    (value: SenderRestrictionDraft) =>
+      savePatch({
+        senderRestriction: { logins: splitLogins(value.logins), associations: value.associations },
+      }),
+    [savePatch],
+  );
+  const senders = useEditableSection(storedSenders, editKey, saveSenders, {
+    isEqual: (a, b) =>
+      a.logins === b.logins &&
+      [...a.associations].sort().join() === [...b.associations].sort().join(),
+  });
+
+  // The catalogue follows the event being edited.
+  const webhookSource =
+    trigger?.kind === 'webhook' ? sources.find((s) => s.id === trigger.sourceId) : undefined;
+  const sourceCatalog = useSourceCatalog(
+    webhookSource?.provider ?? '',
+    webhookSource?.id ?? '',
+    filters.value.eventType,
+  );
 
   const storedSchedule = useMemo(
     () => ({
@@ -409,25 +449,20 @@ export function TriggerDrawer({
   const shown = mine.slice(0, DELIVERY_SAMPLE);
   const endpoint = endpointFor(ingestHost, trigger.sourceId);
 
-  const provider = source?.provider ?? '';
-  // The catalog follows the event being edited, not the stored one, so the
-  // fields on offer match the trigger the person is about to save.
+  const webhookFields = schemaCatalog(sourceCatalog.fields);
   const promptCatalog =
     trigger.kind === 'webhook'
-      ? toTemplateCatalog(
-          webhookCatalog(provider, filters.value.eventType),
-          catalogPatterns(provider),
-        )
+      ? webhookFields
       : trigger.kind === 'scheduled'
         ? toTemplateCatalog(scheduledCatalog())
         : toTemplateCatalog(manualInputsCatalog(trigger.manualInputs));
 
-  const setFilterRows = (rows: EditFilterRow[]) =>
+  const setFilterRows = (rows: FilterRow[]) =>
     filters.setValue({ ...filters.value, filters: rows });
 
   const subtitle =
     trigger.kind === 'webhook'
-      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || 'any event'}`
+      ? `Webhook · ${source?.name ?? trigger.sourceId} · ${trigger.eventType || 'no event type (never fires)'}`
       : trigger.kind === 'scheduled'
         ? `Schedule · ${trigger.scheduleConfig?.cronExpression ?? ''}`
         : 'Manual · run on demand';
@@ -697,22 +732,19 @@ export function TriggerDrawer({
               {trigger.kind === 'webhook' && (
                 <Stack gap="snug">
                   <SectionLabel>Event filters</SectionLabel>
-                  <SegmentedControl
+                  <CatalogPicker
                     aria-label="Event type"
                     value={filters.value.eventType}
-                    onChange={(v) => filters.setValue({ ...filters.value, eventType: v })}
-                    options={[
-                      { value: '', label: 'Any event' },
-                      ...eventOptionsFor(provider, trigger.eventType).map((ev) => ({
-                        value: ev,
-                        label: ev,
-                      })),
-                    ]}
+                    placeholder="Choose an event"
+                    catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
+                    searchPlaceholder="Search events…"
+                    disabled={!editable}
+                    onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
                   />
 
                   <FilterRowsEditor
                     rows={filters.value.filters}
-                    fields={webhookCatalog(provider, filters.value.eventType)}
+                    fields={webhookFields}
                     onChange={setFilterRows}
                     canAdd={editable}
                   />
@@ -734,6 +766,26 @@ export function TriggerDrawer({
                 </Stack>
               )}
 
+              {/* Senders: who may fire it, when the provider says who caused an event. */}
+              {trigger.kind === 'webhook' && (
+                <SenderRestrictionEditor
+                  available={sourceCatalog.associations}
+                  value={senders.value}
+                  onChange={senders.setValue}
+                  disabled={!editable}
+                  actions={
+                    <EditActions
+                      dirty={senders.dirty}
+                      pending={senders.pending}
+                      error={senders.error}
+                      saveLabel="Save senders"
+                      onSave={senders.save}
+                      onDiscard={senders.discard}
+                    />
+                  }
+                />
+              )}
+
               {/* Prompt: what the run is actually asked to do. */}
               <Stack gap="snug">
                 <SectionLabel>Prompt</SectionLabel>
@@ -750,6 +802,7 @@ export function TriggerDrawer({
                       : undefined
                   }
                 />
+                {trigger.kind === 'webhook' && <DataBlockPreview template={prompt.value} />}
                 <EditActions
                   dirty={prompt.dirty}
                   pending={prompt.pending}
@@ -923,7 +976,7 @@ export function TriggerDrawer({
                   )}
                   <SettingRow
                     label="Start timeout"
-                    description="How long dispatch may take to start the run. Orbit gives up after this window."
+                    description="Bounds the start request, which returns once the run is queued. Dispatch is abandoned after this window."
                     value={
                       <StepperControl
                         value={trigger.timeoutSeconds}

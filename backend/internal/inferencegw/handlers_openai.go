@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"time"
 
 	openai "github.com/openai/openai-go/v3"
@@ -313,6 +314,45 @@ func aggregateVMMetadata(vm VirtualModel, idx map[pmKey]*ProviderModel) (
 	return
 }
 
+// parseCapabilityFilter flattens the raw values of a repeatable, comma-separated
+// capability query parameter into a validated list. Whitespace is trimmed and
+// empty entries are ignored. Any value outside KnownCapabilities yields an
+// error wrapping ErrUnknownCapability that names the value and lists the valid
+// ones. A nil result means no filter.
+func parseCapabilityFilter(raw []string) ([]ModelCapability, error) {
+	var out []ModelCapability
+	for _, group := range raw {
+		for part := range strings.SplitSeq(group, ",") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			capability := ModelCapability(part)
+			if !slices.Contains(knownCapabilities, capability) {
+				valid := make([]string, len(knownCapabilities))
+				for i, k := range knownCapabilities {
+					valid[i] = string(k)
+				}
+				return nil, fmt.Errorf("%w %q: valid values are %s",
+					ErrUnknownCapability, part, strings.Join(valid, ", "))
+			}
+			out = append(out, capability)
+		}
+	}
+	return out, nil
+}
+
+// matchesCapabilityFilter reports whether caps includes any of want. An empty
+// want matches everything; a model with no capabilities matches no non-empty filter.
+func matchesCapabilityFilter(caps, want []ModelCapability) bool {
+	if len(want) == 0 {
+		return true
+	}
+	return slices.ContainsFunc(want, func(w ModelCapability) bool {
+		return slices.Contains(caps, w)
+	})
+}
+
 // buildPricingIndex constructs a lookup map from "provider/normalisedModelID"
 // to ModelPricing using the in-memory pricing cache entries.
 // Used by handleListModels to attach effective pricing to each virtual model.
@@ -428,8 +468,17 @@ func vmEffectivePricing(vm VirtualModel, pricingIdx, bareIdx map[string]ModelPri
 // provider metadata. Status reflects whether the model is enabled and has at
 // least one active route — disabled models or those with no enabled routes are
 // returned as "unavailable" without enrichment.
+//
+// The optional capability query parameter (repeatable and/or comma-separated)
+// keeps only models whose aggregated capabilities include any requested value.
 func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+
+	wantCaps, err := parseCapabilityFilter(r.URL.Query()["capability"])
+	if err != nil {
+		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError("invalid_request", err.Error(), nil), err)
+		return
+	}
 
 	vms, err := c.svc.ListModels(ctx)
 	if err != nil {
@@ -465,7 +514,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 	now := time.Now().Unix()
 	data := make([]modelObject, 0, len(vms))
 	for _, vm := range vms {
-		status := vmAvailabilityStatus(vm, snap, c.svc.router.connectors)
+		status := vmAvailabilityStatus(vm, snap, c.svc.router.connectorMap())
 
 		var inputMods []Modality
 		var outputMods []Modality
@@ -473,6 +522,9 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 		var caps []ModelCapability
 		if status == "available" {
 			inputMods, outputMods, dialects, caps = aggregateVMMetadata(vm, pmIdx)
+		}
+		if !matchesCapabilityFilter(caps, wantCaps) {
+			continue
 		}
 
 		data = append(data, modelObject{
@@ -489,7 +541,7 @@ func (c *Controller) handleListModels(w http.ResponseWriter, r *http.Request) {
 			OutputModalities: outputMods,
 			Dialects:         dialects,
 			Capabilities:     caps,
-			Pricing:          vmEffectivePricing(vm, pricingIdx, bareIdx, disabledRoutes, c.svc.router.connectors),
+			Pricing:          vmEffectivePricing(vm, pricingIdx, bareIdx, disabledRoutes, c.svc.router.connectorMap()),
 		})
 	}
 

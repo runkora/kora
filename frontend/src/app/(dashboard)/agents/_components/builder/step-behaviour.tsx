@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped. Builder step 2: system instructions, framework, model. */
 
-import { Alert, FormField, SectionHeading, Separator, Stack, Text, Textarea } from '@orbit/terra';
+import { Alert, FormField, SectionHeading, Separator, Stack, Text, Textarea } from '@orbit/hades';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FrameworkCards } from '../motif/framework-cards';
 import { ModelPicker } from '@orbit/components';
@@ -22,11 +22,12 @@ export function StepBehaviour() {
             value={fields.systemPrompt}
             onChange={(e) => setField('systemPrompt', e.target.value)}
             rows={5}
+            resize="vertical"
             placeholder="You are a deployment assistant for the platform team. You help engineers roll out services safely. You always run policy checks before applying changes and summarise the blast radius first."
           />
         </FormField>
 
-        <Separator span="full" />
+        <Separator />
 
         {/* ── Framework ──────────────────────────────────────────────────────── */}
         <Stack gap="cozy">

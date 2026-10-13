@@ -11,13 +11,13 @@
 
 ### Background
 
-All UI state in Orbit is currently ephemeral. A user who hides a column in the Inference Logs table, switches to a compact table layout, or adjusts the analytics time window must redo that configuration on every new session and every device. There is no mechanism for the application to remember how a user has left it.
+All UI state in kora is currently ephemeral. A user who hides a column in the Inference Logs table, switches to a compact table layout, or adjusts the analytics time window must redo that configuration on every new session and every device. There is no mechanism for the application to remember how a user has left it.
 
 The identity service already owns the `user_profiles` table (ADR-0042), which provides a persistent, tenant-scoped record per human principal. The infrastructure for writing to and reading from a `(user_id, tenant_id)` store is established; what is missing is a preferences layer built on top of it.
 
 ### Problem Statement
 
-Users cannot persist UI customisations across sessions or devices. This affects power users most acutely — analysts who work across machines, users who share a browser profile, and anyone who configures Orbit carefully only to find it reset on next login.
+Users cannot persist UI customisations across sessions or devices. This affects power users most acutely — analysts who work across machines, users who share a browser profile, and anyone who configures kora carefully only to find it reset on next login.
 
 ### Goals
 
@@ -300,13 +300,13 @@ Error behaviour:
 
 #### Table Column Visibility
 
-Column visibility is built into an app-level `DataTable` wrapper component that sits over Terra's underlying table primitive. `tableId` is a required prop on the wrapper; it connects to `usePreferences` internally and manages column visibility. Terra has no awareness of preferences — the wrapper is the app-level concern. Every table in the application that uses the wrapper gets preference-backed column visibility automatically, with no additional wiring required.
+Column visibility is built into an app-level `DataTable` wrapper component that sits over Hades' underlying table primitive. `tableId` is a required prop on the wrapper; it connects to `usePreferences` internally and manages column visibility. Hades has no awareness of preferences — the wrapper is the app-level concern. Every table in the application that uses the wrapper gets preference-backed column visibility automatically, with no additional wiring required.
 
 The `tables.columns` key in the preferences document is typed as `Record<string, Record<string, boolean>>`. The wrapper component is the enforcement boundary; no enumeration of known table IDs is required at the schema level.
 
 #### Period Selector
 
-The `PeriodSelector` is an app-level component wrapping Terra's period button controls (7d/30d/90d). It accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). It connects to `usePreferences` internally using that key — Terra has no awareness of preferences. All period selectors in the application use this component; the preference behaviour is implicit in using it.
+The `PeriodSelector` is an app-level component wrapping Hades' period button controls (7d/30d/90d). It accepts a `prefKey` prop identifying which preference key to read and write (e.g. `"analytics.defaultPeriod"` or `"myUsage.defaultPeriod"`). It connects to `usePreferences` internally using that key — Hades has no awareness of preferences. All period selectors in the application use this component; the preference behaviour is implicit in using it.
 
 ---
 

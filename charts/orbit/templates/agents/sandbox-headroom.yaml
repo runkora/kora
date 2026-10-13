@@ -2,7 +2,7 @@
 # Low-priority placeholder holding one sandbox's worth of capacity on a warm
 # node. A real sandbox preempts it and starts without a cold node or image pull.
 {{- $warming := .Values.agents.sandboxWarming }}
-{{- $img := .Values.agents.config.sandboxImage | default (printf "%s/orbit-sandbox-exec:%s" .Values.global.imageRegistry (.Values.global.imageTag | default .Chart.AppVersion)) }}
+{{- $img := include "orbit.sandboxBaseImage" . }}
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
@@ -13,7 +13,7 @@ metadata:
 value: {{ $warming.priority | int }}
 globalDefault: false
 preemptionPolicy: Never
-description: Low-priority placeholder for Orbit sandbox warm capacity.
+description: Low-priority placeholder for kora sandbox warm capacity.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -54,6 +54,7 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 100) | nindent 8 }}
       containers:
+        {{- if $warming.resources }}
         - name: headroom
           image: {{ $img | quote }}
           imagePullPolicy: IfNotPresent
@@ -62,4 +63,28 @@ spec:
             {{- toYaml $warming.resources | nindent 12 }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}
+        {{- else }}
+        {{- /* One container per part of a default sandbox pod. The pod's requests are their sum. */}}
+        {{- $size := .Values.agents.environments.defaultSize }}
+        {{- $sidecars := .Values.operator.injection.sandboxSidecars }}
+        {{- $parts := list
+          (dict "name" "sandbox" "res" (dict "cpu" $size.cpu "memory" $size.memory "ephemeral-storage" $size.disk))
+          (dict "name" "scratch" "res" (dict "ephemeral-storage" "1Gi"))
+          (dict "name" "istio-proxy" "res" $sidecars.istioProxy)
+          (dict "name" "identity-proxy" "res" $sidecars.identityProxy)
+          (dict "name" "opa" "res" $sidecars.opa) }}
+        {{- range $parts }}
+        - name: headroom-{{ .name }}
+          image: {{ $img | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "-c", "while true; do sleep 86400; done"]
+          resources:
+            requests:
+              {{- toYaml .res | nindent 14 }}
+            limits:
+              {{- toYaml .res | nindent 14 }}
+          securityContext:
+            {{- include "orbit.containerSecurityContext" (dict) | nindent 12 }}
+        {{- end }}
+        {{- end }}
 {{- end }}

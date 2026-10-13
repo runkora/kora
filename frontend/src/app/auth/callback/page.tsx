@@ -15,7 +15,7 @@
  *
  *   3. POSTs `{ id_token, tenant_id }` to `/api/auth/session` (BFF route) which:
  *      - Forwards to Go `POST /identity/session` with `grant_type: oidc_id_token`
- *      - Receives an Orbit platform JWT in return
+ *      - Receives a kora platform JWT in return
  *      - Seals it into an HttpOnly `iron-session` cookie with the backend's TTL
  *
  *   4. Redirects to `state.next` (validated relative path) or `/`.

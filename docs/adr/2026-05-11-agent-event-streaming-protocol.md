@@ -27,7 +27,7 @@ The platform needs a streaming protocol that:
 
 ### Goals
 
-- Define the Orbit standard event format
+- Define the kora standard event format
 - Define the full streaming path from CLI subprocess to browser
 - Define how event history is persisted and replayed
 - Define the user message input path (browser → CLI stdin)
@@ -111,7 +111,7 @@ The platform needs a streaming protocol that:
 
 At the scale the platform targets (100+ agents across 20+ agent types), writing every `text_delta` to Postgres is not viable. Token-level events are inherently ephemeral — they only have value to a browser watching live. Option D avoids that write entirely while keeping the history path intact for durable events. The push model reuses the existing session-manager → orbit-agents HTTP callback pattern and requires no new infrastructure dependencies.
 
-### Orbit Standard Event Format
+### kora Standard Event Format
 
 All events emitted by the transform layer are typed. The browser renders based on event type regardless of the underlying framework.
 

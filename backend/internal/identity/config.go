@@ -2,8 +2,6 @@ package identity
 
 import (
 	"fmt"
-	"os"
-	"strconv"
 
 	"github.com/clear-route/orbit/internal/platform/config"
 )
@@ -12,10 +10,22 @@ import (
 
 // Config is the non-secret, YAML-sourced configuration for the identity service.
 // OIDC configuration is NOT stored here — it is sourced per-tenant from the
-// tenant registry file (ORBIT_TENANTS_CONFIG).  See tenant_registry.go.
+// tenant registry file (Registry.TenantsPath).  See tenant_registry.go.
 type Config struct {
-	Token TokenConfig `yaml:"token"`
-	OAuth OAuthConfig `yaml:"oauth"`
+	Token    TokenConfig    `yaml:"token"`
+	OAuth    OAuthConfig    `yaml:"oauth"`
+	Registry RegistryConfig `yaml:"registry"`
+}
+
+// RegistryConfig locates the operator-rendered files identity reads and
+// watches. An empty path means no such file.
+type RegistryConfig struct {
+	// TenantsPath is the tenant registry (orbit-tenants ConfigMap).
+	TenantsPath string `yaml:"tenantsPath"`
+	// ClientSecretsPath is the aggregated OIDC client secrets (orbit-tenant-oidc-secrets).
+	ClientSecretsPath string `yaml:"clientSecretsPath"`
+	// OAuthClientsPath is the pre-registered OAuth clients (orbit-tenant-oauth-clients).
+	OAuthClientsPath string `yaml:"oauthClientsPath"`
 }
 
 // OAuthConfig controls the MCP OAuth authorization-server surface.
@@ -54,13 +64,10 @@ type TokenConfig struct {
 }
 
 // LoadConfig loads the identity service configuration from
-// internal/identity/config/base.yaml and applies environment variable overrides.
-//
-// All defaults live in base.yaml. Runtime overrides are applied via ORBIT_*
-// environment variables — no environment-specific YAML files are used.
+// internal/identity/config/base.yaml and the file the chart renders.
 //
 // OIDC configuration is resolved separately via loadTenantRegistry (called
-// by NewService) — it is sourced per-tenant from ORBIT_TENANTS_CONFIG, not
+// by NewService) — it is sourced per-tenant from the tenant registry file, not
 // from service-level YAML.
 //
 // The RSA signing key is NOT loaded here; it is read by the service's
@@ -71,30 +78,5 @@ func LoadConfig() (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("load identity config: %w", err)
 	}
-
-	// Env var overrides — take precedence over base.yaml values.
-	// Use these in local dev to extend token TTLs (e.g. ORBIT_ACCESS_TOKEN_TTL_MINUTES=60).
-	overrideInt(&cfg.Token.AccessTokenTTLMinutes, "ORBIT_ACCESS_TOKEN_TTL_MINUTES")
-	overrideInt(&cfg.Token.RefreshTokenTTLDays, "ORBIT_REFRESH_TOKEN_TTL_DAYS")
-	overrideInt(&cfg.Token.PATDefaultTTLDays, "ORBIT_PAT_DEFAULT_TTL_DAYS")
-	overrideInt(&cfg.Token.PATMaxTTLDays, "ORBIT_PAT_MAX_TTL_DAYS")
-	overrideInt(&cfg.Token.DelegationTokenTTLMinutes, "ORBIT_DELEGATION_TOKEN_TTL_MINUTES")
-	if os.Getenv("ORBIT_MCP_REQUIRE_PRE_REGISTRATION") == "true" {
-		cfg.OAuth.RequirePreRegistration = true
-	}
-	if v := os.Getenv("ORBIT_TOKEN_AUDIENCE"); v != "" {
-		cfg.Token.Audience = v
-	}
-
 	return cfg, nil
-}
-
-// overrideInt sets *dst to the positive integer value of the named environment
-// variable, if the variable is set and parses successfully.
-func overrideInt(dst *int, envVar string) {
-	if v := os.Getenv(envVar); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			*dst = n
-		}
-	}
 }

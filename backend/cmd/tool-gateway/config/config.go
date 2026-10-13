@@ -13,6 +13,7 @@ import (
 //
 //  1. cmd/tool-gateway/config/base.yaml      — service defaults
 //  2. cmd/tool-gateway/config/{env}.yaml     — env overrides (optional)
+//  3. /etc/orbit/config/cmd/tool-gateway.yaml — rendered by the chart per Deployment
 //
 // The tool-gateway runs in two modes from one binary: the publisher (this
 // phase — mounts the registry, introspects, publishes scopes) and the
@@ -27,12 +28,22 @@ type Config struct {
 	// the request-path PEP + MCP proxy). One binary, two deployments.
 	Mode string `yaml:"mode"`
 
+	// PublicHosts is the trusted-host allowlist for the protected-resource
+	// metadata and 401 challenge, canonical host first (ADR 2026-07-04).
+	PublicHosts []string `yaml:"publicHosts"`
+
 	Server struct {
 		// HTTPPort serves health (and, in Phase 4, the MCP request path).
 		HTTPPort            int    `yaml:"httpPort"`
 		BasePath            string `yaml:"basePath"`
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
 	} `yaml:"server"`
+
+	Identity struct {
+		// InternalURL is the in-cluster base URL for identity. The gateway
+		// exchanges its SVID there for the platform token it registers routes with.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"identity"`
 
 	Policy struct {
 		// PolicyServiceInternalURL is the base URL for the policy-service

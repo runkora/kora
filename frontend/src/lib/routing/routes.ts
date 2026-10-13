@@ -1,7 +1,7 @@
 /**
  * routes.ts
  *
- * Single source of truth for every internal page route in the Orbit app.
+ * Single source of truth for every internal page route in the kora app.
  *
  * Add a new entry here when adding a new page. Removing an entry here
  * will produce a compile error at every `AppLink` call site that
@@ -97,7 +97,7 @@ type LeafRoutes<T> = T extends string
     : never;
 
 /**
- * Every valid internal page route in the Orbit app.
+ * Every valid internal page route in the kora app.
  *
  * This is a compile-time exhaustive union — passing a string that is not
  * in `APP_ROUTES` to an `AppLink` is a TypeScript error.

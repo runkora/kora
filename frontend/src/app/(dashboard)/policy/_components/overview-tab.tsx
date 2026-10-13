@@ -14,6 +14,7 @@ import {
   Heading,
   Separator,
   Stack,
+  StatCard,
   Text,
   TableRoot,
   Table,
@@ -23,9 +24,8 @@ import {
   TableHead,
   TableCell,
   Icon,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import { MetricCard } from '@orbit/components';
 import { fmtDate, fmtDateTime } from '@orbit/utils';
 import Link from 'next/link';
 import type {
@@ -35,8 +35,20 @@ import type {
   ScopeEntryWithUsage,
   StatsResponse,
 } from '../_types';
-import { ScopeChip } from '@orbit/components';
+import { ScopeChipList } from '@orbit/components';
 import { QuickLinkCard } from './quick-link-card';
+
+const PRINCIPAL_TYPE_LABELS: Record<string, string> = {
+  AGENT: 'Agent',
+  HUMAN: 'Human',
+  PAT: 'PAT',
+  SERVICE: 'Service',
+};
+
+/** The ring and its legend read best with the biggest part first. */
+function largestFirst<T extends { value: number }>(items: T[]): T[] {
+  return [...items].sort((a, b) => b.value - a.value);
+}
 
 interface OverviewTabProps {
   stats: StatsResponse | null;
@@ -58,9 +70,10 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
     return routes.reduce((sum, reg) => sum + reg.routes.length, 0);
   }, [routes]);
 
-  const serviceCount = useMemo(() => {
-    return new Set(routes.map((r) => r.service)).size;
-  }, [routes]);
+  const routesByService = useMemo(
+    () => largestFirst(routes.map((reg) => ({ label: reg.service, value: reg.routes.length }))),
+    [routes],
+  );
 
   if (!stats) {
     return (
@@ -114,45 +127,46 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
 
       {/* KPI Cards */}
       <Grid cols={{ base: 1, sm: 2, lg: 4 }} gap="comfortable">
-        <MetricCard
-          icon={<Icon name="shield-check" />}
+        <StatCard
+          icon={<Icon name="shield-check" size="xs" />}
           label="Grants"
           value={stats.grants.total}
-          href={APP_ROUTES.policy.grants}
-          breakdown={Object.entries(stats.grants.by_principal_type).map(([type, count]) => ({
-            label: type,
-            value: count,
-          }))}
+          footer={<Link href={APP_ROUTES.policy.grants}>View all →</Link>}
+          breakdown={largestFirst(
+            Object.entries(stats.grants.by_principal_type).map(([type, count]) => ({
+              label: PRINCIPAL_TYPE_LABELS[type] ?? type,
+              value: count,
+            })),
+          )}
         />
-        <MetricCard
-          icon={<Icon name="user-check" />}
+        <StatCard
+          icon={<Icon name="user-check" size="xs" />}
           label="Roles"
           value={stats.roles.total}
-          href={APP_ROUTES.policy.roles}
-          breakdown={[
+          footer={<Link href={APP_ROUTES.policy.roles}>View all →</Link>}
+          breakdown={largestFirst([
             { label: 'Reserved', value: stats.roles.reserved },
             { label: 'Custom', value: stats.roles.custom },
-          ]}
+          ])}
         />
-        <MetricCard
-          icon={<Icon name="library" />}
+        <StatCard
+          icon={<Icon name="library" size="xs" />}
           label="Vocabulary"
           value={stats.vocabulary.total}
-          href={APP_ROUTES.policy.vocabulary}
-          breakdown={Object.entries(stats.vocabulary.by_resource_type).map(([type, count]) => ({
-            label: type,
-            value: count,
-          }))}
+          footer={<Link href={APP_ROUTES.policy.vocabulary}>View all →</Link>}
+          breakdown={largestFirst(
+            Object.entries(stats.vocabulary.by_resource_type).map(([type, count]) => ({
+              label: type,
+              value: count,
+            })),
+          )}
         />
-        <MetricCard
-          icon={<Icon name="route" />}
+        <StatCard
+          icon={<Icon name="route" size="xs" />}
           label="Routes"
           value={totalRouteCount}
-          href={APP_ROUTES.policy.routes}
-          breakdown={[
-            { label: 'Services', value: serviceCount },
-            { label: 'Endpoints', value: totalRouteCount },
-          ]}
+          footer={<Link href={APP_ROUTES.policy.routes}>View all →</Link>}
+          breakdown={routesByService}
         />
       </Grid>
 
@@ -303,16 +317,7 @@ export function OverviewTab({ stats, recentGrants, roles, vocabulary, routes }: 
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <Stack direction="horizontal" gap="tight" wrap>
-                          {grant.scopes.slice(0, 3).map((s) => (
-                            <ScopeChip key={s} scope={s} />
-                          ))}
-                          {grant.scopes.length > 3 && (
-                            <Text size="caption" color="subtle">
-                              +{grant.scopes.length - 3} more
-                            </Text>
-                          )}
-                        </Stack>
+                        <ScopeChipList scopes={grant.scopes} />
                       </TableCell>
                       <TableCell>
                         <Text size="caption" color="subtle">

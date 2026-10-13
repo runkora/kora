@@ -1,7 +1,7 @@
 import 'server-only';
 import { redirect } from 'next/navigation';
 
-import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@orbit/terra';
+import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@orbit/hades';
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { mcpConsentToken } from '@orbit/server/mcp-consent';
@@ -18,7 +18,7 @@ import { ConsentFlow, type ConsentDomain, type ConsentServer } from './_componen
  * /mcp/authorize — the OAuth 2.1 authorization endpoint (MCP profile), rendered
  * as an explicit consent screen (the AS metadata's authorization_endpoint).
  *
- * Validates params → reuses the Orbit session (cold start → /login, query
+ * Validates params → reuses the kora session (cold start → /login, query
  * preserved) → shows the requesting client, the human, and — for the server this
  * consent is for (from the RFC 8707 `resource`) — the exact tools being granted.
  * The client component owns the approve/deny + result states; nothing is minted
@@ -122,7 +122,7 @@ export default async function ConsentPage({ searchParams }: ConsentPageProps) {
     return (
       <ConsentError
         title="Unknown application"
-        message="This application is not registered with Orbit."
+        message="This application is not registered with kora."
       />
     );
   }

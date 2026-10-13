@@ -8,17 +8,27 @@ import (
 
 // Config is the root configuration for the inference-gateway service.
 //
-// Values are loaded from cmd/inference-gateway/config/{APP_ENV}.yaml at
-// startup. The YAML provides build-time defaults that are baked into the
-// binary via embed and can be overridden by environment variables at runtime.
+// Values are loaded from cmd/inference-gateway/config/base.yaml, its
+// {APP_ENV}.yaml overlay and the file the chart renders.
 type Config struct {
 	App           config.AppConfig    `yaml:"app"`
 	Server        config.ServerConfig `yaml:"server"`
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
-	Pricing PricingConfig `yaml:"pricing"`
-	Policy  PolicyConfig  `yaml:"policy"`
+	Pricing   PricingConfig   `yaml:"pricing"`
+	Policy    PolicyConfig    `yaml:"policy"`
+	Providers ProvidersConfig `yaml:"providers"`
+	Identity  struct {
+		// InternalURL is the in-cluster base URL for identity. The gateway
+		// exchanges its SVID there for the platform token it registers routes with.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"identity"`
+}
+
+// ProvidersConfig is where the gateway watches InferenceProvider resources.
+type ProvidersConfig struct {
+	Namespace string `yaml:"namespace"`
 }
 
 // PolicyConfig configures the in-process OPA policy evaluator.
@@ -73,8 +83,4 @@ func (c *Config) ShutdownTimeout() time.Duration {
 }
 
 // Current is the loaded configuration singleton, populated at init time.
-var Current *Config
-
-func init() {
-	Current = config.MustLoadService[Config]("cmd/inference-gateway", config.Environment())
-}
+var Current = config.MustLoadService[Config]("cmd/inference-gateway", config.Environment())

@@ -24,7 +24,7 @@ type delegationTokenPayload struct {
 }
 
 // ParseDelegationToken verifies and parses a delegation token.
-// The delegation token is issued by the Orbit identity service alongside the
+// The delegation token is issued by the kora identity service alongside the
 // platform token. Its structure: sub = delegator (human), act.sub = agent,
 // run_id = the run the delegation is bound to (RFC 8693; docs/adr/2026-07-23-delegated-agent-identity.md).
 // v1 tokens carry NO scope claim — authority is evaluated live from grants —

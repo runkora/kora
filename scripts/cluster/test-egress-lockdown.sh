@@ -99,7 +99,7 @@ fi
 # 4) Optional: a whitelisted host must succeed THROUGH the tenant-CA gateway.
 if [ -n "$ALLOWED_HOST" ]; then
   issuer="$(exec_sb "curl -sv --max-time 12 https://$ALLOWED_HOST -o /dev/null 2>&1 | grep -i 'issuer:' || true")"
-  if printf '%s' "$issuer" | grep -qi "Orbit Tenant CA"; then
+  if printf '%s' "$issuer" | grep -qi "kora Tenant CA"; then
     pass "https://$ALLOWED_HOST allowed via tenant-CA gateway"
   else
     fail "https://$ALLOWED_HOST did not present a tenant-CA leaf (issuer: ${issuer:-none})"

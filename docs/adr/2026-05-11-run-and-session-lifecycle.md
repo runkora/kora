@@ -1,8 +1,8 @@
 # Run & Session Lifecycle
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-12)
 **Date:** 2026-05-11
-**Updated:** 2026-05-28
+**Updated:** 2026-10-12
 **Deciders:** Platform Engineering
 **Technical Story:** Agent interactions need a durable execution model that survives browser disconnects, enables context replay on reconnect, and provides a clean basis for future resume and orchestration features.
 
@@ -89,9 +89,9 @@ active ──→ failed   (reaper: stuck mid-turn too long)
 |---|---|---|---|
 | `pending` | `starting` | orbit-agents | Pod ordinal selected; `AssignPod` called |
 | `starting` | `active` | session-manager | Subprocess started; initial message delivered to Claude |
-| `active` | `idle` | session-manager | `message_stop` event received — agent turn complete |
+| `active` | `idle` | session-manager | `message_stop` event received — agent turn complete, and no subagent or background task still running |
 | `idle` | `active` | session-manager | First event from Claude runner on new turn (agent responding) |
-| `idle` | `completed` | session-manager | Idle timer fires (20 min of no new message) → `CompleteRun(from="idle", failed=false)` |
+| `idle` | `completed` | session-manager | Idle timer fires (`agents.idleTimeout` in the chart: 20 min for a run a person started, 5 min for a trigger run until a person messages it) → `CompleteRun(from="idle", failed=false)` |
 | `active` | `completed` | session-manager | Subprocess exited cleanly (`intentionalClose=true`) → `CompleteRun(from="active", failed=false)` |
 | `active` | `failed` | session-manager | Subprocess exited unexpectedly (`intentionalClose=false`) → `CompleteRun(from="active", failed=true)` |
 | `idle` | `failed` | session-manager | Subprocess exited unexpectedly while idle → `CompleteRun(from="idle", failed=true)` |
@@ -230,13 +230,29 @@ On future resume, both `run_events` and `run_messages` are interleaved by timest
 
 ---
 
+## Amendment 1 (2026-10-12): Runs wait in `pending` for a scheduling worker
+
+**Status:** Accepted
+
+[Run Scheduling](2026-10-12-run-scheduling.md) changes how a run leaves `pending`.
+
+*   `POST /api/v1/runs` will write the run as `pending` with its initial message and return it. A worker in orbit-agents will claim the run, assign a pod and set the run `starting`, then create the session with the stored initial message and set the run `active`.
+*   A run can hold `pending` for up to the start budget, measured from `created_at`. When the budget runs out, the worker will move the run from `pending` to `failed` and record the reason.
+*   The stale-run reaper will also fail a run that stayed in `pending` past its window.
+*   A transient session error after the pod is assigned will return a `starting` run to `pending`. A session the pod refuses will fail the run.
+*   A message to a `pending` or `starting` run will be rejected with a "run is starting" error. Terminate will still work on a `pending` run.
+*   `runs` will gain `initial_message`, `claimed_at` and `not_before`, and an index for the claim.
+
+---
+
 ## Related Decisions
 
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — Transform layer that emits events written to `run_events`
 - [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — Service that owns the state machine
 - [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) — Streaming protocol built on `run_events`
 - [agent-workspace-model](2026-05-11-agent-workspace-model.md) — Workspace lifecycle tied to run lifecycle
+- [run-scheduling](2026-10-12-run-scheduling.md): Amendment 1
 
 ---
 
-**Last Updated:** 2026-05-28
+**Last Updated:** 2026-10-12 (Amendment 1: runs wait in `pending` for a scheduling worker)

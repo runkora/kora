@@ -46,15 +46,15 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 
 ### User Pain Points
 
-- **Recurring agent work lives outside Orbit.** The one class of automation most teams want first — "run this every night" — is the one the platform can't express, so it stays on infrastructure with none of Orbit's identity, policy, or audit guarantees.
+- **Recurring agent work lives outside kora.** The one class of automation most teams want first — "run this every night" — is the one the platform can't express, so it stays on infrastructure with none of kora's identity, policy, or audit guarantees.
 - **Starting a run on demand is a hack.** There's no first-class "here is the input this agent takes, go" surface, so operators improvise.
 - **"Why didn't my trigger fire?"** is unanswerable today for anything that isn't a clean dispatch — a policy denial, a filtered-out event type, and a genuine failure all look the same or don't show up at all.
-- **A noisy or broken trigger has no circuit breaker.** A webhook source retrying an event, or (once schedules exist) a trigger ticking every minute against a wedged agent, burns budget and clutters run history with no way for Orbit to say "stop, something's wrong here" on its own.
+- **A noisy or broken trigger has no circuit breaker.** A webhook source retrying an event, or (once schedules exist) a trigger ticking every minute against a wedged agent, burns budget and clutters run history with no way for kora to say "stop, something's wrong here" on its own.
 - **Operators can't see the fleet at a glance.** Answering "which of our 40 triggers are unhealthy right now" means opening each one.
 
 ### Business Impact
 
-- Scheduled work running outside Orbit is agent activity the platform cannot see, govern, or attribute — the exact gap Orbit exists to close. Every nightly job on a laptop is an ungoverned agent.
+- Scheduled work running outside kora is agent activity the platform cannot see, govern, or attribute — the exact gap kora exists to close. Every nightly job on a laptop is an ungoverned agent.
 - Every trigger failure mode without a clear status is a support/debugging cost paid by whoever owns the automation.
 - Without admission control, a burst of webhook traffic can put unbounded concurrent runs on one agent — a cost and reliability risk with no platform guardrail.
 - The console gap makes Triggers feel unfinished relative to the rest of the control plane, undermining confidence in using it for anything business-critical.
@@ -99,7 +99,7 @@ Both levels have to be visible. An admin looking at one trigger needs its own ou
 **US-001**
 **As a** platform admin,
 **I want to** start an agent run on a recurring schedule I define with a cron expression and a timezone,
-**So that** recurring agent work runs inside Orbit's identity and policy model instead of on a laptop or a CI cron.
+**So that** recurring agent work runs inside kora's identity and policy model instead of on a laptop or a CI cron.
 
 **Acceptance Criteria:**
 - [x] A trigger can be created with a cron expression and an IANA timezone; the console shows the next fire time in that timezone before I save.
@@ -356,16 +356,16 @@ Each is a new way for something to arrive. None changes what happens afterwards.
 
 | Kind | Fires when | Why it's deferred |
 |---|---|---|
-| **Control-plane event** | Something happens inside Orbit itself — a run finishes, a budget threshold is crossed, a grant is revoked, a policy denies an action | Needs a stable, documented catalogue of platform events before admins can bind to them; publishing that catalogue is a commitment to keep it |
+| **Control-plane event** | Something happens inside kora itself — a run finishes, a budget threshold is crossed, a grant is revoked, a policy denies an action | Needs a stable, documented catalogue of platform events before admins can bind to them; publishing that catalogue is a commitment to keep it |
 | **Chained run** | Another agent's run reaches a given outcome | The most requested and the most dangerous: chains can loop. Needs depth limits and cycle detection designed properly, not bolted on |
-| **Chat command** | Someone invokes the agent from Slack or Teams | Depends on a chat integration Orbit doesn't have yet; the trigger is the small part |
+| **Chat command** | Someone invokes the agent from Slack or Teams | Depends on a chat integration kora doesn't have yet; the trigger is the small part |
 | **Queue or stream message** | A message lands on a subscribed queue or topic | Requires outbound connection management and consumer lifecycle — a different operational shape from everything else here |
 | **Object storage change** | A file appears or changes in a watched bucket or prefix | Practically a webhook from the storage provider; blocked mainly on credential brokering for the watch itself |
 | **Monitor or alert** | An external monitoring system fires an alert | Closest to shipping — Alertmanager is already a recognised webhook provider, so this is largely a presentation and filtering question rather than a new mechanism |
 
 ### Triggers are a front door, not an orchestrator
 
-The unifying idea is that Triggers owns **the ways something can start** in Orbit. It does not own what happens next.
+The unifying idea is that Triggers owns **the ways something can start** in kora. It does not own what happens next.
 
 Today the only thing a trigger can start is an agent run. A multi-agent workflow engine is a separate future pillar, and when it exists a trigger should be able to start a workflow the same way it starts an agent now — same kinds, same delivery record, same authorization, different target. Nothing in this work should make that a rewrite.
 
@@ -428,7 +428,7 @@ Three consequences for this PRD's scope, all deliberate:
 - **Triggers** — the existing feature, extended. *Status: exists, webhook-only.*
 - **Policy** — unchanged evaluation, but a denial must now always leave a record. *Status: exists.*
 - **Agent control plane** — unchanged dispatch target for all three kinds. *Status: exists.*
-- **Console (Terra)** — the Triggers page, redesigned. *Status: exists, to be extended.*
+- **Console (Hades)** — the Triggers page, redesigned. *Status: exists, to be extended.*
 
 ### External Dependencies
 
@@ -464,7 +464,7 @@ Three consequences for this PRD's scope, all deliberate:
 
 **Description:** Harden the webhook path only; add schedules and manual fires later.
 
-**Why not chosen:** It leaves the headline user need — "run this every night, inside Orbit" — unmet for another cycle, while the hardening work has no new consumer to prove it against. The two land better together.
+**Why not chosen:** It leaves the headline user need — "run this every night, inside kora" — unmet for another cycle, while the hardening work has no new consumer to prove it against. The two land better together.
 
 ### Alternative 3: Adopt the design reference's model wholesale, including its webhook scheme
 
@@ -502,7 +502,7 @@ Seven questions the design raised, settled here so the ADR doesn't have to guess
 
 **PD6 — Concurrency is capped per trigger, not per agent.** Ten triggers each capped at four can still put forty runs on one agent, and this PRD accepts that. **Accepted cost:** a genuine gap, mitigated by the agent's own limits — the ADR must verify those actually bound concurrent runs rather than request rate, and say so plainly if they don't. Two interacting ceilings would also mean a delivery could be rejected for a reason invisible on the trigger the admin is looking at, which is worth avoiding until the gap is real.
 
-**PD7 — Event filters are picked from a curated per-provider list.** Typing an event type invites a silent typo that makes a trigger never fire, with no feedback until someone notices nothing happened. **Accepted cost:** Orbit commits to maintaining the list as providers add event types, and a stale list will eventually block a legitimate event. The ADR should account for that — a list that can't be updated without a release is a liability.
+**PD7 — Event filters are picked from a curated per-provider list.** Typing an event type invites a silent typo that makes a trigger never fire, with no feedback until someone notices nothing happened. **Accepted cost:** kora commits to maintaining the list as providers add event types, and a stale list will eventually block a legitimate event. The ADR should account for that — a list that can't be updated without a release is a liability.
 
 ### Decisions delegated to the ADR
 

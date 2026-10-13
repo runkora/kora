@@ -17,7 +17,7 @@ import {
   Stack,
   StatusDot,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
 
 // ── Tree derivation (mirrors mcp-tools-fields grouping) ──────────────────────
@@ -166,7 +166,7 @@ export function McpToolTree({
                 </Stack>
 
                 <CollapsibleContent>
-                  <Separator span="full" />
+                  <Separator />
                   <Stack direction="horizontal" align="center" gap="snug" padding="cozy">
                     <Text as="span" size="micro" color="subtle">
                       Choose the tools this agent may call
@@ -195,10 +195,9 @@ export function McpToolTree({
                     const domainSome = domainGranted.length > 0 && !domainAll;
                     return (
                       <Stack key={domain.domain} gap="none">
-                        <Separator span="full" />
+                        <Separator />
                         <Stack direction="horizontal" align="center" gap="cozy" padding="cozy">
                           <Checkbox
-                            size="sm"
                             checked={domainAll}
                             indeterminate={domainSome}
                             onChange={(checked) => toggleMany(domainScopes, checked)}
@@ -219,7 +218,7 @@ export function McpToolTree({
                           const toolOn = grantedSet.has(tool.scope);
                           return (
                             <Stack key={tool.scope} gap="none">
-                              <Separator span="full" />
+                              <Separator />
                               <Stack
                                 direction="horizontal"
                                 align="start"
@@ -228,7 +227,6 @@ export function McpToolTree({
                                 paddingInline="relaxed"
                               >
                                 <Checkbox
-                                  size="sm"
                                   checked={toolOn}
                                   onChange={(checked) => toggleMany([tool.scope], checked)}
                                   aria-label={`Grant ${tool.name}`}

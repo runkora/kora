@@ -4,13 +4,13 @@
 **Created:** 2026-06-19  
 **Last Updated:** 2026-06-19  
 **Owner:** Engineering  
-**Stakeholders:** Platform team, Orbit users
+**Stakeholders:** Platform team, kora users
 
 ---
 
 ## Executive Summary
 
-Currently every agent run in Orbit is identified only by an opaque UUID. This PRD specifies a feature that automatically generates a short, human-readable one-sentence summary of each run's intent — derived from the run's initial message — and displays it across all run views in the application. The summary is generated at run creation time using the same LLM and connectivity already configured for the agent, keeping the implementation zero-dependency on external services.
+Currently every agent run in kora is identified only by an opaque UUID. This PRD specifies a feature that automatically generates a short, human-readable one-sentence summary of each run's intent — derived from the run's initial message — and displays it across all run views in the application. The summary is generated at run creation time using the same LLM and connectivity already configured for the agent, keeping the implementation zero-dependency on external services.
 
 ---
 
@@ -18,7 +18,7 @@ Currently every agent run in Orbit is identified only by an opaque UUID. This PR
 
 ### Current State
 
-When a user starts a run, Orbit assigns it a UUID (e.g. `a3f7b1c0`). Runs are listed in:
+When a user starts a run, kora assigns it a UUID (e.g. `a3f7b1c0`). Runs are listed in:
 - The **Agent Runs Tab** on the agent detail page (table view showing Run ID, Status, Started, Duration, Tokens, Tools)
 - The **Run Topbar** inside the chat view (badge showing the last 8 characters of the run ID)
 
@@ -76,7 +76,7 @@ Neither view shows *what the run is doing* or *what it was asked to do*.
 
 ---
 
-**As a** developer using Orbit,  
+**As a** developer using kora,  
 **I want to** see the task description in the run topbar while working in the chat view,  
 **So that** I always have context about the current run's purpose without scrolling back to the top of the conversation.
 
@@ -109,7 +109,7 @@ Generation is strictly best-effort: if the LLM call fails or times out, the run 
 #### User Flow
 
 1. User starts a run with the initial message "Audit the GitHub repository for exposed secrets and open a report PR".
-2. Orbit creates the run, sends the initial message to the agent, and asynchronously calls the LLM to produce: `"Audit GitHub repository for exposed secrets and file a report PR"`.
+2. kora creates the run, sends the initial message to the agent, and asynchronously calls the LLM to produce: `"Audit GitHub repository for exposed secrets and file a report PR"`.
 3. The summary is stored on the run row.
 4. When the user visits the agent detail page, the runs table shows the summary in a "Task" column.
 5. Inside the chat view, the run topbar shows the summary below or beside the run ID badge.
@@ -289,4 +289,4 @@ Generation is strictly best-effort: if the LLM call fails or times out, the run 
 - **Run**: A durable unit of work; one execution of an agent type.
 - **Initial message**: The first user message sent at run start, captured in `StartRunRequest.InitialMessage`.
 - **Summary**: A ≤ 120-character, LLM-generated sentence describing the run's task intent.
-- **Inference gateway**: The Orbit-internal OpenAI/Anthropic-compatible LLM proxy.
+- **Inference gateway**: The kora-internal OpenAI/Anthropic-compatible LLM proxy.

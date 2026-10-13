@@ -1,18 +1,18 @@
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import { Button } from '@orbit/terra';
+import { Button } from '@orbit/hades';
 import { renderWithProviders } from '@orbit/test-utils';
 import { SidebarBrandHeader } from './sidebar-brand-header';
 
 describe('SidebarBrandHeader', () => {
-  it('renders the Orbit logo text', () => {
+  it('renders the kora logo', () => {
     renderWithProviders(<SidebarBrandHeader />);
-    expect(screen.getByText('Orbit')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'kora' })).toBeInTheDocument();
   });
 
-  it('renders a semver version badge', () => {
+  it('leaves the version badge to the page header', () => {
     renderWithProviders(<SidebarBrandHeader />);
-    expect(screen.getByText(/^v\d+\.\d+\.\d+/)).toBeInTheDocument();
+    expect(screen.queryByText('dev')).not.toBeInTheDocument();
   });
 
   it('renders no trailing action by default', () => {

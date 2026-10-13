@@ -23,7 +23,7 @@ Without a frontend, the agent control plane is only accessible via API. The targ
 - Chat UI for interactive agent sessions with real-time streaming
 - Observation view for headless agents (same UI, chat input disabled)
 - Full run history accessible regardless of when the user connects
-- Follows Terra design system ([frontend-component-consolidation](2026-05-04-frontend-component-consolidation.md), [terra-design-system-hardening](2026-05-04-terra-design-system-hardening.md))
+- Follows Hades design system ([frontend-component-consolidation](2026-05-04-frontend-component-consolidation.md), [terra-design-system-hardening](2026-05-04-terra-design-system-hardening.md))
 
 ### Non-Goals
 
@@ -35,7 +35,7 @@ Without a frontend, the agent control plane is only accessible via API. The targ
 
 ## Decision Drivers
 
-* Terra design system enforced — no raw HTML, all components from Terra or app-level Tier 2
+* Hades design system enforced — no raw HTML, all components from Hades or app-level Tier 2
 * SSE via the browser's native `EventSource` API is the simplest streaming mechanism for the chat view
 * The portal must handle both managed and BYOC agents without separate views
 * Next.js server components handle data fetching; client components handle SSE and interactivity
@@ -169,16 +169,16 @@ All non-streaming BFF-to-orbit-agents calls (POST to start a run, GET to list ag
 
 ```
 User navigates to /agents/new
-  → fills: name, description, framework (select), system prompt (textarea), tool scopes (multi-select)
+  → fills: name, description, framework (select), system prompt (textarea)
   → submits → POST /api/v1/agent-types
   → redirect to /agents/{id} with state: provisioning
   → page polls GET /api/v1/agent-types/{id} until state: active
   → shows success state when active
 ```
 
-### Terra Component Mapping
+### Hades Component Mapping
 
-| UI Element | Terra Component |
+| UI Element | Hades Component |
 |---|---|
 | Layout | `Stack`, `Grid` |
 | Agent list | `Table`, `TableRow`, `TableCell` |
@@ -221,7 +221,7 @@ Following [embeddings-and-responses-api-endpoints](2026-05-03-embeddings-and-res
 
 - `RunEventFeed`, `RunEventItem`, `ToolCallCard`, `ThinkingBlock` — Tier 2 (app-level shared, `frontend/src/components/agents/`)
 - `AgentStatusBadge`, `FrameworkBadge` — Tier 2
-- All layout and primitive components — Tier 1 (Terra)
+- All layout and primitive components — Tier 1 (Hades)
 
 ### API Client
 
@@ -242,7 +242,7 @@ The agent portal API calls are made via typed clients following the existing pla
 
 ## Related Decisions
 
-- [terra-design-system-hardening](2026-05-04-terra-design-system-hardening.md) — Terra component enforcement
+- [terra-design-system-hardening](2026-05-04-terra-design-system-hardening.md) — Hades component enforcement
 - [semantic-html-consolidation](2026-05-04-semantic-html-consolidation.md) — Semantic HTML requirements
 - [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — API surface the UI calls
 - [run-and-session-lifecycle](2026-05-11-run-and-session-lifecycle.md) — Run/session model the UI presents

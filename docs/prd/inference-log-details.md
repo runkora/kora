@@ -9,7 +9,7 @@
 
 ## Executive Summary
 
-The Orbit Model Gateway records one row per inference request with solid attribution and metrics, but provides no way to drill into a specific request. The logs table surfaces 9 of the 22 available fields, hides all routing and error details, and stores nothing about structured provider failure context. This PRD defines two layered improvements: a **detail modal** that surfaces all existing data for a selected row (Layer 1, frontend-only), and **failure details capture** that stores structured provider error information alongside every non-success usage record (Layer 2, one migration + minor service change).
+The kora Model Gateway records one row per inference request with solid attribution and metrics, but provides no way to drill into a specific request. The logs table surfaces 9 of the 22 available fields, hides all routing and error details, and stores nothing about structured provider failure context. This PRD defines two layered improvements: a **detail modal** that surfaces all existing data for a selected row (Layer 1, frontend-only), and **failure details capture** that stores structured provider error information alongside every non-success usage record (Layer 2, one migration + minor service change).
 
 ---
 
@@ -47,7 +47,7 @@ Every inference request produces one row in `inference_usage` with 22 columns co
 
 - All 22 existing fields on `InferenceUsageRecord` are accessible via the detail modal within one click from the logs table.
 - `failure_details` is populated on 100% of `provider_error` requests from feature launch.
-- A developer can identify the likely cause of a `provider_error` without leaving the Orbit UI.
+- A developer can identify the likely cause of a `provider_error` without leaving the kora UI.
 
 ### Non-Goals
 
@@ -76,7 +76,7 @@ Every inference request produces one row in `inference_usage` with 22 columns co
 - [ ] Routing section shows: routing strategy, retry count.
 - [ ] Performance section shows: latency, prompt tokens, completion tokens, cache read tokens, cache creation tokens, cache hit rate (computed), estimated cost.
 - [ ] Failure section (shown only when status is not `success`) shows: status badge, error code.
-- [ ] The modal uses the existing `Modal` component from `@orbit/terra` with `size="lg"` and a constrained scrollable body.
+- [ ] The modal uses the existing `Modal` component from `@orbit/hades` with `size="lg"` and a constrained scrollable body.
 - [ ] The modal is triggered by row click on `DataTable`, following the same pattern as `ModelDetailModal` in the Models tab.
 - [ ] The modal can be dismissed via the close button, Escape key, or clicking the backdrop.
 - [ ] No new API call is made when opening the modal — all data comes from the row already loaded in the table.
@@ -208,7 +208,7 @@ No BFF route changes are needed — the inference gateway's `GET /v1/usage` alre
 **Must Have (P0):**
 - [ ] Detail modal opens on row click with all 22 existing fields rendered in labelled sections
 - [ ] Modal matches the `ModelDetailModal` trigger pattern (`onRowClick` on `DataTable`)
-- [ ] Modal uses Terra `Modal` component with `size="lg"` and constrained body
+- [ ] Modal uses Hades `Modal` component with `size="lg"` and constrained body
 - [ ] Cache hit rate computed and shown in Performance section
 - [ ] NULL `failure_details` handled gracefully — Failure section's structured fields omitted, not shown empty
 - [ ] Goose migration adds `failure_details JSONB` (nullable) to `inference_usage`
@@ -248,7 +248,7 @@ No BFF route changes are needed — the inference gateway's `GET /v1/usage` alre
 | Dependency | Status | Notes |
 |---|---|---|
 | `inference_usage` table | Available | Migration adds one new nullable column |
-| Terra `Modal` component | Available | `size="lg"` + `constrained` body already supported |
+| Hades `Modal` component | Available | `size="lg"` + `constrained` body already supported |
 | `ModelDetailModal` pattern | Available | Row-click on `DataTable` pattern to copy from `models-tab.tsx` |
 | `ConnectorError` type | Requires extension | `HTTPStatus int` field must be added; currently HTTP status is discarded after deriving `Code` and `Retryable` |
 
@@ -272,7 +272,7 @@ None. Both layers use existing infrastructure.
 
 ### Drawer vs. Modal for the detail view
 
-A slide-over drawer would offer more vertical space and keep the table visible alongside the detail. However, the existing pattern in Orbit uses modals for row detail views (see `ModelDetailModal` in the Models tab). Introducing a drawer would require a new Terra component and establish a second interaction paradigm for the same pattern. For the field volume in Layers 1 and 2, a `size="lg"` modal with a constrained scrollable body is sufficient. This decision should be revisited if Layer 3 (content logging) ships — rendering full message threads in a 512px modal would be cramped.
+A slide-over drawer would offer more vertical space and keep the table visible alongside the detail. However, the existing pattern in kora uses modals for row detail views (see `ModelDetailModal` in the Models tab). Introducing a drawer would require a new Hades component and establish a second interaction paradigm for the same pattern. For the field volume in Layers 1 and 2, a `size="lg"` modal with a constrained scrollable body is sufficient. This decision should be revisited if Layer 3 (content logging) ships — rendering full message threads in a 512px modal would be cramped.
 
 ### Capturing `failure_details` in a separate table
 

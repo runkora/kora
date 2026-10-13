@@ -54,6 +54,7 @@ import (
 	"github.com/clear-route/orbit/internal/egressgw"
 	"github.com/clear-route/orbit/internal/egressgw/cabundle"
 	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
+	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 )
 
@@ -129,7 +130,8 @@ func realMain() error {
 	verifier := platformtoken.NewVerifierFromConfig(ctx, platformtoken.LoadConfig())
 
 	// ── Scope publisher ──────────────────────────────────────────────────────
-	registerScopes := initScopeRegistration(logger, connRegistry, registry)
+	selfToken := identityclient.NewClient(egc.Current.Identity.InternalURL, logger).SelfTokenSource()
+	registerScopes := initScopeRegistration(logger, selfToken, connRegistry, registry)
 
 	// ── Admin/read HTTP server (health + read-only connections) ──────────────
 	// Served on its OWN plain-HTTP port (AdminHTTPPort), separate from the
@@ -191,6 +193,7 @@ func realMain() error {
 		republish()
 	})
 	go connRegistry.Watch(ctx)
+	go caBundle.Watch(ctx)
 	go routescopes.KeepRegistered(ctx, logger, egressgw.ServiceName, registerScopes)
 
 	go func() {
@@ -226,8 +229,8 @@ func realMain() error {
 // gateway's connection:<name>:<action> vocabulary. It is the one entry point
 // for both the startup/self-heal loop and the registry-reload republish, so the
 // publisher itself never has to escape this function.
-func initScopeRegistration(logger logging.Logger, conns *credentials.ConfigMapRegistry, adapters *egressgw.AdapterRegistry) func(context.Context) error {
-	client := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, logger)
+func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSource, conns *credentials.ConfigMapRegistry, adapters *egressgw.AdapterRegistry) func(context.Context) error {
+	client := routescopes.NewClient(egc.Current.Policy.PolicyServiceInternalURL, selfToken, logger)
 	pub := egressgw.NewScopePublisher(conns, adapters, client, logger)
 	// tenantID "" publishes the vocabulary for every connection in the mounted
 	// registry, which is the whole registry this gateway serves.

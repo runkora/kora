@@ -1,0 +1,7 @@
+# Read by OSV-Scanner and the OpenSSF Scorecard Vulnerabilities check for the
+# Go module in this directory. Each entry ignores an advisory that does not
+# affect this module.
+
+[[IgnoredVulns]]
+id = "GO-2026-5932"
+reason = "golang.org/x/crypto/openpgp has no fixed version and is not imported by any package. x/crypto is only an indirect module dependency (verified with govulncheck)."

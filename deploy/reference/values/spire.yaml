@@ -1,11 +1,11 @@
-# What Orbit requires of SPIRE. An existing SPIRE must match these; the rest is
+# What kora requires of SPIRE. An existing SPIRE must match these; the rest is
 # chart default. The trust domain and cluster name are injected by the Helmfile
 # from the shared environment facts (global.spire.trustDomain, clusterName).
 spire-server:
   controllerManager:
     identities:
       clusterSPIFFEIDs:
-        # The chart's catch-all registration would race Orbit's own.
+        # The chart's catch-all registration would race kora's own.
         default:
           enabled: false
   nodeAttestor:
@@ -26,7 +26,6 @@ spire-agent:
   workloadAttestors:
     k8s:
       enabled: true
-      skipKubeletVerification: true
       disableContainerSelectors: true
       useNewContainerLocator: false
 

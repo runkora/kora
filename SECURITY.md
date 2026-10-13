@@ -2,7 +2,7 @@
 
 ## Overview
 
-Orbit is a platform orchestrator for AI agents that handles identity, credentials, policy enforcement, and agent execution. Security is fundamental to our mission of making autonomous agents production-grade and safe.
+kora is a platform orchestrator for AI agents that handles identity, credentials, policy enforcement, and agent execution. Security is fundamental to our mission of making autonomous agents production-grade and safe.
 
 **If you discover a security vulnerability, please report it responsibly** as described below.
 
@@ -12,7 +12,7 @@ Orbit is a platform orchestrator for AI agents that handles identity, credential
 | ------- | ------------------ |
 | main    | :white_check_mark: |
 
-As Orbit is in early development, we currently support only the main branch. Once we release versioned releases, this table will be updated to reflect our support policy.
+As kora is in early development, we currently support only the main branch. Once we release versioned releases, this table will be updated to reflect our support policy.
 
 ## Reporting a Vulnerability
 
@@ -42,9 +42,9 @@ Please include:
 - **Status Update**: Within 5 business days
 - **Fix Timeline**: Depends on severity (critical issues prioritized)
 
-## Security Considerations for Orbit
+## Security Considerations for kora
 
-Given Orbit's role as infrastructure for autonomous agents, the following areas are particularly security-sensitive:
+Given kora's role as infrastructure for autonomous agents, the following areas are particularly security-sensitive:
 
 ### Identity & Authentication
 - Agent identity validation
@@ -75,7 +75,7 @@ Given Orbit's role as infrastructure for autonomous agents, the following areas 
 
 ## Security Best Practices for Contributors
 
-When contributing to Orbit:
+When contributing to kora:
 
 1. **Never commit secrets** - No API keys, tokens, or credentials in code
 2. **Validate all inputs** - Especially agent-provided data and user inputs
@@ -100,4 +100,4 @@ Subscribe to security advisories:
 - Follow releases for security patches
 - Monitor our security advisories page
 
-Thank you for helping keep Orbit and its users safe!
+Thank you for helping keep kora and its users safe!

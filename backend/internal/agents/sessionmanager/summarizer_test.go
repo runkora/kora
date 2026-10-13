@@ -79,9 +79,9 @@ func TestSummarizer_TruncatesToMaxChars(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(messagesResponse{Content: []struct { //nolint:errcheck,errchkjson
-			Text string `json:"text"`
-		}{{Text: long}}})
+		json.NewEncoder(w).Encode(messagesResponse{ //nolint:errcheck,errchkjson
+			Content: []messagesContentBlock{{Type: "text", Text: long}},
+		})
 	}))
 	defer srv.Close()
 
@@ -142,5 +142,125 @@ func TestSummarizer_ErrorOnEmptyContent(t *testing.T) {
 	s := newSummarizer(logging.NewLogger())
 	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
 		t.Fatal("expected error for empty content, got nil")
+	}
+}
+
+// A reasoning model returns a "thinking" block before the "text" block; the
+// summary must come from the text block, not the thinking block.
+func TestSummarizer_SkipsLeadingThinkingBlock(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"thinking","thinking":"reasoning about the label..."},{"type":"text","text":"Audit the repo"}]}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	got, err := s.Summarize(context.Background(), srv.URL, "m", "x")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != "Audit the repo" {
+		t.Errorf("summary = %q, want %q", got, "Audit the repo")
+	}
+}
+
+// A reasoning model can spend its whole token budget thinking and return only
+// a thinking block; that must still surface the empty-summary error, not a
+// summary built from the thinking block's own content.
+func TestSummarizer_ErrorOnThinkingBlockOnly(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"thinking","thinking":"reasoning..."}]}`)) //nolint:errcheck
+	}))
+	defer srv.Close()
+
+	s := newSummarizer(logging.NewLogger())
+	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
+		t.Fatal("expected error when only a thinking block is returned, got nil")
+	}
+}
+
+// thinkingServer rejects any thinking setting listed in rejects with a 400,
+// records the thinking value of every request, and otherwise returns a label.
+func thinkingServer(rejects map[string]bool, seen *[]string) *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		b, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(b, &body)
+		kind := "omitted"
+		if th, ok := body["thinking"].(map[string]any); ok {
+			kind, _ = th["type"].(string)
+		}
+		*seen = append(*seen, kind)
+		w.Header().Set("Content-Type", "application/json")
+		if rejects[kind] {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"message":"unsupported thinking"}`)) //nolint:errcheck
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"content":[{"type":"thinking","thinking":"hm"},{"type":"text","text":"Label"}]}`)) //nolint:errcheck
+	}))
+}
+
+// Each thinking setting the summarizer can send must yield a summary, and a
+// rejected setting must fall through to the next one.
+func TestSummarizer_ThinkingSettings(t *testing.T) {
+	tests := []struct {
+		name    string
+		rejects map[string]bool
+		want    []string
+	}{
+		{"disabled accepted", nil, []string{"disabled"}},
+		{"disabled rejected", map[string]bool{"disabled": true}, []string{"disabled", "between_tools"}},
+		{"both rejected", map[string]bool{"disabled": true, "between_tools": true}, []string{"disabled", "between_tools", "omitted"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var seen []string
+			srv := thinkingServer(tt.rejects, &seen)
+			defer srv.Close()
+
+			s := newSummarizer(logging.NewLogger())
+			got, err := s.Summarize(context.Background(), srv.URL, "m", "x")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != "Label" {
+				t.Errorf("summary = %q, want %q", got, "Label")
+			}
+			if strings.Join(seen, ",") != strings.Join(tt.want, ",") {
+				t.Errorf("thinking settings sent = %v, want %v", seen, tt.want)
+			}
+		})
+	}
+}
+
+// A 400 on every setting is an error, and other statuses are not retried.
+func TestSummarizer_ThinkingRetryLimits(t *testing.T) {
+	var seen []string
+	srv := thinkingServer(map[string]bool{"disabled": true, "between_tools": true, "omitted": true}, &seen)
+	defer srv.Close()
+	s := newSummarizer(logging.NewLogger())
+	if _, err := s.Summarize(context.Background(), srv.URL, "m", "x"); err == nil {
+		t.Fatal("expected error when every setting is rejected")
+	}
+	if len(seen) != 3 {
+		t.Errorf("requests = %d, want 3", len(seen))
+	}
+
+	calls := 0
+	srv403 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer srv403.Close()
+	if _, err := s.Summarize(context.Background(), srv403.URL, "m", "x"); err == nil {
+		t.Fatal("expected error for 403")
+	}
+	if calls != 1 {
+		t.Errorf("requests on 403 = %d, want 1", calls)
 	}
 }

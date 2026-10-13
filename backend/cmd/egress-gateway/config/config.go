@@ -37,6 +37,12 @@ type Config struct {
 		ShutdownTimeoutSecs int    `yaml:"shutdownTimeoutSecs"`
 	} `yaml:"server"`
 
+	Identity struct {
+		// InternalURL is the in-cluster base URL for identity. The gateway
+		// exchanges its SVID there for the platform token it registers routes with.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"identity"`
+
 	Policy struct {
 		// BundleEndpoint is the base URL for the policy-service bundle polling endpoint.
 		BundleEndpoint string `yaml:"bundleEndpoint"`

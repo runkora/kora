@@ -12,13 +12,14 @@ observability:
 workspaces:
   basePath: /workspaces
 
+# orbit-agents overrides this with ORBIT_AGENTS_URL from its system namespace.
 orbitAgents:
   url: "http://orbit-agents.orbit-system.svc.cluster.local"
 
 # Settings shared by every agent framework.
 runner:
-  # Applies Landlock and a PID namespace before the agent execs, for every
-  # framework. See docs/adr/2026-06-04-per-session-home-isolation.md.
+  # Applies Landlock before the agent execs, for every framework.
+  # See docs/adr/2026-06-04-per-session-home-isolation.md.
   wrapperPath: orbit-session-runner
   # The orbit-shell proxy. Exposed under a "bash" basename by
   # Dockerfile.session-manager, since shell detection keys on that.
@@ -34,27 +35,13 @@ codex:
 opencode:
   binaryPath: opencode
 
-# inferenceGateway is used by the Codex and OpenCode runners (and the run
-# summarizer) to construct per-run base URLs.
-#
-# Claude reads ANTHROPIC_BASE_URL directly from the pod environment, which the
-# operator injects at StatefulSet creation time (internal/agents/k8s.go), so
-# this value does not affect Claude runs.
-#
-# Codex and OpenCode cannot follow the same pattern: Codex requires a custom
-# provider declaration in config.toml to set wire_api = "responses" (an
-# env-var-only approach has no equivalent field), and OpenCode requires a
-# provider block in opencode.json. Both files are written at session start
-# by the respective runners, which need this URL to do so. Extending the
-# operator to inject per-framework env vars for every future runner type
-# would couple it to runner implementation details; centralising the value
-# here keeps that concern inside the session-manager.
+# inferenceGateway is the base for per-run Codex, OpenCode and summarizer URLs;
+# orbit-agents overrides it with ORBIT_INFERENCE_GATEWAY_URL from its system namespace.
 inferenceGateway:
   url: "http://orbit-inference-gateway.orbit-system.svc.cluster.local"
 
-# toolGateway is the in-mesh MCP tool-gateway. Its URL is written into each run's
-# MCP config so the agent reaches governed tools through the gateway; the agent
-# calls it unauthenticated and the identity-proxy sidecar injects the token.
+# toolGateway is the MCP tool-gateway written into each run's MCP config; the identity-proxy sidecar adds the token.
+# orbit-agents overrides it with ORBIT_TOOL_GATEWAY_URL from its system namespace.
 toolGateway:
   url: "http://orbit-tool-gateway.orbit-system.svc.cluster.local"
 

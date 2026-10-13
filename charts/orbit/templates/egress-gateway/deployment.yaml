@@ -16,10 +16,10 @@ spec:
         {{- include "orbit.egressGateway.selectorLabels" . | nindent 8 }}
         {{- include "orbit.egressGateway.labels" . | nindent 8 }}
         spiffe.io/component: egress-gateway
-        orbit.io/identity-proxy: "enabled"
         {{- include "orbit.podLabels" (dict "root" $ "name" "egressGateway") | nindent 8 }}
       annotations:
-        {{- include "orbit.spireProxyAnnotations" (dict "root" $ "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
+        checksum/config: {{ include (print $.Template.BasePath "/egress-gateway/config.yaml") . | sha256sum }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "egressGateway") | nindent 8 }}
     spec:
       serviceAccountName: orbit-egress-gateway
@@ -28,7 +28,8 @@ spec:
       securityContext:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
-        {{- include "orbit.spireVolumes" (dict "identityProxy" true) | nindent 8 }}
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
+        {{- include "orbit.configVolume" (dict "root" $ "name" "egressGateway" "configMap" "orbit-egress-gateway-config" "modules" (include "orbit.egressGateway.configModules" . | fromYaml)) | nindent 8 }}
         # Per-tenant CA and connection material aggregated by the operator into the
         # system namespace; optional so the gateway starts before any tenant exists.
         - name: tenant-cas
@@ -52,15 +53,10 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "egressGateway") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
+          {{- with .Values.egressGateway.extraEnv }}
           env:
-            - name: ORBIT_OTLP_ENDPOINT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "otlpEndpoint" "default" .Values.global.observability.otlpEndpoint) | quote }}
-            - name: ORBIT_SAMPLING_RATE
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "samplingRate" "default" .Values.global.observability.samplingRate) | quote }}
-            - name: ORBIT_LOG_FORMAT
-              value: {{ include "orbit.serviceConfig" (dict "root" $ "name" "egressGateway" "field" "logFormat" "default" .Values.global.logFormat) | quote }}
-            {{- include "orbit.extraEnv" (dict "root" $ "name" "egressGateway") | nindent 12 }}
-          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           ports:
             - name: connect
               containerPort: {{ .Values.egressGateway.connectPort }}
@@ -86,6 +82,7 @@ spec:
             {{- toYaml .Values.egressGateway.resources | nindent 12 }}
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}
             - name: tenant-cas
               mountPath: /var/run/orbit/tenant-ca
               readOnly: true
@@ -96,4 +93,3 @@ spec:
               mountPath: /var/run/orbit/connections
               readOnly: true
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "egressGateway") | nindent 12 }}
-        {{- include "orbit.identityProxyContainer" (dict "root" $) | nindent 8 }}

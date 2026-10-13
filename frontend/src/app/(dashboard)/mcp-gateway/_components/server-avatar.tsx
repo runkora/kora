@@ -1,14 +1,14 @@
 /** @tier 3 — mcp-gateway-scoped. The square initial tile for an MCP server. */
 'use client';
 
-import { Text } from '@orbit/terra';
+import { Text } from '@orbit/hades';
 
 const SIZES = { xs: 22, sm: 28, md: 38, lg: 56 } as const;
 const FONT = { xs: 10, sm: 13, md: 15, lg: 22 } as const;
 
 interface ServerAvatarProps {
   name: string;
-  /** The first-party Orbit server gets the accent tile; everything else neutral. */
+  /** The first-party kora server gets the accent tile; everything else neutral. */
   accent?: boolean;
   size?: keyof typeof SIZES;
 }

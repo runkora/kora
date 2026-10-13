@@ -11,9 +11,11 @@ function validateCreateRequest(body: TriggerCreateRequest): string | null {
   const kind = body.kind ?? 'webhook';
   switch (kind) {
     case 'webhook':
-      // event_type is legal empty: it means every event the source emits.
       if (!body.source_id) {
         return 'source_id is required for webhook triggers';
+      }
+      if (!body.event_type?.trim()) {
+        return 'event_type is required for webhook triggers';
       }
       return null;
     case 'scheduled':
@@ -54,9 +56,11 @@ export const POST = withAuth(async (req: NextRequest, session) => {
     agent_type_id: body.agent_type_id,
     event_type: body.event_type,
     match_condition: body.match_condition ?? {},
+    match_contains: body.match_contains,
     prompt_template: body.prompt_template,
     schedule_config: body.schedule_config,
     manual_config: body.manual_config,
+    sender_restriction: body.sender_restriction,
     max_parallel: body.max_parallel,
     overflow: body.overflow,
     max_queue_depth: body.max_queue_depth,

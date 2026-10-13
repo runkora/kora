@@ -1,4 +1,4 @@
-// Package mcp is the reusable platform kit for building gateway-fronted Orbit
+// Package mcp is the reusable platform kit for building gateway-fronted kora
 // MCP servers on the official Go MCP SDK (github.com/modelcontextprotocol/go-sdk).
 //
 // It owns the platform seams so each MCP server is "just its tools": the

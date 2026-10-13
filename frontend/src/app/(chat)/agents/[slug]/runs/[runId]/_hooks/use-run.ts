@@ -7,9 +7,12 @@ import type {
   AgentTurn,
   AgentElement,
   CanvasState,
+  CanvasView,
   RunState,
-  ToolIconName,
+  ToolCall,
+  LiveActivity,
 } from '../_types';
+import { describeTool } from '../_lib/tool-activity';
 
 // ── In-progress turn accumulator ─────────────────────────────────────────────
 
@@ -21,7 +24,23 @@ interface InProgress {
   // already built from deltas. During replay, no text_delta events fire, so
   // this stays false and message_complete.text (trailing text) is used instead.
   hasSeenTextDelta: boolean;
+  // true once the turn's time comes from a recorded event. Streamed deltas are
+  // not replayed, so a turn is stamped by its first recorded event on reload;
+  // live turns take the same time once that event arrives.
+  stamped: boolean;
 }
+
+// Events recorded in run_events: the ones a reload replays.
+const RECORDED = new Set([
+  'text_block',
+  'tool_use',
+  'tool_result',
+  'message_complete',
+  'turn_stopped',
+  'run_error',
+  'api_retry',
+  'sandbox_status',
+]);
 
 // ── Event payload shapes ──────────────────────────────────────────────────────
 
@@ -35,15 +54,24 @@ interface ToolUsePayload {
   id: string;
   name: string;
   input?: Record<string, unknown>;
+  parent_tool_use_id?: string;
 }
 interface ToolResultPayload {
   tool_use_id: string;
+  parent_tool_use_id?: string;
   content?: unknown;
   is_error?: boolean;
+  truncated?: boolean;
+  original_bytes?: number;
+}
+interface ToolProgressPayload {
+  tool_use_id: string;
+  elapsed_seconds: number;
 }
 interface MessageCompletePayload {
   text: string;
   thinking?: string;
+  interrupted?: boolean;
 }
 interface RunStatePayload {
   state: RunState;
@@ -51,6 +79,20 @@ interface RunStatePayload {
 interface RunErrorPayload {
   code: string;
   message: string;
+}
+interface ApiRetryPayload {
+  attempt: number;
+  max_retries: number;
+  error?: string;
+}
+interface SandboxStatusPayload {
+  phase: string;
+  elapsed_ms: number;
+}
+interface GuardrailWarningPayload {
+  kind: string;
+  count: number;
+  tool: string;
 }
 
 // ── Hook return type ──────────────────────────────────────────────────────────
@@ -73,9 +115,17 @@ export interface UseRunReturn extends RunChatState {
   isPending: boolean;
   /** True when runState is starting or active — covers initial navigation and mid-turn reconnects. */
   isBusy: boolean;
+  /** True while the run is pending or starting. It takes no messages until it is active. */
+  isStarting: boolean;
   /** SSE connection lifecycle status — surfaced in the UI as a banner when not 'open'. */
   connectionStatus: ConnectionStatus;
+  /** What the agent is doing while nothing visible streams; null when not busy. */
+  liveActivity: LiveActivity | null;
+  /** Render every tool call rather than grouping them. */
+  showAllCalls: boolean;
+  setShowAllCalls: (show: boolean) => void;
   openCanvas: (viewId: string) => void;
+  openToolInCanvas: (tool: ToolCall) => void;
   closeCanvas: () => void;
   switchTab: (tabId: string) => void;
   addHumanMessage: (content: string) => void;
@@ -84,10 +134,13 @@ export interface UseRunReturn extends RunChatState {
   reconnect: () => void;
 }
 
+const SANDBOX_STARTING = new Set(['provisioning', 'pod_ready']);
+
 // ── useRun ────────────────────────────────────────────────────────────────────
 
 export function useRun(runId: string, slug: string): UseRunReturn {
-  const [runState, setRunState] = useState<RunState>('pending');
+  // Null until the API or the stream reports the run's state.
+  const [runState, setRunState] = useState<RunState | null>(null);
   const [agentName, setAgentName] = useState('Agent');
   // Empty until the run's agent type metadata resolves — the model is injected
   // from the created agent (agent_type.model_id), never hardcoded here.
@@ -115,12 +168,38 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     tabs: [],
     activeTabId: null,
   });
+  const [views, setViews] = useState<Record<string, CanvasView>>({});
+  const [showAllCalls, setShowAllCalls] = useState(false);
+  // Status line inputs: a sandbox being started, a provider retry, and when the
+  // agent last showed any sign of life (browser time).
+  const [sandboxSince, setSandboxSince] = useState<number | null>(null);
+  const [retry, setRetry] = useState<{
+    attempt: number;
+    maxRetries: number;
+    error: string;
+  } | null>(null);
+  const [lastActivityAt, setLastActivityAt] = useState(() => Date.now());
 
   const inProgressRef = useRef<InProgress | null>(null);
   // RAF handle for batching text_delta / thinking_delta state flushes to ~60fps.
   const rafHandleRef = useRef<number | null>(null);
   // Tracks optimistically-added human messages so the echoed SSE event is skipped.
   const pendingHumanMessages = useRef<string[]>([]);
+  // Messages sent mid-turn, by turn id, and whether a tool boundary or turn end
+  // has passed since: the agent reads a queued message at the next boundary, so
+  // its next output after one means the message was delivered.
+  const queuedRef = useRef<Map<string, boolean>>(new Map());
+  const runStateRef = useRef<RunState | null>(null);
+  const humanSeq = useRef(0);
+  // Monotonic ids for turns: replayed events arrive within one millisecond.
+  const turnSeq = useRef(0);
+  // A message sent mid-turn splits the turn so the bubble sits where it was
+  // sent. What the first part already streamed is carried over, so the
+  // turn's message_complete does not repeat it in the second part.
+  const splitStreamed = useRef({ text: false, thinking: false });
+  const lastActivityRef = useRef(0);
+  // Calls a mid-turn message moved into a committed part of their turn.
+  const splitToolIds = useRef<Set<string>>(new Set());
 
   // Refresh the live run-usage meter from the gateway (spend + tokens). Stable
   // per runId so it can be called from both the mount effect and the SSE
@@ -164,6 +243,31 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     }
   }, [loadUsage]);
 
+  // Adds a human message to the transcript. A message sent mid-turn splits the
+  // turn so the bubble sits after what the agent had already said, live and on
+  // replay alike; the agent's later output starts a new turn below it.
+  const appendHuman = useCallback((turn: Turn) => {
+    const inProgress = inProgressRef.current;
+    if (!inProgress) {
+      setCommittedTurns((prev) => [...prev, turn]);
+      return;
+    }
+    if (rafHandleRef.current !== null) {
+      cancelAnimationFrame(rafHandleRef.current);
+      rafHandleRef.current = null;
+    }
+    splitStreamed.current = {
+      text: inProgress.hasSeenTextDelta,
+      thinking: !!inProgress.thinkingContent,
+    };
+    for (const el of inProgress.turn.elements) {
+      if (el.kind === 'tool') splitToolIds.current.add(el.tool.id);
+    }
+    inProgressRef.current = null;
+    setInProgressTurn(null);
+    setCommittedTurns((prev) => [...prev, inProgress.turn, turn]);
+  }, []);
+
   // Fetch initial run + agent type metadata, the per-run budget ceiling, and
   // the opening usage snapshot.
   useEffect(() => {
@@ -186,6 +290,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
           };
         }) => {
           if (body.data?.state) {
+            runStateRef.current = body.data.state;
             setRunState(body.data.state);
           }
           if (typeof body.data?.summary === 'string') {
@@ -217,6 +322,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     // Capture the throttle state object for the cleanup below — the ref's
     // .current is mutated but never reassigned, so this stays the live object.
     const usageRefresh = usageRefreshRef.current;
+    const queued = queuedRef.current;
 
     // EventSource auto-reconnects on transient drops using the Last-Event-ID
     // protocol. `onopen` fires both on first connect and on a successful
@@ -254,16 +360,47 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       }
     }
 
-    function flushInProgress(): void {
+    // Commits the in-progress turn. endRunning marks calls still running as
+    // stopped: the turn ended (an error, the run settling) without their results.
+    function flushInProgress(endRunning = false): void {
       if (rafHandleRef.current !== null) {
         cancelAnimationFrame(rafHandleRef.current);
         rafHandleRef.current = null;
       }
+      splitStreamed.current = { text: false, thinking: false };
+      if (endRunning) {
+        // A turn split by a mid-turn message may hold calls in a committed part.
+        setCommittedTurns((prev) =>
+          prev.some((t) => t.type === 'agent' && stopRunningTools(t) !== t)
+            ? prev.map((t) => (t.type === 'agent' ? stopRunningTools(t) : t))
+            : prev,
+        );
+      }
       if (!inProgressRef.current) return;
-      const completed = inProgressRef.current.turn;
+      const turn = inProgressRef.current.turn;
+      const completed = endRunning ? stopRunningTools(turn) : turn;
       inProgressRef.current = null;
       setCommittedTurns((prev) => [...prev, completed]);
       setInProgressTurn(null);
+    }
+
+    // Time of the event being handled, from the server's envelope. Turns and
+    // calls take their times from it, so a reload shows when things happened.
+    let eventTime = '';
+    let eventAt: number | undefined;
+    let eventRecorded = false;
+    function read<T>(e: MessageEvent): T | null {
+      const parsed = parseEnvelope<T>(e.data);
+      if (!parsed) return null;
+      eventTime = parsed.time;
+      eventAt = parsed.at ?? undefined;
+      eventRecorded = RECORDED.has(e.type);
+      const current = inProgressRef.current;
+      if (current && !current.stamped && eventRecorded && eventTime) {
+        current.stamped = true;
+        current.turn = { ...current.turn, timestamp: eventTime };
+      }
+      return parsed.payload;
     }
 
     function ensureInProgress(): AgentTurn {
@@ -272,11 +409,16 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         setIsPending(false);
         const turn: AgentTurn = {
           type: 'agent',
-          id: `a-${Date.now()}`,
-          timestamp: new Date().toTimeString().slice(0, 8),
+          id: `a-${++turnSeq.current}`,
+          timestamp: eventTime,
           elements: [],
         };
-        inProgressRef.current = { turn, thinkingContent: '', hasSeenTextDelta: false };
+        inProgressRef.current = {
+          turn,
+          thinkingContent: '',
+          hasSeenTextDelta: false,
+          stamped: eventRecorded,
+        };
       }
       return inProgressRef.current.turn;
     }
@@ -302,9 +444,75 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       }
     }
 
+    function appendElement(el: AgentElement): void {
+      ensureInProgress();
+      updateInProgress((turn) => ({ ...turn, elements: [...turn.elements, el] }), true);
+    }
+
+    // Apply a change to one tool call, wherever its turn is: a result can land
+    // after message_stop flushed the turn, or during replay.
+    function patchTool(id: string, patch: (tool: ToolCall) => ToolCall): void {
+      const has = (turn: AgentTurn) =>
+        turn.elements.some((el) => el.kind === 'tool' && el.tool.id === id);
+      const apply = (turn: AgentTurn): AgentTurn =>
+        has(turn)
+          ? {
+              ...turn,
+              elements: turn.elements.map((el) =>
+                el.kind === 'tool' && el.tool.id === id ? { ...el, tool: patch(el.tool) } : el,
+              ),
+            }
+          : turn;
+      if (
+        inProgressRef.current?.turn.elements.some((el) => el.kind === 'tool' && el.tool.id === id)
+      ) {
+        updateInProgress(apply, true);
+        return;
+      }
+      setCommittedTurns((prev) =>
+        prev.some((t) => t.type === 'agent' && has(t))
+          ? prev.map((t) => (t.type === 'agent' ? apply(t) : t))
+          : prev,
+      );
+    }
+
+    // At most one state update a second: the status line only counts seconds,
+    // and one per token would defeat the frame batching of text deltas.
+    function markActivity(): void {
+      const now = Date.now();
+      if (now - lastActivityRef.current < 1000) return;
+      lastActivityRef.current = now;
+      setLastActivityAt(now);
+    }
+
+    // The agent produced output: it is alive, any provider retry is over, and
+    // a queued message whose boundary has passed has been read.
+    function agentActed(): void {
+      markActivity();
+      setIsPending(false);
+      setRetry(null);
+      markDelivered([...queued].filter(([, boundary]) => boundary).map(([id]) => id));
+    }
+
+    function markDelivered(delivered: string[]): void {
+      if (delivered.length === 0) return;
+      for (const id of delivered) queued.delete(id);
+      setCommittedTurns((prev) =>
+        prev.map((t) =>
+          t.type === 'human' && delivered.includes(t.id) ? { ...t, delivery: 'delivered' } : t,
+        ),
+      );
+    }
+
+    // A tool boundary or turn end: queued messages are read before the next output.
+    function boundaryPassed(): void {
+      for (const id of queued.keys()) queued.set(id, true);
+    }
+
     es.addEventListener('text_delta', (e: MessageEvent) => {
-      const payload = safeParse<TextDeltaPayload>(e.data);
+      const payload = read<TextDeltaPayload>(e);
       if (!payload) return;
+      agentActed();
       ensureInProgress();
       if (inProgressRef.current) inProgressRef.current.hasSeenTextDelta = true;
       updateInProgress((turn) => {
@@ -320,21 +528,15 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('text_block', (e: MessageEvent) => {
-      const payload = safeParse<{ content: string }>(e.data);
+      const payload = read<{ content: string }>(e);
       if (!payload?.content) return;
-      ensureInProgress();
-      updateInProgress(
-        (turn) => ({
-          ...turn,
-          elements: [...turn.elements, { kind: 'text' as const, content: payload.content }],
-        }),
-        true,
-      );
+      appendElement({ kind: 'text', content: payload.content });
     });
 
     es.addEventListener('thinking_delta', (e: MessageEvent) => {
-      const payload = safeParse<ThinkingDeltaPayload>(e.data);
+      const payload = read<ThinkingDeltaPayload>(e);
       if (!payload) return;
+      agentActed();
       ensureInProgress();
       const newContent = (inProgressRef.current?.thinkingContent ?? '') + payload.delta;
       if (inProgressRef.current) inProgressRef.current.thinkingContent = newContent;
@@ -349,61 +551,91 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('tool_use', (e: MessageEvent) => {
-      const payload = safeParse<ToolUsePayload>(e.data);
+      const payload = read<ToolUsePayload>(e);
       if (!payload) return;
-      ensureInProgress();
-      const firstVal = payload.input ? Object.values(payload.input)[0] : '';
-      const arg = String(firstVal ?? '').slice(0, 80);
-      const toolEl: AgentElement = {
+      if (!payload.parent_tool_use_id) agentActed();
+      const el: AgentElement = {
         kind: 'tool',
         tool: {
           id: payload.id,
-          icon: deriveToolIcon(payload.name),
           name: payload.name,
-          arg,
+          input: payload.input ?? {},
           status: 'running',
           result: '',
+          parentId: payload.parent_tool_use_id || undefined,
+          startedAt: eventAt,
+          receivedAt: Date.now(),
         },
       };
-      updateInProgress((turn) => ({ ...turn, elements: [...turn.elements, toolEl] }), true);
+      // A subagent whose Agent call a mid-turn message moved into a committed
+      // part keeps its calls with that call, so they still nest under it.
+      const parent = payload.parent_tool_use_id;
+      if (parent && splitToolIds.current.has(parent)) {
+        setCommittedTurns((prev) =>
+          prev.map((t) =>
+            t.type === 'agent' && t.elements.some((x) => x.kind === 'tool' && x.tool.id === parent)
+              ? { ...t, elements: [...t.elements, el] }
+              : t,
+          ),
+        );
+      } else {
+        appendElement(el);
+      }
       // A tool_use block means the model just finished an LLM call (its usage
       // row is now written) — refresh the meter so spend climbs mid-turn.
       scheduleUsageRefresh();
     });
 
     es.addEventListener('tool_result', (e: MessageEvent) => {
-      const payload = safeParse<ToolResultPayload>(e.data);
+      const payload = read<ToolResultPayload>(e);
       if (!payload) return;
-      const resultStr =
+      markActivity();
+      // Only the main thread reads queued messages; a subagent's result is not its boundary.
+      if (!payload.parent_tool_use_id) boundaryPassed();
+      const result =
         typeof payload.content === 'string'
           ? payload.content
-          : JSON.stringify(payload.content ?? {});
-      const patch = (turn: AgentTurn): AgentTurn => ({
-        ...turn,
-        elements: turn.elements.map((el) => {
-          if (el.kind !== 'tool' || el.tool.id !== payload.tool_use_id) return el;
-          return {
-            ...el,
-            tool: {
-              ...el.tool,
-              status: payload.is_error ? ('error' as const) : ('done' as const),
-              result: resultStr.slice(0, 120),
-            },
-          };
-        }),
+          : JSON.stringify(payload.content ?? '');
+      const endedAt = eventAt;
+      patchTool(payload.tool_use_id, (tool) => ({
+        ...tool,
+        status: payload.is_error ? 'error' : 'done',
+        result,
+        truncated: payload.truncated || undefined,
+        originalBytes: payload.original_bytes,
+        endedAt,
+      }));
+    });
+
+    es.addEventListener('tool_progress', (e: MessageEvent) => {
+      const payload = read<ToolProgressPayload>(e);
+      if (!payload) return;
+      patchTool(payload.tool_use_id, (tool) => ({
+        ...tool,
+        progressSeconds: payload.elapsed_seconds,
+      }));
+    });
+
+    es.addEventListener('api_retry', (e: MessageEvent) => {
+      const payload = read<ApiRetryPayload>(e);
+      if (!payload) return;
+      setRetry({
+        attempt: payload.attempt,
+        maxRetries: payload.max_retries,
+        error: payload.error ?? '',
       });
-      if (inProgressRef.current) {
-        updateInProgress(patch, true);
-      } else {
-        // The turn was already flushed (replay, or message_stop raced a trailing
-        // tool_result). updateInProgress would no-op here, leaving the tool stuck
-        // on "running" — instead patch the committed turn that holds the tool.
-        setCommittedTurns((prev) => prev.map((t) => (t.type === 'agent' ? patch(t) : t)));
-      }
+    });
+
+    es.addEventListener('sandbox_status', (e: MessageEvent) => {
+      const payload = read<SandboxStatusPayload>(e);
+      if (!payload) return;
+      setSandboxSince(
+        SANDBOX_STARTING.has(payload.phase) ? Date.now() - (payload.elapsed_ms ?? 0) : null,
+      );
     });
 
     es.addEventListener('message_complete', (e: MessageEvent) => {
-      const payload = safeParse<MessageCompletePayload>(e.data);
+      const payload = read<MessageCompletePayload>(e);
 
       // During replay, text/thinking deltas are not re-sent — only the stored
       // message_complete payload carries the content. Detect replay by checking
@@ -413,8 +645,10 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         // the content already). During replay — both old runs (message_complete
         // carries all text) and new runs (text_block events carried pre-tool text,
         // message_complete carries trailing text) — it is false.
-        const hasSeenTextDelta = inProgressRef.current?.hasSeenTextDelta ?? false;
-        const hasStreamedThinking = !!inProgressRef.current?.thinkingContent;
+        const hasSeenTextDelta =
+          !!inProgressRef.current?.hasSeenTextDelta || splitStreamed.current.text;
+        const hasStreamedThinking =
+          !!inProgressRef.current?.thinkingContent || splitStreamed.current.thinking;
 
         if (!hasSeenTextDelta && payload.text) {
           ensureInProgress();
@@ -432,12 +666,47 @@ export function useRun(runId: string, slug: string): UseRunReturn {
             thinking: { content, durationSeconds: 0, tokenCount: 0 },
           }));
         }
+        // A partial turn stays open: the turn_stopped or run_error that follows
+        // closes it, so its marker lands in the same turn as its text.
+        if (payload.interrupted) return;
       }
 
+      boundaryPassed();
       flushInProgress();
       // Turn complete — refresh the meter (throttled; the terminal/idle
       // run_state handler does a final exact true-up).
       scheduleUsageRefresh();
+    });
+
+    es.addEventListener('turn_stopped', (e: MessageEvent) => {
+      const stop = read<{ reason: string }>(e);
+      if (!stop) return;
+      ensureInProgress();
+      updateInProgress(
+        (turn) => ({
+          ...turn,
+          elements: [
+            ...turn.elements.map((el) =>
+              el.kind === 'tool' && el.tool.status === 'running'
+                ? { ...el, tool: { ...el.tool, status: 'stopped' as const } }
+                : el,
+            ),
+            stop.reason === 'guardrail'
+              ? { kind: 'stopped' as const, byGuardrail: true }
+              : { kind: 'stopped' as const },
+          ],
+        }),
+        true,
+      );
+      flushInProgress();
+      setRetry(null);
+      setSandboxSince(null);
+    });
+
+    es.addEventListener('guardrail_warning', (e: MessageEvent) => {
+      const payload = read<GuardrailWarningPayload>(e);
+      if (!payload) return;
+      appendElement({ kind: 'notice', message: guardrailMessage(payload) });
     });
 
     es.addEventListener('message_stop', () => {
@@ -445,7 +714,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     });
 
     es.addEventListener('run_state', (e: MessageEvent) => {
-      const payload = safeParse<RunStatePayload>(e.data);
+      const payload = read<RunStatePayload>(e);
       if (!payload?.state) return;
       // Flush any in-progress turn when the run goes idle (e.g. after an interrupt).
       // This ensures the interrupted turn is committed before any follow-up human
@@ -456,49 +725,78 @@ export function useRun(runId: string, slug: string): UseRunReturn {
         payload.state === 'failed' ||
         payload.state === 'budget_exhausted'
       ) {
-        flushInProgress();
+        // The run settled with the message in hand: a runtime that reads a
+        // message within the turn (Codex, OpenCode) may produce nothing after it.
+        markDelivered([...queued.keys()]);
+        flushInProgress(true);
+        setIsPending(false);
+        setRetry(null);
+        setSandboxSince(null);
         // Final true-up of the usage meter when the run settles (terminal or
         // idle between turns) — catches any spend the last turn added.
         loadUsage();
       }
+      if (payload.state === 'active') markActivity();
+      runStateRef.current = payload.state;
       setRunState(payload.state);
     });
 
     es.addEventListener('human_message', (e: MessageEvent) => {
-      const payload = safeParse<{ content: string }>(e.data);
+      const payload = read<{ content: string }>(e);
       if (!payload?.content) return;
       // Skip if we sent this message ourselves (already optimistically rendered).
       const idx = pendingHumanMessages.current.indexOf(payload.content);
       if (idx !== -1) {
         pendingHumanMessages.current.splice(idx, 1);
+        // The optimistic bubble takes the server's time from its echo.
+        const time = eventTime;
+        setCommittedTurns((prev) => {
+          const at = prev.findIndex(
+            (t) => t.type === 'human' && t.content === payload.content && !t.timestamp,
+          );
+          if (at === -1) return prev;
+          const next = [...prev];
+          next[at] = { ...next[at], timestamp: time } as Turn;
+          return next;
+        });
         return;
       }
-      setCommittedTurns((prev) => [
-        ...prev,
-        {
-          type: 'human' as const,
-          id: `h-${Date.now()}`,
-          content: payload.content,
-          timestamp: new Date().toTimeString().slice(0, 8),
-        },
-      ]);
+      appendHuman({
+        type: 'human',
+        id: `h-${++turnSeq.current}`,
+        content: payload.content,
+        timestamp: eventTime,
+      });
     });
 
     es.addEventListener('run_error', (e: MessageEvent) => {
-      const payload = safeParse<RunErrorPayload>(e.data);
+      const payload = read<RunErrorPayload>(e);
       if (!payload) return;
-      flushInProgress();
+      setRetry(null);
+      const friendly = RUN_ERROR_MESSAGES[payload.code];
+      // A lost sandbox does not end the turn: the agent carries on, so the
+      // error sits in the turn where it happened.
+      if (TURN_CONTINUES.has(payload.code) && inProgressRef.current) {
+        appendElement({ kind: 'notice', tone: 'error', message: friendly ?? payload.message });
+        return;
+      }
+      flushInProgress(true);
+      setIsPending(false);
+      const time = eventTime;
+      const id = `err-${++turnSeq.current}`;
       setCommittedTurns((prev) => [
         ...prev,
         {
           type: 'error' as const,
-          id: `err-${Date.now()}`,
-          timestamp: new Date().toTimeString().slice(0, 8),
+          id,
+          timestamp: time,
           code: payload.code,
-          message: payload.message,
+          message: friendly ?? payload.message,
+          detail: friendly ? payload.message : undefined,
         },
       ]);
-      setRunState('failed');
+      // Run state comes only from run_state events: most errors end a turn,
+      // not the run, and the backend reports the run's state separately.
     });
 
     return () => {
@@ -516,7 +814,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     // tears down the current EventSource and opens a fresh one. loadUsage /
     // scheduleUsageRefresh are stable per runId, so they never re-subscribe the
     // stream on their own.
-  }, [runId, reconnectKey, loadUsage, scheduleUsageRefresh]);
+  }, [runId, reconnectKey, loadUsage, scheduleUsageRefresh, appendHuman]);
 
   function reconnect(): void {
     // Clear accumulated turns before opening a fresh EventSource. The new
@@ -532,6 +830,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     }
     inProgressRef.current = null;
     pendingHumanMessages.current = [];
+    queuedRef.current.clear();
+    splitToolIds.current.clear();
     setCommittedTurns([]);
     setInProgressTurn(null);
     setIsPending(false);
@@ -539,8 +839,24 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     setReconnectKey((k) => k + 1);
   }
 
-  function openCanvas(): void {
-    // Canvas views are not yet populated from SSE — deferred to canvas feature.
+  function openCanvas(viewId: string): void {
+    setCanvasState((prev) =>
+      prev.tabs.some((t) => t.id === viewId)
+        ? { ...prev, isOpen: true, activeTabId: viewId }
+        : prev,
+    );
+  }
+
+  function openToolInCanvas(tool: ToolCall): void {
+    const view = toolCanvasView(tool);
+    setViews((prev) => ({ ...prev, [view.id]: view }));
+    setCanvasState((prev) => ({
+      isOpen: true,
+      activeTabId: view.id,
+      tabs: prev.tabs.some((t) => t.id === view.id)
+        ? prev.tabs
+        : [...prev.tabs, { id: view.id, label: view.title }],
+    }));
   }
 
   function closeCanvas(): void {
@@ -553,20 +869,42 @@ export function useRun(runId: string, slug: string): UseRunReturn {
 
   function addHumanMessage(content: string): void {
     pendingHumanMessages.current.push(content);
+    humanSeq.current += 1;
+    const id = `h-sent-${humanSeq.current}`;
+    // Claude Code reads a message sent mid-turn at its next tool boundary, so
+    // it is shown queued until the agent acts after one.
+    const agentWorking = runStateRef.current === 'active' || inProgressRef.current !== null;
+    if (agentWorking) queuedRef.current.set(id, false);
     const turn: Turn = {
       type: 'human',
-      id: `h-${Date.now()}`,
+      id,
       content,
-      timestamp: new Date().toTimeString().slice(0, 8),
+      timestamp: '',
+      delivery: agentWorking ? 'queued' : undefined,
     };
     setIsPending(true);
-    setCommittedTurns((prev) => [...prev, turn]);
+    appendHuman(turn);
 
+    const fail = (error: string) => {
+      const i = pendingHumanMessages.current.indexOf(content);
+      if (i !== -1) pendingHumanMessages.current.splice(i, 1);
+      queuedRef.current.delete(id);
+      setIsPending(false);
+      setCommittedTurns((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, delivery: 'failed' as const, error } : t)),
+      );
+    };
     void fetch(`/api/agents/runs/${runId}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content }),
-    }).catch(() => undefined);
+    })
+      .then(async (res) => {
+        if (res.ok) return;
+        const body = (await res.json().catch(() => ({}))) as { message?: string };
+        fail(body.message ?? `The message was not sent (${res.status}).`);
+      })
+      .catch(() => fail('The message was not sent: the server could not be reached.'));
   }
 
   function interruptRun(): void {
@@ -574,6 +912,8 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   }
 
   const allTurns: Turn[] = inProgressTurn ? [...committedTurns, inProgressTurn] : committedTurns;
+  const isBusy = runState === 'starting' || runState === 'active';
+  const isStarting = runState === 'pending' || runState === 'starting';
 
   return {
     runId,
@@ -587,15 +927,20 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     turns: allTurns,
     isStreaming: inProgressTurn !== null,
     isPending,
-    isBusy: runState === 'starting' || runState === 'active',
+    isStarting,
+    isBusy,
     connectionStatus,
+    liveActivity: isBusy ? deriveActivity(allTurns, retry, sandboxSince, lastActivityAt) : null,
+    showAllCalls,
+    setShowAllCalls,
     spentUsd,
     perRunLimitUsd,
     tokensUsed,
     contextFiles: [],
     canvasState,
-    views: {},
+    views,
     openCanvas,
+    openToolInCanvas,
     closeCanvas,
     switchTab,
     addHumanMessage,
@@ -606,57 +951,124 @@ export function useRun(runId: string, slug: string): UseRunReturn {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function safeParse<T>(data: string): T | null {
+function stopRunningTools(turn: AgentTurn): AgentTurn {
+  if (!turn.elements.some((el) => el.kind === 'tool' && el.tool.status === 'running')) return turn;
+  return {
+    ...turn,
+    elements: turn.elements.map((el) =>
+      el.kind === 'tool' && el.tool.status === 'running'
+        ? { ...el, tool: { ...el.tool, status: 'stopped' as const } }
+        : el,
+    ),
+  };
+}
+
+const TURN_CONTINUES = new Set(['sandbox_lost']);
+
+const RUN_ERROR_MESSAGES: Record<string, string> = {
+  sandbox_lost:
+    'The sandbox was lost. Files in the workspace are kept; anything elsewhere in the sandbox is gone.',
+  loop_detected: 'Orbit paused this run because the agent was repeating itself. Reply to continue.',
+};
+
+function guardrailMessage(p: GuardrailWarningPayload): string {
+  const what =
+    p.kind === 'wait_rearm'
+      ? `${p.tool} re-armed ${p.count} times with no new output`
+      : `${p.tool} called ${p.count} times with the same input`;
+  return `Orbit asked the agent to change approach: ${what}.`;
+}
+
+/**
+ * What the status line shows, in order of what the user most needs to know: a
+ * provider retry, a sandbox starting, the running main-thread tool, or thinking.
+ */
+export function deriveActivity(
+  turns: Turn[],
+  retry: { attempt: number; maxRetries: number; error: string } | null,
+  sandboxSince: number | null,
+  lastActivityAt: number,
+): LiveActivity {
+  if (retry) return { kind: 'retry', ...retry };
+  if (sandboxSince !== null) return { kind: 'sandbox', since: sandboxSince };
+  // Calls left running by an earlier turn are marked stopped when it settles,
+  // so the latest running call is live, however many messages were sent since.
+  let current: ToolCall | undefined;
+  for (let i = turns.length - 1; i >= 0 && !current; i--) {
+    const t = turns[i];
+    if (t.type !== 'agent') continue;
+    current = t.elements
+      .flatMap((el) => (el.kind === 'tool' && el.tool.status === 'running' ? [el.tool] : []))
+      .filter((tool) => !tool.parentId)
+      .at(-1);
+  }
+  if (current) return { kind: 'tool', tool: current, since: callStart(current) ?? lastActivityAt };
+  return { kind: 'thinking', since: lastActivityAt };
+}
+
+/**
+ * When a running call started, by the server's clock, so a reload does not
+ * restart its count; the browser's arrival time when the server gave none.
+ */
+export function callStart(tool: ToolCall): number | undefined {
+  return tool.startedAt ?? tool.receivedAt;
+}
+
+/** A canvas view for a call's full result: terminal output, a diff, or text. */
+function toolCanvasView(tool: ToolCall): CanvasView {
+  const id = `tool-${tool.id}`;
+  const d = describeTool(tool.name, tool.input);
+  const title = d.target ? `${d.label} ${d.target}`.slice(0, 60) : d.label;
+  if (d.kind === 'command') {
+    return {
+      id,
+      type: 'terminal',
+      title,
+      command: String(tool.input.command ?? ''),
+      output: tool.result
+        .split('\n')
+        .map((content) => ({ kind: tool.status === 'error' ? 'error' : 'normal', content })),
+    };
+  }
+  return {
+    id,
+    type: 'code',
+    title,
+    code: prettyJson(tool.result) ?? tool.result,
+    lineCount: tool.result.split('\n').length,
+  };
+}
+
+/** Pretty-printed JSON, or null when the text is not a JSON object or array. */
+export function prettyJson(text: string): string | null {
+  const t = text.trim();
+  if (!(t.startsWith('{') || t.startsWith('['))) return null;
   try {
-    return JSON.parse(data) as T;
+    return JSON.stringify(JSON.parse(t), null, 2);
   } catch {
     return null;
   }
 }
 
-function deriveToolIcon(name: string): ToolIconName {
-  const n = name.toLowerCase();
-  if (
-    n === 'bash' ||
-    n === 'execute' ||
-    n.includes('shell') ||
-    n.includes('run') ||
-    n.includes('command')
-  )
-    return 'square-terminal';
-  if (n.includes('read') || n.includes('view') || n.includes('cat') || n.includes('open'))
-    return 'file-text';
-  if (
-    n.includes('write') ||
-    n.includes('edit') ||
-    n.includes('create') ||
-    n.includes('update') ||
-    n.includes('patch')
-  )
-    return 'edit';
-  if (
-    n.includes('search') ||
-    n.includes('find') ||
-    n.includes('grep') ||
-    n.includes('glob') ||
-    n.includes('list')
-  )
-    return 'search';
-  if (
-    n.includes('database') ||
-    n.includes('provision') ||
-    n.includes('sql') ||
-    n.includes('query') ||
-    n.includes('db')
-  )
-    return 'database';
-  if (
-    n.includes('web') ||
-    n.includes('fetch') ||
-    n.includes('http') ||
-    n.includes('url') ||
-    n.includes('request')
-  )
-    return 'external-link';
-  return 'wrench';
+/**
+ * Unwraps an SSE event: `{"at": <RFC 3339>, "payload": <event>}`. `at` is the
+ * server's time for the event; `time` is it as local HH:MM:SS. A bare payload
+ * (an orbit-agents that predates the envelope) parses with no time.
+ */
+export function parseEnvelope<T>(
+  data: string,
+): { payload: T; time: string; at: number | null } | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(data);
+  } catch {
+    return null;
+  }
+  if (parsed && typeof parsed === 'object' && 'at' in parsed && 'payload' in parsed) {
+    const env = parsed as { at: string; payload: T };
+    const at = new Date(env.at).getTime();
+    if (Number.isNaN(at)) return { payload: env.payload, time: '', at: null };
+    return { payload: env.payload, time: new Date(at).toTimeString().slice(0, 8), at };
+  }
+  return { payload: parsed as T, time: '', at: null };
 }

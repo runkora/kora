@@ -21,17 +21,16 @@ import {
   Stack,
   Text,
   Textarea,
-} from '@orbit/terra';
-import { ConfirmDialog } from '@orbit/components';
+  ConfirmDialog,
+} from '@orbit/hades';
 import type { AgentFramework } from '@orbit/shared/api';
 import { FrameworkCards } from '../../_components/motif/framework-cards';
 import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-cards';
 import { ModelPicker } from '@orbit/components';
 import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
-import { PlatformToolsCard } from '../../_components/motif/platform-tools-card';
 import { ConnectionCards } from '@orbit/components';
 import { EgressModeCards } from '../../_components/motif/egress-mode-cards';
-import { EnvironmentCard } from '../../_components/motif/environment-card';
+import { EnvironmentsCard } from '../../_components/motif/environments-card';
 import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
 import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
 import { PlannedLimits } from '../../_components/motif/planned-limits';
@@ -52,9 +51,14 @@ function SectionLabel({ title, desc }: { title: string; desc: string }) {
   );
 }
 
-export function AgentConfigurationTab() {
+interface AgentConfigurationTabProps {
+  /** The rail step to open on, for a link from another tab. */
+  initialSection?: string | undefined;
+}
+
+export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConfigurationTabProps) {
   const cfg = useAgentConfiguration();
-  const [active, setActive] = useState('identity');
+  const [active, setActive] = useState(initialSection);
   // Capacity has a stored value on every live agent; "off" here means "leave
   // it as it is", so the row dims but nothing is unset on save.
   const [capacityOn, setCapacityOn] = useState(true);
@@ -70,6 +74,7 @@ export function AgentConfigurationTab() {
     runBudgetUsd: cfg.budgetPerRunUSD || '5.00',
     capacityOn,
     capacity: cfg.maxConcurrentRuns,
+    ...cfg.loopGuardrails,
   };
 
   const onGuardrailChange = <K extends keyof GuardrailValues>(
@@ -97,6 +102,16 @@ export function AgentConfigurationTab() {
         break;
       case 'capacity':
         cfg.setMaxConcurrentRuns(String(value));
+        break;
+      case 'repeatedCallOn':
+      case 'waitRearmOn':
+        cfg.setLoopGuardrail(key, Boolean(value));
+        break;
+      case 'repeatedCallWarn':
+      case 'repeatedCallPause':
+      case 'waitRearmWarn':
+      case 'waitRearmPause':
+        cfg.setLoopGuardrail(key, String(value));
         break;
     }
   };
@@ -163,9 +178,10 @@ export function AgentConfigurationTab() {
                 value={cfg.systemPrompt}
                 onChange={(e) => cfg.setSystemPrompt(e.target.value)}
                 rows={5}
+                resize="vertical"
               />
             </FormField>
-            <Separator span="full" />
+            <Separator />
             <Stack gap="cozy">
               <Text as="span" size="caption" weight="heavy" color="muted">
                 Framework
@@ -199,7 +215,7 @@ export function AgentConfigurationTab() {
             <SectionHeading
               icon="wrench"
               title="Tools & access"
-              description="The MCP servers, platform capabilities, and connections this agent may call. Every call is checked before it runs."
+              description="The MCP servers and connections this agent may call. Every call is checked before it runs."
             />
             <Text as="span" size="supporting" color="muted">
               <Text as="span" size="supporting" weight="heavy" color="accent">
@@ -220,19 +236,7 @@ export function AgentConfigurationTab() {
               granted={cfg.mcpTools}
               onChange={cfg.setMcpTools}
             />
-            <Separator span="full" />
-            <Stack gap="cozy">
-              <SectionLabel
-                title="Platform tools"
-                desc="Direct platform capabilities granted to the agent, beyond MCP servers."
-              />
-              <PlatformToolsCard
-                scopes={cfg.availableToolScopes}
-                granted={cfg.toolScopes}
-                onChange={cfg.setToolScopes}
-              />
-            </Stack>
-            <Separator span="full" />
+            <Separator />
             <Stack gap="cozy">
               <SectionLabel
                 title="Connections"
@@ -253,7 +257,7 @@ export function AgentConfigurationTab() {
             <SectionHeading
               icon="network"
               title="Network access"
-              description="The hosts the agent may reach, and the environment merged into its effective access."
+              description="The hosts the agent may reach, and the environments it can run in."
             />
             <Stack gap="cozy">
               <SectionLabel title="Network egress" desc="The hosts the agent may reach directly." />
@@ -266,13 +270,15 @@ export function AgentConfigurationTab() {
             </Stack>
             <Stack gap="cozy">
               <SectionLabel
-                title="Environment"
-                desc="An environment merges its egress hosts and connections into the agent's effective access."
+                title="Environments"
+                desc="The sandboxes this agent can run in. Their egress hosts and connections join the agent's effective access."
               />
-              <EnvironmentCard
-                environments={cfg.environments}
-                value={cfg.environmentId}
-                onChange={cfg.setEnvironmentId}
+              <EnvironmentsCard
+                environments={cfg.environmentCatalogue.data}
+                value={cfg.environments}
+                onChange={cfg.setEnvironments}
+                loading={cfg.environmentCatalogue.status === 'loading'}
+                error={cfg.environmentCatalogue.error}
               />
             </Stack>
             <EffectiveAccessPanel
@@ -289,12 +295,12 @@ export function AgentConfigurationTab() {
             <SectionHeading
               icon="shield"
               title="Guardrails"
-              description="Set the ceilings Orbit enforces at runtime: spend and capacity limits."
+              description="Set the ceilings kora enforces at runtime: spend, capacity and loop limits."
             />
             <Stack direction="horizontal" align="baseline" gap="snug">
               <Eyebrow>Limits</Eyebrow>
               <Text as="span" size="micro" color="subtle">
-                Every limit is optional. Switch on the ones you want Orbit to enforce.
+                Every limit is optional. Switch on the ones you want kora to enforce.
               </Text>
             </Stack>
             <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />

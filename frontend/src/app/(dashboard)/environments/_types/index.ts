@@ -3,14 +3,20 @@
 // EnvironmentRow is the shape consumed by the UI. The raw API shape
 // (Environment) only appears at the service-layer boundary.
 
-import type { Environment, Connector } from '@orbit/shared/api';
+import type { Environment, Connector, EnvironmentSize } from '@orbit/shared/api';
 
 export type { Connector };
 
 export interface EnvironmentRow {
   id: string;
+  /** What agents select the environment by. */
+  slug: string;
+  /** The environment's name for people. */
   name: string;
   description: string;
+  /** SandboxImage name. */
+  sandboxImage: string;
+  size: EnvironmentSize;
   egressHosts: string[];
   connectors: Connector[];
   createdAt: string;
@@ -22,8 +28,12 @@ export interface EnvironmentRow {
 export function toEnvironmentRow(e: Environment): EnvironmentRow {
   return {
     id: e.id,
+    // An orbit-agents from the previous release sends only name, which is then the slug.
+    slug: e.slug || e.name,
     name: e.name,
     description: e.description,
+    sandboxImage: e.sandbox_image,
+    size: e.size,
     egressHosts: e.egress_hosts ?? [],
     connectors: e.connectors ?? [],
     createdAt: e.created_at,

@@ -1,59 +1,65 @@
 package storage
 
 import (
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
 	"fmt"
 	"os"
-	"strconv"
 )
 
-// RedisConfig holds Redis connection and pool configuration.
-// Non-secret tunables (port, pool sizes, timeouts) are loaded from YAML under the "redis" key.
-// Host and Password are always loaded from environment variables.
+// RedisConfig holds Redis connection and pool configuration, loaded from YAML
+// under the "redis" key. The password comes from REDIS_PASSWORD.
 type RedisConfig struct {
-	Port                   int  `yaml:"port"`
-	DB                     int  `yaml:"db"`
-	MaxRetries             int  `yaml:"maxRetries"`
-	DialTimeoutSeconds     int  `yaml:"dialTimeoutSeconds"`
-	ReadTimeoutSeconds     int  `yaml:"readTimeoutSeconds"`
-	WriteTimeoutSeconds    int  `yaml:"writeTimeoutSeconds"`
-	PoolSize               int  `yaml:"poolSize"`
-	MinIdleConns           int  `yaml:"minIdleConns"`
-	ConnMaxIdleTimeMinutes int  `yaml:"connMaxIdleTimeMinutes"`
-	TLSEnabled             bool `yaml:"tlsEnabled"`
+	Host                   string `yaml:"host"`
+	Port                   int    `yaml:"port"`
+	DB                     int    `yaml:"db"`
+	MaxRetries             int    `yaml:"maxRetries"`
+	DialTimeoutSeconds     int    `yaml:"dialTimeoutSeconds"`
+	ReadTimeoutSeconds     int    `yaml:"readTimeoutSeconds"`
+	WriteTimeoutSeconds    int    `yaml:"writeTimeoutSeconds"`
+	PoolSize               int    `yaml:"poolSize"`
+	MinIdleConns           int    `yaml:"minIdleConns"`
+	ConnMaxIdleTimeMinutes int    `yaml:"connMaxIdleTimeMinutes"`
+	TLSEnabled             bool   `yaml:"tlsEnabled"`
+	// CAFile is a PEM bundle that signs the Redis certificate. Empty uses the system roots.
+	CAFile string `yaml:"caFile"`
+	// ServerName overrides the name verified against the Redis certificate.
+	ServerName string `yaml:"serverName"`
 
-	// Loaded from environment variables — never from YAML.
-	Host     string `yaml:"-"`
+	// Loaded from REDIS_PASSWORD, never from YAML.
 	Password string `yaml:"-"`
 }
 
-// loadRedisConfig overlays environment-variable credentials and optional
-// per-field overrides onto a RedisConfig that has already been populated
-// from YAML. It is called by LoadStorageConfig.
-//
-// Explicit env var overrides let local dev change individual settings (e.g.
-// ORBIT_REDIS_TLS_ENABLED=false) without needing APP_ENV-based YAML branching.
+// loadRedisConfig checks the YAML host and reads the password from the
+// environment. It is called by LoadStorageConfig.
 func loadRedisConfig(cfg *RedisConfig) error {
-	cfg.Host = os.Getenv("REDIS_HOST")
 	if cfg.Host == "" {
-		return fmt.Errorf("REDIS_HOST environment variable is required")
+		return errors.New("redis.host must be set")
 	}
-
 	cfg.Password = os.Getenv("REDIS_PASSWORD")
 	if cfg.Password == "" {
 		return fmt.Errorf("REDIS_PASSWORD environment variable is required")
 	}
-
-	if port := os.Getenv("REDIS_PORT"); port != "" {
-		if p, err := strconv.Atoi(port); err == nil {
-			cfg.Port = p
-		}
-	}
-
-	// Explicit override — takes precedence over YAML when set.
-	// Used by local dev to disable TLS without an APP_ENV-specific YAML file.
-	if v := os.Getenv("ORBIT_REDIS_TLS_ENABLED"); v != "" {
-		cfg.TLSEnabled = v == "true" || v == "1"
-	}
-
 	return nil
+}
+
+// tlsConfig returns the client TLS settings, or nil when TLS is disabled.
+func (c *RedisConfig) tlsConfig() (*tls.Config, error) {
+	if !c.TLSEnabled {
+		return nil, nil
+	}
+	tc := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: c.ServerName}
+	if c.CAFile != "" {
+		pem, err := os.ReadFile(c.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read redis.caFile: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("redis.caFile %q contains no PEM certificates", c.CAFile)
+		}
+		tc.RootCAs = pool
+	}
+	return tc, nil
 }

@@ -9,7 +9,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { fmtUsd, fmtTokens, fmtNumCompact } from '@orbit/utils';
 import { StatRow } from './stat-row';
 
@@ -27,7 +27,7 @@ function CardDivider() {
   return (
     <Stack asChild>
       <figure className="my-3 m-0">
-        <Separator span="full" />
+        <Separator />
       </figure>
     </Stack>
   );

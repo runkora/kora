@@ -1,14 +1,14 @@
 # Documentation
 
-Use this index to find Orbit's guides, architecture, engineering reference, and decision records.
+Use this index to find kora's guides, architecture, engineering reference, and decision records.
 
 ## Guides
 
-- [Deployment](guides/deployment.md): install Orbit in a Kubernetes cluster.
+- [Deployment](guides/deployment.md): install kora in a Kubernetes cluster.
 - [Tenants](guides/tenants.md): onboard a tenant so its team can sign in and get their own workspace.
 - [Model providers](guides/model-providers.md): connect the platform to upstream inference providers.
 - [Connections](guides/connections.md): register external services agents can reach without holding credentials.
-- [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against Orbit.
+- [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
 - [MCP servers](guides/mcp-servers.md): give agents and humans governed access to a set of tools.
 - [Local development](guides/local-development.md): set up the development environment and work against the local cluster.
 - [Troubleshooting](guides/troubleshooting.md): diagnose common failures in the local environment.
@@ -18,7 +18,7 @@ Use this index to find Orbit's guides, architecture, engineering reference, and 
 
 ## Architecture
 
-The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole. The pages here go deeper into the three questions Orbit answers for every production agent.
+The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole. The pages here go deeper into the three questions kora answers for every production agent.
 
 ### Who is this agent?
 
@@ -45,12 +45,12 @@ The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole
 - [Configuration](configuration/config.md): typed service configuration and environment overlays.
 - [Secrets](configuration/secrets.md): secret sources, projection, and rotation responsibilities.
 - [Observability](observability/README.md): logging, tracing, and telemetry configuration.
-- [Frontend documentation](../frontend/docs/README.md): Terra, component placement, state patterns, and frontend conventions.
+- [Frontend documentation](../frontend/docs/README.md): Hades, component placement, state patterns, and frontend conventions.
 - [Agent development guide](../AGENTS.md): the complete machine-enforced coding rules used by development agents.
 
 ## Decision records
 
-Orbit uses a PRD to agree the problem and scope, then an ADR to record the technical decision before significant implementation begins.
+kora uses a PRD to agree the problem and scope, then an ADR to record the technical decision before significant implementation begins.
 
 - [Product requirements](prd/README.md): accepted requirements and feature scope.
 - [Architecture decisions](adr/README.md): the technical decisions and their consequences.

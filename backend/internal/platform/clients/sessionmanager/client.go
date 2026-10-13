@@ -28,6 +28,10 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
+// ErrCodeSandboxUnschedulable marks orbit-agents' 503 for a sandbox pod that no node could place.
+// The error message is the scheduler's reason.
+const ErrCodeSandboxUnschedulable = "sandbox_unschedulable"
+
 const (
 	tracerName    = "orbit.sessionmanager-client"
 	clientTimeout = 30 * time.Second
@@ -42,6 +46,16 @@ var (
 	// ErrUnexpectedStatus is returned when the pod returns an unexpected HTTP status.
 	ErrUnexpectedStatus = errors.New("unexpected status from session-manager")
 )
+
+// StatusError carries the HTTP status of a response the pod rejected. It wraps
+// the sentinel, so errors.Is keeps working.
+type StatusError struct {
+	StatusCode int
+	Err        error
+}
+
+func (e *StatusError) Error() string { return e.Err.Error() }
+func (e *StatusError) Unwrap() error { return e.Err }
 
 // TokenFunc returns the caller's own platform token. orbit-agents supplies
 // identity.Client.SelfTokenSource(), which exchanges the pod's SPIRE SVID for a
@@ -92,20 +106,35 @@ func PodURL(slug string, ordinal int, namespace string) string {
 // (the dependency direction would be backwards) and a shared type in internal/platform/ would
 // pull session-manager domain concepts into the platform layer.
 type CreateSessionRequest struct {
-	RunID        string   `json:"run_id"`
-	AgentTypeID  string   `json:"agent_type_id"`
-	TenantID     string   `json:"tenant_id"`
-	Framework    string   `json:"framework,omitempty"`
-	Model        string   `json:"model,omitempty"`
-	AllowedTools []string `json:"allowed_tools,omitempty"`
-	SystemPrompt string   `json:"system_prompt,omitempty"`
+	RunID        string `json:"run_id"`
+	AgentTypeID  string `json:"agent_type_id"`
+	TenantID     string `json:"tenant_id"`
+	Framework    string `json:"framework,omitempty"`
+	Model        string `json:"model,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
 	// MCPServers are the distinct MCP servers the agent has tool grants on; the
 	// runner provisions one governed endpoint (/v1/mcp/<server>) per entry.
 	MCPServers []string `json:"mcp_servers,omitempty"`
-	// ProvisionSandbox asks the session-manager to provision this run's sandbox
-	// immediately, rather than waiting for the agent to ask for one. It provisions
-	// in the background, so the session is created either way.
-	ProvisionSandbox bool `json:"provision_sandbox,omitempty"`
+	// Guardrails are the run's thresholds; a zero field takes the
+	// session-manager's default (docs/adr/2026-09-29-agent-run-guardrails.md).
+	Guardrails RunGuardrails `json:"guardrails"`
+	// IdleTimeoutSecs is how long the run may stay idle before its session
+	// closes. Zero takes the session-manager's default.
+	IdleTimeoutSecs int `json:"idle_timeout_secs,omitempty"`
+	// Triggered marks a run a trigger started.
+	Triggered bool `json:"triggered,omitempty"`
+}
+
+// RunGuardrails carries the install's sandbox settings and the agent type's
+// loop thresholds for one run.
+type RunGuardrails struct {
+	SandboxProvisionAttempts    int `json:"sandbox_provision_attempts,omitempty"`
+	SandboxProvisionBackoffSecs int `json:"sandbox_provision_backoff_secs,omitempty"`
+	SandboxProvisionBudgetSecs  int `json:"sandbox_provision_budget_secs,omitempty"`
+	RepeatedCallWarn            int `json:"repeated_call_warn,omitempty"`
+	RepeatedCallPause           int `json:"repeated_call_pause,omitempty"`
+	WaitRearmWarn               int `json:"wait_rearm_warn,omitempty"`
+	WaitRearmPause              int `json:"wait_rearm_pause,omitempty"`
 }
 
 // CreateSession starts a new agent subprocess on the target pod.
@@ -138,14 +167,23 @@ func (c *Client) CreateSession(ctx context.Context, podURL string, req CreateSes
 	case http.StatusConflict:
 		return c.HandleErrorResponse(span, resp, ErrSessionConflict)
 	default:
-		return c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+		return &StatusError{StatusCode: resp.StatusCode, Err: c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)}
 	}
 }
 
 // SendMessage delivers a user message to an active session on the target pod.
+// A non-zero idleTimeoutSecs replaces the session's idle timeout from this message on.
+// fromPerson marks a message a person sent.
 // Returns ErrSessionNotFound if no session exists for the given run ID.
-func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string) error {
-	body, err := c.EncodeJSON(map[string]string{"content": content})
+func (c *Client) SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int, fromPerson bool) error {
+	payload := map[string]any{"content": content}
+	if idleTimeoutSecs > 0 {
+		payload["idle_timeout_secs"] = idleTimeoutSecs
+	}
+	if fromPerson {
+		payload["from_person"] = true
+	}
+	body, err := c.EncodeJSON(payload)
 	if err != nil {
 		return fmt.Errorf("encode send message: %w", err)
 	}

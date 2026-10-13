@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"slices"
 	"testing"
 )
 
@@ -79,118 +80,92 @@ func TestGitHubAdapter_HeaderExtraction(t *testing.T) {
 	}
 }
 
-func TestGitHubAdapter_Fields_PullRequest(t *testing.T) {
+func TestGitHubAdapter_Sender(t *testing.T) {
 	a := &githubAdapter{}
-	body := []byte(`{
-		"action":"opened",
-		"pull_request":{"number":42,"title":"Add widget","html_url":"https://x/pull/42",
-			"head":{"ref":"feature","sha":"deadbeef"},"base":{"ref":"main"},"user":{"login":"alice"}},
-		"repository":{"full_name":"acme/widgets","default_branch":"main"},
-		"sender":{"login":"bob"}}`)
-
-	f := a.Fields("pull_request", body)
-	want := map[string]string{
-		"event":          "pull_request",
-		"action":         "opened",
-		"repo.full_name": "acme/widgets",
-		"sender.login":   "bob",
-		"pr.number":      "42",
-		"pr.title":       "Add widget",
-		"pr.url":         "https://x/pull/42",
-		"pr.head_ref":    "feature",
-		"pr.head_sha":    "deadbeef",
-		"pr.base_ref":    "main",
-		"pr.author":      "alice",
+	tests := []struct {
+		name      string
+		body      string
+		wantOK    bool
+		wantLogin string
+		wantAssoc string
+	}{
+		{
+			name:   "issue comment by its author",
+			body:   `{"sender":{"login":"Alice"},"comment":{"user":{"login":"alice"},"author_association":"MEMBER"}}`,
+			wantOK: true, wantLogin: "alice", wantAssoc: "MEMBER",
+		},
+		{
+			name:   "review by its author",
+			body:   `{"sender":{"login":"bob"},"review":{"user":{"login":"bob"},"author_association":"COLLABORATOR"},"pull_request":{"user":{"login":"carol"},"author_association":"OWNER"}}`,
+			wantOK: true, wantLogin: "bob", wantAssoc: "COLLABORATOR",
+		},
+		{
+			name:   "discussion answer",
+			body:   `{"sender":{"login":"dan"},"answer":{"user":{"login":"dan"},"author_association":"OWNER"}}`,
+			wantOK: true, wantLogin: "dan", wantAssoc: "OWNER",
+		},
+		{
+			name:   "pull request opened by its author",
+			body:   `{"sender":{"login":"erin"},"pull_request":{"user":{"login":"erin"},"author_association":"CONTRIBUTOR"}}`,
+			wantOK: true, wantLogin: "erin", wantAssoc: "CONTRIBUTOR",
+		},
+		{
+			name:   "pull request labeled by someone else",
+			body:   `{"sender":{"login":"frank"},"pull_request":{"user":{"login":"erin"},"author_association":"MEMBER"}}`,
+			wantOK: true, wantLogin: "frank", wantAssoc: "",
+		},
+		{
+			name:   "push carries no association",
+			body:   `{"sender":{"login":"gina"},"pusher":{"name":"gina"}}`,
+			wantOK: true, wantLogin: "gina", wantAssoc: "",
+		},
+		{
+			name:   "no sender",
+			body:   `{"action":"published"}`,
+			wantOK: false,
+		},
 	}
-	for k, v := range want {
-		if f[k] != v {
-			t.Errorf("field %q = %q, want %q", k, f[k], v)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, ok := a.Sender("", decodeBody([]byte(tt.body)))
+			if ok != tt.wantOK || s.Login != tt.wantLogin || s.Association != tt.wantAssoc {
+				t.Errorf("Sender = (%+v, %v), want login %q association %q ok %v", s, ok, tt.wantLogin, tt.wantAssoc, tt.wantOK)
+			}
+		})
+	}
+}
+
+func TestGitHubAdapter_Schema(t *testing.T) {
+	c, err := BuildCatalog((&githubAdapter{}).Schema())
+	if err != nil {
+		t.Fatalf("BuildCatalog: %v", err)
+	}
+	types := c.EventTypes()
+	for _, want := range []string{"issue_comment", "issues", "pull_request", "pull_request_review", "push", "workflow_run"} {
+		if !slices.Contains(types, want) {
+			t.Errorf("event types are missing %s", want)
 		}
 	}
-}
-
-func TestGitHubAdapter_Fields_Push(t *testing.T) {
-	a := &githubAdapter{}
-	body := []byte(`{"ref":"refs/heads/main","before":"aaa","after":"bbb",
-		"head_commit":{"message":"fix bug"},"repository":{"full_name":"acme/widgets"},"sender":{"login":"carol"}}`)
-
-	f := a.Fields("push", body)
-	if f["push.ref"] != "refs/heads/main" {
-		t.Errorf("push.ref = %q", f["push.ref"])
+	fields := map[string]Field{}
+	for _, f := range c.Fields("issue_comment") {
+		fields[f.Path] = f
 	}
-	if f["push.branch"] != "main" {
-		t.Errorf("push.branch = %q, want main", f["push.branch"])
+	if f := fields["comment.body"]; f.Group != "comment" {
+		t.Errorf("comment.body = %+v, want it in the comment group", f)
 	}
-	if f["push.commit_message"] != "fix bug" {
-		t.Errorf("push.commit_message = %q", f["push.commit_message"])
+	action := fields["action"]
+	if action.Group != eventGroup {
+		t.Errorf("action group = %q, want %q", action.Group, eventGroup)
 	}
-	if f["repo.full_name"] != "acme/widgets" {
-		t.Errorf("repo.full_name = %q", f["repo.full_name"])
-	}
-}
-
-func TestGitHubAdapter_Fields_Issues(t *testing.T) {
-	a := &githubAdapter{}
-	body := []byte(`{"action":"opened",
-		"issue":{"number":7,"title":"Login button does nothing","body":"Clicking login is a no-op on Safari.","html_url":"https://x/issues/7","user":{"login":"dave"}},
-		"repository":{"full_name":"acme/widgets","default_branch":"main"},"sender":{"login":"dave"}}`)
-
-	f := a.Fields("issues", body)
-	want := map[string]string{
-		"event":          "issues",
-		"action":         "opened",
-		"issue.number":   "7",
-		"issue.title":    "Login button does nothing",
-		"issue.body":     "Clicking login is a no-op on Safari.",
-		"issue.url":      "https://x/issues/7",
-		"issue.author":   "dave",
-		"repo.full_name": "acme/widgets",
-		"sender.login":   "dave",
-	}
-	for k, v := range want {
-		if f[k] != v {
-			t.Errorf("field %q = %q, want %q", k, f[k], v)
+	for _, want := range []string{"created", "edited", "deleted"} {
+		if !slices.Contains(action.Enum, want) {
+			t.Errorf("action enum %v is missing %q", action.Enum, want)
 		}
 	}
-}
-
-func TestGitHubAdapter_Fields_IssuesLabeled(t *testing.T) {
-	a := &githubAdapter{}
-	body := []byte(`{"action":"labeled",
-		"label":{"name":"bug-smith"},
-		"issue":{"number":12,"title":"Crash on startup","body":"stack trace...","html_url":"https://x/issues/12","user":{"login":"erin"}},
-		"repository":{"full_name":"acme/widgets"},"sender":{"login":"justin"}}`)
-
-	f := a.Fields("issues", body)
-	if f["action"] != "labeled" {
-		t.Errorf("action = %q, want labeled", f["action"])
+	if _, ok := fields["comment.reactions.+1"]; ok {
+		t.Error("a key outside the field grammar must be skipped")
 	}
-	if f["label.name"] != "bug-smith" {
-		t.Errorf("label.name = %q, want bug-smith", f["label.name"])
-	}
-	if f["issue.number"] != "12" {
-		t.Errorf("issue.number = %q, want 12", f["issue.number"])
-	}
-	// A trigger gating on the label should match this delivery.
-	cond := map[string][]string{"action": {"labeled"}, "label.name": {"bug-smith"}}
-	if !matchesCondition(cond, f) {
-		t.Error("expected match for {action:labeled, label.name:bug-smith}")
-	}
-	// A different label must NOT match.
-	cond2 := map[string][]string{"action": {"labeled"}, "label.name": {"wontfix"}}
-	if matchesCondition(cond2, f) {
-		t.Error("expected no match for a different label")
-	}
-}
-
-func TestGitHubAdapter_Fields_Malformed(t *testing.T) {
-	a := &githubAdapter{}
-	// Garbage body must not panic and yields empty optional fields.
-	f := a.Fields("pull_request", []byte(`not json`))
-	if f["event"] != "pull_request" {
-		t.Errorf("event should still be set, got %q", f["event"])
-	}
-	if f["pr.number"] != "" {
-		t.Errorf("expected empty pr.number for malformed body, got %q", f["pr.number"])
+	if _, ok := fields[metaEventType]; !ok {
+		t.Error("meta fields must be appended")
 	}
 }

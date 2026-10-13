@@ -1,7 +1,7 @@
 ---
 name: new-feature
 description: >-
-  Kick off a new Orbit feature the disciplined way — a guided, planning-only workflow that
+  Kick off a new kora feature the disciplined way — a guided, planning-only workflow that
   produces an approved PRD and an approved, indexed ADR, ready to hand off to implementation.
   Runs an accessible interview (no jargon), drafts docs/prd/{slug}.md from the template, hard-stops
   for approval, then drafts docs/adr/{date}-{slug}.md, registers it in the ADR index, and hard-stops
@@ -12,7 +12,7 @@ description: >-
 
 # Start a new feature: PRD → ADR, planning only
 
-A repeatable workflow for opening a new Orbit feature the way `AGENTS.md` mandates: **PRD first,
+A repeatable workflow for opening a new kora feature the way `AGENTS.md` mandates: **PRD first,
 then ADR, then (separately) implementation**. This skill drives the two planning phases and stops.
 
 > **The defining principle: plan the feature so the implementation is obvious, then stop.**
@@ -24,7 +24,7 @@ then ADR, then (separately) implementation**. This skill drives the two planning
 
 Before anything else, internalise the house style. **Read two or three recent docs of *comparable
 weight* first** (`ls docs/prd/`, `ls docs/adr/`) and mirror their shape. The templates
-(`docs/prd/template.md`, `docs/adr/template.md`) are a *menu, not a checklist*. Ceremony in Orbit
+(`docs/prd/template.md`, `docs/adr/template.md`) are a *menu, not a checklist*. Ceremony in kora
 scales with architectural impact — a doc should be exactly as heavy as its feature, no heavier and
 no lighter. There are two ends of the range; place the feature on it first, then pick a neighbour to
 mirror.
@@ -80,9 +80,9 @@ until the PRD is approved, never declare done until the ADR is approved. Surface
 for approval in plain words, and wait. "Looks good / approved / continue" means go; anything else is
 a revision request — revise and re-present.
 
-**Interview in plain language.** Ask questions a brand-new Orbit engineer could answer — "what's
+**Interview in plain language.** Ask questions a brand-new kora engineer could answer — "what's
 broken today?", "how do people work around it now?", "how would we know it worked?". Build context
-progressively: each answer sharpens the next question. Don't interrogate the user with Orbit's
+progressively: each answer sharpens the next question. Don't interrogate the user with kora's
 internal vocabulary.
 
 ---
@@ -173,7 +173,7 @@ approves. Default shape: Context → Options Considered → Decision → Impleme
 First deepen the Phase 0 research into a real understanding of the affected code: the feature
 package(s), the conventions they follow (repository pattern, typed platform clients, config loading,
 controller-based routing), and any existing ADRs this builds on. **Propose** options grounded in how
-Orbit already does things — don't ask the user to invent them cold.
+kora already does things — don't ask the user to invent them cold.
 
 Then interview on the decision:
 
@@ -194,9 +194,9 @@ section. Don't invent these for a lean feature; do build them for a subsystem.
 
 ### Security & identity — only when the feature actually touches it
 
-Orbit's spine is *Who is this agent? What can it access? How does it connect?* **Most features don't
+kora's spine is *Who is this agent? What can it access? How does it connect?* **Most features don't
 touch any of these** — a spend card, a filter, a reporting page, a frontend change. Don't force the
-framing into docs that don't need it; real Orbit ADRs for ordinary features never mention it.
+framing into docs that don't need it; real kora ADRs for ordinary features never mention it.
 
 **Only when** the feature genuinely involves identity (minting/delegating/attributing a principal),
 access control (a new action that must be policy-checked before it runs), or outbound connectivity

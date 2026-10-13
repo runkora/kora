@@ -10,6 +10,8 @@ for chart in orbit-crds orbit; do
   cosign sign --yes --key env://COSIGN_KEY "${REGISTRY}/${IMAGE_NAMESPACE}/charts/${chart}@${digest}"
 done
 
-while read -r ref; do
+# images.txt also lists the third-party images the chart pins, such as OPA. The
+# release can sign only the images it publishes under its own namespace.
+grep "^${REGISTRY}/${IMAGE_NAMESPACE}/" images.txt | while read -r ref; do
   cosign sign --yes --key env://COSIGN_KEY "${ref}"
-done < images.txt
+done

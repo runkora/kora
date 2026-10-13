@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # =============================================================================
-# redeploy.sh: build, push, and restart a single Orbit service in the k3d
+# redeploy.sh: build, push, and restart a single kora service in the k3d
 # cluster. Driven by the per-service registry below so every service uses the
 # same entry point, and edge cases (identity's mkcert CA layer, session-manager
-# living in a tenant namespace as a StatefulSet, sandbox-exec being build-only)
+# living in a tenant namespace as a StatefulSet, sandbox-base being build-only)
 # are encoded in one place instead of scattered across the Makefile.
 #
 # Usage:
@@ -13,7 +13,7 @@
 #   scripts/cluster/redeploy.sh identity
 #   scripts/cluster/redeploy.sh frontend
 #   scripts/cluster/redeploy.sh session-manager --tenant example
-#   scripts/cluster/redeploy.sh sandbox-exec --build-only   # build & push only
+#   scripts/cluster/redeploy.sh sandbox-base --build-only   # build & push only
 #
 # To add a new service, register it in the `service_spec` function below.
 # =============================================================================
@@ -34,7 +34,7 @@ info() { printf "%s\n" "${C_BLUE}ℹ $*${C_RESET}"; }
 
 usage() {
   cat <<EOF
-${C_BOLD}redeploy.sh${C_RESET}: build, push, and restart an Orbit service.
+${C_BOLD}redeploy.sh${C_RESET}: build, push, and restart a kora service.
 
 Usage:
   $0 <service> [--tenant <slug>] [--build-only] [--no-build]
@@ -55,7 +55,9 @@ EOF
 #
 #   dockerfile  Path to the Dockerfile, relative to repo root.
 #   context     Build context, relative to repo root.
-#   build_arg   Optional --build-arg, KEY=VALUE; empty if not needed.
+#   build_arg   Optional --build-arg entries, space-separated KEY=VALUE pairs; empty if
+#               not needed. {sha} is the git SHA and {go_version} is GO_VERSION
+#               from versions.hcl.
 #   image       Image name (without tag); IMAGE=orbit-foo → orbit-foo:latest.
 #   namespace   Cluster namespace. Use {tenant} as a placeholder.
 #   workload    Workload kind/name pair (deployment/orbit-foo or statefulset/{slug}),
@@ -277,14 +279,27 @@ restart=true
 tenant_default=example
 EOF
       ;;
-    sandbox-exec)
-      # No long-lived workload; sandbox-exec pods are created on demand by the
-      # session-manager. Push the new image and let the next run pick it up.
+    sandbox-mount)
+      # A chart DaemonSet in its own namespace, rolled by re-applying the orbit release.
+      cat <<'EOF'
+dockerfile=backend/Dockerfile.sandbox-mount
+context=backend
+build_arg=
+image=orbit-sandbox-mount
+values_key=sandboxMount
+namespace=
+workload=release
+restart=true
+EOF
+      ;;
+    sandbox-base)
+      # Sandbox pods are created on demand and have no long-lived workload. The
+      # operator resolves the new digest and the next sandbox picks it up.
       cat <<'EOF'
 dockerfile=backend/Dockerfile.sandbox-exec
 context=backend
-build_arg=
-image=orbit-sandbox-exec
+build_arg=SANDBOX_BASE_VERSION={sha} GO_VERSION={go_version}
+image=kora-sandbox-base
 namespace=
 workload=on-demand
 restart=false
@@ -312,7 +327,8 @@ migrate             (hook Job; re-applies the orbit release so the schema migrat
 operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
-sandbox-exec        (build-only; picked up by next agent run)
+sandbox-mount       (node agent DaemonSet; re-applies the orbit release)
+sandbox-base        (build-only; picked up by next sandbox)
 EOF
 }
 
@@ -364,6 +380,12 @@ pin_workload() {
     kubectl set image "$workload" \
       "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
       -n "$NAMESPACE"
+    # Mark an agent StatefulSet as pinned so the orbit-agents reconcile keeps
+    # this image instead of moving it to the release image.
+    if [ "$kind" = "statefulset" ]; then
+      kubectl annotate "$workload" orbit.io/session-manager-image-pinned=true \
+        --overwrite -n "$NAMESPACE"
+    fi
   else
     log "Restarting $workload in $NAMESPACE (digest unavailable)..."
     kubectl rollout restart "$workload" -n "$NAMESPACE"
@@ -512,8 +534,13 @@ DIGEST=""
 
 if [ "$NO_BUILD" -eq 0 ]; then
   log "Building $IMAGE:$GIT_SHA from $DOCKERFILE (context=$CONTEXT)..."
-  build_args=()
-  if [ -n "$BUILD_ARG" ]; then build_args+=(--build-arg "$BUILD_ARG"); fi
+  # The frontend shows the version it was built from.
+  build_args=(--build-arg "ORBIT_VERSION=$GIT_SHA")
+  GO_VERSION="$(sed -n 's/^GO_VERSION *= *"\(.*\)"/\1/p' versions.hcl)"
+  for arg in $BUILD_ARG; do
+    arg="${arg//\{sha\}/$GIT_SHA}"
+    build_args+=(--build-arg "${arg//\{go_version\}/$GO_VERSION}")
+  done
   docker build "${build_args[@]+"${build_args[@]}"}" \
     -t "$IMAGE:latest" \
     -t "$IMAGE:$GIT_SHA" \

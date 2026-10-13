@@ -15,17 +15,17 @@ A run executes across two pods in the tenant namespace. The agent pod is a State
 
 ### Background
 
-`sandbox-exec` has three callers. `orbit-shell` is wired in as the Claude Code shell through `CLAUDE_CODE_SHELL` and runs as a child of the agent subprocess, discovering the sandbox from `$WORKSPACE/.sandbox/endpoint`. The session registry dials the same port for the egress readiness canary. `orbit-runtime-mcp` reaches the sandbox indirectly, by asking `session-manager` to provision one.
+`sandbox-exec` has three callers. `orbit-shell` is wired in as the Claude Code shell through `CLAUDE_CODE_SHELL` and runs as a child of the agent subprocess, discovering the sandbox from `$WORKSPACE/.sandbox-exec/endpoint`. The session registry dials the same port for the egress readiness canary. `orbit-runtime-mcp` reaches the sandbox indirectly, by asking `session-manager` to provision one.
 
 The sandbox pod is SPIFFE-attested per run as `spiffe://<trust-domain>/tenant/<namespace>/agent/<slug>/sandbox/<run-id>`. Port 50051 carries `traffic.sidecar.istio.io/excludeInboundPorts`, so inbound traffic on it does not pass through the mesh and no `AuthorizationPolicy` applies to it. The only sandbox-scoped `NetworkPolicy`, `sandbox-egress-to-gateway`, governs egress.
 
-Per-session HOME isolation ([2026-06-04](2026-06-04-per-session-home-isolation.md)) confines each run to its own workspace subdirectory using Landlock and a PID namespace, applied by the `orbit-session-runner` wrapper. `session-manager` invokes that wrapper for the Claude runner only. The Codex and OpenCode runners call their binaries directly with the pod's full environment.
+Per-session HOME isolation ([2026-06-04](2026-06-04-per-session-home-isolation.md)) confines each run to its own workspace subdirectory using Landlock, applied by the `orbit-session-runner` wrapper. `session-manager` invokes that wrapper for the Claude runner only. The Codex and OpenCode runners call their binaries directly with the pod's full environment.
 
 ### Problem Statement
 
 `sandbox-exec` performs no caller authentication. `Execute` runs whatever command arrives, with no token, no transport security and no identity check. Any workload that can route to a sandbox pod IP on port 50051 executes commands inside that run's sandbox, under that run's egress posture and against that run's workspace.
 
-Codex and OpenCode compound it. Neither routes tool commands to the sandbox, so both execute in the `session-manager` container itself, without Landlock and without a PID namespace. A run under either framework can read every sibling run's `.sandbox/endpoint` file from the shared PVC and then execute in that sibling's sandbox, because nothing on the receiving side checks who is calling.
+Codex and OpenCode compound it. Neither routes tool commands to the sandbox, so both execute in the `session-manager` container itself, without Landlock and without a PID namespace. A run under either framework can read every sibling run's `.sandbox-exec/endpoint` file from the shared PVC and then execute in that sibling's sandbox, because nothing on the receiving side checks who is calling.
 
 Separately, `session-manager`'s loopback `/internal/runs/{id}/provision-sandbox` route provisions a sandbox for any run ID presented, without checking that the run is hosted on this pod.
 
@@ -153,7 +153,7 @@ A1 and P1 are one decision, not two, because each is incomplete alone. The token
 
 The token is not a defence against the agent that owns it. The agent can read it, and using it grants only what it already has. It separates one run from another, which is the boundary that is missing.
 
-Confidentiality of both the token and the endpoint rests on Landlock and the PID namespace, the same mechanisms per-session HOME isolation already depends on. That is a property of several runs sharing a container under one UID, and is resolved by one run per pod rather than by a different secret channel.
+Confidentiality of both the token and the endpoint rests on Landlock, the same mechanism per-session HOME isolation already depends on. That is a property of several runs sharing a container under one UID, and is resolved by one run per pod rather than by a different secret channel.
 
 `landlock.V3.BestEffort()` downgrades on a kernel without Landlock support, so on such a kernel the wrapper reduces to an ordinary exec and runs do not confine each other. The `NetworkPolicy` and the token remain, so a pod outside the namespace is still refused.
 
@@ -178,7 +178,7 @@ Confidentiality of both the token and the endpoint rests on Landlock and the PID
 ### Neutral
 
 - Port 50051 stays outside the inbound mesh.
-- Concurrent runs on one agent pod remain isolated by Landlock and the PID namespace, not by the kernel's user boundary.
+- Concurrent runs on one agent pod remain isolated by Landlock, not by the kernel's user boundary.
 
 ---
 
@@ -186,7 +186,7 @@ Confidentiality of both the token and the endpoint rests on Landlock and the PID
 
 - `orbit-agents` mints the token at sandbox provisioning and sets it on the sandbox pod. The provisioning response carries it to `session-manager`.
 - `sandbox-exec` compares the metadata value against its own environment with a constant-time comparison, and refuses the call when absent or different.
-- `session-manager` writes the token into the run's `.sandbox` directory with owner-only permissions, next to the endpoint, and `orbit-shell` sends it as gRPC metadata.
+- `session-manager` writes the token into the run's `.sandbox-exec` directory with owner-only permissions, next to the endpoint, and `orbit-shell` sends it as gRPC metadata.
 - Both interceptor surfaces are registered on the exec server, streaming and unary, so a unary RPC added later cannot land unauthenticated.
 - The session registry's egress canary sends the token it holds in memory.
 - The operator renders a sandbox ingress `NetworkPolicy` alongside `sandbox-egress-to-gateway`.
@@ -198,7 +198,7 @@ Confidentiality of both the token and the endpoint rests on Landlock and the PID
 - Codex is put on its one-shot shell tool rather than unified exec. Unified exec runs a persistent shell session fed by a startup script; `orbit-shell` issues one stateless call per command, the shape Claude Code's Bash tool has.
 - The sandbox image provides the same shell path as the agent pod. Codex bakes its resolved shell into a snapshot prefixed onto every command, so a command arriving in the sandbox names that path. In the agent pod it routes commands out; in the sandbox it runs them.
 - `orbit-runtime-mcp` answers `resources/list` with an empty list. It exposes tools only and says so, and Codex probes for resources regardless.
-- Pre-provisioning at run start is the session-manager's, reached through the same `ProvisionSandbox` the agent calls. `orbit-agents` warming the pod itself left the descriptor unwritten, so the sandbox was unreachable and the pod merely idle.
+- A sandbox is provisioned only when the agent calls `provision_sandbox`, in the environment it names or in its default. A run start creates no sandbox pod. Pre-provisioning at run start is removed: it ignored the environment the agent would have chosen, and `orbit-agents` warming the pod itself left the descriptor unwritten, so the pod sat idle.
 
 ### Migration Path
 
@@ -219,7 +219,7 @@ A Codex run executes its commands in its own sandbox, reported back as the sandb
 ## Related Decisions
 
 - [sandbox-provisioning-and-shell-proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) - Establishes `orbit-shell`, the endpoint file and the re-provision retry this decision authenticates
-- [per-session-home-isolation](2026-06-04-per-session-home-isolation.md) - Supplies the Landlock and PID namespace confinement extended here to every runner
+- [per-session-home-isolation](2026-06-04-per-session-home-isolation.md) - Supplies the Landlock confinement extended here to every runner
 - [jit-credential-brokering-egress-gateway](2026-06-06-jit-credential-brokering-egress-gateway.md) - Rejoins the sandbox to the mesh for outbound enforcement and excludes port 50051 inbound
 - [agent-event-streaming-protocol](2026-05-11-agent-event-streaming-protocol.md) - Defines the event path that carries provisioning between `orbit-agents` and `session-manager`
 

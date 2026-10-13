@@ -11,7 +11,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@orbit/test-utils';
-import { Text } from '@orbit/terra';
+import { Text } from '@orbit/hades';
 import { ScopeGuard } from './scope-guard';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────

@@ -18,6 +18,7 @@ import (
 //   - handlers_openai.go      — OpenAI-compatible dialect (POST /chat/completions, GET /models)
 //   - handlers_anthropic.go   — Anthropic Messages dialect (POST /messages)
 //   - handlers_embeddings.go  — OpenAI Embeddings API (POST /embeddings)
+//   - handlers_systemone.go   — System One decision API (POST /systemone)
 //   - handlers_responses.go   — OpenAI Responses API (POST /responses)
 type Controller struct {
 	svc       *Service
@@ -79,11 +80,13 @@ func (c *Controller) Middleware() mw.MiddlewareHandler {
 //	POST   /messages              Anthropic Messages API dialect
 //	POST   /embeddings            OpenAI Embeddings API
 //	POST   /responses             OpenAI Responses API (streaming and non-streaming)
+//	POST   /systemone             System One decision API (typed questions, probabilities)
 //	GET    /models                List available models
 //	GET    /usage/stats           Per-PAT usage aggregates (request count, last used)
 //	GET    /usage/budget          Caller's current budget status (spend, limit, has_limit)
 //	GET    /usage/run/{runID}      Per-run spend + token total (run chat usage meter)
-//	GET    /usage/agent-type/{agentTypeID}  Agent-type 7-day token breakdown + spend (agent overview)
+//	GET    /usage/agent-type/{slug}  One agent's insights, the agent-insights shape for one slug (?period=24h|7d|30d|90d, default 7d)
+//	GET    /usage/agent-insights  Agent usage, model split, trend, previous total and budgets (?period=24h|7d|30d|90d)
 //	GET    /usage                 Inference usage log (authenticated principal, paginated)
 //	GET    /analytics/me          Personal aggregated analytics (any authenticated caller)
 //	GET    /analytics             Tenant-wide aggregated analytics (requires platform:analytics:read)
@@ -95,12 +98,13 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("POST /messages", c.handleMessages)
 	mux.Handle("POST /embeddings", c.handleEmbeddings)
 	mux.Handle("POST /responses", c.handleResponses)
+	mux.Handle("POST /systemone", c.handleSystemOne)
 	mux.Handle("GET /models", c.handleListModels)
 	mux.Handle("GET /usage/stats", c.handleUsageStats)
 	mux.Handle("GET /usage/budget", c.handleGetPersonalBudget)
 	mux.Handle("GET /usage/run/{runID}", c.handleGetRunUsage)
-	mux.Handle("GET /usage/agent-type/{agentTypeID}", c.handleGetAgentTypeUsage)
-	mux.Handle("GET /usage/agent-types", c.handleListAgentTypeUsage)
+	mux.Handle("GET /usage/agent-type/{slug}", c.handleAgentInsights)
+	mux.Handle("GET /usage/agent-insights", c.handleAgentInsights)
 	mux.Handle("GET /usage", c.handleListUsage)
 	mux.Handle("GET /analytics/me", c.handleAnalyticsMe)
 	mux.Handle("GET /analytics", c.handleAnalytics)
@@ -120,6 +124,10 @@ func connectorClientErrorResponse(err error) *api.APIError {
 	}
 	switch connErr.Code {
 	case "MODEL_NOT_SUPPORTED":
+		// The gateway's own refusal names the route to use instead.
+		if errors.Is(err, errRouteCapability) {
+			return api.BadRequestError("model_not_supported", connErr.ProviderMessage, nil)
+		}
 		return api.BadRequestError("model_not_supported",
 			"this model is not supported on this endpoint; use POST /v1/chat/completions for non-Anthropic models",
 			nil,

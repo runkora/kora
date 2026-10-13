@@ -10,9 +10,9 @@
 
 ## Context
 
-[frontend-component-consolidation](2026-05-04-frontend-component-consolidation.md) established Terra as the mandatory UI foundation and introduced `no-raw-layout-elements`, which unconditionally bans `<div>` and `<section>` in product code. Four additional semantic elements — `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` — are currently only banned when they carry Tailwind layout-mode classes. A full audit of `src/app/**` and `src/components/**` finds 53 raw instances that bypass enforcement today.
+[frontend-component-consolidation](2026-05-04-frontend-component-consolidation.md) established Hades as the mandatory UI foundation and introduced `no-raw-layout-elements`, which unconditionally bans `<div>` and `<section>` in product code. Four additional semantic elements — `<header>`, `<article>`, `<nav>`, `<aside>`, and `<footer>` — are currently only banned when they carry Tailwind layout-mode classes. A full audit of `src/app/**` and `src/components/**` finds 53 raw instances that bypass enforcement today.
 
-The existing conditional rule creates an inconsistency: `<div className="flex">` is an error but `<aside className="h-full">` or `<footer className="px-4 py-3">` (no layout class) is not, even though all are equally problematic from a design-system perspective. More importantly, several recurring patterns — info callout boxes (8 instances), slide-over panel (5 instances in one file), sidebar navigation (1 instance) — have no sanctioned Terra alternative, so developers reach for raw semantic HTML as the only viable option.
+The existing conditional rule creates an inconsistency: `<div className="flex">` is an error but `<aside className="h-full">` or `<footer className="px-4 py-3">` (no layout class) is not, even though all are equally problematic from a design-system perspective. More importantly, several recurring patterns — info callout boxes (8 instances), slide-over panel (5 instances in one file), sidebar navigation (1 instance) — have no sanctioned Hades alternative, so developers reach for raw semantic HTML as the only viable option.
 
 ---
 
@@ -20,27 +20,27 @@ The existing conditional rule creates an inconsistency: `<div className="flex">`
 
 - **Rule completeness.** The four elements belong in the same unconditional category as `<div>` and `<section>`. Partial enforcement is more confusing than full enforcement and teaches the wrong lesson.
 - **Semantic correctness.** Most instances misuse semantic HTML for layout: `<aside>` wraps a scrollable list; `<article>` wraps a stat row; `<header>` wraps a loading skeleton. This degrades the document model without adding accessibility value.
-- **Gap closure.** New Terra components (`Callout`, `TableToolbarShell`, `Navigation`, `SidePanel`) eliminate the root cause — the absence of a sanctioned alternative forces developers to reach for raw HTML.
-- **[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) boundary.** Terra components render raw HTML internally and are exempt from product-code rules. Providing Terra wrappers is the architecturally correct response.
-- **Agent discoverability.** Once `Callout` and `SidePanel` exist in Terra, AI coding agents will find and use them rather than generating inline `<aside>` patterns.
+- **Gap closure.** New Hades components (`Callout`, `TableToolbarShell`, `Navigation`, `SidePanel`) eliminate the root cause — the absence of a sanctioned alternative forces developers to reach for raw HTML.
+- **[terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) boundary.** Hades components render raw HTML internally and are exempt from product-code rules. Providing Hades wrappers is the architecturally correct response.
+- **Agent discoverability.** Once `Callout` and `SidePanel` exist in Hades, AI coding agents will find and use them rather than generating inline `<aside>` patterns.
 
 ---
 
 ## Considered Options
 
-### Option 1 — Extend `no-raw-layout-elements` unconditionally + add missing Terra components *(chosen)*
+### Option 1 — Extend `no-raw-layout-elements` unconditionally + add missing Hades components *(chosen)*
 
-Ban all five elements unconditionally. Add `Callout`, `TableToolbarShell`, `Navigation`, and `SidePanel` to Terra. Migrate all 53 instances.
+Ban all five elements unconditionally. Add `Callout`, `TableToolbarShell`, `Navigation`, and `SidePanel` to Hades. Migrate all 53 instances.
 
 **Pros:** Complete enforcement parity with `<div>`/`<section>`. Root cause addressed — new components prevent future recurrence. Genuinely reusable beyond the migration.
 
-**Cons:** Four new Terra components require full [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) authoring. `SidePanel` is non-trivial (Radix Dialog integration). Migration touches 18 files.
+**Cons:** Four new Hades components require full [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) authoring. `SidePanel` is non-trivial (Radix Dialog integration). Migration touches 18 files.
 
 ### Option 2 — Extend the rule only; replace everything with `Stack`/`Grid`/`Alert`/`Card`
 
 Same rule change, but avoid new components entirely.
 
-**Pros:** No new Terra components.
+**Pros:** No new Hades components.
 
 **Cons:** `<nav>` becomes a `Stack` with no landmark role — accessibility regression. Info callout boxes become undifferentiated `Stack`s — pattern will be recreated as raw `<aside>` by the next developer who needs it. Root cause unaddressed.
 
@@ -62,9 +62,9 @@ No rule change. Add golden-path guidance for when each element is allowed.
 
 ## Component Assignments
 
-### `Callout` — Tier 1 (Terra) · `Terra/Atoms/Callout`
+### `Callout` — Tier 1 (Hades) · `Hades/Atoms/Callout`
 
-A styled informational callout box. Domain-free: any surface could use an informational callout. Does not encode Orbit-specific concepts.
+A styled informational callout box. Domain-free: any surface could use an informational callout. Does not encode kora-specific concepts.
 
 ```ts
 type CalloutVariant = 'info' | 'warning'
@@ -74,11 +74,11 @@ interface CalloutProps {
 }
 ```
 
-`info` → `rounded-lg border border-accent/20 bg-accent/5 px-4 py-3`. `warning` → `border-status-degraded/30 bg-status-degraded/10`. Renders `<aside>` internally (Terra-exempt). `className` blocked per [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) conventions.
+`info` → `rounded-lg border border-accent/20 bg-accent/5 px-4 py-3`. `warning` → `border-status-degraded/30 bg-status-degraded/10`. Renders `<aside>` internally (Hades-exempt). `className` blocked per [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) conventions.
 
 **Callers:** routes-tab×2, vocabulary-tab, grants-tab, evaluate-tab, roles-tab, setup-tab, token-created-modal (warning variant). 9 instances total.
 
-### `TableToolbarShell` — Tier 1 (Terra) · `Terra/Molecules/Table`
+### `TableToolbarShell` — Tier 1 (Hades) · `Hades/Molecules/Table`
 
 The bare toolbar container. Extracted from `TableToolbar` so that loading skeletons can render the correct container without using a raw `<header>`. `TableToolbar` is refactored to compose on top, guaranteeing both share identical padding/border tokens forever.
 
@@ -92,7 +92,7 @@ Renders `<div className="flex items-center gap-3 px-4 py-3 border-b border-borde
 
 **Callers:** `model-gateway/logs/loading.tsx`, `model-gateway/models/loading.tsx`. 2 instances.
 
-### `Navigation` — Tier 1 (Terra) · `Terra/Layout/Navigation`
+### `Navigation` — Tier 1 (Hades) · `Hades/Layout/Navigation`
 
 A semantic `<nav>` landmark wrapper for the primary sidebar navigation list. Renders `<nav>` internally.
 
@@ -105,7 +105,7 @@ interface NavigationProps {
 
 **Caller:** `dashboard-sidebar.tsx`. 1 instance. **Promotion trigger:** second navigation area outside the sidebar.
 
-### `SidePanel` — Tier 1 (Terra) · `Terra/Molecules/SidePanel`
+### `SidePanel` — Tier 1 (Hades) · `Hades/Molecules/SidePanel`
 
 A Radix `@radix-ui/react-dialog`-based slide-over panel from the right edge. Same Radix package already used by `Modal`. Provides backdrop, Escape-to-close, focus trap, and ARIA automatically.
 
@@ -121,11 +121,11 @@ interface SidePanelBodyProps   { children: React.ReactNode; flush?: boolean }
 interface SidePanelFooterProps { children: React.ReactNode; justify?: 'start' | 'end' | 'between' }
 ```
 
-Renders `<aside>` for the panel shell (Terra-exempt). The `editor-panel.tsx` backdrop `<aside>`, shell `<aside>`, `<header>`, and `<article>` body are all absorbed into `SidePanel` internals. **Caller:** `editor-panel.tsx`. 5 instances.
+Renders `<aside>` for the panel shell (Hades-exempt). The `editor-panel.tsx` backdrop `<aside>`, shell `<aside>`, `<header>`, and `<article>` body are all absorbed into `SidePanel` internals. **Caller:** `editor-panel.tsx`. 5 instances.
 
 ### `PageLayout.sidebarFooter` — `PageLayout` prop extension
 
-Rather than a standalone `Footer` Terra component, `PageLayout` gains an optional `sidebarFooter?: React.ReactNode` prop. When provided it renders a semantic `<footer>` pinned at the bottom of the sidebar `<aside>` shell. When omitted the sidebar layout is identical to today.
+Rather than a standalone `Footer` Hades component, `PageLayout` gains an optional `sidebarFooter?: React.ReactNode` prop. When provided it renders a semantic `<footer>` pinned at the bottom of the sidebar `<aside>` shell. When omitted the sidebar layout is identical to today.
 
 ```ts
 // Updated PageLayoutProps
@@ -165,9 +165,9 @@ if (tag === 'aside')   { context.report({ node, messageId: 'noRawAside' });   re
 if (tag === 'footer')  { context.report({ node, messageId: 'noRawFooter' });  return; }
 ```
 
-Remove these five from `SEMANTIC_ELEMENTS` (the conditional set, ~line 392) since they are now handled unconditionally above. Add five new message strings to the `messages` object pointing to the appropriate Terra replacement and `terra-design-system.md`.
+Remove these five from `SEMANTIC_ELEMENTS` (the conditional set, ~line 392) since they are now handled unconditionally above. Add five new message strings to the `messages` object pointing to the appropriate Hades replacement and `hades-design-system.md`.
 
-The existing config block (`files: ['src/**/*.tsx']`, `ignores: ['src/packages/terra/**']`) already applies this rule to all product code — no additional config changes needed.
+The existing config block (`files: ['src/**/*.tsx']`, `ignores: ['src/packages/hades/**']`) already applies this rule to all product code — no additional config changes needed.
 
 ---
 
@@ -203,12 +203,12 @@ The existing config block (`files: ['src/**/*.tsx']`, `ignores: ['src/packages/t
 
 ### Negative
 
-- `SidePanel` requires non-trivial Radix Dialog integration (~150 lines of Terra component code).
+- `SidePanel` requires non-trivial Radix Dialog integration (~150 lines of Hades component code).
 - Migration touches 18 files; each phase must pass `pnpm lint` before the next begins.
 
 ### Neutral
 
-- `<main>` is not addressed — it is exclusively rendered by `PageLayout` (Terra-exempt) and has no product-code instances.
+- `<main>` is not addressed — it is exclusively rendered by `PageLayout` (Hades-exempt) and has no product-code instances.
 - `<header>` inside `dashboard-sidebar.tsx` and `dashboard-header.tsx` will be resolved by migrating these components to use `PageLayout` to supply the structural shell — the raw `<header>` elements disappear as a by-product of that refactor, not as a direct migration step.
 
 ---
@@ -218,7 +218,7 @@ The existing config block (`files: ['src/**/*.tsx']`, `ignores: ['src/packages/t
 | Phase | Status |
 |-------|--------|
 | 0 — PRD + ADR | ✅ Complete (2026-04-28) |
-| 1 — New Terra components (`Callout`, `TableToolbarShell`, `Navigation`, `SidePanel`, `PageLayout.sidebarFooter`) | ✅ Complete (2026-04-28) |
+| 1 — New Hades components (`Callout`, `TableToolbarShell`, `Navigation`, `SidePanel`, `PageLayout.sidebarFooter`) | ✅ Complete (2026-04-28) |
 | 2 — ESLint rule upgrade (unconditional ban, 5 new message IDs) | ✅ Complete (2026-04-28) |
 | 3 — Migrate `<aside>` (24) | ✅ Complete (2026-04-28) |
 | 4 — Migrate `<article>` (13) | ✅ Complete (2026-04-28) |
@@ -249,20 +249,20 @@ Ban all seven element types unconditionally in product code via two new ESLint r
 
 ### Replacements
 
-| Raw element | Terra replacement |
+| Raw element | Hades replacement |
 |-------------|-------------------|
 | `<ul>` used as layout container | `<Stack>` |
-| `<ul>` as a genuine list | `<List>` from `@orbit/terra` |
-| `<ol>` as an ordered list | `<List ordered>` from `@orbit/terra` |
-| `<li>` | `<ListItem>` from `@orbit/terra` |
-| `<form>` | `<Form>` from `@orbit/terra` (accepts `onSubmit`, `noValidate`, `gap`, `maxWidth`) |
-| `<label>` for text | `<Label>` from `@orbit/terra` |
-| `<label>` wrapping a checkbox | `<Checkbox>` from `@orbit/terra` |
-| `<input type="checkbox">` | `<Checkbox>` from `@orbit/terra` (supports `indeterminate`) |
-| `<input type="text/...">` | `<Input>` from `@orbit/terra` |
-| `<output>` | `<Output>` from `@orbit/terra` (`field` prop for input-like styling) |
+| `<ul>` as a genuine list | `<List>` from `@orbit/hades` |
+| `<ol>` as an ordered list | `<List ordered>` from `@orbit/hades` |
+| `<li>` | `<ListItem>` from `@orbit/hades` |
+| `<form>` | `<Form>` from `@orbit/hades` (accepts `onSubmit`, `noValidate`, `gap`, `maxWidth`) |
+| `<label>` for text | `<Label>` from `@orbit/hades` |
+| `<label>` wrapping a checkbox | `<Checkbox>` from `@orbit/hades` |
+| `<input type="checkbox">` | `<Checkbox>` from `@orbit/hades` (supports `indeterminate`) |
+| `<input type="text/...">` | `<Input>` from `@orbit/hades` |
+| `<output>` | `<Output>` from `@orbit/hades` (`field` prop for input-like styling) |
 
-### New Terra components added (2026-04-29)
+### New Hades components added (2026-04-29)
 
 - **`Form`** — Renders `<form>` with flex-column layout and token-aligned gap.
 - **`Checkbox`** — Renders `<label>` + `<input type="checkbox">` with `indeterminate` support and a `variant="row"` for full-width interactive rows.
@@ -272,4 +272,4 @@ Ban all seven element types unconditionally in product code via two new ESLint r
 
 ### Consequences
 
-All seven element types are now unconditionally banned in product code. The `no-terra-disable-comment` rule also tracks both new rules, preventing suppression. Terra source (`src/packages/terra/**`) remains fully exempt.
+All seven element types are now unconditionally banned in product code. The `no-hades-disable-comment` rule also tracks both new rules, preventing suppression. Hades source (`src/packages/hades/**`) remains fully exempt.

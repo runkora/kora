@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-03-31
 **Deciders:** Engineering Team
-**Technical Story:** [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md) established that application manifests live in `k8s/` as raw Kustomize resources. As Orbit moves toward a model where operators deploy the platform into their own clusters via GitOps tooling (Flux, ArgoCD, Helmfile), the raw-Kustomize approach is the wrong distribution primitive. Operators need a versioned artifact with a documented values API they can override — not a copy of this repo's manifests. This ADR defines the target repository structure, two Helm charts as the distribution artifacts, and the "eat your own dog food" local deployment model.
+**Technical Story:** [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md) established that application manifests live in `k8s/` as raw Kustomize resources. As kora moves toward a model where operators deploy the platform into their own clusters via GitOps tooling (Flux, ArgoCD, Helmfile), the raw-Kustomize approach is the wrong distribution primitive. Operators need a versioned artifact with a documented values API they can override — not a copy of this repo's manifests. This ADR defines the target repository structure, two Helm charts as the distribution artifacts, and the "eat your own dog food" local deployment model.
 
 **Amended by:** [install-and-distribution-model](2026-09-04-install-and-distribution-model.md) (2026-09-04). The two-charts-plus-subcharts structure here becomes two charts with Istio and SPIRE as prerequisites rather than subcharts: `charts/orbit-platform/` folds into `charts/orbit/`, `charts/orbit-crds/` replaces the CRD templates this ADR placed in the operator chart, and publishing is no longer deferred. The three "Notes" sections on trust domain consistency and chart versioning describe the pre-amendment `deploy/local/` layout and no longer reflect the repository; see the newer ADR and `deploy/reference/` for the current model.
 
@@ -16,10 +16,10 @@
 The current repository structure conflates three distinct concerns across two folders:
 
 **`infrastructure/`** contains two conceptually different things:
-- `infrastructure/overlays/local/` — installs third-party charts (Istio, SPIRE) into a local k3d cluster via Kustomize `helmCharts:`. These are not developer bootstrap utilities — they are the **Core Infrastructure Layer** that underpins mTLS, SVID issuance, and workload attestation. Without them, Orbit cannot function. Calling this "bootstrap tooling" mischaracterises mandatory runtime dependencies as optional setup.
-- `infrastructure/base/` — Orbit-owned cluster-wide resources: namespaces (with Istio injection and SPIFFE labels), `ClusterSPIFFEID` templates, and network policies. These are first-party Orbit resources that should be part of the operator-facing distribution artifact.
+- `infrastructure/overlays/local/` — installs third-party charts (Istio, SPIRE) into a local k3d cluster via Kustomize `helmCharts:`. These are not developer bootstrap utilities — they are the **Core Infrastructure Layer** that underpins mTLS, SVID issuance, and workload attestation. Without them, kora cannot function. Calling this "bootstrap tooling" mischaracterises mandatory runtime dependencies as optional setup.
+- `infrastructure/base/` — kora-owned cluster-wide resources: namespaces (with Istio injection and SPIFFE labels), `ClusterSPIFFEID` templates, and network policies. These are first-party kora resources that should be part of the operator-facing distribution artifact.
 
-**`k8s/`** contains Orbit's own service workloads: the identity service `Deployment`, `ServiceAccount`, `Service`, Istio `DestinationRule`, Envoy `EnvoyFilter`, and example tenant manifests. These are also first-party Orbit resources that should be operator-facing.
+**`k8s/`** contains kora's own service workloads: the identity service `Deployment`, `ServiceAccount`, `Service`, Istio `DestinationRule`, Envoy `EnvoyFilter`, and example tenant manifests. These are also first-party kora resources that should be operator-facing.
 
 Neither `infrastructure/base/` nor `k8s/` is structured in a way that allows operators to consume them cleanly. Operators cannot easily:
 - Override image tags, replica counts, or resource limits without forking the manifests
@@ -31,30 +31,30 @@ The `values.yaml` API surface of a Helm chart solves all of these exactly. It is
 
 ### Istio and SPIRE Are Core Infrastructure — Not Optional Tooling
 
-Istio and SPIRE are not add-ons or developer conveniences. They are hard runtime dependencies of the Orbit platform:
+Istio and SPIRE are not add-ons or developer conveniences. They are hard runtime dependencies of the kora platform:
 
 - **SPIRE** issues SVIDs to every workload. The identity-proxy sidecar waits for SPIFFE Workload API readiness before accepting connections. The identity service's SPIFFE SVID exchange endpoint is meaningless without SPIRE attestation. `ClusterSPIFFEID` templates define the SPIFFE URI structure that the identity service's principal extractor parses (`/tenant/{id}/agent/{name}`).
 - **Istio** injects the Envoy sidecar that runs the identity-proxy ext_proc process. `EnvoyFilter` resources configure the sidecar interception. `DestinationRule` resources enforce mTLS. Without Istio, the sidecar injection that the entire agent traffic interception model depends on does not occur.
 
-An operator who installs `charts/orbit` without Istio and SPIRE gets a set of pods that cannot participate in the platform's identity or policy enforcement model. These dependencies must be distributed and managed as part of the Orbit platform, not assumed to exist in the target cluster.
+An operator who installs `charts/orbit` without Istio and SPIRE gets a set of pods that cannot participate in the platform's identity or policy enforcement model. These dependencies must be distributed and managed as part of the kora platform, not assumed to exist in the target cluster.
 
-Operators who already have Istio or SPIRE installed in their cluster can disable those sub-charts via a `values.yaml` flag — but Orbit's Istio-specific configuration (sidecar injection, `EnvoyFilter`, `DestinationRule`, `IstioMeshConfig`) and SPIRE-specific configuration (`ClusterSPIFFEID` templates, agent socket path) are always installed as part of the Orbit chart.
+Operators who already have Istio or SPIRE installed in their cluster can disable those sub-charts via a `values.yaml` flag — but kora's Istio-specific configuration (sidecar injection, `EnvoyFilter`, `DestinationRule`, `IstioMeshConfig`) and SPIRE-specific configuration (`ClusterSPIFFEID` templates, agent socket path) are always installed as part of the kora chart.
 
 ### The GitOps Operator Model
 
-Orbit's intended operator experience is:
+kora's intended operator experience is:
 
 1. An operator has their own **deployment repository** (separate from this repo). It contains their Helm values overrides, their tenant configuration, and their GitOps sync configuration (Flux `HelmRelease`, ArgoCD `Application`, or `helmfile.yaml`).
 2. They install the **`orbit-platform` chart** first (unless they already have Istio/SPIRE, in which case they disable those sub-charts). This installs the Core Infrastructure Layer.
-3. They install the **`orbit` chart** against the running platform. This installs Orbit services plus Orbit's platform-level configuration (ClusterSPIFFEIDs, netpols, EnvoyFilters).
-4. Their tenant-specific configuration (tenant registry, OIDC client secrets) lives in their deployment repo, not in the Orbit repo.
-5. Orbit platform updates are consumed by bumping the chart version in their deployment repository.
+3. They install the **`orbit` chart** against the running platform. This installs kora services plus kora's platform-level configuration (ClusterSPIFFEIDs, netpols, EnvoyFilters).
+4. Their tenant-specific configuration (tenant registry, OIDC client secrets) lives in their deployment repo, not in the kora repo.
+5. kora platform updates are consumed by bumping the chart version in their deployment repository.
 
-The Orbit repository's job is to **produce the charts** and maintain the values API. The operator's deployment repository's job is to **consume the charts** with environment-specific overrides.
+The kora repository's job is to **produce the charts** and maintain the values API. The operator's deployment repository's job is to **consume the charts** with environment-specific overrides.
 
 ### The "Dog Food" Consequence
 
-This model has a direct implication for how this repository itself deploys Orbit into the local k3d cluster: it should do so the same way an operator would — by consuming `charts/orbit-platform` and `charts/orbit` with local overrides in `deploy/local/`. There is no reason the local cluster deployment should use a different primitive (raw Kustomize `helmCharts:`) from what operators use (direct Helm). Doing so creates a class of bugs that only appear in operator deployments and makes the `k8s/` manifests and the Helm chart templates diverge over time.
+This model has a direct implication for how this repository itself deploys kora into the local k3d cluster: it should do so the same way an operator would — by consuming `charts/orbit-platform` and `charts/orbit` with local overrides in `deploy/local/`. There is no reason the local cluster deployment should use a different primitive (raw Kustomize `helmCharts:`) from what operators use (direct Helm). Doing so creates a class of bugs that only appear in operator deployments and makes the `k8s/` manifests and the Helm chart templates diverge over time.
 
 ### Problem Statement
 
@@ -69,29 +69,29 @@ We need to define:
 
 ### Goals
 
-- Orbit is distributed as two versioned Helm charts with documented `values.yaml` APIs
+- kora is distributed as two versioned Helm charts with documented `values.yaml` APIs
 - `charts/orbit-platform/` encapsulates Istio and SPIRE as conditional sub-charts — operators with pre-existing installations disable them via a flag
-- Operators can consume both charts from their own deployment repository without touching the Orbit source repository
+- Operators can consume both charts from their own deployment repository without touching the kora source repository
 - The local k3d cluster deployment uses the same charts that operators use — no separate manifest tree to maintain
 - `deploy/local/` is an explicit "we are an operator" folder that demonstrates correct chart consumption
-- `config/tenants.yaml` is committed to the Orbit repo for local development, following the same pattern as `config/dex/config.yaml`
+- `config/tenants.yaml` is committed to the kora repo for local development, following the same pattern as `config/dex/config.yaml`
 
 ### Non-Goals
 
 - Publishing the Helm charts to a public chart registry (OCI or Helm repo) — that is a release pipeline concern, deferred
 - Defining the operator's deployment repository structure — operators choose their own layout; `deploy/local/` is a reference, not a template
 - Changing the Go binary structure or `cmd/` layout — [multi-service-backend-deployment-structure](2026-03-19-multi-service-backend-deployment-structure.md) governs that; this ADR governs only where the Kubernetes manifests live
-- Supporting clusters with no service mesh at all — Orbit's enforcement model ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md)) is mesh-native; a meshless deployment is not a supported configuration
+- Supporting clusters with no service mesh at all — kora's enforcement model ([universal-gateway-policy-enforcement](2026-03-05-universal-gateway-policy-enforcement.md), [service-mesh-and-network-enforcement-infrastructure](2026-03-05-service-mesh-and-network-enforcement-infrastructure.md)) is mesh-native; a meshless deployment is not a supported configuration
 
 ---
 
 ## Decision Drivers
 
 * **Istio + SPIRE are mandatory runtime dependencies**: They are not optional tooling; distributing them as sub-charts makes this dependency contract explicit and operator-manageable
-* **Operator experience**: Operators need versioned, configurable artifacts — not a fork of the Orbit manifest tree
-* **Single source of truth**: A separate Kustomize tree (`k8s/`) and Helm chart templates would diverge; the charts must be the only source of truth for Orbit's Kubernetes resources
+* **Operator experience**: Operators need versioned, configurable artifacts — not a fork of the kora manifest tree
+* **Single source of truth**: A separate Kustomize tree (`k8s/`) and Helm chart templates would diverge; the charts must be the only source of truth for kora's Kubernetes resources
 * **Dog food principle**: Running a different deployment mechanism locally than operators use creates hidden divergence and false confidence
-* **Opt-out for pre-existing infrastructure**: Operators with Istio or SPIRE already installed must be able to disable those sub-charts without losing Orbit's platform-level configuration for those systems
+* **Opt-out for pre-existing infrastructure**: Operators with Istio or SPIRE already installed must be able to disable those sub-charts without losing kora's platform-level configuration for those systems
 * **GitOps compatibility**: The chart structure must be compatible with Flux `HelmRelease` and ArgoCD `Application` — standard Helm chart layout required
 
 ---
@@ -116,28 +116,28 @@ We need to define:
 
 ### Option B: Single `charts/orbit/` chart; Istio and SPIRE remain as external prerequisites
 
-**Description:** Create `charts/orbit/` as the operator-facing distribution artifact for Orbit services. Document Istio and SPIRE as prerequisites that operators must install themselves at compatible versions with compatible configuration. Keep `k8s/` raw Kustomize for the local cluster deployment.
+**Description:** Create `charts/orbit/` as the operator-facing distribution artifact for kora services. Document Istio and SPIRE as prerequisites that operators must install themselves at compatible versions with compatible configuration. Keep `k8s/` raw Kustomize for the local cluster deployment.
 
 **Pros:**
-- Operators get a proper Helm chart for Orbit services
+- Operators get a proper Helm chart for kora services
 - No conflict with operators who already have Istio/SPIRE installed
 - Simpler chart structure
 
 **Cons:**
 - Shifts a significant configuration burden onto operators — Istio must be configured with specific `IstioMeshConfig`, SPIRE must be configured with the correct trust domain and agent socket path; misconfigurations are silent and hard to diagnose
-- No versioned compatibility guarantee — Orbit is tested against specific Istio/SPIRE versions; operators who install different versions get undefined behaviour
+- No versioned compatibility guarantee — kora is tested against specific Istio/SPIRE versions; operators who install different versions get undefined behaviour
 - Two manifest sources (`k8s/` + `charts/orbit/`) for the same services — they will inevitably diverge
 - Bugs that exist only in the Helm chart rendering are not caught locally
 - Violates the dog food principle — the local cluster is not exercising the operator artifact
 
 ### Option C: Two charts — `charts/orbit-platform/` + `charts/orbit/`; both used locally (chosen)
 
-**Description:** Create two charts. `charts/orbit-platform/` wraps Istio and SPIRE as conditional sub-charts — operators with pre-existing installations disable them with a flag while still receiving Orbit's platform configuration for those systems. `charts/orbit/` contains Orbit services plus all Orbit-owned platform resources (ClusterSPIFFEIDs, netpols, EnvoyFilters, DestinationRules). Delete `k8s/`. Create `deploy/local/` with values files for both charts. The local cluster installs both charts — exactly as an operator would.
+**Description:** Create two charts. `charts/orbit-platform/` wraps Istio and SPIRE as conditional sub-charts — operators with pre-existing installations disable them with a flag while still receiving kora's platform configuration for those systems. `charts/orbit/` contains kora services plus all kora-owned platform resources (ClusterSPIFFEIDs, netpols, EnvoyFilters, DestinationRules). Delete `k8s/`. Create `deploy/local/` with values files for both charts. The local cluster installs both charts — exactly as an operator would.
 
 **Pros:**
 - Core Infrastructure Layer (Istio, SPIRE) is a first-class part of the distribution — no external prerequisite hunting
-- Operators with pre-existing Istio/SPIRE can disable those sub-charts; they still receive Orbit's validated platform configuration for those systems
-- Single source of truth for all Orbit Kubernetes resources — no divergence possible
+- Operators with pre-existing Istio/SPIRE can disable those sub-charts; they still receive kora's validated platform configuration for those systems
+- Single source of truth for all kora Kubernetes resources — no divergence possible
 - Local cluster deployment exercises the exact same artifacts operators use
 - `deploy/local/` serves as a concrete, always-valid reference for operator adoption
 - Chart template bugs are caught during local development, not after operator deployment
@@ -153,11 +153,11 @@ We need to define:
 
 ## Decision
 
-**Chosen Option:** Option C — `charts/orbit-platform/` for the Core Infrastructure Layer plus `charts/orbit/` for Orbit services; both consumed locally via `deploy/local/`
+**Chosen Option:** Option C — `charts/orbit-platform/` for the Core Infrastructure Layer plus `charts/orbit/` for kora services; both consumed locally via `deploy/local/`
 
 ### Rationale
 
-Istio and SPIRE are not optional. Distributing them as conditional sub-charts makes the dependency contract explicit and version-pinned. Operators who already have them installed are not forced to accept a duplicate installation — they use a `values.yaml` flag to disable the sub-chart while retaining Orbit's platform configuration. This is the correct model for a platform that has hard infrastructure dependencies: include them, make them opt-out, pin the versions tested against.
+Istio and SPIRE are not optional. Distributing them as conditional sub-charts makes the dependency contract explicit and version-pinned. Operators who already have them installed are not forced to accept a duplicate installation — they use a `values.yaml` flag to disable the sub-chart while retaining kora's platform configuration. This is the correct model for a platform that has hard infrastructure dependencies: include them, make them opt-out, pin the versions tested against.
 
 The dog food principle is equally decisive. If the local cluster uses raw Kustomize and operators use Helm charts, the local cluster is not testing the operator artifact. Option C collapses this: the local cluster installs `charts/orbit-platform` and `charts/orbit` with `deploy/local/` value overrides, exactly as an operator would.
 
@@ -230,7 +230,7 @@ config/
 
 ### `charts/orbit-platform/` — Core Infrastructure Layer Chart
 
-This chart owns the installation of Istio and SPIRE at versions validated against Orbit. It does not install any Orbit-owned resources — namespaces, ClusterSPIFFEIDs, and netpols belong in `charts/orbit/`.
+This chart owns the installation of Istio and SPIRE at versions validated against kora. It does not install any kora-owned resources — namespaces, ClusterSPIFFEIDs, and netpols belong in `charts/orbit/`.
 
 **`charts/orbit-platform/Chart.yaml`:**
 
@@ -330,9 +330,9 @@ spire:
   enabled: true
 ```
 
-### `charts/orbit/` — Orbit Services Chart
+### `charts/orbit/` — kora Services Chart
 
-This chart owns all Orbit-authored Kubernetes resources: platform-level resources (namespaces with correct labels, ClusterSPIFFEIDs, netpols) and service workloads (identity, identity-proxy). It does not install Istio or SPIRE — it configures them (via EnvoyFilter, DestinationRule, ClusterSPIFFEID).
+This chart owns all kora-authored Kubernetes resources: platform-level resources (namespaces with correct labels, ClusterSPIFFEIDs, netpols) and service workloads (identity, identity-proxy). It does not install Istio or SPIRE — it configures them (via EnvoyFilter, DestinationRule, ClusterSPIFFEID).
 
 **`charts/orbit/values.yaml`:**
 
@@ -544,7 +544,7 @@ releases:
       - orbit-system/orbit-platform
 ```
 
-The operator never touches the Orbit source repository. Version upgrades are a one-line bump in their deployment repository.
+The operator never touches the kora source repository. Version upgrades are a one-line bump in their deployment repository.
 
 ### `infrastructure/bootstrap/` — k3d Cluster Creation Only
 
@@ -560,9 +560,9 @@ The `helmCharts:` Kustomize directives that previously installed Istio and SPIRE
 
 ### Positive
 
-- **Core Infrastructure Layer is a first-class distribution concern**: Operators do not need to independently source, configure, and version-match Istio and SPIRE. The charts ship at validated versions with Orbit's required configuration.
-- **Opt-out without configuration loss**: Operators with pre-existing Istio or SPIRE disable those sub-charts via a flag but still receive Orbit's `EnvoyFilter`, `DestinationRule`, and `ClusterSPIFFEID` configuration — the resources that actually make the platform work with those systems.
-- **Single source of truth**: All Orbit Kubernetes resources live in `charts/orbit/templates/`. There is no `k8s/` vs `charts/` split to maintain.
+- **Core Infrastructure Layer is a first-class distribution concern**: Operators do not need to independently source, configure, and version-match Istio and SPIRE. The charts ship at validated versions with kora's required configuration.
+- **Opt-out without configuration loss**: Operators with pre-existing Istio or SPIRE disable those sub-charts via a flag but still receive kora's `EnvoyFilter`, `DestinationRule`, and `ClusterSPIFFEID` configuration — the resources that actually make the platform work with those systems.
+- **Single source of truth**: All kora Kubernetes resources live in `charts/orbit/templates/`. There is no `k8s/` vs `charts/` split to maintain.
 - **Dog food validity**: The local cluster exercises the exact same operator artifacts. Chart template bugs surface during development, not after operator deployment.
 - **`deploy/local/` is the reference operator guide**: It is always a working, tested example of how to consume both charts.
 - **Versioned upgrades**: Once published, operators pin chart versions and upgrade on their own schedule.
@@ -616,12 +616,12 @@ When a new platform service is introduced:
 
 ### Success Metrics
 
-- The three-step install sequence (`spire-crds` → `orbit-platform` → `orbit`) with `deploy/local/` values produces a working Orbit identity service in the local k3d cluster with no additional manual `kubectl apply` commands
+- The three-step install sequence (`spire-crds` → `orbit-platform` → `orbit`) with `deploy/local/` values produces a working kora identity service in the local k3d cluster with no additional manual `kubectl apply` commands
 - `helm template orbit-platform ./charts/orbit-platform -f deploy/local/platform-values.yaml` and `helm template orbit ./charts/orbit -f deploy/local/orbit-values.yaml` both render valid YAML with no missing keys or template errors
 - `k8s/` directory no longer exists in the repository
 - `infrastructure/base/` directory no longer exists in the repository
-- An operator following `deploy/local/README.md` can adopt both charts in a minimal external cluster without referencing the Orbit source repository
-- An operator with pre-existing Istio can set `istio.enabled: false` and deploy successfully — Orbit's `EnvoyFilter` and `DestinationRule` resources still render and apply
+- An operator following `deploy/local/README.md` can adopt both charts in a minimal external cluster without referencing the kora source repository
+- An operator with pre-existing Istio can set `istio.enabled: false` and deploy successfully — kora's `EnvoyFilter` and `DestinationRule` resources still render and apply
 
 ### Monitoring
 
@@ -651,7 +651,7 @@ When a new platform service is introduced:
 - [spiffe/spire Helm chart](https://github.com/spiffe/helm-charts-hardened) — `orbit-platform` sub-chart dependency
 - [istio/istiod Helm chart](https://istio.io/latest/docs/setup/install/helm/) — `orbit-platform` sub-chart dependency
 - `charts/orbit-platform/`: Core Infrastructure Layer chart, folded into `charts/orbit/` by [install-and-distribution-model](2026-09-04-install-and-distribution-model.md)
-- [charts/orbit/](../../charts/orbit/) — Orbit services chart (created during implementation)
+- [charts/orbit/](../../charts/orbit/) — kora services chart (created during implementation)
 - [deploy/local/](../../deploy/local/) — Local operator reference deployment (created during implementation)
 
 ---
@@ -670,7 +670,7 @@ When `istio.enabled: false` in `platform-values.yaml`, `charts/orbit-platform/` 
 
 **On trust domain consistency:**
 
-`global.trustDomain` must be set to the same value in both `deploy/local/platform-values.yaml` and `deploy/local/orbit-values.yaml` (and in the operator's equivalent files). SPIRE uses this value as the SPIFFE trust domain; Orbit's `ClusterSPIFFEID` templates embed it in SPIFFE URI templates; the identity service's principal extractor validates SVIDs against it. A mismatch produces silent authentication failures — the identity service will reject all SVIDs because the trust domain in the SVID URI will not match the one it was configured to expect.
+`global.trustDomain` must be set to the same value in both `deploy/local/platform-values.yaml` and `deploy/local/orbit-values.yaml` (and in the operator's equivalent files). SPIRE uses this value as the SPIFFE trust domain; kora's `ClusterSPIFFEID` templates embed it in SPIFFE URI templates; the identity service's principal extractor validates SVIDs against it. A mismatch produces silent authentication failures — the identity service will reject all SVIDs because the trust domain in the SVID URI will not match the one it was configured to expect.
 
 **Mitigation — Helmfile shared globals block:**
 

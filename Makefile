@@ -1,4 +1,4 @@
-# Orbit Control Plane - Development Makefile
+# kora Control Plane - Development Makefile
 # ===========================================
 
 # Load environment variables from .env if it exists
@@ -22,15 +22,10 @@ FRONTEND_DIR=./frontend
 # Binary output
 BINARY_DIR=.bin
 
-# Tool versions (pin for reproducible installs)
-GITLEAKS_VERSION=v8.27.2
-GOLANGCI_LINT_VERSION=v2.11.3
-NODE_VERSION=24
-PNPM_VERSION=10.32.1
-PROTOC_GEN_GO_VERSION=v1.36.11
-PROTOC_GEN_GO_GRPC_VERSION=v1.5.1
-BUF_VERSION=v1.55.1
-DEADCODE_VERSION=v0.48.0
+# Tool versions live in versions.hcl, which docker buildx bake also reads. HCL
+# quotes each value, so strip the quotes after the include.
+include versions.hcl
+$(foreach v,$(shell sed -n 's/^\([A-Z_]*\) *=.*/\1/p' versions.hcl),$(eval $(v) := $(patsubst "%",%,$($(v)))))
 
 # Backing-service defaults. `.env` holds only machine-local secrets, so these
 # mirror the defaults in docker-compose.yml and are overridable from .env.
@@ -48,7 +43,7 @@ DB_URL=postgres://$(DB_USER):$(DB_PASSWORD)@$(DB_HOST):$(DB_PORT)/$(DB_NAME)?ssl
 
 
 # Frontend public URL — baked into the Next.js client bundle at Docker build time.
-# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake orbit-frontend
+# Override for non-local environments (e.g. CI): NEXT_PUBLIC_APP_URL=https://my.host docker buildx bake -f docker-bake.hcl -f versions.hcl orbit-frontend
 NEXT_PUBLIC_APP_URL ?= https://orbit.local.clearroute.io:8443
 
 # Docker image publishing (generic backend/Dockerfile via docker buildx bake)
@@ -81,7 +76,7 @@ COMMON_TARGETS := setup up down reset auth redeploy test check
 
 .PHONY: help
 help: ## Display this help screen
-	@echo "$(COLOR_BOLD)Orbit Control Plane$(COLOR_RESET)"
+	@echo "$(COLOR_BOLD)kora Control Plane$(COLOR_RESET)"
 	@echo ""
 	@echo "$(COLOR_BOLD)Start here$(COLOR_RESET)"
 	@for t in $(COMMON_TARGETS); do \
@@ -264,8 +259,17 @@ proto-gen: ## Generate Go code from proto files (requires buf — run make insta
 	@cd backend && buf generate
 	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
+.PHONY: check-versions
+check-versions: ## Verify GO_VERSION in versions.hcl matches the go directive in backend/go.mod
+	@GOMOD=$$(awk '$$1 == "go" { print $$2; exit }' backend/go.mod); \
+	if [ "$$GOMOD" != "$(GO_VERSION)" ]; then \
+		echo "$(COLOR_RED)✗ versions.hcl GO_VERSION=$(GO_VERSION) but backend/go.mod has go $$GOMOD$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_GREEN)✓ GO_VERSION $(GO_VERSION) matches backend/go.mod$(COLOR_RESET)"
+
 .PHONY: check-tool-versions
-check-tool-versions: ## Verify installed tool versions match pinned versions in Makefile
+check-tool-versions: ## Verify installed tool versions match pinned versions in versions.hcl
 	@echo "$(COLOR_YELLOW)Checking tool versions...$(COLOR_RESET)"
 	@INSTALLED=$$(golangci-lint --version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$INSTALLED" = "$(GOLANGCI_LINT_VERSION)" ]; then \
@@ -338,8 +342,9 @@ db-shell: ## Open a psql shell to the database
 
 # cmd/migrate embeds every service's migrations and is what the chart runs as a
 # pre-upgrade hook (docs/adr/2026-09-10-database-migrations.md). Locally it
-# runs through `go run` against the compose Postgres.
-MIGRATE_ENV = APP_ENV=local DB_HOST=$(DB_HOST) DB_PORT=$(DB_PORT) DB_NAME=$(DB_NAME) DB_USER=$(DB_USER) DB_PASSWORD=$(DB_PASSWORD) ORBIT_POSTGRES_SSL_MODE=disable ORBIT_LOG_FORMAT=console
+# runs through `go run` against the compose Postgres, whose address is in
+# backend/internal/platform/storage/config/local.yaml.
+MIGRATE_ENV = APP_ENV=local DB_PASSWORD=$(DB_PASSWORD)
 MIGRATE = cd $(BACKEND_DIR) && $(MIGRATE_ENV) $(GOCMD) run ./cmd/migrate
 
 .PHONY: migrate-status
@@ -437,9 +442,9 @@ install-tools-cluster: ## Install cluster tooling (k3d, kubectl, helm, helmfile,
 # The schema is applied by the orbit chart's pre-install hook during
 # cluster-platform, before any service starts.
 .PHONY: up
-up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + Orbit (schema applied by the chart's migrate hook), tenants. Idempotent.
+up: dev-cluster cluster-platform cluster-deploy ## Bring up everything: backing services, k3d cluster, SPIRE + Istio + kora (schema applied by the chart's migrate hook), tenants. Idempotent.
 	@echo ""
-	@echo "$(COLOR_GREEN)✓ Orbit is up$(COLOR_RESET)"
+	@echo "$(COLOR_GREEN)✓ kora is up$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
 	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo ""
@@ -474,13 +479,15 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # matters only for readability — they're all built serially via redeploy.sh.
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
-	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers skills-service migrate operator \
-	session-manager sandbox-exec
+	identity identity-proxy inference-gateway policy-service \
+	policy-gateway \
+	egress-gateway agents frontend orbit-mcp tool-gateway \
+	orbit-triggers skills-service migrate operator \
+	session-manager sandbox-exec sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
 # Services with a long-lived orbit-system workload that `cluster-update` rolls
-# after the build pass. Excludes identity-proxy (sidecar), sandbox-exec
+# after the build pass. Excludes identity-proxy (sidecar), sandbox-base
 # (on-demand), session-manager (tenant StatefulSet, may not exist yet) and
 # operator (helm-managed — upgraded separately so chart/CRD changes land).
 REDEPLOY_ROLLOUT_SERVICES := \
@@ -491,7 +498,7 @@ REDEPLOY_ROLLOUT_SERVICES := \
 # on cluster-update so they re-read chart-managed config on the way back up.
 REDEPLOY_RESTART_ONLY := orbit-opa-gateway
 
-OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
+OPA_ENVOY_IMAGE := openpolicyagent/opa:1.21.0-envoy-static
 
 # ===========================================
 # Image bake (CI / multi-arch publishing)
@@ -501,7 +508,7 @@ OPA_ENVOY_IMAGE := openpolicyagent/opa:1.15.2-envoy-static
 docker-bake-build: ## Build images via docker buildx bake and load them into the local Docker daemon
 	@echo "$(COLOR_YELLOW)Building $(BACKEND_IMAGE_GROUP) from $(DOCKER_BAKE_FILE) with tags $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG) [$(DOCKER_BUILD_PLATFORMS)]...$(COLOR_RESET)"
 	@REGISTRY=$(IMAGE_REGISTRY) IMAGE_NAMESPACE=$(IMAGE_NAMESPACE) IMAGE_TAG=$(IMAGE_TAG) \
-		docker buildx bake -f $(DOCKER_BAKE_FILE) \
+		docker buildx bake -f $(DOCKER_BAKE_FILE) -f versions.hcl \
 			--set '*.platform=$(DOCKER_BUILD_PLATFORMS)' \
 			--load $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Built images with tags $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
@@ -510,7 +517,7 @@ docker-bake-build: ## Build images via docker buildx bake and load them into the
 docker-bake-push: ## Build and push images via docker buildx bake (defaults to GHCR)
 	@echo "$(COLOR_YELLOW)Publishing $(BACKEND_IMAGE_GROUP) from $(DOCKER_BAKE_FILE) to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG) [$(DOCKER_PUSH_PLATFORMS)]...$(COLOR_RESET)"
 	@REGISTRY=$(IMAGE_REGISTRY) IMAGE_NAMESPACE=$(IMAGE_NAMESPACE) IMAGE_TAG=$(IMAGE_TAG) \
-		docker buildx bake -f $(DOCKER_BAKE_FILE) \
+		docker buildx bake -f $(DOCKER_BAKE_FILE) -f versions.hcl \
 			--set '*.platform=$(DOCKER_PUSH_PLATFORMS)' \
 			--push $(BACKEND_IMAGE_GROUP)
 	@echo "$(COLOR_GREEN)✓ Published images to $(IMAGE_REPOSITORY_PREFIX)*:$(IMAGE_TAG)$(COLOR_RESET)"
@@ -600,7 +607,7 @@ BAKE_PLATFORM_IMAGES := \
 	orbit-identity orbit-identity-proxy orbit-inference-gateway \
 	orbit-policy-service orbit-policy-gateway orbit-egress-gateway \
 	orbit-agents orbit-frontend orbit-mcp orbit-tool-gateway orbit-triggers orbit-migrate \
-	orbit-operator orbit-session-manager orbit-sandbox-exec
+	orbit-operator orbit-session-manager orbit-sandbox-mount kora-sandbox-base
 
 .PHONY: redeploy-platform-bake
 redeploy-platform-bake: ## Build + push every platform service in one parallel docker buildx bake graph (the ORBIT_PARALLEL_BUILDS=1 path)
@@ -609,7 +616,7 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 	echo "$(COLOR_YELLOW)Baking platform images in parallel (GIT_SHA=$$GIT_SHA)...$(COLOR_RESET)"; \
 	GIT_SHA="$$GIT_SHA" \
 		docker buildx bake \
-			-f docker-bake.hcl -f docker-bake.local.hcl \
+			-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 			--load local-platform || exit $$?; \
 	if [ -f secrets/mkcert-ca.pem ]; then \
 		echo "$(COLOR_YELLOW)Layering mkcert CA into orbit-identity...$(COLOR_RESET)"; \
@@ -626,6 +633,25 @@ redeploy-platform-bake: ## Build + push every platform service in one parallel d
 	@docker image prune -f > /dev/null
 	@echo "$(COLOR_GREEN)✓ Platform images built and pushed via bake$(COLOR_RESET)"
 
+# Sandbox images make up does not build. They must match the local-sandbox-images
+# group in docker-bake.local.hcl.
+BAKE_SANDBOX_IMAGES := kora-sandbox-go kora-sandbox-python kora-sandbox-node kora-sandbox-dev
+
+.PHONY: redeploy-sandbox-images
+redeploy-sandbox-images: ## Build + push BAKE_SANDBOX_IMAGES (the bundled sandbox images and kora-sandbox-dev) to the local registry
+	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
+	if [ -n "$$(git status --porcelain 2>/dev/null)" ]; then GIT_SHA="$${GIT_SHA}-dirty"; fi; \
+	GIT_SHA="$$GIT_SHA" docker buildx bake \
+		-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
+		--load local-sandbox-images || exit $$?; \
+	for img in $(BAKE_SANDBOX_IMAGES); do \
+		docker push --quiet "localhost:5001/$$img:latest" > /dev/null && \
+		docker push --quiet "localhost:5001/$$img:$$GIT_SHA" > /dev/null && \
+		echo "  ✓ $$img" || exit $$?; \
+	done
+	@docker image prune -f > /dev/null
+	@echo "$(COLOR_GREEN)✓ Bundled sandbox images built and pushed$(COLOR_RESET)"
+
 .PHONY: redeploy-tenant-bake
 redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via docker buildx bake (serial — one target at a time)
 	@GIT_SHA="$$(git rev-parse --short HEAD 2>/dev/null || echo dev)"; \
@@ -634,7 +660,7 @@ redeploy-tenant-bake: ## (Experimental) Build + push every tenant service via do
 	for tgt in orbit-example; do \
 		GIT_SHA="$$GIT_SHA" \
 			docker buildx bake \
-				-f docker-bake.hcl -f docker-bake.local.hcl \
+				-f docker-bake.hcl -f docker-bake.local.hcl -f versions.hcl \
 				--load $$tgt || exit $$?; \
 	done
 	@for svc in $(REDEPLOY_TENANT_SERVICES); do \
@@ -665,7 +691,7 @@ cluster-restore: ## Re-push locally-built images to the registry after a Colima/
 	@echo "$(COLOR_GREEN)✓ Registry synced$(COLOR_RESET)"
 
 .PHONY: cluster-platform
-cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and Orbit from deploy/reference/helmfile.yaml.gotmpl
+cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install SPIRE, Istio and kora from deploy/reference/helmfile.yaml.gotmpl
 	@EXPECTED="$${ORBIT_KUBE_CONTEXT:-k3d-orbit-local}"; \
 	 CURRENT="$$(kubectl config current-context 2>/dev/null || echo '<none>')"; \
 	 if [ "$$CURRENT" != "$$EXPECTED" ]; then \
@@ -677,13 +703,14 @@ cluster-platform: redeploy-platform-missing docker-pull-third-party ## Install S
 	@bash scripts/cluster/create-secrets.sh orbit-system
 	@echo "$(COLOR_YELLOW)Creating mkcert CA ConfigMap for Dex TLS verification...$(COLOR_RESET)"
 	@$(MAKE) cluster-ca-configmap
-	@echo "$(COLOR_YELLOW)Creating TLS secret for the Orbit ingress gateway...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Creating TLS secret for the kora ingress gateway...$(COLOR_RESET)"
 	@$(MAKE) cluster-tls-secret
 	@echo "$(COLOR_YELLOW)Resolving Docker container IPs...$(COLOR_RESET)"
 	@bash scripts/cluster/resolve-docker-ips.sh
-	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, Orbit)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Applying the reference Helmfile (SPIRE, Istio, kora)...$(COLOR_RESET)"
 	@cd deploy/reference && helmfile -e local apply
-	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and Orbit services are running$(COLOR_RESET)"
+	@if [ -n "$$BEDROCK_ACCOUNTS" ]; then bash scripts/cluster/refresh-bedrock-creds.sh; fi
+	@echo "$(COLOR_GREEN)✓ Platform ready — SPIRE, Istio, and kora services are running$(COLOR_RESET)"
 	@echo "  Dashboard:   https://orbit.local.clearroute.io"
 	@echo "  Backend API: https://api.orbit.local.clearroute.io"
 	@echo "  (HTTP on :8880 redirects to HTTPS)"
@@ -735,7 +762,7 @@ cluster-deploy: redeploy-tenant-missing ## Register tenants and deploy workloads
 
 .PHONY: cluster-update
 cluster-update: redeploy-platform redeploy-tenant ## Rebuild every service image and restart deployments
-	@echo "$(COLOR_YELLOW)Re-applying the Orbit releases (picks up CRD + template changes)...$(COLOR_RESET)"
+	@echo "$(COLOR_YELLOW)Re-applying the kora releases (picks up CRD + template changes)...$(COLOR_RESET)"
 	@cd deploy/reference && helmfile -e local apply --selector name=orbit-crds && helmfile -e local apply --selector name=orbit
 	@yq -i ".migrate.sourceHash = \"$$(bash scripts/cluster/migrations-hash.sh)\"" deploy/reference/environments/local.generated.yaml
 	@bash scripts/cluster/redeploy.sh operator --no-build
@@ -763,7 +790,7 @@ cluster-k8s-connection: ## Register the local k3d cluster as a Kubernetes connec
 	@bash scripts/cluster/register-k8s-connection.sh
 
 .PHONY: cluster-bedrock-creds
-cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from your local SSO session (set AWS_PROFILE in .env)
+cluster-bedrock-creds: ## Register Bedrock InferenceProviders from your AWS SSO session (AWS_PROFILE and BEDROCK_* in .env)
 	@bash scripts/cluster/refresh-bedrock-creds.sh
 
 # ===========================================
@@ -778,7 +805,7 @@ cluster-bedrock-creds: ## Refresh AWS Bedrock credentials in the cluster from yo
 # Usage:
 #   make redeploy SERVICE=identity                       # build + push + rollout
 #   make redeploy SERVICE=session-manager TENANT=example # tenant-scoped
-#   make redeploy SERVICE=sandbox-exec BUILD_ONLY=1      # build + push only
+#   make redeploy SERVICE=sandbox-base BUILD_ONLY=1      # build + push only
 #   make redeploy SERVICE=identity NO_BUILD=1            # rollout only
 #
 # Or use the per-service shortcut targets (redeploy-identity, redeploy-frontend, …).
@@ -862,9 +889,13 @@ redeploy-example: ## Redeploy the example tenant workload (default tenant=exampl
 redeploy-session-manager: ## Redeploy session-manager (statefulset, default tenant=example, override with TENANT=… SLUG=…)
 	@bash scripts/cluster/redeploy.sh session-manager $(REDEPLOY_FLAGS)
 
-.PHONY: redeploy-sandbox-exec
-redeploy-sandbox-exec: ## Build + push sandbox-exec (no rollout — picked up by next agent run)
-	@bash scripts/cluster/redeploy.sh sandbox-exec $(REDEPLOY_FLAGS)
+.PHONY: redeploy-sandbox-mount
+redeploy-sandbox-mount: ## Redeploy the sandbox-mount node agent (rolled by re-applying the orbit release)
+	@bash scripts/cluster/redeploy.sh sandbox-mount $(REDEPLOY_FLAGS)
+
+.PHONY: redeploy-sandbox-base
+redeploy-sandbox-base: ## Build + push the sandbox base image (no rollout; picked up by the next sandbox)
+	@bash scripts/cluster/redeploy.sh sandbox-base $(REDEPLOY_FLAGS)
 
 .PHONY: prune
 prune: ## Prune dangling Docker images and cap the BuildKit cache at 5 GB
@@ -1002,6 +1033,7 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 	@echo "$(COLOR_YELLOW)Setting up frontend environment...$(COLOR_RESET)"
 	@# ── 1. Enforce nvm ────────────────────────────────────────────────────────
 	@export NVM_DIR="$${NVM_DIR:-$$HOME/.nvm}"; \
+	export COREPACK_ENABLE_DOWNLOAD_PROMPT=0; \
 	if [ ! -f "$$NVM_DIR/nvm.sh" ]; then \
 		echo "$(COLOR_RED)✗ nvm not found at $$NVM_DIR$(COLOR_RESET)"; \
 		echo "  Install nvm: https://github.com/nvm-sh/nvm"; \
@@ -1017,7 +1049,7 @@ frontend-install: ## Install frontend dependencies (enforces nvm + Node LTS + pn
 		echo "  pnpm $(PNPM_VERSION) already installed — skipping"; \
 	else \
 		echo "  Installing pnpm $(PNPM_VERSION) via Corepack..."; \
-		COREPACK_ENABLE_DOWNLOAD_PROMPT=0 corepack install -g pnpm@$(PNPM_VERSION); \
+		corepack install -g pnpm@$(PNPM_VERSION); \
 	fi; \
 	cd $(FRONTEND_DIR) && pnpm install $(if $(CI),--frozen-lockfile,)
 	@echo "$(COLOR_GREEN)✓ Frontend dependencies installed$(COLOR_RESET)"
@@ -1051,9 +1083,9 @@ frontend-fmt: ## Format frontend code (prettier --write locally, --check in CI)
 	@echo "$(COLOR_GREEN)✓ Frontend formatting OK$(COLOR_RESET)"
 
 .PHONY: frontend-test-unit
-frontend-test-unit: ## Run frontend unit tests (Terra first, then app)
+frontend-test-unit: ## Run frontend unit tests (Hades first, then app)
 	@echo "$(COLOR_YELLOW)Running frontend unit tests...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
 	@cd $(FRONTEND_DIR) && pnpm run test:unit
 	@echo "$(COLOR_GREEN)✓ Frontend unit tests passed$(COLOR_RESET)"
 
@@ -1063,11 +1095,11 @@ frontend-test-integration: ## Run frontend integration tests (MSW + jsdom)
 	@cd $(FRONTEND_DIR) && pnpm run test:integration
 	@echo "$(COLOR_GREEN)✓ Frontend integration tests passed$(COLOR_RESET)"
 
-.PHONY: frontend-test-terra
-frontend-test-terra: ## Run Terra component unit tests in isolation (happy-dom)
-	@echo "$(COLOR_YELLOW)Running Terra unit tests...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
-	@echo "$(COLOR_GREEN)✓ Terra unit tests passed$(COLOR_RESET)"
+.PHONY: frontend-test-hades
+frontend-test-hades: ## Run Hades component unit tests in isolation (happy-dom)
+	@echo "$(COLOR_YELLOW)Running Hades unit tests...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	@echo "$(COLOR_GREEN)✓ Hades unit tests passed$(COLOR_RESET)"
 
 .PHONY: frontend-test-e2e
 frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
@@ -1088,7 +1120,7 @@ frontend-clean: ## Remove frontend build artifacts and installed dependencies
 	@echo "$(COLOR_GREEN)✓ Frontend cleaned$(COLOR_RESET)"
 
 .PHONY: frontend-storybook
-frontend-storybook: ## Start Storybook — Terra + App/Shared components (port 6006)
+frontend-storybook: ## Start Storybook — Hades + App/Shared components (port 6006)
 	@echo "$(COLOR_YELLOW)Starting Storybook...$(COLOR_RESET)"
 	@cd $(FRONTEND_DIR) && pnpm storybook
 
@@ -1098,10 +1130,10 @@ frontend-storybook-build: ## Build Storybook as a static site
 	@cd $(FRONTEND_DIR) && pnpm build-storybook
 	@echo "$(COLOR_GREEN)✓ Storybook built$(COLOR_RESET)"
 
-.PHONY: frontend-storybook-terra
-frontend-storybook-terra: ## Start Terra-isolated Storybook (Terra package only, port 6006)
-	@echo "$(COLOR_YELLOW)Starting Terra-isolated Storybook...$(COLOR_RESET)"
-	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra storybook
+.PHONY: frontend-storybook-hades
+frontend-storybook-hades: ## Start Hades-isolated Storybook (Hades package only, port 6006)
+	@echo "$(COLOR_YELLOW)Starting Hades-isolated Storybook...$(COLOR_RESET)"
+	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades storybook
 
 # ===========================================
 # Cleanup
@@ -1229,7 +1261,7 @@ chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/orbit
 
 .PHONY: check
-check: tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
+check: check-versions tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all

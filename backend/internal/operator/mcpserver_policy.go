@@ -70,21 +70,11 @@ func (m *MCPServer) endpointPort() (int32, error) {
 	if err != nil {
 		return 0, fmt.Errorf("parse endpoint %q: %w", m.Spec.Endpoint, err)
 	}
-	if p := u.Port(); p != "" {
-		n, convErr := strconv.Atoi(p)
-		if convErr != nil || n < 1 || n > 65535 {
-			return 0, fmt.Errorf("endpoint %q has an invalid port", m.Spec.Endpoint)
-		}
-		return int32(n), nil //nolint:gosec // bounds checked above
+	n, err := urlPort(u)
+	if err != nil {
+		return 0, err
 	}
-	switch u.Scheme {
-	case "http":
-		return 80, nil
-	case "https":
-		return 443, nil
-	default:
-		return 0, fmt.Errorf("endpoint %q has no port and scheme %q has no default", m.Spec.Endpoint, u.Scheme)
-	}
+	return int32(n), nil //nolint:gosec // urlPort bounds the port to 1-65535
 }
 
 // ingressPolicyName is the tenant-namespace policy admitting the gateway.

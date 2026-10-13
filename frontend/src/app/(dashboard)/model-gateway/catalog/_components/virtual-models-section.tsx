@@ -12,12 +12,12 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { fmtCost } from '@orbit/utils';
 import type { VirtualModel } from '../_types/catalog';
-import { PROVIDER_LABELS } from '../_utils/catalog-constants';
+import { providerTitle } from '../_utils/catalog-constants';
 import { StrategyBadge } from './strategy-badge';
 
 interface VirtualModelsSectionProps {
@@ -109,6 +109,8 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'name',
         header: 'Virtual Model',
+        gridWidth: 'minmax(0, 2fr)',
+        minWidth: '11rem',
         locked: true,
         sortable: true,
         sortAccessor: (m) => m.name,
@@ -129,11 +131,15 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'strategy',
         header: 'Strategy',
+        gridWidth: '10rem',
+        minWidth: '9rem',
         cell: (m) => <StrategyBadge strategy={m.strategy} />,
       },
       {
         id: 'effectivePrice',
         header: 'Effective Price',
+        gridWidth: '9rem',
+        minWidth: '8rem',
         headerTooltip:
           'The lowest per-1M token price across all token-priced enabled routes, after overrides. Routes without token pricing are excluded.',
         sortable: true,
@@ -147,6 +153,8 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'routes',
         header: 'Routes',
+        gridWidth: '6rem',
+        minWidth: '5rem',
         sortable: true,
         sortAccessor: (m) => m.routes.length,
         cell: (m) => (
@@ -158,7 +166,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
                   key={r.id || ri}
                   status={r.enabled ? 'healthy' : 'muted'}
                   size="sm"
-                  title={`${PROVIDER_LABELS[r.provider] ?? r.provider}: ${r.enabled ? 'active' : 'disabled'}`}
+                  title={`${providerTitle(r.provider)} (${r.enabled ? 'active' : 'disabled'})`}
                 />
               ))}
             </Stack>
@@ -168,6 +176,8 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'status',
         header: 'Status',
+        gridWidth: '7rem',
+        minWidth: '6rem',
         cell: (m) => (
           <Badge variant={m.enabled ? 'healthy' : 'muted'} shape="pill" size="sm" dot>
             {m.enabled ? 'Enabled' : 'Disabled'}
@@ -177,6 +187,7 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
       {
         id: 'chevron',
         header: '',
+        pinEnd: true,
         locked: true,
         gridWidth: '2.5rem',
         cell: () => <Icon name="chevron-right" color="muted" />,
