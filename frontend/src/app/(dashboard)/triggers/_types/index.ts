@@ -34,9 +34,9 @@ export interface TriggerCoalesce {
 /**
  * Deliveries requested per page, by the server render and by every Load more.
  *
- * One constant because the two must agree: the server fetch decides how many
- * rows the first cursor skips past, so a client page of a different size would
- * silently change what the second page starts from.
+ * One constant so every page is the same size. The cursor encodes the last row
+ * returned, not an offset, so a different size would be correct either way - it
+ * would just make the grid grow in uneven steps.
  */
 export const DELIVERY_PAGE_SIZE = 100;
 
