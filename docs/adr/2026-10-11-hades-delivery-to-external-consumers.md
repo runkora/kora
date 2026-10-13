@@ -15,7 +15,7 @@ The white-labelling PRDs assume consumers outside this repository will render ko
 
 ### Background
 
-- The [versioning ADR](2026-10-11-design-system-semantic-versioning.md) decides that a Hades release is a `hades/vX.Y.Z` tag matching `package.json`, and that each release carries `manifest.json`, `CONTRACT.md` and an exported `HADES_VERSION`.
+- The [versioning ADR](2026-10-11-design-system-semantic-versioning.md) decides that a Hades release is a `hades/vX.Y.Z` tag matching `package.json`, and that each release carries `manifest.json`, `CONTRACT.md` and exported `HADES_VERSION` and `CONTRACT_VERSION`.
 - The organisation already publishes container images to `ghcr.io`, so GitHub Packages is in use and authenticated from CI.
 - The Hades PRD excludes Storybook, and any design-tooling artefact, from the Hades deliverable.
 
@@ -44,7 +44,7 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 * Hades stays in this repository and keeps working by workspace link; delivery must not change how the frontend consumes it.
 * This ADR requires consumers to be React applications on Tailwind v4, the same stack as the frontend, so that shipping source is sufficient and there is one build toolchain.
 * Versioned resolution matters: a consumer must be able to say "the latest 1.2.x" and get it, which a URL to a tarball cannot do.
-* The repository is private; the channel must be authenticated and already available to the organisation.
+* The repository is private today and is being open-sourced within weeks, at which point the package is made public. Until then the channel must be authenticated and already available to the organisation.
 * Delayed decision making.
 
 ---
@@ -116,7 +116,7 @@ The published package contains exactly:
 - `src/tokens/tokens.css` and `src/tokens/surface.ts`.
 - `manifest.json` and `CONTRACT.md` from the versioning ADR, and `theme.schema.json` from the white-labelling theme ADR.
 - `README.md`, which documents the consumer requirements below.
-- `package.json` named `@clear-route/hades`, with `private` removed, a `files` whitelist producing the list above, `publishConfig` pointing at `npm.pkg.github.com`, the `repository` field with `directory`, the existing dependencies, and `exports` extended with `./manifest.json`, `./CONTRACT.md` and `./theme.schema.json` so a consumer can read what it is told it receives. `src/index.ts` exports `HADES_VERSION`.
+- `package.json` named `@clear-route/hades`, with `private` removed, a `files` whitelist producing the list above, `publishConfig` pointing at `npm.pkg.github.com`, the `repository` field with `directory`, the existing dependencies, and `exports` extended with `./manifest.json`, `./CONTRACT.md` and `./theme.schema.json` so a consumer can read what it is told it receives. `src/index.ts` exports `HADES_VERSION` and `CONTRACT_VERSION`.
 
 It does not contain fonts, Storybook, stories, tests, or any build of its own. The kora frontend's own consumption is unaffected beyond the rename: the workspace link ignores `files` and `publishConfig`, and `exports` keeps its existing entries.
 
@@ -128,18 +128,18 @@ Stated in the README and treated as part of the deliverable:
 - Tailwind v4, importing `tokens.css` and scanning the package with `@source` the way the kora frontend does.
 - TypeScript compilation of the package source, as the frontend does through `transpilePackages`.
 - The font slot tokens `--hades-raw-font-sans` and `--hades-raw-font-mono` set by the consumer, or by the theme it renders, to font families it loads itself. Hades references them and never loads a font.
-- A patch-range pin, such as `~1.2.0`. The Hades version promises the theme contract; a minor may change the component API, as the versioning ADR defines.
+- Standard Semantic Versioning for the package: a caret range such as `^1.2.0` is safe, because a breaking change to the components, props, peer ranges or tokens is a major. A consumer that renders themes reads `CONTRACT_VERSION`, exported from the package and recorded in `manifest.json`, to decide whether a theme is compatible; the contract version is independent of the package version, as the versioning ADR defines.
 
 ### Release workflow
 
 One workflow, `.github/workflows/hades-release.yml`, triggered by `hades/v*` tags. The versioning ADR owns its first jobs; this ADR owns the rest. Jobs, in order, each depending on the previous:
 
-1. **verify**: the tag equals `package.json` `version`, is not a `0.x` version, `version.ts` and `manifest.json` agree with it, and the manifest is in sync with its sources.
+1. **verify**: the tag equals `package.json` `version`, is not a `0.x` version, `version.ts` and `manifest.json` agree with it, `CONTRACT_VERSION` and the manifest's `contractVersion` agree with each other, and the manifest is in sync with its sources.
 2. **test**: the Hades unit tests.
-3. **pack-and-smoke**: `pnpm --filter @clear-route/hades pack` into `clear-route-hades-X.Y.Z.tgz`, uploaded as a workflow artefact. Then the **smoke build**: scaffold a minimal Vite plus React plus Tailwind v4 application in a temporary directory, install the tarball into it, render a page that imports `tokens.css`, the `Button` component and `HADES_VERSION`, and run its production build. This is the proof that the package is buildable without the Next.js application, and it runs on every release.
-4. **publish**: publish the same tarball to GitHub Packages.
-5. **release**: create a GitHub Release named `hades/vX.Y.Z` with the tarball, `manifest.json`, `CONTRACT.md` and `theme.schema.json` attached, marked as not the repository's latest release, so kora's own releases keep that position.
-6. **cleanup**, run only if any job above failed: delete the tag, so the version can be re-cut once the cause is fixed. A failure leaves nothing published and is reported on the commit.
+3. **pack-and-smoke**: `pnpm --filter @clear-route/hades pack` into `clear-route-hades-X.Y.Z.tgz`, uploaded as a workflow artefact. Then the **smoke build**: scaffold a minimal Vite plus React plus Tailwind v4 application in a temporary directory, install the tarball into it, render a page that imports `tokens.css`, the `Button` component, `HADES_VERSION` and `CONTRACT_VERSION`, and run its production build. This is the proof that the package is buildable without the Next.js application, and it runs on every release.
+4. **release**: create a GitHub Release named `hades/vX.Y.Z` with the tarball, `manifest.json`, `CONTRACT.md` and `theme.schema.json` attached, marked as not the repository's latest release, so kora's own releases keep that position. The release notes state the contract version and whether it changed from the previous release.
+5. **publish**: publish the same tarball to GitHub Packages. It runs last, because a published package version cannot be removed or published again, so everything that can fail and be undone runs before it.
+6. **cleanup**, run only if any job above failed: delete the tag and any GitHub Release created for it, so the version can be re-cut once the cause is fixed. Because `publish` is last, a failure in any earlier job, or in `publish` itself, leaves no package version published, and is reported on the commit.
 
 ### Workflow requirements
 
@@ -147,8 +147,8 @@ One workflow, `.github/workflows/hades-release.yml`, triggered by `hades/v*` tag
 - **Actions pinned by commit SHA**, per the repository's Scorecard convention. The actions needed are checkout, the pnpm and Node setup already used by `frontend-ci`, upload and download of the tarball artefact, and the GitHub CLI for the release, which is preinstalled on the runner.
 - **Registry authentication.** The Node setup step is given `registry-url: https://npm.pkg.github.com` and `scope: @clear-route`, which writes the `.npmrc` for the job; `NODE_AUTH_TOKEN` is the workflow token. The built-in token can publish to GitHub Packages for the repository that owns the workflow; no personal access token is stored.
 - **Package linkage.** `package.json` gains `"repository": { "type": "git", "url": "https://github.com/clear-route/orbit.git", "directory": "frontend/src/packages/hades" }`. GitHub Packages links a package to the repository named here, which is what lets the workflow token publish it.
-- **Consumer access.** A package first published with the workflow token inherits the access of the linked repository: accounts that can read the repository can read the package. A consumer in another repository of the organisation reads it with a token that has `read:packages`, either a fine-grained personal access token or a GitHub App token held as a secret in that repository, or, for its Actions workflows, that repository granted access in the package's own settings after the first publish, after which its built-in token suffices. The consumer's `.npmrc` carries two lines: the scope-to-registry mapping and the token reference. Which of these a given consumer uses is that consumer's decision. `publishConfig` carries only the registry; an `access` field does not govern visibility on GitHub Packages and is not set.
-- **No provenance attestation.** npm provenance is supported only for the public npm registry, not GitHub Packages. kora signs its images with cosign; the equivalent for the Hades tarball is the checksum published in the GitHub Release, which is enough for consumers inside the organisation. Revisit if a consumer outside it ever appears.
+- **Consumer access.** A package first published with the workflow token inherits the access of the linked repository: accounts that can read the repository can read the package. A consumer in another repository of the organisation reads it with a personal access token (classic) that has `read:packages`, held as a secret in that repository, because the GitHub Packages npm registry accepts neither fine-grained personal access tokens nor GitHub App installation tokens, or, for its Actions workflows, that repository granted access in the package's own settings after the first publish, after which its built-in token suffices. The consumer's `.npmrc` carries two lines: the scope-to-registry mapping and the token reference. Which of these a given consumer uses is that consumer's decision. Making the package public with the repository widens who may read it but does not remove the token: the GitHub Packages npm registry requires one for every install, and kora accepts that cost in exchange for the registry, the scope and the publishing path that already exist. `publishConfig` carries only the registry; an `access` field does not govern visibility on GitHub Packages and is not set.
+- **No provenance attestation.** npm provenance is supported only for the public npm registry, not GitHub Packages. kora signs its images with cosign; the equivalent for the Hades tarball is the checksum published in the GitHub Release, which is enough while every consumer is inside the organisation. Revisit when the package is made public, if provenance is wanted by consumers outside it.
 - **Tag isolation.** kora's `release.yml` triggers on `v*`, which does not match `hades/v*`, and this workflow triggers only on `hades/v*`. One shared surface remains: kora's release step finds the previous release with an unfiltered `gh release list`, which would return a Hades release once one exists. That lookup is changed to consider only tags starting with `v`.
 - **Local tagging.** `make hades-release VERSION=X.Y.Z` verifies the working tree is on `main`, clean and up to date, that `package.json` already carries `X.Y.Z`, then creates and pushes the tag. It is a convenience; the workflow re-verifies everything.
 
@@ -171,7 +171,7 @@ Option 1 is the only option that gives consumers semver resolution, and it is th
 
 - The rename to `@clear-route/hades` is a one-time change across 292 files. It is mechanical, but it lands as its own PR before the first release.
 - `package.json` is no longer `private`, so a mistaken `pnpm publish` from a developer machine is possible. Mitigated by `publishConfig` naming the registry, and by the registry requiring a token with write scope that developers do not hold.
-- A consumer on a caret range can be broken by a minor, because the version promises the theme contract and a minor may change the component API. The README says to pin a patch range.
+- Consumers that render themes have a second number to read, `CONTRACT_VERSION`, in addition to the package version.
 - Consumers carry the Tailwind v4 and TypeScript requirements. Acceptable while every consumer is a React application on the same stack.
 - The smoke build adds a minute or two to each Hades release.
 
@@ -186,8 +186,8 @@ Option 1 is the only option that gives consumers semver resolution, and it is th
 
 - Rename `@orbit/hades` to `@clear-route/hades` everywhere: the package name, the frontend's dependency, every import under `frontend/src`, the ESLint rules under `frontend/eslint`, `next.config.ts`, the Vitest configs, the Makefile's `--filter` arguments, the Dockerfile, and the docs. The ESLint rule names, Storybook titles and make target names keep the word Hades and do not change.
 - `frontend/src/packages/hades/package.json`: remove `private`; add `files`, `publishConfig` (`registry` only), the `repository` field with `directory`, and the three new `exports` entries.
-- `frontend/src/packages/hades/src/index.ts`: export `HADES_VERSION`.
-- `frontend/src/packages/hades/README.md`: consumer requirements, the patch-range pin, and the two `.npmrc` lines a consumer needs.
+- `frontend/src/packages/hades/src/index.ts`: export `HADES_VERSION` and `CONTRACT_VERSION`.
+- `frontend/src/packages/hades/README.md`: consumer requirements, the contract version and how to read it, and the two `.npmrc` lines a consumer needs.
 - `.github/workflows/hades-release.yml`: the six jobs above, with the permissions and pinning stated under Workflow requirements. Jobs 1 and 2 are the versioning ADR's.
 - `.github/workflows/release.yml`: the previous-release lookup filtered to tags starting with `v`.
 - `.github/scripts/hades-smoke-build.sh`: the Vite scaffold, install and build, taking the tarball path as its argument.
