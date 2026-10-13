@@ -1,6 +1,6 @@
 # Agent Execution Infrastructure
 
-**Status:** Accepted
+**Status:** Accepted (Amended 2026-10-12)
 **Date:** 2026-05-11
 **Deciders:** Platform Engineering  
 **Technical Story:** Managed agent workloads must run in tenant namespaces with stable identity, governed LLM access, and efficient resource utilisation. This ADR decides how agent pods are deployed, scaled, and addressed.
@@ -187,6 +187,21 @@ On agent type deletion, all resources are removed after active runs drain.
 
 ---
 
+## Amendment 1 (2026-10-12): Two replicas, drain on SIGTERM, no rollout at run start
+
+**Status:** Accepted
+
+[Run Scheduling](2026-10-12-run-scheduling.md) changes how agent pods are scaled, rolled and drained.
+
+*   The `orbit.io/active-runs` pod label and the `orbit.io/do-not-evict` taint in Scaling were never built. A drain on SIGTERM will protect active runs.
+*   Each agent's StatefulSet and HPA will have a minimum of 2 replicas.
+*   The headless Service will set `publishNotReadyAddresses: true` to keep a draining pod reachable by its DNS name.
+*   On SIGTERM the session-manager will fail readiness, accept no new sessions, and exit when its runs end or the grace period from the chart ends.
+*   Run start will create only missing resources and will not change the pod template. orbit-agents will apply template and image changes at startup and on agent update, and RollingUpdate will replace one pod at a time.
+*   Pod selection will take any Ready pod that is not terminating and has a free slot. A pod on the old revision during a roll qualifies.
+
+---
+
 ## Related Decisions
 
 - [spiffe-spire-workload-attestation](2026-03-05-spiffe-spire-workload-attestation.md) — SPIFFE/SPIRE
@@ -194,7 +209,8 @@ On agent type deletion, all resources are removed after active runs drain.
 - [agent-cli-framework-and-transform-layer](2026-05-11-agent-cli-framework-and-transform-layer.md) — session-manager (main container)
 - [orbit-agents-service-architecture](2026-05-11-orbit-agents-service-architecture.md) — service that provisions these resources
 - [agent-identity-and-policy-provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) — SPIRE entry and grant lifecycle
+- [run-scheduling](2026-10-12-run-scheduling.md) — Amendment 1
 
 ---
 
-**Last Updated:** 2026-05-08
+**Last Updated:** 2026-10-12 (Amendment 1: two replicas, drain on SIGTERM, no rollout at run start)

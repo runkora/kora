@@ -93,9 +93,10 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Codex Agent Runner](2026-06-04-codex-agent-runner.md) — `Accepted (Amended 2026-09-29)` · 2026-06-04
 - [OpenCode Agent Runner](2026-06-04-opencode-agent-runner.md) — `Accepted (Amended 2026-09-30)` · 2026-06-04
 - [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) — `Accepted (Amended 2026-09-29)` · 2026-05-11
-- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted` · 2026-05-11
+- [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
 - [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) — `Accepted` · 2026-05-11
-- [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted` · 2026-05-11
+- [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) — `Accepted (Amended 2026-10-12)` · 2026-05-11
+- [Run Scheduling](2026-10-12-run-scheduling.md) — `Accepted` · 2026-10-12
 - [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) — `Accepted` · 2026-05-11
 - [Agent Workspace Model](2026-05-11-agent-workspace-model.md) — `Accepted` · 2026-05-11
 - [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) — `Accepted` · 2026-05-11
@@ -219,7 +220,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-08 | [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) | Accepted | 0049 |
 | 2026-05-11 | [Agent CLI Framework & Transform Layer](2026-05-11-agent-cli-framework-and-transform-layer.md) | Accepted | 0049 |
 | 2026-05-11 | [Agent Event Streaming Protocol](2026-05-11-agent-event-streaming-protocol.md) | Accepted | 0054 |
-| 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted | 0051 |
+| 2026-05-11 | [Agent Execution Infrastructure](2026-05-11-agent-execution-infrastructure.md) | Accepted (Amended 2026-10-12) | 0051 |
 | 2026-05-11 | [Agent Identity & Policy Provisioning](2026-05-11-agent-identity-and-policy-provisioning.md) | Accepted (Amended 2026-09-29) | 0057 |
 | 2026-05-11 | [Agent Portal & Chat UI](2026-05-11-agent-portal-and-chat-ui.md) | Accepted | 0058 |
 | 2026-05-11 | [Agent Registry & Definition Model](2026-05-11-agent-registry-and-definition-model.md) | Accepted (Amended 2026-09-29) | 0050 |
@@ -227,7 +228,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-05-11 | [BYOC Agent Discovery & Observability](2026-05-11-byoc-agent-discovery-and-observability.md) | Accepted | 0056 |
 | 2026-05-11 | [orbit-agents Route & Scope Registration](2026-05-11-orbit-agents-route-scope-registration.md) | Accepted | 0060 |
 | 2026-05-11 | [orbit-agents Service Architecture](2026-05-11-orbit-agents-service-architecture.md) | Accepted | 0052 |
-| 2026-05-11 | [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) | Accepted | 0053 |
+| 2026-05-11 | [Run & Session Lifecycle](2026-05-11-run-and-session-lifecycle.md) | Accepted (Amended 2026-10-12) | 0053 |
 | 2026-05-11 | [Sandbox Provisioning and Shell Proxy](2026-05-11-sandbox-provisioning-and-shell-proxy.md) | Accepted | 0059 |
 | 2026-05-13 | [Profile Page Architecture](2026-05-13-profile-page-architecture.md) | Proposed | — |
 | 2026-06-04 | [Agents BFF Integration and Run Chat Wiring](2026-06-04-agents-bff-integration-and-run-chat-wiring.md) | Accepted | 0061 |
@@ -295,4 +296,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-07 | [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) | Accepted | — |
 | 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
+| 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
