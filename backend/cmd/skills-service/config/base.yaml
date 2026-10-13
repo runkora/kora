@@ -9,6 +9,9 @@ server:
 observability:
   serviceName: orbit-skills-service
 
+identity:
+  internalURL: "http://orbit-identity.orbit-system.svc.cluster.local"
+
 policy:
   bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
   bundlePollIntervalSecs: 30

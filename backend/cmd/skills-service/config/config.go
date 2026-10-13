@@ -55,6 +55,11 @@ type Config struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
 
+	Identity struct {
+		// InternalURL is the in-cluster base URL for identity.
+		InternalURL string `yaml:"internalURL"`
+	} `yaml:"identity"`
+
 	Policy PolicyConfig `yaml:"policy"`
 
 	Marketplace struct {
@@ -105,7 +110,7 @@ func (c *Config) CacheTTL() time.Duration {
 func (c *Config) ApplyEnvOverrides() error {
 	dir := os.Getenv("ORBIT_MARKETPLACE_SOURCES_CONFIG")
 	if dir == "" {
-    	return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
+		return fmt.Errorf("ORBIT_MARKETPLACE_SOURCES_CONFIG environment variable is required")
 	}
 	c.Marketplace.SourcesConfigPath = filepath.Join(dir, "skills-mapping.yaml")
 
