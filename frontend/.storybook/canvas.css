@@ -12,7 +12,7 @@ body,
 .docs-story {
   background: var(--hades-raw-black);
   color: var(--hades-raw-white);
-  font-family: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+  font-family: var(--hades-raw-font-sans);
 }
 
 /* The app shows one theme button at a time; globals.css does this in the real app. */
