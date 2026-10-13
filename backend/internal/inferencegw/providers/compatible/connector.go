@@ -36,6 +36,10 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	APIs    []ip.API
+
+	// DecisionModels names models served on POST /systemone that the endpoint
+	// does not mark as such in its model list. Only read when APIs has systemone.
+	DecisionModels []string
 }
 
 // errMessagesBaseURL is returned when an endpoint serving Anthropic messages
@@ -49,6 +53,21 @@ type Connector struct {
 	openai    *openai.Client
 	anthropic *anthropic.Client
 	logger    logging.Logger
+
+	// decisionOnly is set when the endpoint declares exactly systemone. It
+	// has no OpenAI or Anthropic model list, so discovery reads /models itself.
+	// A mixed endpoint (systemone with other APIs) reads it once more, for
+	// its decision models.
+	decisionOnly   bool
+	decisionModels []string
+
+	// baseURL, apiKey, http and decide serve the calls made without an SDK:
+	// the model list (http) and systemone (decide), which have different
+	// timeouts. They are set when the endpoint declares systemone.
+	baseURL string
+	apiKey  string
+	http    *httpclient.Base
+	decide  *httpclient.Base
 }
 
 // New builds a connector. The SDKs' environment defaults (OPENAI_API_KEY,
@@ -61,6 +80,14 @@ func New(cfg Config, name inferencegw.ProviderName, logger logging.Logger) (*Con
 	c := &Connector{name: name, serves: map[ip.API]bool{}, logger: logger}
 	for _, api := range cfg.APIs {
 		c.serves[api] = true
+	}
+	if c.serves[ip.APISystemOne] {
+		c.decisionOnly = len(c.serves) == 1
+		c.decisionModels = slices.Clone(cfg.DecisionModels)
+		c.baseURL = strings.TrimSuffix(cfg.BaseURL, "/")
+		c.apiKey = cfg.APIKey
+		c.http = httpclient.New("orbit.compatible-list", logger, discoveryTimeout)
+		c.decide = httpclient.New("orbit.compatible-systemone", logger, decisionTimeout)
 	}
 
 	openaiOpts := []openaiopt.RequestOption{
@@ -101,19 +128,27 @@ func (c *Connector) Name() inferencegw.ProviderName { return c.name }
 // unsupported refuses an API the endpoint neither serves nor can bridge. It
 // is retryable: the virtual model may route to a provider that serves it.
 func (c *Connector) unsupported(api ip.API) error {
-	msg := fmt.Sprintf("provider %s does not serve the %s API", c.name, api)
-	return &inferencegw.ConnectorError{
-		Provider:        c.name,
-		Code:            "MODEL_NOT_SUPPORTED",
-		Retryable:       true,
-		Underlying:      errors.New(msg),
-		ProviderMessage: msg,
-		HTTPStatus:      400,
-	}
+	return inferencegw.NewAPINotServedError(c.name, string(api))
 }
 
 // ListModels lists the endpoint's models through whichever API family it serves.
 func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
+	if c.decisionOnly {
+		models, err := c.listDecisionModels(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return c.withDecisionModels(models), nil
+	}
+	models, err := c.listChatModels(ctx)
+	if err != nil || !c.serves[ip.APISystemOne] {
+		return models, err
+	}
+	return c.withDecisionModels(c.mergeDecisionModels(ctx, models)), nil
+}
+
+// listChatModels lists the endpoint's models through the OpenAI or Anthropic API.
+func (c *Connector) listChatModels(ctx context.Context) ([]inferencegw.ProviderModel, error) {
 	var models []inferencegw.ProviderModel
 	if c.serves[ip.APIChatCompletions] || c.serves[ip.APIResponses] || c.serves[ip.APIEmbeddings] {
 		iter := c.openai.Models.ListAutoPaging(ctx)
@@ -140,16 +175,10 @@ func (c *Connector) ListModels(ctx context.Context) ([]inferencegw.ProviderModel
 // Describe builds the catalog entry for a model id from the APIs this
 // endpoint serves or bridges.
 func (c *Connector) Describe(id string) inferencegw.ProviderModel {
-	text := []inferencegw.Modality{inferencegw.ModalityText}
-	m := inferencegw.ProviderModel{
-		Provider:         c.name,
-		ModelID:          id,
-		Family:           inferencegw.InferFamily(id),
-		DisplayName:      id,
-		InputModalities:  text,
-		OutputModalities: text,
-		Capabilities:     []inferencegw.ModelCapability{inferencegw.CapabilityChat},
+	if c.decisionOnly || slices.Contains(c.decisionModels, id) {
+		return c.describeDecision(id)
 	}
+	m := c.describeChat(id)
 	if c.serves[ip.APIEmbeddings] && strings.Contains(strings.ToLower(id), "embed") {
 		m.OutputModalities = []inferencegw.Modality{inferencegw.ModalityEmbedding}
 		m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityEmbedding}
@@ -165,6 +194,28 @@ func (c *Connector) Describe(id string) inferencegw.ProviderModel {
 	}
 	slices.Sort(m.Dialects)
 	m.Dialects = slices.Compact(m.Dialects)
+	return m
+}
+
+// describeChat is the base entry for a text model.
+func (c *Connector) describeChat(id string) inferencegw.ProviderModel {
+	text := []inferencegw.Modality{inferencegw.ModalityText}
+	return inferencegw.ProviderModel{
+		Provider:         c.name,
+		ModelID:          id,
+		Family:           inferencegw.InferFamily(id),
+		DisplayName:      id,
+		InputModalities:  text,
+		OutputModalities: text,
+		Capabilities:     []inferencegw.ModelCapability{inferencegw.CapabilityChat},
+	}
+}
+
+// describeDecision is the entry for a model served on POST /systemone: the
+// decision capability only, text input and no chat dialects.
+func (c *Connector) describeDecision(id string) inferencegw.ProviderModel {
+	m := c.describeChat(id)
+	m.Capabilities = []inferencegw.ModelCapability{inferencegw.CapabilityDecision}
 	return m
 }
 

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '@orbit/terra';
+import { Stack } from '@orbit/hades';
 import type { EffectiveAccess } from '@orbit/shared/api';
-import { Example, Option, OptionTable } from '../packages/terra/src/docs/story-ui';
+import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { EffectiveAccessPanel } from './effective-access-panel';
 
 /**

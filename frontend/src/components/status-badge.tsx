@@ -5,7 +5,7 @@
  * @promote-to-tier-1 if: domain knowledge (OrbitStatus type, label capitalisation)
  * is removed and a second non-dashboard kora surface needs it.
  */
-import { Badge } from '@orbit/terra';
+import { Badge } from '@orbit/hades';
 
 export type OrbitStatus = 'healthy' | 'degraded' | 'error' | 'idle' | 'pending' | 'unknown';
 

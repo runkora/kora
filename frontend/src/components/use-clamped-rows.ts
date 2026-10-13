@@ -2,7 +2,7 @@
 
 /**
  * @tier 2 — App-level shared layout hook (no Orbit domain knowledge; it is a
- * hook, not a component, so it stays out of Terra). Used by: `ScopeChipList`,
+ * hook, not a component, so it stays out of Hades). Used by: `ScopeChipList`,
  * connections' `UsedByList`.
  *
  * Lets a wrapping list show as many items as fit in `maxRows` rows and

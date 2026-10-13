@@ -10,7 +10,7 @@ import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { BadgeList } from './badge-list';
@@ -176,6 +176,15 @@ export function ModelsTab() {
     [models],
   );
 
+  // Only capabilities present in the loaded models, so an option never yields an empty table.
+  const capabilityOptions = useMemo(
+    () =>
+      [...new Set(models.flatMap((m) => m.capabilities))]
+        .sort((a, b) => a.localeCompare(b))
+        .map((c) => ({ value: c, label: c })),
+    [models],
+  );
+
   const filteredModels = useMemo(() => {
     if (availabilityFilter === 'all') return models;
     return models.filter((m) => m.status === availabilityFilter);
@@ -268,6 +277,12 @@ export function ModelsTab() {
         header: 'Capabilities',
         gridWidth: 'minmax(0, 1.5fr)',
         minWidth: '8rem',
+        filter: {
+          mode: 'client',
+          options: capabilityOptions,
+          // Union: a model matches when it has any selected capability, as the gateway's ?capability= does.
+          filterFn: (row, selected) => row.capabilities.some((c) => selected.has(c)),
+        },
         cell: (row) => <BadgeList values={row.capabilities} maxRows={2} />,
       },
       {
@@ -329,7 +344,7 @@ export function ModelsTab() {
         ),
       },
     ],
-    [favourites, toggleFavourite],
+    [favourites, toggleFavourite, capabilityOptions],
   );
 
   return (

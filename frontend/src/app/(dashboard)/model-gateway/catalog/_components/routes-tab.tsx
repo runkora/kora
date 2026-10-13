@@ -17,7 +17,7 @@ import {
   StepDot,
   Text,
   Toggle,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { fmtCost } from '@orbit/utils';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import { providerTitle } from '../_utils/catalog-constants';

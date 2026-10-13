@@ -224,7 +224,7 @@ Environment sits with tools and access rather than at the end, because it change
 - No step requires horizontal scrolling.
 
 **Consistency:**
-- The flow is built entirely from the Terra design system. Any new component is added to Terra and documented there.
+- The flow is built entirely from the Hades design system. Any new component is added to Hades and documented there.
 
 **Reliability:**
 - A draft is not lost by navigation, refresh, or a failed create.
@@ -236,7 +236,7 @@ Environment sits with tools and access rather than at the end, because it change
 ### Internal Dependencies
 
 - **[Delegated Agent Identity](delegated-agent-identity.md):** being designed separately. The identity model control is not shipped ahead of its enforcement, so the identity step gains it later rather than shipping it decoratively.
-- **Terra design system:** the builder needs components Terra does not currently have. Terra changes require human approval before implementation.
+- **Hades design system:** the builder needs components Hades does not currently have. Hades changes require human approval before implementation.
 - **Existing agent configuration surfaces:** tools, connectors, connectivity, environments, and budgets are all sourced from capabilities that already exist.
 
 ---
@@ -249,7 +249,7 @@ Environment sits with tools and access rather than at the end, because it change
 | The identity model control ships before its enforcement, misleading users about what is bound | High | Low | The control is gated on the Delegated Agent Identity work; it is not shipped decoratively |
 | Users read planned ceilings as enforced ones | High | Medium | Planned capabilities are visually separated, labelled, and non-interactive |
 | Retaining every existing field makes a step too heavy | Medium | Medium | Tools and access groups related decisions behind a single purpose statement; heaviness is measured against the review step rather than the form |
-| New design system components diverge from Terra's conventions | Medium | Low | Components are proposed and approved before implementation, and documented in the same change |
+| New design system components diverge from Hades' conventions | Medium | Low | Components are proposed and approved before implementation, and documented in the same change |
 
 ---
 
@@ -258,7 +258,7 @@ Environment sits with tools and access rather than at the end, because it change
 ### Phases
 
 **Phase 1: Design system foundations**
-- The components the builder needs, added to Terra with documentation.
+- The components the builder needs, added to Hades with documentation.
 
 **Phase 2: The builder**
 - The five-step flow, draft persistence, review, and creation.
@@ -281,7 +281,7 @@ Environment sits with tools and access rather than at the end, because it change
 
 - [Delegated Agent Identity](delegated-agent-identity.md) - the identity model this flow selects
 - [Agent Control Plane](agent-control-plane.md) - the agent model this flow creates
-- [Terra Design System](design-system.md) - the design system this flow is built from
+- [Hades Design System](design-system.md) - the design system this flow is built from
 
 ### Glossary
 

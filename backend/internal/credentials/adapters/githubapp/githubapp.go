@@ -313,11 +313,69 @@ func classifyAPI(req *http.Request, path, owner string) (credentials.Classificat
 			qualifier = normalizeName(segs[2])
 		}
 		return classifyRepoPath(verb, segs[3:], qualifier), nil
+	case "search":
+		if cls, ok := classifySearch(req, segs, owner); ok && verb == verbRead {
+			return cls, nil
+		}
+		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	default:
-		// /search/*, /orgs/*, and every other root: the verb-classified
-		// catch-all, unqualified.
+		// /orgs/* and every other root: the verb-classified catch-all,
+		// unqualified.
 		return credentials.Classification{Action: catRepo + ":" + verb}, nil
 	}
+}
+
+// classifySearch maps /search/{kind} to the category that owns the searched
+// data. The repository qualifier is set when the query's repo: terms all name
+// one repository of the connection's owner. Any other query classifies
+// unqualified, so only an unqualified grant satisfies it. ok=false means the
+// kind is not recognized.
+func classifySearch(req *http.Request, segs []string, owner string) (credentials.Classification, bool) {
+	if len(segs) != 2 {
+		return credentials.Classification{}, false
+	}
+	cls := credentials.Classification{}
+	switch segs[1] {
+	case "issues":
+		// Issue search also returns pull requests.
+		cls.Action = catIssues + ":" + verbRead
+		cls.Alternates = []string{catPulls + ":" + verbRead}
+	case "labels":
+		cls.Action = catIssues + ":" + verbRead
+	case "code", "commits":
+		cls.Action = ActionContentsRead
+	case "repositories", "topics", "users":
+		cls.Action = ActionMetadataRead
+	default:
+		return credentials.Classification{}, false
+	}
+	if owner != "" {
+		cls.Qualifier = searchRepoQualifier(req.URL.Query().Get("q"), owner)
+	}
+	return cls, true
+}
+
+// searchRepoQualifier returns the repository name when every repo:owner/name
+// term in q names the same repository of owner, and "" otherwise. A negated
+// -repo: term never scopes the query.
+func searchRepoQualifier(q, owner string) string {
+	name := ""
+	for term := range strings.FieldsSeq(q) {
+		ref, ok := strings.CutPrefix(strings.ToLower(term), "repo:")
+		if !ok && strings.HasPrefix(strings.ToLower(term), "-repo:") {
+			// A negated term excludes a repository, so the query spans the rest.
+			return ""
+		}
+		if !ok {
+			continue
+		}
+		o, r, ok := strings.Cut(strings.Trim(ref, `"`), "/")
+		if !ok || o != owner || r == "" || (name != "" && r != name) {
+			return ""
+		}
+		name = r
+	}
+	return name
 }
 
 // classifyRepoPath maps the sub-path under /repos/{owner}/{repo}/ to a category

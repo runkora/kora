@@ -31,8 +31,8 @@ RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 
 # Copy workspace package manifests before installing so pnpm can resolve the
-# @orbit/terra workspace dependency without copying all source files.
-COPY src/packages/terra/package.json ./src/packages/terra/
+# @orbit/hades workspace dependency without copying all source files.
+COPY src/packages/hades/package.json ./src/packages/hades/
 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store/v3 \
     corepack prepare pnpm@10.32.1 --activate && \

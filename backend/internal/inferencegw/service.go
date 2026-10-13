@@ -380,7 +380,7 @@ func (s *Service) ChatCompletionStream(
 		IncludeUsage: openai.Bool(true),
 	}
 
-	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, CapabilityChat, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (<-chan OpenAIStreamResult, error) {
 			q := streamParams
 			q.Model = target.ModelID
@@ -1587,11 +1587,13 @@ func extractErrorCode(err error) string {
 
 // retryTargets is the shared retry scaffolding used by all call paths.
 // It iterates targets, calling fn for each, and retries retryable errors within
-// each target up to the engine's per-target and total attempt limits.
+// each target up to the engine's per-target and total attempt limits. A target
+// whose model is described for another route than route is skipped uncalled.
 func retryTargets[T any](
 	ctx context.Context,
 	s *Service,
 	targets []RouteTarget,
+	route ModelCapability,
 	logMsg string,
 	fn func(ProviderConnector, RouteTarget) (T, error),
 ) (result T, usedTarget *RouteTarget, retryCount int, callErr error) {
@@ -1602,6 +1604,13 @@ func retryTargets[T any](
 		}
 		connector, ok := s.router.Connector(target.Provider)
 		if !ok {
+			continue
+		}
+		if err := s.router.refuseByCapability(target, route); err != nil {
+			// A real upstream error from an earlier target outranks the refusal.
+			if callErr == nil {
+				callErr = err
+			}
 			continue
 		}
 		for attempt := 0; attempt < s.router.MaxAttemptsPerTarget(); attempt++ {
@@ -1640,7 +1649,7 @@ func (s *Service) callWithFailover(
 	targets []RouteTarget,
 	params openai.ChatCompletionNewParams,
 ) (*OpenAIResult, *RouteTarget, int, error) {
-	return retryTargets(ctx, s, targets, "retrying after retryable provider error",
+	return retryTargets(ctx, s, targets, CapabilityChat, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*OpenAIResult, error) {
 			q := params
 			q.Model = target.ModelID
@@ -1718,7 +1727,7 @@ func (s *Service) Embeddings(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	resp, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+	resp, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, CapabilityEmbedding, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*openai.CreateEmbeddingResponse, error) {
 			q := params
 			q.Model = target.ModelID
@@ -1780,6 +1789,118 @@ func (s *Service) Embeddings(
 	return resp, nil
 }
 
+// ─── System One (non-streaming) ───────────────────────────────────────────────
+
+// SystemOne handles a POST /v1/systemone request end-to-end. body is the
+// caller's JSON object, forwarded to the connector with only its model
+// rewritten; the upstream body is returned unchanged. Usage is priced from the
+// catalog: input tokens at the input price, output tokens at the output price.
+func (s *Service) SystemOne(ctx context.Context, model string, body []byte) (*SystemOneResult, error) {
+	ctx, span := tracer.Start(ctx, "inferencegw.SystemOne",
+		trace.WithAttributes(attribute.String("model", model)),
+	)
+	defer span.End()
+
+	start := time.Now()
+
+	p, err := principalFromClaims(ctx)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrTokenParseFailed.Error())
+		return nil, fmt.Errorf("%w: %w", ErrTokenParseFailed, err)
+	}
+
+	span.SetAttributes(
+		attribute.String("tenant_id", p.TenantID),
+		attribute.String("principal_type", p.PrincipalType),
+	)
+
+	routeReq := ChatCompletionRequest{Model: model}
+
+	if err = s.checkModelPolicy(ctx, model); err != nil {
+		span.RecordError(err)
+		usageStatus, usageCode, spanMsg := modelPolicyFailure(err)
+		span.SetStatus(codes.Error, spanMsg)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, usageStatus, usageCode, nil, 0)
+		return nil, err
+	}
+
+	if ctx, err = s.checkBudget(ctx, p); err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, spanStatusBudgetExceeded)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusBudgetExceeded, "BUDGET_EXCEEDED", nil, 0)
+		return nil, err
+	}
+
+	targets, strategy, err := s.router.RouteRequest(ctx, routeReq)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, ErrRoutingFailed.Error())
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nil, nil, nil, UsageStatusRoutingFailed, "", nil, 0)
+		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
+	}
+
+	result, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, CapabilityDecision, "retrying after retryable provider error",
+		func(c ProviderConnector, target RouteTarget) (*SystemOneResult, error) {
+			return c.SystemOne(ctx, SystemOneRequest{Body: body, Model: target.ModelID})
+		})
+
+	latencyMS := int(time.Since(start).Milliseconds())
+
+	if callErr != nil || usedTarget == nil {
+		span.RecordError(callErr)
+		span.SetStatus(codes.Error, ErrProviderError.Error())
+		s.logProviderError(ctx, model, callErr)
+		errCode := extractErrorCode(callErr)
+		s.writeFailedUsage(ctx, p, routeReq, DialectOpenAI, nthProvider(targets), nthModelFamily(targets), &strategy, UsageStatusProviderError, errCode, extractFailureDetails(callErr), latencyMS)
+		return nil, fmt.Errorf("%w: %w", ErrProviderError, callErr)
+	}
+
+	inputTokens := int(result.InputTokens)
+	outputTokens := int(result.OutputTokens)
+	pricing := s.resolvePricing(usedTarget.Provider, usedTarget.ModelID)
+	estimatedCost := pricing.estimatedCostUSD(inputTokens, outputTokens, 0, 0)
+
+	rec := InferenceUsageRecord{
+		ID:                           uuid.NewString(),
+		TenantID:                     p.TenantID,
+		PrincipalID:                  p.PrincipalID,
+		PrincipalType:                p.PrincipalType,
+		TokenID:                      storage.NullIfZero(p.TokenID),
+		APIDialect:                   DialectOpenAI,
+		Provider:                     &usedTarget.Provider,
+		VirtualModelID:               storage.NullIfZero(usedTarget.VirtualModelID),
+		ModelID:                      usedTarget.ModelID,
+		ModelFamily:                  storage.NullIfZero(usedTarget.ModelFamily),
+		RoutingStrategy:              &strategy,
+		PromptTokens:                 inputTokens,
+		CompletionTokens:             outputTokens,
+		TotalTokens:                  inputTokens + outputTokens,
+		EstimatedCostUSD:             estimatedCost,
+		PriceUnknown:                 pricing.priceUnknown,
+		EffectiveInputCostPer1M:      pricing.inputCostPer1M,
+		EffectiveOutputCostPer1M:     pricing.outputCostPer1M,
+		EffectiveCacheReadCostPer1M:  pricing.cacheReadCostPer1M,
+		EffectiveCacheWriteCostPer1M: pricing.cacheWriteCostPer1M,
+		Status:                       UsageStatusSuccess,
+		RetryCount:                   retryCount,
+		LatencyMS:                    latencyMS,
+		CreatedAt:                    start.UTC(),
+	}
+
+	if writeErr := s.writeUsage(ctx, rec); writeErr != nil {
+		s.logger.Error(ctx, "failed to write inference usage record",
+			logging.Field{Key: "error", Value: writeErr.Error()},
+			logging.Field{Key: "usage_id", Value: rec.ID},
+		)
+	} else {
+		s.incrementSpend(ctx, p.TenantID, p.PrincipalID, rec.EstimatedCostUSD)
+	}
+
+	span.SetStatus(codes.Ok, "")
+	return result, nil
+}
+
 // ─── Responses (non-streaming) ────────────────────────────────────────────────
 
 // Responses handles a non-streaming POST /v1/responses request end-to-end.
@@ -1834,7 +1955,7 @@ func (s *Service) Responses(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	result, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+	result, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, CapabilityChat, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (*ResponsesResult, error) {
 			q := params
 			q.Model = target.ModelID
@@ -1965,7 +2086,7 @@ func (s *Service) ResponsesStream(
 		return nil, fmt.Errorf("%w: %w", ErrRoutingFailed, err)
 	}
 
-	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable provider error",
+	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, CapabilityChat, "retrying after retryable provider error",
 		func(c ProviderConnector, target RouteTarget) (<-chan ResponsesStreamResult, error) {
 			q := params
 			q.Model = target.ModelID
@@ -2195,7 +2316,7 @@ func (s *Service) AnthropicMessages(
 		}
 	}
 
-	msg, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic provider error",
+	msg, usedTarget, retryCount, callErr := retryTargets(ctx, s, targets, CapabilityChat, "retrying after retryable anthropic provider error",
 		func(c ProviderConnector, target RouteTarget) (*anthropic.Message, error) {
 			q := params
 			q.Model = target.ModelID
@@ -2333,7 +2454,7 @@ func (s *Service) AnthropicMessagesStream(
 		}
 	}
 
-	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, "retrying after retryable anthropic stream setup error",
+	upstream, usedTarget, streamRetryCount, callErr := retryTargets(ctx, s, targets, CapabilityChat, "retrying after retryable anthropic stream setup error",
 		func(c ProviderConnector, target RouteTarget) (<-chan AnthropicStreamEvent, error) {
 			q := params
 			q.Model = target.ModelID

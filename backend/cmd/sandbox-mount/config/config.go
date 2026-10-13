@@ -1,0 +1,41 @@
+// Package sandboxMountConfig holds the configuration for the sandbox-mount node agent.
+package sandboxMountConfig
+
+import (
+	"time"
+
+	"github.com/clear-route/orbit/internal/platform/config"
+)
+
+// Config holds the node agent's settings, loaded from cmd/sandbox-mount/config/{base,env}.yaml.
+type Config struct {
+	Node struct {
+		KubeletDir     string `yaml:"kubeletDir"`
+		HostKubeletDir string `yaml:"hostKubeletDir"`
+		ResyncSecs     int    `yaml:"resyncSecs"`
+		RetrySecs      int    `yaml:"retrySecs"`
+		LedgerFile     string `yaml:"ledgerFile"`
+	} `yaml:"node"`
+
+	Server struct {
+		ExportRoot  string `yaml:"exportRoot"`
+		ExportsFile string `yaml:"exportsFile"`
+		Threads     int    `yaml:"threads"`
+		GraceSecs   int    `yaml:"graceSecs"`
+		Port        int    `yaml:"port"`
+		TrackingDir string `yaml:"trackingDir"`
+	} `yaml:"server"`
+
+	Client struct {
+		MountOptions string `yaml:"mountOptions"`
+	} `yaml:"client"`
+}
+
+// Resync is how often the agent reconciles without a pod event.
+func (c *Config) Resync() time.Duration { return time.Duration(c.Node.ResyncSecs) * time.Second }
+
+// Retry is how soon the agent reconciles again after a failure.
+func (c *Config) Retry() time.Duration { return time.Duration(c.Node.RetrySecs) * time.Second }
+
+// Current holds the node agent's configuration.
+var Current = config.MustLoadService[Config]("cmd/sandbox-mount", config.Environment())

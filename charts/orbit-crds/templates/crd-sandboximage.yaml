@@ -45,7 +45,8 @@ spec:
             The operator validates it and resolves its digest. With warm set,
             it keeps the image pulled on the nodes that run sandboxes.
             Environments select it by name. The operator owns kora-base, the
-            base image, in every tenant namespace.
+            base image, in every tenant namespace, and the enabled bundled
+            images kora-go, kora-python and kora-node.
           type: object
           required:
             - spec

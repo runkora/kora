@@ -275,6 +275,11 @@ func initWebhooks(mgr ctrl.Manager) {
 				OPAPullPolicy:           corev1.PullPolicy(install.Injection.OPAPullPolicy),
 				OPALogLevel:             install.Injection.OPALogLevel,
 				OPAResources:            install.Injection.OPAResources,
+				SandboxSidecars: operator.SandboxSidecars{
+					IstioProxy:    install.Injection.SandboxSidecars.IstioProxy,
+					IdentityProxy: install.Injection.SandboxSidecars.IdentityProxy,
+					OPA:           install.Injection.SandboxSidecars.OPA,
+				},
 			},
 		},
 	})
@@ -317,6 +322,7 @@ func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.
 		},
 		ImagePullSecrets: install.ImagePullSecrets,
 		SandboxBase:      operator.SandboxBase{Image: install.SandboxImages.BaseImage, Warm: install.SandboxImages.WarmBase},
+		SandboxBundled:   bundledSandboxImages(install.SandboxImages.Bundled),
 		Collector:        agentCollector(install.CollectorNamespace, install.CollectorCIDRs),
 		Preflight:        preflightSource{checks},
 	}
@@ -384,4 +390,13 @@ func agentCollector(namespace string, cidrs []string) operator.AgentCollector {
 		}
 	}
 	return operator.AgentCollector{Namespace: namespace, Host: host, Port: port, CIDRs: cidrs}
+}
+
+// bundledSandboxImages converts the rendered bundled image settings for the tenant reconciler.
+func bundledSandboxImages(in map[string]oc.BundledSandboxImage) map[string]operator.BundledSandboxImage {
+	out := make(map[string]operator.BundledSandboxImage, len(in))
+	for key, img := range in {
+		out[key] = operator.BundledSandboxImage{Image: img.Image, Enabled: img.Enabled, Warm: img.Warm}
+	}
+	return out
 }

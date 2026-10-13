@@ -17,7 +17,7 @@ import {
   Heading,
   Textarea,
   TypingIndicator,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { MessageContent } from './_components/message-content';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

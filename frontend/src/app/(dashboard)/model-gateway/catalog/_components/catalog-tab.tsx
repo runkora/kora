@@ -14,7 +14,7 @@ import {
   TabsTrigger,
   Text,
   Icon,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type {
   VirtualModel as ApiVirtualModel,
   ProviderModel as ApiProviderModel,

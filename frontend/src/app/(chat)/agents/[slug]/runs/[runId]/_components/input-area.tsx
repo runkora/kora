@@ -6,7 +6,7 @@
  */
 
 import { useState, useCallback } from 'react';
-import { Stack, Text, Button, InputSurface, Textarea } from '@orbit/terra';
+import { Stack, Text, Button, InputSurface, Textarea } from '@orbit/hades';
 import { useRunContext } from '../_context/run-context';
 
 // Context tools — toggleable pills that annotate the message with context sources
@@ -122,14 +122,15 @@ function StopIcon() {
 }
 
 export function InputArea() {
-  const { agentName, runState, isBusy, addHumanMessage, interruptRun } = useRunContext();
+  const { agentName, runState, isStarting, addHumanMessage, interruptRun } = useRunContext();
   const [value, setValue] = useState('');
   const [active, setActive] = useState<Set<ContextToolId>>(new Set());
   const isEnded =
     runState === 'completed' || runState === 'failed' || runState === 'budget_exhausted';
+  // A starting run takes no messages. The API would answer "run is starting".
   // Typing is never blocked while the agent works: a message sent mid-turn is
   // read at the agent's next tool boundary.
-  const isDisabled = isEnded;
+  const isDisabled = isEnded || isStarting;
   const canSend = !!value.trim() && !isDisabled;
   // Only show Stop when the run is actually interruptible. The backend rejects an
   // interrupt unless the run is 'active' (and interruptRun swallows that error), so
@@ -185,9 +186,11 @@ export function InputArea() {
                 ? `${agentName} run stopped: budget exhausted`
                 : isEnded
                   ? `${agentName} run has ended`
-                  : isBusy
-                    ? `Message ${agentName}. It reads this at its next step.`
-                    : `Reply to ${agentName}…`
+                  : isStarting
+                    ? `${agentName} is ${runState === 'pending' ? 'queued' : 'starting'}…`
+                    : showStop
+                      ? `Message ${agentName}. It reads this at its next step.`
+                      : `Reply to ${agentName}…`
             }
             disabled={isDisabled}
             rows={2}

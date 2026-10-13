@@ -20,7 +20,8 @@ type k8sProvisioner interface {
 	GetAgentBudget(ctx context.Context, at AgentType, namespace string) (*AgentBudget, error)
 	WaitForStatefulSetReady(ctx context.Context, slug, namespace string) error
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
-	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
+	// ReadyOrdinals returns the ordinals of pods that are Ready and not terminating.
+	ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
 	SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error)
@@ -30,7 +31,8 @@ type k8sProvisioner interface {
 // smClient abstracts sessionmanager.Client so it can be replaced in tests.
 type smClient interface {
 	CreateSession(ctx context.Context, podURL string, req sessionmanager.CreateSessionRequest) error
-	SendMessage(ctx context.Context, podURL, runID, content string) error
+	// idleTimeoutSecs, when above zero, replaces the session's idle timeout from this message on.
+	SendMessage(ctx context.Context, podURL, runID, content string, idleTimeoutSecs int, fromPerson bool) error
 	InterruptSession(ctx context.Context, podURL, runID string) error
 	CloseSession(ctx context.Context, podURL, runID string) error
 }
@@ -39,7 +41,7 @@ type smClient interface {
 type ServiceConfig struct {
 	MaxConcurrentRunsPerPod int
 	TenantNamespaceFn       func(tenantID string) string // maps tenant ID → k8s namespace
-	// StaleRunTimeout is how long a run may stay in active/starting without a state update
+	// StaleRunTimeout is how long a run may stay pending, starting or active without a state update
 	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
 	StaleRunTimeout time.Duration
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.
@@ -108,9 +110,6 @@ type StartRunRequest struct {
 	TenantID       string `json:"tenant_id"`
 	AgentTypeID    string `json:"agent_type_id"`
 	InitialMessage string `json:"initial_message"`
-	// ProvisionSandbox, when true, eagerly warms a sandbox pod for the run so the
-	// first tool call does not pay cold-start latency. Best-effort; failures log.
-	ProvisionSandbox bool `json:"provision_sandbox"`
 	// CreatedBy is intentionally absent: the run creator is always derived from the
 	// verified platform token in ctx, never from the request body.
 

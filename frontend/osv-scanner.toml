@@ -1,0 +1,11 @@
+# Read by OSV-Scanner and the OpenSSF Scorecard Vulnerabilities check for the
+# pnpm workspace in this directory. Each entry ignores an advisory that does not
+# affect the shipped frontend.
+
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+reason = "braces has no fixed release. It is reached only through devDependencies (Storybook and eslint-config-next), which are not part of the production build."
+
+[[IgnoredVulns]]
+id = "GHSA-848j-6mx2-7j84"
+reason = "elliptic has no fixed release. It is reached only through Storybook's node polyfills, a devDependency that is not part of the production build."

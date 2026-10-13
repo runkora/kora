@@ -19,6 +19,9 @@ K3D_CONFIG="${REPO_ROOT}/infrastructure/bootstrap/k3d-config.yaml"
 # Derive cluster name directly from k3d-config.yaml so this script never
 # diverges from what k3d actually names the cluster.
 CLUSTER_NAME="$(grep 'name:' "${K3D_CONFIG}" | head -1 | awk '{print $2}')"
+# The k3s image pinned for the cluster. The charts' kubeVersion constraint
+# tracks this minor, so a cluster running an older image fails at Helm render.
+PINNED_IMAGE="$(grep '^image:' "${K3D_CONFIG}" | head -1 | awk '{print $2}')"
 
 # Terminal colours
 GREEN="\033[32m"
@@ -74,6 +77,27 @@ fi
 # ── Create k3d cluster ────────────────────────────────────────────────────
 step "Creating k3d cluster '${CLUSTER_NAME}'"
 if k3d cluster list | awk '{print $1}' | grep -qx "${CLUSTER_NAME}"; then
+  # Creation is skipped for an existing cluster, so a k3s bump in
+  # k3d-config.yaml never reaches a cluster created before it. The charts
+  # then refuse to render ("chart requires kubeVersion ..."). Catch the drift
+  # here, where the fix is obvious, instead of in a Helm error.
+  server_node="k3d-${CLUSTER_NAME}-server-0"
+  if ! running_image="$(docker inspect "${server_node}" --format '{{.Config.Image}}' 2>/dev/null)" \
+    || [ -z "${running_image}" ]; then
+    # Not drift: the node cannot be inspected at all. Do not suggest `make
+    # reset` here; that would delete a cluster that may be healthy.
+    echo "  ERROR: cluster '${CLUSTER_NAME}' is registered with k3d but '${server_node}' cannot be inspected."
+    echo "  Check that Docker is running and the node exists:"
+    echo "    docker ps -a --filter name=k3d-${CLUSTER_NAME}"
+    exit 1
+  fi
+  if [ -n "${PINNED_IMAGE}" ] && [ "${running_image}" != "${PINNED_IMAGE}" ]; then
+    echo "  ERROR: cluster '${CLUSTER_NAME}' runs ${running_image}, but k3d-config.yaml pins ${PINNED_IMAGE}."
+    echo "  The charts require the pinned Kubernetes minor, so deploys will fail until the cluster is recreated."
+    echo "  Recreate it (keeps Postgres and Redis data, rebuilds every image):"
+    echo "    make reset"
+    exit 1
+  fi
   warn "Cluster '${CLUSTER_NAME}' already exists: skipping creation"
 else
   k3d cluster create --config "${K3D_CONFIG}"

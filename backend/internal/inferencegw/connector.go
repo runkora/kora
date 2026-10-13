@@ -2,7 +2,10 @@ package inferencegw
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"slices"
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
@@ -74,6 +77,45 @@ type AnthropicConnector interface {
 // It is invoked when the client calls POST /v1/embeddings.
 type EmbeddingsConnector interface {
 	Embeddings(ctx context.Context, req openai.EmbeddingNewParams) (*openai.CreateEmbeddingResponse, error)
+}
+
+// SystemOneRequest is a System One call. Body is the caller's JSON object,
+// never interpreted beyond its model; Model is the target's model id, which
+// the connector writes over the body's model before sending.
+type SystemOneRequest struct {
+	Body  []byte
+	Model string
+}
+
+// SystemOneResult is a successful System One response. Body is the upstream
+// body unchanged. The token counts come from its usage object and are zero
+// when the upstream sends none.
+type SystemOneResult struct {
+	Body         []byte
+	StatusCode   int
+	InputTokens  int64
+	OutputTokens int64
+}
+
+// SystemOneConnector is the System One decision surface of a provider. It is
+// invoked when the client calls POST /v1/systemone. A connector that does not
+// serve the API returns the error from NewAPINotServedError.
+type SystemOneConnector interface {
+	SystemOne(ctx context.Context, req SystemOneRequest) (*SystemOneResult, error)
+}
+
+// NewAPINotServedError refuses an API the provider does not serve. It is
+// retryable: the virtual model may route to a provider that serves it.
+func NewAPINotServedError(provider ProviderName, api string) error {
+	msg := fmt.Sprintf("provider %s does not serve the %s API", provider, api)
+	return &ConnectorError{
+		Provider:        provider,
+		Code:            "MODEL_NOT_SUPPORTED",
+		Retryable:       true,
+		Underlying:      errors.New(msg),
+		ProviderMessage: msg,
+		HTTPStatus:      http.StatusBadRequest,
+	}
 }
 
 // ResponsesStreamResult is one element emitted on a ResponsesStream channel.
@@ -149,7 +191,30 @@ const (
 	// CapabilityAudioGeneration — model produces audio output (TTS, live audio).
 	// No standard endpoint yet.
 	CapabilityAudioGeneration ModelCapability = "audio"
+
+	// CapabilityDecision — model supports POST /v1/systemone: typed questions
+	// answered with probabilities, not text.
+	CapabilityDecision ModelCapability = "decision"
 )
+
+// knownCapabilities is the single list of valid ModelCapability values. Add new
+// capabilities here (and as consts above) so request validation, such as the
+// GET /v1/models capability filter, picks them up.
+var knownCapabilities = []ModelCapability{
+	CapabilityChat,
+	CapabilityEmbedding,
+	CapabilityImageGeneration,
+	CapabilityVideoGeneration,
+	CapabilityRerank,
+	CapabilityAudioGeneration,
+	CapabilityDecision,
+}
+
+// KnownCapabilities returns every valid ModelCapability, in declaration order.
+// The returned slice is a copy; callers may modify it.
+func KnownCapabilities() []ModelCapability {
+	return slices.Clone(knownCapabilities)
+}
 
 // ============================================================================
 // ProviderModel
@@ -249,6 +314,7 @@ type ProviderConnector interface {
 	AnthropicConnector
 	EmbeddingsConnector
 	ResponsesConnector
+	SystemOneConnector
 }
 
 // ============================================================================

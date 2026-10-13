@@ -12,7 +12,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { StatusBadge } from '@orbit/components';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow } from '../../_types';

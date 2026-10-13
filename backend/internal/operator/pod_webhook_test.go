@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -42,7 +43,7 @@ func sandboxLikePod() *corev1.Pod {
 // An agent pod, whose egress is not restricted that way, keeps it.
 func TestMutate_OTLPEndpointSkippedForSandboxes(t *testing.T) {
 	endpointOf := func(pod *corev1.Pod) string {
-		for _, c := range pod.Spec.Containers {
+		for _, c := range pod.Spec.InitContainers {
 			if c.Name != containerIdentityProxy {
 				continue
 			}
@@ -140,6 +141,32 @@ func TestMutate_AttachesEnforcement(t *testing.T) {
 	}
 }
 
+// The enforcement sidecars are native sidecars after the pod's own init containers,
+// and a regular container of the same name is replaced.
+func TestMutate_InjectsNativeSidecars(t *testing.T) {
+	pod := sandboxLikePod()
+	pod.Spec.Containers = append(pod.Spec.Containers, corev1.Container{Name: containerOPA, Image: "stale"})
+	pod.Spec.InitContainers = []corev1.Container{{Name: "setup", Image: "x"}}
+	if err := testMutator().mutate(pod, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range pod.Spec.Containers {
+		if c.Name == containerIdentityProxy || c.Name == containerOPA {
+			t.Errorf("%s is a regular container", c.Name)
+		}
+	}
+	var names []string
+	for _, c := range pod.Spec.InitContainers {
+		names = append(names, c.Name)
+		if c.Name != "setup" && (c.RestartPolicy == nil || *c.RestartPolicy != corev1.ContainerRestartPolicyAlways) {
+			t.Errorf("%s is not a native sidecar", c.Name)
+		}
+	}
+	if !slices.Equal(names, []string{"setup", containerIdentityProxy, containerOPA}) {
+		t.Errorf("init containers = %v, want setup then the sidecars", names)
+	}
+}
+
 // TestMutate_RejectsPreDeclaredIstioContainers: a pod that ships its own
 // istio-proxy is standing in for the sidecar; with failurePolicy Fail the
 // error becomes a denial.
@@ -163,8 +190,8 @@ func TestMutate_Idempotent(t *testing.T) {
 	if err := m.mutate(pod, "example", ""); err != nil {
 		t.Fatal(err)
 	}
-	if len(pod.Spec.Containers) != len(once.Spec.Containers) || len(pod.Spec.Volumes) != len(once.Spec.Volumes) || len(pod.Spec.ImagePullSecrets) != 1 {
-		t.Errorf("second mutation changed the pod: containers %d->%d volumes %d->%d", len(once.Spec.Containers), len(pod.Spec.Containers), len(once.Spec.Volumes), len(pod.Spec.Volumes))
+	if len(pod.Spec.Containers) != len(once.Spec.Containers) || len(pod.Spec.InitContainers) != len(once.Spec.InitContainers) || len(pod.Spec.Volumes) != len(once.Spec.Volumes) || len(pod.Spec.ImagePullSecrets) != 1 {
+		t.Errorf("second mutation changed the pod: containers %d->%d init containers %d->%d volumes %d->%d", len(once.Spec.Containers), len(pod.Spec.Containers), len(once.Spec.InitContainers), len(pod.Spec.InitContainers), len(once.Spec.Volumes), len(pod.Spec.Volumes))
 	}
 	if pod.Annotations[podAnnotationUserVolumeMount] != once.Annotations[podAnnotationUserVolumeMount] {
 		t.Error("userVolumeMount changed on reinvocation")
@@ -229,10 +256,11 @@ func hasVolume(pod *corev1.Pod, name string) bool {
 	return false
 }
 
+// containerByName finds an injected sidecar, which is a native sidecar init container.
 func containerByName(pod *corev1.Pod, name string) *corev1.Container {
-	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Name == name {
-			return &pod.Spec.Containers[i]
+	for i := range pod.Spec.InitContainers {
+		if pod.Spec.InitContainers[i].Name == name {
+			return &pod.Spec.InitContainers[i]
 		}
 	}
 	return nil
@@ -240,7 +268,7 @@ func containerByName(pod *corev1.Pod, name string) *corev1.Container {
 
 func containerNames(pod *corev1.Pod) []string {
 	var out []string
-	for _, c := range pod.Spec.Containers {
+	for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
 		out = append(out, c.Name)
 	}
 	return out
@@ -248,4 +276,58 @@ func containerNames(pod *corev1.Pod) []string {
 
 func containsArg(args []string, want string) bool {
 	return slices.Contains(args, want)
+}
+
+// A sandbox pod's sidecars reserve what they can use. An agent pod keeps the usual resources.
+func TestMutate_PinsSandboxSidecars(t *testing.T) {
+	m := testMutator()
+	m.Config.IdentityProxyResources = corev1.ResourceRequirements{
+		Requests: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("50m")},
+		Limits:   corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m")},
+	}
+	m.Config.SandboxSidecars = SandboxSidecars{
+		IstioProxy:    corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
+		IdentityProxy: corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("200m"), corev1.ResourceMemory: resource.MustParse("64Mi")},
+		OPA:           corev1.ResourceList{corev1.ResourceCPU: resource.MustParse("500m"), corev1.ResourceMemory: resource.MustParse("128Mi")},
+	}
+	containerOf := func(pod *corev1.Pod, name string) corev1.Container {
+		for _, c := range append(pod.Spec.InitContainers, pod.Spec.Containers...) {
+			if c.Name == name {
+				return c
+			}
+		}
+		t.Fatalf("no %s container", name)
+		return corev1.Container{}
+	}
+
+	sandbox := sandboxLikePod()
+	if err := m.mutate(sandbox, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	for name, cpu := range map[string]string{containerIdentityProxy: "200m", containerOPA: "500m"} {
+		r := containerOf(sandbox, name).Resources
+		if r.Requests.Cpu().String() != cpu || r.Limits.Cpu().String() != cpu || r.Requests.Memory().Cmp(*r.Limits.Memory()) != 0 {
+			t.Errorf("%s resources = %+v, want requests equal to limits at %s CPU", name, r, cpu)
+		}
+	}
+	for key, want := range map[string]string{
+		podAnnotationProxyCPU: "200m", podAnnotationProxyCPULimit: "200m",
+		podAnnotationProxyMemory: "128Mi", podAnnotationProxyMemoryLimit: "128Mi",
+	} {
+		if got := sandbox.Annotations[key]; got != want {
+			t.Errorf("annotation %s = %q, want %q", key, got, want)
+		}
+	}
+
+	agent := sandboxLikePod()
+	agent.Labels = map[string]string{}
+	if err := m.mutate(agent, "example", ""); err != nil {
+		t.Fatal(err)
+	}
+	if r := containerOf(agent, containerIdentityProxy).Resources; r.Requests.Cpu().String() != "50m" {
+		t.Errorf("agent identity-proxy requests = %+v, want the usual 50m", r.Requests)
+	}
+	if _, ok := agent.Annotations[podAnnotationProxyCPU]; ok {
+		t.Errorf("agent pod carries %s, want no istio-proxy pin", podAnnotationProxyCPU)
+	}
 }

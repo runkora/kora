@@ -112,5 +112,5 @@ The payload excerpt is threaded through `toDeliveryRow` (in `_types/index.ts`) a
 
 - PRD: [docs/prd/trigger-deliveries-filter.md](../prd/trigger-deliveries-filter.md)
 - Existing filter pattern: `frontend/src/app/(dashboard)/model-gateway/_components/logs-tab.tsx`
-- DataTable filter API: `frontend/src/packages/terra/src/components/table/data-table.tsx`
+- DataTable filter API: `frontend/src/packages/hades/src/components/table/data-table.tsx`
 - Delivery status constants: `backend/internal/triggers/models.go`

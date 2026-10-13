@@ -35,7 +35,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: list
         run: |
-          TARGETS=$(docker buildx bake --print -f docker-bake.hcl 2>/dev/null \
+          TARGETS=$(docker buildx bake --print -f docker-bake.hcl -f versions.hcl 2>/dev/null \
             | jq -c '[.target | keys[] | select(startswith("_") | not)]')
           echo "targets=${TARGETS}" >> "${GITHUB_OUTPUT}"
 
@@ -74,11 +74,14 @@ jobs:
 
       - uses: docker/bake-action@018cb6412ab401ebaa809aa5f85966b74628600f # v7.4.0
         # docker-bake.hcl tags every image with IMAGE_TAG, which defaults to latest.
+        # A sandbox image job also builds kora-sandbox-base, so it reads the base cache too.
         env:
           IMAGE_TAG: ${{ steps.version.outputs.tag }}
         with:
           source: .
-          files: docker-bake.hcl
+          files: |
+            docker-bake.hcl
+            versions.hcl
           targets: ${{ matrix.target }}
           push: ${{ inputs.push }}
           load: ${{ !inputs.push }}
@@ -86,6 +89,7 @@ jobs:
             *.platform=${{ inputs.platforms }}
             *.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }}
             *.cache-to=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:${{ matrix.target }},mode=max,ignore-error=true
+            kora-sandbox-base.cache-from=type=registry,ref=ghcr.io/${{ env.IMAGE_NAMESPACE }}/orbit-buildcache:kora-sandbox-base
             *.labels.org.opencontainers.image.source=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.url=https://github.com/${{ github.repository }}
             *.labels.org.opencontainers.image.revision=${{ github.sha }}

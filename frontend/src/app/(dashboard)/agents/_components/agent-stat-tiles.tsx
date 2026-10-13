@@ -13,8 +13,8 @@ import {
   Stack,
   Text,
   donutSegmentColor,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import { fmtTokens } from '@orbit/utils';
 import { formatDuration } from '../_types';
 

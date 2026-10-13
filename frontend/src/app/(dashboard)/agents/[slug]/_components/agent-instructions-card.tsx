@@ -12,7 +12,7 @@ import {
   SegmentedControl,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { CODE_LINE_HEIGHT, InstructionsMarkdown } from './instructions-markdown';
 
 type PromptView = 'rendered' | 'raw';

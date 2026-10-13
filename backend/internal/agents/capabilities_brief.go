@@ -1,9 +1,10 @@
 package agents
 
 import (
+	"path/filepath"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
 )
 
 // renderCapabilitiesBrief renders the "Runtime environment" section appended to
@@ -13,7 +14,7 @@ import (
 // blocked hosts or hunting for credential tokens that are injected on its behalf.
 // Always returns a non-empty block with a leading blank line so it appends
 // cleanly after the agent's own system prompt.
-func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string) string {
+func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string, sandboxFolder bool) string {
 	var b strings.Builder
 	b.WriteString("\n\n# Runtime environment (kora)\n")
 	b.WriteString("You're running in an isolated, governed kora sandbox. The platform mediates your network and credentials — these constraints are enforced, so work within them rather than trying to get around them.\n")
@@ -73,11 +74,16 @@ func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string) strin
 	// work can OOM-kill the others; the sandbox has its own pod and limit.
 	b.WriteString("Your container's memory is shared with other runs, so heavy work there fails or disrupts them: do it in the sandbox.\n")
 
-	// Bash runs in the sandbox and the file tools on the agent pod; only the shared
-	// volume is visible to both (docs/adr/2026-06-04-per-session-home-isolation.md).
+	// Bash runs in the sandbox and the file tools on the agent pod. Only the workspace is on both
+	// (docs/adr/2026-10-08-sandbox-workspace-mount.md).
 	b.WriteString("\n## Workspace\n")
-	b.WriteString("Work only in your workspace `" + workspaceDir + "` (also `$WORKSPACE`, your working directory), your home directory `~` (`" + runfs.HomeDir(workspaceDir) + "`), or `$TMPDIR` (`" + runfs.TmpDir(workspaceDir) + "`). Bash and your file tools see the same files there, with or without a sandbox, and they persist for the whole run, including across a sandbox restart.\n")
-	b.WriteString("`/tmp` is not available: file tools cannot read or write it. Clone repositories, write generated files and request bodies into the workspace or `$TMPDIR` instead.\n")
+	b.WriteString("Work in your workspace `" + workspaceDir + "` (also `$WORKSPACE`, your working directory). Bash and your file tools see the same files there, with or without a sandbox, and they persist for the whole run, including across a sandbox restart. Pass files between Bash and your file tools only through the workspace.\n")
+	if sandboxFolder {
+		// The sandbox's local disk, mounted into the agent pod by the sandbox-mount node agent.
+		b.WriteString("Starting a sandbox gives you a working folder at `" + filepath.Join(workspaceDir, sandboxfolder.Dir) + "`. Do all your work there from then on: create and edit files, clone repos, install, build and run commands. Your file tools and the sandbox see the same files in that folder. The folder and its contents last as long as the sandbox.\n")
+	}
+	b.WriteString("Your home directory `~` and `$TMPDIR` are scratch space for Bash. In a sandbox they are on the sandbox's local disk: your file tools cannot see them, and a new or replaced sandbox starts with a fresh `~` and `$TMPDIR`. ")
+	b.WriteString("`/tmp` is not available to your file tools. Clone repositories, and write generated files and request bodies, into the workspace.\n")
 	b.WriteString("Install packages at user level with your environment's package managers (e.g. `pip install`, `go install`). They land on the sandbox's local disk with the build caches, and are on your PATH until the sandbox is replaced. System package managers such as `apt` need root and are not available.\n")
 
 	b.WriteString("\n## Working with git repositories\n")

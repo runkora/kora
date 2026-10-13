@@ -1,4 +1,4 @@
-import { Skeleton, Stack } from '@orbit/terra';
+import { Skeleton, Stack } from '@orbit/hades';
 import { MarketplaceResultsSkeleton } from './_components/marketplace-results-skeleton';
 
 /**

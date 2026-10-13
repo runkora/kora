@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Badge, Stack, Text, Button } from '@orbit/terra';
+import { Badge, Stack, Text, Button } from '@orbit/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import { ApiRoute, APP_ROUTES } from '@orbit/lib/routing';

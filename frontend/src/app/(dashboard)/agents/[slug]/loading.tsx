@@ -1,4 +1,4 @@
-import { Card, CardContent, CardHeader, Grid, Skeleton, Stack } from '@orbit/terra';
+import { Card, CardContent, CardHeader, Grid, Skeleton, Stack } from '@orbit/hades';
 
 /**
  * The agent detail page loads the agent type, its runs and its budget in one

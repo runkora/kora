@@ -9,7 +9,7 @@ import {
   SidebarLayoutSidebar,
   Skeleton,
   Stack,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 /**
  * The Skill detail page loads one Skill in one server pass, so the skeleton

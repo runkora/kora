@@ -3,14 +3,14 @@ const rule = {
     type: 'problem',
     docs: {
       description:
-        'Disallow raw <button> elements in JSX outside the Terra package. ' +
-        'Use <Button> from @orbit/terra for consistent focus styles, hover states, and accessibility.',
+        'Disallow raw <button> elements in JSX outside the Hades package. ' +
+        'Use <Button> from @orbit/hades for consistent focus styles, hover states, and accessibility.',
     },
     messages: {
       noRawButton:
         'Raw <button> is not allowed. ' +
-        'Use <Button> from @orbit/terra. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'Use <Button> from @orbit/hades. ' +
+        'See frontend/docs/reference/hades-design-system.md',
     },
     schema: [],
   },

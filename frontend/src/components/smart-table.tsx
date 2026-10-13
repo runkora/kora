@@ -8,36 +8,36 @@
  * only mounted in `(dashboard)/layout.tsx`. Do not use this component outside
  * the authenticated dashboard shell — `usePreferences()` will throw.
  *
- * Wraps Terra's DataTable and connects column visibility to the user's
+ * Wraps Hades' DataTable and connects column visibility to the user's
  * persisted preferences. `tableId` is a required prop that keys the stored
  * visibility map in `tables.columns.<tableId>`.
  *
  * Every table that uses this wrapper gets preference-backed column visibility
- * with no additional wiring — Terra has no awareness of preferences.
+ * with no additional wiring — Hades has no awareness of preferences.
  *
  * ## SmartTable vs DataTable decision tree
  *
  * ```
  * Are you building inside (dashboard)/ (authenticated shell)?
- * ├── No  → use DataTable from @orbit/terra
+ * ├── No  → use DataTable from @orbit/hades
  * └── Yes → Does this table need column visibility persisted per user?
- *           ├── No  → use DataTable from @orbit/terra
+ *           ├── No  → use DataTable from @orbit/hades
  *           └── Yes → use SmartTable from @orbit/components  ← default choice
  * ```
  */
 
-import { DataTable } from '@orbit/terra';
-import type { DataTableProps } from '@orbit/terra';
+import { DataTable } from '@orbit/hades';
+import type { DataTableProps } from '@orbit/hades';
 import { usePreferences } from '../app/(dashboard)/_preferences/preferences-context';
 
 // Re-export column and filter types for caller convenience — one import covers all.
-export type { DataTableColumn } from '@orbit/terra';
+export type { DataTableColumn } from '@orbit/hades';
 export type {
   DataTableColumnFilter,
   DataTableClientFilter,
   DataTableServerFilter,
   DataTableFilterOption,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 

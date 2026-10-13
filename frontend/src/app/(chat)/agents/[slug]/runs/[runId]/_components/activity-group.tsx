@@ -11,8 +11,8 @@
 import { memo, useState } from 'react';
 import Link from 'next/link';
 import { APP_ROUTES } from '@orbit/lib/routing';
-import { Badge, Button, Icon, Stack, StatusDot, Text } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+import { Badge, Button, Icon, Stack, StatusDot, Text } from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import type { ToolCall } from '../_types';
 import {
   callDuration,

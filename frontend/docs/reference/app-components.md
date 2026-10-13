@@ -1,6 +1,6 @@
 # App-level shared components
 
-This document is the authoritative index of Tier 2 app-shared components: components that are kora-domain-aware, used by two or more distinct dashboard features, but not generic enough for Terra. All components import from `@orbit/components`.
+This document is the authoritative index of Tier 2 app-shared components: components that are kora-domain-aware, used by two or more distinct dashboard features, but not generic enough for Hades. All components import from `@orbit/components`.
 
 Before writing any UI boilerplate, check this list. If a component already covers the need, use it. If it almost covers the need, extend it via props rather than creating a new file.
 
@@ -92,9 +92,9 @@ See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules arou
 
 ## ViewToggle
 
-Import:** `import { ViewToggle } from '@orbit/terra'`
+**Import:** `import { ViewToggle } from '@orbit/hades'`
 
-**When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Terra `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs and the Marketplace overview use it.
+**When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Hades `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs and the Marketplace overview use it.
 
 ```tsx
 interface ViewToggleProps {
@@ -105,4 +105,17 @@ interface ViewToggleProps {
 
 ```tsx
 <ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+```
+
+---
+
+## RUN_STATE_DISPLAY
+
+`RUN_STATE_DISPLAY` maps a run state to the status dot and label every run surface shows. A `pending` run reads Queued, `starting` reads Starting and `active` reads Running.
+
+```tsx
+import { RUN_STATE_DISPLAY } from '@orbit/components';
+
+const dot = RUN_STATE_DISPLAY[run.state];
+<StatusDot status={dot.status} role="img" aria-label={dot.label} />;
 ```

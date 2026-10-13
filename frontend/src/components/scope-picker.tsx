@@ -16,7 +16,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 export interface ScopePickerProps {
   /** All selectable scope strings (e.g. `agents:runs:read`). */

@@ -1,7 +1,7 @@
 // Suspense fallback for the models tab. Mirrors the real DataTable's grid
 // columns and row heights so real data doesn't reflow the page when it lands.
 
-import { Card, CardContent, Grid, Skeleton, Stack } from '@orbit/terra';
+import { Card, CardContent, Grid, Skeleton, Stack } from '@orbit/hades';
 
 const GRID_TEMPLATE_COLUMNS = '2.5rem 1fr 1fr 1fr 1fr 1fr 2.5rem';
 const ROW_STYLE = {

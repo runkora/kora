@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -88,8 +89,8 @@ func TestStartRun_SendsGuardrails(t *testing.T) {
 		Guardrails: Guardrails{WaitRearmWarn: new(3), WaitRearmPause: new(7)}})
 
 	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeHuman, "user:1")
-	if _, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: "at-1"}); err != nil {
-		t.Fatalf("StartRun: %v", err)
+	if _, err := startAndSchedule(ctx, f.run, StartRunRequest{AgentTypeID: "at-1"}); err != nil {
+		t.Fatalf("startAndSchedule: %v", err)
 	}
 	if len(sm.sessions) != 1 {
 		t.Fatalf("sessions = %d, want 1", len(sm.sessions))
@@ -101,5 +102,25 @@ func TestStartRun_SendsGuardrails(t *testing.T) {
 	}
 	if got := sm.sessions[0].Guardrails; got != want {
 		t.Errorf("run guardrails = %+v, want %+v", got, want)
+	}
+}
+
+// The pod wait ends inside one attempt's share of the budget left after the backoffs. An unset budget leaves the default.
+func TestSandboxGuardrails_ReadyWait(t *testing.T) {
+	for _, tc := range []struct {
+		g    SandboxGuardrails
+		want time.Duration
+	}{
+		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 5, ProvisionBudgetSecs: 300}, 90 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 30, ProvisionBudgetSecs: 300}, 65 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 1, ProvisionBackoffSecs: 5, ProvisionBudgetSecs: 320}, 315 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 4, ProvisionBudgetSecs: 8}, 2 * time.Second},
+		{SandboxGuardrails{ProvisionAttempts: 3, ProvisionBackoffSecs: 200, ProvisionBudgetSecs: 300}, 0},
+		{SandboxGuardrails{ProvisionBudgetSecs: 300}, 0},
+		{SandboxGuardrails{ProvisionAttempts: 3}, 0},
+	} {
+		if got := tc.g.ReadyWait(); got != tc.want {
+			t.Errorf("%+v: ReadyWait = %s, want %s", tc.g, got, tc.want)
+		}
 	}
 }

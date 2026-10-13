@@ -7,7 +7,7 @@
  */
 'use client';
 
-import { CopyButton, Code, Stack, Text } from '@orbit/terra';
+import { CopyButton, Code, Stack, Text } from '@orbit/hades';
 
 export interface MessageContentProps {
   content: string;
@@ -27,9 +27,9 @@ export function MessageContent({ content }: MessageContentProps) {
             // Code block: <figure>/<figcaption>/<pre> are intentional semantic HTML.
             // A fenced code block is self-contained content (<figure>), the language
             // label is its caption (<figcaption>), and the raw source lives in <pre>.
-            // Terra has no equivalent primitives for this specialised rendering context.
+            // Hades has no equivalent primitives for this specialised rendering context.
             // <figure> and <pre> are not covered by no-raw-layout-elements; the inline
-            // classNames are on raw HTML elements, which no-terra-classname does not target.
+            // classNames are on raw HTML elements, which no-hades-classname does not target.
             <Stack key={i} gap="none" asChild>
               <figure className="rounded-lg border border-border-subtle overflow-hidden m-0">
                 <Stack direction="horizontal" align="center" justify="between" asChild>

@@ -1,4 +1,4 @@
-import type { IconName } from '@orbit/terra';
+import type { IconName } from '@orbit/hades';
 
 import { APP_ROUTES, AppRoute } from '@orbit/lib/routing';
 

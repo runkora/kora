@@ -6,6 +6,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 |-----|--------|----------------|
 | [Agent Control Plane](agent-control-plane.md) | Implemented | [orbit-agents-service-architecture](../adr/2026-05-11-orbit-agents-service-architecture.md), [run-and-session-lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md), [agent-registry-and-definition-model](../adr/2026-05-11-agent-registry-and-definition-model.md) |
 | [Agent Builder](agent-builder.md) | Implemented | [agent-builder](../adr/2026-07-17-agent-builder.md) |
+| [Agent Marketplace: Skills and Plugins](agent-marketplace.md) | Draft | TBD |
 | [Delegated Agent Identity](delegated-agent-identity.md) | Draft | TBD |
 | [Install and Distribution](install-and-distribution.md) | In Review | [install-and-distribution-model](../adr/2026-09-04-install-and-distribution-model.md), [enforcement-sidecar-injection-and-preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md) |
 | [OAuth2 Web-Redirect Clients](oauth2-web-redirect-clients.md) | Approved | [oauth2-web-redirect-clients](../adr/2026-07-28-oauth2-web-redirect-clients.md) |
@@ -23,6 +24,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Personal Access Tokens](personal-access-tokens.md) | Implemented | [personal-access-tokens](../adr/2026-04-02-personal-access-tokens.md), [pat-scope-assignment-via-explicit-grants](../adr/2026-04-19-pat-scope-assignment-via-explicit-grants.md) |
 | [Browser Authentication Flow](browser-auth-flow.md) | Implemented | [browser-auth-flow-and-bff-session-architecture](../adr/2026-04-01-browser-auth-flow-and-bff-session-architecture.md), [home-realm-discovery-and-email-based-tenant-routing](../adr/2026-04-01-home-realm-discovery-and-email-based-tenant-routing.md) |
 | [Embeddings & Responses API](embeddings-and-responses-api.md) | Implemented | [embeddings-and-responses-api-endpoints](../adr/2026-05-03-embeddings-and-responses-api-endpoints.md) |
+| [Decision Models and the System One API](systemone-decision-models.md) | Approved | [systemone-decision-models](../adr/2026-10-10-systemone-decision-models.md) |
 | [Inference Logs](inference-logs.md) | Implemented | [inference-usage-logs](../adr/2026-04-17-inference-usage-logs.md) |
 | [Inference Log Details](inference-log-details.md) | Implemented | [inference-log-details](../adr/2026-06-05-inference-log-details.md) |
 | [Inference Analytics](inference-analytics.md) | Implemented | [inference-analytics](../adr/2026-04-27-inference-analytics.md) |
@@ -33,9 +35,9 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [Model Cost Visibility](model-cost-visibility.md) | Approved | [model-cost-visibility](../adr/2026-06-22-model-cost-visibility.md) |
 | [MCP / Tool Gateway](mcp-tool-gateway.md) | Approved | [mcp-server-registration-and-introspection](../adr/2026-06-29-mcp-server-registration-and-introspection.md), [mcp-tool-gateway](../adr/2026-06-29-mcp-tool-gateway.md), [mcp-oauth-authentication](../adr/2026-06-29-mcp-oauth-authentication.md) |
 | [kora MCP](orbit-mcp.md) | Approved | [orbit-mcp](../adr/2026-06-30-orbit-mcp.md) |
-| [Terra Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
-| [Terra Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |
-| [Terra Reusable Wizard Flow](terra-reusable-wizard-flow.md) | In Review | [terra-wizard-component](../adr/2026-08-03-terra-wizard-component.md) |
+| [Hades Design System](design-system.md) | Implemented | [terra-frontend-design-system](../adr/2026-03-25-terra-frontend-design-system.md) |
+| [Hades Design System Hardening](terra-design-system-hardening.md) | Implemented | [terra-design-system-hardening](../adr/2026-05-04-terra-design-system-hardening.md) |
+| [Hades Reusable Wizard Flow](terra-reusable-wizard-flow.md) | In Review | [terra-wizard-component](../adr/2026-08-03-terra-wizard-component.md) |
 | [Frontend Component Consolidation](frontend-component-consolidation.md) | Implemented | [frontend-component-consolidation](../adr/2026-05-04-frontend-component-consolidation.md) |
 | [Semantic HTML Consolidation](semantic-html-consolidation.md) | Implemented | [semantic-html-consolidation](../adr/2026-05-04-semantic-html-consolidation.md) |
 | [Frontend Test Strategy](frontend-test-strategy.md) | Implemented | [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) |
@@ -45,6 +47,7 @@ PRDs capture the problem, user needs, and solution approach for a feature **befo
 | [CRD-Driven Inference Providers](crd-inference-providers.md) | Approved | [crd-inference-providers](../adr/2026-10-01-crd-inference-providers.md) |
 | [Non-Token Model Pricing](non-token-model-pricing.md) | Approved | [non-token-model-pricing](../adr/2026-07-24-non-token-model-pricing.md) |
 | [Sandbox Environments](sandbox-environments.md) | Approved | [sandbox-environments](../adr/2026-10-03-sandbox-environments.md) |
+| [Bundled Sandbox Images](bundled-sandbox-images.md) | Approved | [bundled-sandbox-images](../adr/2026-10-07-bundled-sandbox-images.md) |
 | [Profile Page](profile-page.md) | Draft | [profile-page-architecture](../adr/2026-05-13-profile-page-architecture.md) |
 | [User App Preferences](user-app-preferences.md) | Approved | [user-app-preferences](../adr/2026-05-08-user-app-preferences.md) |
 

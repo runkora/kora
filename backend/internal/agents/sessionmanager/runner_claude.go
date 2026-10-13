@@ -96,6 +96,8 @@ type ClaudeRunner struct {
 	capturedSessionID string          // set once from the system/init event
 	sessionIDMu       sync.Mutex      // protects capturedSessionID
 	interrupted       atomic.Bool     // true after Interrupt() — suppresses error events
+	workChanged       chan struct{}   // signaled on each background_tasks_changed
+	backgroundTasks   atomic.Int64    // live, non-ambient background tasks (subagents, shell commands) the CLI last reported
 	turnEnded         atomic.Bool     // true once message_stop closed the turn; a stop after that has nothing to cut
 }
 
@@ -105,8 +107,9 @@ func NewClaudeRunner(cfg ClaudeRunnerConfig) *ClaudeRunner {
 		cfg.BinaryPath = "claude"
 	}
 	return &ClaudeRunner{
-		cfg:    cfg,
-		events: make(chan Event, 64),
+		cfg:         cfg,
+		events:      make(chan Event, 64),
+		workChanged: make(chan struct{}, 1),
 	}
 }
 
@@ -494,26 +497,7 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 		}
 		r.emit(EventTypeToolProgress, p)
 	case "system":
-		if w.Subtype == "api_retry" {
-			r.emit(EventTypeAPIRetry, APIRetryPayload{
-				Attempt:      w.Attempt,
-				MaxRetries:   w.MaxRetries,
-				RetryDelayMs: w.RetryDelayMs,
-				ErrorStatus:  w.ErrorStatus,
-				Error:        rawString(w.Error),
-			})
-		}
-		if w.Subtype == "init" && w.SessionID != "" {
-			r.sessionIDMu.Lock()
-			r.capturedSessionID = w.SessionID
-			r.sessionIDMu.Unlock()
-		}
-		r.cfg.Logger.Info(ctx, "agent system event",
-			logging.Field{Key: "run_id", Value: r.cfg.RunID},
-			logging.Field{Key: "framework", Value: "claude-code"},
-			logging.Field{Key: "subtype", Value: w.Subtype},
-			logging.Field{Key: "session_id", Value: w.SessionID},
-		)
+		r.handleSystem(ctx, w)
 	case "result":
 		r.handleResult(ctx, w)
 	default:
@@ -525,6 +509,34 @@ func (r *ClaudeRunner) dispatch(ctx context.Context, w claudeOutputWrapper) {
 			)
 		}
 	}
+}
+
+// handleSystem processes a "system" wrapper: provider retries, the session init
+// that names the session, and the set of live background tasks.
+func (r *ClaudeRunner) handleSystem(ctx context.Context, w claudeOutputWrapper) {
+	if w.Subtype == "background_tasks_changed" {
+		r.setBackgroundTasks(w.Tasks)
+	}
+	if w.Subtype == "api_retry" {
+		r.emit(EventTypeAPIRetry, APIRetryPayload{
+			Attempt:      w.Attempt,
+			MaxRetries:   w.MaxRetries,
+			RetryDelayMs: w.RetryDelayMs,
+			ErrorStatus:  w.ErrorStatus,
+			Error:        rawString(w.Error),
+		})
+	}
+	if w.Subtype == "init" && w.SessionID != "" {
+		r.sessionIDMu.Lock()
+		r.capturedSessionID = w.SessionID
+		r.sessionIDMu.Unlock()
+	}
+	r.cfg.Logger.Info(ctx, "agent system event",
+		logging.Field{Key: "run_id", Value: r.cfg.RunID},
+		logging.Field{Key: "framework", Value: "claude-code"},
+		logging.Field{Key: "subtype", Value: w.Subtype},
+		logging.Field{Key: "session_id", Value: w.SessionID},
+	)
 }
 
 // handleResult processes a "result" wrapper (the final event Claude emits per turn).
@@ -620,8 +632,8 @@ func (r *ClaudeRunner) turnHadText() bool {
 }
 
 // endTurnWithError records a failed turn. The subprocess keeps reading input
-// after an error result, so the turn ends with message_stop and the run idles
-// rather than staying active with nothing running.
+// after an error result, so the turn ends with message_stop. The empty-turn
+// guard fails a trigger run whose errored turn wrote nothing.
 func (r *ClaudeRunner) endTurnWithError(code, msg string) {
 	r.flushPartial()
 	r.emit(EventTypeRunError, RunErrorPayload{Code: code, Message: msg})
@@ -863,11 +875,20 @@ type claudeOutputWrapper struct {
 	ErrorStatus  *int            `json:"error_status"`
 	Error        json.RawMessage `json:"error"` // a class name here; raw so another line's shape cannot fail the decode
 
+	// system/background_tasks_changed
+	Tasks []claudeBackgroundTask `json:"tasks"`
+
 	// tool_progress
 	ToolUseID          string `json:"tool_use_id"`
 	ToolName           string `json:"tool_name"`
 	ElapsedTimeSeconds int    `json:"elapsed_time_seconds"`
 	Heartbeat          bool   `json:"heartbeat"`
+}
+
+// claudeBackgroundTask is one entry of a background_tasks_changed event.
+type claudeBackgroundTask struct {
+	// Ambient marks a task that is not activity, such as a live-update watcher.
+	Ambient bool `json:"ambient"`
 }
 
 // claudeStreamEvent is the inner event inside a "stream_event" wrapper.
@@ -896,6 +917,31 @@ type claudeContentItem struct {
 	Content   json.RawMessage `json:"content"` // a string, or an array of blocks from MCP and Agent tools
 	IsError   bool            `json:"is_error"`
 }
+
+// setBackgroundTasks records the CLI's set of live background tasks. The event
+// carries the whole set, so each one replaces the last and a missed event cannot
+// leave a stale count.
+func (r *ClaudeRunner) setBackgroundTasks(tasks []claudeBackgroundTask) {
+	var n int64
+	for _, t := range tasks {
+		if !t.Ambient {
+			n++
+		}
+	}
+	r.backgroundTasks.Store(n)
+	select {
+	case r.workChanged <- struct{}{}:
+	default:
+	}
+}
+
+// WorkChanged signals that the count of work in flight was reported; see InFlightWork.
+func (r *ClaudeRunner) WorkChanged() <-chan struct{} { return r.workChanged }
+
+// InFlightWork is the number of subagents and background commands still running.
+// The agent ends its turn while they run and resumes when one finishes, so the
+// session is not idle until this is zero.
+func (r *ClaudeRunner) InFlightWork() int { return int(r.backgroundTasks.Load()) }
 
 // TakeText hands over the text streamed so far; see Runner.
 func (r *ClaudeRunner) TakeText() string { return r.textBuf.take() }

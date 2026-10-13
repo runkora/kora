@@ -1,6 +1,6 @@
 # Enforcement Sidecar Injection, Preflight and Restricted Pod Security
 
-**Status:** Accepted (Amended 2026-10-02)
+**Status:** Accepted (Amended 2026-10-02, 2026-10-12)
 **Date:** 2026-09-04
 **Deciders:** Justin Wilkin
 **Technical Story:** Companion to [Install and Distribution Model](2026-09-04-install-and-distribution-model.md). That ADR removes the operator's installation of Istio, which is the only place kora's three sidecar injection templates were delivered. This ADR decides how the identity-proxy, the tenant OPA sidecar and the SPIRE proxy wiring reach pods in a mesh kora did not install, how the prerequisites contract is verified, and what changes so every kora pod admits under the Kubernetes restricted pod security profile. Implements the mesh-portability, fail-closed and restricted-profile requirements of the [Install and Distribution PRD](../prd/install-and-distribution.md).
@@ -228,7 +228,7 @@ kubectl / orbit-agents ──create Pod──▶ API server
                        + annotations: tenant-id, proxy.istio.io/config, userVolumeMount
                        + imagePullSecrets (replicated into the tenant namespace)
                        + volumes: workload-socket (CSI), id-proxy-sock, orbit-opa-config
-                       + containers: identity-proxy, opa (restricted contexts, OPA on loopback)
+                       + native sidecars: identity-proxy, opa (restricted contexts, OPA on loopback)
                                           │
                                           ▼
                      istio-sidecar-injector (customer's Istio)
@@ -444,6 +444,27 @@ Amends Decisions 1 and 4. Touches *Who is this agent?* Workload identity details
 
 **Consequences.** A non-kora workload in the same mesh is unaffected. An external destination that a cluster registers without `MESH_EXTERNAL` still receives the headers.
 
+## Amendment 3 (2026-10-12): The enforcement sidecars are native sidecars
+
+**Status:** Accepted
+
+Amends Decision 1. Touches *How does it connect?* The credential path stays up while an agent pod drains. *Who is this agent?* and *What can it access?* are unchanged.
+
+**Context.** [Run Scheduling](2026-10-12-run-scheduling.md) drains a session-manager pod on SIGTERM and keeps its runs going for up to the grace period. Kubernetes sends SIGTERM to every regular container at once. The identity-proxy exits on it, and the ext_proc filter then lets outbound calls through without a platform token. The OPA ext_authz filter fails closed, and a stopped OPA denies every inbound call. Model and tool calls of a draining pod's runs fail. Kubernetes stops a native sidecar only after the pod's main containers exit. The chart requires Kubernetes 1.34, where native sidecars are generally available, and the validating webhook already accepts the sidecars in either container list.
+
+**Decision.**
+
+*   The webhook injects the identity-proxy and the OPA sidecar as init containers with `restartPolicy: Always`, after any init containers the pod already has.
+*   A regular container of the same name on the incoming pod is removed.
+
+**Consequences.**
+
+*   The identity-proxy and OPA run until the session-manager exits, and through a drain.
+*   A sandbox pod whose `sandbox-exec` container ends finishes. The sidecars no longer keep it `Running`.
+*   Kubernetes starts the sidecars in order before the main containers, and the pod's start can take longer.
+*   The change applies to a pod when it is created. A pod created before it keeps regular sidecars until it is replaced.
+*   The drain also needs `istio-proxy` as a native sidecar. Istio injects it that way on Kubernetes 1.29 and later unless native sidecars are turned off, and nothing checks that setting.
+
 ---
 
 ## Related Decisions
@@ -452,6 +473,7 @@ Amends Decisions 1 and 4. Touches *Who is this agent?* Workload identity details
 - [kora Kubernetes Operator](2026-03-31-orbit-kubernetes-operator.md): origin of the pod webhook and its `Ignore` policy.
 - [Gateway-Level OPA Enforcement for External Traffic](2026-04-27-gateway-level-opa-enforcement-for-external-traffic.md) and [JIT Credential Brokering via a Per-Tenant Egress Gateway](2026-06-06-jit-credential-brokering-egress-gateway.md): the `EnvoyFilter`s activated by the labels this webhook sets; unchanged.
 - [Dynamic SPIFFE Identity Grants and Tenant Isolation](2026-03-17-dynamic-spiffe-identity-grants-and-tenant-isolation.md): the label-driven ClusterSPIFFEID model whose tenant selectors are unchanged.
+- [Run Scheduling](2026-10-12-run-scheduling.md): the session-manager drain that Amendment 3 serves.
 
 ---
 

@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +22,10 @@ type RedisConfig struct {
 	MinIdleConns           int    `yaml:"minIdleConns"`
 	ConnMaxIdleTimeMinutes int    `yaml:"connMaxIdleTimeMinutes"`
 	TLSEnabled             bool   `yaml:"tlsEnabled"`
+	// CAFile is a PEM bundle that signs the Redis certificate. Empty uses the system roots.
+	CAFile string `yaml:"caFile"`
+	// ServerName overrides the name verified against the Redis certificate.
+	ServerName string `yaml:"serverName"`
 
 	// Loaded from REDIS_PASSWORD, never from YAML.
 	Password string `yaml:"-"`
@@ -36,4 +42,24 @@ func loadRedisConfig(cfg *RedisConfig) error {
 		return fmt.Errorf("REDIS_PASSWORD environment variable is required")
 	}
 	return nil
+}
+
+// tlsConfig returns the client TLS settings, or nil when TLS is disabled.
+func (c *RedisConfig) tlsConfig() (*tls.Config, error) {
+	if !c.TLSEnabled {
+		return nil, nil
+	}
+	tc := &tls.Config{MinVersion: tls.VersionTLS12, ServerName: c.ServerName}
+	if c.CAFile != "" {
+		pem, err := os.ReadFile(c.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("read redis.caFile: %w", err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return nil, fmt.Errorf("redis.caFile %q contains no PEM certificates", c.CAFile)
+		}
+		tc.RootCAs = pool
+	}
+	return tc, nil
 }

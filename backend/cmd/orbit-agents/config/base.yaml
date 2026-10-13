@@ -44,9 +44,9 @@ agents:
       memory: 4Gi
       disk: 10Gi
     maxSize:
-      cpu: "8"
-      memory: 16Gi
-      disk: 50Gi
+      cpu: "2"
+      memory: 4Gi
+      disk: 10Gi
   # Pull secrets for the images above, rendered by the chart.
   imagePullSecrets: []
   maxConcurrentRunsPerPod: 10
@@ -57,6 +57,17 @@ agents:
     sandboxProvisionAttempts: 3
     sandboxProvisionBackoffSecs: 5
     sandboxProvisionBudgetSecs: 300
+  # Idle timeouts by how the run started. See the chart's agents.idleTimeout.
+  idleTimeout:
+    manualSecs: 1200
+    triggerSecs: 300
+  # Run scheduler. See the chart's agents.scheduling.
+  scheduling:
+    workerConcurrency: 16
+    pollIntervalSecs: 1
+    startBudgetSecs: 180
+    minReplicas: 2
+    drainGracePeriodSecs: 3600
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap.
   manifestPatchDir: /etc/orbit/manifest-patches

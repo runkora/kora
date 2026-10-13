@@ -472,6 +472,11 @@ const deliveryColumns = `id, tenant_id, source_id, trigger_id, trigger_name, kin
 	status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
 	payload, payload_bytes, payload_purged, reason, redelivery_of`
 
+// deliveryColumnsNoPayload is deliveryColumns with the payload body left out.
+const deliveryColumnsNoPayload = `id, tenant_id, source_id, trigger_id, trigger_name, kind, provider_delivery_id, event_type,
+	status, run_id, error, payload_excerpt, fired_by, scheduled_at, received_at,
+	NULL::bytea AS payload, payload_bytes, payload_purged, reason, redelivery_of`
+
 func scanDelivery(row pgx.Row) (*Delivery, error) {
 	var d Delivery
 	var sourceID, firedBy, triggerName *string
@@ -507,8 +512,12 @@ func (r *postgresRepository) GetDeliveryByProviderID(ctx context.Context, source
 }
 
 func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
+	columns := deliveryColumns
+	if filter.OmitPayload {
+		columns = deliveryColumnsNoPayload
+	}
 	query := `
-		SELECT ` + deliveryColumns + `
+		SELECT ` + columns + `
 		FROM   trigger_deliveries
 		WHERE  tenant_id = $1`
 	args := []any{tenantID}
@@ -526,6 +535,16 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 	if filter.Kind != "" {
 		query += fmt.Sprintf(` AND kind = $%d`, idx)
 		args = append(args, filter.Kind)
+		idx++
+	}
+	if !filter.ReceivedAfter.IsZero() {
+		query += fmt.Sprintf(` AND received_at >= $%d`, idx)
+		args = append(args, filter.ReceivedAfter)
+		idx++
+	}
+	if !filter.ReceivedBefore.IsZero() {
+		query += fmt.Sprintf(` AND received_at < $%d`, idx)
+		args = append(args, filter.ReceivedBefore)
 	}
 	query += ` ORDER BY received_at DESC`
 	// filter.Limit is already clamped by the service; the storage layer trusts

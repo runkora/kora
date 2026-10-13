@@ -244,7 +244,7 @@ Fields absent from both objects are equal, so a patch may add volumes, container
 
 - `K8sProvisionerConfig.Patches []manifestpatch.Patch` replaces `ManifestOverrides`.
 - `ensureServiceAccount`, `ensureStatefulSet` (and its `VolumeClaimTemplates[0]` as `PersistentVolumeClaim`), `ensureHeadlessService`, `ensureHPA`, `ensurePDB` and `ProvisionSandbox` call `manifestpatch.Apply` on the built object.
-- `ProvisionAgentType` runs on agent-type create and update and before every run. When the resource already exists, it writes the patched object's mutable fields onto the live one:
+- `ProvisionAgentType` runs on agent-type create and at every orbit-agents startup. Run start creates only missing resources ([Run Scheduling](2026-10-12-run-scheduling.md)). When the resource already exists, `ProvisionAgentType` writes the patched object's mutable fields onto the live one:
 
   | Kind | Synced on reconcile | Create-only |
   |------|--------------------|-------------|

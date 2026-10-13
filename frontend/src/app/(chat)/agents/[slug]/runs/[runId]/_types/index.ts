@@ -153,7 +153,8 @@ export interface RunChatState {
   slug: string;
   agentName: string;
   model: string;
-  runState: RunState;
+  /** Null until the run's state has loaded. */
+  runState: RunState | null;
   turns: Turn[];
   contextFiles: string[];
   canvasState: CanvasState;

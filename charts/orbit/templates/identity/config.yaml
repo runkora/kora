@@ -9,6 +9,6 @@ internal/identity:
   token:
     accessTokenTtlMinutes: {{ .Values.identity.config.accessTokenTtlMinutes | int }}
 {{ include "orbit.observabilityConfigModule" . }}
-{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "identity" "configMap" "orbit-identity-config" "modules" (include "orbit.identity.configModules" . | fromYaml)) }}

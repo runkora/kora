@@ -11,7 +11,7 @@ cmd/inference-gateway:
   providers:
     namespace: {{ include "orbit.systemNamespace" . | toJson }}
 {{ include "orbit.observabilityConfigModule" . }}
-{{ include "orbit.storageConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
 {{ include "orbit.tokenConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "inferenceGateway" "configMap" "orbit-inference-gateway-config" "modules" (include "orbit.inferenceGateway.configModules" . | fromYaml)) }}

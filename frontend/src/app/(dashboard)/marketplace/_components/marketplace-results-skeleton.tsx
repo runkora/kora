@@ -12,7 +12,7 @@ import {
   TableRow,
   TableHead,
   TableCell,
-} from '@orbit/terra';
+} from '@orbit/hades';
 
 /**
  * Stands in for the toolbar and the Skill results while no Marketplace data

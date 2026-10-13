@@ -3,7 +3,7 @@
 /** @tier 3 — marketplace-scoped. List view of Skill results; each row opens its detail route. */
 
 import { useRouter } from 'next/navigation';
-import { DataTable, Icon, Stack, Text, type DataTableColumn } from '@orbit/terra';
+import { DataTable, Icon, Stack, Text, type DataTableColumn } from '@orbit/hades';
 import type { PackageOverview } from '@orbit/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 import { buildSkillUrl } from '../_utils/browse-params';

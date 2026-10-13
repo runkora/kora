@@ -9,7 +9,7 @@
  * delivery to fire.
  */
 
-import { Button, Icon, Input, NativeSelect, Separator, Stack } from '@orbit/terra';
+import { Button, Icon, Input, NativeSelect, Separator, Stack } from '@orbit/hades';
 import { CatalogPicker } from './catalog-picker';
 import { completePattern } from './trigger-wizard/field-catalog';
 import type { SchemaCatalogEntry } from './trigger-wizard/field-catalog';

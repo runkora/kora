@@ -27,7 +27,7 @@ import {
   PageSectionHeader,
   EmptyState,
   ConfirmDialog,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import type { RoleEntry } from '../_types';
@@ -37,7 +37,7 @@ import { hasScope } from '@orbit/lib/permissions';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
 import { ScopeChipList, scopeColumnFilter } from '@orbit/components';
 import { ScopePicker } from '@orbit/components';
-import { ViewToggle } from '@orbit/terra';
+import { ViewToggle } from '@orbit/hades';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────
 

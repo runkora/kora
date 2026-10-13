@@ -1,6 +1,6 @@
 /** @tier 3 — marketplace-scoped. Read-only presentation of one Skill's details. */
 
-import { Card, CardContent, CardHeader, CodeBlock, Heading, Stack, Text } from '@orbit/terra';
+import { Card, CardContent, CardHeader, CodeBlock, Heading, Stack, Text } from '@orbit/hades';
 import type { PackageDetail } from '@orbit/shared/api';
 
 interface MarketplaceSkillDetailProps {

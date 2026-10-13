@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
+	"net/http"
+	"net/http/httptest"
+	"slices"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -196,5 +200,110 @@ func TestModelListFiltersAndKeepsDiscoveryErrors(t *testing.T) {
 	got, err = withModelList(stub, []string{"vendor/m"}).ListModels(context.Background())
 	if err == nil || len(got) != 1 || got[0].ModelID != "vendor/m" || got[0].Family != "vendor" {
 		t.Errorf("fallback = %+v, %v; want the declared model and the error", got, err)
+	}
+}
+
+func TestSystemOneOnlyProviderOffersDecisionModels(t *testing.T) {
+	list := `{"models":[{"name":"jev-latest"},{"name":"clef"}]}`
+	cases := []struct {
+		name    string
+		models  []string
+		listing bool
+		want    []string
+	}{
+		{"discovered", nil, true, []string{"jev-latest", "clef"}},
+		{"spec.models limits discovery", []string{"clef"}, true, []string{"clef"}},
+		{"spec.models is the catalog without a model list", []string{"laya-1"}, false, []string{"laya-1"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if !tc.listing || r.URL.Path != "/v1/models" {
+					http.NotFound(w, r)
+					return
+				}
+				_, _ = io.WriteString(w, list)
+			}))
+			t.Cleanup(srv.Close)
+			w, _ := newWatcher(t, resource("ts", ip.Spec{Type: ip.TypeCompatible, Models: tc.models, Compatible: &ip.Compatible{
+				BaseURL: srv.URL + "/v1", APIs: []ip.API{ip.APISystemOne},
+			}}))
+			connectors, _ := w.Load(context.Background())
+			conn, ok := connectors["compatible:ts"]
+			if !ok {
+				t.Fatalf("connectors = %v", connectors)
+			}
+			models, _ := conn.ListModels(context.Background())
+			var ids []string
+			for _, m := range models {
+				ids = append(ids, m.ModelID)
+				if !slices.Equal(m.Capabilities, []inferencegw.ModelCapability{inferencegw.CapabilityDecision}) || len(m.Dialects) != 0 {
+					t.Errorf("%s: capabilities = %v, dialects = %v", m.ModelID, m.Capabilities, m.Dialects)
+				}
+			}
+			if !slices.Equal(ids, tc.want) {
+				t.Errorf("models = %v, want %v", ids, tc.want)
+			}
+		})
+	}
+}
+
+func TestMixedProviderDecisionModelsAndSpecModels(t *testing.T) {
+	cases := []struct {
+		name   string
+		models []string
+		want   map[string]inferencegw.ModelCapability
+	}{
+		{
+			"every model", nil,
+			map[string]inferencegw.ModelCapability{"gpt": inferencegw.CapabilityChat, "jev": inferencegw.CapabilityDecision, "clef": inferencegw.CapabilityDecision},
+		},
+		{
+			"spec.models limits chat and decision models alike", []string{"gpt", "clef"},
+			map[string]inferencegw.ModelCapability{"gpt": inferencegw.CapabilityChat, "clef": inferencegw.CapabilityDecision},
+		},
+		{
+			"spec.models naming only an unlisted decision model", []string{"clef"},
+			map[string]inferencegw.ModelCapability{"clef": inferencegw.CapabilityDecision},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				if r.URL.Path != "/v1/models" {
+					http.NotFound(w, r)
+					return
+				}
+				if r.URL.Query().Get("output_modalities") == "decisions" {
+					_, _ = io.WriteString(w, `{"data":[{"id":"jev","architecture":{"output_modalities":["decisions"]}}]}`)
+					return
+				}
+				_, _ = io.WriteString(w, `{"data":[{"id":"gpt"}]}`)
+			}))
+			t.Cleanup(srv.Close)
+			w, _ := newWatcher(t, resource("or", ip.Spec{Type: ip.TypeCompatible, Models: tc.models, Compatible: &ip.Compatible{
+				BaseURL: srv.URL + "/v1", APIs: []ip.API{ip.APIChatCompletions, ip.APISystemOne}, DecisionModels: []string{"clef"},
+			}}))
+			connectors, _ := w.Load(context.Background())
+			conn, ok := connectors["compatible:or"]
+			if !ok {
+				t.Fatalf("connectors = %v", connectors)
+			}
+			models, err := conn.ListModels(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := map[string]inferencegw.ModelCapability{}
+			for _, m := range models {
+				if len(m.Capabilities) != 1 {
+					t.Fatalf("%s capabilities = %v", m.ModelID, m.Capabilities)
+				}
+				got[m.ModelID] = m.Capabilities[0]
+			}
+			if !maps.Equal(got, tc.want) {
+				t.Errorf("models = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }

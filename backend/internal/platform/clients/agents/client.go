@@ -116,9 +116,8 @@ func (c *Client) GetAgentType(ctx context.Context, bearer, id string) (AgentType
 // StartRunRequest is the payload for StartRun. tenant_id and created_by are
 // derived server-side from the verified token, so they are intentionally absent.
 type StartRunRequest struct {
-	AgentTypeID      string `json:"agent_type_id"`
-	InitialMessage   string `json:"initial_message,omitempty"`
-	ProvisionSandbox bool   `json:"provision_sandbox,omitempty"`
+	AgentTypeID    string `json:"agent_type_id"`
+	InitialMessage string `json:"initial_message,omitempty"`
 
 	// TriggerID, TriggerName and DeliveryID attribute the run to the trigger
 	// that started it, so a run detail can say "started by trigger X, delivery

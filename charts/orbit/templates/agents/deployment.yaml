@@ -32,6 +32,8 @@ spec:
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
     spec:
       serviceAccountName: orbit-agents
+      # Above the 30 s shutdown timeout, so a run start in flight can finish before the kubelet stops the pod.
+      terminationGracePeriodSeconds: 45
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
       {{- include "orbit.scheduling" (dict "root" $ "name" "agents") | nindent 6 }}
       securityContext:
@@ -62,11 +64,8 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "agents") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
-          {{- with .Values.agents.extraEnv }}
           env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "agents" "keys" (list "DB_PASSWORD")) | nindent 12 }}
           ports:
             - name: http
               containerPort: 8080

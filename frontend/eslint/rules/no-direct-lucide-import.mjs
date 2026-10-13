@@ -3,13 +3,13 @@ const rule = {
     type: 'problem',
     docs: {
       description:
-        "Ban direct lucide-react imports in product code — use Terra's Icon component instead.",
+        "Ban direct lucide-react imports in product code — use Hades' Icon component instead.",
     },
     messages: {
       noDirectLucide:
-        "Import Lucide icons via Terra's Icon component (<Icon name=\"...\" />) — not directly from 'lucide-react'. " +
-        'Add new icons to the Terra registry in src/packages/terra/src/components/icon/registry.ts. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        "Import Lucide icons via Hades' Icon component (<Icon name=\"...\" />) — not directly from 'lucide-react'. " +
+        'Add new icons to the Hades registry in src/packages/hades/src/components/icon/registry.ts. ' +
+        'See frontend/docs/reference/hades-design-system.md',
     },
     schema: [],
   },

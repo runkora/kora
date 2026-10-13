@@ -39,7 +39,8 @@ export type ModelCapability =
   | 'image' // POST /v1/images/generations (handler not yet active)
   | 'video' // async video generation (no standard endpoint yet)
   | 'rerank' // POST /v1/rerank (handler not yet active)
-  | 'audio'; // TTS / live audio (no standard endpoint yet)
+  | 'audio' // TTS / live audio (no standard endpoint yet)
+  | 'decision'; // POST /v1/systemone
 
 /** Effective per-million-token prices for a virtual model. */
 export interface ModelObjectPricing {
@@ -616,7 +617,6 @@ export interface CreateAgentTypeRequest {
 /** Request body for POST /api/agents/types/:typeId/runs. */
 export interface StartRunRequest {
   task?: string;
-  provision_sandbox?: boolean;
 }
 
 /**
@@ -891,7 +891,7 @@ export interface Trigger {
   overflow?: TriggerOverflow;
   max_queue_depth?: number;
 
-  /** Delivery safety. Timeout bounds starting the run, not running it. */
+  /** Delivery safety. Bounds the start request, which returns once the run is queued. Dispatch is abandoned after this window. */
   timeout_seconds?: number;
   dedupe_enabled?: boolean;
   autopause_enabled?: boolean;

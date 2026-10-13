@@ -274,7 +274,7 @@ type failingProvisionNotifier struct {
 	err error
 }
 
-func (n *failingProvisionNotifier) ProvisionSandbox(context.Context, string, bool, string, bool) (Sandbox, error) {
+func (n *failingProvisionNotifier) ProvisionSandbox(context.Context, string, string, bool) (Sandbox, error) {
 	return Sandbox{}, n.err
 }
 
@@ -301,7 +301,7 @@ func TestProvisionSandbox_ReportsPhases(t *testing.T) {
 		reg, _ := newTestRegistry(t, n)
 		hostSession(reg, "run-1")
 
-		if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); err != nil {
+		if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); err != nil {
 			t.Fatalf("ProvisionSandbox: %v", err)
 		}
 		_, evs := n.snapshot()
@@ -320,10 +320,10 @@ func TestProvisionSandbox_ReportsPhases(t *testing.T) {
 		if err := os.MkdirAll(filepath.Join(ws, "run-1"), 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(ws, "run-1", ".sandbox"), nil, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(ws, "run-1", ".sandbox-exec"), nil, 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); err == nil {
+		if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); err == nil {
 			t.Fatal("ProvisionSandbox succeeded, want the write error")
 		}
 		_, evs := n.snapshot()
@@ -338,7 +338,7 @@ func TestProvisionSandbox_ReportsPhases(t *testing.T) {
 		reg, _ := newTestRegistry(t, n)
 		hostSession(reg, "run-1")
 
-		if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); err == nil {
+		if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); err == nil {
 			t.Fatal("ProvisionSandbox succeeded, want the notifier's error")
 		}
 		_, evs := n.snapshot()
@@ -361,7 +361,7 @@ type provisionPhaseNotifier struct {
 	endpoint string
 }
 
-func (n *provisionPhaseNotifier) ProvisionSandbox(context.Context, string, bool, string, bool) (Sandbox, error) {
+func (n *provisionPhaseNotifier) ProvisionSandbox(context.Context, string, string, bool) (Sandbox, error) {
 	return testSandbox(n.endpoint), nil
 }
 

@@ -21,7 +21,7 @@ import {
   Text,
   ViewToggle,
   type ViewToggleProps,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { SkillSort } from '@orbit/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 import { MIN_SEARCH_LENGTH, SORT_OPTIONS } from '../_types';

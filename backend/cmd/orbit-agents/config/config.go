@@ -85,6 +85,28 @@ type Config struct {
 			SandboxProvisionBackoffSecs int `yaml:"sandboxProvisionBackoffSecs"`
 			SandboxProvisionBudgetSecs  int `yaml:"sandboxProvisionBudgetSecs"`
 		} `yaml:"guardrails"`
+		// IdleTimeout is how long a run may sit idle before its session closes,
+		// by how the run started. Sent to the session-manager with each run.
+		IdleTimeout struct {
+			// ManualSecs applies to a run a person started, and to a trigger run once a person messages it.
+			ManualSecs int `yaml:"manualSecs"`
+			// TriggerSecs applies to a run a trigger started.
+			TriggerSecs int `yaml:"triggerSecs"`
+		} `yaml:"idleTimeout"`
+		// Scheduling configures the run scheduler that starts pending runs
+		// (docs/adr/2026-10-12-run-scheduling.md).
+		Scheduling struct {
+			// WorkerConcurrency is how many runs one replica starts at once.
+			WorkerConcurrency int `yaml:"workerConcurrency"`
+			// PollIntervalSecs is how often the scheduler claims pending runs, and how long a released run waits.
+			PollIntervalSecs int `yaml:"pollIntervalSecs"`
+			// StartBudgetSecs is how long a run may stay pending before it fails.
+			StartBudgetSecs int `yaml:"startBudgetSecs"`
+			// MinReplicas is the session-manager pod count of each agent and its HPA minimum.
+			MinReplicas int32 `yaml:"minReplicas"`
+			// DrainGracePeriodSecs is how long a terminating session-manager pod waits for its runs to end.
+			DrainGracePeriodSecs int64 `yaml:"drainGracePeriodSecs"`
+		} `yaml:"scheduling"`
 		// ConnectionRegistryPath is the mounted connections.json file rendered by
 		// the operator's ConnectionAggregator into the orbit-tenant-connections
 		// ConfigMap. orbit-agents reads it to serve the read-only connection
@@ -113,6 +135,10 @@ type Config struct {
 			// other runs. Zero disables the cap.
 			NodeMaxOldSpaceMB int `yaml:"nodeMaxOldSpaceMB"`
 		} `yaml:"sessionManager"`
+		// SandboxMount gives each sandbox a working folder on its local disk at
+		// /workspaces/<run>/sandbox, mounted into the session-manager pod by the
+		// sandbox-mount node agent (docs/adr/2026-10-08-sandbox-workspace-mount.md).
+		SandboxMount bool `yaml:"sandboxMount"`
 	} `yaml:"agents"`
 }
 

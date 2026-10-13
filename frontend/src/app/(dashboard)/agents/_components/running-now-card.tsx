@@ -19,36 +19,15 @@ import {
   TableRoot,
   TableRow,
   Text,
-} from '@orbit/terra';
-import type { StatusDotProps } from '@orbit/terra';
+} from '@orbit/hades';
+import { RUN_STATE_DISPLAY } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { RUNNING_ROWS } from '../_lib/spend';
 import { formatDuration, formatRelativeTime } from '../_types';
 import type { RunRow } from '../_types';
 
-/** How each live run state reads in the table. */
-const LIVE_STATES: Record<
-  string,
-  { status: NonNullable<StatusDotProps['status']>; label: string }
-> = {
-  active: { status: 'healthy', label: 'Running' },
-  completing: { status: 'healthy', label: 'Finishing' },
-  starting: { status: 'pending', label: 'Starting' },
-  pending: { status: 'pending', label: 'Queued' },
-};
-
-/** Every run state's dot and label: the live states above, then the finished ones. */
-const RUN_STATES: Record<string, { status: NonNullable<StatusDotProps['status']>; label: string }> =
-  {
-    ...LIVE_STATES,
-    idle: { status: 'degraded', label: 'Waiting' },
-    completed: { status: 'idle', label: 'Completed' },
-    failed: { status: 'error', label: 'Failed' },
-    budget_exhausted: { status: 'error', label: 'Budget exhausted' },
-  };
-
 export function RunStateDot({ state: name }: { state: string }) {
-  const state = RUN_STATES[name];
+  const state = RUN_STATE_DISPLAY[name];
   return (
     <Stack direction="horizontal" align="center" gap="snug">
       <StatusDot

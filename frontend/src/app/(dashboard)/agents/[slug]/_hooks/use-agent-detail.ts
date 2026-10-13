@@ -47,10 +47,7 @@ export interface AgentDetailStateShape {
   refresh: () => Promise<void>;
   deleteAgent: () => Promise<boolean>;
   deleteRun: (runId: string) => Promise<{ error: string | null }>;
-  startRun: (
-    task: string,
-    provisionSandbox: boolean,
-  ) => Promise<{ runId: string | null; error: string | null }>;
+  startRun: (task: string) => Promise<{ runId: string | null; error: string | null }>;
 }
 
 /** Loaded runs and where the next page starts. */
@@ -204,12 +201,9 @@ export function useAgentDetail(
   );
 
   const startRun = useCallback(
-    async (
-      task: string,
-      provisionSandbox: boolean,
-    ): Promise<{ runId: string | null; error: string | null }> => {
+    async (task: string): Promise<{ runId: string | null; error: string | null }> => {
       if (!agent) return { runId: null, error: 'No agent loaded.' };
-      const result = await fetchStartRun(agent.id, { task, provision_sandbox: provisionSandbox });
+      const result = await fetchStartRun(agent.id, { task });
       if (result.error) return { runId: null, error: result.error };
       return { runId: result.run?.id ?? null, error: null };
     },

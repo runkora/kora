@@ -14,7 +14,7 @@ All UI components belong to exactly one of three tiers. The tier determines the 
 
 | Tier  | Name             | Filesystem path                                       | Import path                             | Storybook title prefix                                                  |
 | ----- | ---------------- | ----------------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| **1** | Terra            | `frontend/src/packages/terra/src/components/`         | `import { X } from '@orbit/terra'`      | `Terra/Atoms/`, `Terra/Molecules/`, `Terra/Layout/`, `Terra/Organisms/` |
+| **1** | Hades            | `frontend/src/packages/hades/src/components/`         | `import { X } from '@orbit/hades'`      | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
 | **2** | App-level shared | `frontend/src/components/`                            | `import { X } from '@orbit/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
 | **3** | Feature-scoped   | `frontend/src/app/(dashboard)/[feature]/_components/` | relative import                         | none required                                                           |
 
@@ -28,28 +28,28 @@ The `title` field in a story's `meta` object sets its position in the Storybook 
 
 | Tier              | Story title prefix | Example                                  |
 | ----------------- | ------------------ | ---------------------------------------- |
-| Tier 1: atoms     | `Terra/Atoms/`     | `title: 'Terra/Atoms/Icon'`              |
-| Tier 1: molecules | `Terra/Molecules/` | `title: 'Terra/Molecules/Modal'`         |
-| Tier 1: layout    | `Terra/Layout/`    | `title: 'Terra/Layout/Stack'`            |
-| Tier 1: organisms | `Terra/Organisms/` | `title: 'Terra/Organisms/DataTable'`     |
+| Tier 1: atoms     | `Hades/Atoms/`     | `title: 'Hades/Atoms/Icon'`              |
+| Tier 1: molecules | `Hades/Molecules/` | `title: 'Hades/Molecules/Modal'`         |
+| Tier 1: layout    | `Hades/Layout/`    | `title: 'Hades/Layout/Stack'`            |
+| Tier 1: organisms | `Hades/Organisms/` | `title: 'Hades/Organisms/DataTable'`     |
 | Tier 2: atoms     | `App/Atoms/`       | `title: 'App/Atoms/StatusBadge'`         |
 | Tier 2: molecules | `App/Molecules/`   | `title: 'App/Molecules/ScopePicker'`     |
 | Tier 2: organisms | `App/Organisms/`   | `title: 'App/Organisms/ConnectionCards'` |
 
 ### Choosing atom, molecule or organism
 
-The Terra sub-tier follows what a component is built from:
+The Hades sub-tier follows what a component is built from:
 
 | Sub-tier  | Rule                                                                                    | Examples                                                   |
 | --------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| Atoms     | A single primitive. Uses no other Terra component beyond `Icon`, layout and typography. | `Button`, `Badge`, `Progress`, `NavItem`                   |
+| Atoms     | A single primitive. Uses no other Hades component beyond `Icon`, layout and typography. | `Button`, `Badge`, `Progress`, `NavItem`                   |
 | Molecules | Composes atoms for one job.                                                             | `CodeBlock`, `Indicator`, `PageSectionHeader`, `FormField` |
 | Organisms | Composes molecules or many atoms and owns its own state or flow.                        | `DataTable`, `Wizard`                                      |
 | Layout    | Arranges other content and has no content of its own.                                   | `Stack`, `Grid`, `PageLayout`                              |
 
 ---
 
-## Terra Authoring Conventions (Tier 1)
+## Hades Authoring Conventions (Tier 1)
 
 New Tier 1 components must follow these patterns (per [terra-frontend-design-system](../../../docs/adr/2026-03-25-terra-frontend-design-system.md)):
 
@@ -70,11 +70,11 @@ for the same reason.
 
 ---
 
-## Available Terra Components (Tier 1)
+## Available Hades Components (Tier 1)
 
-All components below are exported from `@orbit/terra`. Never import from sub-paths.
+All components below are exported from `@orbit/hades`. Never import from sub-paths.
 
-> **`frontend/src/packages/terra/src/index.ts` is the authoritative export list.** This table is a curated view with usage notes; when the two disagree, the index is correct. If a lint error tells you to use a component, it exists in the index. Check there first, then add it here.
+> **`frontend/src/packages/hades/src/index.ts` is the authoritative export list.** This table is a curated view with usage notes; when the two disagree, the index is correct. If a lint error tells you to use a component, it exists in the index. Check there first, then add it here.
 
 ### Layout
 
@@ -101,7 +101,7 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 
 | Component                                                 | Use instead of                     | Notes                                                                                                                                                                                                                                                                                                                                             |
 | --------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Icon`                                                    | `import { X } from 'lucide-react'` | **Always use this. Never import from `lucide-react` directly.** Props: `name` (`IconName`), `size` (`2xs`–`xl`), `color`, `container`, `containerVariant` (`accent`, `surface`, `muted`). To add a new icon: propose the icon name and source to a human engineer for approval, then add to `src/packages/terra/src/components/icon/registry.ts`. |
+| `Icon`                                                    | `import { X } from 'lucide-react'` | **Always use this. Never import from `lucide-react` directly.** Props: `name` (`IconName`), `size` (`2xs`–`xl`), `color`, `container`, `containerVariant` (`accent`, `surface`, `muted`). To add a new icon: propose the icon name and source to a human engineer for approval, then add to `src/packages/hades/src/components/icon/registry.ts`. |
 | `KoraMark`                                                | the Kora brand mark                | The circle cut in half, as an SVG. Props: `size` (height in px), `title`.                                                                                                                                                                                                                                                                         |
 | `CopyButton`                                              | custom copy button                 | Icon button that copies `value` and shows a check. Never submits a surrounding form.                                                                                                                                                                                                                                                              |
 | `Button`                                                  | `<button>`                         | Variants: `default`, `destructive`, `outline`, `secondary`, `ghost`, `link`. Sizes: `sm`, `md`, `lg`, `icon-sm`, `icon`.                                                                                                                                                                                                                          |
@@ -194,15 +194,15 @@ All components below are exported from `@orbit/terra`. Never import from sub-pat
 | `local/no-raw-interactive-elements` | `<button>`                                                                                         | `Button`                                                                                                            |
 | `local/no-raw-list-elements`        | `<ul>`, `<ol>`, `<li>`                                                                             | `List`, `List ordered`, `ListItem` (or `Stack` for pure layout containers)                                          |
 | `local/no-raw-form-elements`        | `<form>`, `<label>`, `<input>`, `<output>`                                                         | `Form`, `Label` (or `Checkbox` for labelled checkboxes), `Input` / `Checkbox`, `Output`                             |
-| `local/no-terra-classname`          | `className` on any Terra component                                                                 | Use the component's own props                                                                                       |
-| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                          | `<Icon name="…">`: **no escape hatch**. Add new icons to `src/packages/terra/src/components/icon/registry.ts` only. |
-| `local/no-terra-disable-comment`    | Any `eslint-disable` comment targeting a Terra rule                                                | There is no escape hatch. Use the correct Terra component                                                           |
+| `local/no-hades-classname`          | `className` on any Hades component                                                                 | Use the component's own props                                                                                       |
+| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                          | `<Icon name="…">`: **no escape hatch**. Add new icons to `src/packages/hades/src/components/icon/registry.ts` only. |
+| `local/no-hades-disable-comment`    | Any `eslint-disable` comment targeting a Hades rule                                                | There is no escape hatch. Use the correct Hades component                                                           |
 
 ---
 
 ## Structural ESLint rules (server/client boundary + filenames)
 
-Beyond the Terra design-system rules, three structural rules in
+Beyond the Hades design-system rules, three structural rules in
 `frontend/eslint.config.mjs` are **error-severity** and are among the most common
 first-PR failures. They enforce the App Router server/client boundary and a
 consistent filename convention. None have an escape hatch.
@@ -211,7 +211,7 @@ consistent filename convention. None have an escape hatch.
 | ------------------------------------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `local/require-server-only`          | `src/server/**/*.{ts,tsx}` and every Route Handler `src/app/api/**/route.ts` | Fires unless `import 'server-only'` is the **first** import in the file. Both a missing guard and a guard that is not first fail. Prevents server-only modules (backend URLs, session secret) leaking into the client bundle.                                   | Add `import 'server-only';` as the very first import (after any JSDoc block).                        |
 | `local/require-use-client-for-hooks` | `src/app/**/*.{ts,tsx}` except Route Handlers                                | Fires when a file imports a React client hook (`useState`, `useEffect`, `useRef`, …) from `react`, or a navigation hook (`useRouter`, `usePathname`, `useSearchParams`, …) from `next/navigation`, but has no `"use client"` directive.                         | Add `"use client";` as the first line of the file.                                                   |
-| `local/require-kebab-filename`       | all `src/**/*.{js,jsx,ts,tsx}` (including the Terra package)                 | Fires when a filename stem is not kebab-case (e.g. `HealthStatus.tsx`, `myComponent.ts`). Prevents case-sensitivity mismatches between macOS (case-insensitive) and Linux CI (case-sensitive). Dot-files and Next.js dynamic segments (`[id].tsx`) are skipped. | Rename the file to kebab-case (the error message suggests the exact name, e.g. `health-status.tsx`). |
+| `local/require-kebab-filename`       | all `src/**/*.{js,jsx,ts,tsx}` (including the Hades package)                 | Fires when a filename stem is not kebab-case (e.g. `HealthStatus.tsx`, `myComponent.ts`). Prevents case-sensitivity mismatches between macOS (case-insensitive) and Linux CI (case-sensitive). Dot-files and Next.js dynamic segments (`[id].tsx`) are skipped. | Rename the file to kebab-case (the error message suggests the exact name, e.g. `health-status.tsx`). |
 
 ## Checking Your Work
 
@@ -236,9 +236,10 @@ Tier 2 components live at `frontend/src/components/` and are exported from `fron
 
 | Component           | Description                                                                                                                                                                                                 |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/terra` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                     |
+| `ErrorBanner`       | **Removed**: use `<Alert variant="error">` from `@orbit/hades` with `<Icon name="triangle-alert" color="status-error" />` and `<Text size="caption" color="status-error">` as children.                     |
 | `StatusBadge`       | Maps `OrbitStatus` (`'healthy' \| 'degraded' \| 'error' \| 'idle' \| 'pending' \| 'unknown'`) to a labelled `Badge` with status dot. Key props: `status: OrbitStatus`, `label?: string`.                    |
-| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/terra`** (promoted from Tier 2). |
+| `PageSectionHeader` | Canonical list/management tab header: title + optional description + right-aligned action. Key props: `title`, `description?`, `action?: ReactNode`. **Import from `@orbit/hades`** (promoted from Tier 2). |
+| `RUN_STATE_DISPLAY` | Maps each run state to a status dot and a label (`pending` is Queued). Used by the agents run tables and the run page top bar. Type: `RunStateDisplay`.                                                     |
 
 Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/reference/app-components.md`.
 
@@ -248,8 +249,8 @@ Full documentation (import paths, usage guidance, JSX examples): `frontend/docs/
 
 | Document                                                                                                                      | What it covers                                                               |
 | ----------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| [`frontend/docs/reference/terra-design-system.md`](./terra-design-system.md)                                                  | Full Terra component usage guide: props, examples, every lint rule explained |
+| [`frontend/docs/reference/hades-design-system.md`](./hades-design-system.md)                                                  | Full Hades component usage guide: props, examples, every lint rule explained |
 | [`frontend/docs/reference/app-components.md`](./app-components.md)                                                            | Tier 2 component API: StatusBadge                                            |
 | [`frontend/docs/golden-paths/frontend-state-pattern.md`](../golden-paths/frontend-state-pattern.md)                           | State management patterns (server actions, URL state, local state)           |
 | [`docs/adr/2026-05-04-frontend-component-consolidation.md`](../../../docs/adr/2026-05-04-frontend-component-consolidation.md) | Authoritative ADR for all placement decisions                                |
-| [`frontend/src/packages/terra/src/index.ts`](../../src/packages/terra/src/index.ts)                                           | Full Terra export list: source of truth for available component names        |
+| [`frontend/src/packages/hades/src/index.ts`](../../src/packages/hades/src/index.ts)                                           | Full Hades export list: source of truth for available component names        |

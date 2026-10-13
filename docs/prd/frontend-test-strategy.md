@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-The kora frontend has zero test coverage and no test infrastructure. With the Terra design system (`@orbit/terra`) established as a stable, independent workspace package, and the application growing beyond a placeholder page — with a working OIDC auth flow, a BFF session layer, and a dashboard shell — shipping without a test strategy means every change carries unquantified regression risk.
+The kora frontend has zero test coverage and no test infrastructure. With the Hades design system (`@orbit/hades`) established as a stable, independent workspace package, and the application growing beyond a placeholder page — with a working OIDC auth flow, a BFF session layer, and a dashboard shell — shipping without a test strategy means every change carries unquantified regression risk.
 
 This PRD defines a layered, package-aware test strategy that gives each layer of the frontend stack — workspace packages, app components, BFF routes, and end-to-end flows — the right type of test, the right tooling, and a clear execution model that scales as the monorepo grows. A central principle is that **integration tests prioritise manipulating real application state over mocking** — tests intercept at the HTTP boundary via MSW, not at the module level, so the actual component logic and data-fetching pipeline are exercised. Where mocking is unavoidable, it is centralised in a single, typed `test-utils/` directory shared across all test tiers.
 
@@ -22,7 +22,7 @@ This PRD defines a layered, package-aware test strategy that gives each layer of
 
 The frontend codebase contains:
 
-- **`frontend/src/packages/terra/`** (`@orbit/terra`) — a fully implemented design system with 21+ component families, a token system, and Storybook stories for every component. The package already has `vite@6.3.5`, `@vitejs/plugin-react`, `@storybook/addon-a11y`, and `@storybook/addon-interactions` installed. There are no unit or component tests.
+- **`frontend/src/packages/hades/`** (`@orbit/hades`) — a fully implemented design system with 21+ component families, a token system, and Storybook stories for every component. The package already has `vite@6.3.5`, `@vitejs/plugin-react`, `@storybook/addon-a11y`, and `@storybook/addon-interactions` installed. There are no unit or component tests.
 - **`frontend/src/app/`** — a Next.js 16 App Router application with a dashboard, a working OIDC auth flow, and BFF API routes under `src/app/api/` (session creation, HRD discover, logout). Page-scoped components live in colocated `_components/` directories (e.g., `app/(dashboard)/_components/`, `app/(auth)/login/_components/`). There are no tests.
 - **`frontend/src/components/`** — shared app-level components (`HealthStatus`, `LogoutButton`, `links/`). There are no tests.
 - **`frontend/src/lib/`** — shared utilities including `lib/routing/` (`api-routes.ts`, `routes.ts`, `external-urls.ts`) and `lib/oidc-client.ts`. There are no tests.
@@ -33,7 +33,7 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 
 ### User Pain Points
 
-- **Developers modifying Terra components** have no automated check that a change to a layout primitive hasn't broken the 20 other components that may depend on it. The only signal is a manual Storybook inspection.
+- **Developers modifying Hades components** have no automated check that a change to a layout primitive hasn't broken the 20 other components that may depend on it. The only signal is a manual Storybook inspection.
 - **Developers building or modifying BFF route handlers** cannot verify that a handler correctly maps backend errors to the right HTTP responses, or validates request shapes — without running the full stack.
 - **Developers modifying shared components** (`HealthStatus`, `DashboardSidebar`) cannot verify that data-fetching logic, loading states, and error states all render correctly without manually running the app.
 - **AI assistants (Forge)** generating new components or modifying existing ones have no executable specification to validate against. Changes that look syntactically correct can silently break behavior.
@@ -42,7 +42,7 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 
 ### Business Impact
 
-- Undetected regressions in Terra components propagate to every page that uses them, multiplying the blast radius of a single bad commit.
+- Undetected regressions in Hades components propagate to every page that uses them, multiplying the blast radius of a single bad commit.
 - The BFF boundary — the critical security layer that seals iron-session cookies, proxies OIDC token exchange, and prevents the browser from calling the Go backend directly — has no coverage. A bug in error-handling or session sealing could silently affect all users.
 - Without tests, refactoring is high-risk. The codebase becomes harder to evolve as it grows, increasing development cost.
 - The absence of a test pattern means technical debt compounds as new pages and packages are added.
@@ -54,7 +54,7 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 ### Primary Goals
 
 1. Establish a **layered, package-aware test architecture** that assigns the right test type to the right layer: unit tests for pure logic, component tests for rendering and interaction, integration tests for BFF routes and page-level components, and end-to-end tests for critical user flows.
-2. Give **Terra (`@orbit/terra`) its own isolated test suite** that runs entirely within the package, with no dependency on the Next.js app. Tests must be fast enough to run on every save during component development.
+2. Give **Hades (`@orbit/hades`) its own isolated test suite** that runs entirely within the package, with no dependency on the Next.js app. Tests must be fast enough to run on every save during component development.
 3. Give the **Next.js application** a test suite covering BFF route handlers, shared components, and server-side modules using a Next.js-compatible test runner.
 4. Establish **integration testing that prioritises real application state over module mocking** — tests should intercept at the HTTP boundary (via MSW), not replace entire modules, so the actual component logic and data-fetching pipeline are exercised.
 5. Provide a **single, canonical `test-utils/` location** for all shared mocking utilities — MSW handlers, factory functions, and provider wrappers — typed against real application interfaces. Ad-hoc inline mocks are not acceptable.
@@ -64,7 +64,7 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 ### Success Metrics
 
 - A single `make` target from the repo root runs all frontend tests across all packages and exits non-zero on any failure.
-- Terra's component tests achieve ≥ 30% statement coverage at the end of Phase 1, growing to ≥ 70% by Phase 3.
+- Hades' component tests achieve ≥ 30% statement coverage at the end of Phase 1, growing to ≥ 70% by Phase 3.
 - App-level tests achieve ≥ 15% statement coverage at the end of Phase 1, growing to ≥ 45% by Phase 3.
 - Every BFF route handler has at least one test for the happy path and one for each mapped error condition — this is a mandatory per-route requirement, not a coverage threshold.
 - Every shared component in `src/components/` has at least one rendering test.
@@ -75,7 +75,7 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 ### Non-Goals
 
 - **Snapshot testing** — not adopted. Snapshot tests for component output are brittle against CVA class reordering, Tailwind version upgrades, and token renames, producing high churn with low signal. Stable, readable `toEqual` assertions on discrete values are used instead of snapshots for any pure-data structure that warrants pinning.
-- **`@storybook/addon-interactions` CI integration** — not adopted. Storybook is the visual development and documentation environment for Terra. It is not a test runner. `addon-interactions` enables interaction playback inside the Storybook UI during development; it is not wired into CI and is not a substitute for Vitest component tests. This is a firm decision, not a Phase 3 consideration.
+- **`@storybook/addon-interactions` CI integration** — not adopted. Storybook is the visual development and documentation environment for Hades. It is not a test runner. `addon-interactions` enables interaction playback inside the Storybook UI during development; it is not wired into CI and is not a substitute for Vitest component tests. This is a firm decision, not a Phase 3 consideration.
 - **Full-stack system tests** — entirely out of scope for this PRD. Tests that require the Go backend, Postgres, or Redis to be running are system-level concerns, not frontend concerns. If and when they are needed, they belong outside `frontend/` and require a dedicated ADR of their own.
 - Visual regression / screenshot diffing — a future concern once the component library is stable.
 - Backend Go tests — a separate concern in the existing Go project.
@@ -88,15 +88,15 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 
 ### Primary User Stories
 
-**As a** developer modifying a Terra component,  
-**I want to** run `vitest run` in `frontend/src/packages/terra/` and get pass/fail feedback in under 10 seconds,  
+**As a** developer modifying a Hades component,  
+**I want to** run `vitest run` in `frontend/src/packages/hades/` and get pass/fail feedback in under 10 seconds,  
 **So that** I can confidently iterate on component variants without running the full app or manually inspecting Storybook.
 
 **Acceptance Criteria:**
-- [ ] `test` script exists in `frontend/src/packages/terra/package.json`
+- [ ] `test` script exists in `frontend/src/packages/hades/package.json`
 - [ ] Tests run via Vitest (reusing the existing `vite.config.ts` transform pipeline)
 - [ ] A `Button` component test asserts: renders with correct role, responds to `onClick`, is disabled when `disabled={true}` is passed, renders with `fullWidth` class applied
-- [ ] Tests complete in under 10 seconds on a developer laptop for the full Terra suite
+- [ ] Tests complete in under 10 seconds on a developer laptop for the full Hades suite
 
 ---
 
@@ -152,7 +152,7 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 **I want to** run the test suite after making changes and see structured pass/fail output,  
 **So that** I can self-validate changes without requiring the developer to manually inspect the output.
 
-**As a** developer writing a new Terra component from scratch,  
+**As a** developer writing a new Hades component from scratch,  
 **I want** a test file template or example I can copy,  
 **So that** I can write the first test for a new component in under 5 minutes.
 
@@ -171,9 +171,9 @@ Tier 1 — Unit (pure logic)
   Speed:  < 100ms per file
 
 Tier 2 — Component (rendering + interaction)
-  Scope:  @orbit/terra components
+  Scope:  @orbit/hades components
   Runner: Vitest + React Testing Library + happy-dom
-  Speed:  < 10s for full Terra suite (cold start)
+  Speed:  < 10s for full Hades suite (cold start)
 
 Tier 3 — Integration (BFF routes, component + MSW)
   Scope:  src/app/api/ route handlers, src/components/, page _components/
@@ -193,11 +193,11 @@ These rules are not preferences — they are the canonical structure. Any test f
 
 #### Rule 1 — Unit and component tests: colocated with source
 
-Unit tests (Tier 1) and component tests (Tier 2, Terra) live in the same directory as the file they test, with the same base name and a `.test.ts` or `.test.tsx` extension.
+Unit tests (Tier 1) and component tests (Tier 2, Hades) live in the same directory as the file they test, with the same base name and a `.test.ts` or `.test.tsx` extension.
 
 ```
 src/lib/routing/api-routes.ts         → src/lib/routing/api-routes.test.ts
-src/packages/terra/src/components/
+src/packages/hades/src/components/
   button/button.tsx                   → button/button.test.tsx
 ```
 
@@ -254,7 +254,7 @@ Test utilities shared across multiple test files live in `frontend/src/test-util
 | Test type | File suffix | Location | pnpm script |
 |-----------|-------------|----------|-------------|
 | Unit | `*.test.ts(x)` | Colocated with source | `test:unit` |
-| Component (Terra) | `*.test.tsx` | Colocated within Terra package | `test:unit` |
+| Component (Hades) | `*.test.tsx` | Colocated within Hades package | `test:unit` |
 | Integration | `*.integration.test.ts(x)` | Colocated with source | `test:integration` |
 | E2E — Category A (frontend, Go mocked) | `*.spec.ts` | `frontend/e2e/` | `test:e2e` |
 | E2E — Category B (full-stack) | — | **out of scope** — requires dedicated ADR | n/a |
@@ -282,18 +282,18 @@ If in doubt: **if you need to import anything from `@orbit/test-utils/msw` or `@
 
 Each workspace package owns its own test configuration:
 
-**`frontend/src/packages/terra/`** — has its own `vitest.config.ts` (extending `vite.config.ts`), its own `test` script, and runs completely independently of the Next.js app. Coverage is scoped to `src/components/**` and `src/utils.ts`.
+**`frontend/src/packages/hades/`** — has its own `vitest.config.ts` (extending `vite.config.ts`), its own `test` script, and runs completely independently of the Next.js app. Coverage is scoped to `src/components/**` and `src/utils.ts`.
 
 **`frontend/` (the Next.js app)** — has two root-level Vitest configs that together cover `src/app/`, `src/components/`, `src/server/`, `src/lib/`, and `src/shared/`:
 
 - `vitest.config.unit.ts` — includes `**/*.test.ts?(x)`, excludes `**/*.integration.test.ts?(x)` and `src/packages/**`
 - `vitest.config.integration.ts` — includes only `**/*.integration.test.ts?(x)`, excludes `src/packages/**`
 
-Both configs exclude `src/packages/**` so that Terra's tests never run under the wrong environment (`jsdom`) or the wrong Vite config. Terra is exercised exclusively by `make frontend-test-terra` / `make frontend-test-unit` via `pnpm --filter @orbit/terra`.
+Both configs exclude `src/packages/**` so that Hades' tests never run under the wrong environment (`jsdom`) or the wrong Vite config. Hades is exercised exclusively by `make frontend-test-hades` / `make frontend-test-unit` via `pnpm --filter @orbit/hades`.
 
 Both configs also include the `server-only` shim alias, the `@orbit/test-utils` path alias pointing at `src/test-utils/`, and `setupFiles: ['./src/test-utils/setup.ts']`.
 
-**Future packages** — any package added under `src/packages/*/` follows the Terra pattern: its own `vitest.config.ts`, its own `test` script, and self-contained coverage. The root `make` target runs all packages.
+**Future packages** — any package added under `src/packages/*/` follows the Hades pattern: its own `vitest.config.ts`, its own `test` script, and self-contained coverage. The root `make` target runs all packages.
 
 ### No Real HTTP Calls in Any Test
 
@@ -340,7 +340,7 @@ The guiding principle for Tier 3 tests is to **manipulate real application state
 
 ### No Snapshot Testing
 
-Snapshot tests are explicitly not adopted for component output. Terra components are built with CVA — the resolved className strings are long, fragile against token renames and Tailwind version changes, and provide no behavioral signal. Any value worth pinning (e.g., the exact string returned by `ApiRoute.session.GET()`) is more clearly expressed as an explicit `toEqual` assertion.
+Snapshot tests are explicitly not adopted for component output. Hades components are built with CVA — the resolved className strings are long, fragile against token renames and Tailwind version changes, and provide no behavioral signal. Any value worth pinning (e.g., the exact string returned by `ApiRoute.session.GET()`) is more clearly expressed as an explicit `toEqual` assertion.
 
 ### BFF Route Test Strategy
 
@@ -382,7 +382,7 @@ frontend/src/test-utils/
 Key rules:
 - **Handlers are typed against real response interfaces.** `createHealthResponse({ status: 'degraded' })` merges overrides into a valid default. When an interface changes, TypeScript surfaces stale mocks at compile time.
 - **Handlers are reused across tiers.** Vitest integration tests and Playwright E2E tests import from the same handler files.
-- **Terra does not use `test-utils/`.** Terra tests are isolated component behavior tests that construct any needed props inline. The `test-utils/` directory is app-level only.
+- **Hades does not use `test-utils/`.** Hades tests are isolated component behavior tests that construct any needed props inline. The `test-utils/` directory is app-level only.
 
 ### E2E Test Categories
 
@@ -394,7 +394,7 @@ Two categories of E2E tests are distinguished:
 
 ### Storybook's Role
 
-Storybook is the visual development and documentation environment for Terra. It is **not a test runner** and is **not part of the CI test pipeline** defined by this PRD.
+Storybook is the visual development and documentation environment for Hades. It is **not a test runner** and is **not part of the CI test pipeline** defined by this PRD.
 
 - **Vitest component tests** assert behavioral correctness: does the component render the right DOM, respond to events, and handle edge-case props? This is the authoritative source of correctness signal.
 - **Storybook stories** document usage, showcase variants, and support manual visual inspection during development.
@@ -405,12 +405,12 @@ If a story breaks because of a component change, that is caught by the Vitest co
 
 ### Key Components
 
-- **`frontend/src/packages/terra/vitest.config.ts`** — Terra's isolated test config extending `vite.config.ts`, `environment: 'happy-dom'`, globbing `src/**/*.test.{ts,tsx}`.
+- **`frontend/src/packages/hades/vitest.config.ts`** — Hades' isolated test config extending `vite.config.ts`, `environment: 'happy-dom'`, globbing `src/**/*.test.{ts,tsx}`.
 - **`frontend/vitest.config.unit.ts`** — App unit tier; `environment: 'jsdom'`; includes `**/*.test.ts?(x)`, excludes `**/*.integration.*` and `src/packages/**`; aliases `server-only` to the no-op shim; aliases `@orbit/test-utils` to `./src/test-utils`; `setupFiles: ['./src/test-utils/setup.ts']`.
 - **`frontend/vitest.config.integration.ts`** — App integration tier; same environment, aliases, and `setupFiles` as the unit config; includes only `**/*.integration.test.ts?(x)`, excludes `src/packages/**`.
 - **`frontend/playwright.config.ts`** — E2E config targeting a built Next.js app on `localhost:3000`.
 - **`frontend/src/test-utils/`** — Centralised mocking utilities: MSW server, handlers, factory functions, `renderWithProviders`.
-- **`frontend/src/packages/terra/src/components/**/*.test.tsx`** — Component tests co-located with Terra components.
+- **`frontend/src/packages/hades/src/components/**/*.test.tsx`** — Component tests co-located with Hades components.
 - **`frontend/src/app/api/**/*.integration.test.ts`** — BFF route integration tests co-located with route handlers.
 - **`frontend/src/components/**/*.integration.test.tsx`** — Shared component integration tests (MSW-backed) co-located with components.
 - **`frontend/src/app/(dashboard)/_components/**/*.integration.test.tsx`** — Page-scoped component integration tests.
@@ -423,7 +423,7 @@ If a story breaks because of a component change, that is caught by the Vitest co
 
 ### In Scope
 
-- Vitest configuration for `@orbit/terra` (Terra package)
+- Vitest configuration for `@orbit/hades` (Hades package)
 - Vitest configuration for the Next.js app (covering `src/app/`, `src/components/`, `src/server/`, `src/lib/`, `src/shared/`)
 - React Testing Library setup for both test environments
 - `test-utils/` directory with MSW server, typed handlers, factory functions, and `renderWithProviders`
@@ -433,7 +433,7 @@ If a story breaks because of a component change, that is caught by the Vitest co
 - Root-level `make` target that runs all packages
 - CI integration
 - A documented pattern and setup guide for future workspace packages
-- An initial set of tests covering: at least 3 Terra components (Button, Badge, Typography), BFF route handler tests for `/api/auth/session`, `HealthStatus` and `DashboardSidebar` shared components, and at least 1 Playwright E2E flow
+- An initial set of tests covering: at least 3 Hades components (Button, Badge, Typography), BFF route handler tests for `/api/auth/session`, `HealthStatus` and `DashboardSidebar` shared components, and at least 1 Playwright E2E flow
 
 ### Out of Scope
 
@@ -446,7 +446,7 @@ If a story breaks because of a component change, that is caught by the Vitest co
 
 ### Future Considerations
 
-- **Visual regression with Chromatic or Percy**: Screenshot diffing for Terra components on every PR.
+- **Visual regression with Chromatic or Percy**: Screenshot diffing for Hades components on every PR.
 - **Contract testing**: If a typed API schema is introduced (e.g., OpenAPI), contract tests between the BFF and Go backend.
 - **Coverage enforcement**: Ratcheting coverage thresholds upward as the test suite matures.
 - **Workspace-level coverage aggregation**: Merging coverage reports from all packages into a single report.
@@ -460,21 +460,21 @@ If a story breaks because of a component change, that is caught by the Vitest co
 
 **Must Have (P0):**
 - [ ] A `make` target from the repo root runs all tests across all packages; exits non-zero on any failure
-- [ ] Terra has a `vitest.config.ts`, a `test:unit` script, and a `test` script (alias for `test:unit`) in its `package.json`
+- [ ] Hades has a `vitest.config.ts`, a `test:unit` script, and a `test` script (alias for `test:unit`) in its `package.json`
 - [ ] The app has two Vitest configs (`vitest.config.unit.ts` and `vitest.config.integration.ts`), a `test:unit` script, a `test:integration` script, and a `test` script (runs both) in `frontend/package.json`; each config's `include` glob selects exactly one tier — `--include`/`--exclude` CLI flags are not used as they are additive, not exclusive
 - [ ] `server-only` is aliased to `./src/test-utils/server-only-shim.js` (a no-op) in both app Vitest configs; `server-only-shim.js` exists in `src/test-utils/`
 - [ ] `test-utils/setup.ts` is listed under `setupFiles` in both app Vitest configs; it registers `@testing-library/jest-dom` matchers and the MSW server lifecycle: `beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))`, `afterEach(() => server.resetHandlers())`, `afterAll(() => server.close())`
 - [ ] `test-utils/` directory exists with: `server-only-shim.js`, `setup.ts` (MSW lifecycle), `msw/server.ts` (`setupServer(...defaultHandlers)` — no options), typed handlers for `/api/auth/session` and `/api/identity/health`, factory functions for `SessionUser`, `SessionPayload`, and `HealthResponse`, and `renderWithProviders()`
 - [ ] `server.listen({ onUnhandledRequest: 'error' })` is called in `setup.ts` `beforeAll` — no exceptions; any unhandled request in a test is a test failure; `onUnhandledRequest` is never passed to `setupServer()`
 - [ ] BFF route integration tests for `/api/auth/session` (POST + GET, all error branches) are named `route.integration.test.ts` and use MSW exclusively — no module mocking of `orbitClient`
-- [ ] Tests for at least 3 Terra components covering: rendering with props, variant switching, and disabled/loading states where applicable — named `*.test.tsx`
+- [ ] Tests for at least 3 Hades components covering: rendering with props, variant switching, and disabled/loading states where applicable — named `*.test.tsx`
 - [ ] `HealthStatus` integration tests covering: loading, healthy, and error display states — named `health-status.integration.test.tsx`, all HTTP via MSW
 - [ ] `DashboardSidebar` integration tests covering: renders nav items, renders user email from session response — named `dashboard-sidebar.integration.test.tsx`, all HTTP via MSW
-- [ ] All tests run in CI on every PR via `make frontend-test-unit` and `make frontend-test-integration` targets; `make frontend-test-terra` is available for local Terra-only development workflows
+- [ ] All tests run in CI on every PR via `make frontend-test-unit` and `make frontend-test-integration` targets; `make frontend-test-hades` is available for local Hades-only development workflows
 - [ ] Coverage reports are generated (not gated) on every CI run
 
 **Should Have (P1):**
-- [ ] Coverage thresholds configured for reporting: Terra ≥ 30% statements, App ≥ 15% statements (reporting-only, never block CI)
+- [ ] Coverage thresholds configured for reporting: Hades ≥ 30% statements, App ≥ 15% statements (reporting-only, never block CI)
 - [ ] Per-route mandatory rule enforced via convention: every BFF route handler must have happy-path and all error-branch tests before merge
 - [ ] `lib/routing/api-routes.ts` has 100% path coverage (pure functions, trivially testable)
 - [ ] `lib/routing/routes.ts` (`isSafeRedirectPath`) has tests for all edge cases (empty string, relative paths, absolute URLs, `//` protocol-relative)
@@ -484,14 +484,14 @@ If a story breaks because of a component change, that is caught by the Vitest co
 
 **Nice to Have (P2):**
 - [ ] `test:coverage` command that opens the HTML coverage report
-- [ ] A test file template for new Terra components (`.test.tsx` boilerplate in the testing guide)
+- [ ] A test file template for new Hades components (`.test.tsx` boilerplate in the testing guide)
 - [ ] Playwright tests for authentication error states (e.g., HRD discover returns 404)
-- [ ] GitHub Actions matrix running Terra tests and app tests in parallel
+- [ ] GitHub Actions matrix running Hades tests and app tests in parallel
 
 ### Non-Functional Requirements
 
 **Performance:**
-- Full Terra test suite completes in under 10 seconds cold start on developer hardware
+- Full Hades test suite completes in under 10 seconds cold start on developer hardware
 - Full app integration test suite completes in under 30 seconds cold start on developer hardware
 - Vitest watch mode re-run on a single changed file completes in under 3 seconds
 - Playwright E2E suite completes in under 5 minutes (headless, single browser)
@@ -511,7 +511,7 @@ If a story breaks because of a component change, that is caught by the Vitest co
 **Developer Experience:**
 - Running tests in watch mode during development requires a single command.
 - Test output clearly identifies the failing file and assertion without requiring `--reporter=verbose` as a flag.
-- Adding a new test file to Terra or the app is discovered automatically (no manual file registration).
+- Adding a new test file to Hades or the app is discovered automatically (no manual file registration).
 - `renderWithProviders()` is the only import a test file needs for component rendering — no per-test MSW server boilerplate.
 
 **Security:**
@@ -525,15 +525,15 @@ If a story breaks because of a component change, that is caught by the Vitest co
 
 ### Internal Dependencies
 
-- **`vite@6.3.5`** (`@orbit/terra`): Already installed. Vitest extends this directly.
-- **`@vitejs/plugin-react@4.5.2`** (`@orbit/terra`): Already installed. Required for JSX transform.
+- **`vite@6.3.5`** (`@orbit/hades`): Already installed. Vitest extends this directly.
+- **`@vitejs/plugin-react@4.5.2`** (`@orbit/hades`): Already installed. Required for JSX transform.
 - **`next@16.1.6`** (app): The test environment must be compatible with Next.js App Router patterns — dynamic imports, `server-only` guard, `NextResponse`.
 - **`react@19.2.3`** (app): React 19 introduces changes to `act()` and concurrent rendering. RTL version must be compatible.
 - **`pnpm-workspace.yaml`** (`frontend/`): Declares `packages: ['src/packages/*']`. The root `make` targets run tests across packages via separate `pnpm run test:unit`, `pnpm run test:integration`, and `pnpm exec playwright test` invocations — **not** a single `pnpm -r run test` call, because integration and E2E tests require different setup and must be attributable separately in CI.
 
 ### External Dependencies (new packages to install)
 
-**In `frontend/src/packages/terra/`:**
+**In `frontend/src/packages/hades/`:**
 - `vitest` — test runner
 - `@vitest/coverage-v8` — coverage provider
 - `@testing-library/react` — component rendering
@@ -574,11 +574,11 @@ All new packages installed as `devDependencies`.
 
 ### Alternative 1: Jest instead of Vitest
 
-**Description:** Use Jest as the test runner for both Terra and the app.
+**Description:** Use Jest as the test runner for both Hades and the app.
 
 **Why not chosen:**
-- Terra already uses Vite as its build and Storybook bundler. Jest requires a separate Babel/SWC transform pipeline alongside the existing Vite pipeline — two transform stacks for the same code.
-- Vitest's module resolution is identical to Vite's, meaning path aliases (`@orbit/terra`, `@orbit/test-utils`, `@/server/`) work without additional configuration.
+- Hades already uses Vite as its build and Storybook bundler. Jest requires a separate Babel/SWC transform pipeline alongside the existing Vite pipeline — two transform stacks for the same code.
+- Vitest's module resolution is identical to Vite's, meaning path aliases (`@orbit/hades`, `@orbit/test-utils`, `@/server/`) work without additional configuration.
 - Jest's ESM support is still experimental and requires `--experimental-vm-modules`. The codebase is fully ESM and imports ESM-only packages (`oidc-client-ts`).
 - Vitest is significantly faster for watch-mode development due to HMR-aware test reruns.
 
@@ -605,7 +605,7 @@ All new packages installed as `devDependencies`.
 **Description:** Use Vitest's snapshot testing to pin component rendered output.
 
 **Why not chosen:**
-- Terra components are built with CVA. Snapshots capture full resolved className strings that are fragile against token renames, Tailwind upgrades, and CVA internal changes. Every such change triggers a snapshot update that developers learn to run reflexively without reading.
+- Hades components are built with CVA. Snapshots capture full resolved className strings that are fragile against token renames, Tailwind upgrades, and CVA internal changes. Every such change triggers a snapshot update that developers learn to run reflexively without reading.
 - In an AI-assisted workflow (Forge), snapshot failures from routine component regeneration add noise and risk rubber-stamped `--updateSnapshot` runs.
 - Any value worth pinning (e.g., the string returned by `ApiRoute.session.GET()`) is more clearly expressed as an explicit `toEqual` assertion that reads as specification, not as a file diff.
 
@@ -620,10 +620,10 @@ All new packages installed as `devDependencies`.
 
 ### Alternative 6: Shared `test-utils` workspace package
 
-**Description:** Extract shared test utilities into a dedicated workspace package (`src/packages/test-utils/`) consumed by both Terra and the app.
+**Description:** Extract shared test utilities into a dedicated workspace package (`src/packages/test-utils/`) consumed by both Hades and the app.
 
 **Why not chosen:**
-- Premature for the current scale. Terra and app test utilities have minimal overlap — Terra doesn't use MSW or session factories.
+- Premature for the current scale. Hades and app test utilities have minimal overlap — Hades doesn't use MSW or session factories.
 - Adds a dependency edge from test packages to a shared package, complicating the isolation model.
 - A local `src/test-utils/` directory accessed via path alias achieves the same result with no workspace overhead.
 
@@ -643,11 +643,11 @@ All open questions have been resolved.
 
 3. **Coverage thresholds**: Are the proposed thresholds the right starting point? Should thresholds block CI or only report?
    - **Status:** Resolved
-   - **Decision:** Terra ≥ 30% / App ≥ 15% statements for Phase 1, growing each phase. Thresholds are reporting-only and never block CI. Per-route mandatory test rules (happy path + all error branches) are the enforceable gate, not global statement percentages.
+   - **Decision:** Hades ≥ 30% / App ≥ 15% statements for Phase 1, growing each phase. Thresholds are reporting-only and never block CI. Per-route mandatory test rules (happy path + all error branches) are the enforceable gate, not global statement percentages.
 
 4. **Test script naming convention and separation**: Should unit and integration tests share a single script or be split?
    - **Status:** Resolved
-   - **Decision:** Unit and integration tests use distinct scripts and Makefile targets. `test:unit` runs only `*.test.ts(x)` (excluding `*.integration.test.ts(x)`). `test:integration` runs only `*.integration.test.ts(x)`. `test` is a convenience alias that runs both. Three Phase 1 Makefile targets exist: `make frontend-test-terra` (Terra in isolation, `happy-dom`), `make frontend-test-unit` (Terra then app, both under their correct environments), and `make frontend-test-integration`. They are separate steps so a unit test failure does not skip integration test reporting and vice versa. `frontend-test-terra` is also the fast local target when working exclusively on Terra components. `make frontend-test-e2e` is a Phase 2 target, deferred until Playwright is installed.
+   - **Decision:** Unit and integration tests use distinct scripts and Makefile targets. `test:unit` runs only `*.test.ts(x)` (excluding `*.integration.test.ts(x)`). `test:integration` runs only `*.integration.test.ts(x)`. `test` is a convenience alias that runs both. Three Phase 1 Makefile targets exist: `make frontend-test-hades` (Hades in isolation, `happy-dom`), `make frontend-test-unit` (Hades then app, both under their correct environments), and `make frontend-test-integration`. They are separate steps so a unit test failure does not skip integration test reporting and vice versa. `frontend-test-hades` is also the fast local target when working exclusively on Hades components. `make frontend-test-e2e` is a Phase 2 target, deferred until Playwright is installed.
 
 ---
 
@@ -657,7 +657,7 @@ All open questions have been resolved.
 
 **Phase 1: Foundation** (immediate priority)
 - `test-utils/` directory: MSW server, typed handlers for auth and health endpoints, factory functions, `renderWithProviders()`
-- Vitest config for Terra; test scripts wired; at least 3 component tests (Button, Badge, Typography)
+- Vitest config for Hades; test scripts wired; at least 3 component tests (Button, Badge, Typography)
 - Vitest config for the app; `server-only` alias; `@orbit/test-utils` alias
 - BFF route handler integration tests for `/api/auth/session` (POST + GET, all error branches) using MSW
 - `HealthStatus` integration tests (loading, ok, error) via MSW
@@ -667,14 +667,14 @@ All open questions have been resolved.
 - CI step added for all tests
 
 **Phase 2: E2E and Coverage**
-- Coverage thresholds reported (Terra ≥ 30%, App ≥ 15%; reporting-only, never blocks CI)
+- Coverage thresholds reported (Hades ≥ 30%, App ≥ 15%; reporting-only, never blocks CI)
 - Playwright config and baseline E2E Category A test (app loads, health status renders with mocked backend)
 - Coverage reports uploaded as CI artifacts
 - `docs/guides/frontend-testing.md` setup guide written
 - Expand BFF handler tests to cover `/api/auth/discover` and `/api/auth/logout`
 
 **Phase 3: Maturity**
-- Coverage expanded to all existing Terra components (target ≥ 70%)
+- Coverage expanded to all existing Hades components (target ≥ 70%)
 - App coverage target ≥ 45%
 - Additional E2E flows as pages are built (auth flow, session expiry)
 - Coverage aggregation across workspace packages evaluated
@@ -694,17 +694,17 @@ All open questions have been resolved.
 
 ### Related Documents
 
-- [PRD: kora Terra Design System](./design-system.md) — establishes the workspace package structure this strategy builds on
-- [Terra README](../../frontend/src/packages/terra/README.md) — AI assistant rules including Rule 8 (do not modify Terra while working on app code)
+- [PRD: kora Hades Design System](./design-system.md) — establishes the workspace package structure this strategy builds on
+- [Hades README](../../frontend/src/packages/hades/README.md) — AI assistant rules including Rule 8 (do not modify Hades while working on app code)
 - [frontend-test-strategy-and-toolchain](../adr/2026-05-08-frontend-test-strategy-and-toolchain.md) — test tooling selection, Next.js compatibility, E2E strategy
 
 ### Codebase Reference
 
 | Path | Description |
 |------|-------------|
-| `frontend/src/packages/terra/` | `@orbit/terra` workspace package |
-| `frontend/src/packages/terra/vite.config.ts` | Existing Vite config (Vitest will extend this) |
-| `frontend/src/packages/terra/package.json` | Already has `vite`, `@vitejs/plugin-react`, `@storybook/addon-a11y` |
+| `frontend/src/packages/hades/` | `@orbit/hades` workspace package |
+| `frontend/src/packages/hades/vite.config.ts` | Existing Vite config (Vitest will extend this) |
+| `frontend/src/packages/hades/package.json` | Already has `vite`, `@vitejs/plugin-react`, `@storybook/addon-a11y` |
 | `frontend/src/components/health-status.tsx` | Shared component — primary integration test target |
 | `frontend/src/components/logout-button.tsx` | Shared component |
 | `frontend/src/app/(dashboard)/_components/` | Page-scoped dashboard shell components |
@@ -791,7 +791,7 @@ frontend/
 │   │   ├── api-routes.test.ts                 # unit: route builder return values (pure functions)
 │   │   ├── routes.ts
 │   │   └── routes.test.ts                     # unit: isSafeRedirectPath (security-relevant, pure)
-│   └── packages/terra/src/components/
+│   └── packages/hades/src/components/
 │       └── button/
 │           ├── button.tsx
 │           └── button.test.tsx                # unit/component: variants, sizes, asChild, fullWidth
@@ -809,23 +809,23 @@ frontend/
 
 > **Why two config files, not `--include`/`--exclude` flags?** Vitest's `--include` CLI flag is *additive* against the default include glob — it does not *replace* the default, so `--include '**/*.integration.test.ts?(x)'` causes all tests to run. Using a dedicated config per tier, each with its own `include` glob, is the correct mechanism for mutually exclusive tier selection.
 
-**Terra pnpm scripts (`frontend/src/packages/terra/package.json`):**
+**Hades pnpm scripts (`frontend/src/packages/hades/package.json`):**
 ```json
 "test:unit": "vitest run",
 "test":      "pnpm run test:unit"
 ```
-Terra has no integration tests (it is a pure rendering library with no HTTP calls).
+Hades has no integration tests (it is a pure rendering library with no HTTP calls).
 
 **Makefile targets:**
 ```makefile
-# Run only Terra's component tests (happy-dom, Terra's own vitest.config.ts)
-frontend-test-terra:
-	cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
+# Run only Hades' component tests (happy-dom, Hades' own vitest.config.ts)
+frontend-test-hades:
+	cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
 
-# Run all unit tests: Terra first, then the app (jsdom, vitest.config.unit.ts)
-# App config excludes src/packages/** so Terra tests never run under jsdom
+# Run all unit tests: Hades first, then the app (jsdom, vitest.config.unit.ts)
+# App config excludes src/packages/** so Hades tests never run under jsdom
 frontend-test-unit:
-	cd $(FRONTEND_DIR) && pnpm --filter @orbit/terra run test:unit
+	cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
 	cd $(FRONTEND_DIR) && pnpm run test:unit
 
 frontend-test-integration:
@@ -834,7 +834,7 @@ frontend-test-integration:
 frontend-test: frontend-test-unit frontend-test-integration
 ```
 
-> **Note:** `frontend-test-terra` is the isolation target — use it when working exclusively on Terra components. `frontend-test-unit` always runs Terra first, then the app. The two Makefile lines in `frontend-test-unit` are both necessary: `pnpm run test:unit` at the workspace root does not recurse into workspace packages. The app's `vitest.config.unit.ts` excludes `src/packages/**` to prevent Terra's tests from running a second time under `jsdom`.
+> **Note:** `frontend-test-hades` is the isolation target — use it when working exclusively on Hades components. `frontend-test-unit` always runs Hades first, then the app. The two Makefile lines in `frontend-test-unit` are both necessary: `pnpm run test:unit` at the workspace root does not recurse into workspace packages. The app's `vitest.config.unit.ts` excludes `src/packages/**` to prevent Hades' tests from running a second time under `jsdom`.
 
 ### Glossary
 
@@ -843,7 +843,7 @@ frontend-test: frontend-test-unit frontend-test-integration
 - **Category B E2E**: System-level tests that would exercise the full stack (Next.js + Go backend + Postgres + Redis). Explicitly out of scope for this PRD. No directory, no Playwright config, and no CI step exists for them. A dedicated ADR is required before any work begins.
 - **Tier**: A category of test distinguished by its scope, speed, and execution environment (unit, component, integration, E2E).
 - **`test-utils/`**: The canonical location for all shared test infrastructure in the app — MSW server, handlers, factory functions, and `renderWithProviders`. Not a workspace package.
-- **Workspace package**: A self-contained npm package within the pnpm workspace, declared in `frontend/pnpm-workspace.yaml`. Currently: `@orbit/terra`.
+- **Workspace package**: A self-contained npm package within the pnpm workspace, declared in `frontend/pnpm-workspace.yaml`. Currently: `@orbit/hades`.
 - **`server-only` shim**: An empty module substituted via Vitest's `resolve.alias` to bypass the Next.js `server-only` runtime guard in the test environment. Has no effect on production builds.
 - **MSW (Mock Service Worker)**: A library that intercepts HTTP requests at the `fetch` layer. In Node.js (Vitest), it uses HTTP interceptors via `setupServer()`. In the browser (Playwright), it uses a Service Worker. The same handler definitions are reused in both environments.
 - **`renderWithProviders()`**: The single render function used in all component tests. Wraps RTL's `render` with all required React contexts and MSW server lifecycle management.

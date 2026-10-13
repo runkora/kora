@@ -76,6 +76,16 @@ type SandboxImages struct {
 	RegistryMirrors map[string]string `yaml:"registryMirrors"`
 	// WarmerPlacement is the sandbox placement that image warmers run in.
 	WarmerPlacement WarmerPlacement `yaml:"warmerPlacement"`
+	// Bundled holds the bundled sandbox images keyed as in agents.sandboxImages.bundled.
+	// A key that is absent counts as disabled.
+	Bundled map[string]BundledSandboxImage `yaml:"bundled"`
+}
+
+// BundledSandboxImage is one bundled image as the chart renders it.
+type BundledSandboxImage struct {
+	Enabled bool   `yaml:"enabled"`
+	Warm    bool   `yaml:"warm"`
+	Image   string `yaml:"image"`
 }
 
 // WarmerPlacement mirrors operator.WarmerPlacement with yaml tags. main converts between them, which needs identical fields.
@@ -99,6 +109,16 @@ type Injection struct {
 	BundlePollingMinDelay int                         `yaml:"bundlePollingMinDelay"`
 	BundlePollingMaxDelay int                         `yaml:"bundlePollingMaxDelay"`
 	OPAResources          corev1.ResourceRequirements `yaml:"opaResources"`
+
+	// SandboxSidecars pins each sidecar on sandbox pods: its requests equal its limits.
+	SandboxSidecars SandboxSidecars `yaml:"sandboxSidecars"`
+}
+
+// SandboxSidecars holds the resources of each sidecar on a sandbox pod.
+type SandboxSidecars struct {
+	IstioProxy    corev1.ResourceList `yaml:"istioProxy"`
+	IdentityProxy corev1.ResourceList `yaml:"identityProxy"`
+	OPA           corev1.ResourceList `yaml:"opa"`
 }
 
 // PodSecurity holds the Pod Security Admission levels for tenant namespaces.

@@ -46,13 +46,17 @@ type mockRepository struct {
 	listRunsErr            error
 	setRunStateErr         error
 	setRunDelegationJTIErr error
-	assignPodErr           error
 	deleteRunErr           error
 	activeRunsOverride     map[int]int
-	activeRunsErr          error
-	appendRunEventErr      error
-	listRunEventsErr       error
-	appendRunMessageErr    error
+	// queued lists the runs QueueRun made claimable, and released counts ReleaseRunClaim calls.
+	queued   []string
+	released int
+	// reclaims counts stale-claim sweeps.
+	reclaims            int
+	activeRunsErr       error
+	appendRunEventErr   error
+	listRunEventsErr    error
+	appendRunMessageErr error
 
 	outcomesScope RunScope
 
@@ -125,6 +129,18 @@ func (m *mockRepository) ListAgentTypes(_ context.Context, tenantID string) ([]A
 	var out []AgentType
 	for _, at := range m.agentTypes {
 		if at.TenantID == tenantID {
+			out = append(out, *at)
+		}
+	}
+	return out, nil
+}
+
+func (m *mockRepository) ListActiveAgentTypes(context.Context) ([]AgentType, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []AgentType
+	for _, at := range m.agentTypes {
+		if at.State == AgentTypeStateActive {
 			out = append(out, *at)
 		}
 	}
@@ -212,6 +228,9 @@ func (m *mockRepository) CreateRun(_ context.Context, r Run) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	cp := r
+	if cp.CreatedAt.IsZero() {
+		cp.CreatedAt = time.Now()
+	}
 	m.runs[r.ID] = &cp
 	return nil
 }
@@ -228,6 +247,8 @@ func (m *mockRepository) GetRun(_ context.Context, id string) (*Run, error) {
 	}
 	cp := *r
 	cp.IdentityMode = m.runIdentityModeLocked(r)
+	// Postgres reads the initial message only when claiming a run.
+	cp.InitialMessage = ""
 	return &cp, nil
 }
 
@@ -265,6 +286,12 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, q RunListQ
 			continue
 		}
 		if len(q.States) > 0 && !slices.Contains(q.States, r.State) {
+			continue
+		}
+		if !q.CreatedAfter.IsZero() && r.CreatedAt.Before(q.CreatedAfter) {
+			continue
+		}
+		if !q.CreatedBefore.IsZero() && !r.CreatedAt.Before(q.CreatedBefore) {
 			continue
 		}
 		if a := q.After; a != nil && (r.CreatedAt.After(a.CreatedAt) || (r.CreatedAt.Equal(a.CreatedAt) && r.ID >= a.ID)) {
@@ -307,19 +334,63 @@ func (m *mockRepository) SetRunState(_ context.Context, id string, from, to RunS
 	return nil
 }
 
-func (m *mockRepository) AssignPod(_ context.Context, runID string, podOrdinal int) error {
-	if m.assignPodErr != nil {
-		return m.assignPodErr
-	}
+// AssignPod ignores the claim token. TestPostgres_AssignPodFencedByClaim covers the fence.
+func (m *mockRepository) AssignPod(_ context.Context, runID string, _ time.Time, podOrdinal int) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r, ok := m.runs[runID]
-	if !ok {
-		return ErrNotFound
+	if !ok || r.State != RunStatePending {
+		return ErrConflict
 	}
 	r.PodOrdinal = podOrdinal
 	r.State = RunStateStarting
 	return nil
+}
+
+// QueueRun records the run as queued.
+func (m *mockRepository) QueueRun(_ context.Context, runID string, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.runs[runID]
+	if !ok || r.State != RunStatePending {
+		return ErrConflict
+	}
+	m.queued = append(m.queued, runID)
+	return nil
+}
+
+// ReleaseRunClaim returns the run to pending and counts the release.
+func (m *mockRepository) ReleaseRunClaim(_ context.Context, id string, _, _ time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.runs[id]
+	if !ok || (r.State != RunStatePending && r.State != RunStateStarting) {
+		return ErrConflict
+	}
+	r.State, r.PodOrdinal = RunStatePending, -1
+	m.released++
+	return nil
+}
+
+// ClaimPendingRuns returns the queued runs that are still pending. It keeps no
+// claim, so a run returned once comes back until it leaves pending.
+func (m *mockRepository) ClaimPendingRuns(_ context.Context, limit int, _ time.Time) ([]Run, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Run
+	for _, id := range m.queued {
+		if r := m.runs[id]; r != nil && r.State == RunStatePending && len(out) < limit {
+			out = append(out, *r)
+		}
+	}
+	return out, nil
+}
+
+func (m *mockRepository) ReclaimStaleRunClaims(context.Context, time.Time) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reclaims++
+	return nil, nil
 }
 
 func (m *mockRepository) MarkRunFailed(_ context.Context, id string) error {
@@ -445,7 +516,7 @@ func (m *mockRepository) ReapStaleRuns(_ context.Context, staleDuration time.Dur
 			continue
 		}
 		switch r.State {
-		case RunStateActive, RunStateStarting:
+		case RunStateActive, RunStateStarting, RunStatePending:
 			r.State = RunStateFailed
 			failed = append(failed, r.ID)
 		case RunStateIdle:
@@ -518,22 +589,25 @@ func (m *mockRepository) SetRunSummary(_ context.Context, runID, summary string)
 type mockK8s struct {
 	mu                      sync.Mutex
 	provisionedAgentTypes   []string
+	provisionedMissing      []string
 	deprovisionedAgentTypes []string
 	deletedSandboxes        []string
 	rolledOutSlugs          []string
+	// noReadyPods makes ReadyOrdinals report no Ready pod.
+	noReadyPods bool
 
 	provisionAgentTypeErr   error
 	deprovisionAgentTypeErr error
-	replicaCount            int
-	replicaCountErr         error
-	sandboxEndpoint         string
-	lookupSandbox           Sandbox
-	lookupFound             bool
-	lookupErr               error
-	provisionSandboxCalls   int
-	provisionKubeClusters   []kubeconfig.Cluster
-	provisionSpec           SandboxSpec
-	provisionReused         bool
+	// readyPods is how many pods ReadyOrdinals reports. Zero means one.
+	readyPods             int
+	sandboxEndpoint       string
+	lookupSandbox         Sandbox
+	lookupFound           bool
+	lookupErr             error
+	provisionSandboxCalls int
+	provisionKubeClusters []kubeconfig.Cluster
+	provisionSpec         SandboxSpec
+	provisionReused       bool
 	// podEnv and podLive describe the run's sandbox pod for SandboxEnvironment.
 	podEnv  string
 	podLive bool
@@ -555,6 +629,17 @@ func (m *mockK8s) ProvisionAgentType(_ context.Context, at AgentType, _ string) 
 	return nil
 }
 
+// ProvisionMissing records a create-only provision of the agent type.
+func (m *mockK8s) ProvisionMissing(_ context.Context, at AgentType, _ string) error {
+	if m.provisionAgentTypeErr != nil {
+		return m.provisionAgentTypeErr
+	}
+	m.mu.Lock()
+	m.provisionedMissing = append(m.provisionedMissing, at.ID)
+	m.mu.Unlock()
+	return nil
+}
+
 func (m *mockK8s) DeprovisionAgentType(_ context.Context, at AgentType, _ string) error {
 	if m.deprovisionAgentTypeErr != nil {
 		return m.deprovisionAgentTypeErr
@@ -565,14 +650,16 @@ func (m *mockK8s) DeprovisionAgentType(_ context.Context, at AgentType, _ string
 	return nil
 }
 
-func (m *mockK8s) ReplicaCount(_ context.Context, _, _ string) (int, error) {
-	if m.replicaCountErr != nil {
-		return 0, m.replicaCountErr
+func (m *mockK8s) ReadyOrdinals(_ context.Context, _, _ string) ([]int, error) {
+	if m.noReadyPods {
+		return nil, nil
 	}
-	if m.replicaCount == 0 {
-		return 1, nil
+	n := max(m.readyPods, 1)
+	out := make([]int, n)
+	for i := range out {
+		out[i] = i
 	}
-	return m.replicaCount, nil
+	return out, nil
 }
 
 func (m *mockK8s) ProvisionSandbox(_ context.Context, _ Run, _, _ string, spec SandboxSpec) (Sandbox, error) {
@@ -666,11 +753,13 @@ func (m *mockK8s) RolloutStatefulSet(_ context.Context, slug, _ string) error {
 // ── mockSMClient ──────────────────────────────────────────────────────────────
 
 type mockSMClient struct {
-	mu              sync.Mutex
-	sessions        []sessionmanager.CreateSessionRequest
-	sentMessages    []string
-	closedSessions  []string
-	interruptedRuns []string
+	mu               sync.Mutex
+	sessions         []sessionmanager.CreateSessionRequest
+	sentMessages     []string
+	sentIdleTimeouts []int
+	sentFromPerson   []bool
+	closedSessions   []string
+	interruptedRuns  []string
 
 	createSessionErr    error
 	sendMessageErr      error
@@ -688,12 +777,14 @@ func (m *mockSMClient) CreateSession(_ context.Context, _ string, req sessionman
 	return nil
 }
 
-func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string) error {
+func (m *mockSMClient) SendMessage(_ context.Context, _, _, content string, idleTimeoutSecs int, fromPerson bool) error {
 	if m.sendMessageErr != nil {
 		return m.sendMessageErr
 	}
 	m.mu.Lock()
 	m.sentMessages = append(m.sentMessages, content)
+	m.sentIdleTimeouts = append(m.sentIdleTimeouts, idleTimeoutSecs)
+	m.sentFromPerson = append(m.sentFromPerson, fromPerson)
 	m.mu.Unlock()
 	return nil
 }
@@ -741,7 +832,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		logger,
 	)
 	runSvc := NewRunService(
-		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s,
+		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,
@@ -871,8 +962,34 @@ func (f *testServiceFacade) DeleteAgentType(ctx context.Context, id string) erro
 
 // ── Run delegation ────────────────────────────────────────────────────────────
 
-func (f *testServiceFacade) StartRun(ctx context.Context, req StartRunRequest) (*Run, error) {
-	return f.run.StartRun(withTenantCtx(ctx, req.TenantID), req)
+// StartAndSchedule is startAndSchedule with the request's tenant in ctx.
+func (f *testServiceFacade) StartAndSchedule(ctx context.Context, req StartRunRequest) (*Run, error) {
+	return startAndSchedule(withTenantCtx(ctx, req.TenantID), f.run, req)
+}
+
+// startAndSchedule starts a run, claims it and makes one scheduler attempt on it,
+// which is what a RunScheduler does on its next poll. It returns the run as stored after the attempt.
+func startAndSchedule(ctx context.Context, svc *RunService, req StartRunRequest) (*Run, error) {
+	run, err := svc.StartRun(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	claimed, err := svc.queue.ClaimPendingRuns(ctx, 100, now)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range claimed {
+		svc.startClaimed(ctx, c, now)
+	}
+	return svc.repo.GetRun(ctx, run.ID)
+}
+
+// claimRun returns a seeded run and a claim time, as the scheduler would hold them.
+func claimRun(repo *mockRepository, id string) (Run, time.Time) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	return *repo.runs[id], time.Now()
 }
 
 func (f *testServiceFacade) GetRun(ctx context.Context, id string) (*Run, error) {
@@ -919,8 +1036,8 @@ func (f *testServiceFacade) InterruptRun(ctx context.Context, runID string) erro
 	return f.run.InterruptRun(f.withRunTenant(ctx, runID), runID)
 }
 
-func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string, ahead bool) (Sandbox, error) {
-	return f.run.ProvisionSandbox(ctx, runID, ahead, "", false)
+func (f *testServiceFacade) ProvisionSandbox(ctx context.Context, runID string) (Sandbox, error) {
+	return f.run.ProvisionSandbox(ctx, runID, "", false)
 }
 
 func (f *testServiceFacade) PublishEvent(ctx context.Context, runID string, ev PushedEvent) error {

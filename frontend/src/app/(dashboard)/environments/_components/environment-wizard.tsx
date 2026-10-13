@@ -23,7 +23,7 @@ import {
   Text,
   Textarea,
   Wizard,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type {
   ConnectionCatalogEntry,
   Connector,

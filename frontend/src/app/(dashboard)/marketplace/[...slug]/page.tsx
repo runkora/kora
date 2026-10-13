@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { Alert, Button, EmptyState, Icon, Stack, Text } from '@orbit/terra';
+import { Alert, Button, EmptyState, Icon, Stack, Text } from '@orbit/hades';
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { loadSkillDetail } from '../_services/marketplace-server';
 import { MarketplaceSkillDetail } from '../_components/marketplace-skill-detail';

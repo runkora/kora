@@ -1,4 +1,4 @@
-import { Card, CardContent, CardFooter, CardHeader, Grid, Skeleton, Stack } from '@orbit/terra';
+import { Card, CardContent, CardFooter, CardHeader, Grid, Skeleton, Stack } from '@orbit/hades';
 
 /**
  * The Agents page loads agent types and recent runs in one server pass, so the

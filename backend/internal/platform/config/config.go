@@ -41,6 +41,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/go-viper/mapstructure/v2"
 	"go.yaml.in/yaml/v3"
@@ -190,19 +191,38 @@ var jsonUnmarshalerType = reflect.TypeFor[json.Unmarshaler]()
 // jsonDecodeHook decodes Kubernetes API types and json.Unmarshaler implementations
 // through encoding/json, so their json tags and formats such as "500m" apply.
 func jsonDecodeHook(_, to reflect.Type, data any) (any, error) {
-	if !reflect.PointerTo(to).Implements(jsonUnmarshalerType) && !strings.HasPrefix(to.PkgPath(), "k8s.io/") {
+	if to == reflect.TypeFor[time.Duration]() {
+		value, ok := data.(string)
+		if !ok {
+			return nil, fmt.Errorf("expected duration string, got %T", data)
+		}
+
+		duration, err := time.ParseDuration(value)
+		if err != nil {
+			return nil, fmt.Errorf("parse duration %q: %w", value, err)
+		}
+
+		return duration, nil
+	}
+
+	if !reflect.PointerTo(to).Implements(jsonUnmarshalerType) &&
+		!strings.HasPrefix(to.PkgPath(), "k8s.io/") {
 		return data, nil
 	}
+
 	raw, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("encode %s: %w", to, err)
 	}
+
 	out := reflect.New(to)
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
+
 	if err := dec.Decode(out.Interface()); err != nil {
 		return nil, fmt.Errorf("decode %s: %w", to, err)
 	}
+
 	return out.Elem().Interface(), nil
 }
 

@@ -7,7 +7,7 @@
  * Renders nothing for any other run state.
  */
 
-import { Stack, Text } from '@orbit/terra';
+import { Stack, Text } from '@orbit/hades';
 import { fmtUsd } from '@orbit/utils';
 import { useRunContext } from '../_context/run-context';
 

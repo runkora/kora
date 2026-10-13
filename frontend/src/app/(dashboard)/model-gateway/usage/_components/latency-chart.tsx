@@ -14,7 +14,7 @@ import {
   ChartLegendContent,
   Stack,
   type ChartConfig,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import { DAILY_LATENCY } from '../../_data/mock';
 import { type Period } from './table-controls';
 import { filterByPeriod } from './utils/table-utils';
@@ -28,7 +28,7 @@ const CHART_CONFIG: ChartConfig = {
   p99: { label: 'P99', color: 'var(--color-status-error)' },
 };
 
-// ── Chart Colors (Terra tokens) ───────────────────────────────────────────────
+// ── Chart Colors (Hades tokens) ───────────────────────────────────────────────
 
 const COLORS = {
   surfaceOverlay: 'var(--color-surface-overlay)',

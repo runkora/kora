@@ -3,7 +3,7 @@
 /** @tier 3 — marketplace-scoped. Card view of Skill results; each card opens its detail route. */
 
 import Link from 'next/link';
-import { Card, CardContent, CardFooter, CardHeader, Grid, Icon, Stack, Text } from '@orbit/terra';
+import { Card, CardContent, CardFooter, CardHeader, Grid, Icon, Stack, Text } from '@orbit/hades';
 import type { PackageOverview } from '@orbit/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 import { buildSkillUrl } from '../_utils/browse-params';

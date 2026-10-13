@@ -6,6 +6,7 @@ on:
     paths-ignore: ["**/*.md", "docs/**"]
   pull_request:
     branches: [main]
+  merge_group:
   schedule:
     # Weekly, to pick up new queries against an unchanged main.
     - cron: "17 3 * * 2"
@@ -22,16 +23,24 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
+      checks: read
     outputs:
       # A JSON array of the filter names that matched, so the analyze matrix
       # is exactly the set of languages whose inputs changed.
-      languages: ${{ steps.filter.outputs.changes || '["go","javascript-typescript","actions"]' }}
+      languages: ${{ steps.tested.outputs.tested == 'true' && '[]' || steps.filter.outputs.changes || '["go","javascript-typescript","actions"]' }}
     steps:
       - if: github.event_name != 'schedule'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # A merge queue entry with the same files as its pull request head skips analysis when the head passed.
+      - id: tested
+        if: github.event_name == 'merge_group'
+        uses: ./.github/actions/merge-queue-tested
+        with:
+          checks: CodeQL gate
+
       - id: filter
-        if: github.event_name != 'schedule'
+        if: github.event_name != 'schedule' && steps.tested.outputs.tested != 'true'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |

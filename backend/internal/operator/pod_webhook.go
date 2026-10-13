@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"slices"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -40,6 +41,12 @@ const (
 	podAnnotationTenantID        = "orbit.io/tenant-id"
 	podAnnotationProxyConfig     = "proxy.istio.io/config"
 	podAnnotationUserVolumeMount = "sidecar.istio.io/userVolumeMount"
+
+	// Istio's per-pod istio-proxy resources, set on sandbox pods to pin the proxy.
+	podAnnotationProxyCPU         = "sidecar.istio.io/proxyCPU"
+	podAnnotationProxyCPULimit    = "sidecar.istio.io/proxyCPULimit"
+	podAnnotationProxyMemory      = "sidecar.istio.io/proxyMemory"
+	podAnnotationProxyMemoryLimit = "sidecar.istio.io/proxyMemoryLimit"
 
 	spiffeSocketPath  = "unix:///run/secrets/workload-spiffe-uds/socket"
 	spiffeSocketMount = "/run/secrets/workload-spiffe-uds"
@@ -77,6 +84,16 @@ type InjectionConfig struct {
 	OPAPullPolicy corev1.PullPolicy
 	OPALogLevel   string
 	OPAResources  corev1.ResourceRequirements
+
+	// SandboxSidecars pins the sidecars on sandbox pods. An empty list keeps that sidecar's usual resources.
+	SandboxSidecars SandboxSidecars
+}
+
+// SandboxSidecars holds each sandbox sidecar's resources, used as both its requests and its limits.
+type SandboxSidecars struct {
+	IstioProxy    corev1.ResourceList
+	IdentityProxy corev1.ResourceList
+	OPA           corev1.ResourceList
 }
 
 // PodMutator injects kora enforcement dependencies before Istio injection.
@@ -225,9 +242,36 @@ func (m *PodMutator) mutate(pod *corev1.Pod, tenantName, mcpServer string) error
 	if pod.Labels[podLabelRole] == podRoleSandbox {
 		otlpEndpoint = ""
 	}
-	ensureContainer(&pod.Spec, m.identityProxyContainer(otlpEndpoint))
-	ensureContainer(&pod.Spec, m.opaContainer())
+	idProxy, opa := m.identityProxyContainer(otlpEndpoint), m.opaContainer()
+	if pod.Labels[podLabelRole] == podRoleSandbox {
+		m.pinSandboxSidecars(pod, &idProxy, &opa)
+	}
+	ensureNativeSidecar(&pod.Spec, idProxy)
+	ensureNativeSidecar(&pod.Spec, opa)
 	return nil
+}
+
+// pinSandboxSidecars sets a sandbox pod's sidecar requests equal to their limits, so the pod reserves what it can use.
+func (m *PodMutator) pinSandboxSidecars(pod *corev1.Pod, idProxy, opa *corev1.Container) {
+	pinned := m.Config.SandboxSidecars
+	if len(pinned.IdentityProxy) > 0 {
+		idProxy.Resources = pinnedResources(pinned.IdentityProxy)
+	}
+	if len(pinned.OPA) > 0 {
+		opa.Resources = pinnedResources(pinned.OPA)
+	}
+	if cpu, ok := pinned.IstioProxy[corev1.ResourceCPU]; ok {
+		pod.Annotations[podAnnotationProxyCPU] = cpu.String()
+		pod.Annotations[podAnnotationProxyCPULimit] = cpu.String()
+	}
+	if mem, ok := pinned.IstioProxy[corev1.ResourceMemory]; ok {
+		pod.Annotations[podAnnotationProxyMemory] = mem.String()
+		pod.Annotations[podAnnotationProxyMemoryLimit] = mem.String()
+	}
+}
+
+func pinnedResources(l corev1.ResourceList) corev1.ResourceRequirements {
+	return corev1.ResourceRequirements{Requests: l.DeepCopy(), Limits: l.DeepCopy()}
 }
 
 func (m *PodMutator) identityProxyContainer(otlpEndpoint string) corev1.Container {
@@ -397,14 +441,19 @@ func preDeclaredIstioContainer(spec *corev1.PodSpec) string {
 	return ""
 }
 
-func ensureContainer(spec *corev1.PodSpec, c corev1.Container) {
-	for i := range spec.Containers {
-		if spec.Containers[i].Name == c.Name {
-			spec.Containers[i] = c
+// ensureNativeSidecar adds c as an init container that keeps running, which Kubernetes stops after the
+// main containers (docs/adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md, Amendment 3).
+func ensureNativeSidecar(spec *corev1.PodSpec, c corev1.Container) {
+	always := corev1.ContainerRestartPolicyAlways
+	c.RestartPolicy = &always
+	spec.Containers = slices.DeleteFunc(spec.Containers, func(x corev1.Container) bool { return x.Name == c.Name })
+	for i := range spec.InitContainers {
+		if spec.InitContainers[i].Name == c.Name {
+			spec.InitContainers[i] = c
 			return
 		}
 	}
-	spec.Containers = append(spec.Containers, c)
+	spec.InitContainers = append(spec.InitContainers, c)
 }
 
 func hasPullSecret(refs []corev1.LocalObjectReference, name string) bool {

@@ -6,7 +6,7 @@
  * in tabs, with an activity log at the bottom.
  */
 
-import { Stack, Text, Button } from '@orbit/terra';
+import { Stack, Text, Button } from '@orbit/hades';
 import { useRunContext } from '../_context/run-context';
 import type { CanvasView, CanvasTab, DiffLine, TerminalLine, Turn } from '../_types';
 import { describeTool } from '../_lib/tool-activity';

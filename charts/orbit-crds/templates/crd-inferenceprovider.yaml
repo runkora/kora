@@ -196,6 +196,8 @@ spec:
                   x-kubernetes-validations:
                     - rule: "!('messages' in self.apis) || self.baseURL.endsWith('/v1') || self.baseURL.endsWith('/v1/')"
                       message: an endpoint serving messages needs a baseURL ending in /v1.
+                    - rule: "!has(self.decisionModels) || 'systemone' in self.apis"
+                      message: decisionModels needs systemone in apis.
                   properties:
                     baseURL:
                       description: >
@@ -214,6 +216,18 @@ spec:
                           - embeddings
                           - responses
                           - messages
+                          - systemone
+                    decisionModels:
+                      description: >
+                        Model ids served on POST /systemone, for an endpoint that
+                        serves chat models too and publishes no metadata marking
+                        its decision models (OpenRouter does). Listed ids are
+                        offered even when the endpoint's model list omits them.
+                        Requires systemone in apis.
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
                     apiKeySecretRef:
                       description: A key of a Secret labelled orbit.io/inference-provider=true.
                       type: object

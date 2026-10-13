@@ -34,13 +34,15 @@ Kubernetes: `>=1.34.0-0`
 | agents.config.sessionManagerImage | string | `""` |  |
 | agents.configOverrides | object | `{}` | Raw config merged last over orbit-agents' rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. e.g. {cmd/orbit-agents: {drafts: {retentionDays: 7}}} |
 | agents.environments.defaultSize | object | `{"cpu":"2","disk":"10Gi","memory":"4Gi"}` | Size for an environment that sets none, and for the built-in default. |
-| agents.environments.maxSize | object | `{"cpu":"8","disk":"50Gi","memory":"16Gi"}` | Largest size an environment may request. |
+| agents.environments.maxSize | object | `{}` | Largest size an environment may request. An unset field takes the value of `defaultSize`. Raise it to what a sandbox node holds: see the deployment guide. |
 | agents.extraEnv | list | `[]` |  |
 | agents.extraVolumeMounts | list | `[]` |  |
 | agents.extraVolumes | list | `[]` |  |
 | agents.guardrails.sandboxProvisionAttempts | int | `3` | Re-provisioning attempts when a run's sandbox dies. |
 | agents.guardrails.sandboxProvisionBackoffSecs | int | `5` | Seconds before the second attempt; doubles for each attempt after. |
 | agents.guardrails.sandboxProvisionBudgetSecs | int | `300` | Seconds across all attempts. At most 320, so the agent's tools still hear the outcome. |
+| agents.idleTimeout.manualSecs | int | `1200` | Seconds a run a person started (dashboard or API) may stay idle. |
+| agents.idleTimeout.triggerSecs | int | `300` | Seconds a run a trigger started may stay idle. Shorter, because nobody is watching it. |
 | agents.image.digest | string | `""` |  |
 | agents.image.pullPolicy | string | `""` |  |
 | agents.image.registry | string | `""` |  |
@@ -56,6 +58,15 @@ Kubernetes: `>=1.34.0-0`
 | agents.resources.limits.memory | string | `"256Mi"` |  |
 | agents.resources.requests.cpu | string | `"100m"` |  |
 | agents.resources.requests.memory | string | `"64Mi"` |  |
+| agents.sandboxImages.bundled.go.enabled | bool | `true` | Register kora-go: the base image plus golangci-lint, buf and protoc. |
+| agents.sandboxImages.bundled.go.image | string | `""` | Image reference for kora-go. Empty uses the release image. |
+| agents.sandboxImages.bundled.go.warm | bool | `false` | Keep kora-go pulled on the nodes that run sandboxes. |
+| agents.sandboxImages.bundled.node.enabled | bool | `true` | Register kora-node: the base image plus Node LTS and pnpm. |
+| agents.sandboxImages.bundled.node.image | string | `""` | Image reference for kora-node. Empty uses the release image. |
+| agents.sandboxImages.bundled.node.warm | bool | `false` | Keep kora-node pulled on the nodes that run sandboxes. |
+| agents.sandboxImages.bundled.python.enabled | bool | `true` | Register kora-python: the base image plus ruff and pytest. |
+| agents.sandboxImages.bundled.python.image | string | `""` | Image reference for kora-python. Empty uses the release image. |
+| agents.sandboxImages.bundled.python.warm | bool | `false` | Keep kora-python pulled on the nodes that run sandboxes. |
 | agents.sandboxImages.registryMirrors | object | `{}` | Registry hosts the operator reads through another host. Keys are the host in image references. A value given as http://host is read over plain HTTP. Use http:// for a local registry only. |
 | agents.sandboxImages.registryPorts | list | `[]` | Registry ports other than 443 the operator may dial to validate images. |
 | agents.sandboxImages.warmBase | bool | `false` | Keep kora-base pulled on the nodes that run sandboxes. A SandboxImage sets its own with spec.warm. Each warm image runs one DaemonSet per tenant. |
@@ -66,9 +77,14 @@ Kubernetes: `>=1.34.0-0`
 | agents.sandboxWarming.podLabels | object | `{}` | Applied to the `capacity` placeholder. kora's own selector labels win on a collision. |
 | agents.sandboxWarming.priority | int | `-10` | The placeholder's PriorityClass value. Stays below real pods at 0, or it competes with the sandbox it exists for instead of yielding to it. |
 | agents.sandboxWarming.replicas | int | `1` | `capacity` mode. Nodes held warm. Above one, placeholders repel each other by hostname so they land on separate nodes; set `affinity` with your own podAntiAffinity to replace that. |
-| agents.sandboxWarming.resources | object | `{"limits":{"cpu":"1","memory":"4Gi"},"requests":{"cpu":"1","memory":"4Gi"}}` | Capacity each placeholder reserves, and the size a node is fitted to. At or above a sandbox pod's total requests, sidecars included, or the sandbox taking the capacity will not fit on the node that was holding it. |
+| agents.sandboxWarming.resources | object | `{}` | Capacity each placeholder reserves, and the size a node is fitted to. Empty reserves one default sandbox pod: `agents.environments.defaultSize`, 1Gi of scratch disk and `operator.injection.sandboxSidecars`. A value here replaces that and must cover a sandbox pod's total requests. |
 | agents.sandboxWarming.tolerations | list | `[]` |  |
 | agents.sandboxWarming.topologySpreadConstraints | list | `[]` |  |
+| agents.scheduling.drainGracePeriodSecs | int | `3600` | Seconds a terminating session-manager pod waits for its runs to end before it is stopped. |
+| agents.scheduling.minReplicas | int | `2` | Session-manager pods each agent runs at least. A roll replaces one while the other takes new runs. |
+| agents.scheduling.pollIntervalSecs | int | `1` | Seconds between polls for pending runs, and before a run with no free pod is tried again. |
+| agents.scheduling.startBudgetSecs | int | `180` | Seconds a run may stay pending before it fails. |
+| agents.scheduling.workerConcurrency | int | `16` | Runs one orbit-agents replica starts at once. |
 | agents.serviceAccount.annotations | object | `{}` |  |
 | agents.tenantConnectionsConfigMapName | string | `"orbit-tenant-connections"` |  |
 | agents.tolerations | list | `[]` |  |
@@ -100,6 +116,9 @@ Kubernetes: `>=1.34.0-0`
 | config.platformSecretName | string | `"orbit-secrets"` |  |
 | config.redis.host | string | `""` |  |
 | config.redis.port | int | `6379` |  |
+| config.redis.tls.caSecret | string | `""` | Secret in the system namespace holding the CA bundle under key ca.crt. Empty trusts the system roots. |
+| config.redis.tls.enabled | bool | `true` | Connect to Redis over TLS 1.2 or later. Set false for a Redis that serves plaintext. |
+| config.redis.tls.serverName | string | `""` | Name checked against the Redis certificate. Empty uses config.redis.host. |
 | egressGateway.adminPort | int | `8086` |  |
 | egressGateway.affinity | object | `{}` |  |
 | egressGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
@@ -331,6 +350,7 @@ Kubernetes: `>=1.34.0-0`
 | operator.injection.opa.resources.limits.memory | string | `"128Mi"` |  |
 | operator.injection.opa.resources.requests.cpu | string | `"50m"` |  |
 | operator.injection.opa.resources.requests.memory | string | `"64Mi"` |  |
+| operator.injection.sandboxSidecars | object | `{"identityProxy":{"cpu":"200m","memory":"64Mi"},"istioProxy":{"cpu":"200m","memory":"128Mi"},"opa":{"cpu":"500m","memory":"128Mi"}}` | Resources of each sidecar on a sandbox pod, set as both requests and limits so the pod reserves what it can use. An environment's size is what the sandbox's own container gets, and these sit on top of it. |
 | operator.leaderElection | bool | `true` |  |
 | operator.nodeSelector | object | `{}` |  |
 | operator.podAnnotations | object | `{}` |  |
@@ -421,6 +441,24 @@ Kubernetes: `>=1.34.0-0`
 | policyService.tolerations | list | `[]` |  |
 | policyService.topologySpreadConstraints | list | `[]` |  |
 | publicHosts | list | `[]` |  |
+| sandboxMount.affinity | object | `{}` |  |
+| sandboxMount.configOverrides | object | `{}` | Raw config merged last over the agent's rendered config file, keyed by config module. Keys follow the Go config struct; an unknown key fails startup. e.g. {cmd/sandbox-mount: {node: {resyncSecs: 60}}} |
+| sandboxMount.createNamespace | bool | `true` | Create the namespace at the privileged Pod Security level. Set false to use a namespace you manage. |
+| sandboxMount.enabled | bool | `false` | Run the node agent and give every new sandbox a local working folder. |
+| sandboxMount.image.digest | string | `""` |  |
+| sandboxMount.image.pullPolicy | string | `""` |  |
+| sandboxMount.image.registry | string | `""` |  |
+| sandboxMount.image.repository | string | `"orbit-sandbox-mount"` |  |
+| sandboxMount.image.tag | string | `""` |  |
+| sandboxMount.kubeletDir | string | `"/var/lib/kubelet"` | The kubelet's root directory on the nodes. |
+| sandboxMount.namespace | string | `"orbit-sandbox-mount"` | Namespace of the node agent. The system namespace's Pod Security level rejects privileged pods. |
+| sandboxMount.nodeSelector | object | `{}` | The agent must run on every node that hosts sandboxes or session-manager pods, so global.nodeSelector and global.affinity do not apply to it. |
+| sandboxMount.port | int | `20490` | TCP port nfsd listens on, on every node. NFSv4 only, with no rpcbind or mountd port. |
+| sandboxMount.priorityClassName | string | `""` | Falls back to global.priorityClassName. |
+| sandboxMount.resources.limits.memory | string | `"128Mi"` |  |
+| sandboxMount.resources.requests.cpu | string | `"20m"` |  |
+| sandboxMount.resources.requests.memory | string | `"32Mi"` |  |
+| sandboxMount.tolerations | list | `[]` | Added to the tolerations of agents.workloads.sandbox and agents.workloads.sessionManager, which the agent always carries. |
 | spire.className | string | `"spire-system-spire"` |  |
 | toolGateway.affinity | object | `{}` |  |
 | toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |

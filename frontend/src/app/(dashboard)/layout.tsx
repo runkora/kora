@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import { PageLayout } from '@orbit/terra';
+import { PageLayout } from '@orbit/hades';
 import {
   DashboardHeader,
   DashboardSidebar,
@@ -24,7 +24,7 @@ import { getSession, isSessionValid } from '@orbit/server/session';
  *
  * `DashboardSidebar` is a client component (needs usePathname for active
  * state). `DashboardHeader` is a client component (needs sidebar toggle state).
- * Both are passed as slots to Terra's `PageLayout` which handles the fixed-chrome,
+ * Both are passed as slots to Hades' `PageLayout` which handles the fixed-chrome,
  * scrollable-main structure at h-screen.
  *
  * On mobile (< md / 768 px), the fixed sidebar is hidden and replaced by a

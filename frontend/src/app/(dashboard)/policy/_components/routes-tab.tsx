@@ -11,8 +11,8 @@ import {
   Stack,
   Text,
   TruncatingBadge,
-} from '@orbit/terra';
-import type { DataTableColumn, TextProps } from '@orbit/terra';
+} from '@orbit/hades';
+import type { DataTableColumn, TextProps } from '@orbit/hades';
 import type { RouteRegistration } from '../_types';
 import { ScopeChip, scopeColumnFilter } from '@orbit/components';
 

@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { Stack, Text, Button, Code } from '@orbit/terra';
+import { Stack, Text, Button, Code } from '@orbit/hades';
 
 interface ApprovalPromptProps {
   id: string;

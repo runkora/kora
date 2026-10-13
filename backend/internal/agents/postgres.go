@@ -46,6 +46,9 @@ var ErrIdentityModeImmutable = errors.New("identity_mode is immutable: it is set
 // ErrRunNotAcceptingMessages is returned when a message is sent to a run that is not in a state that accepts messages.
 var ErrRunNotAcceptingMessages = errors.New("run not accepting messages")
 
+// ErrRunStarting is returned when a message is sent to a run the scheduler has not started yet.
+var ErrRunStarting = errors.New("run is starting")
+
 // PostgresRepository implements Repository against a pgxpool.
 type PostgresRepository struct {
 	pool *pgxpool.Pool
@@ -185,6 +188,27 @@ func (r *PostgresRepository) SetAgentTypeState(ctx context.Context, id string, f
 	return nil
 }
 
+// ListActiveAgentTypes returns the active agent types of every tenant.
+func (r *PostgresRepository) ListActiveAgentTypes(ctx context.Context) ([]AgentType, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT `+agentTypeColumns+`
+		FROM agent_types WHERE state = $1 ORDER BY created_at`, string(AgentTypeStateActive))
+	if err != nil {
+		return nil, fmt.Errorf("query active agent_types: %w", err)
+	}
+	defer rows.Close()
+
+	var out []AgentType
+	for rows.Next() {
+		at, err := scanAgentType(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *at)
+	}
+	return out, rows.Err()
+}
+
 func (r *PostgresRepository) ListAllAgentTypeSlugs(ctx context.Context) ([]string, error) {
 	rows, err := r.pool.Query(ctx, `SELECT DISTINCT slug FROM agent_types ORDER BY slug`)
 	if err != nil {
@@ -232,10 +256,10 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 	_, err := r.pool.Exec(ctx, `
 		INSERT INTO runs
 			(id, tenant_id, agent_type_id, state, pod_ordinal, created_by, created_at, updated_at,
-			 trigger_id, trigger_name, delivery_id)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+			 trigger_id, trigger_name, delivery_id, initial_message)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
 		run.ID, run.TenantID, run.AgentTypeID, string(RunStatePending), -1, run.CreatedBy, now, now,
-		triggerID, triggerName, deliveryID,
+		triggerID, triggerName, deliveryID, run.InitialMessage,
 	)
 	if err != nil {
 		return fmt.Errorf("insert run: %w", err)
@@ -246,10 +270,11 @@ func (r *PostgresRepository) CreateRun(ctx context.Context, run Run) error {
 // selectRun joins agent_types so every run read carries the agent's
 // identity_mode (runs always reference an existing agent type — DeleteAgentType
 // force-deletes its runs first, so the inner join never drops rows).
-const selectRun = `
-	SELECT r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
-	       r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id
-	FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
+const selectRun = `SELECT ` + runColumns + ` FROM runs r JOIN agent_types at ON at.id = r.agent_type_id`
+
+const runColumns = `
+	r.id, r.tenant_id, r.agent_type_id, r.state, r.pod_ordinal, r.created_by, r.started_at, r.completed_at, r.created_at, r.updated_at, r.summary, r.delegation_jti, at.identity_mode,
+	r.trigger_id, r.trigger_name, r.delivery_id, r.environment_id`
 
 func (r *PostgresRepository) GetRun(ctx context.Context, id string) (*Run, error) {
 	row := r.pool.QueryRow(ctx, selectRun+` WHERE r.id=$1`, id)
@@ -263,6 +288,14 @@ func (r *PostgresRepository) ListRuns(ctx context.Context, tenantID string, q Ru
 	if len(q.States) > 0 {
 		args = append(args, stateStrings(q.States))
 		query += fmt.Sprintf(" AND r.state = ANY($%d)", len(args))
+	}
+	if !q.CreatedAfter.IsZero() {
+		args = append(args, q.CreatedAfter)
+		query += fmt.Sprintf(" AND r.created_at >= $%d", len(args))
+	}
+	if !q.CreatedBefore.IsZero() {
+		args = append(args, q.CreatedBefore)
+		query += fmt.Sprintf(" AND r.created_at < $%d", len(args))
 	}
 	if q.After != nil {
 		args = append(args, q.After.CreatedAt, q.After.ID)
@@ -315,12 +348,14 @@ func (r *PostgresRepository) SetRunState(ctx context.Context, id string, from, t
 	return nil
 }
 
-func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrdinal int) error {
+// AssignPod moves a claimed run to starting on podOrdinal. The claim token stops a
+// worker whose claim went stale from assigning a run that another worker now holds.
+func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error {
 	now := time.Now().UTC()
 	tag, err := r.pool.Exec(ctx, `
 		UPDATE runs SET state=$1, pod_ordinal=$2, started_at=$3, updated_at=$3
-		WHERE id=$4 AND state=$5`,
-		string(RunStateStarting), podOrdinal, now, runID, string(RunStatePending),
+		WHERE id=$4 AND state=$5 AND claimed_at=$6`,
+		string(RunStateStarting), podOrdinal, now, runID, string(RunStatePending), claimToken(claimedAt),
 	)
 	if err != nil {
 		return fmt.Errorf("assign pod: %w", err)
@@ -330,6 +365,89 @@ func (r *PostgresRepository) AssignPod(ctx context.Context, runID string, podOrd
 	}
 	return nil
 }
+
+// ClaimPendingRuns claims up to limit due pending runs, oldest first, with SKIP LOCKED.
+// The claim time now is the token that AssignPod and ReleaseRunClaim check.
+func (r *PostgresRepository) ClaimPendingRuns(ctx context.Context, limit int, now time.Time) ([]Run, error) {
+	rows, err := r.pool.Query(ctx, `
+		WITH claimed AS (
+		    UPDATE runs SET claimed_at = $2, updated_at = $2
+		    WHERE id IN (
+		        SELECT id FROM runs
+		        WHERE  state = 'pending' AND claimed_at IS NULL AND not_before <= $2
+		        ORDER  BY created_at
+		        LIMIT  $1
+		        FOR UPDATE SKIP LOCKED)
+		    RETURNING id, initial_message)
+		SELECT `+runColumns+`, c.initial_message
+		FROM runs r JOIN agent_types at ON at.id = r.agent_type_id JOIN claimed c ON c.id = r.id
+		ORDER BY r.created_at`,
+		limit, claimToken(now))
+	if err != nil {
+		return nil, fmt.Errorf("claim pending runs: %w", err)
+	}
+	defer rows.Close()
+	var out []Run
+	for rows.Next() {
+		var msg string
+		run, err := scanRun(rows, &msg)
+		if err != nil {
+			return nil, err
+		}
+		run.InitialMessage = msg
+		out = append(out, *run)
+	}
+	return out, rows.Err()
+}
+
+// QueueRun makes a pending run claimable from notBefore. Returns ErrConflict when
+// the run is gone or has left pending.
+func (r *PostgresRepository) QueueRun(ctx context.Context, runID string, notBefore time.Time) error {
+	tag, err := r.pool.Exec(ctx, `UPDATE runs SET not_before = $2 WHERE id = $1 AND state = 'pending'`, runID, notBefore)
+	if err != nil {
+		return fmt.Errorf("queue run: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// ReleaseRunClaim returns a run claimed at claimedAt to the queue until notBefore.
+// Returns ErrConflict when the run is gone, has moved on, or another worker holds it.
+func (r *PostgresRepository) ReleaseRunClaim(ctx context.Context, id string, claimedAt, notBefore time.Time) error {
+	tag, err := r.pool.Exec(ctx, `
+		UPDATE runs SET state = 'pending', pod_ordinal = -1, started_at = NULL,
+		       claimed_at = NULL, not_before = $3, updated_at = $4
+		WHERE  id = $1 AND claimed_at = $2 AND state IN ('pending', 'starting')`,
+		id, claimToken(claimedAt), notBefore, time.Now().UTC(),
+	)
+	if err != nil {
+		return fmt.Errorf("release run claim: %w", err)
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+// ReclaimStaleRunClaims releases pending runs claimed before cutoff by a worker
+// that never came back, and returns their IDs. A run a dead worker left in
+// starting stays for the stale-run reaper.
+func (r *PostgresRepository) ReclaimStaleRunClaims(ctx context.Context, cutoff time.Time) ([]string, error) {
+	rows, err := r.pool.Query(ctx, `
+		UPDATE runs SET claimed_at = NULL, updated_at = $2
+		WHERE  state = 'pending' AND claimed_at < $1
+		RETURNING id`, cutoff, time.Now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("reclaim stale run claims: %w", err)
+	}
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
+// claimToken rounds t to the microsecond precision Postgres stores, so a claim
+// time read back compares equal to the one written.
+func claimToken(t time.Time) time.Time { return t.UTC().Truncate(time.Microsecond) }
 
 // MarkRunFailed unconditionally transitions a run to the failed terminal state and
 // stamps completed_at. Unlike SetRunState it is not a compare-and-swap — it cleans
@@ -461,6 +579,7 @@ func (r *PostgresRepository) ActiveRunsPerPod(ctx context.Context, agentTypeID s
 // emit the correct event type per group.
 //
 //   - active / starting → failed (session-manager died mid-turn)
+//   - pending → failed (never queued, or no scheduler took it)
 //   - idle → completed  (session-manager died after a clean turn; idle timeout
 //     never fired because the pod restarted)
 func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration time.Duration) (failed, completed []string, err error) {
@@ -469,12 +588,12 @@ func (r *PostgresRepository) ReapStaleRuns(ctx context.Context, staleDuration ti
 	rows, err := r.pool.Query(ctx, `
 		UPDATE runs
 		SET state = CASE
-			WHEN state IN ('active','starting') THEN 'failed'
+			WHEN state IN ('active','starting','pending') THEN 'failed'
 			ELSE 'completed'
 		END,
 		completed_at = $1,
 		updated_at   = $1
-		WHERE state IN ('active','starting','idle')
+		WHERE state IN ('active','starting','pending','idle')
 		  AND updated_at < $2
 		  AND NOT EXISTS (
 		      SELECT 1 FROM run_events e
@@ -619,16 +738,17 @@ func scanAgentType(s scanner) (*AgentType, error) {
 	return &at, nil
 }
 
-func scanRun(s scanner) (*Run, error) {
+// scanRun scans the runColumns, then extra into the given destinations.
+func scanRun(s scanner, extra ...any) (*Run, error) {
 	var r Run
 	var state, identityMode string
 	var triggerID, triggerName, deliveryID *string
-	err := s.Scan(
+	err := s.Scan(append([]any{
 		&r.ID, &r.TenantID, &r.AgentTypeID, &state, &r.PodOrdinal,
 		&r.CreatedBy, &r.StartedAt, &r.CompletedAt, &r.CreatedAt, &r.UpdatedAt,
 		&r.Summary, &r.DelegationJTI, &identityMode,
 		&triggerID, &triggerName, &deliveryID, &r.EnvironmentID,
-	)
+	}, extra...)...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

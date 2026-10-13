@@ -3,7 +3,7 @@
 **Status:** Proposed
 **Date:** 2026-09-17
 **Deciders:** Platform Engineering, Product Owner
-**Technical Story:** Defines the backend architecture for the read-only Agent Marketplace: cache-aside reads through Redis, tenant-scoped Redis keys in a single shared Redis instance, a skill model that includes resources directory files, server-side pagination, and an API contract that follows the platform's REST conventions.
+**Technical Story:** Defines the backend architecture for the read-only Agent Marketplace: cache-aside reads through Redis, tenant-scoped Redis keys in a single shared Redis instance, a skill model that includes resources directory files, server-capped list responses, and an API contract that follows the platform's REST conventions.
 
 ---
 
@@ -15,17 +15,17 @@ The Orbit Marketplace is a read-only catalogue where users browse, search, and r
 
 A `skills-service` owns this capability. GitHub is the source of truth for all Marketplace content.
 
-Marketplace sources are declared through GitOps — one `SkillMarketplaceSource` CRD per GitHub repository, scoped to a tenant. The `orbit-operator` watches all `SkillMarketplaceSource` CRDs and aggregates the valid entries into one ConfigMap (`orbit-skill-marketplace-sources`). `skills-service` reads that single ConfigMap to know which repos are declared for which tenant.
+Marketplace sources are declared through GitOps — one `SkillMarketplaceSource` CRD per GitHub repository, scoped to a tenant. The `orbit-operator` watches all `SkillMarketplaceSource` CRDs and aggregates the valid entries into one ConfigMap (`orbit-skill-marketplace-sources`). `skills-service` reads a `skills-mapping.yaml` file from that ConfigMap to know which repos are declared for which tenant.
 
-The service authenticates with GitHub using a **GitHub App**. A `TokenProvider` mints short-lived installation tokens on demand and refreshes them before expiry. All content fetches go through the platform GitHub client at `internal/platform/clients/github/`, which embeds `httpclient.Base` — the same convention every other service-to-service HTTP client follows.
+The service authenticates with GitHub using a **GitHub App**. A `TokenProvider` mints short-lived installation tokens on demand and refreshes them before expiry. Multiple marketplace sources may use different GitHub App credentials via per-source `credentialsRef`; a `TokenProviderPool` lazily constructs a `TokenProvider` per credential directory. All content fetches go through the platform GitHub client at `internal/platform/clients/github/`, which embeds `httpclient.Base` — the same convention every other service-to-service HTTP client follows.
 
-A single Redis instance is shared across all tenants. Isolation is enforced by prefixing every key with the tenant ID. `skills-service` is the only service allowed to read or write these keys, and it lives in the `orbit-system` namespace — no other workload has network access to this Redis instance or to the `skills-service` API.
+A single Redis instance is shared across all tenants. Isolation is enforced by prefixing marketplace list keys with the tenant ID. `skills-service` is the only service allowed to read or write these keys, and it lives in the `orbit-system` namespace — no other workload has network access to this Redis instance or to the `skills-service` API.
 
 ### Problem Statement
 
-- The Marketplace requires server-side search/filtering and pagination.
+- The Marketplace requires server-side search/filtering with bounded list responses.
 - A transient failure in one repository's GitHub fetch must not block other repositories from being served.
-- Skill detail responses must include the `resources/` directory files that accompany `SKILL.md`.
+- Skill detail responses must include any `.md` resource files adjacent to the `SKILL.md`.
 - List responses must be bounded; the frontend must not hold or process the full dataset.
 - The frontend needs a marketplace selector — a list of available marketplaces to display before any skills are shown.
 - Tenants must be strictly isolated from each other; a tenant must not be able to see another tenant's skills.
@@ -33,11 +33,11 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 ### Goals
 
 - Serve reads out of Redis when warm; on a miss, fetch from GitHub, populate Redis, and serve the request (cache-aside).
-- Store skills per repository under separate Redis keys, all inside one shared Redis instance, with the tenant ID as the isolation prefix.
-- Include `resources/` directory files in the cached skill record and expose them in the detail API.
-- Serve paginated skill lists server-side; the frontend passes `offset` and `limit` and never processes the full dataset.
-- Keep both list and detail endpoints reading from the same Redis structure — no separate metadata-only key.
-- Expose a marketplace listing endpoint so the frontend can populate the marketplace selector.
+- Store skill entries per repository under separate Redis keys, all inside one shared Redis instance, with the tenant ID as the isolation prefix.
+- Use a tenant-scoped internal marketplace slug (`{org}__{repo}`) for deterministic Redis key construction; generate it once in the registry.
+- Cache lightweight `SkillEntry` records (no file content) for list operations; cache full `Skill` records separately per skill for detail operations.
+- Cap list responses at a server-side maximum (200 skills); the frontend never processes the full dataset.
+- Expose a marketplace listing endpoint so the frontend can populate the marketplace selector, returning the marketplace's slug and link alongside its name.
 - Use the platform GitHub client (`internal/platform/clients/github/`) that embeds `httpclient.Base` — no raw `http.Client` construction inside the feature package.
 - Keep Marketplace content read-only; never execute skill content.
 
@@ -47,8 +47,9 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 - Agent runtime integration.
 - Cache stampede protection — deferred; the first version uses plain cache-aside. Singleflight/lock-based deduplication is a follow-up if metrics show duplicate GitHub crawls under load.
 - Startup preload — deferred; kept as a possible optimisation if the first-request latency turns out to be a real user problem.
-- Webhook-driven cache invalidation — keys expire after 12 hours; the next request after expiry triggers a fresh fetch.
+- Webhook-driven cache invalidation — keys expire after the configured TTL; the next request after expiry triggers a fresh fetch.
 - Marketplace source management from the dashboard — sources are declared via `SkillMarketplaceSource` CRDs, not the UI.
+- Hot-reload of the skills-mapping.yaml — the registry loads once at startup; a restart picks up changes.
 
 ---
 
@@ -57,8 +58,9 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 * **Strict tenant isolation** — one tenant must never be able to read another tenant's marketplace data. Enforced by the key prefix and by the fact that `skills-service` is the only service with access to the Redis instance.
 * **Repository fault isolation** — a failing repository must not block the others.
 * **Complete skill content** — the detail endpoint must return everything a consumer needs: the `SKILL.md` body and any accompanying resource files.
-* **Server-side pagination** — list responses must be bounded; the frontend must not hold or process the full dataset.
+* **Bounded list responses** — list responses must be capped server-side; the frontend must not hold or process the full dataset.
 * **Per-repository Redis keys** — cache granularity must match the unit of crawl: one repo, one key.
+* **Stable internal cache identifiers** — the marketplace slug (`{org}__{repo}`) is generated once by the registry and reused for all cache operations; it is never exposed in API responses.
 * **GitHub rate limits** — GitHub must not be contacted on every user interaction. A warm cache handles the common case; a miss falls through to GitHub and repopulates.
 * **Platform client conventions** — GitHub calls go through a typed client under `internal/platform/clients/github/` that embeds `httpclient.Base`, matching every other service-to-service client in the codebase.
 * **Correct HTTP semantics** — a cache miss is not a server failure; it is served transparently from GitHub. 5xx status codes are reserved for genuine server failures (GitHub unreachable and cache absent, Redis outage, etc.).
@@ -118,7 +120,7 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 
 ### Option D: Cache-Aside with Tenant-Scoped Per-Repo Redis Keys
 
-**Description:** HTTP handlers read Redis first. On a hit, the response is served from cache. On a miss, `skills-service` crawls the repository via the GitHub Trees API, downloads `SKILL.md` and all `resources/` files, writes the `[]Skill` array to Redis with a 12h TTL, and serves the same result. All keys are prefixed with the tenant ID; one Redis instance is shared across tenants.
+**Description:** HTTP handlers read Redis first. On a hit, the response is served from cache. On a miss, `skills-service` crawls the repository via the GitHub Trees API, downloads every `SKILL.md` and records adjacent `.md` resource paths, writes a `[]SkillEntry` array to Redis with the configured TTL, and serves the same result. Full skill content is fetched and cached per-skill on first detail request. Marketplace list keys are prefixed with the tenant ID; one Redis instance is shared across tenants.
 
 **Pros:**
 - One code path — the request-time cache-miss path is the only cache-population path.
@@ -140,100 +142,149 @@ A single Redis instance is shared across all tenants. Isolation is enforced by p
 
 **Chosen Option: D — Cache-Aside with Tenant-Scoped Per-Repo Redis Keys**
 
-Every read goes to Redis first. On a hit, the cached `[]Skill` is used. On a miss, the handler crawls the repository through the platform GitHub client, writes `[]Skill` back to Redis with a 12h TTL, and serves the response from the same in-memory result. `skills-service` runs in the `orbit-system` namespace; it is the only service permitted to read or write these Redis keys, and network policy in the cluster enforces that.
+Every read goes to Redis first. On a hit, the cached `[]SkillEntry` is used directly. On a miss, the handler crawls the repository through the platform GitHub client, writes `[]SkillEntry` back to Redis with the configured TTL, and serves the response from the same in-memory result. Full `Skill` content (file bodies) is cached separately per-skill on first detail request. `skills-service` runs in the `orbit-system` namespace; it is the only service permitted to read or write these Redis keys, and network policy in the cluster enforces that.
 
 ### Skill Data Model
 
-The complete skill record stored in Redis — the same shape is returned by the detail endpoint:
+The types used across the cache, service, and API layers:
 
 ```go
-type Skill struct {
-    Slug        string      `json:"slug"`
-    Name        string      `json:"name"`
-    Description string      `json:"description"`
-    Skill       SkillFile   `json:"skill"`
-    Documents   []SkillFile `json:"documents"`
+// MarketplaceSource is one marketplace entry derived from skills-mapping.yaml.
+// Org, RepoName, and MarketplaceSlug are backend-internal — they never appear
+// in API responses.
+type MarketplaceSource struct {
+    Name            string `json:"name"`
+    Org             string `json:"org"`
+    RepoName        string `json:"repoName"`
+    Link            string `json:"link"`            // https://github.com/{org}/{repo}
+    MarketplaceSlug string `json:"marketplaceSlug"` // {org}__{repo}; set by the registry
 }
 
+// SkillEntry is the lightweight record stored in the marketplace Redis key.
+// Path and DocPaths are backend-only routing hints used when fetching
+// full content on a skill-cache miss; the frontend never sees them.
+type SkillEntry struct {
+    Name        string   `json:"name"`
+    Description string   `json:"description"`
+    SkillSlug   string   `json:"skillSlug"`
+    Path        string   `json:"path"`
+    DocPaths    []string `json:"docPaths,omitempty"`
+}
+
+// SkillFile is one file (SKILL.md or a resource document).
 type SkillFile struct {
     Path    string `json:"path"`
     Name    string `json:"name"`
     Content string `json:"content"`
 }
+
+// Skill is the full skill record returned by the detail endpoint and cached
+// per-skill in Redis.
+type Skill struct {
+    Name        string      `json:"name"`
+    Description string      `json:"description"`
+    SkillSlug   string      `json:"skillSlug"`
+    File        SkillFile   `json:"skill"`
+    Documents   []SkillFile `json:"documents"`
+}
+
+// SkillSummary is the list-endpoint projection sent to the frontend.
+type SkillSummary struct {
+    Name        string `json:"name"`
+    Description string `json:"description"`
+    SkillSlug   string `json:"skillSlug"`
+}
 ```
 
-`Skill` is the `SKILL.md` file — `path`, `name`, and full `content`. `Documents` is the slice of files found under `skills/{skill-name}/resources/`. If no `resources/` directory exists, `Documents` is an empty slice — never `null`. The stored Redis value and the detail API response are the same shape; the list endpoint strips `Skill` and `Documents` at read time.
+`Skill.File` is the `SKILL.md` file — `path`, `name`, and full `content`. `Documents` is the slice of `.md` files found adjacent to `SKILL.md` (in the same directory tree, at any depth). If no such files exist, `Documents` is an empty slice — never `null`.
 
-### Slug Format
+`SkillEntry.SkillSlug` and `Skill.SkillSlug` carry the public skill identifier (`{marketplaceSlug}__{nameSlug}`) used by the frontend to address skills and by the service to look up entries. The slug is **returned to the frontend** in both list and detail responses.
+
+`MarketplaceSource.MarketplaceSlug` is the Redis key segment (`{org}__{repo}`), generated once by the registry when loading `skills-mapping.yaml`. Unlike the `json:"-"` placeholder in earlier drafts, the field is serialised with `json:"marketplaceSlug"` because it is also returned in the `GET /v1/marketplaces` response — the frontend needs it to address subsequent skill list requests.
+
+### Internal Slug Formats
+
+Two identifiers are used by the backend; the skill slug is also exposed in API responses.
+
+**Marketplace slug** — used as the repository segment in Redis keys and as the URL path parameter:
 
 ```
-slug = "{marketplace-name}/{repo}/{skill-name}"
+{org}__{repo}
 ```
 
-Example: `clear-route-skills/react-expert`
+Example: `clear-route__skills-marketplace`
 
-`marketplace-name` is the URL-safe form of the marketplace's `name` from the ConfigMap. `skill-name` is the directory name under `skills/` that contains the `SKILL.md` file. The slug is stable across cache evictions and pod restarts and is the canonical identifier the FE holds. The tenant is not part of the slug — the tenant is carried in the request context (from the authenticated caller), not in the URL. `org` and `repo` are backend-internal (used only to build the Redis key) and never appear in FE-facing responses.
+Generated once by the registry when loading `skills-mapping.yaml` and stored on `MarketplaceSource.MarketplaceSlug`. The double-underscore separator distinguishes it from URL path components. The `{marketplaceSlug}` URL parameter is matched directly against `MarketplaceSource.MarketplaceSlug` — no extra slugification step.
+
+**Skill slug** — used to identify and address a skill:
+
+```
+{marketplaceSlug}__{nameSlug}
+```
+
+Example: `clear-route__skills-marketplace__react-expert`
+
+`nameSlug` is the slugified form of the `name` frontmatter field (lowercase, non-alphanumeric runs replaced by `-`). The slug is stable across cache evictions and pod restarts. It is returned to the frontend in both list and detail responses, and is the value the frontend passes as the `{skillSlug}` URL parameter.
 
 ### Redis Key Structure
 
-One shared Redis instance across all tenants. Every key is prefixed with the tenant ID:
+One shared Redis instance across all tenants. Two key shapes are used:
 
 ```
-marketplace:{tenant-id}:{org}:{repo}   →   []Skill   (TTL: 12h)
+marketplace:{tenantID}:{marketplaceSlug}  →  JSON []SkillEntry  (TTL: configured)
+{skillSlug}                               →  JSON Skill          (TTL: configured)
 ```
 
-Example for a tenant with three declared marketplaces:
+Where `marketplaceSlug = {org}__{repo}`. Example for a tenant with two declared marketplaces:
 
 ```text
 ONE SHARED REDIS INSTANCE
 │
-├── marketplace:tenant-a:clear-route:skills-marketplace       →   []Skill   (TTL: 12h)
-├── marketplace:tenant-a:clearroute:core-skills               →   []Skill   (TTL: 12h)
-├── marketplace:tenant-a:partner:reference-skills             →   []Skill   (TTL: 12h)
-├── marketplace:tenant-b:clear-route:internal-skills          →   []Skill   (TTL: 12h)
+├── marketplace:tenant-a:clear-route__skills-marketplace  →  []SkillEntry  (TTL: configured)
+├── marketplace:tenant-a:clearroute__core-skills          →  []SkillEntry  (TTL: configured)
+├── clear-route__skills-marketplace__react-expert         →  Skill         (TTL: configured)
+├── marketplace:tenant-b:clear-route__internal-skills     →  []SkillEntry  (TTL: configured)
 └── ...
 ```
 
-Each key holds a JSON-encoded `[]Skill` array. All skills for a repository expire together — there are no per-skill sub-keys. The tenant ID is the isolation boundary; a request from `tenant-a` can never construct a key that reads `tenant-b`'s data because the tenant ID comes from the authenticated identity, not user input.
+Marketplace list keys store only lightweight `SkillEntry` records (name, description, slug, and path hints) — no file content. Full content is loaded on demand and cached in a separate per-skill key whose `skillSlug` already encodes the marketplace. Tenant access to per-skill keys is enforced at the service layer before Redis is ever read, so the fact that skill keys have no tenant prefix does not weaken isolation.
+
+The tenant ID is the isolation boundary for list keys; a request from `tenant-a` can never construct a key that reads `tenant-b`'s list data because the tenant ID comes from the authenticated identity, not user input, and the marketplace slug is matched from the registry, not directly from a URL parameter.
 
 ### Access Restrictions
 
 - `skills-service` runs in the `orbit-system` namespace.
 - The Redis instance is exposed only inside the mesh, with an authorization policy that allows connections from `skills-service` only.
 - `skills-service` is the sole owner of these Redis keys — no other service reads or writes them.
-- The tenant ID used to construct every Redis key is derived from the authenticated caller's identity, not from any request parameter, so a request cannot cross tenant boundaries even if the URL is manipulated.
+- The tenant ID used to construct every marketplace list key is derived from the authenticated caller's identity, not from any request parameter, so a request cannot cross tenant boundaries even if the URL is manipulated.
 
 ### ConfigMap Structure
 
-The `orbit-operator` renders all valid `SkillMarketplaceSource` CRDs into the `orbit-skill-marketplace-sources` ConfigMap as `marketplace-sources.json`. Sources are grouped by tenant ID; the tenant ID is derived by the operator from the namespace in which each `SkillMarketplaceSource` CRD is installed — it is never a field on the CRD spec itself:
+The `orbit-operator` renders all valid `SkillMarketplaceSource` CRDs into the `orbit-skill-marketplace-sources` ConfigMap as `skills-mapping.yaml`. Sources are grouped by tenant ID; the tenant ID is derived by the operator from the namespace in which each `SkillMarketplaceSource` CRD is installed — it is never a field on the CRD spec itself:
 
-```json
-{
-  "tenants": {
-    "tenant-a": {
-      "sources": [
-        { "name": "Clear Route Skills", "org": "clear-route", "repo": "skills-marketplace", "branch": "main" },
-        { "name": "ClearRoute Core",    "org": "clearroute",  "repo": "core-skills",        "branch": "main" }
-      ]
-    },
-    "tenant-b": {
-      "sources": [
-        { "name": "Partner Reference",  "org": "partner",     "repo": "reference-skills",   "branch": "main" }
-      ]
-    }
-  }
-}
+```yaml
+skillsMapping:
+  tenants:
+    - id: tenant-a
+      marketplaces:
+        - https://github.com/clear-route/skills-marketplace
+        - https://github.com/clearroute/core-skills
+    - id: tenant-b
+      marketplaces:
+        - https://github.com/partner/reference-skills
 ```
 
-`name` is the human-readable label — this is the **only** field the FE ever sees. `org`, `repo`, and `branch` are backend-internal: they never appear in any API response, and `skills-service` looks them up from the ConfigMap by `name` when it needs to crawl GitHub or build a Redis key. `name` is unique within a tenant's source list and is used verbatim (URL-safe-slugified) as the marketplace identifier in URLs.
+Each entry in `marketplaces` is a GitHub repository URL. The registry parses each URL into a `MarketplaceSource`: `Org` and `RepoName` are extracted from the URL path, `Name` defaults to the lowercased repository name, and `MarketplaceSlug` is set to `{org}__{repo}`. Duplicate URLs within one tenant's list are silently deduplicated; invalid URLs are skipped with a warning.
 
-One shared ConfigMap holds all tenants. Individual source entries carry no `tenantId` field — isolation is structural: sources are already nested under their tenant's key. `skills-service` scopes every registry lookup to the tenant ID resolved from the authenticated caller's identity context, so a request can never reach another tenant's sources even if the URL is manipulated.
+`Branch` is not configurable — the crawler always uses `HEAD`, which GitHub resolves to the repository's default branch. There is no per-source branch override.
 
-`skills-service` mounts `orbit-skill-marketplace-sources` as a read-only file at `ORBIT_MARKETPLACE_SOURCES_CONFIG`, reads `marketplace-sources.json` on startup, and hot-reloads it via `fsnotify`. The backend never imports the CRD type and never calls the Kubernetes API.
+`skills-service` mounts `orbit-skill-marketplace-sources` as a read-only directory at `ORBIT_MARKETPLACE_SOURCES_CONFIG`, reads `skills-mapping.yaml` once at startup, and does not hot-reload. A restart picks up any ConfigMap changes. The backend never imports the CRD type and never calls the Kubernetes API.
 
 ### GitHub App Authentication and Platform Client
 
-`TokenProvider` (in the feature package) holds the App private key, App ID, and installation ID (from Kubernetes Secret). It mints a short-lived installation token on first use and refreshes it before expiry.
+`TokenProvider` (in the feature package) holds the App private key path, App ID, and installation ID. It mints a short-lived installation token on first use and refreshes it before expiry. The private key is read fresh on every mint — it is never decoded and held resident in memory, so a rotated key takes effect on the next mint without a process restart.
+
+Multiple marketplace sources may use different GitHub App credentials. `TokenProviderPool` lazily constructs and caches one `TokenProvider` per `credentialsRef` directory path. A source with an empty `CredentialsRef` falls back to the default provider configured at startup. Each `credentialsRef` directory must contain three files: `appID`, `installationID`, and `privateKey` (PEM-encoded RSA key), matching the Kubernetes Secret mount shape.
 
 All GitHub calls go through the platform client at:
 
@@ -243,7 +294,7 @@ backend/internal/platform/clients/github/client.go
 
 This client embeds `httpclient.Base` — the same base every other service-to-service client uses — and therefore gets W3C trace propagation, OTel span lifecycle, and structured logging for free. `skills-service` obtains it through the standard client wiring in `main.go`; it never constructs an `http.Client{}` literal, which is banned by the `noRawHttpClientLiteral` lint rule anyway.
 
-The feature package supplies the token by injecting a `TokenProvider` into the client at construction time; the client itself has no knowledge of GitHub App semantics and only knows how to add an `Authorization: Bearer <token>` header from whatever source it is given. This mirrors how other typed clients handle credential injection.
+The feature package supplies the token by injecting a `TokenProvider` (or pool) into the crawler at construction time; the GitHub client itself has no knowledge of GitHub App semantics and only knows how to add an `Authorization: Bearer <token>` header from whatever source it is given.
 
 ### Request Path and Tenant Resolution
 
@@ -251,65 +302,75 @@ The BFF does **not** extract or pass `tenant_id`. It just forwards the auth toke
 
 ```
 FE → BFF (forwards bearer token) → skills-service
-         → AuthMiddleware puts identity on ctx
-         → handler reads tenantID := identity.FromContext(ctx).TenantID
-         → path param marketplaceName → ConfigMap lookup → { org, repo }
-         → produce key marketplace:{tenantID}:{org}:{repo}
+         → AuthMiddleware verifies identity, puts claims on ctx
+         → handler reads tenantID from token claims
+         → path param marketplaceSlug → registry match → MarketplaceSource { org, repoName }
+         → produce key marketplace:{tenantID}:{marketplaceSlug}
          → Redis GET/SET
 ```
 
-Why it matters: if the BFF or the URL supplied `tenant_id`, a caller could tamper with it and read another tenant's keys. Deriving it from the verified identity is what makes the prefix a real isolation boundary.
+Why it matters: if the BFF or the URL supplied `tenant_id`, a caller could tamper with it and read another tenant's keys. Deriving it from the verified identity is what makes the prefix a real isolation boundary. Similarly, the `marketplaceSlug` is validated against the registry (must exist in the tenant's source list), never used raw from URL input.
 
 ### Request Flow (Cache-Aside)
 
 ```text
 HTTP request arrives at skills-service
-   │  path: /v1/marketplaces/{marketplaceName}/skills[/{skillName}]
+   │  path: /v1/marketplaces/{marketplaceSlug}/skills[/{skillSlug}]
    ▼
-Resolve tenantID from the authenticated caller (context)
+Resolve tenantID from the authenticated caller (token claims)
    │
    ▼
-Look up marketplaceName in the tenant's ConfigMap
-   │   → { org, repo, branch }   (404 if not found)
+Match marketplaceSlug against tenant's registry
+   │   → MarketplaceSource { org, repoName }   (404 if not found)
    ▼
-Construct key: marketplace:{tenantID}:{org}:{repo}
+Construct key: marketplace:{tenantID}:{marketplaceSlug}
    │
    ▼
 Redis GET
    │
-   ├── HIT ──► deserialise []Skill ──► apply search/pagination ──► respond 200
+   ├── HIT ──► deserialise []SkillEntry ──► apply search / server-cap ──► respond 200
    │
    └── MISS
          │
          ▼
-      platform/clients/github (with TokenProvider)
-         ├── GET /repos/{org}/{repo}/git/trees/{branch}?recursive=1
-         │     → filter paths matching skills/*/SKILL.md
-         │     → filter paths matching skills/*/resources/*
+      platform/clients/github (with TokenProvider/Pool)
+         ├── GetTree(org, repo, "HEAD")
+         │     → walk all blobs; identify each SKILL.md by filename
+         │     → collect adjacent .md files as docPaths
          │
-         └── for each skill directory (parallel, per-repo cap 20; global cap 100):
-               ├── fetch skills/{name}/SKILL.md          → Skill
-               └── fetch skills/{name}/resources/* (all) → Documents
-         │
-         ▼
-      Redis SET marketplace:{tenantId}:{org}:{repo} (TTL: 12h)
+         └── for each skill (parallel, per-repo cap 20; global cap 100):
+               fetch SKILL.md  →  parse frontmatter  →  SkillEntry
+               (docPaths recorded; content not fetched here)
          │
          ▼
-      apply search/pagination ──► respond 200
+      Redis SET marketplace:{tenantID}:{marketplaceSlug} TTL=configured
+         │
+         ▼
+      apply search / server-cap ──► respond 200
+
+
+For GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}:
+   │  (after marketplace list resolved as above)
+   ▼
+Redis GET {skillSlug}
+   │
+   ├── HIT ──► respond 200 with full Skill
+   │
+   └── MISS
+         │  look up SkillEntry in []SkillEntry for entry.Path + entry.DocPaths
+         ▼
+      platform/clients/github (with TokenProvider/Pool)
+         fetch SKILL.md + all docPaths in parallel
+         │
+         ▼
+      Redis SET {skillSlug} TTL=configured  →  respond 200
 ```
 
 If GitHub is unreachable on a miss and there is no cached value to fall back on, the handler responds with `503 Service Unavailable` — that is a genuine server-side failure, not a cache-miss condition. A miss that GitHub serves successfully is not a failure and is never surfaced to the frontend as one.
 
 ### Repository Discovery
 
-The tree crawl filters for two path patterns:
-
-| Pattern | Meaning |
-|---|---|
-| `skills/*/SKILL.md` | The canonical skill definition file |
-| `skills/*/resources/*` | All files in the adjacent resources directory |
-
-A skill is identified by the directory name between `skills/` and `/SKILL.md`. A `resources/` directory is optional — its absence produces `"documents": []`. Any `SKILL.md` missing a required frontmatter field is skipped with a structured warning log; its absence does not fail the crawl for other skills.
+The tree crawl walks every blob in the repository at `HEAD`. A `SKILL.md` at the repository root is skipped with a warning — a skill needs its own directory. A `SKILL.md` anywhere below the root defines a skill whose directory is the folder containing it. Resource documents are any `.md` files (not `SKILL.md`) that share a directory tree with a skill's folder; when directories nest, a file is assigned to the most specific (longest path) skill folder.
 
 ### SKILL.md Frontmatter Schema
 
@@ -322,93 +383,99 @@ Every `SKILL.md` must open with a YAML frontmatter block delimited by `---`:
 
 ### API Surface
 
-All Marketplace endpoints live under `/v1/marketplaces`, matching the versioned REST layout used elsewhere in Orbit. The tenant is resolved from the authenticated caller and is never a path parameter. The frontend addresses a marketplace by its `name` only; `org`, `repo`, and `branch` are backend-internal and never appear in a URL or response.
+All Marketplace endpoints live under `/v1/marketplaces`, matching the versioned REST layout used elsewhere in Orbit. The tenant is resolved from the authenticated caller and is never a path parameter. The frontend addresses a marketplace by its `marketplaceSlug`; `org` and `repoName` are backend-internal and never appear in a URL or response.
 
 | Method | Path | Description |
 |---|---|---|
-| GET | `/v1/marketplaces` | List marketplaces declared for the caller's tenant (name only) |
-| GET | `/v1/marketplaces/{marketplaceName}/skills` | Paginated skill list — metadata only (`slug`, `name`, `description`) |
-| GET | `/v1/marketplaces/{marketplaceName}/skills/{skillName}` | Full skill detail — `SKILL.md` body + resource files |
+| GET | `/v1/marketplaces` | List marketplaces declared for the caller's tenant |
+| GET | `/v1/marketplaces/{marketplaceSlug}/skills` | Server-capped skill list — `name`, `description`, `skillSlug` |
+| GET | `/v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}` | Full skill detail — `SKILL.md` body + resource files |
 
-`{marketplaceName}` is the URL-safe slug of a `name` from the ConfigMap. `{skillName}` is the directory name under `skills/` and cannot contain a slash.
+`{marketplaceSlug}` is the `{org}__{repo}` value from the registry. `{skillSlug}` is the `{marketplaceSlug}__{nameSlug}` value and cannot contain a slash.
 
 #### `GET /v1/marketplaces`
 
-Returns the marketplaces declared for the caller's tenant, read from the tenant's `marketplace-sources.json`. No Redis or GitHub call. Only `name` is exposed; `org`, `repo`, and `branch` are stripped.
+Returns the marketplaces declared for the caller's tenant, read from the tenant's `skills-mapping.yaml` via the in-memory registry. No Redis or GitHub call.
 
 Response (HTTP 200):
 
 ```json
 {
   "marketplaces": [
-    { "name": "Clear Route Skills" },
-    { "name": "ClearRoute Core" },
-    { "name": "Partner Reference" }
+    {
+      "name": "skills-marketplace",
+      "marketplaceSlug": "clear-route__skills-marketplace",
+      "link": "https://github.com/clear-route/skills-marketplace"
+    },
+    {
+      "name": "core-skills",
+      "marketplaceSlug": "clearroute__core-skills",
+      "link": "https://github.com/clearroute/core-skills"
+    }
   ]
 }
 ```
 
-#### `GET /v1/marketplaces/{marketplaceName}/skills`
+`org` and `repoName` are stripped. `marketplaceSlug` and `link` are returned — the frontend needs `marketplaceSlug` to address subsequent skill list requests and `link` to offer a direct GitHub link.
+
+#### `GET /v1/marketplaces/{marketplaceSlug}/skills`
 
 Query parameters:
 
 | Parameter | Type | Required | Notes |
 |---|---|---|---|
-| `offset` | integer | No | Zero-based index of the first item; default `0` |
-| `limit` | integer | No | Maximum items to return; default `15`, max `100` |
-| `search` | string | No | Substring match on `name`; omit to return all skills |
+| `search` | string | No | Case-insensitive substring match on `name`; omit to return all skills |
 
 The server:
 
 1. Resolves `tenantID` from the authenticated caller.
-2. Looks up `marketplaceName` in the tenant's ConfigMap → `{ org, repo, branch }`. If not found, returns `404`.
-3. Reads `marketplace:{tenantID}:{org}:{repo}` from Redis. On a miss, crawls the repository as described in the request flow, writes the result to Redis with a 12h TTL, then serves the response from the same in-memory result.
-4. Applies the `search` filter, then slices `skills[offset : offset+limit]`.
+2. Matches `marketplaceSlug` directly against the tenant's registry → `MarketplaceSource { org, repoName }`. If not found, returns `404`.
+3. Constructs `marketplace:{tenantID}:{marketplaceSlug}` and reads Redis. On a miss, crawls the repository as described in the request flow, writes `[]SkillEntry` to Redis with the configured TTL, then serves from the same in-memory result.
+4. Applies the `search` filter and caps the result at 200 skills.
 
 **Successful response (HTTP 200):**
 
 ```json
 {
   "skills": [
-    { "slug": "clear-route-skills/react-expert", "name": "React Expert", "description": "Senior React developer" }
-  ],
-  "pagination": {
-    "offset": 0,
-    "limit": 15,
-    "totalItems": 100
-  }
+    {
+      "name": "React Expert",
+      "description": "Senior React developer",
+      "skillSlug": "clear-route__skills-marketplace__react-expert"
+    }
+  ]
 }
 ```
 
-`Skill` and `Documents` are always stripped before the response is written. An empty result returns `{ "skills": [], "pagination": { "offset": 0, "limit": 15, "totalItems": 0 } }` with HTTP 200.
+`Path` and `DocPaths` are always stripped before the response is written; the list item type (`SkillSummary`) exposes `name`, `description`, and `skillSlug`. An empty result returns `{ "skills": [] }` with HTTP 200.
 
-If `marketplaceName` is not declared for the caller's tenant, the handler returns `404 Not Found`.
+If `marketplaceSlug` is not declared for the caller's tenant, the handler returns `404 Not Found`.
 
 If Redis is unavailable, or if the cache is cold and GitHub is unreachable, the handler returns `503 Service Unavailable`. These are genuine server failures.
 
-#### `GET /v1/marketplaces/{marketplaceName}/skills/{skillName}`
+#### `GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}`
 
 Example:
 
 ```
-GET /v1/marketplaces/clear-route-skills/skills/react-expert
+GET /v1/marketplaces/clear-route__skills-marketplace/skills/clear-route__skills-marketplace__react-expert
 ```
 
 Response (HTTP 200):
 
 ```json
 {
-  "slug" : "clear-route-skills/react-expert" ( not shown on FE )
   "name": "React Expert",
   "description": "Senior React developer",
+  "skillSlug": "clear-route__skills-marketplace__react-expert",
   "skill": {
-    "path": "skills/react-expert/SKILL.md",
+    "path": "react-expert/SKILL.md",
     "name": "SKILL.md",
     "content": "<complete SKILL.md content>"
   },
   "documents": [
     {
-      "path": "skills/react-expert/resources/examples.md",
+      "path": "react-expert/examples.md",
       "name": "examples.md",
       "content": "<complete file content>"
     }
@@ -416,9 +483,9 @@ Response (HTTP 200):
 }
 ```
 
-`slug` is intentionally omitted from the detail response — the FE has already navigated to this skill by URL and does not need the identifier back. `skill` is always present. `documents` is an empty array if the skill has no `resources/` directory.
+`skill` is always present. `documents` is an empty array if the skill has no adjacent `.md` files. `skillSlug` is returned in the response.
 
-On a Redis miss, the handler performs the same cache-aside crawl the list endpoint does (after the same `marketplaceName → {org, repo}` lookup), populates Redis, and looks up the requested `skillName` in the crawled result. If the marketplace is not declared for the tenant, or if the crawl completes but `skillName` is not present in the repository, the handler returns `404 Not Found`. `503` is reserved for the same genuine server-failure cases as the list endpoint.
+On a skill-cache miss, the handler first ensures the marketplace list is populated (running the same cache-aside crawl as the list endpoint if needed), then fetches the full file content for the requested skill entry and caches it under `{skillSlug}`. If the marketplace is not declared for the tenant, or if the crawl completes but `skillSlug` is not found, the handler returns `404 Not Found`. `503` is reserved for the same genuine server-failure cases as the list endpoint.
 
 ### Status-Code Summary
 
@@ -427,7 +494,7 @@ On a Redis miss, the handler performs the same cache-aside crawl the list endpoi
 | Cache hit | 200 |
 | Cache miss, GitHub fetch succeeds | 200 |
 | Marketplace not declared for caller's tenant | 404 |
-| Skill directory does not exist in the repo | 404 |
+| Skill slug not found in the crawled repository | 404 |
 | Redis unavailable | 503 |
 | Cache miss + GitHub unreachable / rate-limited with no fallback | 503 |
 
@@ -437,15 +504,16 @@ A cache miss on its own is never surfaced as an error. 5xx codes are reserved fo
 
 | Key | Default TTL | Configuration |
 |---|---|---|
-| `marketplace:{tenantId}:{org}:{repo}` | 12 hours | `MARKETPLACE_CACHE_TTL` |
-| GitHub App installation token | 55 minutes | Refreshed 5 min before GitHub's 60-min expiry |
+| `marketplace:{tenantID}:{marketplaceSlug}` | 12 hours | `MARKETPLACE_CACHE_TTL` |
+| `{skillSlug}` | 12 hours | `MARKETPLACE_CACHE_TTL` (same TTL) |
+| GitHub App installation token | ~55 minutes | Refreshed 5 min before GitHub's 60-min expiry |
 
 When a key expires, the next request that targets it triggers a fresh crawl and repopulates the key.
 
 
 ### Authorization
 
-All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMiddleware → DelegationMiddleware → ScopeEnforcementMiddleware`. The tenant ID is extracted from the authenticated caller's context and used verbatim as the Redis key prefix; there is no code path where a client-supplied value can influence which tenant's keys are read.
+All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMiddleware → DelegationMiddleware → ScopeEnforcementMiddleware`. In local development mode (`LOCAL_TENANT_ID` set), the middleware chain is bypassed and the configured tenant ID is used directly. The tenant ID is extracted from the authenticated caller's context and used verbatim as the Redis marketplace key prefix; there is no code path where a client-supplied value can influence which tenant's keys are read.
 
 ---
 
@@ -455,19 +523,22 @@ All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMid
 
 - One cache-population code path. The request-time miss path is the only miss path, so there is no risk of a startup crawl and a runtime crawl diverging.
 - No startup penalty. The pod is ready as soon as it can accept traffic; cold repositories pay a one-time miss cost when first requested.
-- Strict tenant isolation with cheap infrastructure. All tenants share one Redis instance; the tenant ID prefix is the boundary, and the fact that `skills-service` is the only reader/writer makes cross-tenant access structurally impossible.
+- Strict tenant isolation with cheap infrastructure. All tenants share one Redis instance; the tenant ID prefix on marketplace list keys is the boundary, and the fact that `skills-service` is the only reader/writer makes cross-tenant access structurally impossible.
 - Per-repo isolation: a failing GitHub fetch for one repository does not affect any other cached repository.
-- The detail endpoint returns the complete skill content — `SKILL.md` body and all `resources/` files — in one response.
-- Server-side pagination keeps response sizes bounded regardless of dataset size.
-- URLs follow the platform's `/v1/{resource}` REST conventions and are consistent with the rest of the API.
+- Two-level cache: list operations read lightweight `SkillEntry` records (no file content); full content is fetched and cached only when a user opens a skill detail page, keeping the marketplace list warm and fast.
+- The detail endpoint returns the complete skill content — `SKILL.md` body and all adjacent `.md` resource files — in one response.
+- A server-side cap (200 skills per marketplace) keeps list response sizes bounded regardless of dataset size.
+- `skillSlug` is stable and URL-safe — the frontend can use it directly as a path parameter without additional encoding.
 - GitHub calls go through the standard platform client, so tracing, logging, and metrics work the same way they do for every other service-to-service call.
+- Per-source `credentialsRef` allows each marketplace repository to authenticate with its own GitHub App installation, enabling cross-organization marketplaces without sharing credentials.
 
 ### Negative
 
 - The first request for a cold repository pays a GitHub round-trip inline. Acceptable because the payload is small and the alternative (startup preload) crawls repositories that may never be requested.
 - No cache-stampede protection in V1 — a burst of concurrent cold-cache requests for the same key can cause duplicate GitHub crawls. Acceptable at expected traffic; will be revisited with `singleflight` or a Redis lock if metrics show real duplication.
-- Redis is a hard runtime dependency. A Redis outage results in `503` from the list and detail endpoints (the marketplace listing endpoint is unaffected because it reads only from the ConfigMap).
-- Storing `Skill` and `Documents` for every skill increases Redis memory consumption compared to metadata-only storage. The full record is needed for detail requests, so caching it avoids a second GitHub round-trip per click.
+- Redis is a hard runtime dependency. A Redis outage results in `503` from the list and detail endpoints (the marketplace listing endpoint is unaffected because it reads only from the in-memory registry).
+- Two separate Redis TTLs (marketplace list + per-skill) means a key rotation (e.g. forced eviction) requires evicting both shapes. Mitigated by using the same `MARKETPLACE_CACHE_TTL` for both.
+- `MarketplaceSource.Name` is currently derived from the repo name (lowercased), not from a human-readable label in the ConfigMap. Richer display names require a future extension to `skills-mapping.yaml`.
 
 ---
 
@@ -475,52 +546,55 @@ All three endpoints require scope `marketplace:read`. Middleware chain: `AuthMid
 
 ### Step 1 — Admin Declares Marketplace Sources
 
-A platform operator creates one `SkillMarketplaceSource` CRD per GitHub repository via GitOps — specifying the `tenantId`, `name`, `org`, `repo`, and `branch` for each. The `orbit-operator` validates each CRD, marks it `Aggregated` or `Invalid`, and renders the approved set into the `orbit-skill-marketplace-sources` ConfigMap. This is a one-time setup step per repository; the operator keeps the ConfigMap up to date as CRDs are added, changed, or removed.
+A platform operator creates one `SkillMarketplaceSource` CRD per GitHub repository via GitOps. The `orbit-operator` validates each CRD, marks it `Aggregated` or `Invalid`, and renders the approved set into the `orbit-skill-marketplace-sources` ConfigMap as `skills-mapping.yaml`. This is a one-time setup step per repository; the operator keeps the ConfigMap up to date as CRDs are added, changed, or removed.
 
 ### Step 2 — Service Starts
 
 When `skills-service` starts:
 
-1. Reads `ORBIT_MARKETPLACE_SOURCES_CONFIG/marketplace-sources.json` to build the tenant-scoped view of declared marketplaces.
-2. Builds a `TokenProvider` that mints a GitHub App installation token on demand and refreshes it before expiry.
-3. Constructs the platform GitHub client (`internal/platform/clients/github`) with the `TokenProvider` and wires it into the service.
+1. Reads `ORBIT_MARKETPLACE_SOURCES_CONFIG/skills-mapping.yaml` to build the tenant-scoped in-memory registry.
+2. Builds a default `TokenProvider` from `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID`, and `GITHUB_APP_PRIVATE_KEY_PATH`. Also constructs a `TokenProviderPool` backed by this default, for sources that supply their own `credentialsRef`.
+3. Constructs the platform GitHub client (`internal/platform/clients/github`) and wires it into the `Crawler` with the pool.
 4. Passes the readiness probe. No preload is performed.
 
 ### Step 3 — User Opens the Marketplace
 
 1. The frontend calls `GET /v1/marketplaces`.
-2. `skills-service` reads the tenant's `marketplace-sources.json` and returns `name` only for each declared marketplace. No Redis or GitHub call.
-3. The frontend displays the marketplace selector — the dropdown shows names only.
+2. `skills-service` reads the tenant's sources from the in-memory registry and returns `name`, `marketplaceSlug`, and `link` for each. No Redis or GitHub call.
+3. The frontend displays the marketplace selector — the dropdown shows names; `marketplaceSlug` is stored for subsequent API calls.
 
 ### Step 4 — User Browses Skills
 
-1. The frontend calls `GET /v1/marketplaces/{marketplaceName}/skills`
+1. The frontend calls `GET /v1/marketplaces/{marketplaceSlug}/skills`.
 2. `skills-service` resolves `tenantID` from the authenticated caller.
-3. Looks up `marketplaceName` in the tenant's ConfigMap → `{ org, repo, branch }`. 
-4. Constructs the key `marketplace:{tenantID}:{org}:{repo}` and reads Redis.
-5. On a hit: deserialise, apply search + pagination, strip `Skill` and `Documents`, respond `200`.
-6. On a miss: crawl the repository via the platform GitHub client, write `[]Skill` back to Redis with a 12h TTL, apply search + pagination, strip, respond `200`.
+3. Matches `marketplaceSlug` against the tenant's registry → `MarketplaceSource { org, repoName }`.
+4. Constructs the key `marketplace:{tenantID}:{marketplaceSlug}` and reads Redis.
+5. On a hit: deserialise `[]SkillEntry`, apply search + server-cap, project to `SkillSummary`, respond `200`.
+6. On a miss: crawl the repository via the platform GitHub client, write `[]SkillEntry` back to Redis with the configured TTL, apply search + server-cap, respond `200`.
 7. If Redis is unavailable or GitHub is unreachable on a cold-cache miss, respond `503`.
 
 ### Step 5 — User Opens a Skill Detail Page
 
-1. The frontend calls `GET /v1/marketplaces/{marketplaceName}/skills/{skillName}`.
-2. `skills-service` performs the same `tenantID` resolution and `marketplaceName → {org, repo}` lookup as the list endpoint.
-3. Reads Redis; on a miss it runs the same cache-aside crawl the list endpoint does.
-4. Looks up `skillName` in the resulting `[]Skill`. If found, responds `200` with the full record; if not found in the crawled repository, responds `404`.
+1. The frontend calls `GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}`.
+2. `skills-service` performs the same `tenantID` resolution and `marketplaceSlug` registry validation.
+3. Reads Redis for `{skillSlug}`; on a hit, responds `200`.
+4. On a miss: ensures the marketplace list is populated (cache-aside for `[]SkillEntry` if needed), finds the matching `SkillEntry` by `SkillSlug`, fetches `SKILL.md` and all `DocPaths` in parallel, caches the `Skill`, responds `200`.
+5. If `skillSlug` is not found in the repository, responds `404`.
 
 ### Service Layout
 
 ```
 backend/internal/skills/
-├── models.go        — Skill, SkillFile domain types
-├── cache.go         — Redis read/write; tenant-scoped key helpers; TTL constants
-├── crawler.go       — GitHub Trees API walk; SKILL.md + resources fetch
-├── registry.go      — Reads marketplace-sources.json; hot-reload via fsnotify;
-│                       tenant → sources mapping
-├── token.go         — TokenProvider: GitHub App token mint and refresh
-├── service.go       — Cache-aside orchestration; pagination, search, field projection
-└── handlers.go      — HTTP controllers for marketplaces, list, and detail endpoints
+├── models.go                   — SkillEntry, Skill, SkillFile, SkillSummary, MarketplaceSource types
+├── cache.go                    — Redis read/write; two-level key helpers; TTL configuration
+├── crawler.go                  — GitHub Trees API walk; SKILL.md + adjacent .md fetch
+├── registry.go                 — Reads skills-mapping.yaml; parses GitHub URLs; tenant → sources mapping
+├── token.go                    — TokenProvider (single App) + TokenProviderPool (per-source credentialsRef)
+├── service.go                  — Cache-aside orchestration; search, server-cap, slug validation
+├── handlers_skills_entry.go    — HTTP controllers for marketplaces, list, and detail endpoints
+├── formatter.go                — SKILL.md frontmatter parser (ParseSkillFrontmatter)
+└── errors.go                   — Sentinel errors: ErrMarketplaceNotFound, ErrSkillNotFound,
+                                   ErrRedisUnavailable
 
 backend/internal/platform/clients/github/
 └── client.go        — Typed GitHub client embedding httpclient.Base
@@ -532,7 +606,7 @@ backend/internal/operator/
                                   renders orbit-skill-marketplace-sources ConfigMap
 ```
 
-The GitHub HTTP client lives under `internal/platform/clients/github/` because the platform-client convention requires it. The feature package supplies GitHub App semantics (`TokenProvider`) but never constructs its own HTTP client.
+The GitHub HTTP client lives under `internal/platform/clients/github/` because the platform-client convention requires it. The feature package supplies GitHub App semantics (`TokenProvider`, `TokenProviderPool`) but never constructs its own HTTP client.
 
 ### API Style
 
@@ -541,13 +615,13 @@ REST is used for V1. The Marketplace has a small, well-defined set of operations
 ### Delivery Phases
 
 **Phase 1 — Configuration and platform client**
-Set up `skills-service` skeleton, ConfigMap and Secret mounts, `registry.Registry` loading from `marketplace-sources.json` with tenant scoping, `TokenProvider` with GitHub App token mint and cache, and `internal/platform/clients/github`. Service starts, reads credentials, and can make authenticated calls to the GitHub Trees API and `raw.githubusercontent.com`.
+Set up `skills-service` skeleton, ConfigMap and Secret mounts, `registry.Registry` loading from `skills-mapping.yaml` with tenant scoping, `TokenProvider` / `TokenProviderPool` with GitHub App token mint and cache, and `internal/platform/clients/github`. Service starts, reads credentials, and can make authenticated calls to the GitHub Trees API and `raw.githubusercontent.com`.
 
 **Phase 2 — Cache-aside read path**
-Implement `cache.go`, `crawler.go`, and `service.go`: tenant-scoped Redis key helpers, `SKILL.md` and `resources/` crawl, `[]Skill` write to Redis on miss, and the cache-aside orchestration used by the handlers.
+Implement `cache.go`, `crawler.go`, and `service.go`: tenant-scoped Redis key helpers using `{org}__{repo}` marketplace slugs, `SKILL.md` and adjacent `.md` crawl with `{marketplaceSlug}__{nameSlug}` skill slugs, two-level write to Redis on miss, and the cache-aside orchestration used by the handlers.
 
 **Phase 3 — API endpoints**
-Implement `GET /v1/marketplaces` (returns names only), `GET /v1/marketplaces/{marketplaceName}/skills` (list, search, offset/limit pagination), and `GET /v1/marketplaces/{marketplaceName}/skills/{skillName}` (full detail). Wire the `marketplaceName → {org, repo}` ConfigMap lookup and the status-code semantics (`200`/`404`/`503`) as defined above. Wire the BFF proxy. Frontend can populate the selector, browse, and open skills end to end.
+Implement `GET /v1/marketplaces` (returns name, marketplaceSlug, link), `GET /v1/marketplaces/{marketplaceSlug}/skills` (list, search, server-side cap at 200), and `GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}` (full detail). Wire the `marketplaceSlug` → registry → `MarketplaceSource` lookup and the status-code semantics (`200`/`404`/`503`) as defined above. Wire the BFF proxy. Frontend can populate the selector, browse, and open skills end to end.
 
 **Phase 4 (deferred) — Stampede protection and/or startup preload**
 Revisit if metrics show duplicate crawls on cold-cache bursts, or if the first-request-after-expiry latency turns out to be a real user problem. Both are additive to the cache-aside design and require no changes to the API contract.
@@ -558,4 +632,4 @@ No migration is required — `skills-service` is a new service with no existing 
 
 ---
 
-**Last Updated:** 2026-09-17
+**Last Updated:** 2026-10-13

@@ -55,7 +55,9 @@ EOF
 #
 #   dockerfile  Path to the Dockerfile, relative to repo root.
 #   context     Build context, relative to repo root.
-#   build_arg   Optional --build-arg, KEY=VALUE; empty if not needed.
+#   build_arg   Optional --build-arg entries, space-separated KEY=VALUE pairs; empty if
+#               not needed. {sha} is the git SHA and {go_version} is GO_VERSION
+#               from versions.hcl.
 #   image       Image name (without tag); IMAGE=orbit-foo → orbit-foo:latest.
 #   namespace   Cluster namespace. Use {tenant} as a placeholder.
 #   workload    Workload kind/name pair (deployment/orbit-foo or statefulset/{slug}),
@@ -197,6 +199,18 @@ workload=deployment/orbit-triggers
 restart=true
 EOF
       ;;
+    skills-service)
+      cat <<'EOF'
+dockerfile=backend/Dockerfile
+context=backend
+build_arg=SERVICE=skills-service
+image=orbit-skills-service
+values_key=skillsService
+namespace=orbit-system
+workload=deployment/orbit-skills-service
+restart=true
+EOF
+      ;;
     tool-gateway)
       # The publisher runs the same orbit-tool-gateway image in a different mode,
       # so it must be rolled with the gateway or it keeps serving the old build.
@@ -265,13 +279,26 @@ restart=true
 tenant_default=example
 EOF
       ;;
+    sandbox-mount)
+      # A chart DaemonSet in its own namespace, rolled by re-applying the orbit release.
+      cat <<'EOF'
+dockerfile=backend/Dockerfile.sandbox-mount
+context=backend
+build_arg=
+image=orbit-sandbox-mount
+values_key=sandboxMount
+namespace=
+workload=release
+restart=true
+EOF
+      ;;
     sandbox-base)
       # Sandbox pods are created on demand and have no long-lived workload. The
       # operator resolves the new digest and the next sandbox picks it up.
       cat <<'EOF'
 dockerfile=backend/Dockerfile.sandbox-exec
 context=backend
-build_arg=SANDBOX_BASE_VERSION={sha}
+build_arg=SANDBOX_BASE_VERSION={sha} GO_VERSION={go_version}
 image=kora-sandbox-base
 namespace=
 workload=on-demand
@@ -295,10 +322,12 @@ frontend            (deployment, orbit-system)
 orbit-mcp           (deployment, orbit-system)
 tool-gateway        (deployment, orbit-system; also rolls the publisher)
 orbit-triggers      (deployment, orbit-system)
+skills-service      (deployment, orbit-system)
 migrate             (hook Job; re-applies the orbit release so the schema migration runs)
 operator            (deployment, orbit-system)
 example             (deployment, orbit-tenant-<TENANT>)
 session-manager     (statefulset, orbit-tenant-<TENANT>; --slug to override workload name)
+sandbox-mount       (node agent DaemonSet; re-applies the orbit release)
 sandbox-base        (build-only; picked up by next sandbox)
 EOF
 }
@@ -351,6 +380,12 @@ pin_workload() {
     kubectl set image "$workload" \
       "$container_name=orbit-registry:5001/$IMAGE@$DIGEST" \
       -n "$NAMESPACE"
+    # Mark an agent StatefulSet as pinned so the orbit-agents reconcile keeps
+    # this image instead of moving it to the release image.
+    if [ "$kind" = "statefulset" ]; then
+      kubectl annotate "$workload" orbit.io/session-manager-image-pinned=true \
+        --overwrite -n "$NAMESPACE"
+    fi
   else
     log "Restarting $workload in $NAMESPACE (digest unavailable)..."
     kubectl rollout restart "$workload" -n "$NAMESPACE"
@@ -501,7 +536,11 @@ if [ "$NO_BUILD" -eq 0 ]; then
   log "Building $IMAGE:$GIT_SHA from $DOCKERFILE (context=$CONTEXT)..."
   # The frontend shows the version it was built from.
   build_args=(--build-arg "ORBIT_VERSION=$GIT_SHA")
-  if [ -n "$BUILD_ARG" ]; then build_args+=(--build-arg "${BUILD_ARG//\{sha\}/$GIT_SHA}"); fi
+  GO_VERSION="$(sed -n 's/^GO_VERSION *= *"\(.*\)"/\1/p' versions.hcl)"
+  for arg in $BUILD_ARG; do
+    arg="${arg//\{sha\}/$GIT_SHA}"
+    build_args+=(--build-arg "${arg//\{go_version\}/$GO_VERSION}")
+  done
   docker build "${build_args[@]+"${build_args[@]}"}" \
     -t "$IMAGE:latest" \
     -t "$IMAGE:$GIT_SHA" \

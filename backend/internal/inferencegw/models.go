@@ -366,6 +366,7 @@ var (
 	ErrRoutingFailed         = errors.New("routing failed: no suitable provider/model found")
 	ErrProviderError         = errors.New("provider returned an error")
 	ErrInvalidRequest        = errors.New("invalid inference request")
+	ErrUnknownCapability     = errors.New("unknown model capability")
 	ErrTokenParseFailed      = errors.New("failed to parse platform token")
 	ErrUsageRecordNotFound   = errors.New("inference usage record not found")
 	ErrVirtualModelNotFound  = errors.New("virtual model not found")

@@ -2,7 +2,7 @@
 
 /** @tier 3 — mcp-gateway-scoped. A server's identity model, with an explainer. */
 
-import { Badge, Icon, Stack, Tooltip, TooltipContent, TooltipTrigger } from '@orbit/terra';
+import { Badge, Icon, Stack, Tooltip, TooltipContent, TooltipTrigger } from '@orbit/hades';
 
 interface IdentityBadgeProps {
   callerIdentity: string;

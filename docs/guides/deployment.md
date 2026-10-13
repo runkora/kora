@@ -105,18 +105,71 @@ agents:
     mode: capacity
     replicas: 1
     priority: -10          # below real agent workloads
-    resources:             # reserved per replica
-      requests: { cpu: "1", memory: 4Gi }
-      limits: { cpu: "1", memory: 4Gi }
 ```
 
 Placement of sandbox warmers follows `agents.workloads.sandbox`.
 
-`resources` is the capacity each placeholder reserves on a node. Leave at default, or raise to hold a larger warm node for a heavier sandbox image.
+Each placeholder reserves one default sandbox pod: the default size, 1Gi of disk and the sandbox sidecars. Set `resources` to reserve a different amount. It must cover a sandbox pod's total requests.
 
 `replicas` is how many warm nodes you need.
 
 To keep an image pulled on a pool that does not scale to zero, set `warm` on its `SandboxImage`.
+
+#### Scale-out sandboxes
+
+A scale-out install runs sandboxes on their own node pool with a `ReadWriteMany` workspace. Package installs and builds are slow on the network filesystem behind that workspace. Set `sandboxMount.enabled` to give every sandbox a working folder on its node's local disk at `/workspaces/<run>/sandbox`. The agent's file tools and the sandbox see the same files in that folder, and the folder ends with the sandbox.
+
+```yaml
+agents:
+  workspace:
+    storageClassName: shared-files   # a ReadWriteMany StorageClass
+    accessModes:
+      - ReadWriteMany
+  workloads:
+    sandbox:
+      nodeSelector: { workload-tier: orbit-sandbox }
+sandboxMount:
+  enabled: true
+```
+
+The chart deploys the node agent `orbit-sandbox-mount` as a privileged DaemonSet in the `orbit-sandbox-mount` namespace. The agent exports each sandbox's folder with the kernel NFS server to its session-manager's node and mounts it into the running session-manager pod.
+
+The cluster must provide:
+
+*   A node kernel with the NFS server and NFSv4 client modules.
+*   Admission for a privileged pod that uses the host network and the host PID namespace.
+*   TCP `sandboxMount.port` (default 20490) open from session-manager nodes to sandbox nodes. NFS uses no other port.
+
+Check each requirement before you enable the feature:
+
+1.  **Check Privileged Admission:** Run a server-side dry run of a privileged pod in a namespace at the privileged Pod Security level.
+
+    ```bash
+    kubectl create namespace orbit-sandbox-mount
+    kubectl label namespace orbit-sandbox-mount pod-security.kubernetes.io/enforce=privileged
+    kubectl -n orbit-sandbox-mount run privileged-check --image=busybox --restart=Never --dry-run=server \
+      --overrides='{"spec":{"hostNetwork":true,"hostPID":true,"containers":[{"name":"privileged-check","image":"busybox","securityContext":{"privileged":true}}]}}'
+    ```
+
+2.  **Check the NFS Server Module:** Load the module on a sandbox node. A zero exit status means the kernel has the NFS server.
+
+    ```bash
+    kubectl debug node/<sandbox-node> -it --profile=sysadmin --image=busybox -- chroot /host modprobe nfsd
+    ```
+
+3.  **Check the NFS Port:** Connect from a session-manager node to the port on a sandbox node. A refused connection means the port is open. A timeout means a firewall drops it.
+
+    ```bash
+    kubectl debug node/<session-manager-node> -it --image=busybox -- nc -z -v -w 3 <sandbox-node-address> 20490
+    ```
+
+Leave `sandboxMount.enabled` off on a platform that fails a check. Sandboxes then work on the shared workspace volume.
+
+If the session-manager's node cannot reach the port, the sandbox fails to start with "the node agent cannot reach the NFS port on the sandbox node". The node agent's log on the session-manager's node lists the port and both nodes.
+
+The DaemonSet carries the sandbox and session-manager tolerations plus any in `sandboxMount.tolerations`. Set `sandboxMount.createNamespace: false` to run it in a namespace you manage.
+
+NFS does not authenticate callers. Each folder is exported only to its session-manager's node address, and the tenant NetworkPolicies deny agent and sandbox pods the NFS port. A host-network workload, or a pod whose traffic your CNI masquerades to the node address, can still reach the export. Restrict host network access to trusted system workloads, and deny other workloads egress to node addresses on `sandboxMount.port`.
 
 ### Sandbox images and environments
 
@@ -152,16 +205,47 @@ The `Valid` condition states why the operator rejected an image. An environment 
 
 The operator keeps a `SandboxImage` named `kora-base` in every tenant namespace. It points at `agents.config.sandboxImage`, and `agents.sandboxImages.warmBase` sets its `warm` flag. Every tenant reconcile restores it.
 
+kora also publishes three bundled images built on the base image, and the operator registers each enabled one in every tenant namespace:
+
+*   **`kora-go`:** `kora-sandbox-go`, with `golangci-lint`, `buf` and `protoc`.
+*   **`kora-python`:** `kora-sandbox-python`, with `ruff` and `pytest`.
+*   **`kora-node`:** `kora-sandbox-node`, with Node LTS and `pnpm`.
+
+Each one is enabled with `warm: false` by default. An empty `image` uses the release image from `global.imageRegistry`. Set `image` to a mirror or to your own build:
+
+```yaml
+agents:
+  sandboxImages:
+    bundled:
+      go: { enabled: true, warm: true, image: "" }
+      python: { enabled: true, warm: false, image: "" }
+      node: { enabled: false }
+```
+
+Disabling a bundled image deletes its `SandboxImage` from every tenant namespace. An environment that selects it can no longer start a sandbox, and the agent receives a message that the image is not registered. Running sandboxes keep running. The operator changes only the bundled `SandboxImage` resources it created. If a tenant registers its own `SandboxImage` under a bundled name, the operator leaves it in place, does not register the bundled image in that namespace, and logs the conflict.
+
 An environment combines a sandbox image with a size, egress hosts and connectors. Users with `agents:environments:write` create environments through the API or the Environments page and attach them to agents. An agent with no environment runs its sandboxes on `kora-base` at the default size. Helm values set the default size and the largest size an environment can request:
 
 ```yaml
 agents:
   environments:
     defaultSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
-    maxSize: { cpu: "8", memory: 16Gi, disk: 50Gi }
+    maxSize: { cpu: "2", memory: 4Gi, disk: 10Gi }
 ```
 
-`disk` sizes a node-local volume in each sandbox that holds the Go, npm and pip caches and user-level tool installs. The repository checkout stays on the shared workspace.
+`disk` sizes a node-local volume in each sandbox that holds its `HOME`, `TMPDIR`, the Go, npm and pip caches, user-level tool installs and, with `sandboxMount.enabled`, its working folder.
+
+The sandbox container gets exactly its environment's size. The pod also runs sidecars (`operator.injection.sandboxSidecars`, 900m CPU and 320Mi memory by default) and 1Gi of scratch disk on top of the size. `maxSize` starts equal to `defaultSize`. To offer larger sizes, set each `maxSize` field to the largest value that fits one sandbox node:
+
+```text
+maxSize.cpu    = node allocatable CPU     - DaemonSet CPU requests    - sidecar CPU
+maxSize.memory = node allocatable memory  - DaemonSet memory requests - sidecar memory
+maxSize.disk   = node allocatable ephemeral storage - 1Gi
+```
+
+For example, a node with 3900m CPU, 14Gi memory and 20Gi ephemeral storage allocatable, running DaemonSets that request 500m CPU and 1Gi memory, holds a sandbox of up to 2.5 CPU, 12.6Gi memory and 19Gi disk. Round each value down to a size you want to offer, such as `{ cpu: "2", memory: 12Gi, disk: 18Gi }`.
+
+`kubectl describe node <node>` shows the node's allocatable resources and the requests of the pods on it. A run on a size that fits no node fails with the scheduler's reason.
 
 The operator needs `agents.sandboxImages.registryPorts` for a registry on a port other than 443. `agents.sandboxImages.registryMirrors` maps a registry host in image references to the host the operator reads from, as the nodes' registry mirrors do. A mirror given as `http://host` is read over plain HTTP, such as the local k3d registry.
 
@@ -249,6 +333,8 @@ config:
   redis:
     host: redis.example.internal
     port: 6379
+    tls:
+      caSecret: redis-ca      # only for a private CA
   platformSecretName: orbit-secrets
 
 networkPolicy:
@@ -266,6 +352,8 @@ ingressGateway:
   service:
     type: LoadBalancer
 ```
+
+Redis TLS is on by default. Set `config.redis.tls.enabled: false` for a Redis that serves plaintext.
 
 `global` holds the values every service shares: trust domain, image registry and tag, log format, Postgres SSL mode, and OTLP settings.
 

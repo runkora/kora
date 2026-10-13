@@ -2,7 +2,7 @@
 
 /** @tier 3 — triggers-scoped. Fleet health at a glance, above the trigger list. */
 
-import { Grid, Icon, StatCard } from '@orbit/terra';
+import { Grid, Icon, StatCard } from '@orbit/hades';
 import type { DeliveryRow, TriggerRow } from '../_types';
 import { fleetStats } from '../_types/fleet';
 

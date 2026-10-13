@@ -2,7 +2,7 @@
  * @tier 3 — policy scoped. Navigation card with icon, title, and description.
  * @promote-to-tier-2 if: another feature overview section needs nav/shortcut cards.
  */
-import { Card, CardContent, CardHeader, CardTitle, Text } from '@orbit/terra';
+import { Card, CardContent, CardHeader, CardTitle, Text } from '@orbit/hades';
 import Link from 'next/link';
 
 export interface QuickLinkCardProps {

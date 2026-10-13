@@ -219,7 +219,7 @@ The sidebar becomes shorter and cleaner — only the Control Plane, Policy, and 
 
 **Why not chosen:**
 - Still adds clutter and signals incomplete features to users.
-- Tooltip affordance for nav items is not in the Terra design system.
+- Tooltip affordance for nav items is not in the Hades design system.
 
 ### Alternative 2: Keep Security and System groups but hide all items via scope guards
 
@@ -283,4 +283,4 @@ The Phase 1 dashboard met the goal of showing real data, but in practice it was 
 
 - [ADR: Nav Cleanup and Live Dashboard](../adr/2026-06-19-nav-cleanup-and-live-dashboard.md)
 - [ADR: Frontend Scaffolding and Toolchain](../adr/2026-03-17-frontend-scaffolding-and-toolchain.md)
-- [ADR: Terra Design System](../adr/2026-03-25-terra-frontend-design-system.md)
+- [ADR: Hades Design System](../adr/2026-03-25-terra-frontend-design-system.md)

@@ -5,7 +5,7 @@
 # can run in the same container — framework selection stays a runtime concern.
 
 # ── Build stage ───────────────────────────────────────────────────────────────
-FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS builder
 
 WORKDIR /app
 
@@ -63,7 +63,7 @@ RUN apk add --no-cache ca-certificates bash git curl
 #   - So orbit-shell (the sandbox-routing Bash proxy) is exposed under a "bash"
 #     basename via the symlink created below, and CLAUDE_CODE_SHELL points at it.
 # orbit-shell routes `-c` commands to the sandbox pod's gRPC exec server when
-# $WORKSPACE/.sandbox/endpoint exists, and otherwise execs the real /bin/bash
+# $WORKSPACE/.sandbox-exec/endpoint exists, and otherwise execs the real /bin/bash
 # (snapshot generation and any pre-provision commands run locally).
 ENV SHELL=/opt/orbit/shell/bash
 ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash

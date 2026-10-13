@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Badge, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/terra';
+import { Badge, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { adapterLabel } from '../_types';
 import type { ConnectionRow } from '../_types';

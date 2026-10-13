@@ -220,9 +220,17 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.Handle("GET /internal/session/{runID}/sandbox", c.handleGetSandbox)
 }
 
-// handleHealth returns liveness + active session count.
+// handleHealth is the readiness probe with the active session count. A draining pod answers 503.
 func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
+	// A draining pod fails readiness so new runs go to another pod.
+	if c.registry.Draining() {
+		api.JSON(ctx, w, c.logger, http.StatusServiceUnavailable, map[string]any{
+			"status":          "draining",
+			"active_sessions": c.registry.ActiveCount(),
+		})
+		return
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
 		"status":          "ok",
 		"active_sessions": c.registry.ActiveCount(),
@@ -245,12 +253,16 @@ type CreateSessionRequest struct {
 	// MCPServers are the distinct MCP servers the agent has tool grants on; one
 	// governed endpoint (/v1/mcp/<server>) is provisioned per entry.
 	MCPServers []string `json:"mcp_servers"`
-	// ProvisionSandbox provisions this run's sandbox immediately instead of
-	// waiting for the agent to ask for one.
-	ProvisionSandbox bool `json:"provision_sandbox"`
 	// Guardrails are the run's thresholds from orbit-agents; zero fields take
 	// this pod's defaults (docs/adr/2026-09-29-agent-run-guardrails.md).
 	Guardrails RunGuardrails `json:"guardrails"`
+	// IdleTimeoutSecs is how long the run may stay idle before its session
+	// closes, chosen by orbit-agents from how the run started. Zero takes this
+	// pod's session.idleTimeoutSecs.
+	IdleTimeoutSecs int `json:"idle_timeout_secs"`
+	// Triggered marks a run a trigger started. A turn that errors with no
+	// output fails such a run, until a person messages it.
+	Triggered bool `json:"triggered"`
 }
 
 // RunGuardrails is the wire form of a run's guardrails.
@@ -275,6 +287,15 @@ func (g RunGuardrails) guardrails() Guardrails {
 		WaitRearmWarn:            g.WaitRearmWarn,
 		WaitRearmPause:           g.WaitRearmPause,
 	}
+}
+
+// idleTimeoutFromSecs converts a wire timeout. Zero and negative values mean
+// unset, and stay zero for the registry's fallback.
+func idleTimeoutFromSecs(secs int) time.Duration {
+	if secs <= 0 {
+		return 0
+	}
+	return time.Duration(secs) * time.Second
 }
 
 // handleCreateSession starts an agent subprocess for the given run.
@@ -384,9 +405,16 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		Model:        req.Model,
 		InferenceURL: inferenceURL,
 		Guardrails:   req.Guardrails.guardrails(),
+		IdleTimeout:  idleTimeoutFromSecs(req.IdleTimeoutSecs),
+		Triggered:    req.Triggered,
 	}
 
 	if err := c.registry.Create(ctx, cfg); err != nil {
+		if errors.Is(err, ErrDraining) {
+			apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "session-manager is draining", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		if errors.Is(err, ErrSessionExists) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "session already exists", map[string]any{"run_id": req.RunID})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -397,30 +425,7 @@ func (c *Controller) handleCreateSession(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if req.ProvisionSandbox {
-		c.provisionSandboxAhead(ctx, req.RunID)
-	}
-
 	api.JSON(ctx, w, c.logger, http.StatusCreated, map[string]any{"run_id": req.RunID})
-}
-
-// provisionSandboxAhead provisions the run's sandbox up front, so the first
-// command does not pay the pod's cold start.
-//
-// Runs in the background: provisioning waits on pod readiness and the egress
-// canary, which takes minutes, and the session is created either way. A failure
-// is logged only; the agent can still request one itself. The context is
-// detached from the request, which ends with this handler.
-func (c *Controller) provisionSandboxAhead(ctx context.Context, runID string) {
-	bgCtx := context.WithoutCancel(ctx)
-	go func() {
-		if _, err := c.registry.ProvisionSandbox(bgCtx, runID, true, "", false); err != nil {
-			c.logger.Warn(bgCtx, "Pre-provisioning the sandbox failed; the agent can still request one",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "error", Value: err.Error()},
-			)
-		}
-	}()
 }
 
 // prepareRun rejects a request no runner can serve and returns the run's token,
@@ -505,6 +510,11 @@ func (c *Controller) requireRunToken(w http.ResponseWriter, r *http.Request, run
 // SendMessageRequest is the body for POST /session/{runID}/messages.
 type SendMessageRequest struct {
 	Content string `json:"content"`
+	// IdleTimeoutSecs, when above zero, replaces the session's idle timeout from
+	// this message on: orbit-agents sets it when a person messages a trigger run.
+	IdleTimeoutSecs int `json:"idle_timeout_secs"`
+	// FromPerson marks a message a person sent, which moves a trigger run to a person's.
+	FromPerson bool `json:"from_person"`
 }
 
 // handleSendMessage delivers a user message to an active session.
@@ -522,7 +532,13 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The switch comes before delivery, so a turn that ends while the message
+	// is on its way already belongs to a person.
+	wasTriggered := req.FromPerson && c.registry.SetTriggered(runID, false)
 	if err := c.registry.Send(ctx, runID, req.Content); err != nil {
+		if wasTriggered {
+			c.registry.SetTriggered(runID, true)
+		}
 		if errors.Is(err, ErrSessionNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "session not found", map[string]any{"run_id": runID})
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
@@ -531,6 +547,15 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 		apiErr := api.InternalError(api.ErrCodeInternalError, "failed to send message", nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
+	}
+	// Only a delivered message changes the timeout. The turn it starts is far from over.
+	if req.IdleTimeoutSecs > 0 {
+		if err := c.registry.SetIdleTimeout(runID, idleTimeoutFromSecs(req.IdleTimeoutSecs)); err != nil {
+			c.logger.Warn(ctx, "Failed to apply the idle timeout after a message",
+				logging.Field{Key: "run_id", Value: runID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
 	}
 
 	api.NoBody(w, http.StatusAccepted)
@@ -641,7 +666,7 @@ func (c *Controller) serveSandbox(w http.ResponseWriter, r *http.Request, replac
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, false, req.Environment, replace)
+	endpoint, err := c.registry.ProvisionSandbox(ctx, runID, req.Environment, replace)
 	if err != nil {
 		c.writeSandboxError(ctx, w, runID, err, "failed to provision sandbox")
 		return
@@ -675,6 +700,10 @@ func (c *Controller) writeSandboxError(ctx context.Context, w http.ResponseWrite
 		api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 	case errors.Is(err, ErrSandboxLost):
 		apiErr := api.ServiceUnavailableError(runErrorSandboxLost, c.registry.sandboxLostMessage(runID), nil)
+		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
+	case errors.Is(err, errSandboxFolder):
+		// The reason is fixed text that names no node, address or port.
+		apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, err.Error(), nil)
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 	case errors.Is(err, ErrEnvironmentRejected):
 		apiErr := api.ConflictError(api.ErrCodeConflict, strings.TrimPrefix(err.Error(), ErrEnvironmentRejected.Error()+": "), nil)

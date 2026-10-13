@@ -3,20 +3,20 @@ const rule = {
     type: 'problem',
     docs: {
       description:
-        'Disallow raw <ul>, <ol>, <li> elements. Use <List> and <ListItem> from @orbit/terra.',
+        'Disallow raw <ul>, <ol>, <li> elements. Use <List> and <ListItem> from @orbit/hades.',
     },
     messages: {
       noRawUl:
-        'Raw <ul> is not allowed. Use <List> from @orbit/terra for semantic lists, ' +
+        'Raw <ul> is not allowed. Use <List> from @orbit/hades for semantic lists, ' +
         'or <Stack> if used as a pure layout container. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'See frontend/docs/reference/hades-design-system.md',
       noRawOl:
-        'Raw <ol> is not allowed. Use <List ordered> from @orbit/terra for ordered lists, ' +
+        'Raw <ol> is not allowed. Use <List ordered> from @orbit/hades for ordered lists, ' +
         'or <Stack> if used as a pure layout container. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'See frontend/docs/reference/hades-design-system.md',
       noRawLi:
-        'Raw <li> is not allowed. Use <ListItem> from @orbit/terra. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'Raw <li> is not allowed. Use <ListItem> from @orbit/hades. ' +
+        'See frontend/docs/reference/hades-design-system.md',
     },
     schema: [],
   },

@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
 	execpb "github.com/clear-route/orbit/internal/agents/sandbox/proto"
+	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -66,6 +69,8 @@ const stopNote = "[Orbit: the user stopped your previous turn before it finished
 var (
 	ErrSessionNotFound = errors.New("session not found")
 	ErrSessionExists   = errors.New("session already exists")
+	// ErrDraining refuses a new session on a pod that is shutting down.
+	ErrDraining = errors.New("session-manager is draining")
 	// ErrSandboxIncomplete means orbit-agents answered without both halves of the
 	// descriptor. An endpoint with no token cannot be used, so it is not cached.
 	ErrSandboxIncomplete = errors.New("sandbox response missing endpoint or exec token")
@@ -86,6 +91,11 @@ type SessionConfig struct {
 	InferenceURL string
 	// Guardrails are this run's thresholds; unset fields take the registry's.
 	Guardrails Guardrails
+	// IdleTimeout is how long the session may sit idle before it closes. Zero
+	// takes the registry's, from session.idleTimeoutSecs.
+	IdleTimeout time.Duration
+	// Triggered marks a run a trigger started.
+	Triggered bool
 }
 
 // session represents one active run backed by a CLI subprocess.
@@ -99,23 +109,33 @@ type session struct {
 	inferenceURL     string
 	summarizeOnce    sync.Once   // ensures only the first user message triggers summarization
 	intentionalClose atomic.Bool // true when closed by timeout or explicit request
+	cutByShutdown    atomic.Bool // true when a pod drain hit its deadline, which fails the run
 	interruptClose   atomic.Bool // true when stopped by user interrupt (SIGINT) — leaves run idle, not completed
 	isIdle           atomic.Bool // true when the agent has completed a turn and is waiting for input
 	budgetExhausted  atomic.Bool // true when the runner surfaced a BUDGET_EXCEEDED rejection — run ends budget_exhausted, not failed
 	stoppedByUser    atomic.Bool // true on a session resumed after an interrupt, until the next message carries stopNote
+	// idleTimeout is how long the session may sit idle, in nanoseconds. A person
+	// messaging a trigger run changes it, so it is read when the timer is armed.
+	idleTimeout atomic.Int64
 	// wake tells drain a message was sent, so the idle timer stops before the
 	// turn's first event: a provider retrying for minutes emits no turn activity.
-	wake chan struct{}
+	wake chan wakeKind
+	// held is set when a turn ended with work in flight, so no idle timer is armed.
+	// activity counts the turn events seen, to tell a quiet session from a waking one.
+	held     atomic.Bool
+	activity atomic.Int64
 	// sandbox is this run's descriptor, once provisioned. Kept in memory because
 	// the copy in the workspace is one the agent can delete.
 	sandbox atomic.Value // Sandbox
 	// sandboxLost makes provision requests fail fast once the sandbox could not
 	// be replaced, until the user's next message. lostAttempts is how many
 	// attempts that took; sandboxEpoch counts user messages, so a retry that
-	// fails after the user replied does not re-block them.
+	// fails after the user replied does not re-block them. lostReason is the
+	// scheduler's reason when no node could place the sandbox.
 	guardrails   Guardrails // this run's thresholds, before the registry's fallback
 	sandboxLost  atomic.Bool
 	lostAttempts atomic.Int64
+	lostReason   atomic.Value // string
 	sandboxEpoch atomic.Int64
 	lostMu       sync.Mutex // orders userReplied against markSandboxLost
 	provisionMu  sync.Mutex
@@ -127,6 +147,11 @@ type session struct {
 	// failure is the run_error teardown records when the session closed to fail
 	// the run. Unset means the process exited on its own.
 	failure atomic.Pointer[RunErrorPayload]
+	// failureSent is set when the run already reported why it failed.
+	failureSent atomic.Bool
+	// triggered is set for a run a trigger started, until a person messages it.
+	// A turn that errors with no output fails only such a run.
+	triggered atomic.Bool
 }
 
 // Registry manages all active sessions for this session-manager pod.
@@ -137,8 +162,18 @@ type Registry struct {
 	summarizer  *summarizer
 	idleTimeout time.Duration
 	guardrails  Guardrails
-	mu          sync.RWMutex
-	sessions    map[string]*session
+	// mountInfo lists this container's mounts, where the node agent's sandbox folder mounts appear.
+	mountInfo string
+	// folderWait bounds the wait for a sandbox folder mount, and reportGrace how long
+	// a node agent failure report must stay before it ends the wait.
+	folderWait  time.Duration
+	reportGrace time.Duration
+	// workGrace is workIdleGrace, a field so tests can shorten it.
+	workGrace time.Duration
+	// draining is set on SIGTERM. The pod then takes no new sessions and fails readiness.
+	draining atomic.Bool
+	mu       sync.RWMutex
+	sessions map[string]*session
 }
 
 // NewRegistry creates a session registry.
@@ -150,6 +185,10 @@ func NewRegistry(logger logging.Logger, workspacesBase string, notifier Notifier
 		summarizer:  newSummarizer(logger),
 		idleTimeout: idleTimeout,
 		guardrails:  DefaultGuardrails(),
+		mountInfo:   "/proc/self/mountinfo",
+		folderWait:  sandboxFolderWait,
+		reportGrace: sandboxReportGrace,
+		workGrace:   workIdleGrace,
 		sessions:    make(map[string]*session),
 	}
 }
@@ -162,6 +201,9 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 
 	if _, exists := reg.sessions[cfg.RunID]; exists {
 		return ErrSessionExists
+	}
+	if reg.draining.Load() {
+		return ErrDraining
 	}
 
 	workDir := filepath.Join(reg.workspaces, cfg.RunID)
@@ -177,11 +219,13 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		runCtx:       runCtx,
 		cancel:       cancel,
 		done:         make(chan struct{}),
-		wake:         make(chan struct{}, 1),
+		wake:         make(chan wakeKind, 1),
 		model:        cfg.Model,
 		inferenceURL: cfg.InferenceURL,
 		guardrails:   cfg.Guardrails,
 	}
+	s.idleTimeout.Store(int64(positiveOr(cfg.IdleTimeout, reg.idleTimeout)))
+	s.triggered.Store(cfg.Triggered)
 	// Registered before the runner starts. Start spawns the agent, which calls
 	// back to /internal/runs/{id}/provision-sandbox, and that route answers only
 	// for runs this pod hosts — so the entry has to exist before the process that
@@ -202,6 +246,37 @@ func (reg *Registry) Create(ctx context.Context, cfg SessionConfig) error {
 		logging.Field{Key: "tenant_id", Value: cfg.TenantID},
 	)
 	return nil
+}
+
+// positiveOr returns d, or fallback when d is not positive.
+func positiveOr(d, fallback time.Duration) time.Duration {
+	if d > 0 {
+		return d
+	}
+	return fallback
+}
+
+// SetIdleTimeout replaces a session's idle timeout. It applies the next time the
+// session goes idle; a timer already armed keeps its deadline, and a message
+// disarms it anyway.
+func (reg *Registry) SetIdleTimeout(runID string, d time.Duration) error {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	if !ok {
+		return ErrSessionNotFound
+	}
+	s.idleTimeout.Store(int64(positiveOr(d, reg.idleTimeout)))
+	return nil
+}
+
+// SetTriggered sets whether a run counts as started by a trigger and returns
+// the previous value. A person messaging a trigger run clears it.
+func (reg *Registry) SetTriggered(runID string, triggered bool) bool {
+	reg.mu.RLock()
+	s, ok := reg.sessions[runID]
+	reg.mu.RUnlock()
+	return ok && s.triggered.Swap(triggered)
 }
 
 // Send delivers a user text message to an existing session.
@@ -231,7 +306,7 @@ func (reg *Registry) Send(ctx context.Context, runID, text string) error {
 		return err
 	}
 	select {
-	case s.wake <- struct{}{}:
+	case s.wake <- wakeMessage:
 	default:
 	}
 	reg.userReplied(s)
@@ -332,6 +407,40 @@ func (reg *Registry) Close(ctx context.Context, runID string) error {
 	return nil
 }
 
+// Drain stops new sessions and returns when every session has ended or ctx ends.
+// The pod's termination grace period caps the wait.
+func (reg *Registry) Drain(ctx context.Context, poll time.Duration) {
+	reg.draining.Store(true)
+	ticker := time.NewTicker(poll)
+	defer ticker.Stop()
+	for reg.ActiveCount() > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+// CloseAll ends every session as failed. A drain that hits its deadline uses it.
+func (reg *Registry) CloseAll(ctx context.Context) {
+	reg.mu.RLock()
+	ids := slices.Collect(maps.Keys(reg.sessions))
+	for _, s := range reg.sessions {
+		s.cutByShutdown.Store(true)
+	}
+	reg.mu.RUnlock()
+	for _, id := range ids {
+		if err := reg.Close(ctx, id); err != nil && !errors.Is(err, ErrSessionNotFound) {
+			reg.logger.Warn(ctx, "close session at drain deadline failed",
+				logging.Field{Key: "run_id", Value: id}, logging.Field{Key: "error", Value: err.Error()})
+		}
+	}
+}
+
+// Draining reports whether the pod is shutting down.
+func (reg *Registry) Draining() bool { return reg.draining.Load() }
+
 // ActiveCount returns the number of currently active sessions.
 func (reg *Registry) ActiveCount() int {
 	reg.mu.RLock()
@@ -347,11 +456,14 @@ type Sandbox struct {
 	// CanaryHost is a host the agent may reach, probed before the sandbox is
 	// handed over. Empty when the agent has none, which skips the probe.
 	CanaryHost string `json:"canary_host,omitempty"`
+	// Folder is the sandbox pod's UID when the node agent mounts the sandbox's
+	// working folder into this pod. Empty when there is no folder to wait for.
+	Folder string `json:"folder,omitempty"`
 }
 
 // ProvisionSandbox requests orbit-agents to provision a sandbox pod for the
 // given run, then writes the returned gRPC endpoint and exec token under
-// $workspaces/{runID}/.sandbox/ so orbit-shell can discover both.
+// $workspaces/{runID}/.sandbox-exec/ so orbit-shell can discover both.
 //
 // The token goes in the run's workspace because Landlock already confines each
 // agent to its own directory, putting a sibling run's token out of reach.
@@ -369,7 +481,7 @@ type Sandbox struct {
 // answer or the wait runs out. An agent with no named host skips the probe. This eliminates the first-minute window where
 // connection-reset-by-peer errors from a still-warming istio-proxy / SPIRE SVID /
 // egress path cause git clone to fail and agents to fall back to git-init.
-func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead bool, environment string, replace bool) (string, error) {
+func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, environment string, replace bool) (string, error) {
 	// Only runs this pod hosts: loopback tells the /internal routes that the
 	// caller is in this pod, not which run it belongs to.
 	reg.mu.RLock()
@@ -384,30 +496,20 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	defer s.provisionMu.Unlock()
 
 	// A named environment or a replacement always asks orbit-agents.
-	if disk, ok := reg.sandboxFromDisk(runID); ok && environment == "" && !replace {
-		cached, token := disk.Endpoint, disk.ExecToken
-		if endpointAlive(cached) {
-			reg.logger.Info(ctx, "Sandbox endpoint cache hit",
-				logging.Field{Key: "run_id", Value: runID},
-				logging.Field{Key: "endpoint", Value: cached},
-			)
-			reg.rememberSandbox(runID, Sandbox{Endpoint: cached, ExecToken: token})
-			return cached, nil
+	if environment == "" && !replace {
+		if endpoint, ok, err := reg.cachedSandbox(ctx, runID); err != nil || ok {
+			return endpoint, err
 		}
-		reg.logger.Warn(ctx, "Cached sandbox endpoint is dead — re-provisioning",
-			logging.Field{Key: "run_id", Value: runID},
-			logging.Field{Key: "endpoint", Value: cached},
-		)
 	}
 
-	sandboxDir, endpointFile, tokenFile, pathsOK := reg.sandboxPaths(runID)
+	runDir, pathsOK := reg.runDir(runID)
 	if !pathsOK {
 		return "", fmt.Errorf("run id %q is not a single path segment", runID)
 	}
 
 	started := time.Now()
 	reg.sandboxStatus(ctx, runID, SandboxPhaseProvisioning, started, "")
-	sandbox, err := reg.provision(ctx, s, ahead, environment, replace)
+	sandbox, err := reg.provision(ctx, s, environment, replace)
 	if err != nil {
 		// The error names in-cluster addresses, and anyone who can read the run reads the event.
 		// A refused environment choice keeps its message for the agent.
@@ -415,11 +517,19 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		if errors.Is(err, ErrEnvironmentRejected) {
 			msg = err.Error()
 		}
+		if reason := unschedulableReason(err); reason != "" {
+			msg = reason
+		}
 		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, msg)
 		return "", err
 	}
 
 	reg.sandboxStatus(ctx, runID, SandboxPhasePodReady, started, "")
+
+	// The agent's file tools reach the sandbox folder only once the node agent has mounted it.
+	if err := reg.awaitFolderOrFail(ctx, runID, sandbox.Folder, started); err != nil {
+		return "", err
+	}
 
 	// Gate on egress readiness before handing the endpoint to the agent.
 	// The sandbox pod is Running (gRPC exec accepting connections) but the
@@ -443,7 +553,7 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 		// agent can still run local-only work. The agent will retry git operations
 		// on its own if they fail.
 	}
-	if err := writeSandboxDescriptor(sandboxDir, tokenFile, endpointFile, sandbox); err != nil {
+	if err := writeSandboxDescriptor(runDir, sandbox); err != nil {
 		reg.sandboxStatus(ctx, runID, SandboxPhaseFailed, started, "sandbox provisioning failed")
 		return "", err
 	}
@@ -452,6 +562,34 @@ func (reg *Registry) ProvisionSandbox(ctx context.Context, runID string, ahead b
 	reg.sandboxStatus(ctx, runID, egressPhase, started, egressNote)
 	reg.rememberSandbox(runID, sandbox)
 	return sandbox.Endpoint, nil
+}
+
+// cachedSandbox returns the run's sandbox from its descriptor when that sandbox
+// still answers, after its folder is mounted. ok is false when there is none.
+func (reg *Registry) cachedSandbox(ctx context.Context, runID string) (string, bool, error) {
+	disk, ok := reg.sandboxFromDisk(runID)
+	if !ok {
+		return "", false, nil
+	}
+	if !endpointAlive(disk.Endpoint) {
+		reg.logger.Warn(ctx, "Cached sandbox endpoint is dead, re-provisioning",
+			logging.Field{Key: "run_id", Value: runID},
+			logging.Field{Key: "endpoint", Value: disk.Endpoint},
+		)
+		return "", false, nil
+	}
+	// After a restart of this pod the node agent mounts the folder again. Wait for it.
+	if disk.Folder != "" {
+		if _, err := reg.awaitSandboxFolder(ctx, runID, disk.Folder); err != nil {
+			return "", false, err
+		}
+	}
+	reg.logger.Info(ctx, "Sandbox endpoint cache hit",
+		logging.Field{Key: "run_id", Value: runID},
+		logging.Field{Key: "endpoint", Value: disk.Endpoint},
+	)
+	reg.rememberSandbox(runID, disk)
+	return disk.Endpoint, true, nil
 }
 
 // ListEnvironments returns orbit-agents' list of the environments the run's agent may use.
@@ -467,15 +605,38 @@ func (reg *Registry) ListEnvironments(ctx context.Context, runID string) (json.R
 
 // writeSandboxDescriptor writes the exec token, then the endpoint: orbit-shell
 // keys off the endpoint, so it never sees one whose token is still missing.
-func writeSandboxDescriptor(dir, tokenFile, endpointFile string, sandbox Sandbox) error {
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+//
+// The files are written through an os.Root on the run's workspace. The run can
+// write its descriptor folder, and a symlink it plants there that leads out of
+// its workspace is refused, so this pod's writes never land in another run.
+func writeSandboxDescriptor(runDir string, sandbox Sandbox) error {
+	if err := os.MkdirAll(runDir, 0o700); err != nil {
+		return fmt.Errorf("create run workspace: %w", err)
+	}
+	root, err := os.OpenRoot(runDir)
+	if err != nil {
+		return fmt.Errorf("open run workspace: %w", err)
+	}
+	defer root.Close()
+	if err := root.MkdirAll(runfs.ExecDir, 0o700); err != nil {
 		return fmt.Errorf("create sandbox dir: %w", err)
 	}
-	if err := os.WriteFile(tokenFile, []byte(sandbox.ExecToken), 0o600); err != nil {
+	if err := root.WriteFile(filepath.Join(runfs.ExecDir, runfs.ExecTokenFile), []byte(sandbox.ExecToken), 0o600); err != nil {
 		return fmt.Errorf("write exec token: %w", err)
 	}
-	if err := os.WriteFile(endpointFile, []byte(sandbox.Endpoint), 0o600); err != nil {
+	if err := root.WriteFile(filepath.Join(runfs.ExecDir, runfs.EndpointFile), []byte(sandbox.Endpoint), 0o600); err != nil {
 		return fmt.Errorf("write endpoint: %w", err)
+	}
+	// The folder's sandbox pod UID, so a restarted session-manager can wait for its mount.
+	folderFile := filepath.Join(runfs.ExecDir, runfs.FolderFile)
+	if sandbox.Folder == "" {
+		if err := root.Remove(folderFile); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove sandbox folder record: %w", err)
+		}
+		return nil
+	}
+	if err := root.WriteFile(folderFile, []byte(sandbox.Folder), 0o600); err != nil {
+		return fmt.Errorf("write sandbox folder record: %w", err)
 	}
 	return nil
 }
@@ -494,20 +655,12 @@ func (reg *Registry) sandboxStatus(ctx context.Context, runID, phase string, sta
 	reg.pushEvent(context.WithoutCancel(ctx), runID, ev)
 }
 
-// provision gets a sandbox from orbit-agents. A pre-provision tries once, since
-// the agent can still ask later. An agent's request retries within the
+// provision gets a sandbox from orbit-agents. The request retries within the
 // guardrail, and a final failure marks the sandbox lost.
 //
 // The retries outlive the caller: Claude Code kills a Bash call after its own
 // timeout, and the outcome must still be recorded.
-func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, environment string, replace bool) (Sandbox, error) {
-	if ahead {
-		sandbox, err := reg.notifier.ProvisionSandbox(ctx, s.runID, true, environment, replace)
-		if err == nil && (sandbox.Endpoint == "" || sandbox.ExecToken == "") {
-			err = ErrSandboxIncomplete
-		}
-		return sandbox, err
-	}
+func (reg *Registry) provision(ctx context.Context, s *session, environment string, replace bool) (Sandbox, error) {
 	if s.sandboxLost.Load() {
 		return Sandbox{}, ErrSandboxLost
 	}
@@ -525,7 +678,7 @@ func (reg *Registry) provision(ctx context.Context, s *session, ahead bool, envi
 	if runCtx.Err() != nil || errors.Is(err, ErrEnvironmentRejected) {
 		return Sandbox{}, err
 	}
-	if !reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts, epoch) {
+	if !reg.markSandboxLost(context.WithoutCancel(ctx), s, attempts, unschedulableReason(err), epoch) {
 		return Sandbox{}, err
 	}
 	return Sandbox{}, fmt.Errorf("%w: %w", ErrSandboxLost, err)
@@ -580,36 +733,40 @@ func (reg *Registry) Sandbox(ctx context.Context, runID string) (Sandbox, bool, 
 	return sandbox, true, nil
 }
 
-// sandboxPaths returns where the run's sandbox descriptor lives, so the reader
-// and the writer cannot drift apart on the layout. ok is false for a run ID
-// that is not a single path segment; the segment used is the one filepath.Base
-// produced, so no caller's string can widen the path.
-func (reg *Registry) sandboxPaths(runID string) (dir, endpointFile, tokenFile string, ok bool) {
-	if !singleSegment(runID) {
-		return "", "", "", false
+// runDir returns the run's workspace directory, where its sandbox descriptor
+// lives. ok is false for a run ID that is not a single path segment.
+func (reg *Registry) runDir(runID string) (string, bool) {
+	if !runfs.IsRunID(runID) {
+		return "", false
 	}
-	dir = filepath.Join(reg.workspaces, runID, ".sandbox")
-	return dir, filepath.Join(dir, "endpoint"), filepath.Join(dir, "exec-token"), true
+	return filepath.Join(reg.workspaces, runID), true
 }
 
 // sandboxFromDisk reads the run's sandbox descriptor out of its workspace.
 // Both halves or neither: an endpoint without its token cannot be used, and a
 // half-written descriptor must not read as a usable sandbox.
 func (reg *Registry) sandboxFromDisk(runID string) (Sandbox, bool) {
-	_, endpointFile, tokenFile, ok := reg.sandboxPaths(runID)
+	dir, ok := reg.runDir(runID)
 	if !ok {
 		return Sandbox{}, false
 	}
-	endpoint, token := readTrimmed(endpointFile), readTrimmed(tokenFile)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return Sandbox{}, false
+	}
+	defer root.Close()
+	read := func(file string) string { return readTrimmedIn(root, filepath.Join(runfs.ExecDir, file)) }
+	endpoint, token := read(runfs.EndpointFile), read(runfs.ExecTokenFile)
 	if endpoint == "" || token == "" {
 		return Sandbox{}, false
 	}
-	return Sandbox{Endpoint: endpoint, ExecToken: token}, true
+	return Sandbox{Endpoint: endpoint, ExecToken: token, Folder: read(runfs.FolderFile)}, true
 }
 
-// readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
-func readTrimmed(path string) string {
-	data, err := os.ReadFile(path)
+// readTrimmedIn returns the trimmed contents of a file under root, or empty if it
+// cannot be read. A symlink out of root reads as empty.
+func readTrimmedIn(root *os.Root, name string) string {
+	data, err := root.ReadFile(name)
 	if err != nil {
 		return ""
 	}
@@ -742,11 +899,12 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 	var idleTimerC <-chan time.Time // nil = no timer armed (blocks in select)
 	var idleTimer *time.Timer
 
+	idleTimeout := func() time.Duration { return time.Duration(s.idleTimeout.Load()) }
 	startTimer := func() {
 		if idleTimer != nil {
 			idleTimer.Stop()
 		}
-		idleTimer = time.NewTimer(reg.idleTimeout)
+		idleTimer = time.NewTimer(idleTimeout())
 		idleTimerC = idleTimer.C
 		s.isIdle.Store(true)
 	}
@@ -754,7 +912,7 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 		startTimer()
 		reg.logger.Info(ctx, "Session idle timer armed",
 			logging.Field{Key: "run_id", Value: cfg.RunID},
-			logging.Field{Key: "idle_timeout", Value: reg.idleTimeout.String()},
+			logging.Field{Key: "idle_timeout", Value: idleTimeout().String()},
 		)
 	}
 	armIdle := func() {
@@ -767,7 +925,7 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 		}
 		reg.logger.Info(ctx, "Session idle timer armed",
 			logging.Field{Key: "run_id", Value: cfg.RunID},
-			logging.Field{Key: "idle_timeout", Value: reg.idleTimeout.String()},
+			logging.Field{Key: "idle_timeout", Value: idleTimeout().String()},
 		)
 	}
 	disarmIdle := func() {
@@ -790,6 +948,8 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 			)
 		}
 	}
+
+	go reg.watchWork(ctx, s)
 
 	events := s.runner.Events()
 	for {
@@ -827,13 +987,13 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 			reg.pushEvent(ctx, cfg.RunID, s.labelGuardStop(ev))
 			reg.applyLoopGuard(ctx, s, ev)
 
-		case <-s.wake:
-			disarmIdle()
+		case kind := <-s.wake:
+			handleWake(kind, armIdle, disarmIdle)
 
 		case <-idleTimerC:
 			reg.logger.Info(ctx, "Session idle timeout — closing",
 				logging.Field{Key: "run_id", Value: cfg.RunID},
-				logging.Field{Key: "idle_timeout", Value: reg.idleTimeout.String()},
+				logging.Field{Key: "idle_timeout", Value: idleTimeout().String()},
 			)
 			s.intentionalClose.Store(true)
 			s.cancel()
@@ -841,6 +1001,12 @@ func (reg *Registry) drain(ctx context.Context, s *session, cfg SessionConfig, s
 			return
 		}
 	}
+}
+
+// endedFailed reports whether the run of a session that ended failed: it was not
+// closed on purpose, or a pod drain cut it off.
+func (s *session) endedFailed() bool {
+	return !s.intentionalClose.Load() || s.cutByShutdown.Load()
 }
 
 // completeDrain removes the session from the registry, notifies orbit-agents of
@@ -884,7 +1050,9 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 					logging.Field{Key: "error", Value: startErr.Error()},
 				)
 			} else {
-				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan struct{}, 1)}
+				newS := &session{runID: s.runID, runner: newRunner, runCtx: newCtx, cancel: newCancel, done: make(chan struct{}), wake: make(chan wakeKind, 1)}
+				newS.idleTimeout.Store(s.idleTimeout.Load())
+				newS.triggered.Store(s.triggered.Load())
 				newS.isIdle.Store(true)
 				newS.stoppedByUser.Store(true)
 				carrySandboxState(s, newS)
@@ -893,6 +1061,8 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 				// leaked as an untracked process.
 				reg.mu.Lock()
 				if reg.sessions[s.runID] == s {
+					// Under the lock CloseAll flags either s, copied here, or newS.
+					newS.cutByShutdown.Store(s.cutByShutdown.Load())
 					reg.sessions[s.runID] = newS
 					reg.mu.Unlock()
 					go reg.drain(newCtx, newS, cfg, true)
@@ -931,7 +1101,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 	}
 	reg.mu.Unlock()
 
-	failed := !s.intentionalClose.Load()
+	failed := s.endedFailed()
 	budgetExhausted := failed && s.budgetExhausted.Load()
 	reg.logger.Info(bgCtx, "Session drain complete",
 		logging.Field{Key: "run_id", Value: cfg.RunID},
@@ -939,8 +1109,7 @@ func (reg *Registry) completeDrain(s *session, cfg SessionConfig) {
 		logging.Field{Key: "budget_exhausted", Value: budgetExhausted},
 	)
 	if failed && !budgetExhausted {
-		f := s.failureReason()
-		reg.emitRunError(bgCtx, cfg.RunID, f.Code, f.Message)
+		reg.reportFailure(bgCtx, s)
 	}
 	fromState := "active"
 	if s.isIdle.Load() {
@@ -1007,6 +1176,94 @@ func (s *session) noteStop(t EventType) {
 	case EventTypeMessageStop:
 		s.interruptClose.Store(false)
 	}
+}
+
+// workReporter is implemented by runners that can tell whether the agent has
+// subagents or background tasks in flight.
+type workReporter interface {
+	// InFlightWork is the number of subagents and background tasks still running.
+	InFlightWork() int
+	// WorkChanged signals, without blocking the runner, that the count changed.
+	WorkChanged() <-chan struct{}
+}
+
+// wakeKind says why drain was woken outside the event stream.
+type wakeKind int
+
+const (
+	// wakeMessage: a message was sent, so the turn it starts stops the idle timer.
+	wakeMessage wakeKind = iota
+	// wakeRearm: the work that held the session active has ended and the agent
+	// has not started a new turn, so the session is idle after all.
+	wakeRearm
+)
+
+// handleWake acts on a wake: a message disarms the idle timer, a rearm arms it.
+func handleWake(kind wakeKind, armIdle, disarmIdle func()) {
+	if kind == wakeRearm {
+		armIdle()
+		return
+	}
+	disarmIdle()
+}
+
+// workIdleGrace is how long the agent gets to start a new turn after its last
+// subagent or background task ends. It normally does at once, to read the result.
+const workIdleGrace = 10 * time.Second
+
+// watchWork arms the idle timer for a session held active by work in flight once
+// that work has ended and the agent has not started a turn within the grace. A
+// runner that does not report work has nothing to watch.
+func (reg *Registry) watchWork(ctx context.Context, s *session) {
+	r, ok := s.runner.(workReporter)
+	if !ok {
+		return
+	}
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-r.WorkChanged():
+		}
+		if !s.held.Load() || r.InFlightWork() > 0 {
+			continue
+		}
+		seen := s.activity.Load()
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(reg.workGrace):
+		}
+		if s.held.Load() && r.InFlightWork() == 0 && s.activity.Load() == seen {
+			select {
+			case s.wake <- wakeRearm:
+			default:
+			}
+		}
+	}
+}
+
+// holdForWork reports whether the agent ended its turn with subagents or
+// background tasks still running. They will wake it, so the run stays active
+// until they end.
+func (reg *Registry) holdForWork(ctx context.Context, s *session) bool {
+	n := s.workInFlight()
+	if n > 0 {
+		reg.logger.Info(ctx, "Turn ended with work in flight, staying active",
+			logging.Field{Key: "run_id", Value: s.runID},
+			logging.Field{Key: "in_flight", Value: n},
+		)
+	}
+	return n > 0
+}
+
+// workInFlight is how many subagents or background tasks the agent still has
+// running. A runner that cannot tell reports none.
+func (s *session) workInFlight() int {
+	if r, ok := s.runner.(workReporter); ok {
+		return r.InFlightWork()
+	}
+	return 0
 }
 
 // isBudgetExhausted reports a run_error for a run whose budget ceiling was met.

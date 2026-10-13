@@ -22,7 +22,7 @@ import {
   Stack,
   Text,
   ToggleRow,
-} from '@orbit/terra';
+} from '@orbit/hades';
 import type { InputField } from '@orbit/shared/api';
 import type { TriggerRow } from '../_types';
 

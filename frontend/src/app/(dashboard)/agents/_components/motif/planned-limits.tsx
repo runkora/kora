@@ -2,8 +2,8 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import { Badge, Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+import { Badge, Card, CardContent, Eyebrow, Icon, Separator, Stack, Text } from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 
 const PLANNED: { icon: IconName; title: string; desc: string }[] = [
   {

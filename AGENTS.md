@@ -170,20 +170,20 @@ kora follows a **feature-based architecture** with the repository pattern for da
 
 **Multi-binary deployment**: The backend compiles to multiple binaries under `backend/cmd/`. Each binary has its own `main.go` and `config/` directory. All binaries share the `backend/internal/platform/` layer.
 
-| Binary                                                                     | Path                     | Purpose                                                                                                    |
-| -------------------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------- |
-| `identity`                                                                 | `cmd/identity/`          | **Main control-plane API**: identity, sessions, PATs, tenant registry (port 8080)                          |
-| `inference-gateway`                                                        | `cmd/inference-gateway/` | OpenAI/Anthropic-compatible LLM gateway (port 8081)                                                        |
-| `policy-service`                                                           | `cmd/policy-service/`    | Authz data plane (PDP/PAP): grants, roles, OPA bundles (port 8083)                                         |
-| `policy-gateway`                                                           | `cmd/policy-gateway/`    | In-app authz API (PEP) (port 8084)                                                                         |
-| `orbit-agents`                                                             | `cmd/orbit-agents/`      | Agent control plane: runs, sessions, event streaming, k8s orchestration                                    |
-| `orbit-triggers`                                                           | `cmd/orbit-triggers/`    | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097)                          |
-| `migrate`                                                                  | `cmd/migrate/`           | Schema migrations: embeds every service's migrations, runs as the chart's pre-install/pre-upgrade hook Job |
-| `session-manager`                                                          | `cmd/session-manager/`   | Per-tenant runner for the agent (Claude Code) subprocess (port 8090)                                       |
-| `operator`                                                                 | `cmd/operator/`          | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars                                     |
-| `identity-proxy`                                                           | `cmd/identity-proxy/`    | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls                                  |
-| `sandbox-exec`, `orbit-runtime-mcp`, `orbit-shell`, `orbit-session-runner` | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper)                      |
-| `example`                                                                  | `cmd/example/`           | Reference implementation (not production)                                                                  |
+| Binary                                                                                      | Path                     | Purpose                                                                                                                       |
+| ------------------------------------------------------------------------------------------- | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------- |
+| `identity`                                                                                  | `cmd/identity/`          | **Main control-plane API**: identity, sessions, PATs, tenant registry (port 8080)                                             |
+| `inference-gateway`                                                                         | `cmd/inference-gateway/` | OpenAI/Anthropic-compatible LLM gateway (port 8081)                                                                           |
+| `policy-service`                                                                            | `cmd/policy-service/`    | Authz data plane (PDP/PAP): grants, roles, OPA bundles (port 8083)                                                            |
+| `policy-gateway`                                                                            | `cmd/policy-gateway/`    | In-app authz API (PEP) (port 8084)                                                                                            |
+| `orbit-agents`                                                                              | `cmd/orbit-agents/`      | Agent control plane: runs, sessions, event streaming, k8s orchestration                                                       |
+| `orbit-triggers`                                                                            | `cmd/orbit-triggers/`    | Triggers: webhook ingestion, trigger API, cron scheduler, manual fire (port 8097)                                             |
+| `migrate`                                                                                   | `cmd/migrate/`           | Schema migrations: embeds every service's migrations, runs as the chart's pre-install/pre-upgrade hook Job                    |
+| `session-manager`                                                                           | `cmd/session-manager/`   | Per-tenant runner for the agent (Claude Code) subprocess (port 8090)                                                          |
+| `operator`                                                                                  | `cmd/operator/`          | Kubernetes operator: reconciles Tenant/Platform CRDs, injects sidecars                                                        |
+| `identity-proxy`                                                                            | `cmd/identity-proxy/`    | Envoy ext_proc sidecar: injects platform tokens into agent outbound calls                                                     |
+| `sandbox-exec`, `orbit-runtime-mcp`, `orbit-shell`, `orbit-session-runner`, `sandbox-mount` | `cmd/*/`                 | Agent sandbox/exec stack (gRPC exec, MCP provisioning, shell shim, isolation wrapper, node agent for sandbox working folders) |
+| `example`                                                                                   | `cmd/example/`           | Reference implementation (not production)                                                                                     |
 
 > There is **no `cmd/orbit`** binary; the main API is `cmd/identity`. See [docs/code-organization.md](docs/code-organization.md) for the complete map.
 
@@ -246,14 +246,14 @@ This describes what the backend test suite **actually is today**, and (separatel
 - **Unit tests**: the bulk of coverage, table-driven, across packages. Run by `make test` (race + coverage) and by `make check`; no cluster or database required.
 - **Postgres-backed repository tests**: named `TestPostgres_*` and gated on `ORBIT_TEST_DB_URL`, so they skip when it is unset and `make check` never needs a database. They live beside the repository they exercise, including:
 
-  | Package                | File                                                                                       | Covers                                                                                                                                                                                                                  |
-  | ---------------------- | ------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-  | `triggers`             | `postgres_test.go`                                                                         | the durable queue (claim, reclaim, trim, drain), delivery dedup and lineage, retention, the admission ceiling                                                                                                           |
-  | `agents`               | `drafts_postgres_test.go`, `run_attribution_postgres_test.go`, `run_page_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution; keyset run pages and run stats                                                                                                                                     |
-  | `policyservice/grants` | `postgres_test.go`                                                                         | scope purging across grants                                                                                                                                                                                             |
-  | `policyservice/roles`  | `postgres_test.go`                                                                         | scope purging across roles                                                                                                                                                                                              |
-  | `inferencegw`          | `postgres_test.go`, `pricing_postgres_test.go`                                             | the `agent_slug` backfill and write path, per-agent usage aggregates and their index; price overrides without a synced row, and discovered prices replacing a provider's synced rows atomically while keeping overrides |
-  | `example`              | `postgres_test.go`                                                                         | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
+  | Package                | File                                                                                                                     | Covers                                                                                                                                                                                                                  |
+  | ---------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+  | `triggers`             | `postgres_test.go`                                                                                                       | the durable queue (claim, reclaim, trim, drain), delivery dedup and lineage, retention, the admission ceiling                                                                                                           |
+  | `agents`               | `drafts_postgres_test.go`, `run_attribution_postgres_test.go`, `run_page_postgres_test.go`, `run_queue_postgres_test.go` | draft CRUD and reap cutoff; run trigger attribution; keyset run pages and run stats; the run scheduling queue (claim, release, reclaim)                                                                                 |
+  | `policyservice/grants` | `postgres_test.go`                                                                                                       | scope purging across grants                                                                                                                                                                                             |
+  | `policyservice/roles`  | `postgres_test.go`                                                                                                       | scope purging across roles                                                                                                                                                                                              |
+  | `inferencegw`          | `postgres_test.go`, `pricing_postgres_test.go`                                                                           | the `agent_slug` backfill and write path, per-agent usage aggregates and their index; price overrides without a synced row, and discovered prices replacing a provider's synced rows atomically while keeping overrides |
+  | `example`              | `postgres_test.go`                                                                                                       | the reference repository; gated on `ORBIT_EXAMPLE_TEST_DB_URL` instead, after applying `backend/cmd/example/migrations/*.sql` by hand. Its tables are outside the product schema                                        |
 
   Run them against the local Postgres (`make test-postgres` applies the schema with `cmd/migrate` first):
 
@@ -291,7 +291,7 @@ See [repository-pattern-and-code-organization](docs/adr/2026-02-17-repository-pa
 
 ## Frontend Development
 
-All product JSX must use Terra (`@orbit/terra`). Raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Terra rule are themselves a lint error (`local/no-terra-disable-comment`). Violations fail `pnpm lint`.
+All product JSX must use Hades (`@orbit/hades`). Raw HTML primitives are banned by ESLint with **zero escape hatches**. `eslint-disable` comments targeting any Hades rule are themselves a lint error (`local/no-hades-disable-comment`). Violations fail `pnpm lint`.
 
 | Rule                                | What it bans                                                                                   | Use instead                                                                                                       |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -299,13 +299,13 @@ All product JSX must use Terra (`@orbit/terra`). Raw HTML primitives are banned 
 | `local/no-raw-html-text-tags`       | `<p>`, `<h1>`–`<h6>`                                                                           | `Text`, `Heading`                                                                                                 |
 | `local/no-raw-inline-elements`      | `<span>`, `<strong>`, `<b>`, `<em>`, `<i>`, `<code>`, `<kbd>`, all other phrasing-content HTML | `Text`, `Text weight="heavy"`, `Code`                                                                             |
 | `local/no-raw-interactive-elements` | `<button>`                                                                                     | `Button`                                                                                                          |
-| `local/no-terra-classname`          | `className` on any Terra component                                                             | Use the component's own props                                                                                     |
-| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                      | `<Icon name="…" />`: **no escape hatch**. Add icons to `src/packages/terra/src/components/icon/registry.ts` only. |
-| `local/no-terra-disable-comment`    | Any `eslint-disable` targeting a Terra rule                                                    | There is no escape hatch; use the correct Terra component                                                         |
+| `local/no-hades-classname`          | `className` on any Hades component                                                             | Use the component's own props                                                                                     |
+| `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                      | `<Icon name="…" />`: **no escape hatch**. Add icons to `src/packages/hades/src/components/icon/registry.ts` only. |
+| `local/no-hades-disable-comment`    | Any `eslint-disable` targeting a Hades rule                                                    | There is no escape hatch; use the correct Hades component                                                         |
 
-**Common HTML → Terra replacements:**
+**Common HTML → Hades replacements:**
 
-| Raw HTML                                              | Terra replacement                                                             |
+| Raw HTML                                              | Hades replacement                                                             |
 | ----------------------------------------------------- | ----------------------------------------------------------------------------- |
 | `<div className="flex flex-col gap-4">`               | `<Stack gap="comfortable">`                                                   |
 | `<div className="flex flex-row gap-2">`               | `<Stack direction="horizontal" gap="snug">`                                   |
@@ -324,19 +324,19 @@ All product JSX must use Terra (`@orbit/terra`). Raw HTML primitives are banned 
 | `<code>value</code>`                                  | `<Code>value</Code>` (prose) or `<Text mono>` (standalone technical value)    |
 | `import { X } from 'lucide-react'`                    | `<Icon name="…" />`                                                           |
 
-**Missing Terra component:** If no Terra component covers the use case:
+**Missing Hades component:** If no Hades component covers the use case:
 
 1. Do not write the raw element, or `pnpm lint` will fail.
 2. Write a short proposal: element needed, suggested name and minimal API, Radix/ShadCN base if one exists.
-3. Wait for approval from a human engineer before writing any code in `src/packages/terra/`.
-4. Once approved: implement with `cva` + `cn`, `React.forwardRef`, `.displayName`, `data-slot`. Base on ShadCN/Radix where available. Export from `src/packages/terra/src/index.ts`.
+3. Wait for approval from a human engineer before writing any code in `src/packages/hades/`.
+4. Once approved: implement with `cva` + `cn`, `React.forwardRef`, `.displayName`, `data-slot`. Base on ShadCN/Radix where available. Export from `src/packages/hades/src/index.ts`.
 5. Replace the raw element across the codebase.
 
 **Component placement (three-tier model):**
 
 | Tier  | Name             | Filesystem                                   | Import                                  | Storybook prefix                                                        |
 | ----- | ---------------- | -------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
-| **1** | Terra            | `src/packages/terra/src/components/`         | `import { X } from '@orbit/terra'`      | `Terra/Atoms/`, `Terra/Molecules/`, `Terra/Layout/`, `Terra/Organisms/` |
+| **1** | Hades            | `src/packages/hades/src/components/`         | `import { X } from '@orbit/hades'`      | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
 | **2** | App-level shared | `src/components/`                            | `import { X } from '@orbit/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
 | **3** | Feature-scoped   | `src/app/(dashboard)/[feature]/_components/` | relative import                         | n/a                                                                     |
 
@@ -344,7 +344,7 @@ Apply this decision tree in order, stop at the first match, never pre-generalise
 
 1. Used by exactly one file → keep inline. Extract only if the host file exceeds ~300 lines of JSX.
 2. All consumers are within the same feature area → **Tier 3**: `src/app/(dashboard)/[feature]/_components/`, relative import.
-3. Consumers span two or more feature areas **and** no kora domain knowledge (no status tokens, principal types, model/provider names, or permission vocabulary) → **Tier 1 (Terra)**. Requires human approval before any Terra modification.
+3. Consumers span two or more feature areas **and** no kora domain knowledge (no status tokens, principal types, model/provider names, or permission vocabulary) → **Tier 1 (Hades)**. Requires human approval before any Hades modification.
 4. Consumers span two or more feature areas **and** kora-domain-aware → **Tier 2**: `src/components/`, export from `src/components/index.ts`.
 
 Every extracted component file must open with a `@tier` JSDoc comment:
@@ -361,7 +361,7 @@ Promoting Tier 3 → 2 → 1 is easy; splitting an over-generalised component is
 
 All `src/` filenames must be kebab-case. Files in `src/app/**` that import React client hooks need `"use client"` as the first line; files in `src/server/**` and Route Handlers need `import "server-only"` as the very first import. Before marking any frontend task complete: `cd frontend && pnpm lint && pnpm tsc --noEmit`; both must pass with zero errors.
 
-**Reference docs:** [`frontend/docs/reference/component-placement.md`](frontend/docs/reference/component-placement.md) (full Terra component inventory, Storybook conventions, authoring rules) · [`frontend/docs/reference/app-components.md`](frontend/docs/reference/app-components.md) (Tier 2 component API: StatusBadge) · [`frontend/docs/reference/terra-design-system.md`](frontend/docs/reference/terra-design-system.md) (full Terra usage, props, examples, verification checklist) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state) · [`frontend/docs/golden-paths/table-layout.md`](frontend/docs/golden-paths/table-layout.md) (column sizing, truncation and list clamping for tables)
+**Reference docs:** [`frontend/docs/reference/component-placement.md`](frontend/docs/reference/component-placement.md) (full Hades component inventory, Storybook conventions, authoring rules) · [`frontend/docs/reference/app-components.md`](frontend/docs/reference/app-components.md) (Tier 2 component API: StatusBadge) · [`frontend/docs/reference/hades-design-system.md`](frontend/docs/reference/hades-design-system.md) (full Hades usage, props, examples, verification checklist) · [`frontend/docs/golden-paths/frontend-state-pattern.md`](frontend/docs/golden-paths/frontend-state-pattern.md) (fetching, caching, reactive state) · [`frontend/docs/golden-paths/table-layout.md`](frontend/docs/golden-paths/table-layout.md) (column sizing, truncation and list clamping for tables)
 
 ## Getting Help
 

@@ -28,4 +28,5 @@ redis:
   minIdleConns: 5
   connMaxIdleTimeMinutes: 30
 
-  tlsEnabled: true  # SECURITY: Always require TLS in production
+  # The chart sets this from config.redis.tls.enabled.
+  tlsEnabled: true

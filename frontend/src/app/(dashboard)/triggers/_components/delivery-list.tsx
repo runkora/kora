@@ -2,7 +2,7 @@
 
 /** @tier 3 — triggers-scoped. One trigger's delivery history, newest first. */
 
-import { Card, Icon, Separator, Stack, StatusDot, Text } from '@orbit/terra';
+import { Card, Icon, Separator, Stack, StatusDot, Text } from '@orbit/hades';
 import { deliveryDotStatus, dispatchDuration } from '../_types';
 import type { DeliveryRow } from '../_types';
 import { DeliveryDetail } from './delivery-detail';

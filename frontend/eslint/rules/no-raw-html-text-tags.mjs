@@ -3,14 +3,14 @@ const rule = {
     type: 'problem',
     docs: {
       description:
-        'Disallow raw HTML text-flow tags in JSX outside the Terra package. ' +
-        'Use Terra typography components (Heading, Text, Code) from @orbit/terra instead.',
+        'Disallow raw HTML text-flow tags in JSX outside the Hades package. ' +
+        'Use Hades typography components (Heading, Text, Code) from @orbit/hades instead.',
     },
     messages: {
       noRawTag:
         'Raw <{{tag}}> is not allowed. ' +
-        'Use <Text> (for p) or <Heading variant="…"> (for h1–h6) from @orbit/terra. ' +
-        'See frontend/docs/golden-paths/terra-design-system.md',
+        'Use <Text> (for p) or <Heading variant="…"> (for h1–h6) from @orbit/hades. ' +
+        'See frontend/docs/reference/hades-design-system.md',
     },
   },
   create(context) {

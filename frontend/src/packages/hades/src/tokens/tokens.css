@@ -1,0 +1,353 @@
+/**
+ * Hades Design Tokens
+ * ===================
+ * The layer beneath every kora screen. Import this file once at the application root.
+ *
+ * Usage:
+ *   @import "@orbit/hades/src/tokens/tokens.css";
+ *
+ * All tokens are registered via Tailwind v4's @theme directive so they are
+ * available as utility classes (e.g. `bg-background`, `text-foreground`,
+ * `border-border-subtle`) without any additional configuration.
+ *
+ * ── Theming ──────────────────────────────────────────────────────────────────
+ * The palette is a set of raw hex values (--hades-raw-*) for dark, with a
+ * [data-theme='light'] block that overrides them. Semantic tokens in @theme
+ * reference the raw values, so a brand changes by redefining them under its own
+ * selector, for example [data-brand='other'].
+ *
+ * Corner radii have their own seed, --hades-radius-unit. sm, md and lg are 1x,
+ * 2x and 3x of it. Changing the unit rescales every radius and keeps nested
+ * radii proportional.
+ *
+ * Surfaces step lighter with elevation in both themes. Foreground
+ * and status colours are chosen to clear WCAG AA 4.5:1 as text on their own
+ * tint, and border to clear 3:1 as a non-text boundary.
+ */
+
+@import 'tailwindcss';
+
+/* ─── Radius seed ─────────────────────────────────────────────────────────── */
+/* sm, md and lg are 1x, 2x and 3x of the unit. Changing it rescales every    */
+/* radius and keeps nested radii proportional.                                */
+:root {
+  color-scheme: dark;
+  --hades-radius-unit: 0.375rem;
+}
+
+/* ─── Raw colour palette ─────────────────────────────────────────────────── */
+/* Kora palette. Do not consume these directly in components.                  */
+/* Semantic tokens in @theme reference them below.                            */
+
+:root {
+  /* Neutral scale — background, three surface steps, then a border-to-text ramp. */
+  --hades-raw-black: #0d0f11;
+  --hades-raw-950: #1a1d20;
+  --hades-raw-900: #22262a;
+  --hades-raw-800: #2b3036;
+  --hades-raw-700: #343a40;
+  --hades-raw-600: #3d434a;
+  --hades-raw-500: #5a6067;
+  --hades-raw-400: #7f858b;
+  --hades-raw-300: #c9c8c2;
+  --hades-raw-200: #dcd9d2;
+  --hades-raw-100: #e6e3db;
+  --hades-raw-white: #ece9e2;
+
+  /* Accent scale — vivid steps from dark border through hover */
+  --hades-raw-accent-600: #4d6b80;
+  --hades-raw-accent-500: #4d6b80;
+  --hades-raw-accent-400: #8aa7bb;
+  --hades-raw-accent-300: #9ab4c6;
+
+  /* Accent foreground — dark enough to be legible on any accent background */
+  --hades-raw-accent-fg: #0d0f11;
+
+  /* Status — semantic signal colours, chosen to clear 4.5:1 on their own tint  */
+  --hades-raw-healthy: #6fa98a;
+  --hades-raw-degraded: #c9a45c;
+  --hades-raw-error: #e48a82;
+  --hades-raw-pending: #8aa7bb;
+
+  /* Provider brand colours — used only for provider identity badges.           */
+  /* Raw hex values kept as-is; cloud providers own these brand colours and they */
+  /* do not derive from the Hades seed system.                                   */
+  --hades-raw-provider-bedrock: #ff9900; /* AWS Orange   */
+  --hades-raw-provider-vertexai: #4285f4; /* Google Blue  */
+  --hades-raw-provider-azure: #2b8ce0; /* Azure Blue   */
+
+  /* Strategy colours — routing-strategy identity badges.                        */
+  --hades-raw-strategy-weighted: #b45bff; /* Purple — weighted split             */
+
+  /* Categorical chart series — fixed order, never cycled; CVD-safe hue spacing */
+  --hades-raw-chart-1: oklch(60.8% 0.15 250);
+  --hades-raw-chart-2: oklch(55% 0.15 45);
+  --hades-raw-chart-3: oklch(60.4% 0.15 310);
+  --hades-raw-chart-4: oklch(66.4% 0.136 95);
+  --hades-raw-chart-5: oklch(61.2% 0.108 215);
+  --hades-raw-chart-6: oklch(61.1% 0.15 135);
+  --hades-raw-chart-7: oklch(52.8% 0.15 355);
+  --hades-raw-chart-8: oklch(64.6% 0.134 165);
+
+  /* Overlay — semi-transparent backdrop for modal/drawer overlays.              */
+  /* Using OKLCH pure-black at 40% opacity: perceptually uniform across displays */
+  --hades-raw-overlay: oklch(0% 0 0 / 40%);
+  /* overlay-strong: heavier scrim for modals (vs side panels at 40%) */
+  --hades-raw-overlay-strong: oklch(0% 0 0 / 50%);
+
+  /* Shadows — floating surfaces. Pure-black alpha shadows; light mode overrides  */
+  /* to pure-white (inverted) shadows so elevated surfaces lift on light bg.      */
+  --hades-raw-shadow-sm: 0 2px 8px oklch(0% 0 0 / 0.25);
+  --hades-raw-shadow-elevated: 0 8px 28px oklch(0% 0 0 / 0.3), 0 2px 8px oklch(0% 0 0 / 0.15);
+
+  /* Declared here, not inline in @theme — @theme inline bakes literals into    */
+  /* utilities, and only var() references can be re-themed at runtime.           */
+  /* subtle: L=63% is the minimum clearing WCAG AA 4.5:1 on every dark layer.    */
+  --hades-raw-subtle: #9aa0a6;
+  /* border: L=52% is the minimum clearing WCAG 1.4.11 non-text 3:1.             */
+  --hades-raw-border: #7f858b;
+  /* border-subtle: decorative separators only — WCAG-exempt.                    */
+  --hades-raw-border-subtle: rgb(236 233 226 / 10%);
+}
+
+/* ─── Light mode ─────────────────────────────────────────────────────────── */
+/* All values clear the same WCAG thresholds as their dark counterparts.       */
+[data-theme='light'] {
+  color-scheme: light;
+  --hades-raw-white: #0d0f11;
+  --hades-raw-300: #4a4e53;
+
+  --hades-raw-accent-400: #445f71;
+  --hades-raw-accent-300: #3b5466;
+  --hades-raw-accent-fg: #ece9e2;
+
+  --hades-raw-healthy: #2c654b;
+  --hades-raw-degraded: #72561a;
+  --hades-raw-error: #873c34;
+  --hades-raw-pending: #445f71;
+
+  --hades-raw-subtle: #575b60;
+  --hades-raw-border: #737980;
+  --hades-raw-border-subtle: rgb(13 15 17 / 12%);
+
+  --hades-raw-black: #ece9e2;
+
+  --hades-raw-950: #f6f4ef;
+
+  --hades-raw-900: #f8f6f2;
+
+  --hades-raw-800: #faf8f5;
+
+  --hades-raw-700: #c9c8c2;
+
+  --hades-raw-600: #a9aaa8;
+
+  --hades-raw-500: #7f858b;
+
+  --hades-raw-400: #5f646a;
+
+  --hades-raw-200: #2a2e33;
+
+  --hades-raw-100: #1a1d20;
+
+  --hades-raw-accent-600: #445f71;
+
+  --hades-raw-accent-500: #445f71;
+
+  --hades-raw-provider-bedrock: #824e00;
+
+  --hades-raw-provider-vertexai: #2c58a1;
+
+  --hades-raw-provider-azure: #005ba1;
+
+  --hades-raw-strategy-weighted: #763bad;
+
+  /* Shadows — lighter on a light background; reduced opacity vs dark mode */
+  --hades-raw-shadow-sm: 0 1px 1px oklch(0% 0 0 / 0.04);
+  --hades-raw-shadow-elevated: 0 2px 6px oklch(0% 0 0 / 0.05);
+
+  /* Chart series — same hue order as dark; deeper steps for the light surface */
+  --hades-raw-chart-1: oklch(51.8% 0.146 250);
+  --hades-raw-chart-2: oklch(59.3% 0.15 45);
+  --hades-raw-chart-3: oklch(47.2% 0.15 310);
+  --hades-raw-chart-4: oklch(52.3% 0.106 95);
+  --hades-raw-chart-5: oklch(58.5% 0.102 215);
+  --hades-raw-chart-6: oklch(53.8% 0.15 135);
+  --hades-raw-chart-7: oklch(44.2% 0.15 355);
+  --hades-raw-chart-8: oklch(54.2% 0.114 165);
+}
+
+/* ─── Semantic tokens (Tailwind v4 @theme) ───────────────────────────────── */
+
+@theme inline {
+  /* Backgrounds — depth via lightness progression, no shadows (ADR SD-3) */
+  --color-background: var(--hades-raw-black);
+  --color-surface: var(--hades-raw-950);
+  --color-surface-elevated: var(--hades-raw-900);
+  --color-surface-overlay: var(--hades-raw-800);
+
+  /* Foregrounds */
+  --color-foreground: var(--hades-raw-white);
+  --color-muted: var(--hades-raw-300);
+  --color-subtle: var(--hades-raw-subtle);
+
+  /* Accent */
+  --color-accent: var(--hades-raw-accent-400);
+  --color-accent-hover: var(--hades-raw-accent-300);
+  --color-accent-foreground: var(--hades-raw-accent-fg);
+  /* Translucent accent tints — for accent-tinted surfaces (callouts, selected   */
+  /* tiles, grant panels) and hairline accent borders. Derived from the accent   */
+  /* so they track any accent override.                                          */
+  --color-accent-subtle: color-mix(in oklch, var(--color-accent) 10%, transparent);
+  --color-accent-muted: color-mix(in oklch, var(--color-accent) 15%, transparent);
+  --color-accent-border: color-mix(in oklch, var(--color-accent) 30%, transparent);
+
+  /* Borders */
+  --color-border: var(--hades-raw-border);
+  --color-border-subtle: var(--hades-raw-border-subtle);
+  --color-border-accent: var(--hades-raw-accent-600);
+
+  /* Status signals */
+  --color-status-healthy: var(--hades-raw-healthy);
+  --color-status-degraded: var(--hades-raw-degraded);
+  --color-status-error: var(--hades-raw-error);
+  --color-status-idle: var(--hades-raw-subtle);
+  --color-status-pending: var(--hades-raw-pending);
+
+  /* Provider brand identity tokens */
+  --color-provider-bedrock: var(--hades-raw-provider-bedrock);
+  --color-provider-vertexai: var(--hades-raw-provider-vertexai);
+  --color-provider-azure: var(--hades-raw-provider-azure);
+
+  /* Strategy identity tokens */
+  --color-strategy-weighted: var(--hades-raw-strategy-weighted);
+
+  /* Categorical chart series — assign in fixed order, never cycle */
+  --color-chart-1: var(--hades-raw-chart-1);
+  --color-chart-2: var(--hades-raw-chart-2);
+  --color-chart-3: var(--hades-raw-chart-3);
+  --color-chart-4: var(--hades-raw-chart-4);
+  --color-chart-5: var(--hades-raw-chart-5);
+  --color-chart-6: var(--hades-raw-chart-6);
+  --color-chart-7: var(--hades-raw-chart-7);
+  --color-chart-8: var(--hades-raw-chart-8);
+
+  /* Overlay — for modal/drawer backdrop elements */
+  --color-overlay: var(--hades-raw-overlay);
+  --color-overlay-strong: var(--hades-raw-overlay-strong);
+
+  /* Shadows — floating surfaces (scroll-anchored buttons, input areas) */
+  --shadow-sm: var(--hades-raw-shadow-sm);
+  --shadow-elevated: var(--hades-raw-shadow-elevated);
+
+  /* Typography */
+  --font-sans: var(--font-inter, 'Inter', ui-sans-serif, system-ui, sans-serif);
+  --font-mono: var(--font-geist-mono, 'Geist Mono', ui-monospace, 'Cascadia Code', monospace);
+
+  /* Radii are multiples of --hades-radius-unit. A theme changes the unit to   */
+  /* rescale all of them. At the default unit xl and 2xl are 18px and 24px.    */
+  --radius-sm: var(--hades-radius-unit); /* 6px by default  */
+  --radius-md: calc(var(--hades-radius-unit) * 2); /* 12px */
+  --radius-lg: calc(var(--hades-radius-unit) * 3); /* 18px */
+  --radius-xl: calc(var(--hades-radius-unit) * 3); /* 18px */
+  --radius-2xl: calc(var(--hades-radius-unit) * 4); /* 24px */
+  --radius-full: 9999px; /* pills, status dots, avatars */
+
+  /* Motion */
+  --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ─── OrbitalLoader keyframes ────────────────────────────────────────────── */
+
+@keyframes orbital-core-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.75);
+  }
+}
+
+@keyframes orbital-dot-sm1 {
+  from {
+    transform: rotate(0deg) translateX(8px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(8px) rotate(-360deg);
+  }
+}
+
+@keyframes orbital-dot-sm2 {
+  from {
+    transform: rotate(80deg) translateX(13px) rotate(-80deg);
+  }
+  to {
+    transform: rotate(440deg) translateX(13px) rotate(-440deg);
+  }
+}
+
+@keyframes orbital-dot-md1 {
+  from {
+    transform: rotate(0deg) translateX(10px) rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg) translateX(10px) rotate(-360deg);
+  }
+}
+
+@keyframes orbital-dot-md2 {
+  from {
+    transform: rotate(80deg) translateX(16px) rotate(-80deg);
+  }
+  to {
+    transform: rotate(440deg) translateX(16px) rotate(-440deg);
+  }
+}
+
+@keyframes orbital-dot-md3 {
+  from {
+    transform: rotate(200deg) translateX(22px) rotate(-200deg);
+  }
+  to {
+    transform: rotate(560deg) translateX(22px) rotate(-560deg);
+  }
+}
+
+/* ─── Collapsible keyframes ──────────────────────────────────────────────── */
+
+@keyframes collapsible-down {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+  }
+}
+
+@keyframes collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+/* ─── Headings ───────────────────────────────────────────────────────────── */
+/* Inter with slightly tighter spacing as headings get larger. Each Heading   */
+/* variant renders a fixed tag, so tag selectors are enough.                  */
+h1 {
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+:is(h2, h3) {
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+h4 {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}

@@ -23,6 +23,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
 | `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
 | `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
+| `skills-service` | Read-only Agent Marketplace: browses and serves skills from GitHub-hosted repositories; cache-aside via Redis | `8098` | none |
 | `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
@@ -30,10 +31,11 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `orbit-runtime-mcp` | MCP server (stdio) spawned by the agent CLI: exposes the `list_environments`, `provision_sandbox` and `replace_environment` tools | stdio | none |
 | `orbit-shell` | `$SHELL` shim in the agent container: execs local bash or streams `-c` commands to the sandbox pod | none | none |
 | `orbit-session-runner` | Wrapper that applies Landlock, then `exec()`s the agent CLI | none | none |
+| `sandbox-mount` | Privileged node agent (DaemonSet): exports each sandbox's local working folder with the kernel NFS server and mounts it into the session-manager pod at `/workspaces/<run>/sandbox` | NFS `20490` (host network, `sandboxMount.port`) | none |
 | `migrate` | Schema migrations: embeds every service's `migrations/` and runs them as the chart's pre-install/pre-upgrade hook Job | none | none |
 | `example` | Reference implementation demonstrating the patterns (not production) | `8081` | ✅ |
 
-> The sandbox/shell/MCP/session-runner binaries form the agent execution stack: `session-manager` runs Claude Code via `orbit-session-runner`; Claude calls `orbit-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`; the resulting sandbox pod runs `sandbox-exec`; Claude's `Bash` goes through `orbit-shell` to that pod. See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
+> The sandbox, shell, MCP and session-runner binaries form the agent execution stack. `session-manager` runs Claude Code through `orbit-session-runner`, and Claude calls `orbit-runtime-mcp` to `list_environments`, `provision_sandbox` and `replace_environment`. The sandbox pod runs `sandbox-exec`, and Claude's `Bash` goes through `orbit-shell` to that pod. With `sandboxMount.enabled`, `sandbox-mount` shares the sandbox's local folder with the session-manager pod ([sandbox-workspace-mount](adr/2026-10-08-sandbox-workspace-mount.md)). See [sandbox-provisioning-and-shell-proxy](adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
 
 ### Feature packages (`backend/internal/`)
 
@@ -80,6 +82,7 @@ orbit/
 │   │   ├── orbit-runtime-mcp/        # stdio MCP server (no config/)
 │   │   ├── orbit-shell/              # $SHELL shim (no config/)
 │   │   ├── orbit-session-runner/     # isolation wrapper (no config/)
+│   │   ├── sandbox-mount/            # node agent for sandbox working folders
 │   │   └── example/                  # Reference binary
 │   │
 │   ├── internal/
@@ -109,7 +112,7 @@ orbit/
 │   ├── go.mod
 │   └── go.sum
 │
-├── frontend/                         # Next.js app + Terra design system (see frontend/README.md)
+├── frontend/                         # Next.js app + Hades design system (see frontend/README.md)
 ├── charts/                           # Helm charts (platform + tenant)
 ├── config/dex/                       # Local Dex OIDC provider config
 ├── scripts/                          # auth-device.sh, setup helpers

@@ -4,7 +4,7 @@
 
 import { useTransition } from 'react';
 import { useRouter } from 'next/navigation';
-import { Alert, Button, Icon, Stack, Text } from '@orbit/terra';
+import { Alert, Button, Icon, Stack, Text } from '@orbit/hades';
 
 /**
  * Shown when the Skill page could not load its Skill. "Try again" renders the

@@ -45,7 +45,7 @@ The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole
 - [Configuration](configuration/config.md): typed service configuration and environment overlays.
 - [Secrets](configuration/secrets.md): secret sources, projection, and rotation responsibilities.
 - [Observability](observability/README.md): logging, tracing, and telemetry configuration.
-- [Frontend documentation](../frontend/docs/README.md): Terra, component placement, state patterns, and frontend conventions.
+- [Frontend documentation](../frontend/docs/README.md): Hades, component placement, state patterns, and frontend conventions.
 - [Agent development guide](../AGENTS.md): the complete machine-enforced coding rules used by development agents.
 
 ## Decision records

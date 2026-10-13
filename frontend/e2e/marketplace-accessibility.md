@@ -1,9 +1,9 @@
 # Marketplace accessibility and layout evidence
 
-## Automated checks — 2026-10-09
+## Automated checks: 2026-10-09
 
 Criterion 12's automated coverage lives in `marketplace.spec.ts`, in the
-`/marketplace — accessibility and layout` group. It uses Playwright 1.62.1 and
+accessibility and layout `test.describe` group. It uses Playwright 1.62.1 and
 headless Chromium 151.0.7922.34 against the actual Next.js application. The session
 is supplied by the existing test cookie helper. Initial Marketplace data and
 successful browse responses use the deterministic server fixture client. The
@@ -78,7 +78,7 @@ suites, other browser specs, Storybook checks and root `make check` were not run
 for this step. No commit or PR was created. Run the required root quality gate
 before committing.
 
-## Manual screen-reader checks — pending
+## Manual screen-reader checks: pending
 
 No screen-reader assessment was performed. Automated name, focus and interaction
 assertions do not establish what assistive technology announces.

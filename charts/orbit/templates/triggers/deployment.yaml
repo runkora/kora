@@ -32,6 +32,7 @@ spec:
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.configVolume" (dict "root" $ "name" "triggers" "configMap" "orbit-triggers-config" "modules" (include "orbit.triggers.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "triggers") | nindent 8 }}
       containers:
         - name: orbit-triggers
@@ -39,11 +40,8 @@ spec:
           imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "triggers") }}
           securityContext:
             {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" false) | nindent 12 }}
-          {{- with .Values.triggers.extraEnv }}
           env:
-            {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- include "orbit.platformEnvFrom" $ | nindent 10 }}
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "triggers" "keys" (list "DB_PASSWORD" "REDIS_PASSWORD" "ORBIT_TRIGGERS_ENCRYPTION_KEY")) | nindent 12 }}
           ports:
             - name: http
               containerPort: 8097
@@ -69,4 +67,5 @@ spec:
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "triggers") | nindent 12 }}

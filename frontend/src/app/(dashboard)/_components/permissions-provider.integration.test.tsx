@@ -13,7 +13,7 @@ import { render, screen, waitFor, act } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { server } from '@orbit/test-utils';
 import { createSessionUser } from '@orbit/test-utils/factories/session';
-import { Text } from '@orbit/terra';
+import { Text } from '@orbit/hades';
 import { PermissionsProvider, useSession } from './permissions-provider';
 
 // ── Test consumer ─────────────────────────────────────────────────────────────

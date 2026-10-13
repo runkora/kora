@@ -28,8 +28,8 @@ import {
   PageSectionHeader,
   EmptyState,
   ConfirmDialog,
-} from '@orbit/terra';
-import type { IconName } from '@orbit/terra';
+} from '@orbit/hades';
+import type { IconName } from '@orbit/hades';
 import { SmartTable } from '@orbit/components';
 import type { DataTableColumn } from '@orbit/components';
 import type {
@@ -58,7 +58,7 @@ import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@or
 import { ScopePicker } from '@orbit/components';
 import { FilterChip } from './filter-chip';
 import { GrantDetailModal } from './grant-detail-modal';
-import { ViewToggle } from '@orbit/terra';
+import { ViewToggle } from '@orbit/hades';
 
 // ── Props ────────────────────────────────────────────────────────────────────
 

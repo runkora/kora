@@ -190,17 +190,21 @@ type failingNotifier struct {
 	NoopNotifier
 	mu        sync.Mutex
 	failures  int
+	failWith  error // the error each failing attempt returns; nil returns a plain 500
 	calls     int
 	runErrors []RunErrorPayload
 	warnings  []GuardrailWarningPayload
 	stops     []string
 }
 
-func (n *failingNotifier) ProvisionSandbox(_ context.Context, _ string, _ bool, _ string, _ bool) (Sandbox, error) {
+func (n *failingNotifier) ProvisionSandbox(_ context.Context, _ string, _ string, _ bool) (Sandbox, error) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.calls++
 	if n.calls <= n.failures {
+		if n.failWith != nil {
+			return Sandbox{}, n.failWith
+		}
 		return Sandbox{}, errors.New("provision-sandbox returned 500")
 	}
 	// An address nothing listens on, so the egress canary fails at once.
@@ -239,7 +243,7 @@ func TestProvisionSandbox_RetriesThenSucceeds(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if _, err := reg.ProvisionSandbox(ctx, "run-1", false, "", false); err != nil {
+	if _, err := reg.ProvisionSandbox(ctx, "run-1", "", false); err != nil {
 		t.Fatalf("ProvisionSandbox: %v", err)
 	}
 	if n.calls != 3 {
@@ -260,7 +264,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 		t.Fatal(err)
 	}
 
-	_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false)
+	_, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false)
 	if !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("err = %v, want ErrSandboxLost", err)
 	}
@@ -275,7 +279,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 	}
 
 	// Further requests fail without calling orbit-agents or recording again.
-	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); !errors.Is(err, ErrSandboxLost) {
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("second err = %v, want ErrSandboxLost", err)
 	}
 	if n.calls != 3 || len(n.runErrors) != 1 {
@@ -286,7 +290,7 @@ func TestProvisionSandbox_LostAfterAttemptsFailsFastUntilUserReplies(t *testing.
 	if err := reg.Send(context.Background(), "run-1", "try again"); err != nil {
 		t.Fatalf("Send: %v", err)
 	}
-	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false); !errors.Is(err, ErrSandboxLost) {
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); !errors.Is(err, ErrSandboxLost) {
 		t.Fatalf("third err = %v", err)
 	}
 	if n.calls != 6 {
@@ -450,7 +454,7 @@ func TestProvisionSandbox_RetriesStopWhenSessionCloses(t *testing.T) {
 
 	done := make(chan error)
 	go func() {
-		_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false)
+		_, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false)
 		done <- err
 	}()
 	for {
@@ -508,7 +512,7 @@ func TestMarkSandboxLost_StaleEpochIsIgnored(t *testing.T) {
 	s := reg.sessions["run-1"]
 	epoch := s.sandboxEpoch.Load()
 	reg.userReplied(s)
-	if reg.markSandboxLost(context.Background(), s, 3, epoch) {
+	if reg.markSandboxLost(context.Background(), s, 3, "", epoch) {
 		t.Fatal("markSandboxLost claimed a loss from before the user replied")
 	}
 	if s.sandboxLost.Load() || len(n.runErrors) != 0 {
@@ -528,7 +532,7 @@ func TestProvisionSandbox_RetriesStopWhenRunnerExits(t *testing.T) {
 
 	done := make(chan error)
 	go func() {
-		_, err := reg.ProvisionSandbox(context.Background(), "run-1", false, "", false)
+		_, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false)
 		done <- err
 	}()
 	for {
@@ -611,7 +615,70 @@ func TestRunGuardrails_WireMatchesTheClient(t *testing.T) {
 	}
 }
 
+// A lost sandbox that had a sandbox folder says the folder went with it.
+func TestSandboxLostMessage_SandboxFolder(t *testing.T) {
+	tests := []struct {
+		name   string
+		folder string
+		want   string
+	}{
+		{"no sandbox folder", "", "Files under {ws} are intact."},
+		{"sandbox folder", "pod-uid", "The sandbox folder {ws}/sandbox was lost with the sandbox. Other files under {ws} are intact."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			reg, ws := newTestRegistry(t, &failingNotifier{})
+			hostSession(reg, "run-1")
+			reg.sessions["run-1"].sandbox.Store(Sandbox{Endpoint: "10.0.0.1:50051", ExecToken: "t", Folder: tt.folder})
+			workspace := filepath.Join(ws, "run-1")
+			if err := os.MkdirAll(workspace, 0o700); err != nil {
+				t.Fatal(err)
+			}
+
+			want := strings.ReplaceAll(tt.want, "{ws}", workspace)
+			if got := reg.sandboxLostMessage("run-1"); !strings.Contains(got, want) {
+				t.Errorf("lost message = %q, want it to contain %q", got, want)
+			}
+		})
+	}
+}
+
 // setGuardrails replaces the registry's fallback thresholds for a test.
 func setGuardrails(reg *Registry, g Guardrails) {
 	reg.guardrails = g.withDefaults()
+}
+
+// A sandbox no node can place names the scheduler's reason to the user and the agent.
+func TestProvisionSandbox_LostUnschedulableCarriesReason(t *testing.T) {
+	reason := "0/3 nodes are available: 3 Insufficient cpu."
+	n := &failingNotifier{failures: 100, failWith: &unschedulableError{reason: reason}}
+	reg, _ := newTestRegistry(t, n)
+	setGuardrails(reg, fastGuardrails())
+	hostSession(reg, "run-1")
+	reg.sessions["run-1"].runner = newStubRunner(nil)
+
+	if _, err := reg.ProvisionSandbox(context.Background(), "run-1", "", false); !errors.Is(err, ErrSandboxLost) {
+		t.Fatalf("err = %v, want ErrSandboxLost", err)
+	}
+	if len(n.runErrors) != 1 || !strings.Contains(n.runErrors[0].Message, reason) {
+		t.Fatalf("run errors = %v, want the scheduler's reason", n.runErrors)
+	}
+	if got := reg.sandboxLostMessage("run-1"); !strings.Contains(got, reason) {
+		t.Errorf("lost message = %q, want the scheduler's reason", got)
+	}
+}
+
+// The scheduler's reason survives wrapping and is read from the typed error, never from its text.
+func TestUnschedulableReason(t *testing.T) {
+	reason := "0/3 nodes are available: 3 Insufficient cpu."
+	wrapped := fmt.Errorf("%w: %w", ErrSandboxLost, fmt.Errorf("provision sandbox after 3 attempt(s): %w", &unschedulableError{reason: reason}))
+	if got := unschedulableReason(wrapped); got != reason {
+		t.Errorf("wrapped reason = %q, want %q", got, reason)
+	}
+	if !errors.Is(wrapped, ErrSandboxUnschedulable) {
+		t.Error("wrapped error does not match ErrSandboxUnschedulable")
+	}
+	if got := unschedulableReason(fmt.Errorf("%w: %s", ErrSandboxUnschedulable, reason)); got != "" {
+		t.Errorf("untyped reason = %q, want empty", got)
+	}
 }

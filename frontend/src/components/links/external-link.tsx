@@ -1,4 +1,4 @@
-import { Anchor, type AnchorProps } from '@orbit/terra';
+import { Anchor, type AnchorProps } from '@orbit/hades';
 import { ExternalUrl } from '@orbit/lib/routing';
 
 type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
@@ -20,7 +20,7 @@ type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
 /**
  * ExternalLink
  *
- * Renders a Terra `Anchor` pointing to an external URL.
+ * Renders a Hades `Anchor` pointing to an external URL.
  *
  * The `url` prop accepts only URLs registered in `external-urls.ts` — an
  * unlisted URL is a compile-time error. To link to a new external resource,

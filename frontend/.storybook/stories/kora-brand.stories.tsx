@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
-import { KoraLogo, Stack, Text } from '@orbit/terra';
+import { KoraLogo, Stack, Text } from '@orbit/hades';
 
 const meta: Meta = {
   title: 'Kora/Brand',
@@ -19,7 +19,7 @@ interface MarkProps {
   lower?: string;
 }
 
-function Mark({ size, upper = 'var(--terra-raw-white)', lower = STEEL }: MarkProps) {
+function Mark({ size, upper = 'var(--hades-raw-white)', lower = STEEL }: MarkProps) {
   const s = size / 150;
   const abs = (style: CSSProperties): CSSProperties => ({ position: 'absolute', ...style });
   return (
@@ -82,8 +82,8 @@ export const Identity: StoryObj = {
           <Mark size={48} />
           <Mark size={32} />
           <Mark size={16} />
-          <Mark size={48} upper="var(--terra-raw-white)" lower="var(--terra-raw-white)" />
-          <Mark size={16} upper="var(--terra-raw-white)" lower="var(--terra-raw-white)" />
+          <Mark size={48} upper="var(--hades-raw-white)" lower="var(--hades-raw-white)" />
+          <Mark size={16} upper="var(--hades-raw-white)" lower="var(--hades-raw-white)" />
         </Stack>
       </Section>
     </Stack>

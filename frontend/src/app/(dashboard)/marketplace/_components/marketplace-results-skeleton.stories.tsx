@@ -1,7 +1,7 @@
 /** @tier 3 — marketplace-scoped. Preview of the overview loading layout. */
 
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack } from '@orbit/terra';
+import { Stack } from '@orbit/hades';
 import { MarketplaceResultsSkeleton } from './marketplace-results-skeleton';
 
 const meta: Meta<typeof MarketplaceResultsSkeleton> = {

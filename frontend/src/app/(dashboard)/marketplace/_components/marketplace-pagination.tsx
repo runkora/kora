@@ -2,7 +2,7 @@
 
 /** @tier 3 — marketplace-scoped. Result range, rows-per-page and page controls. */
 
-import { Button, Icon, NativeSelect, Separator, Stack, Text } from '@orbit/terra';
+import { Button, Icon, NativeSelect, Separator, Stack, Text } from '@orbit/hades';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 import { PAGE_SIZES } from '../_types';
 

@@ -3,7 +3,7 @@ import 'server-only';
 import type { Metadata, Viewport } from 'next';
 import { Geist_Mono, Inter } from 'next/font/google';
 import { ThemeProvider } from 'next-themes';
-import { TooltipProvider } from '@orbit/terra';
+import { TooltipProvider } from '@orbit/hades';
 import './globals.css';
 
 // Inter is a variable font; the optical size axis tightens it automatically at heading sizes.

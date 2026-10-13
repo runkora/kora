@@ -14,6 +14,7 @@ import (
 
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -401,7 +402,7 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusCreated, run)
 }
 
-// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&limit=&cursor=, clamping limit to maxRunsLimit.
+// handleListRuns handles GET /api/v1/runs?agent_type_id=&state=&created_after=&created_before=&limit=&cursor=, clamping limit to maxRunsLimit.
 func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	q := r.URL.Query()
@@ -421,6 +422,22 @@ func (c *Controller) handleListRuns(w http.ResponseWriter, r *http.Request) {
 		apiErr := api.ValidationError(api.ErrCodeInvalidField, "cursor is not a valid pagination cursor", map[string]any{"field": "cursor"})
 		api.ErrorResponse(ctx, w, c.logger, apiErr, err)
 		return
+	}
+	for _, b := range []struct {
+		field string
+		dst   *time.Time
+	}{{"created_after", &p.CreatedAfter}, {"created_before", &p.CreatedBefore}} {
+		raw := q.Get(b.field)
+		if raw == "" {
+			continue
+		}
+		t, perr := time.Parse(time.RFC3339, raw)
+		if perr != nil {
+			apiErr := api.ValidationError(api.ErrCodeInvalidField, b.field+" must be an RFC 3339 timestamp", map[string]any{"field": b.field})
+			api.ErrorResponse(ctx, w, c.logger, apiErr, perr)
+			return
+		}
+		*b.dst = t
 	}
 	// Repeated state keys add to the list.
 	if p.States, err = parseRunStates(strings.Join(q["state"], ",")); err != nil {
@@ -580,8 +597,13 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrRunStarting) {
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is starting", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		if errors.Is(err, ErrRunNotAcceptingMessages) {
-			apiErr := api.ConflictError(api.ErrCodeResourceExists, "run is not accepting messages", nil)
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is not accepting messages", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
@@ -950,18 +972,13 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	// ahead marks a pre-provision, which declines to create a pod while the
-	// connection registry is still loading. Absent means on-demand, so an older
-	// session-manager keeps the behavior it had.
-	ahead := r.URL.Query().Get("ahead") == "true"
-
 	// The body names the environment. An older session-manager sends none.
 	var req sandboxEnvironmentRequest
 	if err := api.DecodeBody(r, &req); err != nil && !errors.Is(err, io.EOF) {
 		api.ErrorResponse(ctx, w, c.logger, api.ClassifyDecodeError(err), err)
 		return
 	}
-	sandbox, err := c.runs.ProvisionSandbox(ctx, id, ahead, req.Environment, req.Replace)
+	sandbox, err := c.runs.ProvisionSandbox(ctx, id, req.Environment, req.Replace)
 	if err != nil {
 		if c.writeEnvironmentChoiceError(ctx, w, err) {
 			return
@@ -971,12 +988,9 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrKubeconfigNotReady) {
-			// 503, not 409: nothing about the run conflicts, the connection
-			// registry has simply not loaded yet, and the next request
-			// succeeds once it has.
-			apiErr := api.ServiceUnavailableError(api.ErrCodeServiceUnavailable, "sandbox pre-provision deferred: connection registry not resolved", map[string]any{"run_id": id})
-			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+		if ue, ok := errors.AsType[*unschedulableError](err); ok {
+			// No node can take the pod yet. The session-manager retries and passes the scheduler's reason on.
+			api.ErrorResponse(ctx, w, c.logger, api.ServiceUnavailableError(sessionmanager.ErrCodeSandboxUnschedulable, ue.reason, nil), nil)
 			return
 		}
 		if errors.Is(err, errSandboxImagePending) {
@@ -992,17 +1006,14 @@ func (c *Controller) handleProvisionSandbox(w http.ResponseWriter, r *http.Reque
 	// exec_token goes only to the session-manager that owns the run: the route is
 	// restricted to the agent pod by AuthorizationPolicy, and authorizeCallback
 	// has already bound the caller to this run.
-	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{
-		"endpoint":    sandbox.Endpoint,
-		"exec_token":  sandbox.ExecToken,
-		"canary_host": sandbox.CanaryHost,
-	})
+	api.JSON(ctx, w, c.logger, http.StatusOK, sandbox)
 }
 
-// writeEnvironmentChoiceError answers a refused environment choice with a 409
-// whose message the agent reads. It reports whether err was one.
+// writeEnvironmentChoiceError answers a refused environment choice, or a sandbox
+// too small for its work, with a 409 whose message the agent reads. It reports
+// whether err was one.
 func (c *Controller) writeEnvironmentChoiceError(ctx context.Context, w http.ResponseWriter, err error) bool {
-	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrEnvironmentRequired, ErrSandboxImageUnavailable} {
+	for _, target := range []error{ErrEnvironmentNotAttached, ErrEnvironmentSwitch, ErrEnvironmentRequired, ErrSandboxImageUnavailable, ErrSandboxOutOfMemory} {
 		if errors.Is(err, target) {
 			api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
 			return true

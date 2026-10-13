@@ -6,7 +6,7 @@
  * starting a sandbox, retrying a provider error, running a tool, or thinking.
  */
 
-import { Stack, Text, OrbitalLoader } from '@orbit/terra';
+import { Stack, Text, OrbitalLoader } from '@orbit/hades';
 import type { LiveActivity } from '../_types';
 import { describeTool, formatDuration } from '../_lib/tool-activity';
 import { useNow } from '../_hooks/use-now';
