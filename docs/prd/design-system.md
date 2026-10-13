@@ -135,7 +135,7 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 **Rules:**
 
 - Hades gets semantic versioning. A major defines the theme surface and the theme format. Minor and patch releases within a major only add to the surface and never break an existing theme.
-- The theme contract is the Hades major, never the kora version. Each kora release pins one Hades version, which is the version an instance validates themes against. The pin is implicit in the monorepo: the frontend consumes Hades by workspace link, so the pinned version is the one in the tree at that release. How the pin is exposed to the instance is subsection 2 of the design system versioning ADR.
+- The theme contract has its own version, never the kora version and never the package version. Each kora release pins one Hades version, which carries one contract version, and that is the version an instance validates themes against. The pin is implicit in the monorepo: the frontend consumes Hades by workspace link, so the pinned version is the one in the tree at that release. How the pin is exposed to the instance is subsection 2 of the design system versioning ADR.
 - Classification is decided on the manifest, per mode, against the contract boundary rules below. A release is a **major** if any token or slot in either mode is renamed, removed, changes its meaning or value format, or is newly read by a pre-existing component, because an existing theme has no value for it and a screen the client already had would fall through to the kora default. A release is a **minor** if tokens or slots are only added, for new components. Otherwise it is a **patch**, which includes a removed component that removes no token, a markup or style change that reads no new token, and a change to a default value. The rationale is that across a minor or a patch, a theme valid for the previous release renders every pre-existing component identically for every value the theme sets.
 
 **Contract boundary rules.** These decide what is and is not a change to the theme contract. They are a requirement in their own right: they are documented explicitly, as this numbered list, here and alongside the manifest in Hades, and every classification cites the rule it applied.
@@ -147,16 +147,16 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 5. kora default values are outside the contract. A change to a default value alone is a patch.
 
 **Acceptance Criteria:**
-- [ ] The design system is semantically versioned. A major defines the theme contract; minor and patch releases only add. Each kora release pins one design system version and validates themes against it.
+- [ ] The design system package is semantically versioned: a major is a breaking change to the components, props, peer ranges or tokens, a minor an addition, a patch a fix. The theme contract has its own version, `MAJOR.MINOR`, carried by the package as an exported constant and in the manifest: a major is a break in what a theme sets, a minor an addition to it. Each kora release pins one design system version and validates themes against its contract version.
 - [ ] The contract boundary rules are documented explicitly as a numbered list in Hades's own documentation, kept with the manifest, and in subsection 3 of the design system versioning ADR. The classifier cites the rule it applied in its report.
 - [ ] The first major is cut from the current token set, with the radius steps as literal tokens, the font slot tokens and the identity slots in place, and is the baseline the classification rule compares against.
 - [ ] Each Hades release carries a machine-readable manifest of its theme surface: token and slot names, modes, value formats, and the product-name bounds. The validation rules the white-labelling PRD publishes per version are generated from it.
-- [ ] A deterministic classifier evaluates every design system change against the manifest and reports its classification as patch, minor or major, citing the contract boundary rule it applied, so a contract-breaking change cannot ship as a minor unnoticed. Its trigger point (pre-commit, pre-push, or pull request) is decided in subsection 4 of the design system versioning ADR. The one case no classifier decides, a token changing meaning without changing name or format, is a review question.
+- [ ] A deterministic classifier evaluates every design system change against the manifest and reports its classification on both axes, the package version and the contract version, as patch, minor or major (the contract has no patch), citing the contract boundary rule or Semantic Versioning it applied, so a contract-breaking change cannot ship without a contract major and an API-breaking change cannot ship without a package major. Its trigger point (pre-commit, pre-push, or pull request) is decided in subsection 4 of the design system versioning ADR. The one case no classifier decides, a token changing meaning without changing name or format, is a review question.
 - [ ] Hades can be obtained outside the kora frontend as a buildable package, per major, so that consumers kora assumes will exist can render the product's own components. Which majors continue to receive releases is not decided until it matters.
 
 **Scope:**
 
-- Semantic versioning of the design system, with a major defining the theme contract, and each kora release pinning one design system version.
+- Semantic versioning of the design system package, a separate contract version defining what a theme targets, and each kora release pinning one design system version.
 - The theme surface manifest, carried by every release.
 - Explicit documentation of the contract boundary rules, kept with the manifest.
 - Four Hades changes made for the first major: radius steps as literal tokens rather than derived from one unit; agnostic identity slot components; font slot tokens the font families resolve through; the kora logo and mark moved out of Hades into the kora default theme at app level.
@@ -165,7 +165,7 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 
 **Consumers:**
 
-- The kora frontend pins one version by workspace link. That version is the theme contract an instance validates against.
+- The kora frontend pins one version by workspace link. That version carries the contract version an instance validates against.
 - The kora backend reads the product name, a contract-shaped value, from the theme. It does not depend on Hades.
 - External consumers that render the product's components against a theme are specified in their own documents, against this story. This PRD does not name them, so that Hades and kora never depend on anything that depends on them.
 
@@ -183,7 +183,7 @@ The [Hades Frontend Design System ADR](../adr/2026-03-25-terra-frontend-design-s
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
 | A design system change breaks existing themes without a major bump | High | Medium | Minor and patch releases only add surface. A deterministic classifier classifies every design system change against the manifest, and review confirms it. Anything that removes or renames surface is a major. |
-| Delivering Hades to external consumers adds release friction | Medium | Medium | The ADR decides the delivery mechanism. A theme records the Hades version it conforms to, as the contract requires, so a consumer's release is always identifiable. |
+| Delivering Hades to external consumers adds release friction | Medium | Medium | The ADR decides the delivery mechanism. A theme records the contract version it conforms to, and the package exports it, so what a consumer's release implements is always identifiable. |
 
 **Milestone:**
 - [ ] Design system versioning decided in its own ADR, including the classifier's trigger point
@@ -510,7 +510,8 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - **`cn()`**: A utility function combining `clsx` (conditional class joining) and `tailwind-merge` (conflicting Tailwind class resolution) used universally in shadcn components.
 - **Surface elevation**: Hades' approach to depth — UI layers are distinguished by progressively lighter background token shades (`background` → `surface` → `surface-elevated`), paired with subtle borders. No drop shadows are used; the aesthetic is intentionally flat.
 - **Storybook**: An open-source tool for developing and documenting UI components in isolation. Version 8.x supports Tailwind v4 via the Vite builder.
-- **Design system version:** the semantic version of Hades. The major is the theme contract; minor and patch releases only add. Each kora release pins one.
+- **Design system version:** the semantic version of the Hades package. Each kora release pins one.
+- **Contract version:** `MAJOR.MINOR`, versioned independently of the package and carried by it. A major is a break in what a theme sets; a minor is an addition to it. It is what a theme targets.
 - **Theme surface manifest:** the machine-readable description of every value a theme can set, carried by each Hades release: token and slot names, modes, value formats and the product-name bounds. The classification rule is decided against it, and the white-labelling validation rules are generated from it.
 
 ---
