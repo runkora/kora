@@ -37,7 +37,7 @@ still consume the budget.
 
 They routinely do. `skipped` deliveries from sources whose triggers are
 disabled carry no `trigger_id` at all. Observed in the `orbit-dev` tenant on
-2026-10-06, the default list held 100 deliveries spanning 02:02Z–05:15Z:
+2026-10-06, the default list held 100 deliveries spanning 02:02Z-05:15Z:
 
 | Source | Deliveries | Status |
 | --- | --- | --- |
@@ -70,6 +70,8 @@ so they still read a capped, unfiltered window.
 - Real-time push. The page refreshes on its existing cadence.
 - Reworking the deliveries list itself. #412 already did that.
 
+---
+
 ## Decision Drivers
 
 1. **Correctness before cost.** A number that silently means "within the last
@@ -81,90 +83,173 @@ so they still read a capped, unfiltered window.
 4. **Bounded database work.** Aggregating 24 hours per trigger must be index-
    supported, not a scan of the tenant's full delivery history.
 
+---
+
 ## Considered Options
 
-### Option A: Raise the limit (rejected)
+### Option 1: Raise the limit
 
-Fetch 500 or 1000 instead of 100.
+**Description:** Fetch 500 or 1000 arrivals instead of 100 and keep deriving in
+the browser.
 
-A cap is still a cap. The failure recurs as soon as unmatched arrivals exceed
-the new number, which webhook bursts from a disabled source do easily. It also
-pays the full payload cost of every extra row to compute three small numbers.
-This defers the bug rather than fixing it, and the deferral is proportional to
-how quiet the tenant is.
+**Pros:**
+- Smallest possible change; no API or SQL work.
+- Fixes the reported symptom for tenants below the new cap.
 
-### Option B: One filtered request per trigger (rejected for the fleet)
+**Cons:**
+- A cap is still a cap. The failure returns as soon as unmatched arrivals exceed
+  the new number, which a webhook burst from a disabled source does easily.
+- Pays the full payload cost of every extra row to compute three small numbers.
+- Defers the bug in proportion to how quiet the tenant is, so it fails worst on
+  the busiest tenants.
 
-Call `ListDeliveries` once per trigger with `trigger_id` set.
+### Option 2: One filtered request per trigger
 
-Correct, and it needs no new backend surface, since the filter exists. But the
-fleet view renders every trigger a tenant has, so this is N requests to render
-one page, each returning full delivery rows to compute three scalars.
+**Description:** Call `ListDeliveries` once per trigger with `trigger_id` set.
 
-This option is right for a *single* trigger's history — opening one trigger's
-detail should use exactly this — and wrong for the fleet.
+**Pros:**
+- Correct, and needs no new backend surface: the filter already exists.
+- Each response is naturally scoped, so nothing can crowd anything out.
 
-### Option C: Server-computed aggregates on the trigger list (chosen)
+**Cons:**
+- The fleet renders every trigger a tenant has, so this is N requests for one
+  page.
+- Each request returns full delivery rows to compute three scalars.
 
-Return `last_fired_at`, a recent-failure count, and the sparkline buckets with
-each trigger in the existing list response, computed in Postgres in one query
-grouped by trigger.
+Right for a *single* trigger's history; wrong for the fleet.
 
-The predicate and the window live in the same place, so no cap is applied ahead
-of the filter. One request renders the page. The browser keeps the presentation
-and loses only the derivation.
+### Option 3: Server-computed aggregates on the trigger list (chosen)
 
-The `skipped`-delivery problem dissolves rather than needing a toggle: an
-arrival that matched no trigger contributes to no trigger's aggregate, so it
-cannot crowd anything out. The issue's suggestion to filter `skipped` out of the
-fleet view is unnecessary once the aggregate is server-side — and would have
-been the wrong fix, since it treats a symptom of the capped window.
+**Description:** Return the three figures with each trigger in the existing list
+response, computed in Postgres in one query grouped by trigger.
 
-### Option D: Denormalized `last_fired_at` column on `triggers` (rejected for now)
+**Pros:**
+- Predicate and window live in the same place, so no cap precedes the filter.
+- One request renders the page; the browser keeps presentation only.
+- The `skipped` problem dissolves: an arrival matching no trigger contributes to
+  no trigger's aggregate, so it cannot crowd anything out.
+- One contract for both surfaces, so the Triggers page and the agent Triggers
+  tab cannot drift in how they count.
 
-Maintain a column on the trigger row, written when a delivery dispatches.
+**Cons:**
+- The list endpoint becomes more expensive, and its cost now scales with
+  delivery volume in the window rather than with trigger count.
+- Moves three tested browser functions into SQL, where testing them requires a
+  real database.
 
-The cheapest possible read, and the obvious end state if the aggregate query
-proves too expensive. Rejected as the first step because it answers only one of
-the three figures — the failure count and the sparkline are windowed and cannot
-be a single column — and because a denormalized field has to be kept true on
-every write path that can dispatch, including replay. That is a correctness
-surface worth adding only once a measurement says the query needs it.
+### Option 4: Denormalized `last_fired_at` column on `triggers`
+
+**Description:** Maintain a column on the trigger row, written when a delivery
+dispatches.
+
+**Pros:**
+- The cheapest possible read, and the obvious end state if the aggregate query
+  proves too expensive.
+
+**Cons:**
+- Answers only one of the three figures; the failure count and the sparkline are
+  windowed and cannot be a single column.
+- The field must be kept true on every write path that can dispatch, including
+  replay, which is a new correctness surface.
+
+---
 
 ## Decision
 
-Adopt **Option C**, with Option B for single-trigger history.
+Adopt **Option 3**, with Option 2 for single-trigger history.
 
-The trigger list response gains per-trigger aggregates computed in Postgres.
-Three details decide whether the implementation is right:
+### Response shape
 
-**The fan-out is part of the predicate.** A delivery counts for a trigger when
-`trigger_deliveries.trigger_id` matches *or* a `trigger_delivery_runs` row for
-that delivery names it. `lastFired` in `fleet.ts` already implements both arms:
+Each trigger in the list response gains one nested object. Field names are
+snake_case to match the existing envelope:
 
-```ts
-if (d.triggerId !== triggerId && !d.runs.some((r) => r.triggerId === triggerId)) continue;
+```jsonc
+{
+  "id": "trg-1",
+  // ...existing trigger fields...
+  "activity": {
+    // RFC 3339 UTC, or null when the trigger has never fired. Null rather than
+    // a zero time or empty string: "never" is a real state the row renders
+    // differently, and the existing envelope already uses null this way for
+    // next_cursor.
+    "last_fired_at": "2026-10-13T04:12:09Z",
+
+    // Count of failed runs in the window. 0, never null: a trigger with no
+    // failures and a trigger with no history both show no badge, and the
+    // caller should not have to distinguish them here.
+    "recent_failures": 3,
+
+    // Exactly SPARK_BUCKETS (12) entries, oldest first, never null and never
+    // short. A quiet trigger is twelve zeroed buckets, so the chart reads as
+    // quiet rather than as a shorter chart than its neighbour - the property
+    // `sparkline` documents today.
+    "sparkline": [
+      { "started": 0, "failed": 0, "other": 0 }
+      // ...11 more
+    ]
+  }
+}
 ```
+
+A trigger that has never fired returns `last_fired_at: null`,
+`recent_failures: 0`, and twelve zeroed buckets. The key is always present.
+
+### Window semantics
+
+- **Anchor.** The window is `(now - 24h, now]`, where `now` is the server's
+  clock at query time, in UTC. One anchor is chosen per request and used for
+  every trigger in it, so two rows in the same response cannot be measured
+  against different instants.
+- **Bucket alignment.** Buckets are aligned to the anchor, not to wall-clock
+  hours: bucket 0 begins exactly 24 hours before `now` and each spans two
+  hours. This matches `sparkline` today, whose index is
+  `floor((t - (now - DAY_MS)) / bucketMs)` clamped to the last bucket. Aligning
+  to wall-clock boundaries instead would change what the chart shows.
+- **An arrival exactly on `now`** falls in the last bucket; one older than the
+  anchor is excluded. `t > now` is excluded, as the browser does today, so a
+  clock skew ahead of the server cannot land a delivery in the future.
+
+### What counts, and for which figure
+
+The three figures do not share one predicate, and an implementation that
+assumes they do will be wrong:
+
+- **`last_fired_at`** is delivery-level, and matches on either arm:
+  `trigger_deliveries.trigger_id` is the trigger **or** a `trigger_delivery_runs`
+  row for that delivery names it. It is the newest matching delivery's
+  `received_at`.
+- **`recent_failures`** and **`sparkline`** are run-level. They count rows in
+  `trigger_delivery_runs` for this trigger whose parent delivery falls in the
+  window, classified by run status: `dispatched` is `started`, the failure
+  outcomes are `failed`, everything else is `other`.
 
 An aggregate that reads only `trigger_deliveries.trigger_id` will disagree with
 the detail panel on any multi-trigger arrival. As #412 found, the join form of
-this predicate multiplies a delivery by its matching runs, so the aggregate must
-not double-count a delivery that has several runs for one trigger.
+this predicate multiplies a delivery by its matching runs, so `last_fired_at`
+must not be computed by a join that double-counts a delivery with several runs.
 
-**The sparkline is bucketed in SQL.** Returning raw timestamps for the browser
-to bucket re-introduces an unbounded payload. The 12 two-hour buckets over 24
-hours are produced by the query and returned as counts.
+### Index
 
-**It needs an index.** `idx_trigger_deliveries_trigger` is on `(trigger_id)`
-alone. A 24-hour per-trigger aggregate wants the time column beside it, in the
-shape #412 established for `(tenant_id, status, received_at DESC)`. The exact
-columns are an implementation decision to be measured, not asserted here, and
-the migration follows the `CONCURRENTLY` rules recorded in #412 and the session
-lock in clear-route/orbit#516.
+`idx_trigger_deliveries_trigger` is on `(trigger_id)` alone. A 24-hour
+per-trigger aggregate wants the time column beside it, in the shape #412
+established for `(tenant_id, status, received_at DESC)`. The exact columns are
+to be measured rather than asserted here. The migration follows the
+`CONCURRENTLY` rules recorded in #412 and the session lock in
+clear-route/orbit#516.
+
+### Rationale
+
+The `skipped`-delivery filter the issue proposes is deliberately **not** part of
+this decision. It treats a symptom of the capped window: once the aggregate is
+server-side, an arrival that matched no trigger contributes to no trigger's
+figures, so there is nothing to filter out. Adding the filter as well would hide
+the remaining evidence if the aggregate were ever wrong.
+
+---
 
 ## Consequences
 
-**Positive**
+### Positive
 
 - "Last fired" and the failure count mean what they say, for a trigger that
   fired once a month as readily as one firing every minute.
@@ -173,21 +258,87 @@ lock in clear-route/orbit#516.
 - The three derivations move behind one contract, so the Triggers page and the
   agent Triggers tab cannot drift apart in how they count.
 
-**Negative**
+### Negative
 
-- The trigger list response grows a nested shape, and the list endpoint becomes
+- The trigger list response grows a nested object, and the list endpoint becomes
   more expensive than a plain select. Its cost now scales with delivery volume
   in the window rather than with trigger count.
 - `fleet.ts` loses `lastFired`, `recentFailures` and `sparkline`, so their unit
   tests go with them, and the equivalent assertions must be written against the
-  SQL. Per the testing strategy in `AGENTS.md`, behaviour that lives in SQL is
-  tested against real Postgres rather than a mock: a mock can only agree with
-  whatever its author believed the query did, which is exactly the assumption
-  worth testing for a grouped aggregate with a fan-out arm.
+  SQL.
+- The window is anchored server-side, so a client in another timezone can no
+  longer re-derive the chart against its own clock. This is intended: one anchor
+  per response is what makes two rows comparable.
 
-**Neutral**
+### Neutral
 
-- Option D remains available if measurement shows the aggregate is too costly
+- Option 4 remains available if measurement shows the aggregate is too costly
   for `last_fired_at` specifically; this decision does not foreclose it.
 - The frontend still renders the same three things, so no visual change ships
   with this work.
+
+---
+
+## Implementation
+
+### Migration Path
+
+1. Add the aggregate query and the `activity` object to the trigger list
+   response, with the index the measurement calls for.
+2. Switch the frontend to read `activity`, deleting the three derivations and
+   the 100-row delivery fetch that fed them.
+3. Point single-trigger history at `ListDeliveries` with `trigger_id`
+   (Option 2), which needs no new backend work.
+
+Steps 1 and 2 can ship together or in order; the response is additive, so a
+frontend still deriving in the browser keeps working against a backend that has
+already shipped step 1.
+
+### Timeline
+
+Not scheduled. This ADR records the approach so implementation does not have to
+re-derive it.
+
+---
+
+## Validation
+
+The decision is correct if a trigger's "Last fired" survives a burst of
+unmatched arrivals, which is precisely what reproduced #410.
+
+### Success Metrics
+
+- A trigger that fired once, followed by more than 100 unmatched arrivals, still
+  shows its real "Last fired" time. This is the #410 reproduction, and it is the
+  one assertion that must exist.
+- The fleet view issues one request regardless of trigger count.
+- The trigger list endpoint's latency stays within its current budget at
+  production delivery volume, measured rather than assumed.
+
+### Monitoring
+
+The list endpoint is already traced; the aggregate query appears as a child span,
+so a regression shows up as that span's duration rather than as a mystery in the
+page load.
+
+Per the testing strategy in `AGENTS.md`, behaviour that lives in SQL is tested
+against real Postgres rather than a mock: a mock can only agree with whatever its
+author believed the query did, which is exactly the assumption worth testing for
+a grouped aggregate with a fan-out arm and a windowed bucket index.
+
+---
+
+## Related Decisions
+
+- `2026-10-07-trigger-deliveries-keyset-pagination.md` - the same root cause on
+  the deliveries list; lands with clear-route/orbit#412.
+- [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) - the superseded client-side filter, for the same reason recorded here.
+- [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) - defines the delivery pipeline and its statuses.
+
+---
+
+## References
+
+- clear-route/orbit#410 - the reported defect, with the `orbit-dev` evidence.
+- `frontend/src/app/(dashboard)/triggers/_types/fleet.ts` - the derivations this
+  decision moves, and the source of the bucket and matching semantics above.
