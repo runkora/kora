@@ -107,24 +107,14 @@ func withProvider(ctx context.Context, logger logging.Logger, fn func(*goose.Pro
 	sqlDB := stdlib.OpenDBFromPool(db.Pool())
 	defer sqlDB.Close()
 
-	// A Postgres advisory lock serializes two migrate Jobs against one database.
-	// Nothing else does: the Job has a fixed name and backoffLimit 0, which stops
-	// it racing itself, but not an Argo CD PreSync overlapping a manual
-	// `helm upgrade`.
+	// Serializes two migrate Jobs against one database. The Job's fixed name and
+	// backoffLimit 0 stop it racing itself, but not an Argo CD PreSync overlapping
+	// a manual `helm upgrade`, which a NO TRANSACTION migration cannot survive:
+	// goose records the version even when the DDL silently did nothing.
 	//
-	// This was harmless while every migration ran in a transaction, where the DDL
-	// and the goose version row committed together. A `-- +goose NO TRANSACTION`
-	// migration loses that: two concurrent `CREATE INDEX CONCURRENTLY IF NOT
-	// EXISTS` runs can have one match the other's in-progress INVALID catalog
-	// entry, skip it, and exit 0 while goose records the version. Nothing retries,
-	// so the index stays INVALID - maintained on every insert, used by no query -
-	// and the only symptom is a query plan quietly getting worse.
-	//
-	// The wait is bounded to 120s (24 probes, 5s apart) rather than the 300s
-	// default because the Job's activeDeadlineSeconds is 240s. On the default a
-	// waiting Job would be killed mid-wait by the deadline, reporting nothing
-	// useful; at 120s it gives up with a lock-timeout error and still leaves
-	// headroom for the migrations themselves once the lock is won.
+	// 120s (24 probes, 5s apart) rather than the 300s default, because the Job's
+	// activeDeadlineSeconds is 240s: on the default a waiting Job is killed
+	// mid-wait and reports nothing useful.
 	sessionLocker, err := lock.NewPostgresSessionLocker(lock.WithLockTimeout(5, 24))
 	if err != nil {
 		return fmt.Errorf("create session locker: %w", err)
