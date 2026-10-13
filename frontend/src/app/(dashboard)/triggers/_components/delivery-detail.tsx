@@ -49,9 +49,8 @@ export interface DeliveryDetailProps {
    * that run's page. The delivery's fan-out names the trigger, not the agent,
    * and the run route is keyed by agent slug.
    *
-   * Optional on purpose: a caller without the triggers list omits it and the
-   * run renders as plain text, exactly as before. A link that cannot be built
-   * is never a broken link.
+   * Optional: a caller without the triggers list omits it and the run renders
+   * as plain text.
    */
   resolveAgentSlug?: (triggerId: string) => string | undefined;
   /**
@@ -66,10 +65,9 @@ export interface DeliveryDetailProps {
 /**
  * One run id, linked to its run when the owning agent can be resolved.
  *
- * The link is composed from Anchor + next/link rather than AppLink because
- * AppLink only accepts the static routes in APP_ROUTES; this is the same
- * composition AppLink uses internally. Without a slug the id still renders, as
- * text: a link that cannot be built is better absent than broken.
+ * Composed from Anchor + next/link rather than AppLink, which only accepts the
+ * static routes in APP_ROUTES. Without a slug the id renders as text: a link
+ * that cannot be built is better absent than broken.
  */
 function RunRef({ runId, agentSlug }: { runId: string; agentSlug: string | undefined }) {
   // Empty counts as unresolved, not just undefined. agent_slug is NOT NULL but
@@ -119,14 +117,10 @@ export function DeliveryDetail({
   // the panel saying nothing on exactly the deliveries opened to ask why.
   const error = outcome?.error ?? (outcome === undefined ? delivery.error : null);
   const runId = outcome?.runId ?? (triggerId === undefined ? delivery.runId : null);
-  // The run belongs to whichever trigger started it: this trigger in a scoped
-  // view, otherwise the one fan-out row that actually produced a run.
-  //
-  // The delivery's own trigger_id is the last resort, and it is reachable:
-  // outcomeRecorder.insert logs an InsertDeliveryRun failure and carries on,
-  // so a delivery can hold a run_id and a trigger_id with no fan-out row
-  // behind them. Without this the link degrades to text on exactly the
-  // deliveries someone is most likely to be investigating.
+  // This trigger in a scoped view, otherwise the fan-out row that produced a
+  // run. The delivery's own trigger_id is the last resort and is reachable:
+  // outcomeRecorder.insert logs an InsertDeliveryRun failure and carries on, so
+  // a delivery can hold a run_id with no fan-out row behind it.
   const runTriggerId =
     outcome?.triggerId ??
     delivery.runs.find((r) => r.runId === runId)?.triggerId ??

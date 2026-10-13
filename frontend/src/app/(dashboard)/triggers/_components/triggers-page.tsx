@@ -62,22 +62,15 @@ const DELIVERY_STATUS_OPTIONS = [
 ];
 
 /**
- * The deliveries list as one value: the rows on screen, the cursor that
- * continues them, the filter they actually are, and the epoch that says which
- * server page they belong to. They change together, so a response is accepted
- * or rejected as a unit rather than leaving the four half-updated.
+ * One state object so a response is accepted or rejected as a unit. Splitting
+ * these across separate useState calls lets a retired request publish its error
+ * or its rows onto a page it no longer describes.
  */
 interface DeliveryPageState {
   rows: DeliveryRow[];
   cursor: string | null;
   applied: string;
   epoch: number;
-  /**
-   * error and loading live here too, not in their own useState. A request the
-   * re-seed retired would otherwise still publish its error onto the fresh
-   * page and hold Load more disabled until it returned, which is the opposite
-   * of accepting or rejecting a response as a unit.
-   */
   error: string | null;
   loading: boolean;
 }
@@ -140,20 +133,12 @@ export function TriggersPage({
     loading: false,
   });
 
-  // Only the newest request may write. Without this, changing the filter while a
-  // Load more is in flight lets the older response append the previous filter's
-  // rows and overwrite the new filter's cursor, after which every further page
-  // walks the wrong keyset.
+  // Only the newest request may write.
   const requestSeq = useRef(0);
 
-  // rows, cursor and applied move together, in one state object with an epoch,
-  // because a response has to be accepted or rejected as a unit. The epoch is
-  // what the render-phase re-seed below bumps, and comparing it inside the
-  // updater is the only place the CURRENT value is readable: a ref cannot be
-  // written during render and a closure captured at request time is stale by
-  // definition. Without it a Load more that overlaps a refresh appends the old
-  // filter's rows onto the new server page and installs the old keyset's
-  // cursor, which leaves the deliveries in between permanently unreachable.
+  // The epoch is compared inside the updater because that is the only place the
+  // current value is readable: a ref cannot be written during render, and a
+  // closure captured at request time is stale by definition.
   const fetchDeliveries = useCallback(
     async (status: string, cursor: string | null, epoch: number) => {
       const seq = ++requestSeq.current;
