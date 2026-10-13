@@ -10,6 +10,13 @@
  */
 import type { IconName } from '@runkora/hades';
 
+/**
+ * The slug the platform's own MCP server is registered under. An identifier,
+ * not the product name: it is the mount path `/v1/mcp/orbit` and the name the
+ * backend registers, which a theme does not change.
+ */
+export const PLATFORM_MCP_SERVER = 'orbit';
+
 /** The `api.` host an MCP client uses to reach the gateway, derived from the dashboard origin. */
 export function mcpGatewayHost(): string {
   if (typeof window === 'undefined') return '';

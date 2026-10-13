@@ -18,6 +18,7 @@ import {
   EmptyState,
 } from '@runkora/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
+import { PLATFORM_MCP_SERVER } from '@orbit/lib/mcp';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope, statusColor } from '../_types';
 import type { IconName } from '@runkora/hades';
@@ -423,7 +424,7 @@ function ServerCard({
         }}
       >
         <Stack direction="horizontal" align="start" gap="cozy">
-          <ServerAvatar name={server.name} accent={server.name === 'orbit'} />
+          <ServerAvatar name={server.name} accent={server.name === PLATFORM_MCP_SERVER} />
           <Stack grow gap="none" style={{ minWidth: 0 }}>
             <Stack direction="horizontal" align="center" gap="snug">
               <Text as="span" weight="strong" style={{ fontSize: 15, letterSpacing: '-0.01em' }}>
@@ -574,7 +575,7 @@ function ServerTable({
               />
             </Stack>
             <Stack direction="horizontal" align="center" gap="snug">
-              <ServerAvatar name={s.name} accent={s.name === 'orbit'} size="sm" />
+              <ServerAvatar name={s.name} accent={s.name === PLATFORM_MCP_SERVER} size="sm" />
               <Stack gap="none">
                 <Stack direction="horizontal" align="center" gap="snug">
                   <Text weight="heavy" size="supporting">

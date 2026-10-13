@@ -1,0 +1,20 @@
+# A small valid theme: a product name, two colour tokens, a logo for both modes,
+# a favicon for dark only (so `favicon.light` falls through), one token and one
+# slot the manifest does not know (so both are ignored and logged), no fonts.
+hadesVersion: 1.0.0
+productName: Acme Agents
+tokens:
+  --hades-raw-100:
+    dark: '#0a0a0a'
+    light: '#fafafa'
+  --hades-raw-accent-500:
+    dark: oklch(70% 0.15 250)
+  --hades-raw-not-a-token:
+    dark: '#123456'
+slots:
+  logo:
+    dark: logo-dark.svg
+    light: logo-light.svg
+  favicon:
+    dark: favicon.svg
+  not-a-slot: nothing.svg

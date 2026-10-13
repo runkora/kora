@@ -1,13 +1,21 @@
 /**
  * BFF route: GET /api/health
  *
- * Lightweight liveness/readiness probe for Kubernetes.
- * Returns 200 immediately without calling any upstream service so that
- * the pod is considered ready as soon as Next.js is serving requests.
+ * Liveness/readiness probe for Kubernetes. Calls no upstream service, so the
+ * pod is ready as soon as Next.js serves requests. It reports the running Hades
+ * version and the loaded theme's hash (null without a theme), per the
+ * white-labelling theme ADR, decision 3; a bundle that fails to load makes
+ * this throw, which is the point: the pod must not become ready.
  */
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { getTheme } from '@orbit/server/theme';
 
 export async function GET() {
-  return NextResponse.json({ status: 'ok' });
+  const { hadesVersion, theme } = await getTheme();
+  return NextResponse.json({
+    status: 'ok',
+    hadesVersion,
+    theme: theme ? { hash: theme.hash } : null,
+  });
 }

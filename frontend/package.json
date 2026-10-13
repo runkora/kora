@@ -41,7 +41,8 @@
     "recharts": "^3.10.1",
     "remark-gfm": "^4.0.1",
     "server-only": "^0.0.1",
-    "tailwind-merge": "^3.6.0"
+    "tailwind-merge": "^3.6.0",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

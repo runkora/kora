@@ -17,6 +17,7 @@ import {
   EmptyState,
   TruncatingBadge,
 } from '@runkora/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import type { DataTableColumn } from '@runkora/hades';
 import { ClampedList } from '@orbit/components';
 import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
@@ -59,6 +60,7 @@ export function EnvironmentsPage({
   error,
 }: EnvironmentsPageProps) {
   const router = useRouter();
+  const { productName } = useBrand();
 
   // null = closed; { environment: null } = create; { environment: row } = edit.
   const [formState, setFormState] = useState<{ environment: EnvironmentRow | null } | null>(null);
@@ -267,7 +269,7 @@ export function EnvironmentsPage({
         <EmptyState
           icon="layers"
           title="No environments"
-          description="Agents without an environment run on the kora base image. Create an environment to give them a registered image, a size and access."
+          description={`Agents without an environment run on the ${productName} base image. Create an environment to give them a registered image, a size and access.`}
           action={
             <Button size="sm" onClick={() => setFormState({ environment: null })}>
               <Icon name="plus" size="xs" />

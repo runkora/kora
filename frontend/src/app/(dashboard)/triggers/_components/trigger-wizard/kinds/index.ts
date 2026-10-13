@@ -32,7 +32,8 @@ export const PLANNED_KINDS: PlannedKind[] = [
   {
     icon: 'activity',
     title: 'Control-plane event',
-    description: 'When something happens inside kora: a run finishes, a budget is crossed.',
+    description: (productName) =>
+      `When something happens inside ${productName}: a run finishes, a budget is crossed.`,
   },
   {
     icon: 'route',

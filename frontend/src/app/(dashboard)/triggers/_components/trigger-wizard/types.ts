@@ -189,13 +189,24 @@ export interface StepComponentProps {
   onGoTo?: (stepId: string) => void;
 }
 
+/**
+ * Copy that may name the product: a plain string, or a function of the product
+ * name for the registry entries that mention it. The registry is module-level,
+ * so it cannot read the brand itself; the component that renders it does.
+ */
+export type BrandedCopy = string | ((productName: string) => string);
+
+export function brandedCopy(copy: BrandedCopy, productName: string): string {
+  return typeof copy === 'function' ? copy(productName) : copy;
+}
+
 /** One step in the wizard: a rail entry and the pane it shows. */
 export interface KindStep {
   id: string;
   railTitle: string;
   railSub: string;
   /** The sentence under the step heading. */
-  description: string;
+  description: BrandedCopy;
   Component: React.ComponentType<StepComponentProps>;
   validate: (state: WizardState, context: WizardContext) => StepValidation;
 }
@@ -238,7 +249,7 @@ export interface TriggerKindDefinition {
   id: TriggerKind;
   icon: IconName;
   title: string;
-  description: string;
+  description: BrandedCopy;
   /** The mono usage hint under the picker card, e.g. "GitHub · Alertmanager". */
   example: string;
   /** State this kind starts from, merged over the shared defaults. */
@@ -270,5 +281,5 @@ export interface TriggerKindDefinition {
 export interface PlannedKind {
   icon: IconName;
   title: string;
-  description: string;
+  description: BrandedCopy;
 }

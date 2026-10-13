@@ -14,6 +14,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import type { Environment } from '@orbit/shared/api';
 import { sizeLabel } from '@orbit/lib/environments';
 import { setDefaultEnvironment, toggleEnvironment } from '../../_types';
@@ -36,12 +37,13 @@ export function EnvironmentsCard({
   /** Set when the tenant's environments failed to load. */
   error?: string | null;
 }) {
+  const { productName } = useBrand();
   const attached = new Map(value.map((e) => [e.environment_id, e.is_default]));
   // A restored draft can hold a deleted environment. Listing it lets the user detach it.
   const missing = value.filter((v) => !environments.some((e) => e.id === v.environment_id));
   const summary =
     value.length === 0
-      ? 'None attached. The agent runs on the kora base image at the default size.'
+      ? `None attached. The agent runs on the ${productName} base image at the default size.`
       : value.length === 1
         ? 'The agent runs in this environment.'
         : `${value.length} attached. The agent starts in the default and can switch to another.`;

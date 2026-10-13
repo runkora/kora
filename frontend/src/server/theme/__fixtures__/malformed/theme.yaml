@@ -1,0 +1,12 @@
+# Every kind of fault at once: an unknown top-level key, a colour that is not a
+# colour, a referenced asset that is not in the bundle.
+hadesVersion: 1.0.0
+productName: Broken Co
+brand: nope
+tokens:
+  --hades-raw-100:
+    dark: red
+slots:
+  logo:
+    dark: missing.svg
+    light: logo-light.svg

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useBrand } from '@orbit/theme/brand-provider';
 import type {
   RunChatState,
   Turn,
@@ -139,6 +140,7 @@ const SANDBOX_STARTING = new Set(['provisioning', 'pod_ready']);
 // ── useRun ────────────────────────────────────────────────────────────────────
 
 export function useRun(runId: string, slug: string): UseRunReturn {
+  const { productName } = useBrand();
   // Null until the API or the stream reports the run's state.
   const [runState, setRunState] = useState<RunState | null>(null);
   const [agentName, setAgentName] = useState('Agent');
@@ -706,7 +708,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     es.addEventListener('guardrail_warning', (e: MessageEvent) => {
       const payload = read<GuardrailWarningPayload>(e);
       if (!payload) return;
-      appendElement({ kind: 'notice', message: guardrailMessage(payload) });
+      appendElement({ kind: 'notice', message: guardrailMessage(payload, productName) });
     });
 
     es.addEventListener('message_stop', () => {
@@ -773,7 +775,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       const payload = read<RunErrorPayload>(e);
       if (!payload) return;
       setRetry(null);
-      const friendly = RUN_ERROR_MESSAGES[payload.code];
+      const friendly = runErrorMessage(payload.code, productName);
       // A lost sandbox does not end the turn: the agent carries on, so the
       // error sits in the turn where it happened.
       if (TURN_CONTINUES.has(payload.code) && inProgressRef.current) {
@@ -814,7 +816,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     // tears down the current EventSource and opens a fresh one. loadUsage /
     // scheduleUsageRefresh are stable per runId, so they never re-subscribe the
     // stream on their own.
-  }, [runId, reconnectKey, loadUsage, scheduleUsageRefresh, appendHuman]);
+  }, [runId, reconnectKey, loadUsage, scheduleUsageRefresh, appendHuman, productName]);
 
   function reconnect(): void {
     // Clear accumulated turns before opening a fresh EventSource. The new
@@ -965,18 +967,24 @@ function stopRunningTools(turn: AgentTurn): AgentTurn {
 
 const TURN_CONTINUES = new Set(['sandbox_lost']);
 
-const RUN_ERROR_MESSAGES: Record<string, string> = {
-  sandbox_lost:
-    'The sandbox was lost. Files in the workspace are kept; anything elsewhere in the sandbox is gone.',
-  loop_detected: 'Orbit paused this run because the agent was repeating itself. Reply to continue.',
-};
+/** The friendly text for a run error code, when there is one; the product is named by the brand. */
+function runErrorMessage(code: string, productName: string): string | undefined {
+  switch (code) {
+    case 'sandbox_lost':
+      return 'The sandbox was lost. Files in the workspace are kept; anything elsewhere in the sandbox is gone.';
+    case 'loop_detected':
+      return `${productName} paused this run because the agent was repeating itself. Reply to continue.`;
+    default:
+      return undefined;
+  }
+}
 
-function guardrailMessage(p: GuardrailWarningPayload): string {
+function guardrailMessage(p: GuardrailWarningPayload, productName: string): string {
   const what =
     p.kind === 'wait_rearm'
       ? `${p.tool} re-armed ${p.count} times with no new output`
       : `${p.tool} called ${p.count} times with the same input`;
-  return `Orbit asked the agent to change approach: ${what}.`;
+  return `${productName} asked the agent to change approach: ${what}.`;
 }
 
 /**
