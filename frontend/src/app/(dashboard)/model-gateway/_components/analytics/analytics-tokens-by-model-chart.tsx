@@ -12,7 +12,7 @@ import {
   ChartTooltipContent,
   ChartLegendContent,
   type ChartConfig,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type { AnalyticsModelTokenBucket } from '../../_types';
 
 // ── Palette ───────────────────────────────────────────────────────────────────

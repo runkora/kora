@@ -2,7 +2,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Button, Icon, Stack, Text } from '@orbit/hades';
+import { Button, Icon, Stack, Text } from '@runkora/hades';
 
 // ── Props (all fetched server-side, passed as serialisable data) ──────────────
 

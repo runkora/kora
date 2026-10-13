@@ -34,7 +34,7 @@ importers:
 
   .:
     dependencies:
-      '@orbit/hades':
+      '@runkora/hades':
         specifier: workspace:*
         version: link:src/packages/hades
       '@radix-ui/react-collapsible':

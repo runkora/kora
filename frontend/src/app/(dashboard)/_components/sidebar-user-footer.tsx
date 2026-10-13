@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
-import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@orbit/hades';
+import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@runkora/hades';
 import { APP_ROUTES } from '@orbit/lib/routing/routes';
 import { useLogout } from '@orbit/lib/use-logout';
 import { useSession } from './permissions-provider';

@@ -11,7 +11,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type { AnalyticsKPIs } from '../../_types';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

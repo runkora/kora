@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 
-import { Stack, Text } from '@orbit/hades';
+import { Stack, Text } from '@runkora/hades';
 import { hasScope } from '@orbit/lib/permissions';
 import { useSession } from './permissions-provider';
 

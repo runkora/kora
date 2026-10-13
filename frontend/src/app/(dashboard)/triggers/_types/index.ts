@@ -11,7 +11,7 @@
  * (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
  */
 
-import type { IconName } from '@orbit/hades';
+import type { IconName } from '@runkora/hades';
 import type {
   InputField,
   SenderRestriction,

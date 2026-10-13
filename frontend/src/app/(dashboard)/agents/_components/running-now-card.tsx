@@ -19,7 +19,7 @@ import {
   TableRoot,
   TableRow,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { RUN_STATE_DISPLAY } from '@orbit/components';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { RUNNING_ROWS } from '../_lib/spend';

@@ -16,9 +16,9 @@
  *
  * ```
  * Are you building inside (dashboard)/ (authenticated shell)?
- * ├── No  → use DataTable from @orbit/hades
+ * ├── No  → use DataTable from @runkora/hades
  * └── Yes → Does this table need column visibility persisted per user?
- *           ├── No  → use DataTable from @orbit/hades
+ *           ├── No  → use DataTable from @runkora/hades
  *           └── Yes → use SmartTable from @orbit/components  ← default choice
  * ```
  *

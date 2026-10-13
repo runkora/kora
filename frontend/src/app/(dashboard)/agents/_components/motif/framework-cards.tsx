@@ -2,7 +2,7 @@
 
 /** @tier 3 — agents-scoped motif: shared between the builder wizard and the detail Configuration tab. */
 
-import { Grid, RadioCard, RadioGroup } from '@orbit/hades';
+import { Grid, RadioCard, RadioGroup } from '@runkora/hades';
 import type { AgentFramework } from '@orbit/shared/api';
 
 export const FRAMEWORK_LABELS: Record<AgentFramework, string> = {

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from '@storybook/react';
-import { Stack, Text } from '@orbit/hades';
+import { Stack, Text } from '@runkora/hades';
 import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { PreferencesProvider } from '../app/(dashboard)/_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../app/(dashboard)/_preferences/preferences.schema';

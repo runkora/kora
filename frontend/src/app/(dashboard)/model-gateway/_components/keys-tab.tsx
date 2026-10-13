@@ -17,7 +17,7 @@ import {
   PageSectionHeader,
   ConfirmDialog,
   EmptyState,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import Link from 'next/link';
 import { revokeToken } from '../_actions/tokens';
 import { CreateTokenModal } from './create-token-modal';

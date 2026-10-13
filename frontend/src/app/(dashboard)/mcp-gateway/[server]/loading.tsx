@@ -8,7 +8,7 @@ import {
   SidebarLayoutSidebar,
   Skeleton,
   Stack,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 /**
  * The MCP server detail page fetches one server's metadata and tool catalog in

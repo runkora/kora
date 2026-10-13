@@ -23,7 +23,7 @@ import {
   Text,
   Textarea,
   Wizard,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type {
   ConnectionCatalogEntry,
   Connector,

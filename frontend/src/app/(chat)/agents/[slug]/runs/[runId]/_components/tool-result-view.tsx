@@ -8,7 +8,7 @@
  */
 
 import { useState } from 'react';
-import { Button, CodeBlock, Stack, Text } from '@orbit/hades';
+import { Button, CodeBlock, Stack, Text } from '@runkora/hades';
 import type { ToolCall } from '../_types';
 import { prettyJson } from '../_hooks/use-run';
 import { describeTool } from '../_lib/tool-activity';

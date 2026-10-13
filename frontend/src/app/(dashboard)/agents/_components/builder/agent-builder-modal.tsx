@@ -15,8 +15,8 @@ import {
   StatusDot,
   Text,
   Wizard,
-} from '@orbit/hades';
-import type { IconName } from '@orbit/hades';
+} from '@runkora/hades';
+import type { IconName } from '@runkora/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import { fetchAgentType } from '../../_services/agents-api';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';

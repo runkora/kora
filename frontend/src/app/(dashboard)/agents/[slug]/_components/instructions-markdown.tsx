@@ -18,7 +18,7 @@ import {
   Separator,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 
 /** Line height of preformatted text, shared by the Raw view and code blocks. */
 export const CODE_LINE_HEIGHT = 1.6;

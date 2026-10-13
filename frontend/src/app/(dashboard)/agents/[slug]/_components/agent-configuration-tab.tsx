@@ -22,7 +22,7 @@ import {
   Text,
   Textarea,
   ConfirmDialog,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type { AgentFramework } from '@orbit/shared/api';
 import { FrameworkCards } from '../../_components/motif/framework-cards';
 import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-cards';

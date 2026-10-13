@@ -1,5 +1,5 @@
 /**
- * Vitest setup for @orbit/hades component tests.
+ * Vitest setup for @runkora/hades component tests.
  *
  * Extends Vitest's `expect` with @testing-library/jest-dom matchers
  * (toBeInTheDocument, toHaveAttribute, toBeDisabled, etc.).

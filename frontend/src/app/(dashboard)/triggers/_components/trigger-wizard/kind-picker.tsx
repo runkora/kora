@@ -3,7 +3,7 @@
 /** @tier 3 — triggers-scoped. Phase one of the wizard: choose what starts the
  * run. Rendered entirely from the kind registry. */
 
-import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@orbit/hades';
+import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@runkora/hades';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
 import type { TriggerKind } from './types';
 

@@ -13,7 +13,7 @@ import {
   Stack,
   StatusDot,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import type { ModelObject } from '@orbit/shared/api';
 
 function formatPrice(pricing?: {

@@ -1,4 +1,4 @@
-import { Stack } from '@orbit/hades';
+import { Stack } from '@runkora/hades';
 
 export default function RunLayout({ children }: { children: React.ReactNode }) {
   return (

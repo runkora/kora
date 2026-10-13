@@ -10,7 +10,7 @@ import {
   ModalHeader,
   Stack,
   Text,
-} from '@orbit/hades';
+} from '@runkora/hades';
 import { updateTokenScopes } from '../_actions/tokens';
 import { ScopePicker } from '@orbit/components';
 import type { PAT } from '@orbit/shared/api';
