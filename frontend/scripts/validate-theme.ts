@@ -104,7 +104,7 @@ export async function validateBundle(
 
   const result = await validateTheme(bundleText, {
     manifest: hadesManifest,
-    hadesVersion: hadesManifest.version,
+    contractVersion: hadesManifest.contractVersion,
     readAsset: async (assetPath) => {
       try {
         return new Uint8Array(await readFile(path.join(bundleDir, 'assets', assetPath)));
@@ -144,7 +144,7 @@ export async function validateBundle(
   }
 
   lines.push(
-    `theme ok: written for Hades ${result.theme.hadesVersion}, validated by Hades ${hadesManifest.version}, hash ${result.theme.hash}`,
+    `theme ok: written for contract ${result.theme.contractVersion}, validated by contract ${hadesManifest.contractVersion} (Hades ${hadesManifest.version}), hash ${result.theme.hash}`,
   );
   lines.push(...reportLines(result.report));
   return { ok: true, lines };

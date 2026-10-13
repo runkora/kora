@@ -39,8 +39,10 @@ const hadesManifest = manifest as ThemeManifest;
 
 /** What the process holds after loading: the theme, or the default when there is none. */
 export interface LoadedTheme {
-  /** The running Hades version, which the theme's major must equal. */
+  /** The running Hades version. */
   readonly hadesVersion: string;
+  /** The running contract version, which the theme's contract major must equal. */
+  readonly contractVersion: string;
   /** The validated theme, or null when no bundle is mounted. */
   readonly theme: Theme | null;
   /** The validator's report; empty when no bundle is mounted. */
@@ -139,13 +141,15 @@ function logLoaded(dir: string, loaded: LoadedTheme): void {
   // The frontend has no server-side logger; one line at startup is the
   // monitoring the ADR asks for (Validation, Monitoring).
   if (!loaded.theme) {
-    console.info(`[theme] no bundle at ${dir}; serving the default (Hades ${loaded.hadesVersion})`);
+    console.info(
+      `[theme] no bundle at ${dir}; serving the default (Hades ${loaded.hadesVersion}, contract ${loaded.contractVersion})`,
+    );
     return;
   }
   const { theme, report } = loaded;
   const ignored = report.ignored.map((e) => `${e.kind} ${e.name}`);
   console.info(
-    `[theme] loaded bundle at ${dir}: Hades ${loaded.hadesVersion}, theme written for Hades ${theme.hadesVersion}, hash ${theme.hash}` +
+    `[theme] loaded bundle at ${dir}: Hades ${loaded.hadesVersion}, contract ${loaded.contractVersion}, theme written for contract ${theme.contractVersion}, hash ${theme.hash}` +
       `; ignored: ${ignored.length ? ignored.join(', ') : 'none'}` +
       `; falls through to the default: ${report.fallThrough.length ? report.fallThrough.join(', ') : 'nothing'}`,
   );
@@ -157,6 +161,7 @@ function logLoaded(dir: string, loaded: LoadedTheme): void {
  */
 export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
   const hadesVersion = hadesManifest.version;
+  const contractVersion = hadesManifest.contractVersion;
   let text: string;
   try {
     text = await readFile(path.join(dir, 'theme.yaml'), 'utf8');
@@ -164,6 +169,7 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
     if (!isMissing(err)) throw err;
     const loaded: LoadedTheme = {
       hadesVersion,
+      contractVersion,
       theme: null,
       report: EMPTY_REPORT,
       css: '',
@@ -176,7 +182,7 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
 
   const result = await validateTheme(text, {
     manifest: hadesManifest,
-    hadesVersion,
+    contractVersion,
     readAsset: (assetPath) => readBundleAsset(dir, assetPath),
   });
   if (!result.ok) {
@@ -189,6 +195,7 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
   const resolveAsset = (assetPath: string) => themeAssetUrl(theme.hash, assetPath);
   const loaded: LoadedTheme = {
     hadesVersion,
+    contractVersion,
     theme,
     report,
     css: generateThemeCss(theme, { resolveAsset }),
