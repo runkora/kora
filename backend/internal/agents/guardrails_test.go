@@ -89,8 +89,8 @@ func TestStartRun_SendsGuardrails(t *testing.T) {
 		Guardrails: Guardrails{WaitRearmWarn: new(3), WaitRearmPause: new(7)}})
 
 	ctx := withPrincipalCtx(context.Background(), "t1", token.PrincipalTypeHuman, "user:1")
-	if _, err := f.run.StartRun(ctx, StartRunRequest{AgentTypeID: "at-1"}); err != nil {
-		t.Fatalf("StartRun: %v", err)
+	if _, err := startAndSchedule(ctx, f.run, StartRunRequest{AgentTypeID: "at-1"}); err != nil {
+		t.Fatalf("startAndSchedule: %v", err)
 	}
 	if len(sm.sessions) != 1 {
 		t.Fatalf("sessions = %d, want 1", len(sm.sessions))

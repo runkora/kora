@@ -61,6 +61,11 @@ agents:
   idleTimeout:
     manualSecs: 1200
     triggerSecs: 300
+  # Run scheduler. See the chart's agents.scheduling.
+  scheduling:
+    workerConcurrency: 16
+    pollIntervalSecs: 1
+    startBudgetSecs: 180
   connectionRegistryPath: "/var/run/orbit/connections/connections.json"
   # Where the chart mounts the manifest patches ConfigMap.
   manifestPatchDir: /etc/orbit/manifest-patches

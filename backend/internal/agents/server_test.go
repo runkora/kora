@@ -379,6 +379,24 @@ func TestHandleSendMessage_Accepted(t *testing.T) {
 	}
 }
 
+func TestHandleSendMessage_RunStarting(t *testing.T) {
+	c, repo, _, _ := newTestController(t)
+	at := seedAgentType(t, repo, AgentType{ID: "at-1", TenantID: "t-1", Slug: "bot"})
+	run := seedRun(t, repo, Run{ID: "run-1", TenantID: "t-1", AgentTypeID: at.ID, State: RunStatePending})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runs/run-1/messages",
+		bytes.NewBufferString(`{"content":"hello"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.SetPathValue("id", run.ID)
+	req = withTenantRequest(req, defaultTestTenant)
+	w := httptest.NewRecorder()
+	c.handleSendMessage(w, req)
+
+	if w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "run is starting") || !strings.Contains(w.Body.String(), `"code":"conflict"`) {
+		t.Errorf("status = %d, body = %s, want 409 run is starting", w.Code, w.Body.String())
+	}
+}
+
 func TestHandleSendMessage_EmptyContent(t *testing.T) {
 	c, _, _, _ := newTestController(t)
 

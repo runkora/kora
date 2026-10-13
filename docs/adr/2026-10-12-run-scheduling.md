@@ -82,7 +82,7 @@ orbit-agents will schedule runs through a durable queue on the `runs` table, and
 *   When the start budget measured from `created_at` has run out, it will set the run `failed` and record the reason on the run.
 *   Each step will change the run with a compare-and-swap on its state. Terminate deletes the run row. When a step finds the run gone or changed, the worker will stop and close any session it created.
 *   Session creation is keyed by run ID. A repeated create of the same run on the same pod counts as success.
-*   Every replica will release claims on `pending` runs older than a stale window. The stale-run reaper fails a run that a dead worker left in `starting`.
+*   Every replica will release claims on `pending` runs older than a stale window. The stale-run reaper fails a run that a dead worker left in `starting` and a run that stayed in `pending`.
 
 ### Agent Resources
 

@@ -203,6 +203,7 @@ func (p *K8sProvisioner) provision(ctx context.Context, at AgentType, namespace 
 		trace.WithAttributes(
 			attribute.String("slug", at.Slug),
 			attribute.String("namespace", namespace),
+			attribute.Bool("update", update),
 		),
 	)
 	defer span.End()
@@ -326,22 +327,6 @@ func (p *K8sProvisioner) DeprovisionAgentType(ctx context.Context, at AgentType,
 		span.SetStatus(codes.Error, "deprovision agent type")
 	}
 	return firstErr
-}
-
-// ReplicaCount returns the current number of desired replicas for an agent type's
-// StatefulSet. Returns 1 if the StatefulSet is not found (safe default for pod selection).
-func (p *K8sProvisioner) ReplicaCount(ctx context.Context, slug, namespace string) (int, error) {
-	ss, err := p.client.AppsV1().StatefulSets(namespace).Get(ctx, slug, metav1.GetOptions{})
-	if apierrors.IsNotFound(err) {
-		return 1, nil
-	}
-	if err != nil {
-		return 0, fmt.Errorf("get statefulset %s/%s: %w", namespace, slug, err)
-	}
-	if ss.Spec.Replicas == nil {
-		return 1, nil
-	}
-	return int(*ss.Spec.Replicas), nil
 }
 
 // ReadyOrdinals returns the ordinals of the StatefulSet's pods that are Ready

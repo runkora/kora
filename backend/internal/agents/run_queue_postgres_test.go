@@ -86,7 +86,7 @@ func TestPostgres_ReleaseRunClaim(t *testing.T) {
 	if got := claimOwn(t, r, tenant, claimedAt); !slices.Equal(runIDs(got), []string{id}) {
 		t.Fatalf("claimed %v, want %s", runIDs(got), id)
 	}
-	if err := r.AssignPod(ctx, id, 1); err != nil {
+	if err := r.AssignPod(ctx, id, claimedAt, 1); err != nil {
 		t.Fatalf("AssignPod: %v", err)
 	}
 	if err := r.ReleaseRunClaim(ctx, id, claimedAt.Add(time.Second), past); !errors.Is(err, ErrConflict) {
@@ -126,7 +126,7 @@ func TestPostgres_ReclaimStaleRunClaims(t *testing.T) {
 	stale := queueRun(t, r, tenant, at.ID, past, &past)
 	starting := queueRun(t, r, tenant, at.ID, past, &past)
 	claimOwn(t, r, tenant, past)
-	if err := r.AssignPod(ctx, starting, 0); err != nil {
+	if err := r.AssignPod(ctx, starting, past, 0); err != nil {
 		t.Fatalf("AssignPod: %v", err)
 	}
 	fresh := queueRun(t, r, tenant, at.ID, past, &past)
@@ -142,5 +142,66 @@ func TestPostgres_ReclaimStaleRunClaims(t *testing.T) {
 	}
 	if got := claimOwn(t, r, tenant, time.Now()); !slices.Equal(runIDs(got), []string{stale}) {
 		t.Fatalf("claimed %v after reclaim, want %s", runIDs(got), stale)
+	}
+}
+
+// A new run is claimable only once QueueRun has run.
+func TestPostgres_QueueRun(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	run := Run{ID: uuid.NewString(), TenantID: tenant, AgentTypeID: at.ID}
+	if err := r.CreateRun(ctx, run); err != nil {
+		t.Fatalf("CreateRun: %v", err)
+	}
+	if got := claimOwn(t, r, tenant, time.Now()); len(got) != 0 {
+		t.Fatalf("claimed an unqueued run: %v", runIDs(got))
+	}
+	if err := r.QueueRun(ctx, run.ID, time.Now().Add(-time.Second)); err != nil {
+		t.Fatalf("QueueRun: %v", err)
+	}
+	if got := claimOwn(t, r, tenant, time.Now()); !slices.Equal(runIDs(got), []string{run.ID}) {
+		t.Fatalf("claimed %v, want %s", runIDs(got), run.ID)
+	}
+}
+
+// A worker whose claim was reclaimed and taken by another cannot assign the run.
+func TestPostgres_AssignPodFencedByClaim(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	past := time.Now().UTC().Add(-time.Hour)
+	id := queueRun(t, r, tenant, at.ID, past, &past)
+	claimOwn(t, r, tenant, past)
+	if _, err := r.ReclaimStaleRunClaims(ctx, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	second := time.Now()
+	claimOwn(t, r, tenant, second)
+
+	if err := r.AssignPod(ctx, id, past, 0); !errors.Is(err, ErrConflict) {
+		t.Fatalf("assign under the stale claim: err = %v, want ErrConflict", err)
+	}
+	if err := r.AssignPod(ctx, id, second, 0); err != nil {
+		t.Fatalf("assign under the current claim: %v", err)
+	}
+}
+
+// The reaper fails a run that stayed pending past the stale window.
+func TestPostgres_ReapStalePendingRun(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	ctx := context.Background()
+	id := queueRun(t, r, tenant, at.ID, time.Now().Add(-time.Hour), nil)
+	if _, err := r.pool.Exec(ctx, `UPDATE runs SET updated_at = now() - interval '1 hour' WHERE id = $1`, id); err != nil {
+		t.Fatal(err)
+	}
+	failed, _, err := r.ReapStaleRuns(ctx, time.Minute)
+	if err != nil {
+		t.Fatalf("ReapStaleRuns: %v", err)
+	}
+	run, _ := r.GetRun(ctx, id)
+	if !slices.Contains(failed, id) || run.State != RunStateFailed {
+		t.Errorf("reaped %v, state %s, want %s failed", failed, run.State, id)
 	}
 }

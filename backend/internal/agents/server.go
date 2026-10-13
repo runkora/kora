@@ -597,8 +597,13 @@ func (c *Controller) handleSendMessage(w http.ResponseWriter, r *http.Request) {
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
+		if errors.Is(err, ErrRunStarting) {
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is starting", nil)
+			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
+			return
+		}
 		if errors.Is(err, ErrRunNotAcceptingMessages) {
-			apiErr := api.ConflictError(api.ErrCodeResourceExists, "run is not accepting messages", nil)
+			apiErr := api.ConflictError(api.ErrCodeConflict, "run is not accepting messages", nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}

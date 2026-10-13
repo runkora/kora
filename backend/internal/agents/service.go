@@ -22,7 +22,6 @@ type k8sProvisioner interface {
 	RolloutStatefulSet(ctx context.Context, slug, namespace string) error
 	// ReadyOrdinals returns the ordinals of pods that are Ready and not terminating.
 	ReadyOrdinals(ctx context.Context, slug, namespace string) ([]int, error)
-	ReplicaCount(ctx context.Context, slug, namespace string) (int, error)
 	ProvisionSandbox(ctx context.Context, run Run, agentTypeSlug, namespace string, spec SandboxSpec) (Sandbox, error)
 	LookupSandbox(ctx context.Context, runID, namespace string) (Sandbox, bool, error)
 	SandboxEnvironment(ctx context.Context, runID, namespace string) (envID string, live bool, err error)
@@ -42,7 +41,7 @@ type smClient interface {
 type ServiceConfig struct {
 	MaxConcurrentRunsPerPod int
 	TenantNamespaceFn       func(tenantID string) string // maps tenant ID → k8s namespace
-	// StaleRunTimeout is how long a run may stay in active/starting without a state update
+	// StaleRunTimeout is how long a run may stay pending, starting or active without a state update
 	// before the background reaper marks it failed. Defaults to 30 minutes if zero.
 	StaleRunTimeout time.Duration
 	// ReaperInterval controls how often the reaper polls. Defaults to 5 minutes if zero.

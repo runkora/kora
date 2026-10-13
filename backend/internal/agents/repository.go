@@ -39,8 +39,9 @@ type RunRepository interface {
 	RunStats(ctx context.Context, tenantID string, scope RunScope, from, to time.Time) (RunStats, error)
 	// SetRunState does a compare-and-swap on runs.state.
 	SetRunState(ctx context.Context, id string, from, to RunState) error
-	// AssignPod sets pod_ordinal and transitions pending→starting atomically.
-	AssignPod(ctx context.Context, runID string, podOrdinal int) error
+	// AssignPod sets pod_ordinal and transitions pending→starting atomically,
+	// only while the run is still held under the claim taken at claimedAt.
+	AssignPod(ctx context.Context, runID string, claimedAt time.Time, podOrdinal int) error
 	// MarkRunFailed unconditionally transitions a run to the failed terminal state
 	// and stamps completed_at. Used to clean up synchronously when a run's start
 	// fails after the row was created, so it never lingers in pending/starting

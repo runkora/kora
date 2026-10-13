@@ -32,6 +32,8 @@ spec:
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "agents") | nindent 8 }}
     spec:
       serviceAccountName: orbit-agents
+      # Above the 30 s shutdown timeout, so a run start in flight can finish before the kubelet stops the pod.
+      terminationGracePeriodSeconds: 45
       {{- include "orbit.imagePullSecrets" . | nindent 6 }}
       {{- include "orbit.scheduling" (dict "root" $ "name" "agents") | nindent 6 }}
       securityContext:
