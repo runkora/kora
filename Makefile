@@ -268,7 +268,7 @@ proto-gen: ## Generate Go code from proto files (requires buf — run make insta
 	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
 .PHONY: check-versions
-check-versions: ## Verify GO_VERSION matches backend/go.mod and the Hades version agrees across package.json, version.ts and manifest.json
+check-versions: ## Verify GO_VERSION matches backend/go.mod, the Hades version agrees across package.json, version.ts and manifest.json, and the contract version agrees between version.ts and manifest.json
 	@GOMOD=$$(awk '$$1 == "go" { print $$2; exit }' backend/go.mod); \
 	if [ "$$GOMOD" != "$(GO_VERSION)" ]; then \
 		echo "$(COLOR_RED)✗ versions.hcl GO_VERSION=$(GO_VERSION) but backend/go.mod has go $$GOMOD$(COLOR_RESET)"; \
@@ -283,6 +283,17 @@ check-versions: ## Verify GO_VERSION matches backend/go.mod and the Hades versio
 		exit 1; \
 	fi
 	@echo "$(COLOR_GREEN)✓ Hades version $$(jq -r .version $(HADES_DIR)/package.json) agrees across package.json, version.ts and manifest.json$(COLOR_RESET)"
+	@CONTRACT_TS=$$(sed -nE "s/^export const CONTRACT_VERSION = '([^']+)'.*/\1/p" $(HADES_DIR)/src/version.ts); \
+	CONTRACT_MANIFEST=$$(jq -r .contractVersion $(HADES_DIR)/manifest.json); \
+	if ! echo "$$CONTRACT_TS" | grep -qE '^[0-9]+\.[0-9]+$$'; then \
+		echo "$(COLOR_RED)✗ CONTRACT_VERSION in version.ts is '$$CONTRACT_TS', not MAJOR.MINOR$(COLOR_RESET)"; \
+		exit 1; \
+	fi; \
+	if [ "$$CONTRACT_TS" != "$$CONTRACT_MANIFEST" ]; then \
+		echo "$(COLOR_RED)✗ Hades contract version disagrees: version.ts $$CONTRACT_TS, manifest.json $$CONTRACT_MANIFEST$(COLOR_RESET)"; \
+		exit 1; \
+	fi
+	@echo "$(COLOR_GREEN)✓ Hades contract version $$(jq -r .contractVersion $(HADES_DIR)/manifest.json) agrees between version.ts and manifest.json$(COLOR_RESET)"
 
 .PHONY: check-tool-versions
 check-tool-versions: ## Verify installed tool versions match pinned versions in versions.hcl

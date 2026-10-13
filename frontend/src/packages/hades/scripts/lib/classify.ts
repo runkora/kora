@@ -1,14 +1,18 @@
 /**
  * The deterministic classifier: compares the manifest, the component API and
- * the changed files at head against those at the baseline and decides
- * patch, minor or major against the contract boundary rules, citing the rule
- * for every finding. Pure; `scripts/classify.ts` supplies git and the
- * filesystem. See the design system versioning ADR, SD-3.
+ * the changed files at head against those at the baseline and decides, on two
+ * axes, what the change does to the package version (patch, minor or major,
+ * Semantic Versioning) and to the contract version (none, minor or major),
+ * citing the rule for every finding. Pure; `scripts/classify.ts` supplies git
+ * and the filesystem. See the design system versioning ADR, SD-3.
  */
 import type { Manifest, ManifestSlot, ManifestToken } from './manifest.ts';
 import type { ExportSurface } from './exports.ts';
+import { compareRanges } from './ranges.ts';
 
 export type Level = 'none' | 'patch' | 'minor' | 'major';
+/** The contract version has no patch: a change that leaves the surface alone does not move it. */
+export type ContractLevel = 'none' | 'minor' | 'major';
 
 const ORDER: Record<Level, number> = { none: 0, patch: 1, minor: 2, major: 3 };
 
@@ -19,16 +23,43 @@ export function maxLevel(a: Level, b: Level): Level {
 export const RULE_1 = 'boundary rule 1';
 export const RULE_4 = 'boundary rule 4';
 export const RULE_5 = 'boundary rule 5';
-export const VERSION_PROMISE = 'what the version promises';
+export const SEMVER = 'Semantic Versioning';
 
 export interface Finding {
-  readonly level: Level;
+  /** What the finding does to the contract version. */
+  readonly contract: ContractLevel;
+  /** What the finding does to the package version; never below `contract`. */
+  readonly package: Level;
   readonly rule: string;
   /** The token, slot, semantic name, export or file set concerned. */
   readonly subject: string;
   readonly detail: string;
   /** Source lines that decided a read-by-existing-component finding. */
   readonly matches?: readonly string[];
+}
+
+/**
+ * The manifest, `tokens.css` and the schema are part of the package's public
+ * surface, so a contract change is always a package change of at least the
+ * same level. The reverse does not hold: a removed prop moves the package and
+ * leaves the contract alone.
+ */
+function finding(
+  contract: ContractLevel,
+  pkg: Level,
+  rule: string,
+  subject: string,
+  detail: string,
+  matches?: readonly string[],
+): Finding {
+  return {
+    contract,
+    package: maxLevel(pkg, contract),
+    rule,
+    subject,
+    detail,
+    ...(matches ? { matches } : {}),
+  };
 }
 
 export interface ClassifyInput {
@@ -48,7 +79,8 @@ export interface ClassifyInput {
 }
 
 export interface Classification {
-  readonly level: Level;
+  readonly package: Level;
+  readonly contract: ContractLevel;
   readonly findings: readonly Finding[];
 }
 
@@ -74,16 +106,29 @@ export function classify(input: ClassifyInput): Classification {
 
   const sourceChanges = input.changedFiles.filter((f) => !isDocumentationOnly(f));
   if (sourceChanges.length > 0) {
-    findings.push({
-      level: 'patch',
-      rule: RULE_5,
-      subject: `${sourceChanges.length} source file${sourceChanges.length === 1 ? '' : 's'}`,
-      detail: `changed without changing the contract: ${sourceChanges.slice(0, 5).join(', ')}${sourceChanges.length > 5 ? ', …' : ''}`,
-    });
+    findings.push(
+      finding(
+        'none',
+        'patch',
+        RULE_5,
+        `${sourceChanges.length} source file${sourceChanges.length === 1 ? '' : 's'}`,
+        `changed without changing the contract: ${sourceChanges.slice(0, 5).join(', ')}${sourceChanges.length > 5 ? ', …' : ''}`,
+      ),
+    );
   }
 
-  const level = findings.reduce<Level>((acc, f) => maxLevel(acc, f.level), 'none');
-  return { level, findings: [...findings].sort((a, b) => ORDER[b.level] - ORDER[a.level]) };
+  const pkg = findings.reduce<Level>((acc, f) => maxLevel(acc, f.package), 'none');
+  const contract = findings.reduce<ContractLevel>(
+    (acc, f) => (ORDER[f.contract] > ORDER[acc] ? f.contract : acc),
+    'none',
+  );
+  return {
+    package: pkg,
+    contract,
+    findings: [...findings].sort(
+      (a, b) => ORDER[b.package] - ORDER[a.package] || ORDER[b.contract] - ORDER[a.contract],
+    ),
+  };
 }
 
 function compareManifests(
@@ -94,12 +139,9 @@ function compareManifests(
   const out: Finding[] = [];
 
   if (!sameList(base.modes, head.modes)) {
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: 'modes',
-      detail: `${fmt(base.modes)} became ${fmt(head.modes)}`,
-    });
+    out.push(
+      finding('major', 'major', RULE_1, 'modes', `${fmt(base.modes)} became ${fmt(head.modes)}`),
+    );
   }
 
   const baseTokens = new Map(base.tokens.map((t) => [t.name, t]));
@@ -107,7 +149,7 @@ function compareManifests(
   for (const [name, b] of baseTokens) {
     const h = headTokens.get(name);
     if (!h) {
-      out.push({ level: 'major', rule: RULE_1, subject: name, detail: 'token removed or renamed' });
+      out.push(finding('major', 'major', RULE_1, name, 'token removed or renamed'));
       continue;
     }
     out.push(...tokenFieldChanges(name, b, h));
@@ -121,50 +163,46 @@ function compareManifests(
     const matches = findReads(patterns);
     out.push(
       matches.length > 0
-        ? {
-            level: 'major',
-            rule: RULE_4,
-            subject: name,
-            detail: 'token added and read by a component that existed at the baseline',
+        ? finding(
+            'major',
+            'major',
+            RULE_4,
+            name,
+            'token added and read by a component that existed at the baseline',
             matches,
-          }
-        : {
-            level: 'minor',
-            rule: RULE_4,
-            subject: name,
-            detail: 'token added; read only by components new since the baseline',
-          },
+          )
+        : finding(
+            'minor',
+            'minor',
+            RULE_4,
+            name,
+            'token added; read only by components new since the baseline',
+          ),
     );
   }
 
   for (const [name, b] of Object.entries(base.mapping)) {
     const h = head.mapping[name];
     if (!h) {
-      out.push({
-        level: 'minor',
-        rule: VERSION_PROMISE,
-        subject: name,
-        detail: 'semantic name removed',
-      });
+      // No theme sets a semantic name, but a consumer's styles may read it.
+      out.push(finding('none', 'major', SEMVER, name, 'semantic name removed'));
       continue;
     }
     if (!sameList(b.tokens, h.tokens)) {
-      out.push({
-        level: 'major',
-        rule: RULE_4,
-        subject: name,
-        detail: `semantic name remapped from ${fmt(b.tokens)} to ${fmt(h.tokens)}`,
-      });
+      out.push(
+        finding(
+          'major',
+          'major',
+          RULE_4,
+          name,
+          `semantic name remapped from ${fmt(b.tokens)} to ${fmt(h.tokens)}`,
+        ),
+      );
     }
   }
   for (const name of Object.keys(head.mapping)) {
     if (!(name in base.mapping)) {
-      out.push({
-        level: 'patch',
-        rule: RULE_4,
-        subject: name,
-        detail: 'semantic name added over existing tokens',
-      });
+      out.push(finding('none', 'minor', SEMVER, name, 'semantic name added over existing tokens'));
     }
   }
 
@@ -173,7 +211,7 @@ function compareManifests(
   for (const [name, b] of baseSlots) {
     const h = headSlots.get(name);
     if (!h) {
-      out.push({ level: 'major', rule: RULE_1, subject: name, detail: 'slot removed or renamed' });
+      out.push(finding('major', 'major', RULE_1, name, 'slot removed or renamed'));
       continue;
     }
     out.push(...slotFieldChanges(name, b, h));
@@ -183,33 +221,32 @@ function compareManifests(
     const matches = findReads([slotPattern(name)]);
     out.push(
       matches.length > 0
-        ? {
-            level: 'major',
-            rule: RULE_4,
-            subject: name,
-            detail: 'slot added and read by a component that existed at the baseline',
+        ? finding(
+            'major',
+            'major',
+            RULE_4,
+            name,
+            'slot added and read by a component that existed at the baseline',
             matches,
-          }
-        : {
-            level: 'minor',
-            rule: RULE_4,
-            subject: name,
-            detail: 'slot added; read only by components new since the baseline',
-          },
+          )
+        : finding(
+            'minor',
+            'minor',
+            RULE_4,
+            name,
+            'slot added; read only by components new since the baseline',
+          ),
     );
   }
 
   const pb = base.productName;
   const ph = head.productName;
   if (ph.minLength > pb.minLength || ph.maxLength < pb.maxLength || ph.pattern !== pb.pattern) {
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: 'productName',
-      detail: 'bounds tightened or pattern changed',
-    });
+    out.push(
+      finding('major', 'major', RULE_1, 'productName', 'bounds tightened or pattern changed'),
+    );
   } else if (ph.minLength < pb.minLength || ph.maxLength > pb.maxLength) {
-    out.push({ level: 'minor', rule: RULE_1, subject: 'productName', detail: 'bounds loosened' });
+    out.push(finding('minor', 'minor', RULE_1, 'productName', 'bounds loosened'));
   }
 
   return out;
@@ -218,105 +255,129 @@ function compareManifests(
 function tokenFieldChanges(name: string, b: ManifestToken, h: ManifestToken): Finding[] {
   const out: Finding[] = [];
   if (b.kind !== h.kind)
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: name,
-      detail: `kind ${b.kind} became ${h.kind}`,
-    });
+    out.push(finding('major', 'major', RULE_1, name, `kind ${b.kind} became ${h.kind}`));
   if (b.format !== h.format)
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: name,
-      detail: `format ${b.format} became ${h.format}`,
-    });
+    out.push(finding('major', 'major', RULE_1, name, `format ${b.format} became ${h.format}`));
   if (!sameList(b.modes, h.modes))
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: name,
-      detail: `modes ${fmt(b.modes)} became ${fmt(h.modes)}`,
-    });
+    out.push(
+      finding('major', 'major', RULE_1, name, `modes ${fmt(b.modes)} became ${fmt(h.modes)}`),
+    );
   return out;
 }
 
 function slotFieldChanges(name: string, b: ManifestSlot, h: ManifestSlot): Finding[] {
   const out: Finding[] = [];
   if (b.kind !== h.kind)
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: name,
-      detail: `kind ${b.kind} became ${h.kind}`,
-    });
+    out.push(finding('major', 'major', RULE_1, name, `kind ${b.kind} became ${h.kind}`));
   if (!sameList(b.modes, h.modes))
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: name,
-      detail: `modes ${fmt(b.modes)} became ${fmt(h.modes)}`,
-    });
+    out.push(
+      finding('major', 'major', RULE_1, name, `modes ${fmt(b.modes)} became ${fmt(h.modes)}`),
+    );
   const dropped = b.formats.filter((f) => !h.formats.includes(f));
   const gained = h.formats.filter((f) => !b.formats.includes(f));
   if (dropped.length > 0)
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: name,
-      detail: `formats no longer accept ${fmt(dropped)}`,
-    });
+    out.push(finding('major', 'major', RULE_1, name, `formats no longer accept ${fmt(dropped)}`));
   else if (gained.length > 0)
-    out.push({
-      level: 'minor',
-      rule: RULE_1,
-      subject: name,
-      detail: `formats now also accept ${fmt(gained)}`,
-    });
+    out.push(finding('minor', 'minor', RULE_1, name, `formats now also accept ${fmt(gained)}`));
   if (h.maxBytes < b.maxBytes)
-    out.push({
-      level: 'major',
-      rule: RULE_1,
-      subject: name,
-      detail: `maximum size shrank from ${b.maxBytes} to ${h.maxBytes} bytes`,
-    });
+    out.push(
+      finding(
+        'major',
+        'major',
+        RULE_1,
+        name,
+        `maximum size shrank from ${b.maxBytes} to ${h.maxBytes} bytes`,
+      ),
+    );
   else if (h.maxBytes > b.maxBytes)
-    out.push({
-      level: 'minor',
-      rule: RULE_1,
-      subject: name,
-      detail: `maximum size grew from ${b.maxBytes} to ${h.maxBytes} bytes`,
-    });
+    out.push(
+      finding(
+        'minor',
+        'minor',
+        RULE_1,
+        name,
+        `maximum size grew from ${b.maxBytes} to ${h.maxBytes} bytes`,
+      ),
+    );
   return out;
 }
 
+/**
+ * The component API rows. None of these touch the contract: no theme sets an
+ * export or a prop. They are Semantic Versioning for the package.
+ */
 function compareExports(base: ExportSurface, head: ExportSurface): Finding[] {
   const out: Finding[] = [];
+  const baseNames = new Set(base.exports);
   const headNames = new Set(head.exports);
   for (const name of base.exports) {
     if (!headNames.has(name))
-      out.push({
-        level: 'minor',
-        rule: VERSION_PROMISE,
-        subject: name,
-        detail: 'export removed or renamed',
-      });
+      out.push(finding('none', 'major', SEMVER, name, 'export removed or renamed'));
+  }
+  for (const name of head.exports) {
+    if (!baseNames.has(name)) out.push(finding('none', 'minor', SEMVER, name, 'export added'));
   }
   for (const [type, members] of Object.entries(base.props)) {
     const now = head.props[type];
     if (!now || !headNames.has(type)) continue;
     const removed = members.filter((m) => !now.includes(m));
     if (removed.length > 0)
-      out.push({
-        level: 'minor',
-        rule: VERSION_PROMISE,
-        subject: type,
-        detail: `prop${removed.length === 1 ? '' : 's'} removed: ${removed.join(', ')}`,
-      });
+      out.push(
+        finding(
+          'none',
+          'major',
+          SEMVER,
+          type,
+          `prop${removed.length === 1 ? '' : 's'} removed: ${removed.join(', ')}`,
+        ),
+      );
+    const baseRequired = new Set(base.required[type] ?? []);
+    const headRequired = new Set(head.required[type] ?? []);
+    const added = now.filter((m) => !members.includes(m));
+    const addedRequired = added.filter((m) => headRequired.has(m));
+    const addedOptional = added.filter((m) => !headRequired.has(m));
+    const nowRequired = now.filter(
+      (m) => members.includes(m) && headRequired.has(m) && !baseRequired.has(m),
+    );
+    if (addedRequired.length > 0)
+      out.push(
+        finding(
+          'none',
+          'major',
+          SEMVER,
+          type,
+          `required prop${addedRequired.length === 1 ? '' : 's'} added: ${addedRequired.join(', ')}`,
+        ),
+      );
+    if (nowRequired.length > 0)
+      out.push(
+        finding(
+          'none',
+          'major',
+          SEMVER,
+          type,
+          `prop${nowRequired.length === 1 ? '' : 's'} made required: ${nowRequired.join(', ')}`,
+        ),
+      );
+    if (addedOptional.length > 0)
+      out.push(
+        finding(
+          'none',
+          'minor',
+          SEMVER,
+          type,
+          `optional prop${addedOptional.length === 1 ? '' : 's'} added: ${addedOptional.join(', ')}`,
+        ),
+      );
   }
   return out;
 }
 
+/**
+ * A peer dependency added, or its range narrowed, obliges every consumer to
+ * change: major. A range widened is minor. Without a baseline set of peers
+ * there is nothing to add to.
+ */
 function comparePeerDependencies(
   base: Readonly<Record<string, string>>,
   head: Readonly<Record<string, string>>,
@@ -326,20 +387,30 @@ function comparePeerDependencies(
     const before = base[name];
     if (before === undefined) {
       if (Object.keys(base).length > 0)
-        out.push({
-          level: 'minor',
-          rule: VERSION_PROMISE,
-          subject: name,
-          detail: `peer dependency added (${range})`,
-        });
-    } else if (before !== range) {
-      out.push({
-        level: 'minor',
-        rule: VERSION_PROMISE,
-        subject: name,
-        detail: `peer dependency range ${before} became ${range}`,
-      });
+        out.push(finding('none', 'major', SEMVER, name, `peer dependency added (${range})`));
+      continue;
     }
+    const change = compareRanges(before, range);
+    if (change === 'narrowed')
+      out.push(
+        finding(
+          'none',
+          'major',
+          SEMVER,
+          name,
+          `peer dependency range narrowed from ${before} to ${range}`,
+        ),
+      );
+    else if (change === 'widened')
+      out.push(
+        finding(
+          'none',
+          'minor',
+          SEMVER,
+          name,
+          `peer dependency range widened from ${before} to ${range}`,
+        ),
+      );
   }
   return out;
 }
@@ -431,4 +502,49 @@ export function floorMet(level: Level, base: Semver, head: Semver): boolean {
   if (level === 'minor')
     return head.major > base.major || (head.major === base.major && head.minor >= required.minor);
   return compareSemver(head, required) >= 0;
+}
+
+/** The contract version: `MAJOR.MINOR`, no patch. */
+export interface ContractVersion {
+  readonly major: number;
+  readonly minor: number;
+}
+
+export function parseContractVersion(text: string): ContractVersion | null {
+  const m = /^(\d+)\.(\d+)$/.exec(text.trim());
+  return m ? { major: Number(m[1]), minor: Number(m[2]) } : null;
+}
+
+export function formatContractVersion(v: ContractVersion): string {
+  return `${v.major}.${v.minor}`;
+}
+
+export function compareContractVersions(a: ContractVersion, b: ContractVersion): number {
+  return a.major - b.major || a.minor - b.minor;
+}
+
+/** The lowest contract version that satisfies the floor for `level` above `base`; a major resets the minor. */
+export function requiredContractVersion(
+  level: ContractLevel,
+  base: ContractVersion,
+): ContractVersion {
+  switch (level) {
+    case 'major':
+      return { major: base.major + 1, minor: 0 };
+    case 'minor':
+      return { major: base.major, minor: base.minor + 1 };
+    case 'none':
+      return base;
+  }
+}
+
+export function contractFloorMet(
+  level: ContractLevel,
+  base: ContractVersion,
+  head: ContractVersion,
+): boolean {
+  if (level === 'none') return compareContractVersions(head, base) >= 0;
+  const required = requiredContractVersion(level, base);
+  if (level === 'major') return head.major >= required.major;
+  return head.major > base.major || (head.major === base.major && head.minor >= required.minor);
 }

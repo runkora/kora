@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { CONTRACT_VERSION } from '../src/version.ts';
 import { buildManifest, serializeManifest, SurfaceMismatchError } from './lib/manifest.ts';
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -24,7 +25,9 @@ const version = (
 
 let text: string;
 try {
-  text = serializeManifest(buildManifest(fs.readFileSync(tokensPath, 'utf8'), version));
+  text = serializeManifest(
+    buildManifest(fs.readFileSync(tokensPath, 'utf8'), version, CONTRACT_VERSION),
+  );
 } catch (err) {
   if (err instanceof SurfaceMismatchError) {
     console.error(err.message);
