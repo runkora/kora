@@ -62,6 +62,13 @@ func TestLintMigrations_RejectsEachClause(t *testing.T) {
 			body: "-- +goose Up\nINSERT INTO widgets (id) VALUES ('x');\n-- +goose Down\n",
 			want: "INSERT in Up",
 		},
+		"two concurrently statements in one goose block": {
+			// goose sends a block as one Exec, and two statements in one Exec are
+			// an implicit transaction, which CONCURRENTLY refuses. NO TRANSACTION
+			// does not save this file; it fails in the pre-upgrade hook instead.
+			body: "-- +goose NO TRANSACTION\n-- +goose Up\n-- +goose StatementBegin\nDROP INDEX CONCURRENTLY IF EXISTS idx_widgets_size;\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widgets_size ON widgets (size);\n-- +goose StatementEnd\n-- +goose Down\n",
+			want: "shares one goose block",
+		},
 		"delete in up": {
 			body: "-- +goose Up\nDELETE FROM widgets;\n-- +goose Down\n",
 			want: "DELETE in Up",
@@ -187,5 +194,35 @@ func TestSources_PassLint(t *testing.T) {
 
 	if err := lintMigrations(sources); err != nil {
 		t.Fatalf("embedded migrations violate the content rule: %v", err)
+	}
+}
+
+// A CONCURRENTLY migration that splits its statements correctly must pass. The
+// rule is about what shares one Exec, so one statement per block is the shape
+// the pre-upgrade hook can actually run.
+func TestLintMigrations_AcceptsConcurrentlyInSeparateBlocks(t *testing.T) {
+	t.Parallel()
+
+	err := lintMigrations(map[string]fs.FS{
+		"a": fstest.MapFS{
+			"20260101000000_create_widgets.sql": file(cleanUp),
+			"20260102000000_add_index.sql": file(
+				"-- +goose NO TRANSACTION\n" +
+					"-- +goose Up\n" +
+					"-- +goose StatementBegin\n" +
+					"DROP INDEX CONCURRENTLY IF EXISTS idx_widgets_size;\n" +
+					"-- +goose StatementEnd\n" +
+					"-- +goose StatementBegin\n" +
+					"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widgets_size ON widgets (size);\n" +
+					"-- +goose StatementEnd\n" +
+					"-- +goose Down\n" +
+					"-- +goose StatementBegin\n" +
+					"DROP INDEX CONCURRENTLY IF EXISTS idx_widgets_size;\n" +
+					"-- +goose StatementEnd\n",
+			),
+		},
+	})
+	if err != nil {
+		t.Fatalf("correctly split CONCURRENTLY migration rejected: %v", err)
 	}
 }
