@@ -125,6 +125,7 @@ The chart will expose these values with these defaults:
 *   A draining pod and its node will stay up for up to the grace period. A run that outlasts the grace period will be killed when the pod exits.
 *   RollingUpdate drains one pod at a time, and a roll of a 2-pod agent can take up to twice the grace period.
 *   A run that cannot find a pod within the start budget will end `failed`. Before this change the caller received an error and no run.
+*   A trigger will count a delivery as dispatched once its run is queued. A run that then fails to start will not count toward the trigger's auto-pause.
 
 ### Neutral
 

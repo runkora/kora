@@ -115,6 +115,8 @@ export interface UseRunReturn extends RunChatState {
   isPending: boolean;
   /** True when runState is starting or active — covers initial navigation and mid-turn reconnects. */
   isBusy: boolean;
+  /** True while the run is pending or starting. It takes no messages until it is active. */
+  isStarting: boolean;
   /** SSE connection lifecycle status — surfaced in the UI as a banner when not 'open'. */
   connectionStatus: ConnectionStatus;
   /** What the agent is doing while nothing visible streams; null when not busy. */
@@ -137,7 +139,8 @@ const SANDBOX_STARTING = new Set(['provisioning', 'pod_ready']);
 // ── useRun ────────────────────────────────────────────────────────────────────
 
 export function useRun(runId: string, slug: string): UseRunReturn {
-  const [runState, setRunState] = useState<RunState>('pending');
+  // Null until the API or the stream reports the run's state.
+  const [runState, setRunState] = useState<RunState | null>(null);
   const [agentName, setAgentName] = useState('Agent');
   // Empty until the run's agent type metadata resolves — the model is injected
   // from the created agent (agent_type.model_id), never hardcoded here.
@@ -186,7 +189,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // has passed since: the agent reads a queued message at the next boundary, so
   // its next output after one means the message was delivered.
   const queuedRef = useRef<Map<string, boolean>>(new Map());
-  const runStateRef = useRef<RunState>('pending');
+  const runStateRef = useRef<RunState | null>(null);
   const humanSeq = useRef(0);
   // Monotonic ids for turns: replayed events arrive within one millisecond.
   const turnSeq = useRef(0);
@@ -910,6 +913,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
 
   const allTurns: Turn[] = inProgressTurn ? [...committedTurns, inProgressTurn] : committedTurns;
   const isBusy = runState === 'starting' || runState === 'active';
+  const isStarting = runState === 'pending' || runState === 'starting';
 
   return {
     runId,
@@ -923,6 +927,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
     turns: allTurns,
     isStreaming: inProgressTurn !== null,
     isPending,
+    isStarting,
     isBusy,
     connectionStatus,
     liveActivity: isBusy ? deriveActivity(allTurns, retry, sandboxSince, lastActivityAt) : null,

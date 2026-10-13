@@ -87,3 +87,14 @@ See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules arou
 **Import:** `import { useClampedRows } from '@orbit/components'`
 
 **When to use:** A wrapping list in a cell that should show as many items as fit in a fixed number of rows, then a "+N more" trigger. It is a hook, so the caller owns the markup: render every item, then a trigger element marked `data-clamp-trigger` with no children. The hook hides what does not fit and writes the trigger's text. See `ScopeChipList` and the connections `UsedByList` for both usages.
+
+## RUN_STATE_DISPLAY
+
+`RUN_STATE_DISPLAY` maps a run state to the status dot and label every run surface shows. A `pending` run reads Queued, `starting` reads Starting and `active` reads Running.
+
+```tsx
+import { RUN_STATE_DISPLAY } from '@orbit/components';
+
+const dot = RUN_STATE_DISPLAY[run.state];
+<StatusDot status={dot.status} role="img" aria-label={dot.label} />;
+```

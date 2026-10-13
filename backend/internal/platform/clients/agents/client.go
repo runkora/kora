@@ -22,15 +22,9 @@ import (
 )
 
 const (
-	tracerName = "orbit.agents-client"
-	// startRunTimeout covers a run start that waits for a rolling pod: the
-	// 3 minute server start budget plus margin.
-	startRunTimeout = 4 * time.Minute
-	clientTimeout   = startRunTimeout
+	tracerName    = "orbit.agents-client"
+	clientTimeout = 30 * time.Second
 )
-
-// defaultTimeout bounds ordinary calls. A variable so tests can shorten it.
-var defaultTimeout = 30 * time.Second
 
 var (
 	// ErrForbidden is returned when the caller's token lacks the required run scope.
@@ -90,8 +84,6 @@ const IdentityModeDelegated = "delegated"
 // Triggers feature uses this to confirm a trigger's target exists in-tenant and
 // to derive the canonical slug the run grant must be keyed on.
 func (c *Client) GetAgentType(ctx context.Context, bearer, id string) (AgentType, error) {
-	ctx, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types/"+url.PathEscape(id), nil)
 	if err != nil {
 		return AgentType{}, fmt.Errorf("build get agent type request: %w", err)
@@ -151,8 +143,6 @@ type StartRunResponse struct {
 // StartRun creates a run for the given agent type, authenticating with the
 // supplied platform bearer token. Returns the created run's id and state.
 func (c *Client) StartRun(ctx context.Context, bearer string, req StartRunRequest) (StartRunResponse, error) {
-	ctx, cancel := context.WithTimeout(ctx, startRunTimeout)
-	defer cancel()
 	body, err := c.EncodeJSON(req)
 	if err != nil {
 		return StartRunResponse{}, fmt.Errorf("encode start run: %w", err)

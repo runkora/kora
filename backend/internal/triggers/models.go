@@ -362,8 +362,8 @@ type Trigger struct {
 	MaxQueueDepth int16  `json:"max_queue_depth"`
 
 	// ─── Delivery safety ────────────────────────────────────────────────────
-	// TimeoutSeconds bounds starting the run, not running it: a long-running
-	// agent is not a failure.
+	// TimeoutSeconds bounds the start request, which returns once orbit-agents
+	// has queued the run. A long-running agent is not a failure.
 	TimeoutSeconds   int16 `json:"timeout_seconds"`
 	DedupeEnabled    bool  `json:"dedupe_enabled"`
 	AutopauseEnabled bool  `json:"autopause_enabled"`
@@ -704,11 +704,9 @@ func (e *InputValidationError) Is(target error) bool { return target == ErrValid
 // errors.Is without reaching for the concrete type.
 var ErrValidationFailed = errors.New("input validation failed")
 
-// dispatchTimeout is how long this trigger gets to start a run.
-//
-// It bounds starting, not running: a long-running agent is not a failure, but
-// an agent that never accepts the start is. Falls back to the package default
-// for triggers created before the setting existed.
+// dispatchTimeout is how long this trigger's start request may take. orbit-agents
+// queues the run and answers at once. Falls back to the package default for
+// triggers created before the setting existed.
 func (t Trigger) dispatchTimeout() time.Duration {
 	if t.TimeoutSeconds <= 0 {
 		return dispatchTimeout

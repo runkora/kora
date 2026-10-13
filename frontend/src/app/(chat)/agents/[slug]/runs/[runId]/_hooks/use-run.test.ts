@@ -496,3 +496,42 @@ describe('useRun — activity, delivery and stops', () => {
     });
   });
 });
+
+describe('useRun — starting state', () => {
+  beforeEach(() => {
+    FakeEventSource.instances = [];
+    vi.stubGlobal('EventSource', FakeEventSource);
+    server.use(
+      http.get('/api/agents/runs/:runId', () =>
+        HttpResponse.json({ data: { state: 'pending' }, agent_type: { name: 'Test' } }),
+      ),
+      http.get('/api/agents/runs/:runId/usage', () =>
+        HttpResponse.json({ run_id: 'run-1', spend_usd: 0, total_tokens: 0 }),
+      ),
+    );
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('is starting only while the loaded state is pending or starting', async () => {
+    const { result } = renderHook(() => useRun('run-1', 'slug'));
+    expect(result.current.runState).toBeNull();
+    expect(result.current.isStarting).toBe(false);
+
+    await waitFor(() => expect(result.current.runState).toBe('pending'));
+    expect(result.current.isStarting).toBe(true);
+
+    act(() => {
+      FakeEventSource.instances[0].emit('run_state', { state: 'starting' });
+    });
+    expect(result.current.runState).toBe('starting');
+    expect(result.current.isStarting).toBe(true);
+
+    act(() => {
+      FakeEventSource.instances[0].emit('run_state', { state: 'active' });
+    });
+    expect(result.current.isStarting).toBe(false);
+  });
+});
