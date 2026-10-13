@@ -15,6 +15,8 @@ White-labelling changes that. A theme is a deployment artefact that sets Hades v
 
 ### Background
 
+These describe the codebase when this ADR was written, before the changes SD-1 schedules for `1.0.0`: literal radius tokens, identity slot components, and font slot tokens.
+
 - kora releases are cut from `v*` tags. The release workflow derives the image tag and chart version from the tag, builds images, and writes a `compatibility.yaml` listing the Kubernetes, Istio, SPIRE, PostgreSQL and tooling versions the release was tested with.
 - The frontend image receives `ORBIT_VERSION` as a build argument and surfaces it as `NEXT_PUBLIC_ORBIT_VERSION`, which the dashboard header shows.
 - `make check-versions` already enforces parity between a pinned version in `versions.hcl` and the Go directive in `go.mod`. The same pattern, one source and a check that every copy agrees, is reused here.
