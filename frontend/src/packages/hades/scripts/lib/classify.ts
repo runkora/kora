@@ -375,8 +375,9 @@ function compareExports(base: ExportSurface, head: ExportSurface): Finding[] {
 
 /**
  * A peer dependency added, or its range narrowed, obliges every consumer to
- * change: major. A range widened is minor. Without a baseline set of peers
- * there is nothing to add to.
+ * change: major. A range widened, or a peer removed, which accepts every
+ * version the old constraint rejected, is minor. Without a baseline set of
+ * peers there is nothing to add to.
  */
 function comparePeerDependencies(
   base: Readonly<Record<string, string>>,
@@ -411,6 +412,10 @@ function comparePeerDependencies(
           `peer dependency range widened from ${before} to ${range}`,
         ),
       );
+  }
+  for (const [name, range] of Object.entries(base)) {
+    if (!(name in head))
+      out.push(finding('none', 'minor', SEMVER, name, `peer dependency removed (was ${range})`));
   }
   return out;
 }

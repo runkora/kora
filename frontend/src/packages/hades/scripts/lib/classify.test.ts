@@ -344,6 +344,15 @@ describe('classify', () => {
       ).toEqual({ contract: 'none', package: 'major' });
     });
 
+    it('is a package minor when a peer dependency is removed', () => {
+      const c = classify(input({ headPeerDependencies: {} }));
+      expect(levels(c)).toEqual({ contract: 'none', package: 'minor' });
+      expect(c.findings[0]).toMatchObject({
+        subject: 'react',
+        detail: 'peer dependency removed (was >=19)',
+      });
+    });
+
     it('is a package minor when a peer dependency range is widened', () => {
       const c = classify(
         input({
