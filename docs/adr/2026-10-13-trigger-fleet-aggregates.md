@@ -231,8 +231,19 @@ assumes they do will be wrong:
   `received_at`.
 - **`recent_failures`** and **`sparkline`** are run-level. They count rows in
   `trigger_delivery_runs` for this trigger whose parent delivery falls in the
-  window, classified by run status: `dispatched` is `started`, the failure
-  outcomes are `failed`, everything else is `other`. One delivery with three
+  window, classified by run status. The buckets are not a judgement call: the
+  mapping below is what `fleet.ts` implements today, and the statuses are the
+  full set the column's CHECK constraint permits, so every value lands
+  somewhere.
+
+  | Bucket | Run statuses |
+  | --- | --- |
+  | `started` | `dispatched` |
+  | `failed` | `failed`, `denied`, `dropped` |
+  | `other` | `filtered`, `superseded`, `paused` |
+
+  A new status added to the constraint must be placed deliberately; defaulting
+  it into `other` silently changes what the chart says. One delivery with three
   matching runs contributes three, which is what the browser counts today.
 - A delivery that matches **directly but started no run** therefore moves
   `last_fired_at` and contributes nothing to the other two. That asymmetry is
