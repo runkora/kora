@@ -284,3 +284,71 @@ func TestLintMigrations_AcceptsSemicolonInsideALiteral(t *testing.T) {
 		t.Fatalf("one statement with a quoted semicolon rejected: %v", err)
 	}
 }
+
+// A comment delimiter inside a literal must not open a comment. Stripping
+// comments before the quote scan truncated the block here, so the packed form
+// the rule exists to reject was counted as one statement and accepted.
+func TestStatements_CommentDelimitersInsideQuotes(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		sql  string
+		want int
+	}{
+		"line comment inside a literal": {
+			sql:  "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || '--'));\nDROP INDEX CONCURRENTLY idx_old;",
+			want: 2,
+		},
+		"block comment open inside a literal": {
+			sql:  "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || '/*'));\nDROP INDEX CONCURRENTLY idx_old;",
+			want: 2,
+		},
+		"semicolon inside a real line comment": {
+			sql:  "CREATE INDEX idx ON widgets (kind); -- a; b; c\n",
+			want: 1,
+		},
+		"semicolon inside a real block comment": {
+			sql:  "/* a; b */ CREATE INDEX idx ON widgets (kind);",
+			want: 1,
+		},
+		"nested block comment": {
+			sql:  "/* outer /* inner */ still comment; */ CREATE INDEX idx ON widgets (kind);",
+			want: 1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if n := len(statements(tc.sql)); n != tc.want {
+				t.Fatalf("statements(%q) = %d, want %d", tc.sql, n, tc.want)
+			}
+		})
+	}
+}
+
+// The rule must still reject the packed form when the literal contains a
+// comment delimiter, which is the case the old pre-strip let through.
+func TestLintMigrations_RejectsPackedBlockWithCommentDelimiterInLiteral(t *testing.T) {
+	t.Parallel()
+
+	err := lintMigrations(map[string]fs.FS{
+		"a": fstest.MapFS{
+			"20260101000000_create_widgets.sql": file(cleanUp),
+			"20260102000000_packed.sql": file(
+				"-- +goose NO TRANSACTION\n" +
+					"-- +goose Up\n" +
+					"-- +goose StatementBegin\n" +
+					"CREATE INDEX CONCURRENTLY idx ON widgets ((kind || '--'));\n" +
+					"DROP INDEX CONCURRENTLY idx_old;\n" +
+					"-- +goose StatementEnd\n" +
+					"-- +goose Down\n",
+			),
+		},
+	})
+	if err == nil {
+		t.Fatal("packed block accepted because a literal contained a comment delimiter")
+	}
+	if !strings.Contains(err.Error(), "shares one goose block") {
+		t.Fatalf("err = %v, want it to mention the block-splitting rule", err)
+	}
+}
