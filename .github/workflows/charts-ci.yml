@@ -95,4 +95,8 @@ jobs:
           theme-no-image.yaml|theme.document is set without theme.bundle.image
           theme-no-document.yaml|theme.bundle.image is set without theme.document
           theme-unparseable.yaml|theme.document does not parse as a YAML map
+          theme-product-name-markup.yaml|outside the Hades product-name bounds
+          theme-product-name-newline.yaml|outside the Hades product-name bounds
+          theme-product-name-long.yaml|must be 1 to 40 characters after trimming
+          theme-product-name-blank.yaml|must be 1 to 40 characters after trimming
           CASES

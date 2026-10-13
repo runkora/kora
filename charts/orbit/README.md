@@ -465,9 +465,9 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.resources.requests.memory | string | `"32Mi"` |  |
 | sandboxMount.tolerations | list | `[]` | Added to the tolerations of agents.workloads.sandbox and agents.workloads.sessionManager, which the agent always carries. |
 | spire.className | string | `"spire-system-spire"` |  |
-| theme.bundle.image | string | `""` | Digest-pinned reference to the theme bundle image, e.g. registry.example.com/acme/kora-theme@sha256:<64 hex digits>. The image holds theme.yaml at /theme/theme.yaml and its assets under /theme/assets/. A tag is rejected: a re-pushed tag would roll nothing. |
+| theme.bundle.image | string | `""` | Digest-pinned reference to the theme bundle image, e.g. registry.example.com/acme/kora-theme@sha256:<64 hex digits>. The image holds theme.yaml at its root, /theme.yaml, and its assets under /assets/. A tag is rejected: a re-pushed tag would roll nothing. |
 | theme.bundle.pullSecrets | list | `[]` | Pull secrets for the bundle image, as {name: <secret-name>} objects. Empty uses global.imagePullSecrets. |
-| theme.document | string | `""` | The theme document: the full theme.yaml as one string, from the file the bundle was built from. Supply it with `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. The chart renders it into the frontend's ConfigMap for the init container's check and reads productName from it for the backend services. |
+| theme.document | string | `""` | The theme document: the full theme.yaml as one string, from the file the bundle was built from. Supply it with `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. The chart renders it into the frontend's ConfigMap for the init container's check and reads productName from it for the backend services, failing the render when the name is outside the Hades product-name bounds. |
 | toolGateway.affinity | object | `{}` |  |
 | toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | toolGateway.extraEnv | list | `[]` |  |

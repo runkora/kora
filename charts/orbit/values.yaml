@@ -95,7 +95,7 @@ theme:
   bundle:
     # -- Digest-pinned reference to the theme bundle image, e.g.
     # registry.example.com/acme/kora-theme@sha256:<64 hex digits>. The image
-    # holds theme.yaml at /theme/theme.yaml and its assets under /theme/assets/.
+    # holds theme.yaml at its root, /theme.yaml, and its assets under /assets/.
     # A tag is rejected: a re-pushed tag would roll nothing.
     image: ""
     # -- Pull secrets for the bundle image, as {name: <secret-name>} objects.
@@ -105,7 +105,8 @@ theme:
   # bundle was built from. Supply it with `--set-file theme.document=theme.yaml`
   # or Argo CD `fileParameters`. The chart renders it into the frontend's
   # ConfigMap for the init container's check and reads productName from it for
-  # the backend services.
+  # the backend services, failing the render when the name is outside the Hades
+  # product-name bounds.
   document: ""
 
 # Postgres and Redis endpoints rendered into each service's storage config

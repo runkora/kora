@@ -5,7 +5,7 @@ theme:
   bundle:
     image: registry.example.com/acme/kora-theme@sha256:0000000000000000000000000000000000000000000000000000000000000000
   document: |
-    hadesVersion: 1.0.0
+    contractVersion: "1.0"
     productName: Acme Agents
     tokens:
       --hades-raw-100:
