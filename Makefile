@@ -1126,8 +1126,20 @@ HADES_DIR := $(FRONTEND_DIR)/src/packages/hades
 HADES_NODE := node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
 
 .PHONY: hades-manifest
-hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json) and theme.schema.json from tokens.css and surface.ts
+hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json), theme.schema.json and the chart's product-name rule from tokens.css and surface.ts
 	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts
+	@$(MAKE) --no-print-directory hades-chart-rules
+
+.PHONY: hades-chart-rules
+hades-chart-rules: ## Copy the product-name bounds from the Hades manifest into the chart, which validates the name at render time
+	@mkdir -p charts/orbit/files
+	@jq '.productName' $(HADES_DIR)/manifest.json > charts/orbit/files/hades-product-name.json
+
+.PHONY: hades-chart-rules-check
+hades-chart-rules-check: ## Verify the chart's product-name rule is what the Hades manifest carries
+	@jq '.productName' $(HADES_DIR)/manifest.json | diff -q - charts/orbit/files/hades-product-name.json >/dev/null \
+		|| { echo "$(COLOR_RED)✗ charts/orbit/files/hades-product-name.json is out of sync with the Hades manifest. Run: make hades-manifest$(COLOR_RESET)"; exit 1; }
+	@echo "$(COLOR_GREEN)✓ the chart's product-name rule matches the Hades manifest$(COLOR_RESET)"
 
 .PHONY: hades-manifest-check
 hades-manifest-check: ## Verify manifest.json and theme.schema.json are what tokens.css and surface.ts generate
@@ -1138,7 +1150,7 @@ hades-contract-check: ## Verify CONTRACT.md matches the boundary rules in the Ha
 	@bash scripts/hades/check-contract.sh
 
 .PHONY: hades-check
-hades-check: hades-manifest-check hades-contract-check ## Hades manifest sync and contract checks (part of make check)
+hades-check: hades-manifest-check hades-chart-rules-check hades-contract-check ## Hades manifest sync, the chart's product-name rule and contract checks (part of make check)
 
 .PHONY: hades-classify
 hades-classify: ## Classify the Hades change against the last hades/v* release (BASE=<ref> before one exists; FORMAT=text|markdown|json)

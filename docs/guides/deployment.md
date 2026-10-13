@@ -398,7 +398,7 @@ Point your service mesh's own telemetry at the same collector to get the mesh ho
 
 ## White-labelling theme
 
-A deployment can carry one theme: the product name, the colours and the identity assets a client's people see in place of kora's ([white-labelling theme](../adr/2026-10-12-white-labelling-theme.md)). A theme is a bundle, a directory with the document `theme.yaml` at its root and its assets under `assets/`, written against the Hades version the release runs. The frontend validates it before any page serves. Without a theme the chart renders exactly as before.
+A deployment can carry one theme: the product name, the colours and the identity assets a client's people see in place of kora's ([white-labelling theme](../adr/2026-10-12-white-labelling-theme.md)). A theme is a bundle, a directory with the document `theme.yaml` at its root and its assets under `assets/`, written against the contract version the release runs, recorded as `hades-contract` in the release's `compatibility.yaml`. The document's `contractVersion` must be a quoted string such as `"1.0"`; the chart also fails the render when `productName` is outside the Hades product-name bounds, before any workload rolls. The frontend validates it before any page serves. Without a theme the chart renders exactly as before.
 
 ### Nodes
 
@@ -406,12 +406,12 @@ The bundle reaches the frontend pod as an image volume, which the kubelet mounts
 
 ### Build the bundle image
 
-The image is the bundle directory and nothing else, with the document at `/theme/theme.yaml` and the assets under `/theme/assets/`:
+The image is the bundle directory and nothing else, with the document at the image root, `/theme.yaml`, and the assets under `/assets/`. The image volume mounts the image root at `/etc/orbit/theme`, so no `subPath` is needed:
 
 ```dockerfile
 FROM scratch
-COPY theme.yaml /theme/theme.yaml
-COPY assets/ /theme/assets/
+COPY theme.yaml /theme.yaml
+COPY assets/ /assets/
 ```
 
 Build it, push it to a registry the nodes can pull from with the configured pull secrets, and record the digest:

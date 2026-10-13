@@ -463,10 +463,15 @@ root context.
 {{- end }}
 
 {{/*
-The product name the backend services render: the document's productName, or
-kora when no theme is configured or the document does not set one. The render
-fails when the document is not a YAML map, which is a parse check, not a theme
-rule; fromYaml reports a parse error as an Error key. Take the root context.
+The product name the backend services render: the document's productName,
+trimmed as the frontend's validator trims it, or kora when no theme is
+configured or the document does not set one. The render fails when the document
+is not a YAML map (fromYaml reports a parse error as an Error key) and when the
+name is outside the Hades product-name bounds, which files/hades-product-name.json
+carries, copied from the Hades manifest by `make hades-chart-rules` so the chart
+and the frontend apply one rule. This is the one theme value the backend reads,
+so it is checked here, before any workload rolls, not left to the frontend's
+init container. Take the root context.
 */}}
 {{- define "orbit.themeProductName" -}}
 {{- $name := "kora" -}}
@@ -476,10 +481,21 @@ rule; fromYaml reports a parse error as an Error key. Take the root context.
 {{- fail (printf "theme.document does not parse as a YAML map: %s" (get $doc "Error")) -}}
 {{- end -}}
 {{- $p := get $doc "productName" -}}
-{{- if and (not (kindIs "invalid" $p)) (not (kindIs "string" $p)) -}}
+{{- if not (kindIs "invalid" $p) -}}
+{{- if not (kindIs "string" $p) -}}
 {{- fail (printf "theme.document productName must be a string, got %s" (kindOf $p)) -}}
 {{- end -}}
-{{- if $p -}}{{- $name = $p -}}{{- end -}}
+{{- $rule := .Files.Get "files/hades-product-name.json" | fromJson -}}
+{{- $trimmed := trim $p -}}
+{{- $length := len (regexFindAll "(?s)." $trimmed -1) -}}
+{{- if or (lt $length (int $rule.minLength)) (gt $length (int $rule.maxLength)) -}}
+{{- fail (printf "theme.document productName must be %d to %d characters after trimming, got %d" (int $rule.minLength) (int $rule.maxLength) $length) -}}
+{{- end -}}
+{{- if not (regexMatch $rule.pattern $trimmed) -}}
+{{- fail (printf "theme.document productName is outside the Hades product-name bounds: it must match %s" $rule.pattern) -}}
+{{- end -}}
+{{- $name = $trimmed -}}
+{{- end -}}
 {{- end -}}
 {{- $name -}}
 {{- end }}
