@@ -135,6 +135,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
 - [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) — `Accepted (Amended 2026-09-30)` · 2026-09-29
 - [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) — `Accepted` · 2026-10-13
+- [Trigger Fleet Aggregates Computed in Postgres](2026-10-13-trigger-fleet-aggregates.md) — `Proposed` · 2026-10-13
 - [Trigger Routing](2026-10-19-trigger-routing.md) — `Accepted` · 2026-10-19
 - [Chat Command Triggers](2026-10-20-chat-command-triggers.md) — `Accepted` · 2026-10-20
 - [Generic Webhook Source](2026-10-27-generic-webhook-source.md) — `Accepted` · 2026-10-27
@@ -315,6 +316,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
 | 2026-10-12 | [White-labelling Theme](2026-10-12-white-labelling-theme.md) | Accepted | — |
 | 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
+| 2026-10-13 | [Trigger Fleet Aggregates Computed in Postgres](2026-10-13-trigger-fleet-aggregates.md) | Proposed | — |
 | 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
 | 2026-10-19 | [Trigger Routing](2026-10-19-trigger-routing.md) | Accepted | — |
 | 2026-10-19 | [Explain GitHub's Workflow-File Push Refusal at the Egress Gateway](2026-10-19-workflow-push-refusal-message.md) | Accepted | — |
