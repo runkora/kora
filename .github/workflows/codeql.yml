@@ -105,7 +105,7 @@ jobs:
   gate:
     name: CodeQL gate
     needs: [changes, analyze]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless change detection and every analysis passed

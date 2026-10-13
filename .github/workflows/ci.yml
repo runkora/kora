@@ -147,10 +147,11 @@ jobs:
     secrets: inherit
 
   # A reusable workflow call reports per inner job only, never the calling job.
+  # The gates skip in a cancelled run, so a superseded run leaves no failing check.
   backend-gate:
     name: Backend
     needs: [changes, backend]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless change detection and the backend suite passed
@@ -163,7 +164,7 @@ jobs:
   frontend-gate:
     name: Frontend
     needs: [changes, frontend]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - name: Fail unless change detection and the frontend suite passed
@@ -176,7 +177,7 @@ jobs:
   charts-gate:
     name: Charts
     needs: [changes, charts]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - run: |
@@ -186,7 +187,7 @@ jobs:
   images-gate:
     name: Images
     needs: [changes, images]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - run: |
@@ -196,7 +197,7 @@ jobs:
   docs-gate:
     name: Docs
     needs: [changes, docs]
-    if: always()
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     steps:
       - run: |
