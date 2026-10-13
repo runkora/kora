@@ -3,7 +3,7 @@ import { cn } from '../../utils';
 
 /** @tier 1 — Zero Orbit domain knowledge. Renders whatever logo a theme supplies, one image per mode. */
 
-export interface BrandLogoProps extends Omit<React.HTMLAttributes<HTMLSpanElement>, 'children'> {
+export interface BrandLogoProps extends Omit<React.ComponentPropsWithoutRef<'span'>, 'children'> {
   /** Image source for dark mode. */
   dark: string;
   /** Image source for light mode. */
