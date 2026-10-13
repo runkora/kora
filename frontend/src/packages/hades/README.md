@@ -121,10 +121,12 @@ Background variants (e.g., `bg-status-healthy-subtle`) are available for badge a
 
 ### Typography
 
-| Token         | Value      | Purpose                                    |
-| ------------- | ---------- | ------------------------------------------ |
-| `--font-sans` | Inter      | Body text, UI labels                       |
-| `--font-mono` | Geist Mono | Agent IDs, policy names, code, identifiers |
+| Token         | Resolves through        | kora default | Purpose                                    |
+| ------------- | ----------------------- | ------------ | ------------------------------------------ |
+| `--font-sans` | `--hades-raw-font-sans` | Inter        | Body text, UI labels                       |
+| `--font-mono` | `--hades-raw-font-mono` | Geist Mono   | Agent IDs, policy names, code, identifiers |
+
+The two raw font tokens are theme slots. Hades defaults them to the generic stacks; the kora app sets them to its fonts in `globals.css`, and a loaded theme sets them to the families it declares.
 
 Use `font-mono` for any value that represents a system identifier: agent IDs, credential names, event IDs, policy slugs. This reinforces the technical character of the UI.
 
