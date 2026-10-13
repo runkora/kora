@@ -93,13 +93,13 @@ describe('POST /api/triggers', () => {
         agent_type_id: 'agent-1',
         event_type: 'pull_request',
         prompt_template: '{{ pull_request.title }}',
-        coalesce: { key: '{{ pull_request.number }}', windowSeconds: 30 },
+        coalesce: { key: '{{ pull_request.number }}', window_seconds: 30 },
       }),
       { params: Promise.resolve({}) } as never,
     );
 
     expect(res.status).toBe(201);
-    expect(received?.coalesce).toEqual({ key: '{{ pull_request.number }}', windowSeconds: 30 });
+    expect(received?.coalesce).toEqual({ key: '{{ pull_request.number }}', window_seconds: 30 });
   });
 
   it('forwards match_contains to orbit-triggers', async () => {

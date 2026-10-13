@@ -133,7 +133,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *orb
 			"event_type are required. Call triggers.sources.list for source ids and triggers.providers.fields for the field "+
 			"paths an event carries. "+
 			"A webhook trigger can set coalesce so a burst of events about one subject starts one run: key is a template like "+
-			"prompt_template, e.g. {{ repository.full_name }}#{{ pull_request.number }}, and windowSeconds (1 to 300) is how long the "+
+			"prompt_template, e.g. {{ repository.full_name }}#{{ pull_request.number }}, and window_seconds (1 to 300) is how long the "+
 			"first event waits. Events with the same rendered key inside the window start one run from the newest payload; "+
 			"coalesce needs overflow wait, which is the webhook default. "+
 			"scheduled: fires on a cron schedule; schedule_config (cron_expression, timezone, catch_up) is required and "+
@@ -325,8 +325,8 @@ type updateTriggerArgs struct {
 }
 
 type coalesceConfig struct {
-	Key           string `json:"key" jsonschema:"template over the event in the prompt_template syntax, e.g. {{ repository.full_name }}#{{ pull_request.number }}; an empty render does not coalesce"`
-	WindowSeconds int    `json:"windowSeconds" jsonschema:"seconds the first event waits for others with the same key, 1 to 300; the window is not extended by later events"`
+	Key           string `json:"key" jsonschema:"template over the event in the prompt_template syntax, e.g. {{ repository.full_name }}#{{ pull_request.number }}; a render that is blank after trimming does not coalesce"`
+	WindowSeconds int    `json:"window_seconds" jsonschema:"seconds the first event waits for others with the same key, 1 to 300; the window is not extended by later events"`
 }
 
 type scheduleConfig struct {

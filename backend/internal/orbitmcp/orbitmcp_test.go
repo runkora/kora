@@ -897,17 +897,17 @@ func TestTriggerCoalesceForwarding(t *testing.T) {
 	call := mcpCaller(t, gw.URL)
 	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
 
-	coalesce := map[string]any{"key": "{{ repository.full_name }}#{{ pull_request.number }}", "windowSeconds": 30}
+	coalesce := map[string]any{"key": "{{ repository.full_name }}#{{ pull_request.number }}", "window_seconds": 30}
 	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
 		"source_id": "src-1", "name": "t", "event_type": "pull_request", "coalesce": coalesce,
 	}})
 	got, _ := gotBody["coalesce"].(map[string]any)
-	if got["key"] != coalesce["key"] || got["windowSeconds"] != float64(30) {
+	if got["key"] != coalesce["key"] || got["window_seconds"] != float64(30) {
 		t.Errorf("create did not forward coalesce: %v", gotBody["coalesce"])
 	}
 
 	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "coalesce": coalesce}})
-	if got, _ := gotBody["coalesce"].(map[string]any); got["windowSeconds"] != float64(30) {
+	if got, _ := gotBody["coalesce"].(map[string]any); got["window_seconds"] != float64(30) {
 		t.Errorf("update did not forward coalesce: %v", gotBody["coalesce"])
 	}
 

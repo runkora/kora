@@ -548,10 +548,10 @@ describe('toTriggerUpdateRequest', () => {
 });
 
 describe('toTriggerUpdateRequest coalesce', () => {
-  it('sends the setting with the camelCase window', () => {
+  it('sends the setting with the wire window name', () => {
     expect(
       toTriggerUpdateRequest({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } }),
-    ).toEqual({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } });
+    ).toEqual({ coalesce: { key: '{{ pr.number }}', window_seconds: 30 } });
   });
 
   it('sends an empty object to clear it', () => {
@@ -578,7 +578,7 @@ const API_TRIGGER: Trigger = {
 
 describe('toTriggerRow coalesce', () => {
   it('maps a stored setting', () => {
-    const row = toTriggerRow({ ...API_TRIGGER, coalesce: { key: 'k', windowSeconds: 20 } });
+    const row = toTriggerRow({ ...API_TRIGGER, coalesce: { key: 'k', window_seconds: 20 } });
     expect(row.coalesce).toEqual({ key: 'k', windowSeconds: 20 });
   });
 

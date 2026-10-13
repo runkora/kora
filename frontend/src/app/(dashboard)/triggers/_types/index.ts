@@ -16,7 +16,7 @@ import type {
   InputField,
   SenderRestriction,
   Trigger,
-  TriggerCoalesce,
+  TriggerCoalesce as TriggerCoalesceWire,
   TriggerDelivery,
   TriggerKind,
   TriggerOverflow,
@@ -24,7 +24,13 @@ import type {
   WebhookSource,
 } from '@orbit/shared/api';
 
-export type { InputField, TriggerCoalesce, TriggerKind, TriggerOverflow };
+export type { InputField, TriggerKind, TriggerOverflow };
+
+/** Burst coalescing for a webhook trigger: a key template and a window in seconds. */
+export interface TriggerCoalesce {
+  key: string;
+  windowSeconds: number;
+}
 
 /** Who may fire a webhook trigger; both lists empty means anyone. */
 export type Senders = Required<SenderRestriction>;
@@ -214,7 +220,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
       logins: t.sender_restriction?.logins ?? [],
       associations: t.sender_restriction?.associations ?? [],
     },
-    coalesce: t.coalesce ? { key: t.coalesce.key, windowSeconds: t.coalesce.windowSeconds } : null,
+    coalesce: t.coalesce ? { key: t.coalesce.key, windowSeconds: t.coalesce.window_seconds } : null,
     promptTemplate: t.prompt_template,
     scheduleConfig: t.schedule_config
       ? {
@@ -313,6 +319,11 @@ export interface TriggerPatch {
   timeoutSeconds?: number;
 }
 
+/** The wire form of a coalesce setting. Shared by create and update. */
+export function toCoalesceRequest(coalesce: TriggerCoalesce): TriggerCoalesceWire {
+  return { key: coalesce.key, window_seconds: coalesce.windowSeconds };
+}
+
 /** The wire form of a schedule. Shared by create and update. */
 export function toScheduleConfigRequest(schedule: TriggerScheduleDraft) {
   return {
@@ -340,7 +351,9 @@ export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateReques
       sender_restriction: patch.senderRestriction,
     }),
     // `{}` is how the API removes the setting; omitting it leaves it alone.
-    ...(patch.coalesce !== undefined && { coalesce: patch.coalesce ?? {} }),
+    ...(patch.coalesce !== undefined && {
+      coalesce: patch.coalesce === null ? {} : toCoalesceRequest(patch.coalesce),
+    }),
     ...(patch.scheduleConfig !== undefined && {
       schedule_config: toScheduleConfigRequest(patch.scheduleConfig),
     }),

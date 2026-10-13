@@ -855,14 +855,13 @@ export interface TriggerField {
 
 /**
  * Burst coalescing for a webhook trigger. Fires that render the same `key`
- * within `windowSeconds` start one run from the newest payload.
- * The wire name `windowSeconds` is camelCase; the rest of the API is snake_case.
+ * within `window_seconds` start one run from the newest payload.
  */
 export interface TriggerCoalesce {
   /** Template in the prompt_template syntax, at most 256 bytes. */
   key: string;
   /** 1..300. */
-  windowSeconds: number;
+  window_seconds: number;
 }
 
 /** A trigger binds a firing condition to an agent. Mirrors Go: triggers.Trigger. */

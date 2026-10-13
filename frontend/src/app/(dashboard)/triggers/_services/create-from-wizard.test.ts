@@ -77,7 +77,7 @@ describe('webhook drafts', () => {
       OPTIONS,
     );
     expect(mockCreateTrigger).toHaveBeenCalledWith(
-      expect.objectContaining({ coalesce: { key: '{{ pr.number }}', windowSeconds: 30 } }),
+      expect.objectContaining({ coalesce: { key: '{{ pr.number }}', window_seconds: 30 } }),
     );
 
     await createFromWizardDraft(draft(), OPTIONS);

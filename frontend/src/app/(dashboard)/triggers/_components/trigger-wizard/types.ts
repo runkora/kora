@@ -10,11 +10,11 @@
 
 import type * as React from 'react';
 import type { IconName } from '@orbit/hades';
-import type { TriggerCoalesce, TriggerKind, TriggerOverflow } from '@orbit/shared/api';
+import type { TriggerKind, TriggerOverflow } from '@orbit/shared/api';
 import type { Frequency } from './cron';
 import type { FilterRow } from '../filter-rows-editor';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
-import type { Senders } from '../../_types';
+import type { Senders, TriggerCoalesce } from '../../_types';
 
 export type { TriggerKind, TriggerOverflow };
 
