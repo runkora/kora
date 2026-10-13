@@ -16,31 +16,22 @@ permissions:
 
 jobs:
   # Runs each language only when its inputs changed. The weekly schedule has
-  # no diff, so the filter is skipped and every language is analysed.
+  # no diff, so it analyses every language.
   changes:
     name: Detect changes
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: read
-      checks: read
     outputs:
-      # A JSON array of the filter names that matched, so the analyze matrix
-      # is exactly the set of languages whose inputs changed.
-      languages: ${{ steps.tested.outputs.tested == 'true' && '[]' || steps.filter.outputs.changes || '["go","javascript-typescript","actions"]' }}
+      # A JSON array of the languages to analyse.
+      languages: ${{ steps.languages.outputs.languages }}
     steps:
-      - if: github.event_name != 'schedule'
+      - if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # A merge queue entry with the same files as its pull request head skips analysis when the head passed.
-      - id: tested
-        if: github.event_name == 'merge_group'
-        uses: ./.github/actions/merge-queue-tested
-        with:
-          checks: CodeQL gate
-
       - id: filter
-        if: github.event_name != 'schedule' && steps.tested.outputs.tested != 'true'
+        if: github.event_name == 'pull_request' || github.event_name == 'push'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         with:
           filters: |
@@ -53,6 +44,25 @@ jobs:
               - '.github/workflows/codeql.yml'
             actions:
               - '.github/workflows/**'
+
+      # The merge queue analyses nothing: no ruleset rule gates on code scanning
+      # results, and the push to main analyses the merged tree. A run where no
+      # language changed analyses actions, so every pull request gets a code
+      # scanning result.
+      - id: languages
+        env:
+          EVENT: ${{ github.event_name }}
+          CHANGES: ${{ steps.filter.outputs.changes }}
+        run: |
+          case "$EVENT" in
+            merge_group) languages='[]' ;;
+            schedule) languages='["go","javascript-typescript","actions"]' ;;
+            *)
+              languages="${CHANGES:-[]}"
+              [ "$languages" = '[]' ] && languages='["actions"]'
+              ;;
+          esac
+          echo "languages=${languages}" >> "$GITHUB_OUTPUT"
 
   analyze:
     name: Analyze (${{ matrix.language }})
@@ -96,7 +106,7 @@ jobs:
           category: /language:${{ matrix.language }}
 
   # The analyze matrix varies per run, so branch protection requires this
-  # always-on job instead. A skipped analysis means nothing in its language changed.
+  # always-on job instead. Analysis is skipped only in the merge queue.
   gate:
     name: CodeQL gate
     needs: [changes, analyze]
