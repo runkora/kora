@@ -396,22 +396,47 @@ func validateWebhookTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateFieldKeys(req.PromptTemplate, req.MatchCondition); err != nil {
 		return err
 	}
-	return validateContains(req.MatchContains)
+	if err := validateContains(req.MatchContains); err != nil {
+		return err
+	}
+	_, err := coalesceForCreate(req)
+	return err
+}
+
+// coalesceForCreate validates a create request's coalesce setting against the
+// overflow the trigger will be stored with, and returns what to store.
+func coalesceForCreate(req CreateTriggerRequest) (*CoalesceConfig, error) {
+	coalesce, err := normalizeCoalesce(req.Coalesce)
+	if err != nil {
+		return nil, err
+	}
+	overflow := DefaultOverflowForKind(KindWebhook)
+	if req.Overflow != nil {
+		overflow = *req.Overflow
+	}
+	if err := validateCoalesceOverflow(coalesce, overflow); err != nil {
+		return nil, err
+	}
+	return coalesce, nil
 }
 
 // Scheduled and manual triggers have no delivery to read a sender or field from.
 var (
 	errSenderRestrictionWebhookOnly = fmt.Errorf("%w: sender_restriction applies to webhook triggers only", ErrValidation)
 	errMatchContainsWebhookOnly     = fmt.Errorf("%w: match_contains applies to webhook triggers only", ErrValidation)
+	errCoalesceWebhookOnly          = fmt.Errorf("%w: coalesce applies to webhook triggers only", ErrValidation)
 )
 
 // refuseWebhookOnly rejects the webhook-only fields on another kind of trigger.
-func refuseWebhookOnly(restriction *SenderRestriction, contains map[string][]string) error {
+func refuseWebhookOnly(restriction *SenderRestriction, contains map[string][]string, coalesce *CoalesceConfig) error {
 	if restriction != nil {
 		return errSenderRestrictionWebhookOnly
 	}
 	if contains != nil {
 		return errMatchContainsWebhookOnly
+	}
+	if coalesce != nil {
+		return errCoalesceWebhookOnly
 	}
 	return nil
 }
@@ -420,7 +445,7 @@ func validateScheduledTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
-	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains); err != nil {
+	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce); err != nil {
 		return err
 	}
 	if req.ScheduleConfig == nil {
@@ -433,7 +458,7 @@ func validateManualTriggerCreate(req CreateTriggerRequest) error {
 	if err := validateCommonTriggerCreate(req); err != nil {
 		return err
 	}
-	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains); err != nil {
+	if err := refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce); err != nil {
 		return err
 	}
 	return validateManualInputs(req.ManualConfig)

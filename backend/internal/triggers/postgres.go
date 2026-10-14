@@ -248,6 +248,9 @@ func decodeKindConfig(t *Trigger, raw []byte) error {
 		if len(wc.MatchContains) > 0 {
 			t.MatchContains = wc.MatchContains
 		}
+		if wc.Coalesce.Enabled() {
+			t.Coalesce = wc.Coalesce
+		}
 	}
 	return nil
 }
@@ -662,8 +665,11 @@ func marshalKindConfig(t *Trigger) ([]byte, error) {
 			return nil, fmt.Errorf("marshal manual config: %w", err)
 		}
 		return b, nil
-	case t.Kind == KindWebhook && (!t.SenderRestriction.empty() || len(t.MatchContains) > 0):
+	case t.Kind == KindWebhook && (!t.SenderRestriction.empty() || len(t.MatchContains) > 0 || t.Coalesce.Enabled()):
 		wc := WebhookConfig{MatchContains: t.MatchContains}
+		if t.Coalesce.Enabled() {
+			wc.Coalesce = t.Coalesce
+		}
 		if !t.SenderRestriction.empty() {
 			wc.SenderRestriction = t.SenderRestriction
 		}

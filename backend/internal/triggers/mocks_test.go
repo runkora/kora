@@ -1167,6 +1167,18 @@ func (m *mockRepository) pendingFor(triggerID string) []PendingDelivery {
 	return out
 }
 
+// expireWindows ends every coalescing window a trigger has open, so a test can
+// cross the boundary without sleeping.
+func (m *mockRepository) expireWindows(triggerID string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.pending {
+		if p.TriggerID == triggerID && !p.dispatchAfter.IsZero() {
+			p.dispatchAfter = time.Now().Add(-time.Second)
+		}
+	}
+}
+
 // ─── Delivery safety ─────────────────────────────────────────────────────────
 
 func (m *mockRepository) BumpConsecutiveFailures(_ context.Context, triggerID string) (int, error) {

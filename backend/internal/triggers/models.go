@@ -345,6 +345,9 @@ type Trigger struct {
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
 	// MatchContains maps a field to substrings, one of which it must contain.
 	MatchContains map[string][]string `json:"match_contains,omitempty"`
+	// Coalesce collapses bursts of fires about one subject into one run; nil
+	// dispatches every fire. Webhook triggers only.
+	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
 	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
 	// webhook triggers inherit from their WebhookSource).
 	PrincipalID string    `json:"-"`
@@ -543,6 +546,8 @@ type CreateTriggerRequest struct {
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
 	// MatchContains applies to webhook triggers only.
 	MatchContains map[string][]string `json:"match_contains,omitempty"`
+	// Coalesce applies to webhook triggers only, and needs overflow "wait".
+	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
 
 	// Embedded, not repeated: create and update accept the same settings with
 	// the same bounds, and JSON field promotion keeps them flat on the wire.
@@ -584,6 +589,8 @@ type UpdateTriggerRequest struct {
 	SenderRestriction *SenderRestriction `json:"sender_restriction,omitempty"`
 	// MatchContains replaces the stored map when present; an empty map removes it.
 	MatchContains map[string][]string `json:"match_contains,omitempty"`
+	// Coalesce replaces the stored setting when present; an empty object removes it.
+	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
 	// Editable after creation with exactly the create-time bounds. Changes
 	// apply to the next delivery, not to work already in flight.
 	AdmissionSettings
@@ -673,10 +680,24 @@ func (r *SenderRestriction) empty() bool {
 	return r == nil || (len(r.Logins) == 0 && len(r.Associations) == 0)
 }
 
+// CoalesceConfig makes a webhook trigger start one run for a burst of fires
+// about the same subject.
+//
+// Key is a template in the prompt_template syntax, rendered per fire against
+// the event. Fires of one trigger that render the same key within WindowSeconds
+// of the first collapse into one run from the newest payload. Both fields are
+// required for it to apply, and the platform keeps no default key: what the
+// subject of an event is depends on the provider and on what the trigger does.
+type CoalesceConfig struct {
+	Key           string `json:"key"`
+	WindowSeconds int    `json:"window_seconds"`
+}
+
 // WebhookConfig is the kind_config for a webhook trigger.
 type WebhookConfig struct {
 	SenderRestriction *SenderRestriction  `json:"sender_restriction,omitempty"`
 	MatchContains     map[string][]string `json:"match_contains,omitempty"`
+	Coalesce          *CoalesceConfig     `json:"coalesce,omitempty"`
 }
 
 // RedeliverResponse is returned from POST /api/v1/trigger-deliveries/{id}/redeliver.
