@@ -189,9 +189,7 @@ describe('validateTheme: mixed identity', () => {
   });
 
   it('is empty for a fonts-only theme', async () => {
-    const result = await run(
-      'contractVersion: "1.0"\nslots:\n  font.sans: assets/sans.woff2\n',
-    );
+    const result = await run('contractVersion: "1.0"\nslots:\n  font.sans: assets/sans.woff2\n');
     expect(result.ok).toBe(true);
     expect(result.report.mixedIdentity).toEqual([]);
   });
