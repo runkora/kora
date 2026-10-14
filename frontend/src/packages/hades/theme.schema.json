@@ -636,7 +636,7 @@
     },
     "font-family-name": {
       "type": "string",
-      "pattern": "^[\\p{L}\\p{N} \\-_,.]{1,64}$"
+      "pattern": "^[\\p{L}\\p{N}\\p{M} \\-_,.]{1,64}$"
     },
     "hex-or-oklch": {
       "type": "string",

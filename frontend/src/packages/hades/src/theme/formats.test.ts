@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { isBundlePath, isContractVersion, matchesFormat, svgFaults } from './index';
+import { fontFamilyFault, fontFamilyList } from './formats';
 import { NOT_SVG, SVG, SVG_WITH_BOM } from './fixtures.test-support';
 
 describe('hex-or-oklch', () => {
@@ -71,6 +72,9 @@ describe('font-family-name', () => {
     'Cascadia Code, monospace',
     'Noto Sans 日本語',
     'IBM_Plex-Mono.v2',
+    'Source Sans 3',
+    '3270',
+    'Cafe\u0301',
   ])('accepts %s', (v) => expect(matchesFormat('font-family-name', v)).toBe(true));
   it.each([
     '',
@@ -153,5 +157,95 @@ describe('svgFaults', () => {
     svgFaults(new TextEncoder().encode(`<svg><a href=${spaces}</svg>`));
     svgFaults(new TextEncoder().encode(`<svg><a style="fill:url(${spaces}"/></svg>`));
     expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
+describe('font-family-name values', () => {
+  it.each([
+    ',',
+    ',Inter',
+    'Inter,',
+    'Inter,,Mono',
+    'Inter, ,Mono',
+    ' , ',
+    'inherit',
+    'Inherit',
+    'initial',
+    'unset',
+    'revert',
+    'revert-layer',
+    'default',
+    'Inter, inherit',
+  ])('refuses %j at validation time', (v) => {
+    expect(matchesFormat('font-family-name', v) && fontFamilyFault(v) === null).toBe(false);
+  });
+  it.each(['Inter', 'Source Sans 3', 'Inter, sans-serif', '3270'])('allows %j', (v) =>
+    expect(fontFamilyFault(v)).toBeNull(),
+  );
+  it('quotes names and leaves generic keywords bare', () => {
+    const quote = (n: string) => n;
+    expect(fontFamilyList('Source Sans 3', quote)).toBe('"Source Sans 3"');
+    expect(fontFamilyList('3270', quote)).toBe('"3270"');
+    expect(fontFamilyList('Inter,sans-serif', quote)).toBe('"Inter", sans-serif');
+    expect(fontFamilyList(' Cafe\u0301 , System-UI , monospace', quote)).toBe(
+      '"Cafe\u0301", system-ui, monospace',
+    );
+  });
+});
+
+describe('svgFaults: attributes versus text', () => {
+  const faults = (svg: string) => svgFaults(new TextEncoder().encode(svg));
+
+  it.each([
+    '<svg><text>go online = fast</text></svg>',
+    '<svg><title>the onion = good</title></svg>',
+    '<svg><text>see href=x</text></svg>',
+    '<svg><text>a xlink:href=http://x b</text></svg>',
+    '<svg><!-- onload=x href=http://x --><rect/></svg>',
+    '<svg><![CDATA[ onclick=1 href=http://x ]]></svg>',
+    '<svg><text title="a > b">on = off</text></svg>',
+    '<svg><a href="#frag"/><image xlink:href="data:image/png;base64,AAAA"/></svg>',
+  ])('accepts %s', (svg) => expect(faults(svg)).toEqual([]));
+
+  it.each([
+    ['<svg onload="x"/>', 'event attribute'],
+    ['<svg\tonload="x"/>', 'event attribute'],
+    ['<svg\nonload="x"/>', 'event attribute'],
+    ['<svg\fonload="x"/>', 'event attribute'],
+    ['<svg\vonload="x"/>', 'event attribute'],
+    ['<svg/onload="x"/>', 'event attribute'],
+    ['<svg a="1"onload="x"/>', 'event attribute'],
+    ["<svg a='1'onclick='x'/>", 'event attribute'],
+    ['<svg ONLOAD="x"/>', 'event attribute'],
+    ['<svg onload = "x"/>', 'event attribute'],
+    ['<svg><a title="a > b" onclick="x"/></svg>', 'event attribute'],
+    ['<svg><a href="http://x"/></svg>', 'href'],
+    ['<svg><a href="https://x"/></svg>', 'href'],
+    ['<svg><a href="//x"/></svg>', 'href'],
+    ['<svg><a href="javascript:alert(1)"/></svg>', 'href'],
+    ['<svg><a href="data:text/html,x"/></svg>', 'href'],
+    ['<svg><a href="&#104;ttp://x"/></svg>', 'href'],
+    ['<svg><a href=" http://x"/></svg>', 'href'],
+    ['<svg><a href="a.svg"/></svg>', 'href'],
+    ['<svg><a HREF="http://x"/></svg>', 'href'],
+    ['<svg><a href = "http://x"/></svg>', 'href'],
+    ['<svg><image foo:href="http://evil"/></svg>', 'href'],
+    ['<svg><image xlink:href="http://evil"/></svg>', 'href'],
+    ['<svg><script/></svg>', '<script>'],
+    ['<svg:script/>', '<script>'],
+    ['<svg><x:script xmlns:x="http://www.w3.org/2000/svg"/></svg>', '<script>'],
+    ['<svg><SVG:SCRIPT/></svg>', '<script>'],
+    ['<svg><!-- <script> --></svg>', '<script>'],
+    ['<svg><foreignObject/></svg>', 'foreignObject'],
+    ['<svg><FOREIGNOBJECT/></svg>', 'foreignObject'],
+    ['<svg><svg:foreignObject/></svg>', 'foreignObject'],
+  ])('rejects %j', (svg, fragment) => {
+    const found = faults(svg);
+    expect(found.length).toBeGreaterThan(0);
+    expect(found.join(';')).toContain(fragment);
+  });
+
+  it('keeps fragment and image data hrefs with a prefix', () => {
+    expect(faults('<svg><image foo:href="#a"/></svg>')).toEqual([]);
   });
 });

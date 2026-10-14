@@ -41,8 +41,60 @@ export const FORMAT_PATTERNS: Readonly<Record<TokenFormat, string>> = {
   'hex-or-oklch': `^(?:${HEX}|${OKLCH})$`,
   'css-shadow-list': `^${SHADOW}(?:\\s*,\\s*${SHADOW}){0,3}$`,
   'css-length': `^(?:0|${NUMBER}(?:px|rem|em|%))$`,
-  'font-family-name': `^[\\p{L}\\p{N} \\-_,.]{1,64}$`,
+  'font-family-name': `^[\\p{L}\\p{N}\\p{M} \\-_,.]{1,64}$`,
 };
+
+/** Generic family keywords: valid unquoted in a `font-family` list, and a name when quoted. */
+const GENERIC_FAMILIES: ReadonlySet<string> = new Set([
+  'serif',
+  'sans-serif',
+  'monospace',
+  'cursive',
+  'fantasy',
+  'system-ui',
+  'ui-serif',
+  'ui-sans-serif',
+  'ui-monospace',
+  'ui-rounded',
+  'math',
+  'emoji',
+  'fangsong',
+]);
+
+/** CSS-wide keywords (and `default`), which are not valid family names. */
+const RESERVED_FAMILIES: ReadonlySet<string> = new Set([
+  'inherit',
+  'initial',
+  'unset',
+  'revert',
+  'revert-layer',
+  'default',
+]);
+
+/** The trimmed entries of a comma-separated family list; empty entries are kept so callers can reject them. */
+export function familyEntries(value: string): string[] {
+  return value.split(',').map((entry) => entry.trim());
+}
+
+/** Why a `font-family-name` value cannot be emitted as a valid `font-family` list, or null. */
+export function fontFamilyFault(value: string): string | null {
+  for (const entry of familyEntries(value)) {
+    if (entry === '') return 'has an empty entry; separate families with single commas';
+    if (RESERVED_FAMILIES.has(entry.toLowerCase())) {
+      return `"${entry}" is a CSS keyword, not a font family name`;
+    }
+  }
+  return null;
+}
+
+/** A validated family list as a `font-family` value: names quoted, generic keywords left bare. */
+export function fontFamilyList(value: string, quote: (name: string) => string): string {
+  return familyEntries(value)
+    .map((entry) =>
+      GENERIC_FAMILIES.has(entry.toLowerCase()) ? entry.toLowerCase() : `"${quote(entry)}"`,
+    )
+    .join(', ');
+}
 
 /** The contract version: `MAJOR.MINOR`, no patch, no leading zeros. */
 export const CONTRACT_VERSION_PATTERN = '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$';

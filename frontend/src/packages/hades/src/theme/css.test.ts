@@ -139,3 +139,29 @@ describe('generateThemeCss', () => {
     expect(bytes).toBeLessThan(16 * 1024);
   });
 });
+
+describe('generateThemeCss: font family tokens', () => {
+  const fontCss = async (value: string) => {
+    const theme = await load(
+      `contractVersion: "1.0"\ntokens:\n  --hades-raw-font-sans:\n    dark: ${JSON.stringify(value)}\n`,
+      {},
+    );
+    return generateThemeCss(theme, { resolveAsset });
+  };
+
+  it.each([
+    ['Source Sans 3', '"Source Sans 3"'],
+    ['3270', '"3270"'],
+    ['Inter, sans-serif', '"Inter", sans-serif'],
+    ['IBM Plex Sans 2,monospace', '"IBM Plex Sans 2", monospace'],
+    ['Cafe\u0301', '"Cafe\u0301"'],
+  ])('emits %j as %s', async (value, expected) => {
+    expect(await fontCss(value)).toBe(`${DARK_SELECTOR}{--hades-raw-font-sans:${expected}}`);
+  });
+
+  it('refuses a family list that cannot be valid CSS', async () => {
+    for (const value of [',', 'Inter,', ',Inter', 'a,,b', 'inherit']) {
+      await expect(fontCss(value)).rejects.toThrow('--hades-raw-font-sans');
+    }
+  });
+});

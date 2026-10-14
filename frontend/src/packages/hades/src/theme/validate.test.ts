@@ -426,3 +426,56 @@ describe('validateTheme: against the real manifest', () => {
     ]);
   });
 });
+
+describe('validateTheme: empty maps, code points and unreadable assets', () => {
+  it('treats an empty tokens or slots value as empty', async () => {
+    for (const doc of [
+      'contractVersion: "1.0"\ntokens:\n',
+      'contractVersion: "1.0"\nslots:\n',
+      'contractVersion: "1.0"\ntokens:\nslots:\n',
+    ]) {
+      expect((await run(doc)).ok).toBe(true);
+    }
+    const nullName = await run('contractVersion: "1.0"\nproductName:\n');
+    expect(errorPaths(nullName)).toEqual(['productName']);
+  });
+
+  it('counts code points in the product name, not UTF-16 units', async () => {
+    const letter = String.fromCodePoint(0x1d49c);
+    expect((await run(`contractVersion: "1.0"\nproductName: ${letter.repeat(21)}\n`)).ok).toBe(
+      true,
+    );
+    expect((await run(`contractVersion: "1.0"\nproductName: ${letter.repeat(40)}\n`)).ok).toBe(
+      true,
+    );
+    const over = await run(`contractVersion: "1.0"\nproductName: ${letter.repeat(41)}\n`);
+    expect(errorPaths(over)).toEqual(['productName']);
+  });
+
+  it('refuses font family tokens that would emit invalid CSS', async () => {
+    for (const value of [',', 'Inter,', 'inherit', 'Inter, unset']) {
+      const result = await run(
+        `contractVersion: "1.0"\ntokens:\n  --hades-raw-font-sans:\n    dark: ${JSON.stringify(value)}\n`,
+      );
+      expect(errorPaths(result)).toEqual(['tokens.--hades-raw-font-sans.dark']);
+    }
+  });
+
+  it('turns a reader that throws into an error naming the path', async () => {
+    const throwing = async (path: string) => {
+      throw Object.assign(new Error(`EISDIR: ${path}`), { code: 'EISDIR' });
+    };
+    const result = await validateTheme(
+      'contractVersion: "1.0"\nslots:\n  font.sans: assets/dir.woff2\n',
+      { manifest: MANIFEST, contractVersion: CONTRACT, readAsset: throwing },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.errors).toEqual([
+      {
+        path: 'slots.font.sans',
+        message: '"assets/dir.woff2" is not a readable file in the bundle',
+      },
+    ]);
+  });
+});

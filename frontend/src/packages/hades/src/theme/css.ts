@@ -9,6 +9,7 @@
  * Decision 4.
  */
 import type { Mode } from '../tokens/surface';
+import { fontFamilyList } from './formats';
 import { familyNameForSlot } from './manifest';
 import type { Theme } from './types';
 
@@ -20,6 +21,9 @@ export interface CssOptions {
 export const DARK_SELECTOR = "html:root:not([data-theme='light'])";
 export const LIGHT_SELECTOR = "html[data-theme='light']";
 
+/** The family tokens a font slot sets: `font.<name>` sets `--hades-raw-font-<name>`. */
+const FONT_TOKEN_PREFIX = '--hades-raw-font-';
+
 /** The generic stack appended after a theme font's family, by slot. */
 const FALLBACK_STACK: Readonly<Record<string, string>> = {
   'font.sans': 'ui-sans-serif, system-ui, sans-serif',
@@ -29,7 +33,7 @@ const FALLBACK_STACK: Readonly<Record<string, string>> = {
 /** The family token a font slot sets, with the stack it is set to. */
 function fontDeclarations(theme: Theme): [token: string, value: string][] {
   return fontSlots(theme).map(([name]) => [
-    `--hades-raw-font-${name.slice('font.'.length)}`,
+    `${FONT_TOKEN_PREFIX}${name.slice('font.'.length)}`,
     `"${familyNameForSlot(name)}", ${FALLBACK_STACK[name] ?? 'sans-serif'}`,
   ]);
 }
@@ -52,7 +56,10 @@ function modeDeclarations(theme: Theme, mode: Mode): [string, string][] {
     .sort(([a], [b]) => a.localeCompare(b))
     .flatMap(([name, values]): [string, string][] => {
       const value = values[mode];
-      return value === undefined ? [] : [[name, value]];
+      if (value === undefined) return [];
+      return [
+        [name, name.startsWith(FONT_TOKEN_PREFIX) ? fontFamilyList(value, cssString) : value],
+      ];
     });
 }
 

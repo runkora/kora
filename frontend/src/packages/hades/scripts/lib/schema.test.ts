@@ -76,6 +76,11 @@ describe('buildThemeSchema', () => {
     expect(schema.$defs['bundle-path']).toEqual({ type: 'string', pattern: BUNDLE_PATH_PATTERN });
   });
 
+  it('writes the font-family-name pattern with combining marks allowed', () => {
+    const source = (schema.$defs['font-family-name'] as { pattern: string }).pattern;
+    expect(new RegExp(source, 'u').test('Cafe\u0301, Source Sans 3')).toBe(true);
+  });
+
   it('serializes with a trailing newline and reads back its surface', () => {
     const text = serializeSchema(schema);
     expect(text.endsWith('}\n')).toBe(true);

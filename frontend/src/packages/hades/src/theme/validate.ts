@@ -12,6 +12,7 @@ import type { Mode } from '../tokens/surface';
 import { contentFaults, extensionOf } from './assets';
 import {
   FORBIDDEN_IN_VALUES,
+  fontFamilyFault,
   contractMajor,
   isBundlePath,
   isContractVersion,
@@ -171,10 +172,11 @@ function checkProductName(
   }
   const { minLength, maxLength, pattern: source } = manifest.productName;
   const name = value.trim();
-  if (name.length < minLength || name.length > maxLength) {
+  const length = [...name].length;
+  if (length < minLength || length > maxLength) {
     errors.push({
       path: 'productName',
-      message: `must be ${minLength} to ${maxLength} characters after trimming; got ${name.length}`,
+      message: `must be ${minLength} to ${maxLength} characters after trimming; got ${length}`,
     });
     return undefined;
   }
@@ -195,7 +197,7 @@ function checkTokens(
   ignored: IgnoredEntry[],
 ): Record<string, ThemeTokenValues> {
   const out: Record<string, ThemeTokenValues> = {};
-  if (value === undefined) return out;
+  if (value === undefined || value === null) return out;
   if (!isPlainObject(value)) {
     errors.push({ path: 'tokens', message: 'must be a map keyed by token name' });
     return out;
@@ -252,6 +254,11 @@ function checkTokenValue(
     errors.push({ path, message: `"${raw}" is not a valid ${format} value` });
     return undefined;
   }
+  const fault = format === 'font-family-name' ? fontFamilyFault(raw) : null;
+  if (fault) {
+    errors.push({ path, message: `"${raw}" ${fault}` });
+    return undefined;
+  }
   return raw;
 }
 
@@ -262,7 +269,7 @@ function checkSlots(
   ignored: IgnoredEntry[],
 ): Record<string, ThemeSlot> {
   const out: Record<string, ThemeSlot> = {};
-  if (value === undefined) return out;
+  if (value === undefined || value === null) return out;
   if (!isPlainObject(value)) {
     errors.push({ path: 'slots', message: 'must be a map keyed by slot name' });
     return out;
@@ -347,9 +354,13 @@ async function readAssets(
   for (const { path, slot } of references) {
     limitByPath.set(path, Math.max(limitByPath.get(path) ?? 0, slot.maxBytes));
   }
-  const bytesByPath = new Map<string, Uint8Array | null>();
+  const bytesByPath = new Map<string, Uint8Array | null | 'unreadable'>();
   for (const [path, limit] of limitByPath) {
-    bytesByPath.set(path, await readAsset(path, limit));
+    try {
+      bytesByPath.set(path, await readAsset(path, limit));
+    } catch {
+      bytesByPath.set(path, 'unreadable');
+    }
   }
 
   for (const { path, docPath, slot } of references) {
@@ -362,6 +373,10 @@ async function readAssets(
       continue;
     }
     const bytes = bytesByPath.get(path) ?? null;
+    if (bytes === 'unreadable') {
+      errors.push({ path: docPath, message: `"${path}" is not a readable file in the bundle` });
+      continue;
+    }
     if (bytes === null) {
       errors.push({ path: docPath, message: `"${path}" is not in the bundle` });
       continue;

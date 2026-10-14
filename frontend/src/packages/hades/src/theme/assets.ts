@@ -12,6 +12,57 @@ export function extensionOf(path: string): string | null {
   return dot <= 0 ? null : name.slice(dot + 1).toLowerCase();
 }
 
+/** An `on*=` attribute inside a tag, however it is separated from the name before it. */
+const EVENT_ATTRIBUTE = /[\s/"']on[a-z]+\s*=/i;
+
+/** An `href`, with or without a namespace prefix, whose value is not a fragment or an image data URI. */
+const HREF_ATTRIBUTE =
+  /(?:^|[\s"'/])(?:[a-z_][\w.-]*:)?href\s*=\s*(?:["']\s*)?(?!#|data:image\/)[^\s"'>]/i;
+
+/**
+ * The text between `<` and `>` of every tag in the document, a `>` inside a
+ * quoted attribute value not ending the tag. Comments, CDATA sections,
+ * processing instructions and declarations are skipped whole, and text content
+ * is never returned, so attribute checks see attributes and nothing else.
+ */
+function tagInteriors(text: string): string[] {
+  const interiors: string[] = [];
+  let i = 0;
+  while (i < text.length) {
+    const open = text.indexOf('<', i);
+    if (open === -1) break;
+    const skipTo = (terminator: string): number => {
+      const end = text.indexOf(terminator, open);
+      return end === -1 ? text.length : end + terminator.length;
+    };
+    if (text.startsWith('<!--', open)) {
+      i = skipTo('-->');
+    } else if (text.startsWith('<![CDATA[', open)) {
+      i = skipTo(']]>');
+    } else if (text.startsWith('<?', open)) {
+      i = skipTo('?>');
+    } else if (text.startsWith('<!', open)) {
+      i = skipTo('>');
+    } else {
+      let j = open + 1;
+      let quote = '';
+      for (; j < text.length; j++) {
+        const c = text[j]!;
+        if (quote) {
+          if (c === quote) quote = '';
+        } else if (c === '"' || c === "'") {
+          quote = c;
+        } else if (c === '>') {
+          break;
+        }
+      }
+      interiors.push(text.slice(open + 1, j));
+      i = j + 1;
+    }
+  }
+  return interiors;
+}
+
 const decoder = new TextDecoder('utf-8', { fatal: false });
 
 /**
@@ -47,10 +98,17 @@ export function svgFaults(bytes: Uint8Array): string[] {
     faults.push('does not begin with <svg');
   }
 
-  if (/<script/i.test(text)) faults.push('contains a <script> element');
-  if (/[\s/"']on[a-z]+\s*=/i.test(text)) faults.push('contains an event attribute (on*=)');
-  const href = /(?:^|[\s"'/])(?:xlink:)?href\s*=\s*(?:["']\s*)?(?!#|data:image\/)[^\s"'>]/i;
-  if (href.test(text)) faults.push('references an external resource through href');
+  if (/<(?:[a-z_][\w.-]*:)?script/i.test(text)) faults.push('contains a <script> element');
+  if (/<(?:[a-z_][\w.-]*:)?foreignObject/i.test(text)) {
+    faults.push('uses foreignObject, which can embed HTML');
+  }
+  const tags = tagInteriors(text);
+  if (tags.some((tag) => EVENT_ATTRIBUTE.test(tag))) {
+    faults.push('contains an event attribute (on*=)');
+  }
+  if (tags.some((tag) => HREF_ATTRIBUTE.test(tag))) {
+    faults.push('references an external resource through href');
+  }
   const url = /url\(\s*(?:["']\s*)?(?!#)[^\s"')]/i;
   if (/@import/i.test(text)) faults.push('references an external stylesheet through @import');
   if (url.test(text)) faults.push('references an external resource through url()');
