@@ -169,7 +169,9 @@ if ! grep -qF "$version" "$js"; then
   exit 1
 fi
 contract=$(node -pe 'require("./node_modules/@runkora/hades/manifest.json").contractVersion')
-if ! grep -qF "\"$contract\"" "$js"; then
+# The bundler may emit the string with double, single or backtick quotes.
+contract_re=$(printf '%s' "$contract" | sed 's/\./\\./g')
+if ! grep -qE "[\"'\`]${contract_re}[\"'\`]" "$js"; then
   echo "error: CONTRACT_VERSION $contract is not in the built bundle" >&2
   exit 1
 fi
