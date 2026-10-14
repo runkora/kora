@@ -130,6 +130,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Trigger Payload Templating](2026-09-28-trigger-payload-templating.md) — `Accepted` · 2026-09-28
 - [Agent Run Guardrails](2026-09-29-agent-run-guardrails.md) — `Accepted (Amended 2026-09-30)` · 2026-09-29
 - [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) — `Accepted` · 2026-10-13
+- [Trigger Fleet Aggregates Computed in Postgres](2026-10-13-trigger-fleet-aggregates.md) — `Proposed` · 2026-10-13
 
 ### MCP / Tool Gateway
 
@@ -299,4 +300,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
 | 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
+| 2026-10-13 | [Trigger Fleet Aggregates Computed in Postgres](2026-10-13-trigger-fleet-aggregates.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
