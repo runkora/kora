@@ -206,6 +206,7 @@ describe('coalesce editing', () => {
   it('saves a key and window as the new setting', () => {
     const onEdit = vi.fn().mockResolvedValue(null);
     renderDrawer(trigger(), onEdit);
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
     fireEvent.change(screen.getByLabelText('Key'), { target: { value: '{{ pr.number }}' } });
     fireEvent.change(screen.getByLabelText('Window'), { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save coalescing' }));
@@ -221,20 +222,19 @@ describe('coalesce editing', () => {
     expect((screen.getByLabelText('Window') as HTMLInputElement).value).toBe('45');
   });
 
-  it('clears the setting with null when both are emptied', () => {
+  it('clears the setting with null when switched off', () => {
     const onEdit = vi.fn().mockResolvedValue(null);
     renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }), onEdit);
-    fireEvent.change(screen.getByLabelText('Key'), { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText('Window'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Save coalescing' }));
 
     expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), { coalesce: null });
   });
 
-  it('blocks saving a half-set pair', () => {
+  it('blocks saving when on without a window', () => {
     renderDrawer(trigger());
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
     fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'k' } });
-    expect(screen.getByText('Add a window in seconds, or clear the key.')).toBeTruthy();
     expect(
       (screen.getByRole('button', { name: 'Save coalescing' }) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -242,13 +242,15 @@ describe('coalesce editing', () => {
 
   it('is locked when overflow is not wait', () => {
     renderDrawer(trigger({ overflow: 'replace' }));
-    expect((screen.getByLabelText('Key') as HTMLInputElement).disabled).toBe(true);
-    expect(screen.getByText(/needs overflow set to wait/i)).toBeTruthy();
+    expect(
+      (screen.getByRole('switch', { name: /Coalesce events/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(/requires overflow set to wait/i)).toBeTruthy();
   });
 
   it('is absent for a scheduled trigger', () => {
     renderDrawer(trigger({ kind: 'scheduled' }));
-    expect(screen.queryByText('Coalesce bursts')).toBeNull();
+    expect(screen.queryByText('Coalesce events')).toBeNull();
   });
 });
 

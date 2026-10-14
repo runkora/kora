@@ -96,7 +96,7 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
   };
 
   return (
-    <Stack gap="snug">
+    <Stack gap="cozy">
       {/* Failure first: on a failed delivery the error is what the person
           opened the row for. The summary is the actionable message; the full
           chain stays underneath for tracing. */}
@@ -130,10 +130,11 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
           too long to use is stated, since that fire ran on its own. */}
       {(coalesceKeys.length > 0 || superseded.length > 0) && (
         <Stack gap="tight">
+          <SectionLabel>Coalescing</SectionLabel>
           {coalesceKeys.map((c) => (
-            <Stack key={c.triggerId} direction="horizontal" align="center" gap="tight">
-              <Text mono size="micro" color="subtle">
-                coalesce key
+            <Stack key={c.triggerId} direction="horizontal" align="center" gap="cozy">
+              <Text size="caption" color="muted">
+                Key
               </Text>
               <Text
                 mono={!c.keyTooLong}
@@ -146,9 +147,9 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
             </Stack>
           ))}
           {superseded.map((r) => (
-            <Stack key={r.triggerId} direction="horizontal" align="center" gap="tight">
+            <Stack key={r.triggerId} direction="horizontal" align="center" gap="cozy">
               <Text size="caption" color="muted">
-                Replaced by delivery
+                Replaced by
               </Text>
               <Text mono size="caption" color="accent" truncate>
                 {r.supersededBy}

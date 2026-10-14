@@ -21,6 +21,7 @@ import {
   describeMatchCondition,
   matchConditionFrom,
   matchContainsFrom,
+  coalesceDraftOf,
   coalesceFrom,
   senderRestrictionFrom,
   splitLogins,
@@ -322,14 +323,6 @@ export const webhookKind: TriggerKindDefinition = {
     if (filters) rows.push({ key: 'Filters', value: filters, mono: true });
     const senders = [...splitLogins(state.senders.logins), ...state.senders.associations];
     if (senders.length > 0) rows.push({ key: 'Senders', value: senders.join(', '), mono: true });
-    const coalesce =
-      state.overflow === 'wait' && coalesceFrom(state.coalesceKey, state.coalesceWindow);
-    if (coalesce)
-      rows.push({
-        key: 'Coalesce',
-        value: `${coalesce.key} within ${coalesce.windowSeconds}s`,
-        mono: true,
-      });
     return rows;
   },
   draftPatch: (state) => {
@@ -339,8 +332,7 @@ export const webhookKind: TriggerKindDefinition = {
     const matchContains = matchContainsFrom(state.filters);
     const senderRestriction = senderRestrictionFrom(state.senders);
     // Coalescing only works with `wait`, so a leftover value is dropped otherwise.
-    const coalesce =
-      state.overflow === 'wait' ? coalesceFrom(state.coalesceKey, state.coalesceWindow) : undefined;
+    const coalesce = state.overflow === 'wait' ? coalesceFrom(coalesceDraftOf(state)) : undefined;
     return {
       source:
         state.sourceChoice === NEW_SOURCE

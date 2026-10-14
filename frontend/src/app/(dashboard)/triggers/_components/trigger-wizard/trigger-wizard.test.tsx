@@ -325,17 +325,25 @@ describe('shared steps', () => {
 
   it('offers coalescing to a webhook that waits', () => {
     render(<StepDelivery {...shared} />);
-    expect(screen.getByText('Coalesce bursts')).toBeTruthy();
+    expect(screen.getByText('Coalesce events')).toBeTruthy();
+  });
+
+  it('shows the key and window only when coalescing is on', () => {
+    const { rerender } = render(<StepDelivery {...shared} />);
+    expect(screen.queryByLabelText('Key')).toBeNull();
+    rerender(<StepDelivery {...shared} state={{ ...state, coalesceEnabled: true }} />);
+    expect(screen.getByLabelText('Key')).toBeTruthy();
+    expect(screen.getByLabelText('Window')).toBeTruthy();
   });
 
   it('hides coalescing unless overflow is wait', () => {
     render(<StepDelivery {...shared} state={{ ...state, overflow: 'replace' }} />);
-    expect(screen.queryByText('Coalesce bursts')).toBeNull();
+    expect(screen.queryByText('Coalesce events')).toBeNull();
   });
 
   it('hides coalescing for scheduled and manual triggers', () => {
     render(<StepDelivery {...shared} definition={TRIGGER_KINDS.scheduled} />);
-    expect(screen.queryByText('Coalesce bursts')).toBeNull();
+    expect(screen.queryByText('Coalesce events')).toBeNull();
   });
 
   it('hides the queue depth when nothing queues', () => {

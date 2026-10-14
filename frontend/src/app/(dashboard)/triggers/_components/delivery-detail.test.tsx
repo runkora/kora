@@ -320,13 +320,13 @@ describe('coalescing', () => {
         })}
       />,
     );
-    expect(screen.getByText('Replaced by delivery')).toBeTruthy();
+    expect(screen.getByText('Replaced by')).toBeTruthy();
     expect(screen.getByText('d-newer')).toBeTruthy();
   });
 
   it('shows nothing extra for an ordinary delivery', () => {
     render(<DeliveryDetail delivery={delivery()} />);
-    expect(screen.queryByText('coalesce key')).toBeNull();
-    expect(screen.queryByText('Replaced by delivery')).toBeNull();
+    expect(screen.queryByText('Coalescing')).toBeNull();
+    expect(screen.queryByText('Replaced by')).toBeNull();
   });
 });

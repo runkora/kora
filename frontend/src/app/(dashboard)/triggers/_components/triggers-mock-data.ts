@@ -355,12 +355,27 @@ const fanOut: DeliveryRow = (() => {
   return { ...base, payloadBytes: 18_240, runs: [...base.runs, second] };
 })();
 
-export const DELIVERIES: DeliveryRow[] = [
-  delivery(prReview, 2 * MIN, 'dispatched', {
+/** The newest fire in a coalesced burst: it ran, and replaced the one below. */
+const COALESCED_WINNER = delivery(prReview, 2 * MIN, 'dispatched', {
+  payloadExcerpt: PR_EXCERPT,
+  payloadBytes: 17_902,
+  coalesceKeys: [{ triggerId: prReview.id, key: 'acme/platform#1427', keyTooLong: false }],
+});
+
+/** An earlier fire with the same key, replaced while it waited in the window. */
+const COALESCED_REPLACED = ((): DeliveryRow => {
+  const base = delivery(prReview, 3 * MIN, 'superseded', {
+    reason: 'replaced by a newer fire',
     payloadExcerpt: PR_EXCERPT,
-    payloadBytes: 17_902,
+    payloadBytes: 17_880,
     coalesceKeys: [{ triggerId: prReview.id, key: 'acme/platform#1427', keyTooLong: false }],
-  }),
+  });
+  return { ...base, runs: base.runs.map((r) => ({ ...r, supersededBy: COALESCED_WINNER.id })) };
+})();
+
+export const DELIVERIES: DeliveryRow[] = [
+  COALESCED_WINNER,
+  COALESCED_REPLACED,
   delivery(depAudit, 7 * MIN, 'dispatched', {
     scheduledAt: ago(7 * MIN),
     payloadBytes: 0,

@@ -393,20 +393,22 @@ export function TriggerDrawer({
 
   const storedCoalesce = useMemo<CoalesceDraft>(
     () => ({
+      enabled: trigger?.coalesce != null,
       key: trigger?.coalesce?.key ?? '',
       window: trigger?.coalesce ? String(trigger.coalesce.windowSeconds) : '',
     }),
     [trigger?.coalesce],
   );
   const saveCoalesce = useCallback(
-    // Both empty clears the setting; anything else was validated as a pair.
-    (value: CoalesceDraft) =>
-      savePatch({ coalesce: coalesceFrom(value.key, value.window) ?? null }),
+    // Off clears the setting; on was validated before save is offered.
+    (value: CoalesceDraft) => savePatch({ coalesce: coalesceFrom(value) ?? null }),
     [savePatch],
   );
   const coalesce = useEditableSection(storedCoalesce, editKey, saveCoalesce, {
-    isEqual: (a, b) => a.key.trim() === b.key.trim() && a.window.trim() === b.window.trim(),
-    validate: (value) => validateCoalesce(value.key, value.window),
+    isEqual: (a, b) =>
+      a.enabled === b.enabled &&
+      (!a.enabled || (a.key.trim() === b.key.trim() && a.window.trim() === b.window.trim())),
+    validate: (value) => validateCoalesce(value),
   });
 
   // The catalogue follows the event being edited.
@@ -815,13 +817,8 @@ export function TriggerDrawer({
                 <CoalesceEditor
                   value={coalesce.value}
                   onChange={coalesce.setValue}
-                  hideError
                   disabled={!editable || trigger.overflow !== 'wait'}
-                  note={
-                    trigger.overflow !== 'wait'
-                      ? 'Coalescing needs overflow set to wait. Change overflow to use it.'
-                      : undefined
-                  }
+                  note={trigger.overflow !== 'wait' ? 'Requires overflow set to wait.' : undefined}
                   actions={
                     <EditActions
                       dirty={coalesce.dirty}

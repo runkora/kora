@@ -4,12 +4,24 @@
  * the step that owns it, each group jumping back to its step for edits. */
 
 import { Alert, Stack, Text, Wizard } from '@orbit/hades';
-import { parallelWord } from './wizard-state';
+import { coalesceDraftOf, coalesceFrom, parallelWord } from './wizard-state';
 import type { StepComponentProps } from './types';
 
 export function StepReview({ state, context, definition, error, onGoTo }: StepComponentProps) {
   const agent = context.agents.find((a) => a.id === state.agentTypeId);
   const configStep = definition.steps[0];
+
+  const coalesce = coalesceFrom(coalesceDraftOf(state));
+  const coalesceRows =
+    definition.id === 'webhook' && state.overflow === 'wait'
+      ? [
+          {
+            label: 'Coalescing',
+            value: coalesce ? `${coalesce.key} within ${coalesce.windowSeconds}s` : 'Off',
+            mono: coalesce !== undefined,
+          },
+        ]
+      : [];
 
   const configRows = [
     { label: 'Name', value: state.name || '—', mono: true },
@@ -59,6 +71,7 @@ export function StepReview({ state, context, definition, error, onGoTo }: StepCo
               value: `${parallelWord(state.maxParallel)}, then ${state.overflow}`,
             },
             { label: 'Timeout', value: `${state.timeoutSeconds}s`, mono: true },
+            ...coalesceRows,
             { label: 'Suppress duplicates', value: state.dedupeEnabled ? 'On' : 'Off' },
             { label: 'Auto-pause on failure', value: state.autopauseEnabled ? 'On' : 'Off' },
           ]}

@@ -153,9 +153,10 @@ export interface WizardState {
   autopauseEnabled: boolean;
 
   // ── Coalescing (webhook, overflow `wait`) ──
-  /** Key template; empty means off. */
+  coalesceEnabled: boolean;
+  /** Key template, raw while typed. */
   coalesceKey: string;
-  /** Window in seconds, raw while typed; empty means off. */
+  /** Window in seconds, raw while typed. */
   coalesceWindow: string;
 }
 
