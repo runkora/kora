@@ -42,10 +42,12 @@ import {
   EmptyState,
 } from '@orbit/hades';
 import { KIND_ICON, LIMITS } from '../_types';
-import type { DeliveryRow, Senders, SourceRow, TriggerRow } from '../_types';
+import type { DeliveryRow, Senders, SourceRow, TriggerCoalesce, TriggerRow } from '../_types';
 import { recentFailures } from '../_types/fleet';
 import { endpointFor } from '../_lib/endpoints';
 import { CatalogPicker } from './catalog-picker';
+import { CoalesceEditor } from './coalesce-editor';
+import type { CoalesceDraft } from './coalesce-editor';
 import { DataBlockPreview } from './data-block-preview';
 import { DeliveryList } from './delivery-list';
 import { FilterRowsEditor } from './filter-rows-editor';
@@ -62,8 +64,10 @@ import {
 import {
   describeMatchCondition,
   matchConditionFrom,
+  coalesceFrom,
   matchContainsFrom,
   splitLogins,
+  validateCoalesce,
   validateFilters,
 } from './trigger-wizard/wizard-state';
 import {
@@ -87,8 +91,17 @@ export interface TriggerEditPatch {
   matchContains?: Record<string, string[]>;
   /** Replaces the restriction; both lists empty removes it. */
   senderRestriction?: Senders;
+  /** Replaces the setting; null removes it. */
+  coalesce?: TriggerCoalesce | null;
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
 }
+
+/** Overflow choices in the drawer. Wait is first: it is the only one coalescing allows. */
+const OVERFLOW_OPTIONS = [
+  { value: 'wait', label: 'Wait' },
+  { value: 'replace', label: 'Replace' },
+  { value: 'refuse', label: 'Refuse' },
+];
 
 interface TriggerDrawerProps {
   trigger: TriggerRow | null;
@@ -383,6 +396,26 @@ export function TriggerDrawer({
     isEqual: (a, b) =>
       a.logins === b.logins &&
       [...a.associations].sort().join() === [...b.associations].sort().join(),
+  });
+
+  const storedCoalesce = useMemo<CoalesceDraft>(
+    () => ({
+      enabled: trigger?.coalesce != null,
+      key: trigger?.coalesce?.key ?? '',
+      window: trigger?.coalesce ? String(trigger.coalesce.windowSeconds) : '',
+    }),
+    [trigger?.coalesce],
+  );
+  const saveCoalesce = useCallback(
+    // Off clears the setting; on was validated before save is offered.
+    (value: CoalesceDraft) => savePatch({ coalesce: coalesceFrom(value) ?? null }),
+    [savePatch],
+  );
+  const coalesce = useEditableSection(storedCoalesce, editKey, saveCoalesce, {
+    isEqual: (a, b) =>
+      a.enabled === b.enabled &&
+      (!a.enabled || (a.key.trim() === b.key.trim() && a.window.trim() === b.window.trim())),
+    validate: (value) => validateCoalesce(value),
   });
 
   // The catalogue follows the event being edited.
@@ -786,6 +819,27 @@ export function TriggerDrawer({
                 />
               )}
 
+              {/* Coalescing: collapse a burst of similar fires into one run. */}
+              {trigger.kind === 'webhook' && (
+                <CoalesceEditor
+                  value={coalesce.value}
+                  onChange={coalesce.setValue}
+                  disabled={!editable || trigger.overflow !== 'wait'}
+                  note={trigger.overflow !== 'wait' ? 'Requires overflow set to wait.' : undefined}
+                  actions={
+                    <EditActions
+                      dirty={coalesce.dirty}
+                      pending={coalesce.pending}
+                      error={coalesce.error}
+                      blocker={coalesce.blocker}
+                      saveLabel="Save coalescing"
+                      onSave={coalesce.save}
+                      onDiscard={coalesce.discard}
+                    />
+                  }
+                />
+              )}
+
               {/* Prompt: what the run is actually asked to do. */}
               <Stack gap="snug">
                 <SectionLabel>Prompt</SectionLabel>
@@ -941,7 +995,11 @@ export function TriggerDrawer({
                   />
                   <SettingRow
                     label="At the limit"
-                    description="What happens to an arrival that cannot start yet."
+                    description={
+                      trigger.coalesce
+                        ? 'Coalescing requires Wait. Turn coalescing off to change this.'
+                        : 'What happens to an arrival that cannot start yet.'
+                    }
                     value={
                       <SegmentedControl
                         aria-label="Overflow behaviour"
@@ -949,11 +1007,7 @@ export function TriggerDrawer({
                         onChange={(v) =>
                           onUpdateSafety?.(trigger, { overflow: v as TriggerRow['overflow'] })
                         }
-                        options={[
-                          { value: 'wait', label: 'Wait' },
-                          { value: 'replace', label: 'Replace' },
-                          { value: 'refuse', label: 'Refuse' },
-                        ]}
+                        options={trigger.coalesce ? OVERFLOW_OPTIONS.slice(0, 1) : OVERFLOW_OPTIONS}
                       />
                     }
                   />

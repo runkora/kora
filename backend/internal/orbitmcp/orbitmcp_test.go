@@ -877,3 +877,50 @@ func TestListToolsMapTimeWindowAndPayloadParams(t *testing.T) {
 		t.Errorf("unset options were forwarded: %v", gotQuery)
 	}
 }
+
+// TestTriggerCoalesceForwarding covers coalesce on trigger create and update:
+// the setting reaches the triggers backend under the documented names, and an
+// empty object, which removes it, is forwarded rather than dropped.
+func TestTriggerCoalesceForwarding(t *testing.T) {
+	var gotBody map[string]any
+	triggers := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = nil
+		_ = json.NewDecoder(r.Body).Decode(&gotBody)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer triggers.Close()
+
+	srv := NewServer(Backends{Triggers: triggers.URL}, orbitjson.NewClient(logging.NewLogger()))
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+	call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+
+	coalesce := map[string]any{"key": "{{ repository.full_name }}#{{ pull_request.number }}", "window_seconds": 30}
+	call("tools/call", map[string]any{"name": "triggers.create", "arguments": map[string]any{
+		"source_id": "src-1", "name": "t", "event_type": "pull_request", "coalesce": coalesce,
+	}})
+	got, _ := gotBody["coalesce"].(map[string]any)
+	if got["key"] != coalesce["key"] || got["window_seconds"] != float64(30) {
+		t.Errorf("create did not forward coalesce: %v", gotBody["coalesce"])
+	}
+
+	gotBody = nil
+	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "coalesce": coalesce}})
+	if got, _ := gotBody["coalesce"].(map[string]any); got["window_seconds"] != float64(30) {
+		t.Errorf("update did not forward coalesce: %v", gotBody["coalesce"])
+	}
+
+	gotBody = nil
+	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "coalesce": map[string]any{}}})
+	if _, ok := gotBody["coalesce"]; !ok {
+		t.Errorf("an empty coalesce object was dropped from the update, so it could not remove the setting: %v", gotBody)
+	}
+
+	gotBody = nil
+	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "name": "renamed"}})
+	if _, ok := gotBody["coalesce"]; ok {
+		t.Errorf("an update that did not mention coalesce carried it: %v", gotBody["coalesce"])
+	}
+}

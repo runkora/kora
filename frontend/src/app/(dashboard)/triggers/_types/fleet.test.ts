@@ -18,6 +18,7 @@ function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     matchCondition: {},
     matchContains: {},
     senderRestriction: { logins: [], associations: [] },
+    coalesce: null,
     promptTemplate: 'go',
     enabled: true,
     createdAt: '2026-07-01T00:00:00Z',
@@ -61,6 +62,7 @@ function delivery(ageHours: number, runs: Array<Partial<DeliveryRunRow>>): Deliv
       createdAt: null,
       ...r,
     })),
+    coalesceKeys: [],
   };
 }
 

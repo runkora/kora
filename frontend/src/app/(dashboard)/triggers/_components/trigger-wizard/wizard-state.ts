@@ -6,7 +6,7 @@
 
 import { resolveBrowserZone, timezoneOptions } from './cron';
 import { LIMITS } from '../../_types';
-import type { Senders } from '../../_types';
+import type { Senders, TriggerCoalesce } from '../../_types';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';
 import type { FilterOperator, FilterRow } from '../filter-rows-editor';
 import type {
@@ -99,6 +99,10 @@ export function baseState(sources: { id: string }[]): WizardState {
     timeoutSeconds: 30,
     dedupeEnabled: true,
     autopauseEnabled: true,
+
+    coalesceEnabled: false,
+    coalesceKey: '',
+    coalesceWindow: '',
   };
 }
 
@@ -193,6 +197,51 @@ export function validateTarget(state: WizardState): StepValidation {
   return VALID;
 }
 
+const textEncoder = new TextEncoder();
+
+/** The coalesce setting as edited: a switch, and the raw key and window. */
+export interface CoalesceDraft {
+  enabled: boolean;
+  key: string;
+  window: string;
+}
+
+/** The wizard's coalesce fields as one draft. */
+export function coalesceDraftOf(state: WizardState): CoalesceDraft {
+  return { enabled: state.coalesceEnabled, key: state.coalesceKey, window: state.coalesceWindow };
+}
+
+/**
+ * What is wrong with each coalesce field, if anything. These are the API's own
+ * rules, so a bad value is caught here instead of as a 400. Off has no errors.
+ */
+export function coalesceErrors(c: CoalesceDraft): { key?: string; window?: string } {
+  if (!c.enabled) return {};
+  const k = c.key.trim();
+  const w = c.window.trim();
+  const { min, max } = LIMITS.coalesce.window;
+  const errors: { key?: string; window?: string } = {};
+  if (!k) errors.key = 'Add a key template.';
+  else if (textEncoder.encode(k).length > LIMITS.coalesce.keyBytes)
+    errors.key = `Key must be at most ${LIMITS.coalesce.keyBytes} bytes.`;
+  if (!w) errors.window = 'Add a window in seconds.';
+  else if (!/^\d+$/.test(w) || Number(w) < min || Number(w) > max)
+    errors.window = `Window must be a whole number from ${min} to ${max} seconds.`;
+  return errors;
+}
+
+/** The first reason the coalesce setting cannot be sent, if any. */
+export function validateCoalesce(c: CoalesceDraft): string | undefined {
+  const errors = coalesceErrors(c);
+  return errors.key ?? errors.window;
+}
+
+/** The coalesce setting as the API takes it; undefined when off or not valid. */
+export function coalesceFrom(c: CoalesceDraft): TriggerCoalesce | undefined {
+  if (!c.enabled || validateCoalesce(c) !== undefined) return undefined;
+  return { key: c.key.trim(), windowSeconds: Number(c.window.trim()) };
+}
+
 /**
  * The Delivery step: the three bounds on the queue, checked together because
  * they are configured together.
@@ -216,6 +265,9 @@ export function validateDelivery(state: WizardState): StepValidation {
       valid: false,
       hint: `Timeout must be between ${LIMITS.timeout.min} and ${LIMITS.timeout.max} seconds.`,
     };
+  // Coalescing needs `wait`; under any other overflow the section is hidden and ignored.
+  const coalesce = state.overflow === 'wait' ? validateCoalesce(coalesceDraftOf(state)) : undefined;
+  if (coalesce !== undefined) return { valid: false, hint: coalesce };
   return VALID;
 }
 

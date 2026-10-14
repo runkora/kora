@@ -28,8 +28,9 @@ import {
   ToggleRow,
 } from '@orbit/hades';
 import type { IconName } from '@orbit/hades';
-import { admissionSummary, parallelWord } from './wizard-state';
+import { admissionSummary, coalesceDraftOf, parallelWord } from './wizard-state';
 import { LIMITS } from '../../_types';
+import { CoalesceEditor } from '../coalesce-editor';
 import type { StepComponentProps, TriggerKind, TriggerOverflow } from './types';
 
 interface OverflowOption {
@@ -201,6 +202,19 @@ export function StepDelivery({ state, patch, definition }: StepComponentProps) {
       </Callout>
 
       <Stack gap="cozy">
+        {/* Coalescing is a webhook feature and needs `wait`; elsewhere it is hidden. */}
+        {definition.id === 'webhook' && state.overflow === 'wait' && (
+          <CoalesceEditor
+            value={coalesceDraftOf(state)}
+            onChange={(next) =>
+              patch({
+                coalesceEnabled: next.enabled,
+                coalesceKey: next.key,
+                coalesceWindow: next.window,
+              })
+            }
+          />
+        )}
         <ToggleRow
           label="Suppress duplicates"
           description="Ignore a replay of a delivery already processed."

@@ -21,6 +21,8 @@ import {
   describeMatchCondition,
   matchConditionFrom,
   matchContainsFrom,
+  coalesceDraftOf,
+  coalesceFrom,
   senderRestrictionFrom,
   splitLogins,
   validateFilters,
@@ -329,6 +331,8 @@ export const webhookKind: TriggerKindDefinition = {
     const matchCondition = matchConditionFrom(state.filters);
     const matchContains = matchContainsFrom(state.filters);
     const senderRestriction = senderRestrictionFrom(state.senders);
+    // Coalescing only works with `wait`, so a leftover value is dropped otherwise.
+    const coalesce = state.overflow === 'wait' ? coalesceFrom(coalesceDraftOf(state)) : undefined;
     return {
       source:
         state.sourceChoice === NEW_SOURCE
@@ -338,6 +342,7 @@ export const webhookKind: TriggerKindDefinition = {
       ...(matchCondition ? { matchCondition } : {}),
       ...(matchContains ? { matchContains } : {}),
       ...(senderRestriction ? { senderRestriction } : {}),
+      ...(coalesce ? { coalesce } : {}),
     };
   },
   doneContent: DoneContent,

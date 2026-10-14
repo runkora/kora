@@ -17,7 +17,7 @@
 
 import { createSource, createTrigger } from './triggers-api';
 import { endpointFor } from '../_lib/endpoints';
-import { toScheduleConfigRequest } from '../_types';
+import { toCoalesceRequest, toScheduleConfigRequest } from '../_types';
 import type { TriggerCreateResult, TriggerDraft } from '../_components/trigger-wizard';
 
 export interface CreateFromWizardOptions {
@@ -61,6 +61,8 @@ export async function createFromWizardDraft(
     ...(draft.senderRestriction !== undefined && {
       sender_restriction: draft.senderRestriction,
     }),
+    ...(draft.kind === 'webhook' &&
+      draft.coalesce !== undefined && { coalesce: toCoalesceRequest(draft.coalesce) }),
     ...(draft.schedule !== undefined && {
       schedule_config: toScheduleConfigRequest(draft.schedule),
     }),

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 // The drawer reads the source's schema catalogue from the API.
 const api = vi.hoisted(() => ({
@@ -199,6 +199,67 @@ describe('sender restriction editing', () => {
     renderDrawer(trigger());
     await screen.findByRole('button', { name: 'Event type' });
     expect(screen.queryByText('Senders')).toBeNull();
+  });
+});
+
+describe('coalesce editing', () => {
+  it('saves a key and window as the new setting', () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDrawer(trigger(), onEdit);
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
+    fireEvent.change(screen.getByLabelText('Key'), { target: { value: '{{ pr.number }}' } });
+    fireEvent.change(screen.getByLabelText('Window'), { target: { value: '30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save coalescing' }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), {
+      coalesce: { key: '{{ pr.number }}', windowSeconds: 30 },
+    });
+  });
+
+  it('seeds from the stored setting', () => {
+    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }));
+    expect((screen.getByLabelText('Key') as HTMLInputElement).value).toBe('k');
+    expect((screen.getByLabelText('Window') as HTMLInputElement).value).toBe('45');
+  });
+
+  it('clears the setting with null when switched off', () => {
+    const onEdit = vi.fn().mockResolvedValue(null);
+    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }), onEdit);
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save coalescing' }));
+
+    expect(onEdit).toHaveBeenCalledWith(expect.objectContaining({ id: 't1' }), { coalesce: null });
+  });
+
+  it('blocks saving when on without a window', () => {
+    renderDrawer(trigger());
+    fireEvent.click(screen.getByRole('switch', { name: /Coalesce events/ }));
+    fireEvent.change(screen.getByLabelText('Key'), { target: { value: 'k' } });
+    expect(
+      (screen.getByRole('button', { name: 'Save coalescing' }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+  });
+
+  it('is locked when overflow is not wait', () => {
+    renderDrawer(trigger({ overflow: 'replace' }));
+    expect(
+      (screen.getByRole('switch', { name: /Coalesce events/ }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    expect(screen.getByText(/requires overflow set to wait/i)).toBeTruthy();
+  });
+
+  it('offers only Wait for overflow while coalescing is on', () => {
+    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }));
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Settings' }));
+    const overflow = within(screen.getByRole('group', { name: 'Overflow behaviour' }));
+    expect(overflow.getByText('Wait')).toBeTruthy();
+    expect(overflow.queryByText('Replace')).toBeNull();
+    expect(screen.getByText(/Coalescing requires Wait/)).toBeTruthy();
+  });
+
+  it('is absent for a scheduled trigger', () => {
+    renderDrawer(trigger({ kind: 'scheduled' }));
+    expect(screen.queryByText('Coalesce events')).toBeNull();
   });
 });
 

@@ -853,6 +853,17 @@ export interface TriggerField {
   pattern?: boolean;
 }
 
+/**
+ * Burst coalescing for a webhook trigger. Fires that render the same `key`
+ * within `window_seconds` start one run from the newest payload.
+ */
+export interface TriggerCoalesce {
+  /** Template in the prompt_template syntax, at most 256 bytes. */
+  key: string;
+  /** 1..300. */
+  window_seconds: number;
+}
+
 /** A trigger binds a firing condition to an agent. Mirrors Go: triggers.Trigger. */
 export interface Trigger {
   id: string;
@@ -877,6 +888,8 @@ export interface Trigger {
   manual_config?: ManualConfig;
   /** Webhook triggers only. */
   sender_restriction?: SenderRestriction;
+  /** Webhook only, and only with overflow `wait`. Absent when off. */
+  coalesce?: TriggerCoalesce;
   /**
    * What this trigger starts. "agent" is the only kind today; triggers are the
    * front door for starting work, and what gets started is a separate concern.
@@ -932,6 +945,8 @@ export interface TriggerCreateRequest {
   manual_config?: ManualConfig;
   /** Webhook only. */
   sender_restriction?: SenderRestriction;
+  /** Webhook only, and only with overflow `wait`. Both fields are required together. */
+  coalesce?: TriggerCoalesce;
   // ── Admission control (all optional; defaults per kind when omitted) ──
   /** Concurrency ceiling, 1..16. */
   max_parallel?: number;
@@ -958,6 +973,8 @@ export interface TriggerUpdateRequest {
   schedule_config?: ScheduleConfig;
   /** Webhook only. Replaces the restriction; both lists empty removes it. */
   sender_restriction?: SenderRestriction;
+  /** Webhook only. Replaces the setting; `{}` removes it; omit to leave it alone. */
+  coalesce?: TriggerCoalesce | Record<string, never>;
   /**
    * Suppress a repeat of a delivery already seen. Omit to leave unchanged: a
    * PATCH that only renames a trigger must not re-arm its safety settings.
@@ -1027,6 +1044,17 @@ export interface TriggerDelivery {
   received_at: string;
   /** One entry per matched trigger — the complete per-trigger dispatch record. */
   runs?: TriggerDeliveryRun[];
+  /** One entry per coalescing trigger this delivery matched. */
+  coalesce_keys?: TriggerDeliveryCoalesceKey[];
+}
+
+/** The coalescing key one trigger rendered for a delivery. */
+export interface TriggerDeliveryCoalesceKey {
+  trigger_id: string;
+  /** Absent when `key_too_long` is set. */
+  key?: string;
+  /** The rendered key exceeded 256 bytes, so this fire did not coalesce. */
+  key_too_long?: boolean;
 }
 
 /** A single matched-trigger dispatch within a delivery. */
@@ -1047,6 +1075,8 @@ export interface TriggerDeliveryRun {
    */
   status: string;
   error?: string;
+  /** Id of the delivery whose fire replaced this one; set when `status` is `superseded`. */
+  superseded_by?: string;
   created_at: string;
 }
 

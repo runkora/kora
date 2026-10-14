@@ -18,6 +18,7 @@ export function makeTrigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     matchCondition: {},
     matchContains: {},
     senderRestriction: { logins: [], associations: [] },
+    coalesce: null,
     promptTemplate: 'go',
     enabled: true,
     createdAt: '2026-07-01T00:00:00Z',
@@ -53,6 +54,7 @@ export function makeDelivery(overrides: Partial<DeliveryRow> = {}): DeliveryRow 
     payloadPurged: false,
     receivedAt: '2026-07-29T04:24:55Z',
     runs: [],
+    coalesceKeys: [],
     ...overrides,
   };
 }

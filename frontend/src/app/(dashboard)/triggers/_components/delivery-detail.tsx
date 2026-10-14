@@ -5,7 +5,13 @@
 
 import { useState } from 'react';
 import { Button, Callout, CodeBlock, SectionLabel, Stack, Text } from '@orbit/hades';
-import { failureSummary, isRedeliverable } from '../_types';
+import {
+  coalesceKeyText,
+  coalesceKeysFor,
+  failureSummary,
+  isRedeliverable,
+  supersededRuns,
+} from '../_types';
 import type { DeliveryRow } from '../_types';
 
 /**
@@ -72,6 +78,19 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
   const canRedeliver =
     onRedeliver !== undefined && isRedeliverable(outcome?.status ?? delivery.status);
 
+  const coalesceKeys = coalesceKeysFor(delivery, triggerId);
+  const superseded = supersededRuns(delivery, triggerId);
+  // A delivery that matched several coalescing triggers names each row's trigger.
+  const triggerIds = new Set([
+    ...coalesceKeys.map((c) => c.triggerId),
+    ...superseded.map((r) => r.triggerId),
+  ]);
+  const forTrigger = (label: string, id: string) => {
+    if (triggerIds.size < 2) return label;
+    const name = delivery.runs.find((r) => r.triggerId === id)?.triggerName ?? id;
+    return `${label} (${name})`;
+  };
+
   const replay = () => {
     if (onRedeliver === undefined) return;
     setRedelivering(true);
@@ -87,7 +106,7 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
   };
 
   return (
-    <Stack gap="snug">
+    <Stack gap="cozy">
       {/* Failure first: on a failed delivery the error is what the person
           opened the row for. The summary is the actionable message; the full
           chain stays underneath for tracing. */}
@@ -115,6 +134,39 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
         <Callout variant="info">
           <Text size="caption">{delivery.reason}</Text>
         </Callout>
+      )}
+
+      {/* Coalescing: the key this delivery rendered, and who replaced it. A key
+          too long to use is stated, since that fire ran on its own. */}
+      {(coalesceKeys.length > 0 || superseded.length > 0) && (
+        <Stack gap="tight">
+          <SectionLabel>Coalescing</SectionLabel>
+          {coalesceKeys.map((c) => (
+            <Stack key={c.triggerId} direction="horizontal" align="center" gap="cozy">
+              <Text size="caption" color="muted">
+                {forTrigger('Key', c.triggerId)}
+              </Text>
+              <Text
+                mono={!c.keyTooLong}
+                size="caption"
+                color={c.keyTooLong ? 'status-error' : undefined}
+                truncate
+              >
+                {coalesceKeyText(c)}
+              </Text>
+            </Stack>
+          ))}
+          {superseded.map((r) => (
+            <Stack key={r.triggerId} direction="horizontal" align="center" gap="cozy">
+              <Text size="caption" color="muted">
+                {forTrigger('Replaced by', r.triggerId)}
+              </Text>
+              <Text mono size="caption" color="accent" truncate>
+                {r.supersededBy}
+              </Text>
+            </Stack>
+          ))}
+        </Stack>
       )}
 
       {/* Only when there is something to say about a payload; a header over
