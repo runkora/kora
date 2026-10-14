@@ -34,9 +34,8 @@ func TestNilExporter_IsSafe(t *testing.T) {
 
 func TestNew_EnabledServesMetrics(t *testing.T) {
 	exp, err := New(Config{
-		Enabled:                 true,
-		Port:                    0,
-		CollectGoRuntimeMetrics: true,
+		Enabled: true,
+		Port:    0,
 	})
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -82,33 +81,21 @@ func TestNew_EnabledServesMetrics(t *testing.T) {
 	}
 }
 
-func TestConfig_Path(t *testing.T) {
-	cases := []struct {
-		configured string
-		want       string
-	}{
-		{"", "/metrics"},
-		{"/custom", "/custom"},
+func TestNew_EnabledAlwaysServesAtMetricsPath(t *testing.T) {
+	exp, err := New(Config{Enabled: true, Port: 0})
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
 	}
-	for _, tc := range cases {
-		c := Config{Path: tc.configured}
-		if got := c.path(); got != tc.want {
-			t.Errorf("Config{Path: %q}.path() = %q, want %q", tc.configured, got, tc.want)
-		}
+	srv := exp.Server(logging.NewDevelopmentLogger())
+	if srv == nil {
+		t.Fatal("Server() returned nil for an enabled Exporter")
 	}
-}
 
-func TestConfig_ApplyEnvOverrides(t *testing.T) {
-	t.Setenv("ORBIT_METRICS_ENABLED", "true")
-	t.Setenv("ORBIT_METRICS_PORT", "9999")
+	req := httptest.NewRequest("GET", "/metrics", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler.ServeHTTP(rec, req)
 
-	c := Config{Enabled: false, Port: 1234}
-	c.ApplyEnvOverrides()
-
-	if !c.Enabled {
-		t.Error("ApplyEnvOverrides() did not enable metrics from ORBIT_METRICS_ENABLED")
-	}
-	if c.Port != 9999 {
-		t.Errorf("ApplyEnvOverrides() Port = %d, want 9999", c.Port)
+	if rec.Code != 200 {
+		t.Fatalf("scrape status = %d, want 200", rec.Code)
 	}
 }

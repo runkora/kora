@@ -51,18 +51,10 @@ func New(cfg Config) (*Exporter, error) {
 	}
 
 	reg := prometheus.NewRegistry()
-	if cfg.CollectGoRuntimeMetrics {
-		reg.MustRegister(collectors.NewGoCollector())
-	}
-	if cfg.CollectProcessMetrics {
-		reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	}
+	reg.MustRegister(collectors.NewGoCollector())
+	reg.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 
-	opts := []otelprom.Option{otelprom.WithRegisterer(reg)}
-	if cfg.Namespace != "" {
-		opts = append(opts, otelprom.WithNamespace(cfg.Namespace))
-	}
-	reader, err := otelprom.New(opts...)
+	reader, err := otelprom.New(otelprom.WithRegisterer(reg))
 	if err != nil {
 		return nil, fmt.Errorf("create prometheus exporter: %w", err)
 	}
@@ -99,7 +91,7 @@ func (e *Exporter) Server(logger logging.Logger) *http.Server {
 		ErrorLog: promErrorLogger{logger: logger},
 	})
 	mux := http.NewServeMux()
-	mux.Handle(e.cfg.path(), handler)
+	mux.Handle("/metrics", handler)
 	return &http.Server{
 		Addr:              fmt.Sprintf(":%d", e.cfg.Port),
 		Handler:           mux,

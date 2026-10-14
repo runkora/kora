@@ -47,7 +47,8 @@ func (a *api) Server(
 	)
 
 	// Register all controllers with their base paths.
-	controllerMux := NewMux(ctx, a.logger, a.metricsMiddleware)
+	controllerMux := NewMux(ctx, a.logger)
+	controllerMux.SetMetricsMiddleware(a.metricsMiddleware)
 	for _, controller := range controllers {
 		controllerMux.SetBasePath(controller.GroupedBy())
 		controllerMux.SetMiddleware(controller.Middleware())

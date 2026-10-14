@@ -22,9 +22,6 @@ spec:
         # Postgres is external to the mesh; bypass Envoy interception.
         traffic.sidecar.istio.io/excludeOutboundPorts: "5432"
         checksum/config: {{ include (print $.Template.BasePath "/triggers/config.yaml") . | sha256sum }}
-        prometheus.io/scrape: "{{ $.Values.global.metrics.enabled }}"
-        prometheus.io/port: "{{ .Values.global.metrics.port | default 9464 }}"
-        prometheus.io/path: "/metrics"
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "triggers") | nindent 8 }}
     spec:
       serviceAccountName: orbit-triggers

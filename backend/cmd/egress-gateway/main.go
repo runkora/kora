@@ -47,8 +47,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/policy"
 	platformtoken "github.com/clear-route/orbit/internal/platform/token"
 
-	"go.opentelemetry.io/otel/metric"
-
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
 	"github.com/clear-route/orbit/internal/credentials/adapters/k8sbearer"
@@ -81,11 +79,19 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Egress gateway starting", logging.Field{Key: "version", Value: egc.Current.App.Version})
 
-	_, metricsSrv, metricsMW, shutdownMeter, err := initMetrics(ctx, logger)
+	metrics, err := platformmetrics.Setup(ctx, egc.Current.Metrics, observability.Config{
+		ServiceName:    egc.Current.Observability.ServiceName,
+		ServiceVersion: egc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, egc.Current.Observability.ServiceName, logger)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
-	defer shutdownMeter()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
 
 	// ── Policy evaluator ─────────────────────────────────────────────────────
 	eval := policy.NewEvaluator(egc.Current.Policy.BundleEndpoint, egc.Current.BundlePollInterval(), logger)
@@ -157,7 +163,7 @@ func realMain() error {
 	apiServer := platformapi.NewAPI(ctx, logger)
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
-	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	adminHTTP := apiServer.Server(
 		ctx,
@@ -221,7 +227,7 @@ func realMain() error {
 			logger.Error(ctx, "admin HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
-	startMetricsServer(ctx, logger, metricsSrv)
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down egress gateway...")
@@ -234,72 +240,10 @@ func realMain() error {
 	if err := adminHTTP.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "admin HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
-	shutdownMetricsServer(shutdownCtx, logger, metricsSrv)
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Egress gateway shutdown complete")
 	return nil
-}
-
-// initMetrics sets up the OTel metrics pipeline — an OTLP reader when a
-// collector is configured, and/or a Prometheus reader when metrics are
-// enabled — and returns this service's dedicated metrics *http.Server (nil
-// when disabled), the HTTP request middleware built on the same meter, and a
-// cleanup func. Bundling the middleware here, rather than returning the bare
-// meter, keeps realMain to a single error check for the whole pipeline.
-func initMetrics(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, mw.Middleware, func(), error) {
-	promExporter, err := platformmetrics.New(egc.Current.Metrics)
-	if err != nil {
-		return nil, nil, mw.Middleware{}, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	meter, shutdownOtelMetrics, err := observability.SetupMetrics(ctx, observability.Config{
-		ServiceName:    egc.Current.Observability.ServiceName,
-		ServiceVersion: egc.Current.App.Version,
-		Environment:    config.Environment(),
-	}, promExporter.Reader())
-	if err != nil {
-		return nil, nil, mw.Middleware{}, nil, err
-	}
-
-	metricsMW, err := mw.MetricsMiddleware(meter, egc.Current.Observability.ServiceName)
-	if err != nil {
-		return nil, nil, mw.Middleware{}, nil, fmt.Errorf("create metrics middleware: %w", err)
-	}
-
-	metricsSrv := promExporter.Server(logger)
-	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.Metrics.ShutdownTimeout())
-		defer cancel()
-		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
-	return meter, metricsSrv, metricsMW, cleanup, nil
-}
-
-// startMetricsServer starts srv in its own goroutine, or does nothing when
-// metrics are disabled (srv is nil).
-func startMetricsServer(ctx context.Context, logger logging.Logger, srv *http.Server) {
-	if srv == nil {
-		return
-	}
-	go func() {
-		logger.Info(ctx, "Starting metrics server", logging.Field{Key: "addr", Value: srv.Addr})
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error(ctx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}()
-}
-
-// shutdownMetricsServer gracefully stops srv, or does nothing when metrics
-// are disabled (srv is nil).
-func shutdownMetricsServer(ctx context.Context, logger logging.Logger, srv *http.Server) {
-	if srv == nil {
-		return
-	}
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
-	}
 }
 
 // initScopeRegistration builds the register function that publishes this

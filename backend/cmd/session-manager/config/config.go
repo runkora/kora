@@ -136,7 +136,6 @@ var Current = func() *Config {
 	if err := applyEnvOverrides(cfg, os.Getenv); err != nil {
 		panic(err)
 	}
-	cfg.Metrics.ApplyEnvOverrides()
 	return cfg
 }()
 

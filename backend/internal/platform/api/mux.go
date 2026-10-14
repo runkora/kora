@@ -35,19 +35,12 @@ type Mux struct {
 	metricsMiddleware mw.MiddlewareHandler
 }
 
-// metricsMiddleware is variadic and optional so every existing call site that
-// predates per-route metrics (including every test in this package) keeps
-// compiling unchanged; api.Server is the one caller that passes one.
-func NewMux(ctx context.Context, logger logging.Logger, metricsMiddleware ...mw.MiddlewareHandler) *Mux {
-	m := &Mux{
+func NewMux(ctx context.Context, logger logging.Logger) *Mux {
+	return &Mux{
 		ServeMux: http.NewServeMux(),
 		logger:   logger,
 		ctx:      ctx,
 	}
-	if len(metricsMiddleware) > 0 {
-		m.metricsMiddleware = metricsMiddleware[0]
-	}
-	return m
 }
 
 func (m *Mux) SetBasePath(basePath string) {
@@ -56,6 +49,13 @@ func (m *Mux) SetBasePath(basePath string) {
 
 func (m *Mux) SetMiddleware(middleware mw.MiddlewareHandler) {
 	m.middleware = middleware
+}
+
+// SetMetricsMiddleware mirrors api.Server's setter: applied per-route, inside
+// RoutePattern, so it can actually read the route the request matched. See
+// HandleWithMiddleware.
+func (m *Mux) SetMetricsMiddleware(metricsMiddleware mw.MiddlewareHandler) {
+	m.metricsMiddleware = metricsMiddleware
 }
 
 // Handles routes for each controller and adds them to the server.

@@ -203,38 +203,16 @@ spec:
 ---
 {{- end }}
 {{- end }}
-{{- /*
-Ports for the scrape-ingress rule below. The 10 internal/platform/metrics
-services only go on the list when metrics are globally enabled — disabling
-them means nothing listens on those ports, so there's no reason to open them.
-The operator is unconditional: its metrics are controller-runtime's own, not
-internal/platform/metrics, and run on a fixed port regardless of
-global.metrics.enabled (see operator/deployment.yaml's http-metrics port); it
-has no app config module for the range below to find a metricsPort override
-in, so it's listed explicitly instead.
-*/}}
-{{- $metricsPorts := list "8080" }}
-{{- if .Values.global.metrics.enabled }}
-{{- $metricsPorts = append $metricsPorts (.Values.global.metrics.port | default 9464 | toString) }}
-{{- range $name, $component := .Values }}
-  {{- if kindIs "map" $component }}
-    {{- with (dig "config" "metricsPort" "" $component) }}
-      {{- $metricsPorts = append $metricsPorts (toString .) }}
-    {{- end }}
-  {{- end }}
-{{- end }}
-{{- end }}
-{{- $metricsPorts = $metricsPorts | uniq }}
 {{- with .Values.global.metrics }}
 {{- if .scraperNamespace }}
-# Prometheus /metrics scrape traffic, from the namespace named by
-# global.metrics.scraperNamespace (empty by default — nothing opens until an
-# operator names where their scraper runs). NetworkPolicy ingress alone is not
-# sufficient to complete a scrape on this mesh: Istio enforces mTLS east-west,
-# so a scraper with no Istio sidecar is still rejected at the target's Envoy
-# regardless of this rule. The scraper must run inside the mesh (sidecar
-# injected) for a plain-HTTP scrape to be transparently upgraded to mTLS; see
-# docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Consequences.
+{{- if $.Values.global.metrics.enabled }}
+# Prometheus /metrics scrape traffic for every internal/platform/metrics
+# service, from the namespace named by global.metrics.scraperNamespace (empty
+# by default: nothing opens until an operator names where their scraper
+# runs). NetworkPolicy ingress alone is not sufficient to complete a scrape on
+# this mesh: Istio enforces mTLS east-west, so a scraper with no Istio sidecar
+# is still rejected at the target's Envoy regardless of this rule. See
+# docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -252,10 +230,36 @@ spec:
             matchLabels:
               kubernetes.io/metadata.name: {{ .scraperNamespace }}
       ports:
-        {{- range $port := $metricsPorts }}
-        - port: {{ $port }}
+        - port: {{ .port | default 9464 }}
           protocol: TCP
-        {{- end }}
+---
+{{- end }}
+# The operator's own controller-runtime metrics (port 8080, fixed,
+# independent of global.metrics.enabled; see operator/deployment.yaml) are
+# scraped the same way, but scoped to the operator's own pods: 8080 is also
+# identity's and orbit-agents' real API port, so a rule on podSelector: {}
+# would open their application traffic to the scraper namespace too.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape-ingress-operator
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: orbit-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .scraperNamespace }}
+      ports:
+        - port: 8080
+          protocol: TCP
 ---
 {{- end }}
 {{- end }}

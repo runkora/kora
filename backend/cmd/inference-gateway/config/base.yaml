@@ -15,11 +15,7 @@ observability:
 metrics:
   enabled: true
   port: 9464
-  path: /metrics
   shutdownTimeoutSecs: 5
-  namespace: ""
-  collectGoRuntimeMetrics: true
-  collectProcessMetrics: true
 
 pricing:
   # How often the pricing cache refreshes (seconds). 3600 = 1 hour.

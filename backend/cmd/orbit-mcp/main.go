@@ -25,7 +25,6 @@ import (
 	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
-	"go.opentelemetry.io/otel/metric"
 )
 
 func main() {
@@ -48,11 +47,19 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "kora MCP starting", logging.Field{Key: "version", Value: omc.Current.App.Version})
 
-	meter, metricsSrv, shutdownMeter, err := initMeter(ctx, logger)
+	metrics, err := platformmetrics.Setup(ctx, omc.Current.Metrics, observability.Config{
+		ServiceName:    omc.Current.Observability.ServiceName,
+		ServiceVersion: omc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, omc.Current.Observability.ServiceName, logger)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
-	defer shutdownMeter()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), omc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
 
 	jc := orbitjson.NewClient(logger)
 	srv := orbitmcp.NewServer(orbitmcp.Backends{
@@ -67,13 +74,9 @@ func realMain() error {
 	controller := mcpkit.NewController("/mcp", srv)
 	apiServer := platformapi.NewAPI(ctx, logger)
 
-	metricsMW, err := mw.MetricsMiddleware(meter, omc.Current.Observability.ServiceName)
-	if err != nil {
-		return fmt.Errorf("create metrics middleware: %w", err)
-	}
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
-	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	httpSrv := apiServer.Server(
 		ctx,
@@ -92,14 +95,7 @@ func realMain() error {
 			logger.Error(ctx, "HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
-	if metricsSrv != nil {
-		go func() {
-			logger.Info(ctx, "Starting metrics server", logging.Field{Key: "addr", Value: metricsSrv.Addr})
-			if err := metricsSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				logger.Error(ctx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
-			}
-		}()
-	}
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down orbit-mcp...")
@@ -109,43 +105,9 @@ func realMain() error {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
-	if metricsSrv != nil {
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
+	metrics.StopServer(shutdownCtx, logger)
 	logger.Info(ctx, "kora MCP shutdown complete")
 	return nil
-}
-
-// initMeter sets up the OTel metrics pipeline — an OTLP reader when a
-// collector is configured, and/or a Prometheus reader when metrics are
-// enabled — and returns the meter instruments are built on, this service's
-// dedicated metrics *http.Server (nil when disabled), and a cleanup func.
-func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, func(), error) {
-	promExporter, err := platformmetrics.New(omc.Current.Metrics)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	meter, shutdownOtelMetrics, err := observability.SetupMetrics(ctx, observability.Config{
-		ServiceName:    omc.Current.Observability.ServiceName,
-		ServiceVersion: omc.Current.App.Version,
-		Environment:    config.Environment(),
-	}, promExporter.Reader())
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	metricsSrv := promExporter.Server(logger)
-	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), omc.Current.Metrics.ShutdownTimeout())
-		defer cancel()
-		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
-	return meter, metricsSrv, cleanup, nil
 }
 
 func initObservability(ctx context.Context) (func(), error) {

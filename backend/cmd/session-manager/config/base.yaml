@@ -54,10 +54,6 @@ session:
   idleTimeoutSecs: 1200 # 20 minutes
 
 metrics:
-  enabled: true
+  enabled: false
   port: 9464
-  path: /metrics
   shutdownTimeoutSecs: 5
-  namespace: ""
-  collectGoRuntimeMetrics: true
-  collectProcessMetrics: true

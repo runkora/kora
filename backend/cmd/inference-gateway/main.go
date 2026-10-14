@@ -23,7 +23,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/clear-route/orbit/internal/platform/token"
-	"go.opentelemetry.io/otel/metric"
 	kubeconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
@@ -48,11 +47,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	meter, metricsSrv, shutdownMeter, err := initMeter(ctx, logger)
+	metrics, err := platformmetrics.Setup(ctx, igc.Current.Metrics, observability.Config{
+		ServiceName:    igc.Current.Observability.ServiceName,
+		ServiceVersion: igc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, igc.Current.Observability.ServiceName, logger)
 	if err != nil {
 		fatal("Failed to setup metrics", err)
 	}
-	defer shutdownMeter()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), igc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
 
 	db, redis, err := initStorage(ctx, logger)
 	if err != nil {
@@ -61,42 +68,12 @@ func main() {
 	defer db.Close()
 	defer redis.Close()
 
-	server, register, err := initServer(ctx, logger, db, redis, meter)
+	server, register, err := initServer(ctx, logger, db, redis, metrics)
 	if err != nil {
 		fatal("Failed to initialize server", err)
 	}
 
-	run(ctx, logger, server, metricsSrv, register)
-}
-
-// initMeter sets up the OTel metrics pipeline — an OTLP reader when a
-// collector is configured, and/or a Prometheus reader when metrics are
-// enabled — and returns the meter instruments are built on, this service's
-// dedicated metrics *http.Server (nil when disabled), and a cleanup func.
-func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, func(), error) {
-	promExporter, err := platformmetrics.New(igc.Current.Metrics)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	meter, shutdownOtelMetrics, err := observability.SetupMetrics(ctx, observability.Config{
-		ServiceName:    igc.Current.Observability.ServiceName,
-		ServiceVersion: igc.Current.App.Version,
-		Environment:    config.Environment(),
-	}, promExporter.Reader())
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	metricsSrv := promExporter.Server(logger)
-	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), igc.Current.Metrics.ShutdownTimeout())
-		defer cancel()
-		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
-	return meter, metricsSrv, cleanup, nil
+	run(ctx, logger, server, metrics, register)
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -338,7 +315,7 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, meter metric.Meter) (*http.Server, func(context.Context) error, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	controllers, register, err := initControllers(ctx, logger, db, redis)
@@ -346,13 +323,9 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 		return nil, nil, err
 	}
 
-	metricsMW, err := mw.MetricsMiddleware(meter, igc.Current.Observability.ServiceName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create metrics middleware: %w", err)
-	}
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
-	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	server := apiServer.Server(
 		ctx,
@@ -372,7 +345,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 	return server, register, nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Server, register func(context.Context) error) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap, register func(context.Context) error) {
 	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -382,14 +355,7 @@ func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Se
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
-	if metricsSrv != nil {
-		go func() {
-			logger.Info(runCtx, "Starting metrics server", logging.Field{Key: "addr", Value: metricsSrv.Addr})
-			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Error(runCtx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
-			}
-		}()
-	}
+	metrics.Start(runCtx, logger)
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
@@ -404,11 +370,7 @@ func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Se
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
-	if metricsSrv != nil {
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Inference gateway shutdown complete")
 }

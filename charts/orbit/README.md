@@ -492,6 +492,7 @@ Kubernetes: `>=1.34.0-0`
 | triggers.affinity | object | `{}` |  |
 | triggers.authorizationPolicy.enabled | bool | `true` |  |
 | triggers.authorizationPolicy.meshPrincipals | list | `[]` |  |
+| triggers.authorizationPolicy.metricsScraperPrincipals | list | `[]` | Mesh identities (ns/<namespace>/sa/<serviceaccount>) allowed to reach ONLY the metrics port (global.metrics.port). Separate from meshPrincipals: a scraper needs no triggers-management authority, so it is scoped by port rather than added to the broad caller list above. Empty by default: nothing is allowed through until an operator names their scraper's identity. See docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision. |
 | triggers.authorizationPolicy.systemPrincipals[0] | string | `"frontend"` |  |
 | triggers.authorizationPolicy.systemPrincipals[1] | string | `"orbit-mcp"` |  |
 | triggers.authorizationPolicy.systemPrincipals[2] | string | `"ingress-gateway"` |  |

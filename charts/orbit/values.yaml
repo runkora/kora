@@ -38,11 +38,11 @@ global:
     collectorNamespace: ""
 
   # Prometheus /metrics scrape endpoint, shared by every instrumented
-  # component (see docs/adr/2026-10-06-prometheus-metrics-endpoints.md). A
-  # component overrides enabled/port in its own config block; otherwise it
-  # inherits these. Port 9464 is the OTel Prometheus-exporter convention, kept
-  # distinct from 9090, which allow-mesh-sidecar already uses for
-  # policy-gateway's ext_authz port.
+  # component (see docs/adr/2026-10-06-prometheus-metrics-endpoints.md). No
+  # component overrides enabled or port today; every one of the 10
+  # internal/platform/metrics services inherits these two values as-is. Port
+  # 9464 is the OTel Prometheus-exporter convention, kept distinct from 9090,
+  # which allow-mesh-sidecar already uses for policy-gateway's ext_authz port.
   metrics:
     enabled: true
     port: 9464
@@ -51,7 +51,9 @@ global:
     # ingress. Only takes effect while networkPolicy.enabled is true. This
     # grants NetworkPolicy ingress only — it does not by itself satisfy this
     # mesh's Istio mTLS; the scraper must run inside the mesh (sidecar
-    # injected) to actually complete a scrape. See the ADR's Consequences.
+    # injected) and be allowed by the target's AuthorizationPolicy (see
+    # triggers.authorizationPolicy.metricsScraperPrincipals) to actually
+    # complete a scrape. See the ADR's Decision.
     scraperNamespace: ""
     # Opt-in Prometheus Operator ServiceMonitor per instrumented service.
     # Renders nothing unless the monitoring.coreos.com/v1 CRD is present on
@@ -914,6 +916,14 @@ triggers:
     # registered as a system component; an existing gateway goes here as
     # ns/<namespace>/sa/<serviceaccount>.
     meshPrincipals: []
+    # -- Mesh identities (ns/<namespace>/sa/<serviceaccount>) allowed to reach
+    # ONLY the metrics port (global.metrics.port). Separate from
+    # meshPrincipals: a scraper needs no triggers-management authority, so it
+    # is scoped by port rather than added to the broad caller list above.
+    # Empty by default: nothing is allowed through until an operator names
+    # their scraper's identity. See
+    # docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision.
+    metricsScraperPrincipals: []
 
 egressGateway:
   # Extra outbound TCP ports the gateway may dial when brokering a connection.

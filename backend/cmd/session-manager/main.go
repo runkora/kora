@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -20,7 +19,6 @@ import (
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/token"
-	"go.opentelemetry.io/otel/metric"
 )
 
 func main() {
@@ -45,47 +43,22 @@ func main() {
 		os.Exit(1)
 	}
 
-	meter, metricsSrv, shutdownMeter, err := initMeter(ctx, logger)
-	if err != nil {
-		fatal("Failed to setup metrics", err)
-	}
-	defer shutdownMeter()
-
-	server, registry, err := initServer(ctx, logger, meter)
-	if err != nil {
-		fatal("Failed to initialize server", err)
-	}
-	run(ctx, logger, server, registry, metricsSrv)
-}
-
-// initMeter sets up the OTel metrics pipeline — an OTLP reader when a
-// collector is configured, and/or a Prometheus reader when metrics are
-// enabled — and returns the meter instruments are built on, this service's
-// dedicated metrics *http.Server (nil when disabled), and a cleanup func.
-func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, func(), error) {
-	promExporter, err := platformmetrics.New(smConfig.Current.Metrics)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	meter, shutdownOtelMetrics, err := observability.SetupMetrics(ctx, observability.Config{
+	metrics, err := platformmetrics.Setup(ctx, smConfig.Current.Metrics, observability.Config{
 		ServiceName:    smConfig.Current.Observability.ServiceName,
 		ServiceVersion: smConfig.Current.App.Version,
 		Environment:    config.Environment(),
-	}, promExporter.Reader())
+	}, smConfig.Current.Observability.ServiceName, logger)
 	if err != nil {
-		return nil, nil, nil, err
+		fatal("Failed to setup metrics", err)
 	}
-
-	metricsSrv := promExporter.Server(logger)
-	cleanup := func() {
+	defer func() {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), smConfig.Current.Metrics.ShutdownTimeout())
 		defer cancel()
-		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
-	return meter, metricsSrv, cleanup, nil
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
+	server, registry := initServer(ctx, logger, metrics)
+	run(ctx, logger, server, registry, metrics)
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -114,7 +87,7 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger, meter metric.Meter) (*http.Server, *sessionmanager.Registry, error) {
+func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap) (*http.Server, *sessionmanager.Registry) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
@@ -149,13 +122,9 @@ func initServer(ctx context.Context, logger logging.Logger, meter metric.Meter) 
 		NodeMaxOldSpaceMB:   cfg.Runner.NodeMaxOldSpaceMB,
 	}, registry, verifier)
 
-	metricsMW, err := mw.MetricsMiddleware(meter, cfg.Observability.ServiceName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("create metrics middleware: %w", err)
-	}
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
-	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	return apiServer.Server(
 		ctx,
@@ -166,10 +135,10 @@ func initServer(ctx context.Context, logger logging.Logger, meter metric.Meter) 
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
-	), registry, nil
+	), registry
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry, metricsSrv *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry, metrics *platformmetrics.Bootstrap) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -179,14 +148,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
-	if metricsSrv != nil {
-		go func() {
-			logger.Info(ctx, "Starting metrics server", logging.Field{Key: "addr", Value: metricsSrv.Addr})
-			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Error(ctx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
-			}
-		}()
-	}
+	metrics.Start(ctx, logger)
 
 	<-quit
 	// The server keeps serving the runs on this pod while they finish. The kubelet
@@ -207,11 +169,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
-	if metricsSrv != nil {
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Session-manager shutdown complete")
 }

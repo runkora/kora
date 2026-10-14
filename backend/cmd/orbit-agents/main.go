@@ -26,7 +26,6 @@ import (
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/clear-route/orbit/internal/platform/token"
-	"go.opentelemetry.io/otel/metric"
 )
 
 func main() {
@@ -77,11 +76,19 @@ func realMain() error {
 		logging.Field{Key: "version", Value: agentsConfig.Current.App.Version},
 	)
 
-	meter, metricsSrv, shutdownMeter, err := initMeter(ctx, logger)
+	metrics, err := platformmetrics.Setup(ctx, agentsConfig.Current.Metrics, observability.Config{
+		ServiceName:    agentsConfig.Current.Observability.ServiceName,
+		ServiceVersion: agentsConfig.Current.App.Version,
+		Environment:    config.Environment(),
+	}, agentsConfig.Current.Observability.ServiceName, logger)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
-	defer shutdownMeter()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), agentsConfig.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
 
 	db, err := initStorage(ctx, logger)
 	if err != nil {
@@ -108,7 +115,7 @@ func realMain() error {
 	idClient := identityclient.NewClient(agentsConfig.Current.Platform.IdentityServiceURL, logger)
 	selfToken := idClient.SelfTokenSource()
 
-	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken, meter)
+	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken, metrics)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
@@ -120,38 +127,8 @@ func realMain() error {
 	go atSvc.ApplyAll(ctx, repo)
 	runSvc.StartScheduler(ctx)
 	go draftSvc.StartReaper(ctx)
-	run(ctx, logger, server, runSvc, metricsSrv)
+	run(ctx, logger, server, runSvc, metrics)
 	return nil
-}
-
-// initMeter sets up the OTel metrics pipeline — an OTLP reader when a
-// collector is configured, and/or a Prometheus reader when metrics are
-// enabled — and returns the meter instruments are built on, this service's
-// dedicated metrics *http.Server (nil when disabled), and a cleanup func.
-func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, func(), error) {
-	promExporter, err := platformmetrics.New(agentsConfig.Current.Metrics)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	meter, shutdownOtelMetrics, err := observability.SetupMetrics(ctx, observability.Config{
-		ServiceName:    agentsConfig.Current.Observability.ServiceName,
-		ServiceVersion: agentsConfig.Current.App.Version,
-		Environment:    config.Environment(),
-	}, promExporter.Reader())
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	metricsSrv := promExporter.Server(logger)
-	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), agentsConfig.Current.Metrics.ShutdownTimeout())
-		defer cancel()
-		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
-	return meter, metricsSrv, cleanup, nil
 }
 
 // initPolicyEvaluator constructs an in-process OPA evaluator and starts the
@@ -203,7 +180,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error
 	return db, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), meter metric.Meter) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -320,13 +297,9 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	runSvc.SetDelegationBroker(broker)
 	atSvc.SetDelegationBroker(broker)
 
-	metricsMW, err := mw.MetricsMiddleware(meter, cfg.Observability.ServiceName)
-	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("create metrics middleware: %w", err)
-	}
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
-	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	server := apiServer.Server(
 		ctx,
@@ -511,21 +484,14 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 	return decls
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc *agents.RunService, metricsSrv *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc *agents.RunService, metrics *platformmetrics.Bootstrap) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
-	if metricsSrv != nil {
-		go func() {
-			logger.Info(ctx, "Starting metrics server", logging.Field{Key: "addr", Value: metricsSrv.Addr})
-			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Error(ctx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
-			}
-		}()
-	}
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down orbit-agents...")
@@ -541,11 +507,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
 	<-scheduled
-	if metricsSrv != nil {
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "orbit-agents shutdown complete")
 }

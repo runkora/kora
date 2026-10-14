@@ -70,11 +70,19 @@ func realMain() error {
 	logger.Info(ctx, "Triggers service starting",
 		logging.Field{Key: "version", Value: tc.Current.App.Version})
 
-	meter, metricsSrv, shutdownMeter, err := initMeter(ctx, logger)
+	metricsBootstrap, err := platformmetrics.Setup(ctx, tc.Current.Metrics, observability.Config{
+		ServiceName:    tc.Current.Observability.ServiceName,
+		ServiceVersion: tc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, tc.Current.Observability.ServiceName, logger)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
-	defer shutdownMeter()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metricsBootstrap.Shutdown(shutdownCtx, logger)
+	}()
 
 	db, redis, err := initStorage(ctx, logger)
 	if err != nil {
@@ -83,7 +91,7 @@ func realMain() error {
 	defer db.Close()
 	defer redis.Close()
 
-	controller, scopeClient, err := initController(ctx, logger, db, redis, meter)
+	controller, scopeClient, err := initController(ctx, logger, db, redis, metricsBootstrap.Meter())
 	if err != nil {
 		return fmt.Errorf("init controller: %w", err)
 	}
@@ -96,12 +104,9 @@ func realMain() error {
 			return scopeClient.Register(ctx, "orbit-triggers", routeScopes(), scopeDeclarations())
 		})
 
-	server, err := initServer(ctx, logger, controller, meter)
-	if err != nil {
-		return fmt.Errorf("init server: %w", err)
-	}
+	server := initServer(ctx, logger, controller, metricsBootstrap)
 
-	run(ctx, logger, server, metricsSrv)
+	run(ctx, logger, server, metricsBootstrap)
 	return nil
 }
 
@@ -300,39 +305,6 @@ func initObservability(ctx context.Context) (func(), error) {
 	}, nil
 }
 
-// initMeter sets up the OpenTelemetry metrics pipeline for this binary and
-// returns the meter the Triggers instruments are built on, this service's
-// dedicated Prometheus metrics *http.Server (nil when disabled), and a
-// cleanup func. Exporter selection lives in observability.SetupMetrics, so
-// OTLP metrics and traces are configured by the same two settings and cannot
-// end up pointing at different collectors; the Prometheus reader is added on
-// top, independent of whether an OTLP collector is configured at all.
-func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, func(), error) {
-	promExporter, err := platformmetrics.New(tc.Current.Metrics)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	meter, shutdown, err := observability.SetupMetrics(ctx, observability.Config{
-		ServiceName:    tc.Current.Observability.ServiceName,
-		ServiceVersion: tc.Current.App.Version,
-		Environment:    config.Environment(),
-	}, promExporter.Reader())
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	metricsSrv := promExporter.Server(logger)
-	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), tc.Current.Metrics.ShutdownTimeout())
-		defer cancel()
-		if err := shutdown(shutdownCtx); err != nil {
-			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
-	return meter, metricsSrv, cleanup, nil
-}
-
 func initLogger() logging.Logger {
 	if observability.DefaultConfig.LogFormat == "console" {
 		return logging.NewDevelopmentLogger()
@@ -362,16 +334,12 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, controller platformapi.Controller, meter metric.Meter) (*http.Server, error) {
+func initServer(ctx context.Context, logger logging.Logger, controller platformapi.Controller, metrics *platformmetrics.Bootstrap) *http.Server {
 	apiServer := platformapi.NewAPI(ctx, logger)
 
-	metricsMW, err := mw.MetricsMiddleware(meter, tc.Current.Observability.ServiceName)
-	if err != nil {
-		return nil, fmt.Errorf("create metrics middleware: %w", err)
-	}
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
-	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	return apiServer.Server(
 		ctx,
@@ -382,24 +350,17 @@ func initServer(ctx context.Context, logger logging.Logger, controller platforma
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
-	), nil
+	)
 }
 
-func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
-	if metricsSrv != nil {
-		go func() {
-			logger.Info(ctx, "Starting metrics server", logging.Field{Key: "addr", Value: metricsSrv.Addr})
-			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Error(ctx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
-			}
-		}()
-	}
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down triggers service...")
@@ -410,11 +371,7 @@ func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Se
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
-	if metricsSrv != nil {
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Triggers service shutdown complete")
 }

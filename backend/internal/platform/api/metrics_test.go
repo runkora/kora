@@ -30,7 +30,8 @@ func TestMux_MetricsMiddlewareReadsRoutePattern(t *testing.T) {
 
 	ctx := context.Background()
 	logger := logging.NewLogger()
-	mux := NewMux(ctx, logger, middleware.MiddlewareChain(metricsMW))
+	mux := NewMux(ctx, logger)
+	mux.SetMetricsMiddleware(middleware.MiddlewareChain(metricsMW))
 	mux.SetBasePath("/widgets")
 	mux.HandleWithMiddleware("GET /widgets/{id}", nil, func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)

@@ -28,7 +28,6 @@ import (
 	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
 	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
-	"go.opentelemetry.io/otel/metric"
 )
 
 func main() {
@@ -51,11 +50,19 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Policy service starting", logging.Field{Key: "version", Value: psc.Current.App.Version})
 
-	meter, metricsSrv, shutdownMeter, err := initMeter(ctx, logger)
+	metrics, err := platformmetrics.Setup(ctx, psc.Current.Metrics, observability.Config{
+		ServiceName:    psc.Current.Observability.ServiceName,
+		ServiceVersion: psc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, psc.Current.Observability.ServiceName, logger)
 	if err != nil {
 		return fmt.Errorf("setup metrics: %w", err)
 	}
-	defer shutdownMeter()
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), psc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
 
 	storageCfg, err := storage.LoadStorageConfig()
 	if err != nil {
@@ -125,43 +132,10 @@ func realMain() error {
 	policyEval.Start(ctx)
 
 	controller := api.NewController(svc, logger, verifier, policyEval, policyServiceRoutes(), psc.Current.Server.BasePath)
-	server, err := initServer(ctx, logger, controller, meter)
-	if err != nil {
-		return fmt.Errorf("initialize server: %w", err)
-	}
+	server := initServer(ctx, logger, controller, metrics)
 
-	run(ctx, logger, server, metricsSrv)
+	run(ctx, logger, server, metrics)
 	return nil
-}
-
-// initMeter sets up the OTel metrics pipeline — an OTLP reader when a
-// collector is configured, and/or a Prometheus reader when metrics are
-// enabled — and returns the meter instruments are built on, this service's
-// dedicated metrics *http.Server (nil when disabled), and a cleanup func.
-func initMeter(ctx context.Context, logger logging.Logger) (metric.Meter, *http.Server, func(), error) {
-	promExporter, err := platformmetrics.New(psc.Current.Metrics)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("create prometheus exporter: %w", err)
-	}
-
-	meter, shutdownOtelMetrics, err := observability.SetupMetrics(ctx, observability.Config{
-		ServiceName:    psc.Current.Observability.ServiceName,
-		ServiceVersion: psc.Current.App.Version,
-		Environment:    config.Environment(),
-	}, promExporter.Reader())
-	if err != nil {
-		return nil, nil, nil, err
-	}
-
-	metricsSrv := promExporter.Server(logger)
-	cleanup := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), psc.Current.Metrics.ShutdownTimeout())
-		defer cancel()
-		if err := shutdownOtelMetrics(shutdownCtx); err != nil {
-			logger.Error(ctx, "Error shutting down metrics", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
-	return meter, metricsSrv, cleanup, nil
 }
 
 // selfRegisteredRoutes returns the route → scope bindings the policy service
@@ -264,16 +238,12 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger, controller *api.Controller, meter metric.Meter) (*http.Server, error) {
+func initServer(ctx context.Context, logger logging.Logger, controller *api.Controller, metrics *platformmetrics.Bootstrap) *http.Server {
 	apiServer := platformapi.NewAPI(ctx, logger)
 
-	metricsMW, err := mw.MetricsMiddleware(meter, psc.Current.Observability.ServiceName)
-	if err != nil {
-		return nil, fmt.Errorf("create metrics middleware: %w", err)
-	}
 	// Per-route, not in the global chain below: it must run after RoutePattern
 	// has set the route on the request context. See Mux.HandleWithMiddleware.
-	apiServer.SetMetricsMiddleware(mw.MiddlewareChain(metricsMW))
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	return apiServer.Server(
 		ctx,
@@ -284,24 +254,17 @@ func initServer(ctx context.Context, logger logging.Logger, controller *api.Cont
 			mw.LoggingMiddleware(logger),
 		),
 		controller,
-	), nil
+	)
 }
 
-func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
-	if metricsSrv != nil {
-		go func() {
-			logger.Info(ctx, "Starting metrics server", logging.Field{Key: "addr", Value: metricsSrv.Addr})
-			if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-				logger.Error(ctx, "Failed to start metrics server", logging.Field{Key: "error", Value: err.Error()})
-			}
-		}()
-	}
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down policy service...")
@@ -312,11 +275,7 @@ func run(ctx context.Context, logger logging.Logger, server, metricsSrv *http.Se
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
-	if metricsSrv != nil {
-		if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
-			logger.Error(ctx, "Metrics server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
-		}
-	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Policy service shutdown complete")
 }
