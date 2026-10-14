@@ -1,12 +1,7 @@
 import 'server-only';
 
 import { config } from '@orbit/server/config';
-import type {
-  Marketplace,
-  Skill,
-  SkillSummary,
-} from '@orbit/lib/marketplace';
-
+import type { Marketplace, Skill, SkillSummary } from '@orbit/lib/marketplace';
 
 const TIMEOUT_MS = 15_000;
 

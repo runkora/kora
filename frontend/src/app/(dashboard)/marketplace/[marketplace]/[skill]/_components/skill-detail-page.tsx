@@ -3,7 +3,7 @@
 /** @tier 3 — marketplace-scoped. Skill detail view: description, SKILL.md content, and resource documents. */
 
 import Link from 'next/link';
-import { Heading, Stack, Text, Code } from '@orbit/terra';
+import { Heading, Stack, Text, Code } from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { Skill, SkillFile } from '@orbit/lib/marketplace';
 
@@ -41,7 +41,10 @@ export function SkillDetailPage({ marketplace, skillName, skill, error }: SkillD
           <Text size="supporting" color="muted">
             /
           </Text>
-          <Link href={APP_ROUTES.marketplace.skills(marketplace)} style={{ textDecoration: 'none' }}>
+          <Link
+            href={APP_ROUTES.marketplace.skills(marketplace)}
+            style={{ textDecoration: 'none' }}
+          >
             <Text size="supporting" color="muted">
               {marketplace}
             </Text>
@@ -70,9 +73,7 @@ export function SkillDetailPage({ marketplace, skillName, skill, error }: SkillD
 
             {skill.documents.length > 0 && (
               <Stack gap="tight">
-                <Heading variant="section">
-                  Resources ({skill.documents.length})
-                </Heading>
+                <Heading variant="section">Resources ({skill.documents.length})</Heading>
                 {skill.documents.map((doc) => (
                   <DocumentCard key={doc.path} file={doc} />
                 ))}

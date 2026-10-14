@@ -3,8 +3,8 @@
 /** @tier 3 — marketplace-scoped. Read-only list of available skill marketplaces. */
 
 import Link from 'next/link';
-import { Heading, Stack, Text } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
+import { Heading, Stack, Text } from '@orbit/hades';
+import { EmptyState } from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { Marketplace } from '@orbit/lib/marketplace';
 import { marketplaceSlug } from '@orbit/lib/marketplace';

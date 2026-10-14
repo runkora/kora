@@ -4,8 +4,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Heading, Input, Stack, Text } from '@orbit/terra';
-import { EmptyState } from '@orbit/components';
+import { Heading, Input, Stack, Text } from '@orbit/hades';
+import { EmptyState } from '@orbit/hades';
 import { APP_ROUTES } from '@orbit/lib/routing';
 import type { SkillSummary } from '@orbit/lib/marketplace';
 
@@ -57,7 +57,9 @@ export function SkillsPage({ marketplace, skills, initialSearch, error }: Skills
         <EmptyState
           icon="box"
           title="No skills found"
-          description={search ? 'No skills match your search.' : 'This marketplace has no skills yet.'}
+          description={
+            search ? 'No skills match your search.' : 'This marketplace has no skills yet.'
+          }
         />
       ) : (
         <Stack gap="snug">
