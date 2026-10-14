@@ -127,7 +127,7 @@ describe('the schema and the validator agree', () => {
         '--hades-raw-black': { dark: '#0d0f11', light: 'oklch(97% 0.01 90)' },
         '--hades-raw-shadow-sm': { dark: '0 2px 8px oklch(0% 0 0 / 0.25)' },
         '--hades-raw-radius-md': { light: '6px' },
-        '--hades-raw-font-mono': { dark: "'Cascadia Code', monospace" },
+        '--hades-raw-font-mono': { dark: 'Cascadia Code, monospace' },
       },
     };
     expect(await both(doc)).toEqual({ schema: true, validator: true });

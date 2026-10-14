@@ -30,8 +30,13 @@ import type {
   ValidationResult,
 } from './types';
 
-/** Reads an asset by bundle-relative path; null when the bundle has no such file. */
-export type AssetReader = (path: string) => Promise<Uint8Array | null>;
+/**
+ * Reads an asset by bundle-relative path; null when the bundle has no such
+ * file. The validator passes the largest size any slot allows for the path and
+ * the reader returns at most `maxBytes + 1` bytes, so an oversize file is
+ * detected without being read in full.
+ */
+export type AssetReader = (path: string, maxBytes: number) => Promise<Uint8Array | null>;
 
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
@@ -338,9 +343,13 @@ async function readAssets(
     }
   }
 
+  const limitByPath = new Map<string, number>();
+  for (const { path, slot } of references) {
+    limitByPath.set(path, Math.max(limitByPath.get(path) ?? 0, slot.maxBytes));
+  }
   const bytesByPath = new Map<string, Uint8Array | null>();
-  for (const { path } of references) {
-    if (!bytesByPath.has(path)) bytesByPath.set(path, await readAsset(path));
+  for (const [path, limit] of limitByPath) {
+    bytesByPath.set(path, await readAsset(path, limit));
   }
 
   for (const { path, docPath, slot } of references) {
@@ -360,7 +369,7 @@ async function readAssets(
     if (bytes.length > slot.maxBytes) {
       errors.push({
         path: docPath,
-        message: `"${path}" is ${bytes.length} bytes; the ${slot.name} slot allows at most ${slot.maxBytes}`,
+        message: `"${path}" is larger than the ${slot.name} slot allows, at most ${slot.maxBytes} bytes`,
       });
       continue;
     }

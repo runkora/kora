@@ -280,8 +280,24 @@ describe('validateTheme: slot and asset faults', () => {
     const result = await run(logo('assets/logo-dark.svg'), { 'assets/logo-dark.svg': big });
     expect(result.ok).toBe(false);
     if (result.ok) return;
-    expect(result.errors[0]!.message).toContain('2049 bytes');
+    expect(result.errors[0]!.message).toContain('larger than');
     expect(result.errors[0]!.message).toContain('2048');
+  });
+
+  it('asks the reader for no more than the largest limit of the slots that use the path', async () => {
+    const limits: number[] = [];
+    await validateTheme(
+      'contractVersion: "1.0"\nslots:\n  favicon:\n    dark: assets/favicon.svg\n    light: assets/favicon.svg\n',
+      {
+        manifest: MANIFEST,
+        contractVersion: CONTRACT,
+        readAsset: async (_path, maxBytes) => {
+          limits.push(maxBytes);
+          return SVG;
+        },
+      },
+    );
+    expect(limits).toEqual([MANIFEST.slots.find((s) => s.name === 'favicon')!.maxBytes]);
   });
 
   it('fails a wrong extension before reading content', async () => {

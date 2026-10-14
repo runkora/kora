@@ -41,7 +41,7 @@ export const FORMAT_PATTERNS: Readonly<Record<TokenFormat, string>> = {
   'hex-or-oklch': `^(?:${HEX}|${OKLCH})$`,
   'css-shadow-list': `^${SHADOW}(?:\\s*,\\s*${SHADOW}){0,3}$`,
   'css-length': `^(?:0|${NUMBER}(?:px|rem|em|%))$`,
-  'font-family-name': `^[\\p{L}\\p{N} \\-_'",.]{1,64}$`,
+  'font-family-name': `^[\\p{L}\\p{N} \\-_,.]{1,64}$`,
 };
 
 /** The contract version: `MAJOR.MINOR`, no patch, no leading zeros. */

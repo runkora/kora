@@ -67,8 +67,8 @@ describe('font-family-name', () => {
   it.each([
     'Inter',
     'Inter Variable',
-    '"Inter", sans-serif',
-    "'Cascadia Code', monospace",
+    'Inter, sans-serif',
+    'Cascadia Code, monospace',
     'Noto Sans 日本語',
     'IBM_Plex-Mono.v2',
   ])('accepts %s', (v) => expect(matchesFormat('font-family-name', v)).toBe(true));
@@ -82,6 +82,9 @@ describe('font-family-name', () => {
     'Inter\n',
     'Inter\\',
     'Inter(1)',
+    'Inter"',
+    "'Inter",
+    '"Inter", sans-serif',
   ])('rejects %j', (v) => expect(matchesFormat('font-family-name', v)).toBe(false));
 });
 

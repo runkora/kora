@@ -86,7 +86,12 @@ export const WOFF2 = new Uint8Array([0x77, 0x4f, 0x46, 0x32, 0, 1, 2, 3, 4, 5, 6
 export const NOT_WOFF2 = new Uint8Array([0x77, 0x4f, 0x46, 0x46, 0, 1, 2, 3]); // "wOFF", WOFF1
 
 export function bundle(files: Record<string, Uint8Array>): AssetReader {
-  return async (path) => files[path] ?? null;
+  return async (path, maxBytes) => {
+    const bytes = files[path];
+    return bytes === undefined || bytes.length <= maxBytes + 1
+      ? (bytes ?? null)
+      : bytes.subarray(0, maxBytes + 1);
+  };
 }
 
 export const FULL_BUNDLE = {
