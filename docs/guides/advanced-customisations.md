@@ -5,8 +5,8 @@ chart.
 
 `orbit-agents` provisions a StatefulSet, a workspace PersistentVolumeClaim, a
 Service, a ServiceAccount, an HPA, a PDB and a sandbox Pod for each agent type.
-Manifest patches let you adjust any of them — node selectors, tolerations,
-resource ceilings, extra labels — while leaving the platform's own fields alone.
+Manifest patches let you adjust any of them (node selectors, tolerations,
+resource ceilings, extra labels) while leaving the platform's own fields alone.
 
 ## Write a patch
 
@@ -78,5 +78,5 @@ Move each one to a patch file in the mounted directory and preview it with
 
 ## References
 
-- [Manifest patches via ConfigMap](../adr/2026-09-15-manifest-patches-configmap.md) — why patches are mounted files rather than env vars, and which fields are protected.
-- [Local development](local-development.md) — running the local cluster you would dry-run against.
+- [Manifest patches via ConfigMap](../adr/2026-09-15-manifest-patches-configmap.md): why patches are mounted files rather than env vars, and which fields are protected.
+- [Local development](local-development.md): running the local cluster you would dry-run against.
