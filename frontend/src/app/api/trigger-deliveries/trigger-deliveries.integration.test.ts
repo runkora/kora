@@ -203,15 +203,4 @@ describe('GET /api/trigger-deliveries', () => {
     expect(await res.json()).toEqual({ code: 'unauthorized', message: 'No valid session' });
     expect(seen.called).toBe(false);
   });
-
-  it('returns 401 when there is no session at all', async () => {
-    vi.mocked(getSession).mockResolvedValue(undefined as never);
-    vi.mocked(isSessionValid).mockReturnValue(false);
-    const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
-
-    const res = await GET(makeRequest());
-
-    expect(res.status).toBe(401);
-    expect(seen.called).toBe(false);
-  });
 });

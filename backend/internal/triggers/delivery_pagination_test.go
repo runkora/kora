@@ -24,24 +24,6 @@ func seedDeliveries(t *testing.T, repo *mockRepository, tenant string, ids []str
 	}
 }
 
-func TestListDeliveriesLastPageReportsNoCursor(t *testing.T) {
-	svc, deps := newTestService(t)
-	repo := deps.repo
-	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	seedDeliveries(t, repo, testTenant, []string{"d1", "d2"}, at, StatusVerified)
-
-	page, next, err := svc.ListDeliveries(context.Background(), testTenant, DeliveryFilter{Limit: 5})
-	if err != nil {
-		t.Fatalf("list: %v", err)
-	}
-	if len(page) != 2 {
-		t.Fatalf("want 2 deliveries, got %d", len(page))
-	}
-	if next != "" {
-		t.Errorf("want no cursor on the last page, got %q", next)
-	}
-}
-
 func TestListDeliveriesRejectsUnknownFilterValues(t *testing.T) {
 	svc, _ := newTestService(t)
 

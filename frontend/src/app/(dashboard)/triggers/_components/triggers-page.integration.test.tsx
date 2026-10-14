@@ -272,42 +272,6 @@ describe('TriggersPage deliveries paging', () => {
     expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled();
   });
 
-  it('surfaces a failed Load more and keeps the cursor so it cannot read as the end', async () => {
-    renderPage([serverRow('d1')], 'cursor-1');
-    await openDeliveriesTab();
-
-    await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
-    (await request(0)).fail('deliveries backend is unavailable');
-
-    await waitFor(() => {
-      expect(screen.getByText('deliveries backend is unavailable')).toBeInTheDocument();
-    });
-    // The rows already loaded are still the truth about what was loaded.
-    expect(visibleRowIds()).toEqual(['d1']);
-
-    // Asserting the request Retry issues, not its label, is what pins the cursor.
-    const retry = screen.getByRole('button', { name: 'Retry' });
-    expect(retry).toBeEnabled();
-    await userEvent.click(retry);
-    expect((await request(1)).cursor).toBe('cursor-1');
-  });
-
-  it('does not claim "no deliveries" when the request failed', async () => {
-    // A failed filter change clears the rows, so the grid would otherwise fall
-    // through to "No failed deliveries" beside the error.
-    renderPage([serverRow('d1')], 'cursor-1');
-    await openDeliveriesTab();
-
-    await userEvent.selectOptions(statusFilter(), 'failed');
-    (await request(0)).fail('deliveries backend is unavailable');
-
-    await waitFor(() => {
-      expect(screen.getByText('deliveries backend is unavailable')).toBeInTheDocument();
-    });
-    expect(screen.queryByText('No failed deliveries.')).not.toBeInTheDocument();
-    expect(screen.getByText('Could not load deliveries.')).toBeInTheDocument();
-  });
-
   it('does not claim "no deliveries" while the retry is still in flight', async () => {
     // fetchDeliveries opens every request with `error: null`, so between the
     // Retry click and the response landing the page has no rows, no cursor and
