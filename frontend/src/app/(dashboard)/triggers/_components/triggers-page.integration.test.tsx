@@ -149,6 +149,7 @@ function statusFilter(): HTMLElement {
   return screen.getByRole('combobox', { name: 'Filter deliveries by status' });
 }
 
+/** The paging control in its Load more state. Retry is a different assertion. */
 function loadMoreButton(): HTMLElement | null {
   return screen.queryByRole('button', { name: /Load more|Loading/ });
 }
@@ -301,9 +302,14 @@ describe('TriggersPage deliveries paging', () => {
     });
     // The rows already loaded are still the truth about what was loaded.
     expect(visibleRowIds()).toEqual(['d1']);
-    // Load more survives: a failure is not "that is all of them".
-    expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Retry' })).toBeEnabled();
+
+    // A failure is not "that is all of them": the control survives and resumes
+    // from the kept cursor rather than restarting. Asserting the request it
+    // issues, not the label, is what pins the cursor being kept.
+    const retry = screen.getByRole('button', { name: 'Retry' });
+    expect(retry).toBeEnabled();
+    await userEvent.click(retry);
+    expect((await request(1)).cursor).toBe('cursor-1');
   });
 
   it('does not claim "no deliveries" when the request failed', async () => {
