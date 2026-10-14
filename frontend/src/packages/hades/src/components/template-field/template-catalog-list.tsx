@@ -17,7 +17,7 @@ export interface TemplateCatalogListProps {
    * deliveries". Shown above the results so a narrowed catalog visibly says
    * why it narrowed.
    */
-  catalogLabel?: string;
+  catalogLabel?: string | undefined;
   /** Called with the bare token, and its entry, when a row is chosen. */
   onSelect: (token: string, entry: TemplateCatalogEntry) => void;
   /** Focus the search box on mount. Defaults to true. */

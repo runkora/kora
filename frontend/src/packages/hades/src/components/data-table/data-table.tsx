@@ -310,7 +310,7 @@ function DataTableCell({
   className,
   children,
 }: {
-  wrap?: boolean;
+  wrap?: boolean | undefined;
   className?: string;
   children: React.ReactNode;
 }) {
@@ -439,8 +439,9 @@ export function DataTable<TData>({
     const vis: VisibilityState = {};
     columnDefs.forEach((col) => {
       if (!col.locked) {
-        if (initialColumnVisibility && col.id in initialColumnVisibility) {
-          vis[col.id] = initialColumnVisibility[col.id];
+        const initial = initialColumnVisibility?.[col.id];
+        if (initial !== undefined) {
+          vis[col.id] = initial;
         } else {
           vis[col.id] = col.defaultVisible ?? true;
         }
@@ -524,11 +525,10 @@ export function DataTable<TData>({
   const handleSort = React.useCallback(
     (columnId: string) => {
       const existing = sorting.find((s) => s.id === columnId);
-      const next: SortingState = existing
-        ? [{ id: columnId, desc: !existing.desc }]
-        : [{ id: columnId, desc: false }];
+      const entry = { id: columnId, desc: existing ? !existing.desc : false };
+      const next: SortingState = [entry];
       setSorting(next);
-      onSortChange?.(next[0].id, next[0].desc ? 'desc' : 'asc');
+      onSortChange?.(entry.id, entry.desc ? 'desc' : 'asc');
     },
     [sorting, setSorting, onSortChange],
   );
@@ -822,7 +822,7 @@ export function DataTable<TData>({
 interface ToolbarProps {
   searchQuery: string;
   onSearchChange: (v: string) => void;
-  searchPlaceholder?: string;
+  searchPlaceholder?: string | undefined;
   hasSearch: boolean;
   columnItems: { id: string; label: string; visible: boolean }[];
   onColumnToggle: (id: string) => void;
@@ -945,7 +945,7 @@ function HeaderInfo({ label, tooltip }: { label: string; tooltip: string }) {
 // The info control is a sibling of the sort button, never a child of it: a
 // button inside a button is invalid HTML, and the inner click bubbles into a
 // sort the user did not ask for.
-function HeaderLabel({ label, tooltip }: { label: string; tooltip?: string }) {
+function HeaderLabel({ label, tooltip }: { label: string; tooltip?: string | undefined }) {
   if (!tooltip) return <>{label}</>;
   return (
     <span className="inline-flex items-center gap-1">
@@ -1125,8 +1125,8 @@ function SortIcon({ dir }: { dir: 'asc' | 'desc' | null }) {
 interface FilterButtonProps {
   colId: string;
   options: DataTableFilterOption[];
-  searchable?: boolean;
-  mono?: boolean;
+  searchable?: boolean | undefined;
+  mono?: boolean | undefined;
   selected: Set<string>;
   active: boolean;
   onToggle: (value: string) => void;

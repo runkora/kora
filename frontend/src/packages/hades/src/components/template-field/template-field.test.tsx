@@ -53,7 +53,7 @@ describe('TemplateField', () => {
     expect(pills[0]).toHaveAttribute('data-token', 'pr.title');
     expect(pills[0]).toHaveAttribute('contenteditable', 'false');
     // The pill shows the token only; the braces never reach the screen.
-    expect(pills[0].textContent).toBe('pr.title');
+    expect(pills[0]?.textContent).toBe('pr.title');
     expect(editor.textContent).toBe('Review pr.title now');
   });
 
