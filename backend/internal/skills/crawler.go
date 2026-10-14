@@ -85,17 +85,6 @@ func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[
 		return nil, fmt.Errorf("list files of %s/%s: %w", source.Org, source.RepoName, err)
 	}
 
-	skills := c.findSkillFolders(ctx, source, files)
-	assignResourceDocs(skills, files)
-
-	return skills, nil
-}
-
-// findSkillFolders is the first pass of FetchTree. It returns the SKILL.md
-// path of each skill, keyed by the skill's folder path. A SKILL.md at the
-// repository root, or a second SKILL.md in the same folder, is skipped with a
-// warning.
-func (c *Crawler) findSkillFolders(ctx context.Context, source MarketplaceSource, files []ghclient.TreeEntry) map[string]skillFilePath {
 	skills := map[string]skillFilePath{}
 	for _, file := range files {
 		if file.Type != "blob" || path.Base(file.Path) != "SKILL.md" {
@@ -123,14 +112,19 @@ func (c *Crawler) findSkillFolders(ctx context.Context, source MarketplaceSource
 
 		skills[folder] = skillFilePath{skillPath: file.Path}
 	}
-	return skills
+
+	// Second pass: collect resource documents — any .md file (not SKILL.md)
+	// inside a skill folder or its subfolders. When multiple skill folders
+	// nest, the file is assigned to the most specific (longest) match.
+	collectResourceDocs(files, skills)
+
+	return skills, nil
 }
 
-// assignResourceDocs is the second pass of FetchTree. It collects resource
-// documents: any .md file (not SKILL.md) inside a skill folder or its
-// subfolders. When multiple skill folders nest, the file is assigned to the
-// most specific (longest) match.
-func assignResourceDocs(skills map[string]skillFilePath, files []ghclient.TreeEntry) {
+func collectResourceDocs(
+	files []ghclient.TreeEntry,
+	skills map[string]skillFilePath,
+) {
 	for _, file := range files {
 		if file.Type != "blob" || path.Base(file.Path) == "SKILL.md" {
 			continue
@@ -138,25 +132,22 @@ func assignResourceDocs(skills map[string]skillFilePath, files []ghclient.TreeEn
 		if !strings.HasSuffix(file.Path, ".md") {
 			continue
 		}
-		bestFolder := deepestSkillFolder(skills, path.Dir(file.Path))
+
+		fileDir := path.Dir(file.Path)
+		bestFolder := ""
+		for folder := range skills {
+			if strings.HasPrefix(fileDir+"/", folder+"/") &&
+				len(folder) > len(bestFolder) {
+				bestFolder = folder
+			}
+		}
+
 		if bestFolder != "" {
 			fp := skills[bestFolder]
 			fp.docPaths = append(fp.docPaths, file.Path)
 			skills[bestFolder] = fp
 		}
 	}
-}
-
-// deepestSkillFolder returns the longest skill folder that contains fileDir,
-// or "" when no skill folder contains it.
-func deepestSkillFolder(skills map[string]skillFilePath, fileDir string) string {
-	bestFolder := ""
-	for folder := range skills {
-		if strings.HasPrefix(fileDir+"/", folder+"/") && len(folder) > len(bestFolder) {
-			bestFolder = folder
-		}
-	}
-	return bestFolder
 }
 
 // FetchSkills downloads the SKILL.md of every skill that FetchTree found and
