@@ -6,13 +6,7 @@ import (
 	"time"
 )
 
-// The handler owns a contract the service tests cannot see: which query
-// parameters it reads, what it does with a malformed one, and the exact field
-// names the console decodes. A service-level test proves the paging; these
-// prove the wire.
-
-// deliveryPageBody is the response shape, named here so a renamed field breaks
-// a test rather than silently decoding to the zero value in the browser.
+// deliveryPageBody pins the wire field names the console decodes.
 type deliveryPageBody struct {
 	Deliveries  []map[string]any `json:"deliveries"`
 	HasNextPage bool             `json:"has_next_page"`
@@ -49,9 +43,8 @@ func TestHandleListDeliveries_ResponseFieldNames(t *testing.T) {
 	}
 }
 
-// The last page reports next_cursor as JSON null, not "". A caller that tests
-// truthiness must see "no more", and an empty string is not reliably falsy
-// once it has been through a typed client.
+// An empty string is not reliably falsy once it has been through a typed client,
+// so the last page must report next_cursor as JSON null.
 func TestHandleListDeliveries_LastPageNullsTheCursor(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	seedForHandler(t, deps, 2, StatusVerified)
@@ -66,9 +59,8 @@ func TestHandleListDeliveries_LastPageNullsTheCursor(t *testing.T) {
 	}
 }
 
-// A cursor the handler cannot parse is a 400. Ignoring it would silently
-// restart from the newest arrival, which reads to the user as "Load more gave
-// me the first page again" rather than as an error.
+// Ignoring a malformed cursor would silently restart from the newest arrival, which
+// reads to the user as "Load more gave me the first page again".
 func TestHandleListDeliveries_MalformedCursorIs400(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	seedForHandler(t, deps, 2, StatusVerified)
@@ -84,8 +76,6 @@ func TestHandleListDeliveries_MalformedCursorIs400(t *testing.T) {
 	}
 }
 
-// An unknown status is a 400 too, for the same reason: dropping it would
-// return an unfiltered page under a request that asked for a filter.
 func TestHandleListDeliveries_UnknownStatusIs400(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	seedForHandler(t, deps, 2, StatusVerified)
@@ -96,8 +86,7 @@ func TestHandleListDeliveries_UnknownStatusIs400(t *testing.T) {
 	}
 }
 
-// status repeats rather than taking a comma list, because that is what a
-// multi-select sends. Both values must reach the filter.
+// status repeats rather than taking a comma list, because that is what a multi-select sends.
 func TestHandleListDeliveries_RepeatedStatusParams(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
@@ -121,8 +110,6 @@ func TestHandleListDeliveries_RepeatedStatusParams(t *testing.T) {
 	}
 }
 
-// A client that serializes its filters unconditionally sends ?status= for "no
-// filter". That is not an unknown status; it is no status at all.
 func TestHandleListDeliveries_BlankStatusMeansNoFilter(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	seedForHandler(t, deps, 3, StatusVerified)
@@ -137,8 +124,6 @@ func TestHandleListDeliveries_BlankStatusMeansNoFilter(t *testing.T) {
 	}
 }
 
-// The cursor the handler hands out must be the one it accepts back. This is
-// the round trip the console actually performs on Load more.
 func TestHandleListDeliveries_CursorRoundTripsThroughTheHandler(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	seedForHandler(t, deps, 4, StatusVerified)

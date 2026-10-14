@@ -68,8 +68,6 @@ The envelope follows the convention `inferencegw` established for `GET /v1/usage
 
 - A status filter means the same thing at any tenant size.
 - Paging is stable under concurrent arrivals, which offset pagination is not.
-- Filter changes stay interactive, with no skeleton flash.
-- No new envelope: this follows the `inferencegw` shape rather than inventing one.
 
 ### Negative
 
@@ -89,7 +87,6 @@ The envelope follows the convention `inferencegw` established for `GET /v1/usage
 
 ## Related Decisions
 
-- Supersedes [2026-06-20-trigger-deliveries-filter](2026-06-20-trigger-deliveries-filter.md), whose payload-excerpt decision still stands.
 - Follows the cursor envelope `inferencegw` uses for `GET /v1/usage` (`internal/inferencegw/handlers_usage.go`). No ADR records that convention; this is the first to write it down.
 
 ## References

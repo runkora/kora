@@ -9,10 +9,8 @@ import (
 	"time"
 )
 
-// seedDeliveries writes n deliveries that all share receivedAt, so the only
-// thing separating them is the id. That is the case a received_at-only cursor
-// gets wrong, and it is common: a webhook burst lands many rows on one
-// timestamp.
+// seedDeliveries writes every delivery at the same receivedAt, the webhook-burst
+// case a received_at-only cursor gets wrong.
 func seedDeliveries(t *testing.T, repo *mockRepository, tenant string, ids []string, receivedAt time.Time, status string) {
 	t.Helper()
 	for _, id := range ids {
@@ -53,9 +51,6 @@ func TestListDeliveriesCursorSeparatesRowsSharingATimestamp(t *testing.T) {
 		t.Fatalf("second page: %v", err)
 	}
 
-	// The real assertion: no delivery appears on both pages, and between them
-	// they cover every row. A received_at-only cursor would either skip or
-	// repeat here, because all four share a timestamp.
 	seen := map[string]int{}
 	for _, d := range append(append([]Delivery{}, first...), second...) {
 		seen[d.ID]++
@@ -116,8 +111,6 @@ func TestListDeliveriesFiltersByStatusAcrossPages(t *testing.T) {
 			t.Fatalf("parse cursor: %v", err)
 		}
 	}
-	// Paging applies to the filtered set, so every failed delivery is reachable
-	// and no dispatched one appears.
 	if len(got) != 3 {
 		t.Fatalf("want all 3 failed deliveries across pages, got %d: %v", len(got), got)
 	}
@@ -131,8 +124,6 @@ func TestListDeliveriesRejectsUnknownFilterValues(t *testing.T) {
 		"outcome": {Outcome: []string{"nonsense"}},
 	} {
 		t.Run(name, func(t *testing.T) {
-			// Ignoring a typo would return an unfiltered page, which reads as a
-			// bug rather than as the mistake it is.
 			if _, _, err := svc.ListDeliveries(context.Background(), testTenant, filter); !errors.Is(err, ErrValidation) {
 				t.Fatalf("want ErrValidation for an unknown %s, got %v", name, err)
 			}
@@ -144,12 +135,9 @@ func TestListDeliveriesAcceptsEveryDeclaredStatusAndOutcome(t *testing.T) {
 	svc, _ := newTestService(t)
 	ctx := context.Background()
 
-	// Deriving the sets from the constants means the filter accepts whatever
-	// the constants declare. Note what this canNOT catch: dropping a value from
-	// AllDeliveryStatuses drops it from the validator too, so this stays green
-	// while ?status=<that value> starts 400ing. The drift that actually matters
-	// is against the column's CHECK constraint, which is what
-	// TestPostgres_FilterableStatusesMatchTheDatabase pins.
+	// This can only prove the filter accepts whatever the constants declare: drop a
+	// value and the validator drops it too, so this stays green while ?status=<it>
+	// 400s. TestPostgres_FilterableStatusesMatchTheDatabase is the real guard.
 	if _, _, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{Status: AllDeliveryStatuses()}); err != nil {
 		t.Errorf("every declared delivery status should be filterable: %v", err)
 	}
@@ -167,8 +155,7 @@ func TestDeliveryCursorRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("round trip: %v", err)
 	}
-	// Nanoseconds must survive: two deliveries in the same burst can be a few
-	// hundred nanoseconds apart, and a truncating format would collapse them.
+	// Nanoseconds must survive: a truncating format would collapse two rows from one burst.
 	if !got.ReceivedAt.Equal(want.ReceivedAt) || got.ID != want.ID {
 		t.Fatalf("round trip lost data: got %+v, want %+v", *got, want)
 	}
@@ -180,7 +167,6 @@ func TestParseDeliveryCursorRejectsMalformedValues(t *testing.T) {
 			t.Errorf("cursor %q: want an error, got none", raw)
 		}
 	}
-	// An absent cursor is "first page", not a malformed one.
 	c, err := parseDeliveryCursor("")
 	if err != nil || c != nil {
 		t.Errorf("empty cursor: want (nil, nil), got (%v, %v)", c, err)
@@ -188,9 +174,8 @@ func TestParseDeliveryCursorRejectsMalformedValues(t *testing.T) {
 }
 
 func TestNonEmptyDropsBlankFilterValues(t *testing.T) {
-	// url.Values reports a present-but-empty ?status= as []string{""}, which
-	// would otherwise fail validation and 400 a request whose plain meaning is
-	// "no filter".
+	// url.Values reports a present-but-empty ?status= as []string{""}, which would
+	// otherwise fail validation and 400 a request meaning "no filter".
 	for name, tc := range map[string]struct {
 		in   []string
 		want int
@@ -217,9 +202,6 @@ func TestListDeliveriesClampsAnOverCeilingLimitToTheCeiling(t *testing.T) {
 	}
 	seedDeliveries(t, deps.repo, testTenant, ids, at, StatusVerified)
 
-	// Asking for more than the ceiling returns the ceiling, not the default. The
-	// old behaviour handed back 100 rows for limit=501 and 500 for limit=500,
-	// so asking for more returned five times fewer.
 	page, _, err := svc.ListDeliveries(context.Background(), testTenant,
 		DeliveryFilter{Limit: maxDeliveryPageSize + 1})
 	if err != nil {
@@ -230,9 +212,6 @@ func TestListDeliveriesClampsAnOverCeilingLimitToTheCeiling(t *testing.T) {
 	}
 }
 
-// The two reads behind a page can each fail, and the service has to say so
-// rather than hand back a half-built page. A caller that gets rows plus a nil
-// error believes it saw everything that matched.
 func TestListDeliveriesSurfacesRepositoryFailures(t *testing.T) {
 	boom := errors.New("connection reset")
 
@@ -258,7 +237,6 @@ func TestListDeliveriesSurfacesRepositoryFailures(t *testing.T) {
 		if !errors.Is(err, boom) {
 			t.Fatalf("want the wrapped repository error, got %v", err)
 		}
-		// Wrapped, not replaced: the caller needs to know which read failed.
 		if !strings.Contains(err.Error(), "attach delivery runs") {
 			t.Errorf("want the error to name the step, got %q", err)
 		}

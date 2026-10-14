@@ -85,9 +85,8 @@ Navigate to `?status=failed` on filter selection, trigger a Next.js RSC re-rende
 
 > **Superseded 2026-10-07.** The status filter moved into SQL with keyset pagination; see
 > [trigger-deliveries-keyset-pagination](2026-10-07-trigger-deliveries-keyset-pagination.md).
-> The premise behind the Non-Goal above, that delivery volume did not justify server-side
-> filtering, expired: the filter ran over a capped 100-row window. The payload-excerpt
-> decision in this ADR still stands.
+> The Non-Goal above expired: the filter ran over a capped 100-row window. The
+> payload-excerpt decision in this ADR still stands.
 
 It is the lowest-friction, highest-consistency path. It reuses the DataTable API already used by the inference logs tab, requires no new components or state, and introduces no backend changes. The filter-resets-on-navigate trade-off is acceptable given that the page is server-rendered fresh on each visit.
 

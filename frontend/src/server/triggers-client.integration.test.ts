@@ -1,15 +1,7 @@
 /**
- * Integration tests for `listDeliveries` in the typed triggers client.
- *
- * This is the one place the backend's delivery envelope
- * (`{ deliveries, has_next_page, next_cursor }`) is translated into the
- * frontend's `DeliveryPage` (`{ deliveries, nextCursor }`), so the mapping is
- * worth pinning on both sides: the query string it builds going out, and the
- * page it returns coming back — including `nextCursor` being null on the last
- * page, which is what hides the "Load more" control.
- *
- * `@orbit/server/config` is vi.mock'd so the client addresses a stub host that
- * MSW intercepts; no cluster or env file is involved.
+ * Integration tests for `listDeliveries` in the typed triggers client: the one
+ * place the backend envelope (`{ deliveries, has_next_page, next_cursor }`)
+ * becomes a frontend `DeliveryPage` (`{ deliveries, nextCursor }`).
  */
 import { describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse, type JsonBodyType } from 'msw';
@@ -75,11 +67,9 @@ describe('listDeliveries (server client)', () => {
   });
 
   it('refuses a body that omits next_cursor rather than calling it the last page', async () => {
-    // This test used to assert nextCursor === null here, which encoded the bug.
     // The upstream always writes next_cursor, so coercing its absence to null
-    // reports "last page"; the BFF then re-wraps that as a well-formed
-    // `{ data, next_cursor }`, the browser's own guard sees nothing wrong, and
-    // Load more vanishes - the list is truncated in silence.
+    // reports "last page"; the BFF re-wraps that as a well-formed
+    // `{ data, next_cursor }` the browser's own guard cannot see through.
     respondWith({ deliveries: [makeDelivery('d-1')], has_next_page: true });
 
     await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);
@@ -87,17 +77,14 @@ describe('listDeliveries (server client)', () => {
 
   it('refuses an empty object rather than calling it an empty page', async () => {
     // `{}` is a gateway artefact, not a result: the upstream always writes all
-    // three keys. Reading it as an empty final page is indistinguishable from a
-    // tenant that genuinely has no deliveries, which is how an error page from
-    // something in between used to truncate the list without saying so.
+    // three keys.
     respondWith({});
 
     await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);
   });
 
   it('refuses a bodyless 204, which this endpoint never sends', async () => {
-    // The list endpoint always answers 200 with an envelope, so a 204 came from
-    // something in between. Accepting it causes the same silent truncation.
+    // The endpoint always answers 200 with an envelope, so a 204 is not its own.
     server.use(http.get(UPSTREAM, () => new HttpResponse(null, { status: 204 })));
 
     await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);
@@ -128,8 +115,7 @@ describe('listDeliveries (server client)', () => {
   it('refuses an envelope whose has_next_page contradicts its next_cursor', async () => {
     // Upstream derives has_next_page as `nextCursor != ""` and writes
     // next_cursor only when non-empty, so these two cannot legitimately
-    // disagree. When they do, trusting either one puts the page boundary
-    // somewhere neither side meant.
+    // disagree.
     respondWith({ deliveries: [makeDelivery('d-1')], has_next_page: false, next_cursor: 'cur-2' });
 
     await expect(listDeliveries('test-access-token')).rejects.toThrow(ApiError);

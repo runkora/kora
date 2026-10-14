@@ -1,18 +1,10 @@
 /**
  * Integration tests for the Deliveries paging state machine in TriggersPage.
  *
- * The paging logic is a four-field state machine (rows, cursor, applied filter,
- * epoch) driven by overlapping async responses, and the two defects found here
- * by review were both ordering defects: a superseded response writing, and an
- * in-flight response appending onto a fresh server page. Neither is reachable
- * without controlling WHEN each response lands, so every request is intercepted
- * by MSW and parked until the test resolves it, in whatever order it likes.
- *
- * MSW rather than a module mock on `listDeliveries`: the query string the page
- * asks for (status, limit, cursor) is half of the behavior under test, and the
- * envelope unwrapping in `_services/triggers-api.ts` — `{ data, next_cursor }`,
- * and `message` on a failure — is the other half. A mocked service would assert
- * what the test author believed about both.
+ * Every request is intercepted by MSW and parked until the test answers it, so
+ * two can be in flight at once and land in either order. MSW rather than a
+ * module mock on `listDeliveries`: the query string the page asks for and the
+ * `{ data, next_cursor }` unwrapping are both under test.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { act, screen, waitFor } from '@testing-library/react';
@@ -24,21 +16,14 @@ import { TriggersPage } from './triggers-page';
 import { toDeliveryRow } from '../_types';
 import type { DeliveryRow } from '../_types';
 
-// The page calls router.refresh() from its mutation hooks; nothing under test
-// here navigates, so an inert router is enough.
+// Nothing under test navigates; the page only calls router.refresh().
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
 }));
 
 // ── Deferred request harness ──────────────────────────────────────────────────
 
-/**
- * One intercepted GET /api/trigger-deliveries, held open.
- *
- * `respond` and `fail` are the two ways the server can answer. Holding the
- * response lets a test have two requests in flight at once and answer the newer
- * one first, which is the only way to reach the superseded-write path.
- */
+/** One intercepted GET /api/trigger-deliveries, held open until answered. */
 interface PendingDeliveryRequest {
   /** Repeated `status` params, in order. Empty for the "All statuses" query. */
   statuses: string[];
@@ -69,7 +54,6 @@ beforeEach(() => {
   );
 });
 
-/** The n-th request the page has issued, once it has actually been issued. */
 async function request(index: number): Promise<PendingDeliveryRequest> {
   await waitFor(() => {
     expect(pending.length).toBeGreaterThan(index);
@@ -78,12 +62,9 @@ async function request(index: number): Promise<PendingDeliveryRequest> {
 }
 
 /**
- * Drain every queued response through fetch, MSW and React.
- *
- * Needed for the two discard assertions: a correctly discarded response leaves
- * no trace, so there is nothing to `waitFor`. Ten macrotask turns is well past
- * what the path takes — the mutation runs in the report confirm a bad write
- * does become visible inside this window.
+ * Drain every queued response through fetch, MSW and React. A correctly
+ * discarded response leaves no trace, so the discard assertions have nothing
+ * to `waitFor`.
  */
 async function settle(): Promise<void> {
   await act(async () => {
@@ -169,8 +150,7 @@ describe('TriggersPage deliveries paging', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
     const first = await request(0);
-    // Continues the server's page rather than re-reading page one, and keeps the
-    // page size the server render used.
+    // Continues the server's keyset, at the page size the server render used.
     expect(first.cursor).toBe('cursor-1');
     expect(first.limit).toBe('100');
     expect(first.statuses).toEqual([]);
@@ -199,8 +179,6 @@ describe('TriggersPage deliveries paging', () => {
     await userEvent.selectOptions(statusFilter(), 'failed');
     const query = await request(0);
     expect(query.statuses).toEqual(['failed']);
-    // A new filter is a new query, not a narrowing: it must not continue the
-    // previous keyset.
     expect(query.cursor).toBeNull();
     expect(query.limit).toBe('100');
 
@@ -234,9 +212,7 @@ describe('TriggersPage deliveries paging', () => {
     superseded.respond([wireDelivery('d2')], 'cursor-superseded');
     await settle();
 
-    // Neither its rows nor its cursor may land: appending would relabel the old
-    // filter's rows as the new filter's answer, and installing its cursor would
-    // make every further page walk the wrong keyset.
+    // Installing its cursor would make every further page walk the wrong keyset.
     expect(visibleRowIds()).toEqual(['d7']);
     expect(loadMoreButton()).not.toBeInTheDocument();
   });
@@ -265,10 +241,6 @@ describe('TriggersPage deliveries paging', () => {
   });
 
   it('discards the ERROR of a retired request, not just its rows', async () => {
-    // The rows were already guarded by the epoch; the error and the loading
-    // flag were not, so a request the re-seed retired could still paint its
-    // failure over a page that had loaded perfectly well, and hold Load more
-    // disabled while it was in flight.
     const { rerender } = renderPage([serverRow('d1')], 'cursor-1');
     await openDeliveriesTab();
 
@@ -283,8 +255,7 @@ describe('TriggersPage deliveries paging', () => {
     inFlight.fail('deliveries backend is unavailable');
     await settle();
 
-    // The fresh page loaded fine. Nothing about the retired request belongs
-    // on it: no error line, and Load more usable rather than stuck disabled.
+    // Nothing of the retired request belongs on a page that loaded fine.
     expect(screen.queryByText('deliveries backend is unavailable')).not.toBeInTheDocument();
     expect(visibleRowIds()).toEqual(['d9']);
     expect(screen.getByRole('button', { name: 'Load more' })).toBeEnabled();
@@ -303,9 +274,7 @@ describe('TriggersPage deliveries paging', () => {
     // The rows already loaded are still the truth about what was loaded.
     expect(visibleRowIds()).toEqual(['d1']);
 
-    // A failure is not "that is all of them": the control survives and resumes
-    // from the kept cursor rather than restarting. Asserting the request it
-    // issues, not the label, is what pins the cursor being kept.
+    // Asserting the request Retry issues, not its label, is what pins the cursor.
     const retry = screen.getByRole('button', { name: 'Retry' });
     expect(retry).toBeEnabled();
     await userEvent.click(retry);
@@ -313,9 +282,8 @@ describe('TriggersPage deliveries paging', () => {
   });
 
   it('does not claim "no deliveries" when the request failed', async () => {
-    // A failed filter change clears the rows, so the grid would otherwise say
-    // "No failed deliveries" beside the error: a claim about data from a
-    // request that never returned any.
+    // A failed filter change clears the rows, so the grid would otherwise fall
+    // through to "No failed deliveries" beside the error.
     renderPage([serverRow('d1')], 'cursor-1');
     await openDeliveriesTab();
 
@@ -332,9 +300,7 @@ describe('TriggersPage deliveries paging', () => {
   it('does not claim "no deliveries" while the retry is still in flight', async () => {
     // fetchDeliveries opens every request with `error: null`, so between the
     // Retry click and the response landing the page has no rows, no cursor and
-    // no error. The grid fell through to "No failed deliveries" there: the same
-    // untrue claim the error arm above exists to prevent, about a request that
-    // is still running.
+    // no error, and the grid fell through to "No failed deliveries" there.
     renderPage([serverRow('d1')], 'cursor-1');
     await openDeliveriesTab();
 
@@ -369,9 +335,6 @@ describe('TriggersPage deliveries paging', () => {
   });
 
   it('retries the page that failed, keeping the rows already loaded', async () => {
-    // Retry used to restart from the first page whatever had failed, so a
-    // failed Load more cost the reader every page they had accumulated: a
-    // second loss on top of the one they were retrying.
     renderPage([serverRow('d1')], 'cursor-1');
     await openDeliveriesTab();
 
@@ -390,7 +353,6 @@ describe('TriggersPage deliveries paging', () => {
     retried.respond([wireDelivery('d2')], null);
     await settle();
 
-    // The page that was already on screen survived.
     expect(visibleRowIds()).toEqual(['d1', 'd2']);
   });
 
@@ -406,8 +368,6 @@ describe('TriggersPage deliveries paging', () => {
     });
     // Stale rows under the new label would claim to be the answer.
     expect(visibleRowIds()).toEqual([]);
-    // The rows are cleared, but the empty state must not read as a result:
-    // nothing was filtered, the request failed.
     expect(screen.getByText('Could not load deliveries.')).toBeInTheDocument();
     // Nothing left to page, so Retry is the only way back: re-picking the same
     // option in the select fires no change event.
