@@ -70,12 +70,14 @@ ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash
 
 # Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
 # so every build gets the same versions. Validate the opencode ACP protocol on upgrade.
-COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /opt/orbit/agent-clis/
-RUN cd /opt/orbit/agent-clis && \
+# They live under /usr because orbit-session-runner's Landlock rules only allow exec from
+# /usr, /bin, /sbin and /lib.
+COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /usr/local/lib/agent-clis/
+RUN cd /usr/local/lib/agent-clis && \
     npm ci --omit=dev && \
     rm -rf /root/.npm && \
-    ln -s /opt/orbit/agent-clis/node_modules/.bin/claude /usr/local/bin/claude && \
-    ln -s /opt/orbit/agent-clis/node_modules/.bin/opencode /usr/local/bin/opencode && \
+    ln -s /usr/local/lib/agent-clis/node_modules/.bin/claude /usr/local/bin/claude && \
+    ln -s /usr/local/lib/agent-clis/node_modules/.bin/opencode /usr/local/bin/opencode && \
     claude --version && \
     opencode --version
 
