@@ -96,6 +96,13 @@ export interface TriggerEditPatch {
   scheduleConfig?: { cronExpression: string; timezone: string; catchUp: boolean };
 }
 
+/** Overflow choices in the drawer. Wait is first: it is the only one coalescing allows. */
+const OVERFLOW_OPTIONS = [
+  { value: 'wait', label: 'Wait' },
+  { value: 'replace', label: 'Replace' },
+  { value: 'refuse', label: 'Refuse' },
+];
+
 interface TriggerDrawerProps {
   trigger: TriggerRow | null;
   sources: SourceRow[];
@@ -988,7 +995,11 @@ export function TriggerDrawer({
                   />
                   <SettingRow
                     label="At the limit"
-                    description="What happens to an arrival that cannot start yet."
+                    description={
+                      trigger.coalesce
+                        ? 'Coalescing requires Wait. Turn coalescing off to change this.'
+                        : 'What happens to an arrival that cannot start yet.'
+                    }
                     value={
                       <SegmentedControl
                         aria-label="Overflow behaviour"
@@ -996,11 +1007,7 @@ export function TriggerDrawer({
                         onChange={(v) =>
                           onUpdateSafety?.(trigger, { overflow: v as TriggerRow['overflow'] })
                         }
-                        options={[
-                          { value: 'wait', label: 'Wait' },
-                          { value: 'replace', label: 'Replace' },
-                          { value: 'refuse', label: 'Refuse' },
-                        ]}
+                        options={trigger.coalesce ? OVERFLOW_OPTIONS.slice(0, 1) : OVERFLOW_OPTIONS}
                       />
                     }
                   />

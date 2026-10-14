@@ -906,16 +906,19 @@ func TestTriggerCoalesceForwarding(t *testing.T) {
 		t.Errorf("create did not forward coalesce: %v", gotBody["coalesce"])
 	}
 
+	gotBody = nil
 	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "coalesce": coalesce}})
 	if got, _ := gotBody["coalesce"].(map[string]any); got["window_seconds"] != float64(30) {
 		t.Errorf("update did not forward coalesce: %v", gotBody["coalesce"])
 	}
 
+	gotBody = nil
 	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "coalesce": map[string]any{}}})
 	if _, ok := gotBody["coalesce"]; !ok {
 		t.Errorf("an empty coalesce object was dropped from the update, so it could not remove the setting: %v", gotBody)
 	}
 
+	gotBody = nil
 	call("tools/call", map[string]any{"name": "triggers.update", "arguments": map[string]any{"id": "t-1", "name": "renamed"}})
 	if _, ok := gotBody["coalesce"]; ok {
 		t.Errorf("an update that did not mention coalesce carried it: %v", gotBody["coalesce"])

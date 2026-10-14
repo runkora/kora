@@ -46,7 +46,7 @@ export function CoalesceEditor({ value, onChange, disabled, note, actions }: Coa
               <FormField
                 label="Key"
                 id={keyId}
-                hint="Template, same syntax as the prompt. Up to 256 bytes."
+                hint={`Template, same syntax as the prompt. Up to ${LIMITS.coalesce.keyBytes} bytes.`}
                 error={value.key.trim() ? errors.key : undefined}
               >
                 <Input

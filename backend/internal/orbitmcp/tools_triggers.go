@@ -325,8 +325,8 @@ type updateTriggerArgs struct {
 }
 
 type coalesceConfig struct {
-	Key           string `json:"key" jsonschema:"template over the event in the prompt_template syntax, e.g. {{ repository.full_name }}#{{ pull_request.number }}; a render that is blank after trimming does not coalesce"`
-	WindowSeconds int    `json:"window_seconds" jsonschema:"seconds the first event waits for others with the same key, 1 to 300; the window is not extended by later events"`
+	Key           string `json:"key,omitempty" jsonschema:"template over the event in the prompt_template syntax, e.g. {{ repository.full_name }}#{{ pull_request.number }}; a render that is blank after trimming does not coalesce"`
+	WindowSeconds int    `json:"window_seconds,omitempty" jsonschema:"seconds the first event waits for others with the same key, 1 to 300; the window is not extended by later events"`
 }
 
 type scheduleConfig struct {

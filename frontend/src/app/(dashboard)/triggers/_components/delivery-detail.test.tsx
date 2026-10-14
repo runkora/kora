@@ -301,6 +301,30 @@ describe('coalescing', () => {
     expect(screen.queryByText('theirs')).toBeNull();
   });
 
+  it('names the trigger on each key when several triggers coalesced', () => {
+    const run = (triggerId: string, triggerName: string) => ({
+      triggerId,
+      triggerName,
+      runId: null,
+      status: 'dispatched',
+      error: null,
+      createdAt: null,
+    });
+    render(
+      <DeliveryDetail
+        delivery={delivery({
+          runs: [run('t1', 'gh-push'), run('t2', 'gh-review')],
+          coalesceKeys: [
+            { triggerId: 't1', key: 'a', keyTooLong: false },
+            { triggerId: 't2', key: 'b', keyTooLong: false },
+          ],
+        })}
+      />,
+    );
+    expect(screen.getByText('Key (gh-push)')).toBeTruthy();
+    expect(screen.getByText('Key (gh-review)')).toBeTruthy();
+  });
+
   it('shows which delivery replaced a superseded run', () => {
     render(
       <DeliveryDetail

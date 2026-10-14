@@ -362,15 +362,25 @@ const COALESCED_WINNER = delivery(prReview, 2 * MIN, 'dispatched', {
   coalesceKeys: [{ triggerId: prReview.id, key: 'acme/platform#1427', keyTooLong: false }],
 });
 
-/** An earlier fire with the same key, replaced while it waited in the window. */
+/**
+ * An earlier fire with the same key, replaced while it waited in the window. The
+ * run is superseded and carries the reason; the delivery derives to skipped.
+ */
 const COALESCED_REPLACED = ((): DeliveryRow => {
   const base = delivery(prReview, 3 * MIN, 'superseded', {
-    reason: 'replaced by a newer fire',
     payloadExcerpt: PR_EXCERPT,
     payloadBytes: 17_880,
     coalesceKeys: [{ triggerId: prReview.id, key: 'acme/platform#1427', keyTooLong: false }],
   });
-  return { ...base, runs: base.runs.map((r) => ({ ...r, supersededBy: COALESCED_WINNER.id })) };
+  return {
+    ...base,
+    status: 'skipped',
+    runs: base.runs.map((r) => ({
+      ...r,
+      error: 'replaced by a newer fire with the same coalescing key',
+      supersededBy: COALESCED_WINNER.id,
+    })),
+  };
 })();
 
 export const DELIVERIES: DeliveryRow[] = [
@@ -433,7 +443,8 @@ export const PURGED_DELIVERY: DeliveryRow = delivery(prReview, 40 * DAY, 'dispat
 });
 
 /** The delivery the detail story opens: a failed webhook with a payload and a wrapped error chain. */
-export const FAILED_DELIVERY: DeliveryRow = DELIVERIES[3] ?? PURGED_DELIVERY;
+export const FAILED_DELIVERY: DeliveryRow =
+  DELIVERIES.find((d) => d.status === 'failed') ?? PURGED_DELIVERY;
 
 /** The base fleet plus two dozen repository triggers, to check the list at scale. */
 export const MANY_TRIGGERS: TriggerRow[] = [

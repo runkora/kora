@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 
 // The drawer reads the source's schema catalogue from the API.
 const api = vi.hoisted(() => ({
@@ -246,6 +246,15 @@ describe('coalesce editing', () => {
       (screen.getByRole('switch', { name: /Coalesce events/ }) as HTMLButtonElement).disabled,
     ).toBe(true);
     expect(screen.getByText(/requires overflow set to wait/i)).toBeTruthy();
+  });
+
+  it('offers only Wait for overflow while coalescing is on', () => {
+    renderDrawer(trigger({ coalesce: { key: 'k', windowSeconds: 45 } }));
+    fireEvent.mouseDown(screen.getByRole('tab', { name: 'Settings' }));
+    const overflow = within(screen.getByRole('group', { name: 'Overflow behaviour' }));
+    expect(overflow.getByText('Wait')).toBeTruthy();
+    expect(overflow.queryByText('Replace')).toBeNull();
+    expect(screen.getByText(/Coalescing requires Wait/)).toBeTruthy();
   });
 
   it('is absent for a scheduled trigger', () => {

@@ -80,6 +80,16 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
 
   const coalesceKeys = coalesceKeysFor(delivery, triggerId);
   const superseded = supersededRuns(delivery, triggerId);
+  // A delivery that matched several coalescing triggers names each row's trigger.
+  const triggerIds = new Set([
+    ...coalesceKeys.map((c) => c.triggerId),
+    ...superseded.map((r) => r.triggerId),
+  ]);
+  const forTrigger = (label: string, id: string) => {
+    if (triggerIds.size < 2) return label;
+    const name = delivery.runs.find((r) => r.triggerId === id)?.triggerName ?? id;
+    return `${label} (${name})`;
+  };
 
   const replay = () => {
     if (onRedeliver === undefined) return;
@@ -134,7 +144,7 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
           {coalesceKeys.map((c) => (
             <Stack key={c.triggerId} direction="horizontal" align="center" gap="cozy">
               <Text size="caption" color="muted">
-                Key
+                {forTrigger('Key', c.triggerId)}
               </Text>
               <Text
                 mono={!c.keyTooLong}
@@ -149,7 +159,7 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
           {superseded.map((r) => (
             <Stack key={r.triggerId} direction="horizontal" align="center" gap="cozy">
               <Text size="caption" color="muted">
-                Replaced by
+                {forTrigger('Replaced by', r.triggerId)}
               </Text>
               <Text mono size="caption" color="accent" truncate>
                 {r.supersededBy}
