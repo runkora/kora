@@ -39,13 +39,36 @@ function isUnreadable(err: unknown): boolean {
   return code !== undefined && UNREADABLE_CODES.has(code);
 }
 
-/** Reads at most `maxBytes + 1` bytes of a file, so an oversize file is seen without being loaded. */
+/** The one method of a file handle the bounded read needs. */
+export interface ReadableHandle {
+  read(
+    buffer: Buffer,
+    offset: number,
+    length: number,
+    position: number,
+  ): Promise<{ bytesRead: number }>;
+}
+
+/**
+ * Reads at most `maxBytes + 1` bytes from the start of a file, so an oversize
+ * file is seen without being loaded. A read may return fewer bytes than asked
+ * for, so it loops to end of file or the bound.
+ */
+export async function readUpTo(handle: ReadableHandle, maxBytes: number): Promise<Uint8Array> {
+  const buffer = Buffer.alloc(maxBytes + 1);
+  let total = 0;
+  while (total < buffer.length) {
+    const { bytesRead } = await handle.read(buffer, total, buffer.length - total, total);
+    if (bytesRead === 0) break;
+    total += bytesRead;
+  }
+  return new Uint8Array(buffer.subarray(0, total));
+}
+
 async function readBounded(file: string, maxBytes: number): Promise<Uint8Array> {
   const handle = await open(file, 'r');
   try {
-    const buffer = Buffer.alloc(maxBytes + 1);
-    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-    return new Uint8Array(buffer.subarray(0, bytesRead));
+    return await readUpTo(handle, maxBytes);
   } finally {
     await handle.close();
   }

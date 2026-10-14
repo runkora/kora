@@ -5,5 +5,6 @@ export {
   PUBLIC_PATHS,
   THEME_ASSET_PREFIX,
   isSafeRedirectPath,
+  isThemeAssetPath,
 } from './routes';
 export { ApiRoute, type ApiRoutePath } from './api-routes';

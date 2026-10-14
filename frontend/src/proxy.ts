@@ -28,8 +28,8 @@ import {
 import {
   APP_ROUTES,
   PUBLIC_PATHS,
-  THEME_ASSET_PREFIX,
   isSafeRedirectPath,
+  isThemeAssetPath,
 } from '@orbit/lib/routing';
 
 // ── Inline refresh ────────────────────────────────────────────────────────────
@@ -73,11 +73,11 @@ async function tryRefresh(
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
-  // 1. Skip public paths — no session check required. Theme assets are a
-  //    prefix (the hash varies), and the login page needs them before any
-  //    session exists; the matcher below already excludes them, this is the
-  //    guard should the matcher change.
-  if (PUBLIC_PATHS.has(pathname) || pathname.startsWith(THEME_ASSET_PREFIX)) {
+  // 1. Skip public paths — no session check required. Theme assets vary by hash
+  //    and the login page needs them before any session exists, so exactly the
+  //    `/theme/<hash>/assets/<path>` shape is public; any other path under
+  //    `/theme/` is authenticated like the rest of the app.
+  if (PUBLIC_PATHS.has(pathname) || isThemeAssetPath(pathname)) {
     return NextResponse.next();
   }
 
@@ -201,9 +201,8 @@ export const config = {
      *   - _next/static  (static files)
      *   - _next/image   (image optimisation)
      *   - favicon.ico
-     *   - theme/        (theme assets: logos, favicons, fonts, served before login)
      *   - Any file in the public/ directory (has a dot extension)
      */
-    '/((?!_next/static|_next/image|favicon\\.ico|theme/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)',
+    '/((?!_next/static|_next/image|favicon\\.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico|css|js)$).*)',
   ],
 };
