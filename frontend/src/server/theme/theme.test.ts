@@ -141,7 +141,7 @@ describe('loadThemeFrom', () => {
     expect(loaded.brand).toBe(defaultTheme);
     expect(loaded.css).toBe('');
     expect(loaded.fontPreloads).toEqual([]);
-    expect(loaded.report).toEqual({ ignored: [], fallThrough: [] });
+    expect(loaded.report).toEqual({ ignored: [], fallThrough: [], mixedIdentity: [] });
     expect(loaded.hadesVersion).toBe(manifest.version);
     expect(loaded.contractVersion).toBe(manifest.contractVersion);
     expect(String(info.mock.calls[0]![0])).toContain('no bundle');

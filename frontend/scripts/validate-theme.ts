@@ -25,7 +25,6 @@ import manifest from '@runkora/hades/manifest.json';
 import {
   ThemeYamlTooLargeError,
   isMissing,
-  mixedIdentity,
   readBundleAsset,
   readThemeDocument,
 } from '../src/lib/theme-bundle';
@@ -78,7 +77,7 @@ function reportLines(report: ThemeReport): string[] {
       ? `falls through to the default: ${report.fallThrough.join(', ')}`
       : 'falls through to the default: nothing',
   );
-  const mixed = mixedIdentity(report, manifest);
+  const mixed = report.mixedIdentity;
   if (mixed.length) {
     lines.push(
       `warning: this theme mixes its own identity with kora defaults; still showing kora: ${mixed.join(', ')}`,

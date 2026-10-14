@@ -84,22 +84,3 @@ export async function readBundleAsset(
     throw err;
   }
 }
-
-/**
- * The identity values a theme still takes from kora while overriding others: a
- * mix of two brands. Empty when the theme sets none (it keeps kora's identity on
- * purpose) or all of them. Reads the validator's `mixedIdentity` when the report
- * carries it and otherwise derives it from `fallThrough`: the identity values
- * are `productName` plus every mode of every image slot.
- */
-export function mixedIdentity(
-  report: { readonly fallThrough: readonly string[]; readonly mixedIdentity?: readonly string[] },
-  manifest: {
-    readonly slots: readonly { readonly kind: string; readonly modes: readonly string[] }[];
-  },
-): readonly string[] {
-  if (report.mixedIdentity !== undefined) return report.mixedIdentity;
-  const total = manifest.slots.reduce((n, s) => (s.kind === 'image' ? n + s.modes.length : n), 1);
-  const missing = report.fallThrough.length;
-  return missing > 0 && missing < total ? report.fallThrough : [];
-}
