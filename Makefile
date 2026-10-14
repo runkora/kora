@@ -1293,8 +1293,12 @@ chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/orbit
 
 .PHONY: check
-check: check-versions tidy fmt vet fix lint deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)
+check: check-versions tidy fmt vet fix lint brand-tags-check deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, brand-tags-check, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
+
+.PHONY: brand-tags-check
+brand-tags-check: ## Fail when a struct tag in a package whose text people or agents read names the product (the part of the product-name rule ruleguard cannot match)
+	@go run scripts/check-brand-tags.go && echo "$(COLOR_GREEN)✓ No product name in struct tags$(COLOR_RESET)"
 
 .PHONY: all
 all: tidy check build-backend ## Run all quality checks and build

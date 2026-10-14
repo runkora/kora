@@ -335,7 +335,9 @@ const (
 // and "ORBIT_RUN_ID" pass and prose fails, including a sentence ending
 // "kora.". Raw strings are covered. Struct tags are not: gogrep has no pattern
 // for an ast.Field tag, so a jsonschema description must be neutral or move
-// to code (see internal/orbitmcp/tools_agents.go), and review guards the tag.
+// to code (see internal/orbitmcp/tools_agents.go), and
+// scripts/check-brand-tags.go checks the tags with the same patterns as part
+// of make check.
 //
 // ruleguard refuses a bare `$s` pattern, so the rule names each position a
 // literal can occupy: an argument of a method call whose receiver is not a
