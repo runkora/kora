@@ -173,7 +173,7 @@ if ! grep -qF "\"$contract\"" "$js"; then
   echo "error: CONTRACT_VERSION $contract is not in the built bundle" >&2
   exit 1
 fi
-if ! grep -q -- '--hades-raw-font-sans' "$css"; then
+if ! grep -q -- '--hades-raw-accent-500' "$css"; then
   echo "error: the built CSS carries no Hades token; tokens.css was not compiled" >&2
   exit 1
 fi
