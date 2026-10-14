@@ -3,8 +3,10 @@
  * document check and the bundle outcomes, against the fixtures the server
  * theme module uses.
  */
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { deepEqual, documentsEqual, validateBundle } from './validate-theme';
 
 const FIXTURES = path.resolve(__dirname, '../src/server/theme/__fixtures__');
@@ -85,5 +87,62 @@ describe('validateBundle', () => {
     const run = await validateBundle(VALID, path.join(VALID, 'assets', 'logo-dark.svg'));
     expect(run.ok).toBe(false);
     expect(run.lines[0]).toMatch(/does not match|not valid YAML/);
+  });
+});
+
+describe('validateBundle: hostile bundles', () => {
+  let tmp: string;
+  let bundle: string;
+  let document: string;
+
+  beforeEach(async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'validate-theme-'));
+    bundle = path.join(tmp, 'bundle');
+    document = path.join(tmp, 'document.yaml');
+    await mkdir(path.join(bundle, 'assets', 'adir.svg'), { recursive: true });
+    await mkdir(path.join(tmp, 'outside'));
+    await writeFile(path.join(tmp, 'outside', 'out.svg'), '<svg/>');
+  });
+  afterEach(async () => {
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  const logoDocument = (file: string) =>
+    `contractVersion: "1.0"\nslots:\n  logo:\n    dark: ${file}\n`;
+
+  async function run(text: string) {
+    await writeFile(path.join(bundle, 'theme.yaml'), text);
+    await writeFile(document, text);
+    return validateBundle(bundle, document);
+  }
+
+  it('refuses a theme.yaml over the size cap', async () => {
+    const run1 = await run('#'.repeat(70 * 1024));
+    expect(run1.ok).toBe(false);
+    expect(run1.lines[0]).toContain('65536 byte limit');
+  });
+
+  it('refuses a chart document over the size cap', async () => {
+    await writeFile(path.join(bundle, 'theme.yaml'), 'contractVersion: "1.0"\n');
+    await writeFile(document, '#'.repeat(70 * 1024));
+    const result = await validateBundle(bundle, document);
+    expect(result.ok).toBe(false);
+    expect(result.lines[0]).toContain('65536 byte limit');
+  });
+
+  it('reports a directory asset path as not in the bundle', async () => {
+    const result = await run(logoDocument('adir.svg'));
+    expect(result.ok).toBe(false);
+    expect(result.lines).toContain('  slots.logo.dark: "adir.svg" is not in the bundle');
+  });
+
+  it('does not follow a file or directory symlink out of the bundle', async () => {
+    await symlink(path.join(tmp, 'outside', 'out.svg'), path.join(bundle, 'assets', 'leak.svg'));
+    await symlink(path.join(tmp, 'outside'), path.join(bundle, 'assets', 'dirlink'));
+    for (const file of ['leak.svg', 'dirlink/out.svg']) {
+      const result = await run(logoDocument(file));
+      expect(result.ok).toBe(false);
+      expect(result.lines).toContain(`  slots.logo.dark: "${file}" is not in the bundle`);
+    }
   });
 });

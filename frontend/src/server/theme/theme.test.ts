@@ -5,6 +5,8 @@
  * pointing at a fixture, because they cache for the life of the module.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import manifest from '@runkora/hades/manifest.json';
 import { defaultTheme } from '@orbit/theme/default';
@@ -205,5 +207,63 @@ describe('getTheme, getBrand and getThemeAsset', () => {
   it('serves no asset without a theme', async () => {
     const mod = await freshModule(ABSENT);
     expect(await mod.getThemeAsset('any', 'logo-dark.svg')).toBeNull();
+  });
+});
+
+describe('loadThemeFrom: hostile bundles', () => {
+  let tmp: string;
+  let bundle: string;
+
+  beforeEach(async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    tmp = await mkdtemp(path.join(os.tmpdir(), 'theme-load-'));
+    bundle = path.join(tmp, 'bundle');
+    await mkdir(path.join(bundle, 'assets', 'adir.svg'), { recursive: true });
+    await mkdir(path.join(tmp, 'outside'));
+    await writeFile(path.join(tmp, 'outside', 'out.svg'), '<svg/>');
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rm(tmp, { recursive: true, force: true });
+  });
+
+  const logoDocument = (file: string) =>
+    `contractVersion: "1.0"\nslots:\n  logo:\n    dark: ${file}\n`;
+
+  it('refuses a theme.yaml over the size cap before parsing it', async () => {
+    await writeFile(path.join(bundle, 'theme.yaml'), '#'.repeat(70 * 1024));
+    const err = await loadThemeFrom(bundle).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ThemeLoadError);
+    expect((err as ThemeLoadError).errors).toEqual([
+      expect.objectContaining({ path: 'theme.yaml', message: expect.stringContaining('65536') }),
+    ]);
+  });
+
+  it('reports an asset path that names a directory as not in the bundle', async () => {
+    await writeFile(path.join(bundle, 'theme.yaml'), logoDocument('adir.svg'));
+    const err = await loadThemeFrom(bundle).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ThemeLoadError);
+    expect((err as ThemeLoadError).errors).toEqual([
+      { path: 'slots.logo.dark', message: '"adir.svg" is not in the bundle' },
+    ]);
+  });
+
+  it('does not follow an asset symlink out of the bundle', async () => {
+    await symlink(path.join(tmp, 'outside', 'out.svg'), path.join(bundle, 'assets', 'leak.svg'));
+    await writeFile(path.join(bundle, 'theme.yaml'), logoDocument('leak.svg'));
+    const err = await loadThemeFrom(bundle).catch((e: unknown) => e);
+    expect((err as ThemeLoadError).errors).toEqual([
+      { path: 'slots.logo.dark', message: '"leak.svg" is not in the bundle' },
+    ]);
+  });
+
+  it('does not follow a directory symlink out of the bundle', async () => {
+    await symlink(path.join(tmp, 'outside'), path.join(bundle, 'assets', 'dirlink'));
+    await writeFile(path.join(bundle, 'theme.yaml'), logoDocument('dirlink/out.svg'));
+    const err = await loadThemeFrom(bundle).catch((e: unknown) => e);
+    expect((err as ThemeLoadError).errors).toEqual([
+      { path: 'slots.logo.dark', message: '"dirlink/out.svg" is not in the bundle' },
+    ]);
   });
 });

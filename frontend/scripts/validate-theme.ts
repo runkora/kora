@@ -18,11 +18,16 @@
  * Exit 0 or 1. Bundled by `scripts/bundle-validate-theme.mjs` into the image's
  * standalone directory. No React, no DOM, no Next.
  */
-import { open, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import manifest from '@runkora/hades/manifest.json';
+import {
+  ThemeYamlTooLargeError,
+  isMissing,
+  readBundleAsset,
+  readThemeDocument,
+} from '../src/lib/theme-bundle';
 import { validateTheme, type ThemeManifest, type ThemeReport } from '@runkora/hades/theme';
 
 // The JSON import widens the manifest's unions to string; the cast restores them.
@@ -32,10 +37,6 @@ export interface ValidationRun {
   readonly ok: boolean;
   /** What to print, one entry per line. */
   readonly lines: readonly string[];
-}
-
-function isMissing(err: unknown): boolean {
-  return typeof err === 'object' && err !== null && (err as { code?: string }).code === 'ENOENT';
 }
 
 /** Structural equality over what YAML produces: maps, sequences and scalars. */
@@ -88,16 +89,25 @@ export async function validateBundle(
 
   let bundleText: string;
   try {
-    bundleText = await readFile(bundlePath, 'utf8');
+    bundleText = await readThemeDocument(bundlePath);
   } catch (err) {
+    if (err instanceof ThemeYamlTooLargeError) {
+      return { ok: false, lines: [`${bundlePath} ${err.message}`] };
+    }
     if (!isMissing(err)) throw err;
     return { ok: false, lines: [`no theme.yaml in the bundle at ${bundleDir}`] };
   }
 
   let documentText: string;
   try {
-    documentText = await readFile(documentFile, 'utf8');
+    documentText = await readThemeDocument(documentFile);
   } catch (err) {
+    if (err instanceof ThemeYamlTooLargeError) {
+      return {
+        ok: false,
+        lines: [`the chart-supplied document at ${documentFile} ${err.message}`],
+      };
+    }
     if (!isMissing(err)) throw err;
     return { ok: false, lines: [`no chart-supplied document at ${documentFile}`] };
   }
@@ -105,22 +115,7 @@ export async function validateBundle(
   const result = await validateTheme(bundleText, {
     manifest: hadesManifest,
     contractVersion: hadesManifest.contractVersion,
-    readAsset: async (assetPath, maxBytes) => {
-      try {
-        // At most maxBytes + 1: an oversize asset is reported without being loaded.
-        const handle = await open(path.join(bundleDir, 'assets', assetPath), 'r');
-        try {
-          const buffer = Buffer.alloc(maxBytes + 1);
-          const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-          return new Uint8Array(buffer.subarray(0, bytesRead));
-        } finally {
-          await handle.close();
-        }
-      } catch (err) {
-        if (isMissing(err)) return null;
-        throw err;
-      }
-    },
+    readAsset: (assetPath, maxBytes) => readBundleAsset(bundleDir, assetPath, maxBytes),
   });
 
   if (!result.ok) {
