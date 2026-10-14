@@ -26,11 +26,6 @@ import type {
 
 export type { InputField, TriggerKind, TriggerOverflow };
 
-/** Burst coalescing for a webhook trigger: a key template and a window in seconds. */
-export interface TriggerCoalesce {
-  key: string;
-  windowSeconds: number;
-}
 /**
  * Deliveries requested per page, by the server render and by every Load more.
  *
@@ -39,6 +34,12 @@ export interface TriggerCoalesce {
  * would just make the grid grow in uneven steps.
  */
 export const DELIVERY_PAGE_SIZE = 100;
+
+/** Burst coalescing for a webhook trigger: a key template and a window in seconds. */
+export interface TriggerCoalesce {
+  key: string;
+  windowSeconds: number;
+}
 
 /** Who may fire a webhook trigger; both lists empty means anyone. */
 export type Senders = Required<SenderRestriction>;

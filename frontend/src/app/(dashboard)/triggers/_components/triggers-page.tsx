@@ -188,21 +188,11 @@ export function TriggersPage({
     [fetchDeliveries, page.epoch],
   );
 
-  const loadMoreDeliveries = useCallback(() => {
-    if (page.cursor === null || page.loading) return;
-    void fetchDeliveries(page.applied, page.cursor, page.epoch);
-  }, [page.applied, page.cursor, page.epoch, page.loading, fetchDeliveries]);
-
-  // A failed filter change leaves nothing to click: the rows and cursor are
-  // gone, so there is no Load more, and re-picking the same option fires no
-  // change event. Retry is the way back.
-  // Retry re-issues the request that actually failed, which is what the state
-  // already describes: a failed filter change cleared the cursor, so this reads
-  // null and starts over, while a failed Load more left its cursor in place, so
-  // this resumes from there and keeps the pages already on screen. Restarting
-  // from the first page in both cases threw away everything the reader had
-  // loaded, which is a second loss on top of the one they are retrying.
-  const retryDeliveries = useCallback(() => {
+  // One handler for Load more and Retry: the state already says which request
+  // to issue. A failed filter change cleared the cursor, so this starts over; a
+  // failed Load more left its cursor in place, so this resumes and keeps the
+  // pages already on screen.
+  const loadDeliveries = useCallback(() => {
     if (page.loading) return;
     void fetchDeliveries(page.applied, page.cursor, page.epoch);
   }, [page.applied, page.cursor, page.epoch, page.loading, fetchDeliveries]);
@@ -421,35 +411,18 @@ export function TriggersPage({
               which is how "that is all of them" is said. */}
           {(page.cursor !== null || page.error !== null) && (
             <Stack direction="horizontal" align="center" gap="snug">
-              {page.cursor !== null && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={page.loading}
-                  onClick={loadMoreDeliveries}
-                >
-                  {page.loading ? 'Loading...' : 'Load more'}
-                </Button>
-              )}
               {page.error !== null && (
-                <>
-                  {/* role="alert": this appears after the response lands, so
-                      without a live region a screen reader never hears that
-                      the filter or Load more failed. Text forwards role, which
-                      is how guardrail-rows.tsx announces its inline errors. */}
-                  <Text size="supporting" color="status-error" role="alert">
-                    {page.error}
-                  </Text>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={page.loading}
-                    onClick={retryDeliveries}
-                  >
-                    Retry
-                  </Button>
-                </>
+                /* role="alert": this appears after the response lands, so
+                   without a live region a screen reader never hears that the
+                   filter or Load more failed. Text forwards role, which is how
+                   guardrail-rows.tsx announces its inline errors. */
+                <Text size="supporting" color="status-error" role="alert">
+                  {page.error}
+                </Text>
               )}
+              <Button variant="outline" size="sm" disabled={page.loading} onClick={loadDeliveries}>
+                {page.error !== null ? 'Retry' : page.loading ? 'Loading...' : 'Load more'}
+              </Button>
             </Stack>
           )}
         </TabsContent>
