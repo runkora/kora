@@ -84,7 +84,7 @@ Content capture keeps Claude Code's defaults: prompt text, tool inputs and tool 
 
 ### Negative
 
-- Enhanced telemetry is a beta. Span names and attributes may change between Claude Code releases, and the session-manager image installs the latest `@anthropic-ai/claude-code@2`.
+- Enhanced telemetry is a beta. Span names and attributes may change between Claude Code releases, and Dependabot moves the session-manager image's `@anthropic-ai/claude-code` pin through 2.x releases.
 - Metrics, events and background model call spans are not sampled. Every run exports them whatever the trace sampling rate.
 - A collector without metrics or logs pipelines rejects those exports.
 - Agent pods deliver no telemetry until [2026-09-18: Telemetry Collector as a Declared Platform Destination](2026-09-18-telemetry-collector-platform-destination.md) is implemented. The tenant OPA sidecar denies the export today.

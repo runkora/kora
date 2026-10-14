@@ -11,13 +11,16 @@ ARG BUN_VERSION=1.3.9
 # Set from GO_VERSION in versions.hcl by docker-bake.hcl and scripts/cluster/redeploy.sh.
 ARG GO_VERSION
 ARG RUST_VERSION=1.83.0
+ARG RUSTUP_VERSION=1.29.1
 ARG JAVA_VERSION=21
-ARG DOTNET_VERSION=8.0
+# The .NET SDK release, not the channel: the tarball and its digest are per release.
+ARG DOTNET_VERSION=8.0.426
 ARG RUBY_VERSION=3.3
 # kubectl only supports one minor version of skew from the API server, so pin
 # this to the minor of the cluster a `kubernetes` connection points at.
 ARG KUBECTL_VERSION=1.36.5
 ARG KUSTOMIZE_VERSION=5.8.1
+ARG UV_VERSION=0.13.0
 
 # =============================================================================
 # INSTALL FLAGS
@@ -60,11 +63,13 @@ FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee
 ARG BUN_VERSION
 ARG GO_VERSION
 ARG RUST_VERSION
+ARG RUSTUP_VERSION
 ARG JAVA_VERSION
 ARG DOTNET_VERSION
 ARG RUBY_VERSION
 ARG KUBECTL_VERSION
 ARG KUSTOMIZE_VERSION
+ARG UV_VERSION
 ARG INSTALL_BUN
 ARG INSTALL_RUST
 ARG INSTALL_GO
@@ -100,8 +105,20 @@ RUN apt-get update && apt-get install -y \
     rm -rf /var/lib/apt/lists/* && \
     python --version
 
-# uv + uvx
-RUN curl -LsSf https://astral.sh/uv/install.sh | UV_INSTALL_DIR=/usr/local/bin sh && \
+# uv + uvx. Refresh the digests from the release's .sha256 files when bumping UV_VERSION.
+ARG UV_SHA256_AMD64=1468ebd5a5541121837c5a2817b9972ba6090fa6caa3d142620850a47fb75154
+ARG UV_SHA256_ARM64=3ccfb6af6e242433eb552f7d9676abd5412c6595c497e990d9c8cb7b5bd4d2c3
+RUN set -eux; \
+    case "$(dpkg --print-architecture)" in \
+      amd64) ARCH='x86_64'; SHA="${UV_SHA256_AMD64}";; \
+      arm64) ARCH='aarch64'; SHA="${UV_SHA256_ARM64}";; \
+      *) echo "unsupported architecture for uv: $(dpkg --print-architecture)" >&2; exit 1;; \
+    esac; \
+    tarball="uv-${ARCH}-unknown-linux-gnu.tar.gz"; \
+    curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/${tarball}" && \
+    echo "${SHA}  ${tarball}" | sha256sum --check && \
+    tar -xzf "${tarball}" -C /usr/local/bin --strip-components=1 "uv-${ARCH}-unknown-linux-gnu/uv" "uv-${ARCH}-unknown-linux-gnu/uvx" && \
+    rm -f "${tarball}" && \
     uv --version
 
 # Bun
@@ -121,13 +138,26 @@ RUN if [ "$INSTALL_BUN" = "true" ]; then \
       bun --version ; \
     fi
 
-# Rust
+# Rust. Refresh the rustup-init digests from the archive's rustup-init.sha256
+# files when bumping RUSTUP_VERSION.
+ARG RUSTUP_SHA256_AMD64=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+ARG RUSTUP_SHA256_ARM64=15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433
 RUN if [ "$INSTALL_RUST" = "true" ]; then \
+      set -eux; \
+      case "$(dpkg --print-architecture)" in \
+        amd64) ARCH='x86_64'; SHA="${RUSTUP_SHA256_AMD64}";; \
+        arm64) ARCH='aarch64'; SHA="${RUSTUP_SHA256_ARM64}";; \
+        *) echo "unsupported architecture for rustup: $(dpkg --print-architecture)" >&2; exit 1;; \
+      esac; \
       echo 'export RUSTUP_HOME=/usr/local/rustup' >> /etc/profile.d/rust.sh && \
       echo 'export CARGO_HOME=/usr/local/cargo' >> /etc/profile.d/rust.sh && \
       echo 'export PATH=/usr/local/cargo/bin:$PATH' >> /etc/profile.d/rust.sh && \
       . /etc/profile.d/rust.sh && \
-      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION && \
+      curl --proto '=https' --tlsv1.2 -fsSLo /tmp/rustup-init "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${ARCH}-unknown-linux-gnu/rustup-init" && \
+      echo "${SHA}  /tmp/rustup-init" | sha256sum --check && \
+      chmod +x /tmp/rustup-init && \
+      /tmp/rustup-init -y --no-modify-path --profile minimal --default-toolchain $RUST_VERSION && \
+      rm -f /tmp/rustup-init && \
       chmod -R a+w $RUSTUP_HOME $CARGO_HOME && \
       rustc --version && \
       cargo --version ; \
@@ -162,19 +192,25 @@ RUN if [ "$INSTALL_JAVA" = "true" ]; then \
       gradle --version ; \
     fi
 
-# .NET SDK
+# .NET SDK. Refresh the SHA-512 digests from the channel's releases.json when
+# bumping DOTNET_VERSION.
+ARG DOTNET_SHA512_AMD64=8141d01bdc53f604aed3bb661b604707a64209f8a947cd81bf95b4f518951593d77864069191f54ea5e84362a409da6b0f69074bf893b283d7e0cf93e2bf20a8
+ARG DOTNET_SHA512_ARM64=8a49694501bb67f35be0d345fec4ec660b7e311e6d31cde48e2699cc94cbd901d71dc5aef61a42bc35883e0175883cc2599f7f6ff4af3525381b7d7b8342bef5
 RUN if [ "$INSTALL_DOTNET" = "true" ]; then \
-      apt-get update && apt-get install -y wget libicu-dev && \
-      dpkgArch="$(dpkg --print-architecture)"; \
-      case "${dpkgArch}" in \
-        amd64) DOTNET_ARCH='x64';; \
-        arm64) DOTNET_ARCH='arm64';; \
+      set -eux; \
+      apt-get update && apt-get install -y libicu-dev && \
+      case "$(dpkg --print-architecture)" in \
+        amd64) DOTNET_ARCH='x64'; SHA="${DOTNET_SHA512_AMD64}";; \
+        arm64) DOTNET_ARCH='arm64'; SHA="${DOTNET_SHA512_ARM64}";; \
+        *) echo "unsupported architecture for .NET: $(dpkg --print-architecture)" >&2; exit 1;; \
       esac; \
-      wget https://dot.net/v1/dotnet-install.sh -O /tmp/dotnet-install.sh && \
-      chmod +x /tmp/dotnet-install.sh && \
-      /tmp/dotnet-install.sh --channel ${DOTNET_VERSION} --install-dir /usr/share/dotnet --architecture $DOTNET_ARCH && \
+      tarball="dotnet-sdk-${DOTNET_VERSION}-linux-${DOTNET_ARCH}.tar.gz"; \
+      curl --proto '=https' --tlsv1.2 -fsSLO "https://builds.dotnet.microsoft.com/dotnet/Sdk/${DOTNET_VERSION}/${tarball}" && \
+      echo "${SHA}  ${tarball}" | sha512sum --check && \
+      mkdir -p /usr/share/dotnet && \
+      tar -xzf "${tarball}" -C /usr/share/dotnet && \
       ln -s /usr/share/dotnet/dotnet /usr/bin/dotnet && \
-      rm /tmp/dotnet-install.sh && \
+      rm -f "${tarball}" && \
       rm -rf /var/lib/apt/lists/* && \
       dotnet --version ; \
     fi
