@@ -372,7 +372,7 @@ func testCredentialsDir(t *testing.T, appID string, installationID int64) string
 	if err := os.WriteFile(filepath.Join(dir, "appID"), []byte(appID), 0o600); err != nil {
 		t.Fatalf("write appID: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "installationID"), []byte(fmt.Sprintf("%d", installationID)), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "installationID"), fmt.Appendf(nil, "%d", installationID), 0o600); err != nil {
 		t.Fatalf("write installationID: %v", err)
 	}
 	// Copy a valid PEM key so TokenProvider can sign JWTs.

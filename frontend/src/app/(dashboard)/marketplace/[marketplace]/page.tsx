@@ -24,5 +24,7 @@ export default async function SkillsPage({ params, searchParams }: Props) {
     }
   }
 
-  return <SkillsShell marketplace={marketplace} skills={skills} search={search ?? ''} error={error} />;
+  return (
+    <SkillsShell marketplace={marketplace} skills={skills} search={search ?? ''} error={error} />
+  );
 }

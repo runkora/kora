@@ -311,10 +311,10 @@ func TestControllerReadFailures(t *testing.T) {
 	slug := handlerSource.MarketplaceSlug
 	for _, target := range []string{"/skills", "/skills/" + slug + "__react-expert"} {
 		for _, tc := range []struct {
-			name                          string
-			getErr, crawlErr, setErr      error
-			contentErr                    error
-			code, crawls, writes          int
+			name                     string
+			getErr, crawlErr, setErr error
+			contentErr               error
+			code, crawls, writes     int
 		}{
 			{"Redis read", fmt.Errorf("private: %w", ErrRedisUnavailable), nil, nil, nil, http.StatusServiceUnavailable, 0, 0},
 			{"GitHub outage", nil, fmt.Errorf("private: %w", ghclient.ErrUnavailable), nil, nil, http.StatusServiceUnavailable, 1, 0},

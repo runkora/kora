@@ -13,5 +13,7 @@ interface SkillShellProps {
 }
 
 export function SkillShell({ marketplace, skillName, skill, error }: SkillShellProps) {
-  return <SkillDetailPage marketplace={marketplace} skillName={skillName} skill={skill} error={error} />;
+  return (
+    <SkillDetailPage marketplace={marketplace} skillName={skillName} skill={skill} error={error} />
+  );
 }

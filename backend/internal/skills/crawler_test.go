@@ -457,8 +457,8 @@ func TestFetchSkillContent(t *testing.T) {
 		docBody := "# Error Handling\n- handle errors\n"
 		github := &fakeGitHubTreeClient{
 			contents: map[string]string{
-				"skills/react-expert/SKILL.md":              body,
-				"skills/react-expert/resources/errors.md":   docBody,
+				"skills/react-expert/SKILL.md":            body,
+				"skills/react-expert/resources/errors.md": docBody,
 			},
 		}
 		c := newTestCrawler(github, &fakeGitHubTokenProvider{token: "test-token"})

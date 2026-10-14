@@ -126,11 +126,18 @@ func (c *Crawler) findSkillFolders(ctx context.Context, source MarketplaceSource
 	return skills
 }
 
-// assignResourceDocs is the second pass of FetchTree. It collects resource
-// documents: any .md file (not SKILL.md) inside a skill folder or its
-// subfolders. When multiple skill folders nest, the file is assigned to the
-// most specific (longest) match.
-func assignResourceDocs(skills map[string]skillFilePath, files []ghclient.TreeEntry) {
+	// Second pass: collect resource documents — any .md file (not SKILL.md)
+	// inside a skill folder or its subfolders. When multiple skill folders
+	// nest, the file is assigned to the most specific (longest) match.
+	collectResourceDocs(files, skills)
+
+	return skills, nil
+}
+
+func collectResourceDocs(
+	files []ghclient.TreeEntry,
+	skills map[string]skillFilePath,
+) {
 	for _, file := range files {
 		if file.Type != "blob" || path.Base(file.Path) == "SKILL.md" {
 			continue
@@ -138,25 +145,22 @@ func assignResourceDocs(skills map[string]skillFilePath, files []ghclient.TreeEn
 		if !strings.HasSuffix(file.Path, ".md") {
 			continue
 		}
-		bestFolder := deepestSkillFolder(skills, path.Dir(file.Path))
+
+		fileDir := path.Dir(file.Path)
+		bestFolder := ""
+		for folder := range skills {
+			if strings.HasPrefix(fileDir+"/", folder+"/") &&
+				len(folder) > len(bestFolder) {
+				bestFolder = folder
+			}
+		}
+
 		if bestFolder != "" {
 			fp := skills[bestFolder]
 			fp.docPaths = append(fp.docPaths, file.Path)
 			skills[bestFolder] = fp
 		}
 	}
-}
-
-// deepestSkillFolder returns the longest skill folder that contains fileDir,
-// or "" when no skill folder contains it.
-func deepestSkillFolder(skills map[string]skillFilePath, fileDir string) string {
-	bestFolder := ""
-	for folder := range skills {
-		if strings.HasPrefix(fileDir+"/", folder+"/") && len(folder) > len(bestFolder) {
-			bestFolder = folder
-		}
-	}
-	return bestFolder
 }
 
 // FetchSkills downloads the SKILL.md of every skill that FetchTree found and
@@ -240,16 +244,12 @@ func (c *Crawler) FetchSkillContent(ctx context.Context, source MarketplaceSourc
 	all = append(all, entry.Path)
 	all = append(all, entry.DocPaths...)
 
-	capacity := int64(len(all))
-	if capacity > perRepoCap {
-		capacity = perRepoCap
-	}
+	capacity := min(int64(len(all)), perRepoCap)
 	perCallSem := semaphore.NewWeighted(capacity)
 
 	contents := make([]string, len(all))
 	g, gctx := errgroup.WithContext(ctx)
 	for i, filePath := range all {
-		i, filePath := i, filePath
 		g.Go(func() error {
 			raw, err := c.fetchRaw(gctx, token, source, filePath, perCallSem)
 			if err != nil {
