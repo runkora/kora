@@ -99,4 +99,5 @@ jobs:
           theme-product-name-newline.yaml|outside the Hades product-name bounds
           theme-product-name-long.yaml|must be 1 to 40 characters after trimming
           theme-product-name-blank.yaml|must be 1 to 40 characters after trimming
+          theme-product-name-null.yaml|cannot be set to nothing
           CASES

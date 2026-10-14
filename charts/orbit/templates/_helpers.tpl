@@ -465,7 +465,8 @@ root context.
 {{/*
 The product name the backend services render: the document's productName,
 trimmed as the frontend's validator trims it, or kora when no theme is
-configured or the document does not set one. The render fails when the document
+configured or the document omits the key. A key set to null fails, as it does in
+the frontend's validator. The render fails when the document
 is not a YAML map (fromYaml reports a parse error as an Error key) and when the
 name is outside the Hades product-name bounds, which files/hades-product-name.json
 carries, copied from the Hades manifest by `make hades-chart-rules` so the chart
@@ -480,8 +481,11 @@ init container. Take the root context.
 {{- if hasKey $doc "Error" -}}
 {{- fail (printf "theme.document does not parse as a YAML map: %s" (get $doc "Error")) -}}
 {{- end -}}
+{{- if hasKey $doc "productName" -}}
 {{- $p := get $doc "productName" -}}
-{{- if not (kindIs "invalid" $p) -}}
+{{- if kindIs "invalid" $p -}}
+{{- fail "theme.document productName cannot be set to nothing; omit it to keep the default" -}}
+{{- end -}}
 {{- if not (kindIs "string" $p) -}}
 {{- fail (printf "theme.document productName must be a string, got %s" (kindOf $p)) -}}
 {{- end -}}
@@ -528,14 +532,14 @@ imagePullSecrets:
 {{- end }}
 
 {{/*
-The theme mounts: the bundle image at /etc/orbit/theme, from the image's
-/theme directory, and the chart's copy of the document beside it. The init
+The theme mounts: the bundle image at /etc/orbit/theme, whose root is the
+bundle root (an image volume exposes the image's root, so no subPath), and the
+chart's copy of the document beside it. The init
 container and the frontend container mount both. Take the root context.
 */}}
 {{- define "orbit.themeVolumeMounts" -}}
 - name: theme-bundle
   mountPath: /etc/orbit/theme
-  subPath: theme
   readOnly: true
 - name: theme-document
   mountPath: /etc/orbit/theme-document
