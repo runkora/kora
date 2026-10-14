@@ -263,7 +263,7 @@ After Phase 1 banned layout and structural HTML elements, AI coding agents were 
 - `no-raw-list-elements` and `no-raw-form-elements` ESLint rules are active and error-level.
 - Both rules are in the `no-hades-disable-comment` guard set.
 - Zero instances of `<ul>`, `<ol>`, `<li>`, `<form>`, `<label>`, `<input>`, `<output>` remain in `src/app/**` or `src/components/**`.
-- All five new Hades components are exported from the `@orbit/hades` barrel.
+- All five new Hades components are exported from the `@runkora/hades` barrel.
 - `make check` passes with no lint errors.
 
 ### Implementation status

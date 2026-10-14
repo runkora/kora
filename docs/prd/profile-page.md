@@ -218,7 +218,7 @@ The profile page displays three cards in a single-column layout:
 
 ### Internal Dependencies
 
-- **Hades Design System** (`@orbit/hades`): Popover, Card, Badge, Stack, Text, Skeleton, Icon components (all exist)
+- **Hades Design System** (`@runkora/hades`): Popover, Card, Badge, Stack, Text, Skeleton, Icon components (all exist)
 - **Session infrastructure** (`@orbit/server/session`): `getSession()` server-side, `useSession()` client-side (exists)
 - **Policy evaluate/explain endpoint**: `GET /api/policy/evaluate/explain` (exists)
 - **Identity users endpoint**: `GET /identity/users/{id}` (exists)

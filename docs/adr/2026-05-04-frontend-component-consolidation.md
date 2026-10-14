@@ -582,7 +582,7 @@ When creating or extracting a UI component, determine its tier:
      Place in frontend/src/packages/hades/src/components/.
      Must follow [terra-frontend-design-system](2026-03-25-terra-frontend-design-system.md) authoring conventions: data-slot, React.forwardRef,
      cva/cn, React.ComponentPropsWithoutRef, Storybook story required.
-     Import via: import { ComponentName } from '@orbit/hades'
+     Import via: import { ComponentName } from '@runkora/hades'
 
    Has domain knowledge → Tier 2 (app-level shared).
      Place in frontend/src/components/.

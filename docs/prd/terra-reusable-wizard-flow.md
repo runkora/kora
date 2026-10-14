@@ -42,7 +42,7 @@ kora's builder-modal pattern is now established as the right shape for multi-ste
 
 ### Primary Goals
 
-1. Promote the wizard chrome, step rail, and review summary card to Hades Tier 1 as a single compound component: `import { Wizard } from '@orbit/hades'`.
+1. Promote the wizard chrome, step rail, and review summary card to Hades Tier 1 as a single compound component: `import { Wizard } from '@runkora/hades'`.
 2. Migrate both existing wizards to consume the promoted components, eliminating the duplicated implementations.
 3. Ensure the promoted API is opinionated enough to keep future wizards visually consistent, without constraining how they manage state.
 
@@ -191,7 +191,7 @@ Both existing implementations are replaced by the Hades components in the same c
 ### Functional Requirements
 
 **Must Have (P0):**
-- [ ] `Wizard` and all sub-components exported from `@orbit/hades`.
+- [ ] `Wizard` and all sub-components exported from `@runkora/hades`.
 - [ ] Each sub-component: `forwardRef`, `cva` variants where applicable, `data-slot`, `.displayName`, co-located story with `tags: ['autodocs']`.
 - [ ] `Wizard`'s `rail` prop typed as `React.ReactElement<WizardRailProps>` — passing non-Rail content is a TypeScript error.
 - [ ] Row property naming normalised to `{ label, value, mono? }` across both wizards.

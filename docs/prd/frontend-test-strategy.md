@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-The kora frontend has zero test coverage and no test infrastructure. With the Hades design system (`@orbit/hades`) established as a stable, independent workspace package, and the application growing beyond a placeholder page — with a working OIDC auth flow, a BFF session layer, and a dashboard shell — shipping without a test strategy means every change carries unquantified regression risk.
+The kora frontend has zero test coverage and no test infrastructure. With the Hades design system (`@runkora/hades`) established as a stable, independent workspace package, and the application growing beyond a placeholder page — with a working OIDC auth flow, a BFF session layer, and a dashboard shell — shipping without a test strategy means every change carries unquantified regression risk.
 
 This PRD defines a layered, package-aware test strategy that gives each layer of the frontend stack — workspace packages, app components, BFF routes, and end-to-end flows — the right type of test, the right tooling, and a clear execution model that scales as the monorepo grows. A central principle is that **integration tests prioritise manipulating real application state over mocking** — tests intercept at the HTTP boundary via MSW, not at the module level, so the actual component logic and data-fetching pipeline are exercised. Where mocking is unavoidable, it is centralised in a single, typed `test-utils/` directory shared across all test tiers.
 
@@ -22,7 +22,7 @@ This PRD defines a layered, package-aware test strategy that gives each layer of
 
 The frontend codebase contains:
 
-- **`frontend/src/packages/hades/`** (`@orbit/hades`) — a fully implemented design system with 21+ component families, a token system, and Storybook stories for every component. The package already has `vite@6.3.5`, `@vitejs/plugin-react`, `@storybook/addon-a11y`, and `@storybook/addon-interactions` installed. There are no unit or component tests.
+- **`frontend/src/packages/hades/`** (`@runkora/hades`) — a fully implemented design system with 21+ component families, a token system, and Storybook stories for every component. The package already has `vite@6.3.5`, `@vitejs/plugin-react`, `@storybook/addon-a11y`, and `@storybook/addon-interactions` installed. There are no unit or component tests.
 - **`frontend/src/app/`** — a Next.js 16 App Router application with a dashboard, a working OIDC auth flow, and BFF API routes under `src/app/api/` (session creation, HRD discover, logout). Page-scoped components live in colocated `_components/` directories (e.g., `app/(dashboard)/_components/`, `app/(auth)/login/_components/`). There are no tests.
 - **`frontend/src/components/`** — shared app-level components (`HealthStatus`, `LogoutButton`, `links/`). There are no tests.
 - **`frontend/src/lib/`** — shared utilities including `lib/routing/` (`api-routes.ts`, `routes.ts`, `external-urls.ts`) and `lib/oidc-client.ts`. There are no tests.
@@ -54,7 +54,7 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 ### Primary Goals
 
 1. Establish a **layered, package-aware test architecture** that assigns the right test type to the right layer: unit tests for pure logic, component tests for rendering and interaction, integration tests for BFF routes and page-level components, and end-to-end tests for critical user flows.
-2. Give **Hades (`@orbit/hades`) its own isolated test suite** that runs entirely within the package, with no dependency on the Next.js app. Tests must be fast enough to run on every save during component development.
+2. Give **Hades (`@runkora/hades`) its own isolated test suite** that runs entirely within the package, with no dependency on the Next.js app. Tests must be fast enough to run on every save during component development.
 3. Give the **Next.js application** a test suite covering BFF route handlers, shared components, and server-side modules using a Next.js-compatible test runner.
 4. Establish **integration testing that prioritises real application state over module mocking** — tests should intercept at the HTTP boundary (via MSW), not replace entire modules, so the actual component logic and data-fetching pipeline are exercised.
 5. Provide a **single, canonical `test-utils/` location** for all shared mocking utilities — MSW handlers, factory functions, and provider wrappers — typed against real application interfaces. Ad-hoc inline mocks are not acceptable.
@@ -171,7 +171,7 @@ Tier 1 — Unit (pure logic)
   Speed:  < 100ms per file
 
 Tier 2 — Component (rendering + interaction)
-  Scope:  @orbit/hades components
+  Scope:  @runkora/hades components
   Runner: Vitest + React Testing Library + happy-dom
   Speed:  < 10s for full Hades suite (cold start)
 
@@ -423,7 +423,7 @@ If a story breaks because of a component change, that is caught by the Vitest co
 
 ### In Scope
 
-- Vitest configuration for `@orbit/hades` (Hades package)
+- Vitest configuration for `@runkora/hades` (Hades package)
 - Vitest configuration for the Next.js app (covering `src/app/`, `src/components/`, `src/server/`, `src/lib/`, `src/shared/`)
 - React Testing Library setup for both test environments
 - `test-utils/` directory with MSW server, typed handlers, factory functions, and `renderWithProviders`
@@ -525,8 +525,8 @@ If a story breaks because of a component change, that is caught by the Vitest co
 
 ### Internal Dependencies
 
-- **`vite@6.3.5`** (`@orbit/hades`): Already installed. Vitest extends this directly.
-- **`@vitejs/plugin-react@4.5.2`** (`@orbit/hades`): Already installed. Required for JSX transform.
+- **`vite@6.3.5`** (`@runkora/hades`): Already installed. Vitest extends this directly.
+- **`@vitejs/plugin-react@4.5.2`** (`@runkora/hades`): Already installed. Required for JSX transform.
 - **`next@16.1.6`** (app): The test environment must be compatible with Next.js App Router patterns — dynamic imports, `server-only` guard, `NextResponse`.
 - **`react@19.2.3`** (app): React 19 introduces changes to `act()` and concurrent rendering. RTL version must be compatible.
 - **`pnpm-workspace.yaml`** (`frontend/`): Declares `packages: ['src/packages/*']`. The root `make` targets run tests across packages via separate `pnpm run test:unit`, `pnpm run test:integration`, and `pnpm exec playwright test` invocations — **not** a single `pnpm -r run test` call, because integration and E2E tests require different setup and must be attributable separately in CI.
@@ -578,7 +578,7 @@ All new packages installed as `devDependencies`.
 
 **Why not chosen:**
 - Hades already uses Vite as its build and Storybook bundler. Jest requires a separate Babel/SWC transform pipeline alongside the existing Vite pipeline — two transform stacks for the same code.
-- Vitest's module resolution is identical to Vite's, meaning path aliases (`@orbit/hades`, `@orbit/test-utils`, `@/server/`) work without additional configuration.
+- Vitest's module resolution is identical to Vite's, meaning path aliases (`@runkora/hades`, `@orbit/test-utils`, `@/server/`) work without additional configuration.
 - Jest's ESM support is still experimental and requires `--experimental-vm-modules`. The codebase is fully ESM and imports ESM-only packages (`oidc-client-ts`).
 - Vitest is significantly faster for watch-mode development due to HMR-aware test reruns.
 
@@ -702,7 +702,7 @@ All open questions have been resolved.
 
 | Path | Description |
 |------|-------------|
-| `frontend/src/packages/hades/` | `@orbit/hades` workspace package |
+| `frontend/src/packages/hades/` | `@runkora/hades` workspace package |
 | `frontend/src/packages/hades/vite.config.ts` | Existing Vite config (Vitest will extend this) |
 | `frontend/src/packages/hades/package.json` | Already has `vite`, `@vitejs/plugin-react`, `@storybook/addon-a11y` |
 | `frontend/src/components/health-status.tsx` | Shared component — primary integration test target |
@@ -820,12 +820,12 @@ Hades has no integration tests (it is a pure rendering library with no HTTP call
 ```makefile
 # Run only Hades' component tests (happy-dom, Hades' own vitest.config.ts)
 frontend-test-hades:
-	cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run test:unit
 
 # Run all unit tests: Hades first, then the app (jsdom, vitest.config.unit.ts)
 # App config excludes src/packages/** so Hades tests never run under jsdom
 frontend-test-unit:
-	cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
+	cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades run test:unit
 	cd $(FRONTEND_DIR) && pnpm run test:unit
 
 frontend-test-integration:
