@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/logging"
@@ -117,6 +119,27 @@ func makeEntries(names ...string) []SkillEntry {
 	return out
 }
 
+// listAllPages follows NextCursor until exhausted and returns each batch.
+func listAllPages(t *testing.T, svc *Service, search string) [][]SkillSummary {
+	t.Helper()
+	var pages [][]SkillSummary
+	cursor := ""
+	for i := 0; ; i++ {
+		if i > 100 {
+			t.Fatal("pagination did not terminate")
+		}
+		res, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", search, cursor)
+		if err != nil {
+			t.Fatalf("page %d: unexpected error: %v", i, err)
+		}
+		pages = append(pages, res.Skills)
+		if res.NextCursor == "" {
+			return pages
+		}
+		cursor = res.NextCursor
+	}
+}
+
 // --- ListMarketplaceSkills ---
 
 func TestListMarketplaceSkills_ReturnsTenantNames(t *testing.T) {
@@ -144,12 +167,15 @@ func TestListSkills_CacheHit(t *testing.T) {
 	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": entries}}
 	svc := newTestService(cache, &fakeCrawler{})
 
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "")
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Skills) != 2 {
 		t.Errorf("got %d skills, want 2", len(result.Skills))
+	}
+	if result.NextCursor != "" {
+		t.Errorf("NextCursor = %q, want empty", result.NextCursor)
 	}
 }
 
@@ -159,7 +185,7 @@ func TestListSkills_CacheMiss_CrawlsAndCaches(t *testing.T) {
 	crawler := &fakeCrawler{entries: entries}
 	svc := newTestService(cache, crawler)
 
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "")
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -171,10 +197,26 @@ func TestListSkills_CacheMiss_CrawlsAndCaches(t *testing.T) {
 	}
 }
 
+func TestListSkills_CacheMiss_WritesSortedEntries(t *testing.T) {
+	cache := &fakeCache{}
+	crawler := &fakeCrawler{entries: makeEntries("charlie", "alpha", "bravo")}
+	svc := newTestService(cache, crawler)
+
+	if _, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", ""); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	cached := cache.marketplace["org__repo"]
+	if !slices.IsSortedFunc(cached, func(a, b SkillEntry) int {
+		return strings.Compare(a.SkillSlug, b.SkillSlug)
+	}) {
+		t.Errorf("cached entries not sorted by SkillSlug: %+v", cached)
+	}
+}
+
 func TestListSkills_MarketplaceNotFound(t *testing.T) {
 	svc := newTestService(&fakeCache{}, &fakeCrawler{})
 
-	_, err := svc.ListSkills(context.Background(), "tenant-a", "unknown__slug", "")
+	_, err := svc.ListSkills(context.Background(), "tenant-a", "unknown__slug", "", "")
 	if !errors.Is(err, ErrMarketplaceNotFound) {
 		t.Errorf("got %v, want ErrMarketplaceNotFound", err)
 	}
@@ -183,7 +225,7 @@ func TestListSkills_MarketplaceNotFound(t *testing.T) {
 func TestListSkills_WrongTenantNotFound(t *testing.T) {
 	svc := newTestService(&fakeCache{}, &fakeCrawler{})
 
-	_, err := svc.ListSkills(context.Background(), "tenant-b", "org__repo", "")
+	_, err := svc.ListSkills(context.Background(), "tenant-b", "org__repo", "", "")
 	if !errors.Is(err, ErrMarketplaceNotFound) {
 		t.Errorf("got %v, want ErrMarketplaceNotFound", err)
 	}
@@ -193,7 +235,7 @@ func TestListSkills_RedisUnavailable(t *testing.T) {
 	cache := &fakeCache{getErr: fmt.Errorf("connection refused: %w", ErrRedisUnavailable)}
 	svc := newTestService(cache, &fakeCrawler{})
 
-	_, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "")
+	_, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", "")
 	if !errors.Is(err, ErrRedisUnavailable) {
 		t.Errorf("got %v, want ErrRedisUnavailable", err)
 	}
@@ -204,7 +246,7 @@ func TestListSkills_Search(t *testing.T) {
 	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": entries}}
 	svc := newTestService(cache, &fakeCrawler{})
 
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "react")
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "react", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -220,13 +262,116 @@ func TestListSkills_ServerCapApplied(t *testing.T) {
 	}
 	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries(names...)}}
 	svc := newTestService(cache, &fakeCrawler{})
-
-	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "")
+	result, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(result.Skills) != serverCap {
 		t.Errorf("got %d skills, want serverCap %d", len(result.Skills), serverCap)
+	}
+	if result.NextCursor == "" {
+		t.Error("NextCursor empty, want set when more than serverCap skills exist")
+	}
+}
+
+func TestListSkills_ExactlyServerCap_NoNextCursor(t *testing.T) {
+	names := make([]string, serverCap)
+	for i := range names {
+		names[i] = fmt.Sprintf("s%03d", i)
+	}
+	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries(names...)}}
+	svc := newTestService(cache, &fakeCrawler{})
+
+	res, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Skills) != serverCap || res.NextCursor != "" {
+		t.Errorf("got %d skills, cursor %q; want %d and empty cursor", len(res.Skills), res.NextCursor, serverCap)
+	}
+}
+
+func TestListSkills_CursorWalksAllSkillsOnce(t *testing.T) {
+	// Insert in reverse order to prove the service sorts before paging.
+	names := make([]string, 450)
+	for i := range names {
+		names[i] = fmt.Sprintf("s%03d", len(names)-1-i)
+	}
+	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries(names...)}}
+	svc := newTestService(cache, &fakeCrawler{})
+
+	pages := listAllPages(t, svc, "")
+
+	sizes := make([]int, len(pages))
+	seen := map[string]bool{}
+	for i, p := range pages {
+		sizes[i] = len(p)
+		for _, s := range p {
+			if seen[s.SkillSlug] {
+				t.Fatalf("duplicate skill across pages: %s", s.SkillSlug)
+			}
+			seen[s.SkillSlug] = true
+		}
+	}
+	if !slices.Equal(sizes, []int{200, 200, 50}) {
+		t.Errorf("page sizes = %v, want [200 200 50]", sizes)
+	}
+	if len(seen) != 450 {
+		t.Errorf("saw %d unique skills, want 450", len(seen))
+	}
+}
+
+func TestListSkills_CursorWithSearch_CoversWholeMarketplace(t *testing.T) {
+	// 500 skills, every other one matches → 250 matches spread across the set.
+	names := make([]string, 500)
+	for i := range names {
+		if i%2 == 0 {
+			names[i] = fmt.Sprintf("react-%03d", i)
+		} else {
+			names[i] = fmt.Sprintf("go-%03d", i)
+		}
+	}
+	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries(names...)}}
+	svc := newTestService(cache, &fakeCrawler{})
+
+	pages := listAllPages(t, svc, "REACT")
+
+	total := 0
+	for _, p := range pages {
+		for _, s := range p {
+			if !strings.Contains(s.Name, "react") {
+				t.Fatalf("non-matching skill returned: %s", s.Name)
+			}
+		}
+		total += len(p)
+	}
+	if len(pages) != 2 || total != 250 {
+		t.Errorf("got %d pages / %d skills, want 2 / 250", len(pages), total)
+	}
+}
+
+func TestListSkills_InvalidCursor(t *testing.T) {
+	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries("alpha")}}
+	svc := newTestService(cache, &fakeCrawler{})
+
+	_, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", "!!not-base64!!")
+	if !errors.Is(err, ErrInvalidCursor) {
+		t.Errorf("got %v, want ErrInvalidCursor", err)
+	}
+}
+
+func TestListSkills_CursorForRemovedSkill_ResumesAtNext(t *testing.T) {
+	// "charlie" was on the previous page but has since been removed.
+	cache := &fakeCache{marketplace: map[string][]SkillEntry{"org__repo": makeEntries("alpha", "bravo", "delta")}}
+	svc := newTestService(cache, &fakeCrawler{})
+
+	cursor := encodeCursor(svcTestSource.MarketplaceSlug + "__charlie")
+	res, err := svc.ListSkills(context.Background(), "tenant-a", "org__repo", "", cursor)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(res.Skills) != 1 || res.Skills[0].Name != "delta" {
+		t.Errorf("got %+v, want [delta]", res.Skills)
 	}
 }
 
