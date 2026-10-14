@@ -41,6 +41,12 @@ export interface ThemeReport {
   readonly ignored: readonly IgnoredEntry[];
   /** Identity values the theme leaves to the kora default: `productName`, `logo.dark`, ... */
   readonly fallThrough: readonly string[];
+  /**
+   * `fallThrough` again when the theme sets some identity values but not all
+   * (two brands on screen); empty when it sets none or all. Advisory: never
+   * affects `ok`.
+   */
+  readonly mixedIdentity: readonly string[];
 }
 
 export type ValidationResult =

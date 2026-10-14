@@ -57,7 +57,7 @@ export async function validateTheme(
   const ignored: IgnoredEntry[] = [];
   const emptyReport = (): ThemeReport => ({
     ignored,
-    fallThrough: fallThrough(manifest, undefined, {}),
+    ...identityReport(manifest, undefined, {}),
   });
 
   let parsed: unknown;
@@ -98,7 +98,7 @@ export async function validateTheme(
   }
 
   const assets = await readAssets(slots, manifest, readAsset, errors);
-  const report: ThemeReport = { ignored, fallThrough: fallThrough(manifest, productName, slots) };
+  const report: ThemeReport = { ignored, ...identityReport(manifest, productName, slots) };
 
   if (errors.length > 0 || contractVersion === null) {
     return { ok: false, errors, report };
@@ -403,25 +403,30 @@ async function readAssets(
 /**
  * Identity values the theme leaves to the kora default: the product name and
  * every mode of every image slot. The PRD's identity goal is met only when
- * this list is empty.
+ * this list is empty. `mixedIdentity` repeats the list when the theme sets some
+ * identity values but not all, so a visitor would see two brands at once; a
+ * theme that sets none keeps kora's identity on purpose and is not mixed.
  */
-function fallThrough(
+function identityReport(
   manifest: ThemeManifest,
   productName: string | undefined,
   slots: Readonly<Record<string, ThemeSlot>>,
-): string[] {
-  const out: string[] = [];
-  if (productName === undefined) out.push('productName');
+): Pick<ThemeReport, 'fallThrough' | 'mixedIdentity'> {
+  const fallThrough: string[] = [];
+  let total = 1;
+  if (productName === undefined) fallThrough.push('productName');
   for (const slot of manifest.slots) {
     if (slot.kind !== 'image') continue;
     const set = slots[slot.name];
     for (const mode of slot.modes) {
+      total++;
       if (!(set && set.kind === 'image' && set.paths[mode] !== undefined)) {
-        out.push(`${slot.name}.${mode}`);
+        fallThrough.push(`${slot.name}.${mode}`);
       }
     }
   }
-  return out;
+  const mixed = fallThrough.length > 0 && fallThrough.length < total;
+  return { fallThrough, mixedIdentity: mixed ? fallThrough : [] };
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

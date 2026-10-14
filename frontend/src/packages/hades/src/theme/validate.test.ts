@@ -61,7 +61,7 @@ describe('validateTheme: a full theme', () => {
     expect([...result.theme.assets.keys()].sort()).toEqual(Object.keys(FULL_BUNDLE).sort());
     expect(result.theme.assets.get('assets/sans.woff2')).toBe(WOFF2);
     expect(result.theme.hash).toMatch(/^[0-9a-f]{64}$/);
-    expect(result.report).toEqual({ ignored: [], fallThrough: [] });
+    expect(result.report).toEqual({ ignored: [], fallThrough: [], mixedIdentity: [] });
   });
 
   it('accepts JSON, which is YAML', async () => {
@@ -122,6 +122,78 @@ describe('validateTheme: partial themes and the report', () => {
     );
     expect(result.ok).toBe(false);
     expect(result.report.ignored).toEqual([{ kind: 'token', name: '--hades-raw-future' }]);
+  });
+});
+
+describe('validateTheme: mixed identity', () => {
+  const ALL = ['productName', 'favicon.dark', 'favicon.light', 'logo.dark', 'logo.light'];
+
+  it('is empty when no identity value is set', async () => {
+    const result = await run('contractVersion: "1.0"\n', {});
+    expect(result.ok).toBe(true);
+    expect(result.report.fallThrough).toEqual(ALL);
+    expect(result.report.mixedIdentity).toEqual([]);
+  });
+
+  it('is empty when every identity value is set', async () => {
+    const result = await run(FULL_DOCUMENT);
+    expect(result.ok).toBe(true);
+    expect(result.report.mixedIdentity).toEqual([]);
+  });
+
+  it('lists the fall-through values when only the product name is set', async () => {
+    const result = await run('contractVersion: "1.0"\nproductName: Meridian\n', {});
+    expect(result.ok).toBe(true);
+    expect(result.report.mixedIdentity).toEqual([
+      'favicon.dark',
+      'favicon.light',
+      'logo.dark',
+      'logo.light',
+    ]);
+    expect(result.report.mixedIdentity).toEqual(result.report.fallThrough);
+  });
+
+  it('lists the fall-through values when only the dark logo is set', async () => {
+    const result = await run(
+      `contractVersion: "1.0"\nslots:\n  logo:\n    dark: assets/logo-dark.svg\n`,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.report.mixedIdentity).toEqual([
+      'productName',
+      'favicon.dark',
+      'favicon.light',
+      'logo.light',
+    ]);
+  });
+
+  it('lists the fall-through values when only the dark favicon is set', async () => {
+    const result = await run(
+      `contractVersion: "1.0"\nslots:\n  favicon:\n    dark: assets/favicon.svg\n`,
+    );
+    expect(result.ok).toBe(true);
+    expect(result.report.mixedIdentity).toEqual([
+      'productName',
+      'favicon.light',
+      'logo.dark',
+      'logo.light',
+    ]);
+  });
+
+  it('is empty for a colours-only theme', async () => {
+    const result = await run(
+      'contractVersion: "1.0"\ntokens:\n  --hades-raw-black:\n    dark: "#000"\n',
+      {},
+    );
+    expect(result.ok).toBe(true);
+    expect(result.report.mixedIdentity).toEqual([]);
+  });
+
+  it('is empty for a fonts-only theme', async () => {
+    const result = await run(
+      'contractVersion: "1.0"\nslots:\n  font.sans: assets/sans.woff2\n',
+    );
+    expect(result.ok).toBe(true);
+    expect(result.report.mixedIdentity).toEqual([]);
   });
 });
 
