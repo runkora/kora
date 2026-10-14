@@ -41,9 +41,7 @@ interface TriggersPageProps {
   triggers: TriggerRow[];
   deliveries: DeliveryRow[];
   /**
-   * Cursor for the page after `deliveries`, or null when the first page is all
-   * there is. Comes from the same server fetch, so the first Load more does not
-   * have to re-read page one to discover where it ended.
+   * Cursor for the page after `deliveries`, null when there is no next page.
    */
   initialDeliveryCursor?: string | null;
   agents: AgentOption[];
@@ -113,16 +111,9 @@ export function TriggersPage({
 
   // ── Deliveries: status filter and paging ──────────────────────────────────────
   //
-  // The filter and the page both belong to the server now: filtering in the
-  // browser could only ever narrow the rows already loaded, so "failed" meant
-  // "failed among the most recent page", and older failures were unreachable.
-  // The grid keeps its own page controls; this list is the set they page over,
-  // and Load more extends it.
-  //
   // selectedStatus is what the control shows; page.applied is what the rows on
-  // screen actually are. They differ while a request is in flight, and keeping
-  // them apart stops the grid relabelling the previous filter's rows as the new
-  // filter's answer.
+  // screen are. They differ while a request is in flight, which stops the grid
+  // relabelling the previous filter's rows as the new filter's answer.
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [page, setPage] = useState<DeliveryPageState>({
     rows: deliveries,

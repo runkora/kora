@@ -565,10 +565,8 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 		idx++
 	}
 	if len(filter.Outcome) > 0 {
-		// A delivery matches when ANY of its fan-out rows holds one of these
-		// outcomes, so the filter is an EXISTS rather than a join: a join would
-		// multiply a delivery by its matching runs and corrupt both the page
-		// size and the cursor.
+		// EXISTS, not a join: a join multiplies a delivery by its matching runs
+		// and corrupts both the page size and the cursor.
 		query += fmt.Sprintf(`
 		AND EXISTS (
 			SELECT 1 FROM trigger_delivery_runs dr
@@ -589,9 +587,8 @@ func (r *postgresRepository) ListDeliveries(ctx context.Context, tenantID string
 		)`
 	}
 	if c := filter.Cursor; c != nil {
-		// Row-tuple predicate gives a stable page boundary even when two
-		// deliveries share received_at. Strictly-less-than excludes the anchor
-		// row itself, so a page never repeats the row it started from.
+		// Row tuple, so a page boundary holds when two deliveries share
+		// received_at. Strict < excludes the anchor row.
 		query += fmt.Sprintf(` AND (received_at, id) < ($%d::timestamptz, $%d)`, idx, idx+1)
 		args = append(args, c.ReceivedAt, c.ID)
 		idx += 2

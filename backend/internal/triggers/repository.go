@@ -108,9 +108,8 @@ type DeliveryStore interface {
 	// the repeat is the entire point of writing it.
 	InsertDelivery(ctx context.Context, d *Delivery) (inserted bool, err error)
 	UpdateDeliveryOutcome(ctx context.Context, id, status string, triggerID, runID, errMsg *string) error
-	// ListDeliveries returns one keyset-paginated page, newest first, and
-	// whether another page follows. It fetches limit+1 rows to answer that
-	// without a COUNT(*) over the filtered set.
+	// ListDeliveries returns one keyset page, newest first, and whether another
+	// follows.
 	ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, bool, error)
 	// GetDelivery returns one delivery, scoped to the tenant that owns it.
 	GetDelivery(ctx context.Context, tenantID, id string) (*Delivery, error)
@@ -309,8 +308,7 @@ type DeliveryFilter struct {
 	// OmitPayload leaves the full payload out of each delivery. The excerpt,
 	// outcomes and runs stay.
 	OmitPayload bool
-	// Status filters on the delivery's own arrival verdict (AllDeliveryStatuses).
-	// Several values are OR-ed together.
+	// The delivery's own arrival verdict (AllDeliveryStatuses).
 	Status []string
 	// Outcome filters on the per-trigger fan-out (AllRunStatuses): a delivery
 	// matches when any of its runs holds one of these outcomes.
@@ -321,10 +319,9 @@ type DeliveryFilter struct {
 	// TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun.
 	Outcome []string
 	Limit   int
-	// Cursor is the keyset position to read from; nil means the first page.
-	//
-	// It narrows WITHIN whatever window ReceivedBefore/ReceivedAfter describe:
-	// both constrain received_at, and the two compose rather than conflict.
+	// Keyset position to read from; nil is the first page. Composes with
+	// ReceivedBefore/ReceivedAfter rather than conflicting: both constrain
+	// received_at.
 	Cursor *deliveryCursor
 }
 
