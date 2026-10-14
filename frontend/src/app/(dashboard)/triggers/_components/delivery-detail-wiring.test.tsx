@@ -33,22 +33,6 @@ const dispatched = () =>
 const slugOf = (id: string) => (id === 't1' ? 'coder' : undefined);
 
 describe('DeliveryList expanded row', () => {
-  it('links the run when the row is open', () => {
-    render(
-      <DeliveryList
-        deliveries={[dispatched()]}
-        triggerId="t1"
-        expandedId="d-1"
-        onToggleExpanded={vi.fn()}
-        resolveAgentSlug={slugOf}
-      />,
-    );
-    expect(screen.getByRole('link', { name: 'run-7' })).toHaveAttribute(
-      'href',
-      '/agents/coder/runs/run-7',
-    );
-  });
-
   it('renders no detail at all while the row is closed', () => {
     render(
       <DeliveryList

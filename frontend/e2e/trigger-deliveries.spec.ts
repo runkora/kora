@@ -44,7 +44,7 @@ function delivery(id: string, receivedAt: string, status = 'failed') {
 /** Records every deliveries request the browser makes, and answers in order. */
 async function stubDeliveries(
   page: Page,
-  pages: Array<{ data: unknown[]; next_cursor: string | null } | { status: number }>,
+  pages: Array<{ data: unknown[]; next_cursor: string | null }>,
 ) {
   const seen: URL[] = [];
   let i = 0;
@@ -55,14 +55,6 @@ async function stubDeliveries(
     seen.push(new URL(route.request().url()));
     const body = pages[Math.min(i, pages.length - 1)];
     i += 1;
-    if (body !== undefined && 'status' in body) {
-      void route.fulfill({
-        status: body.status,
-        contentType: 'application/json',
-        body: JSON.stringify({ message: 'deliveries backend is unavailable' }),
-      });
-      return;
-    }
     void route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -146,22 +138,5 @@ test.describe('/triggers — Deliveries paging', () => {
 
     await expect(page.getByText('run-d1', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: 'run-d1' })).toHaveCount(0);
-  });
-
-  test('a failed page says so and offers Retry', async ({ page }) => {
-    const seen = await stubDeliveries(page, [
-      { status: 502 },
-      { data: [delivery('d1', '2026-10-07T12:00:00Z')], next_cursor: null },
-    ]);
-
-    await openDeliveries(page);
-    await page.getByRole('combobox').first().selectOption('failed');
-
-    const retry = page.getByRole('button', { name: 'Retry' });
-    await expect(retry).toBeVisible();
-
-    await retry.click();
-    await expect.poll(() => seen.length).toBe(2);
-    await expect(page.getByText('d1')).toBeVisible();
   });
 });

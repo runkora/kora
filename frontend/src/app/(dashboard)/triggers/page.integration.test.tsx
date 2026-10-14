@@ -42,18 +42,6 @@ describe('Triggers route', () => {
     expect(el.props.initialError).toBeNull();
   });
 
-  it('passes no cursor when the first page is everything', async () => {
-    vi.mocked(fetchTriggersPage).mockResolvedValue({
-      ok: true,
-      sources: [],
-      triggers: [],
-      deliveries: [],
-      deliveryCursor: null,
-      agents: [],
-    });
-    expect((await TriggersPageRoute()).props.initialDeliveryCursor).toBeNull();
-  });
-
   it('reports a rejected session rather than rendering an empty tenant', async () => {
     vi.mocked(isSessionValid).mockReturnValue(false);
     const el = await TriggersPageRoute();

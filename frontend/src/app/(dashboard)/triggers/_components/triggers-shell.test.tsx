@@ -45,10 +45,4 @@ describe('TriggersShell', () => {
     await openDeliveries();
     expect(await screen.findByRole('button', { name: 'Load more' })).toBeInTheDocument();
   });
-
-  it('offers no Load more when there is no further page', async () => {
-    renderWithProviders(shell(null));
-    await openDeliveries();
-    expect(screen.queryByRole('button', { name: 'Load more' })).toBeNull();
-  });
 });

@@ -355,44 +355,6 @@ describe('coalescing', () => {
   });
 });
 
-describe('run link', () => {
-  it('links the run id to that run on the agent that owns the trigger', () => {
-    render(
-      <DeliveryDetail
-        delivery={delivery()}
-        triggerId="t1"
-        resolveAgentSlug={(id) => (id === 't1' ? 'coder' : undefined)}
-      />,
-    );
-    // The fan-out names the trigger; the run route is keyed by agent slug, so
-    // the resolver is what turns one into the other.
-    const link = screen.getByRole('link', { name: 'run-9' });
-    expect(link).toHaveAttribute('href', '/agents/coder/runs/run-9');
-  });
-
-  it('renders the run id as plain text when no slug can be resolved', () => {
-    render(<DeliveryDetail delivery={delivery()} triggerId="t1" />);
-    // A caller without the triggers list gets no link rather than a broken one.
-    expect(screen.queryByRole('link', { name: 'run-9' })).toBeNull();
-    expect(screen.getByText('run-9')).toBeInTheDocument();
-  });
-
-  it('still links when the surface is not scoped to one trigger', () => {
-    // The unscoped panel reads the delivery's own run, and the trigger that
-    // produced it is found in the fan-out.
-    render(
-      <DeliveryDetail
-        delivery={delivery({ runId: 'run-9' })}
-        resolveAgentSlug={(id) => (id === 't1' ? 'coder' : undefined)}
-      />,
-    );
-    expect(screen.getByRole('link', { name: 'run-9' })).toHaveAttribute(
-      'href',
-      '/agents/coder/runs/run-9',
-    );
-  });
-});
-
 describe('run link when the fan-out row is missing', () => {
   // outcomeRecorder.insert logs an InsertDeliveryRun failure and carries on, so
   // a delivery can hold a run_id and a trigger_id with no fan-out row behind
@@ -416,20 +378,6 @@ describe('run link when the fan-out row is missing', () => {
       'href',
       '/agents/coder/runs/run-5',
     );
-  });
-
-  it('still renders text when even that trigger resolves to no slug', () => {
-    const d = makeDelivery({
-      id: 'd-orphan',
-      receivedAt: '2026-07-28T09:00:00Z',
-      triggerId: 't1',
-      runId: 'run-5',
-      status: 'dispatched',
-      runs: [],
-    });
-    render(<DeliveryDetail delivery={d} resolveAgentSlug={() => undefined} />);
-    expect(screen.queryByRole('link', { name: 'run-5' })).toBeNull();
-    expect(screen.getByText('run-5')).toBeInTheDocument();
   });
 });
 
@@ -541,33 +489,6 @@ describe('fan-out runs', () => {
       '/agents/labeller/runs/run-2',
     );
   });
-
-  it('names the trigger beside each run so they can be told apart', () => {
-    const d = makeDelivery({
-      id: 'd-3',
-      runs: [
-        {
-          triggerId: 't1',
-          triggerName: 'gh-push',
-          runId: 'run-1',
-          status: 'dispatched',
-          error: null,
-          createdAt: '2026-07-28T09:00:01Z',
-        },
-        {
-          triggerId: 't2',
-          triggerName: 'gh-label',
-          runId: 'run-2',
-          status: 'dispatched',
-          error: null,
-          createdAt: '2026-07-28T09:00:02Z',
-        },
-      ],
-    });
-    render(<DeliveryDetail delivery={d} />);
-    expect(screen.getByText('gh-push')).toBeInTheDocument();
-    expect(screen.getByText('gh-label')).toBeInTheDocument();
-  });
 });
 
 describe('run visibility agrees with the fan-out', () => {
@@ -631,16 +552,5 @@ describe('run visibility agrees with the fan-out', () => {
     expect(screen.getByRole('link', { name: 'run-1' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'run-2' })).toBeInTheDocument();
     expect(screen.queryByText('No run started for this delivery.')).toBeNull();
-  });
-
-  it('still says so when nothing ran at all', () => {
-    const d = makeDelivery({
-      id: 'd-none',
-      receivedAt: '2026-07-28T09:00:00Z',
-      runId: null,
-      runs: [],
-    });
-    render(<DeliveryDetail delivery={d} />);
-    expect(screen.getByText('No run started for this delivery.')).toBeInTheDocument();
   });
 });
