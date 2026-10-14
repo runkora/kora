@@ -306,7 +306,7 @@ Hades contains no kora identity. The kora default is a theme like any other, own
 
 Each `hades/vX.Y.Z` tag publishes `@runkora/hades` to the GitHub Packages npm registry and creates a GitHub Release of the same name with the tarball, `manifest.json` and `CONTRACT.md` attached. The package ships TypeScript source, `tokens.css`, the manifest, the contract and this README: no compiled JavaScript, no fonts, no Storybook, no stories, no tests. The rules are in the [Hades delivery ADR](../../../../docs/adr/2026-10-11-hades-delivery-to-external-consumers.md); a consumer needs the following.
 
-**Registry and token.** An `.npmrc` with the scope mapped to the registry, and a token that has `read:packages` for this repository (a fine-grained personal access token, a GitHub App token, or, for a workflow in a repository granted access to the package, its own `GITHUB_TOKEN`):
+**Registry and token.** An `.npmrc` with the scope mapped to the registry, and a token that has `read:packages` for this repository (a personal access token (classic), or, for a workflow in a repository granted access to the package, its own `GITHUB_TOKEN`; the GitHub Packages npm registry accepts neither fine-grained personal access tokens nor GitHub App installation tokens):
 
 ```ini
 @runkora:registry=https://npm.pkg.github.com
