@@ -214,6 +214,7 @@ export function TriggersPage({
       error: null,
       loading: false,
     }));
+    setSelectedStatus('all');
   }
 
   // A delivery's fan-out names the trigger; the run route is keyed by agent

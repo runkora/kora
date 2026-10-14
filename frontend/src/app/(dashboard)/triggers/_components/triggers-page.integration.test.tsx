@@ -221,8 +221,14 @@ describe('TriggersPage deliveries paging', () => {
     const { rerender } = renderPage([serverRow('d1')], 'cursor-1');
     await openDeliveriesTab();
 
+    await userEvent.selectOptions(statusFilter(), 'failed');
+    (await request(0)).respond([wireDelivery('d1')], 'cursor-1');
+    await waitFor(() => {
+      expect(statusFilter()).toHaveValue('failed');
+    });
+
     await userEvent.click(screen.getByRole('button', { name: 'Load more' }));
-    const inFlight = await request(0);
+    const inFlight = await request(1);
 
     // router.refresh() landed: a new deliveries array, new identity, which the
     // render-phase re-seed adopts and whose epoch retires the request above.
@@ -238,6 +244,11 @@ describe('TriggersPage deliveries paging', () => {
     // cursor installed, is what made the deliveries in between unreachable.
     expect(visibleRowIds()).toEqual(['d9']);
     expect(loadMoreButton()).not.toBeInTheDocument();
+
+    // The re-seed drops back to All, so the control must say so. Left behind it
+    // labels unfiltered rows "Failed", and re-picking Failed fires no change
+    // event on a controlled select: a dead click with no way back.
+    expect(statusFilter()).toHaveValue('all');
   });
 
   it('discards the ERROR of a retired request, not just its rows', async () => {
