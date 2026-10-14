@@ -110,6 +110,16 @@ describe('loadThemeFrom', () => {
     expect(error).toHaveBeenCalledTimes(1);
   });
 
+  it('fails when the bundle directory exists but has no theme.yaml', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const err = await loadThemeFrom(path.join(FIXTURES, 'valid', 'assets')).catch(
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ThemeLoadError);
+    expect((err as ThemeLoadError).message).toContain('has no theme.yaml');
+    error.mockRestore();
+  });
+
   it('serves the kora default when there is no bundle', async () => {
     const loaded = await loadThemeFrom(ABSENT);
     expect(loaded.theme).toBeNull();

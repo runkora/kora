@@ -9,14 +9,15 @@
  * theme changes only on redeploy, so nothing re-reads it. A bundle that fails
  * validation throws with every fault listed, so no page serves; the init
  * container running `scripts/validate-theme.ts` on the same bundle is what
- * normally keeps that from happening. No bundle means the kora default.
+ * normally keeps that from happening. An absent bundle directory means the
+ * kora default; a directory without `theme.yaml` is an error.
  *
  * `ORBIT_THEME_DIR` overrides the directory. It exists for tests, which point it
  * at the fixtures beside this module.
  */
 import 'server-only';
 
-import { open, readFile } from 'node:fs/promises';
+import { open, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import manifest from '@runkora/hades/manifest.json';
 import {
@@ -89,6 +90,15 @@ export function themeDir(): string {
 export function themeAssetUrl(hash: string, assetPath: string): string {
   const encoded = assetPath.split('/').map(encodeURIComponent).join('/');
   return `${THEME_ASSET_PREFIX}${hash}/assets/${encoded}`;
+}
+
+async function directoryExists(dir: string): Promise<boolean> {
+  try {
+    return (await stat(dir)).isDirectory();
+  } catch (err) {
+    if (isMissing(err)) return false;
+    throw err;
+  }
 }
 
 function isMissing(err: unknown): boolean {
@@ -180,6 +190,16 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
     text = await readFile(path.join(dir, 'theme.yaml'), 'utf8');
   } catch (err) {
     if (!isMissing(err)) throw err;
+    // Only an absent directory means "no theme". A directory with no
+    // theme.yaml is a mis-built or mis-mounted bundle, and serving the default
+    // would hide that.
+    if (await directoryExists(dir)) {
+      const error = new ThemeLoadError(dir, [
+        { path: 'theme.yaml', message: 'the bundle directory exists but has no theme.yaml' },
+      ]);
+      console.error(`[theme] ${error.message}`);
+      throw error;
+    }
     const loaded: LoadedTheme = {
       hadesVersion,
       contractVersion,
