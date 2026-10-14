@@ -181,7 +181,7 @@ That is wrong for a key.
 - A continuing burst starts one run per window, not one run for the burst, because the window never extends.
 - The rendered key outlives payload retention. It can hold payload-derived text for as long as delivery history is kept. The author controls which fields enter it, and the 256 byte cap bounds it.
 - A held fire can be evicted by the `max_queue_depth` trim like any waiting fire.
-- One more table and two more columns on the queue and run tables.
+- One more table, three more columns and one index on the queue and run tables.
 
 ### Neutral
 
