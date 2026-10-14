@@ -245,6 +245,7 @@ The theme is install configuration, so it travels as values, and its assets are 
 - Every theme is an image, so a colours-only theme still needs a registry push.
 - The document lives in two places, the repository file and the bundle, held equal by the init container rather than by construction.
 - Validation feedback arrives at rollout rather than in a pull request check, unless a consumer runs the validator in their own pipeline.
+- During a rolling update, a page served by one pod can ask for a theme asset URL that only the other pod serves, because each pod knows only the hash of the theme it loaded. The asset route answers 404 with no cache headers, so a logo or font can fail to load until the rollout completes, and a tab left open across a rollout loses assets it loads late until it is reloaded. There is no fallback to the previous hash; the window closes when the rollout does.
 - Theme producers get no kora-supplied preview of the real pages, so they preview on their own compositions of Hades components and see the pages only once deployed.
 
 ### Neutral
