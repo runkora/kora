@@ -497,3 +497,31 @@ func TestCoalesceConfig_WireNames(t *testing.T) {
 		t.Errorf("a trigger without the setting encodes %s, want the field omitted", out)
 	}
 }
+
+// Held fires count toward the backlog. Distinct keys past max_queue_depth evict
+// the oldest, and the backlog stays at max_queue_depth.
+func TestFanOut_Coalesce_TrimsTheBacklog(t *testing.T) {
+	f := newCoalesceFixture(t)
+	depth := int16(2)
+	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, coalesceReq(f.src.ID, func(r *CreateTriggerRequest) {
+		r.MaxQueueDepth = &depth
+	}))
+	if err != nil {
+		t.Fatalf("CreateTrigger: %v", err)
+	}
+
+	var ids []string
+	for n := range 5 {
+		ids = append(ids, f.fire(t, coalesceBody(n, fmt.Sprintf("t%d", n), "main")))
+	}
+
+	if n := len(f.deps.repo.pendingFor(tr.ID)); n != int(depth) {
+		t.Fatalf("waiting fires = %d, want %d", n, depth)
+	}
+	for _, id := range ids[:3] {
+		runs := f.deps.repo.deliveryRunsFor(id)
+		if len(runs) != 1 || runs[0].Status != RunStatusDropped {
+			t.Errorf("delivery %s outcomes = %+v, want one dropped", id, runs)
+		}
+	}
+}

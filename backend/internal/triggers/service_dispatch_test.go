@@ -34,11 +34,16 @@ func TestAdmission_Replace_SupersedesWaitingFires(t *testing.T) {
 		t.Errorf("waiting fire = %s, want the newest (%s)", pending[0].DeliveryID, ids[2])
 	}
 
-	// The two it displaced are recorded, not lost.
-	for _, id := range ids[:2] {
+	// The two it displaced are recorded, not lost, and each names the fire that
+	// replaced it.
+	for i, id := range ids[:2] {
 		runs := deps.repo.deliveryRunsFor(id)
 		if len(runs) != 1 || runs[0].Status != RunStatusSuperseded {
 			t.Errorf("delivery %s outcomes = %+v, want one superseded", id, runs)
+			continue
+		}
+		if by := runs[0].SupersededBy; by == nil || *by != ids[i+1] {
+			t.Errorf("delivery %s is not superseded by %s: %+v", id, ids[i+1], runs[0])
 		}
 	}
 }
