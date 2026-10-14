@@ -1,22 +1,9 @@
 /**
  * E2E — Triggers / Deliveries paging (#412).
  *
- * docs/adr/2026-05-08-frontend-test-strategy-and-toolchain.md Category A
- * constraint: no live Go backend, Postgres or Redis. Every browser-side call to
- * the BFF is intercepted with page.route().
- *
- * The server render (RSC) has no backend to reach, so the page starts empty
- * with its error banner. That is the useful starting point here: everything
- * #412 added to the console is driven from the browser, so selecting a filter,
- * paging with Load more, and following a run link all run against a real
- * Chromium with real clicks.
- *
- * Coverage:
- *   1. Selecting a status sends ?status= to the server and renders the page
- *   2. Load more sends the cursor and APPENDS rather than replacing
- *   3. Load more disappears once the last page reports no next cursor
- *   4. A run id degrades to text when no agent slug resolves
- *   5. A failed page surfaces the error and offers Retry
+ * Category A per docs/adr/2026-05-08-frontend-test-strategy-and-toolchain.md:
+ * no live backend, so every BFF call is intercepted with page.route() and the
+ * server render (RSC) starts the page empty with its error banner.
  */
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { injectSessionCookie } from './fixtures';
@@ -63,9 +50,7 @@ async function stubDeliveries(
   let i = 0;
   // Awaited rather than fire-and-forget: page.route() is asynchronous and
   // openDeliveries() navigates immediately after, so an unawaited registration
-  // lets the first deliveries request race it and escape to the real BFF - the
-  // one thing this spec exists to intercept. The other route helpers in e2e/
-  // await theirs for the same reason.
+  // lets the first deliveries request escape to the real BFF.
   await page.route('**/api/trigger-deliveries*', (route: Route) => {
     seen.push(new URL(route.request().url()));
     const body = pages[Math.min(i, pages.length - 1)];
@@ -142,12 +127,9 @@ test.describe('/triggers — Deliveries paging', () => {
     await expect(loadMore).toBeHidden();
   });
 
-  // The run link needs a trigger-to-agent-slug resolver, and the Triggers page
-  // builds it from the triggers the SERVER render supplied. This harness has no
-  // backend for that fetch, so no slug resolves and the id must degrade to text
-  // rather than render a broken href. That fallback is the thing worth pinning
-  // here; the linked case is asserted precisely in delivery-detail.test.tsx,
-  // which can inject a resolver.
+  // The slug resolver is built from the triggers the SERVER render supplied,
+  // and this harness has no backend for that fetch, so no slug resolves and the
+  // id must degrade to text. The linked case is in delivery-detail.test.tsx.
   test('renders the run id as text when no agent slug can be resolved', async ({ page }) => {
     await stubDeliveries(page, [
       { data: [delivery('d1', '2026-10-07T12:00:00Z')], next_cursor: null },

@@ -12,7 +12,6 @@ interface DeliveryListProps {
   deliveries: DeliveryRow[];
   /** The trigger whose outcome to read out of each delivery's fan-out. */
   triggerId: string;
-  /** Which delivery's payload is open, if any. */
   expandedId: string | null;
   onToggleExpanded: (id: string | null) => void;
   /** Maps a trigger to its agent slug so a run id can link to that run. */
@@ -45,9 +44,6 @@ export function DeliveryList({
   return (
     <Stack gap="snug">
       {deliveries.map((d) => {
-        // The delivery's own status is the arrival-level verdict; this
-        // trigger's row in the fan-out is the one that answers "and what
-        // happened for me". Prefer the latter and fall back to the former.
         const outcome = d.runs.find((r) => r.triggerId === triggerId);
         const status = outcome?.status ?? d.status;
         const open = expandedId === d.id;
@@ -74,8 +70,6 @@ export function DeliveryList({
             >
               <StatusDot status={deliveryDotStatus(status)} size="sm" />
 
-              {/* The identity block takes the slack, so the outcome cluster
-                  and the chevron pin to the right edge on every row. */}
               <Stack gap="tight" minWidth="none" grow>
                 <Text mono size="caption" weight="emphasis" truncate>
                   {d.id}

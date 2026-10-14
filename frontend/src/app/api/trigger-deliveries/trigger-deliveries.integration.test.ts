@@ -1,18 +1,7 @@
 /**
- * Integration tests for GET /api/trigger-deliveries.
- *
- * The route is pure plumbing: it reads the browser's query string, hands the
- * parts to the typed triggers client, and re-wraps the page the browser client
- * expects. So every parameter it accepts needs a test that the value actually
- * reaches orbit-triggers, and `status`/`outcome` need one proving they stay
- * repeated rather than collapsing into a single comma-joined value.
- *
- * Strategy:
- * - `@orbit/server/config` is vi.mock'd to point the triggers client at a
- *   stub host, so MSW can intercept the upstream call.
- * - `@orbit/server/session` is vi.mock'd to control session state.
- * - MSW intercepts `http://test-triggers-svc/trigger-deliveries` and records
- *   the URL the handler built.
+ * Integration tests for GET /api/trigger-deliveries, which reads the browser's
+ * query string, hands the parts to the typed triggers client, and re-wraps the
+ * page as `{ data, next_cursor }`.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse, type JsonBodyType } from 'msw';
@@ -112,9 +101,8 @@ describe('GET /api/trigger-deliveries', () => {
     expect(q.get('cursor')).toBe('2026-10-07T12:00:00Z|d-9');
   });
 
-  // getAll, not get: a multi-select filter sends the key once per value, and
-  // the platform API reads it the same way. Joining them into "failed,missed"
-  // would be a single unknown status upstream, matching nothing.
+  // Joining them into "failed,missed" would be one unknown status upstream,
+  // matching nothing.
   it('keeps status and outcome repeated rather than comma-joining them', async () => {
     const seen = captureUpstream({ deliveries: [], has_next_page: false, next_cursor: null });
     await GET(makeRequest('status=failed&status=missed&outcome=denied&outcome=dropped'));
@@ -166,8 +154,6 @@ describe('GET /api/trigger-deliveries', () => {
     const res = await GET(makeRequest('limit=1'));
 
     expect(res.status).toBe(200);
-    // Exact: `deliveries` is renamed to `data`, the cursor rides alongside it,
-    // and the backend's has_next_page is not leaked to the browser.
     expect(await res.json()).toEqual({ data: [delivery], next_cursor: 'cur-2' });
   });
 

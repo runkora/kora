@@ -2344,9 +2344,8 @@ func TestPostgres_Admission_Coalesces(t *testing.T) {
 	}
 }
 
-// insertTestDelivery writes one delivery directly, so a test can control
-// received_at and id precisely. The repository has no "insert at a timestamp"
-// path, and the cursor's whole job is to behave when timestamps collide.
+// insertTestDelivery writes a delivery directly; the repository has no
+// "insert at a timestamp" path.
 func insertTestDelivery(t *testing.T, r *postgresRepository, tenant, id, status string, receivedAt time.Time) {
 	t.Helper()
 	_, err := r.pool.Exec(context.Background(), `
@@ -2400,8 +2399,7 @@ func TestPostgres_ListDeliveriesCursorHandlesTimestampTies(t *testing.T) {
 	}
 }
 
-// The predicate runs in SQL, so paging applies to the filtered set rather than
-// to a page filtered afterwards.
+// The predicate runs in SQL, so paging applies to the filtered set.
 func TestPostgres_ListDeliveriesFiltersByStatus(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
@@ -2414,8 +2412,6 @@ func TestPostgres_ListDeliveriesFiltersByStatus(t *testing.T) {
 	insertTestDelivery(t, r, tenant, okOlder, StatusDispatched, base.Add(-2*time.Second))
 	insertTestDelivery(t, r, tenant, badOlder, StatusFailed, base.Add(-3*time.Second))
 
-	// Limit 1 with two matches: the second must be reachable by cursor, which
-	// only holds if the filter is inside the query.
 	page, hasNext, err := r.ListDeliveries(ctx, tenant,
 		DeliveryFilter{Status: []string{StatusFailed}, Limit: 1})
 	if err != nil {
@@ -2468,8 +2464,7 @@ func TestPostgres_ListDeliveriesStatusShapesAgree(t *testing.T) {
 		t.Errorf("single status: want [%s], got %v", failed, got)
 	}
 
-	// The same single value expressed through the ANY branch by asking for it
-	// twice. Both shapes must agree, or the optimisation changed the answer.
+	// The same single value forced through the ANY branch by asking for it twice.
 	if got := ids(t, DeliveryFilter{Status: []string{StatusFailed, StatusFailed}, Limit: 10}); !slices.Equal(got, []string{failed}) {
 		t.Errorf("duplicated status: want [%s], got %v", failed, got)
 	}
@@ -2491,7 +2486,6 @@ func TestPostgres_ListDeliveriesFiltersByOutcome(t *testing.T) {
 	insertTestDelivery(t, r, tenant, fannedOut, StatusDispatched, at)
 	insertTestDelivery(t, r, tenant, quiet, StatusSkipped, at.Add(-time.Second))
 
-	// Two runs on one delivery, both denied: a join would yield it twice.
 	for i, trig := range []string{"trig-1", "trig-2"} {
 		if err := r.InsertDeliveryRun(ctx, &DeliveryRun{
 			ID: uuid.NewString(), TenantID: tenant, DeliveryID: fannedOut,
@@ -2523,32 +2517,21 @@ func TestPostgres_ListDeliveriesFiltersByOutcome(t *testing.T) {
 	}
 }
 
-// The per-trigger narrowing inside the outcome EXISTS, and the limit the
-// surrounding query puts on it.
+// The outcome EXISTS narrows to the trigger's own run. That is not redundant with
+// the outer trigger_deliveries.trigger_id predicate: a fanned-out delivery carries
+// one outcome row per trigger, so "this delivery has a failed run" and "the trigger
+// I am looking at failed" are different questions.
 //
-// The narrowing is load-bearing, not redundant with the outer
-// trigger_deliveries.trigger_id predicate. A fanned-out delivery carries one
-// outcome row per trigger, so "this delivery has a failed run" and "the trigger
-// I am looking at failed" are different questions. Without the narrowing, trigA's
-// view would list this delivery because trigB failed on it, contradicting the
-// outcome the row itself shows.
-//
-// The rest documents what the narrowing cannot rescue. trigger_id on the
-// delivery is a single column, and UpdateDeliveryOutcome stamps it as
-// trigger_id = COALESCE($2, d.trigger_id): a non-nil write always wins, so the
-// stamp names whichever trigger dispatched LAST, and a nil write (the failure
-// path) leaves it alone. The outer predicate compares against that one stamp, so
-// every other trigger in the fan-out sees the delivery as absent however the
-// outcome filter is set. That is a defect in how trigger_id is stamped rather
-// than in this filter, and the behaviour is pinned here so a fix has to change
-// it deliberately.
+// The limit, pinned here so a fix has to be deliberate: UpdateDeliveryOutcome stamps
+// trigger_id = COALESCE($2, d.trigger_id), so the one stamp names whichever trigger
+// dispatched LAST and every other trigger in the fan-out sees the delivery as absent
+// however the outcome filter is set.
 func TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
 	at := time.Now().UTC().Truncate(time.Microsecond)
 
-	// One arrival that fanned out to two triggers, plus a bystander arrival so
-	// an empty result can never be the whole tenant being empty.
+	// Plus a bystander arrival, so an empty result can never be the whole tenant being empty.
 	delivery, bystander := uuid.NewString(), uuid.NewString()
 	insertTestDelivery(t, r, tenant, delivery, StatusDispatched, at)
 	insertTestDelivery(t, r, tenant, bystander, StatusSkipped, at.Add(-time.Second))
@@ -2556,8 +2539,6 @@ func TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun(t *testing.T) 
 	trigA, trigB := "trig-a-"+uuid.NewString()[:8], "trig-b-"+uuid.NewString()[:8]
 	runA := uuid.NewString()
 
-	// trigA started a run; trigB matched the same arrival and failed to
-	// dispatch. Both are rows the dispatcher writes, one per trigger.
 	for _, dr := range []*DeliveryRun{
 		{ID: uuid.NewString(), TenantID: tenant, DeliveryID: delivery,
 			TriggerID: trigA, Status: RunStatusDispatched, RunID: &runA},
@@ -2578,14 +2559,11 @@ func TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun(t *testing.T) 
 		return d.TriggerID
 	}
 
-	// Only a successful dispatch names a trigger (service_dispatch.go), so the
-	// stamp lands on trigA.
+	// Only a successful dispatch names a trigger (service_dispatch.go).
 	if err := r.UpdateDeliveryOutcome(ctx, delivery, StatusDispatched, &trigA, &runA, nil); err != nil {
 		t.Fatalf("stamp trigA: %v", err)
 	}
-	// The failure path writes a nil trigger id, which COALESCE ignores: trigB
-	// failing does not move the stamp. This is the premise the filter rests on,
-	// so it is asserted rather than assumed.
+	// The failure path writes a nil trigger id, which COALESCE ignores.
 	if err := r.UpdateDeliveryOutcome(ctx, delivery, StatusFailed, nil, nil, new("dispatch timeout")); err != nil {
 		t.Fatalf("record trigB failure: %v", err)
 	}
@@ -2606,34 +2584,29 @@ func TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun(t *testing.T) 
 		return out
 	}
 
-	// The delivery does hold a failed run, so an unnarrowed outcome filter finds
-	// it. Without this the next assertion could pass on absence.
+	// Without this, the next assertion could pass on absence.
 	if got := ids(t, "outcome only", DeliveryFilter{
 		Outcome: []string{RunStatusFailed}, Limit: 10,
 	}); !slices.Equal(got, []string{delivery}) {
 		t.Fatalf("outcome alone: want [%s], got %v", delivery, got)
 	}
 
-	// The narrowing: adding trigA drops that same delivery, because the failed
-	// run is trigB's. Deleting `AND dr.trigger_id = $N` from the EXISTS makes
-	// this return the delivery instead.
+	// Deleting `AND dr.trigger_id = $N` from the EXISTS returns the delivery here
+	// instead: the failed run is trigB's.
 	if got := ids(t, "trigA failed", DeliveryFilter{
 		TriggerID: trigA, Outcome: []string{RunStatusFailed}, Limit: 10,
 	}); len(got) != 0 {
 		t.Errorf("trigA + failed: want no deliveries (trigA dispatched, trigB failed), got %v", got)
 	}
 
-	// trigA's own outcome still matches, so the emptiness above is the narrowing
-	// at work and not the trigger filter excluding everything.
+	// The control: the emptiness above is the narrowing, not the trigger filter.
 	if got := ids(t, "trigA dispatched", DeliveryFilter{
 		TriggerID: trigA, Outcome: []string{RunStatusDispatched}, Limit: 10,
 	}); !slices.Equal(got, []string{delivery}) {
 		t.Errorf("trigA + dispatched: want [%s], got %v", delivery, got)
 	}
 
-	// The limit. trigB genuinely has a failed run on this delivery, and asking
-	// for exactly that returns nothing: the outer predicate compares against the
-	// stamp, which names trigA.
+	// The limit: trigB's own failed run is unreachable through the stamp.
 	if got := ids(t, "trigB failed", DeliveryFilter{
 		TriggerID: trigB, Outcome: []string{RunStatusFailed}, Limit: 10,
 	}); len(got) != 0 {
@@ -2645,9 +2618,7 @@ func TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun(t *testing.T) 
 		t.Errorf("trigB alone: want no deliveries under the unstamped trigger, got %v", got)
 	}
 
-	// Which trigger is reachable is decided by the last successful dispatch, not
-	// the first: re-stamping with trigB moves the whole view over and hides
-	// trigA's dispatched run, even though neither outcome row changed.
+	// Re-stamping moves the whole view over, though neither outcome row changed.
 	if err := r.UpdateDeliveryOutcome(ctx, delivery, StatusDispatched, &trigB, nil, nil); err != nil {
 		t.Fatalf("restamp trigB: %v", err)
 	}
@@ -2666,11 +2637,8 @@ func TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun(t *testing.T) 
 	}
 }
 
-// TestPostgres_ListDeliveriesKindAndStatusBindInOrder guards the placeholder
-// arithmetic. The kind branch builds $n and must advance the counter; before
-// this PR it did not, which was harmless only because kind was the last
-// predicate. Combining kind with a predicate that comes after it is what makes
-// a missing increment bind the wrong value to the wrong column.
+// Guards the placeholder arithmetic: the kind branch builds $n and must advance the
+// counter, or a predicate after it binds the wrong value to the wrong column.
 func TestPostgres_ListDeliveriesKindAndStatusBindInOrder(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
@@ -2696,8 +2664,7 @@ func TestPostgres_ListDeliveriesKindAndStatusBindInOrder(t *testing.T) {
 		t.Fatalf("kind + status: want [%s], got %v", want, got)
 	}
 
-	// A kind nothing was written under must select nothing, so the predicate is
-	// proven to be doing work rather than being ignored.
+	// The negative control: the kind predicate is doing work, not being ignored.
 	empty, _, err := r.ListDeliveries(ctx, tenant, DeliveryFilter{
 		Kind:   KindScheduled,
 		Status: []string{StatusFailed},
@@ -2711,11 +2678,9 @@ func TestPostgres_ListDeliveriesKindAndStatusBindInOrder(t *testing.T) {
 	}
 }
 
-// A failed query must surface, not read as an empty page. An empty page is the
-// answer "nothing matched", which is a different and wrong claim.
+// An empty page is the answer "nothing matched", a different and wrong claim.
 func TestPostgres_ListDeliveriesReportsAQueryFailure(t *testing.T) {
 	r, tenant := testRepo(t)
-	// Closing the pool is the cheapest honest way to make the driver fail.
 	r.pool.Close()
 
 	page, hasNext, err := r.ListDeliveries(context.Background(), tenant, DeliveryFilter{Limit: 10})
@@ -2727,16 +2692,10 @@ func TestPostgres_ListDeliveriesReportsAQueryFailure(t *testing.T) {
 	}
 }
 
-// TestPostgres_FilterableStatusesMatchTheDatabase is the guard the Go-only
-// test cannot be. AllDeliveryStatuses and AllRunStatuses decide what a caller
-// may filter on, and validateDeliveryFilter is built from those same slices, so
-// a Go test feeding one into the other asserts only that a set contains itself.
-// Drop a value from the slice and the filter quietly starts rejecting it: the
-// package stays green while ?status=missed begins returning 400, and `missed`
-// is in the console's own status dropdown.
-//
-// The authority on what the pipeline can write is the column's CHECK
-// constraint, so that is what these compare against.
+// validateDeliveryFilter is built from AllDeliveryStatuses/AllRunStatuses, so a Go
+// test feeding one into the other only asserts that a set contains itself: drop a
+// value and the filter quietly 400s ?status=missed while the package stays green.
+// The authority on what the pipeline can write is the column's CHECK constraint.
 func TestPostgres_FilterableStatusesMatchTheDatabase(t *testing.T) {
 	r, _ := testRepo(t)
 	ctx := context.Background()
@@ -2782,16 +2741,10 @@ func TestPostgres_FilterableStatusesMatchTheDatabase(t *testing.T) {
 	}
 }
 
-// TestPostgres_ListDeliveriesCursorWithinTimeWindow is the case neither change
-// covered on its own. #490 bounds received_at with ReceivedAfter/ReceivedBefore;
-// this PR walks received_at with a keyset cursor. Both constrain the same
-// column, they were written independently, and nothing asserted they compose.
-//
-// They must intersect, not fight: the window decides which rows exist and the
-// cursor decides where inside that window the page starts. The predicates are
-// also adjacent in the builder, so a placeholder slip between them would bind a
-// timestamp where a cursor belongs, which this would catch as wrong rows rather
-// than as a type error.
+// The window and the cursor both constrain received_at and must intersect, not
+// fight: the window decides which rows exist, the cursor where inside it the page
+// starts. They are also adjacent in the builder, so a placeholder slip would bind a
+// timestamp where a cursor belongs — wrong rows rather than a type error.
 func TestPostgres_ListDeliveriesCursorWithinTimeWindow(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
@@ -2834,8 +2787,7 @@ func TestPostgres_ListDeliveriesCursorWithinTimeWindow(t *testing.T) {
 		t.Fatal("first page: want another page, d3 is still in the window")
 	}
 
-	// The cursor resumes inside the window, and must not escape it: d4 and d5
-	// are older than ReceivedAfter and must stay excluded.
+	// The cursor must not escape the window: d4 and d5 stay excluded.
 	cursor := &deliveryCursor{ReceivedAt: page1[1].ReceivedAt, ID: page1[1].ID}
 	page2, hasNext, err := r.ListDeliveries(ctx, tenant, window(cursor, 2))
 	if err != nil {
@@ -2852,7 +2804,6 @@ func TestPostgres_ListDeliveriesCursorWithinTimeWindow(t *testing.T) {
 		t.Error("second page: want no further page, the window is exhausted")
 	}
 
-	// The newest row sits outside the window, so no cursor should ever reach it.
 	for _, d := range append(page1, page2...) {
 		if d.ID == ids[0] || d.ID == ids[4] || d.ID == ids[5] {
 			t.Errorf("delivery %s is outside the window but was returned", d.ID)

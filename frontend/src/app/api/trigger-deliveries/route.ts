@@ -3,12 +3,9 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
 import { listDeliveries } from '@orbit/server/triggers-client';
 
-// GET /api/trigger-deliveries?source_id=&trigger_id=&kind=&status=&outcome=&limit=&cursor=
-// One page of deliveries for the tenant, newest first.
-//
-// status and outcome repeat (?status=failed&status=missed) rather than taking a
-// comma list, so they pass straight through to the platform API. next_cursor
-// rides alongside data: it belongs to the page, not to any one delivery.
+// One page of deliveries for the tenant, newest first. status and outcome repeat
+// (?status=failed&status=missed) rather than taking a comma list, so they pass
+// straight through to the platform API.
 export const GET = withAuth(async (req: NextRequest, session) => {
   const q = req.nextUrl.searchParams;
   const limitRaw = q.get('limit');

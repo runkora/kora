@@ -1,14 +1,10 @@
 /**
- * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
- * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`),
- * which imports it across feature areas. Stays Tier 3 deliberately: every call
+ * @tier 3 — triggers-owned; also imported by the agent detail page
+ * (`agents/[slug]/_components/agent-triggers-tab.tsx`). Stays Tier 3: every call
  * here is a Triggers endpoint, and the file moves with the API it wraps.
  *
- * Triggers API — client-side BFF calls.
- *
- * All functions call the BFF routes under /api/trigger-sources, /api/triggers,
- * and /api/trigger-deliveries. They never throw — callers pattern-match on the
- * returned `error` field.
+ * Client-side BFF calls under /api/trigger-sources, /api/triggers and
+ * /api/trigger-deliveries. They never throw — callers pattern-match on `error`.
  */
 
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
@@ -29,19 +25,14 @@ import type {
 async function errorMessage(res: Response): Promise<string> {
   // `?? null` then optional chaining, not `?? ({})`: a body that is the JSON
   // literal `null` parses fine, so the catch never fires and `.message` on it
-  // throws. These functions must not throw, and this one runs on every non-ok
-  // response, including the deliveries page.
+  // throws — and these functions must not throw.
   const body = (await res.json().catch(() => null)) as { message?: string } | null;
   return body?.message ?? `Request failed (${res.status})`;
 }
 
 /**
  * One request, one envelope: `{ data }` on success, a message on anything else.
- *
- * Errors are values here rather than exceptions, so every caller handles the
- * network being down and the API refusing in the same shape. A 2xx with no body
- * resolves with `null` data, which is what the accepted-but-nothing-to-say
- * responses (202) actually mean.
+ * A 2xx with no body resolves with `null` data, which is what a 202 means.
  */
 async function send<T>(
   url: string,
@@ -59,12 +50,8 @@ async function send<T>(
 }
 
 /**
- * send for a paginated list: the same envelope and the same error-as-value
- * contract, plus the cursor that belongs to the page.
- *
- * send<T> deliberately returns only `data`, because every other list here is
- * whole. A page is not: `next_cursor` describes the request, not any row in it,
- * so it needs its own way out.
+ * `send` for a paginated list, plus the page's cursor: `next_cursor` describes
+ * the request, not any row in it, so it cannot ride inside `data`.
  */
 async function sendPage<T>(
   url: string,
@@ -81,11 +68,10 @@ async function sendPage<T>(
   }
   if (!res.ok) return { data: null, nextCursor: null, error: await errorMessage(res) };
 
-  // An unreadable 200 is an error, not an empty page: empty is
-  // indistinguishable from the end of history, so Load more would disappear
-  // and truncate the list silently. The read is guarded because this function
-  // must not throw (see the file header) and res.text() rejects on a body that
-  // fails after the headers arrive.
+  // An unreadable 200 is an error, not an empty page: empty is indistinguishable
+  // from the end of history, so Load more would disappear and silently truncate
+  // the list. The read is guarded because res.text() rejects on a body that fails
+  // after the headers arrive, and this function must not throw.
   const text = await res.text().catch(() => null);
   const unreadable = {
     data: null,
@@ -99,24 +85,17 @@ async function sendPage<T>(
   } catch {
     return unreadable;
   }
-  // A parseable body is not automatically a valid page. The route always writes
-  // both keys (NextResponse.json({ data, next_cursor })), so `{}` or `null` is
-  // a gateway artefact, not an empty result. Accepting it reports "no
-  // deliveries" and hides Load more, silently truncating the list: the same
-  // failure the unparseable-body check above exists to prevent.
+  // A parseable body is not automatically a valid page: the route always writes
+  // both keys (NextResponse.json({ data, next_cursor })), so `{}` or `null` is a
+  // gateway artefact, not an empty result.
   if (body === null || typeof body !== 'object' || !Array.isArray(body.data)) {
     return unreadable;
   }
-  // next_cursor must be PRESENT, not merely absent-and-coerced. The route
-  // always writes it, so a body without it is malformed, and `?? null` would
-  // read that as "last page": Load more disappears and the list is silently
-  // truncated, which is the whole failure this guard exists to stop.
-  // An empty string is refused with the absent case rather than accepted as a
-  // cursor. It is not null, so the grid offers Load more; but the request
-  // builder only serializes a truthy cursor, so the click omits it, the
-  // backend answers page one, and those rows are appended to the ones already
-  // on screen with Load more still showing. That is an unbounded duplicate
-  // loop, not a page walk. The contract is null or a non-empty opaque string.
+  // next_cursor must be PRESENT, not absent-and-coerced: the route always writes
+  // it, so `?? null` on a body without it would read as "last page". '' is
+  // refused with the absent case too — it is not null, so the grid offers Load
+  // more, but the request builder only serializes a truthy cursor, so the click
+  // re-fetches page one and appends it: an unbounded duplicate loop.
   const cursor = (body as { next_cursor?: unknown }).next_cursor;
   if (cursor !== null && (typeof cursor !== 'string' || cursor === '')) {
     return unreadable;
@@ -124,7 +103,6 @@ async function sendPage<T>(
   return { data: body.data as T, nextCursor: cursor, error: null };
 }
 
-/** A JSON request body, with the header that says so. */
 function json(method: string, payload: unknown): RequestInit {
   return {
     method,
@@ -135,10 +113,8 @@ function json(method: string, payload: unknown): RequestInit {
 
 // ── Lists ─────────────────────────────────────────────────────────────────────
 //
-// Read the same envelopes the platform Triggers page is served, so any surface
-// that lists triggers goes through one client and one error shape. A missing
-// list resolves to `[]` alongside the error, never `null`: callers render the
-// empty frame and the message, not a crash.
+// A missing list resolves to `[]` alongside the error, never `null`: callers
+// render the empty frame and the message, not a crash.
 
 export async function listSources(): Promise<{ sources: WebhookSource[]; error: string | null }> {
   const res = await send<WebhookSource[]>(ApiRoute.triggerSources.list(), { cache: 'no-store' });
@@ -153,9 +129,8 @@ export async function listTriggers(
 }
 
 /**
- * One page of deliveries. `cursor` is the value returned as `nextCursor` by the
- * previous call; omit it for the first page. `nextCursor` is null once there is
- * nothing more to load, which is what hides the "Load more" control.
+ * One page of deliveries. Pass the previous call's `nextCursor` as `cursor`;
+ * omit it for the first page. `nextCursor` is null on the last page.
  */
 export async function listDeliveries(
   opts: {
@@ -264,11 +239,8 @@ export async function deleteTrigger(id: string): Promise<{ error: string | null 
 // ── Fire ──────────────────────────────────────────────────────────────────────
 
 /**
- * Fires a manual trigger.
- *
- * Resolves with the delivery id only. The fire is durably queued and the run
- * starts moments later, so there is no run to name in the response; the field
- * the API once carried for it is not read, whether or not it is on the wire.
+ * Fires a manual trigger, resolving with the delivery id only: the fire is
+ * durably queued and the run starts moments later, so there is no run to name.
  */
 export async function fireTrigger(
   id: string,
@@ -279,17 +251,12 @@ export async function fireTrigger(
     json('POST', { variables }),
   );
   if (res.error !== null) return { deliveryId: null, error: res.error };
-  // A 202 may arrive with no body: accepted, with nothing to name.
   return { deliveryId: res.data?.delivery_id ?? '', error: null };
 }
 
 // ── Deliveries ────────────────────────────────────────────────────────────────
 
-/**
- * Replays a delivery. Resolves with the NEW delivery's id: a replay is a fresh
- * arrival that names the one it replays, so the original is left alone and the
- * caller follows the new one to see what it did.
- */
+/** Replays a delivery, resolving with the NEW delivery's id; the original is untouched. */
 export async function redeliverDelivery(
   id: string,
 ): Promise<{ deliveryId: string; error: null } | { deliveryId: null; error: string }> {
@@ -303,12 +270,9 @@ export async function redeliverDelivery(
 // ── Schedule preview ──────────────────────────────────────────────────────────
 
 /**
- * Asks the scheduler what a cron expression will actually do next.
- *
- * Errors resolve to an empty list rather than a message: the preview is a
- * supplement to the schedule builder, and a failed lookup should show nothing
- * rather than push an error at someone who is still typing. It also takes an
- * abort signal, so it stays bespoke rather than going through `send`.
+ * Asks the scheduler what a cron expression will actually do next. Bespoke
+ * rather than through `send`: it takes an abort signal, and a failed lookup
+ * resolves null so nothing is pushed at someone still typing.
  */
 export async function fetchSchedulePreview(
   cronExpression: string,

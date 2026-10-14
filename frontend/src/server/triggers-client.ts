@@ -24,12 +24,10 @@ import type {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 /**
- * The Triggers feature is served by orbit-triggers, the platform's front door for
- * starting work. It is separate from identity so that unauthenticated,
- * internet-reachable webhook ingestion does not share a process with the token
- * authority; identity still mints each trigger's SERVICE token over the mesh.
- * We forward the session token; results are tenant-scoped from the token.
- * See docs/adr/2026-06-20-extended-trigger-types.md.
+ * Calls orbit-triggers, a separate process from identity so that
+ * internet-reachable webhook ingestion does not share one with the token
+ * authority (docs/adr/2026-06-20-extended-trigger-types.md). The session token is
+ * forwarded; results are tenant-scoped from it.
  */
 async function request<T>(
   path: string,
@@ -98,8 +96,6 @@ export async function deleteSource(accessToken: string, id: string): Promise<voi
   await request<void>(`/trigger-sources/${id}`, accessToken, { method: 'DELETE' });
 }
 
-// GET /api/v1/trigger-sources/{id}/event-types: the provider's declared event
-// types, the ones this source has sent, and the sender associations it knows.
 export async function sourceEventTypes(
   accessToken: string,
   id: string,
@@ -112,8 +108,6 @@ export async function sourceEventTypes(
   };
 }
 
-// GET /api/v1/trigger-providers/{provider}/event-types: the event types in the
-// provider's schema, and the sender associations it knows.
 export async function providerEventTypes(
   accessToken: string,
   provider: string,
@@ -125,8 +119,6 @@ export async function providerEventTypes(
   return { declared: body?.declared ?? [], associations: body?.associations ?? [] };
 }
 
-// GET /api/v1/trigger-providers/{provider}/fields: one event type's fields,
-// from the provider's schema.
 export async function providerFields(
   accessToken: string,
   provider: string,
@@ -172,8 +164,7 @@ export async function deleteTrigger(accessToken: string, id: string): Promise<vo
   await request<void>(`/triggers/${id}`, accessToken, { method: 'DELETE' });
 }
 
-// POST /api/v1/triggers/:id/fire — fire a manual trigger. The run executes
-// under the trigger's own SERVICE principal, not the caller's identity.
+// The run executes under the trigger's own SERVICE principal, not the caller's.
 export async function fireTrigger(
   accessToken: string,
   id: string,
@@ -189,18 +180,12 @@ export async function fireTrigger(
 // Deliveries
 // ---------------------------------------------------------------------------
 
-/**
- * Response to POST /api/v1/trigger-deliveries/:id/redeliver.
- *
- * A replay is a new arrival that names the one it replays, so the caller gets a
- * new id to follow. The original is never touched.
- */
+/** A replay is a new arrival that names the one it replays; the original is untouched. */
 export interface RedeliverResponse {
   delivery_id: string;
   redelivery_of: string;
 }
 
-// POST /api/v1/trigger-deliveries/:id/redeliver — replay a delivery (202).
 export async function redeliverDelivery(
   accessToken: string,
   id: string,
@@ -214,8 +199,7 @@ export async function redeliverDelivery(
 // Schedule preview
 // ---------------------------------------------------------------------------
 
-// POST /api/v1/triggers/schedule-preview — the next few fires for a cron
-// expression, resolved by the same scheduler that will run it.
+// Resolved by the same scheduler that will run the cron expression.
 export async function schedulePreview(
   accessToken: string,
   payload: { cron_expression: string; timezone: string },
@@ -227,11 +211,8 @@ export async function schedulePreview(
 }
 
 /**
- * One page of deliveries, newest first.
- *
- * `nextCursor` is the opaque value to echo back as `cursor` for the following
- * page; it is null on the last page. `status` and `outcome` repeat rather than
- * taking a comma list, which is what a multi-select filter sends.
+ * One page of deliveries, newest first. `nextCursor` is the opaque value to echo
+ * back as `cursor`; it is null on the last page.
  */
 export interface DeliveryPage {
   deliveries: TriggerDelivery[];
@@ -269,12 +250,9 @@ export async function listDeliveries(
   }>(`/trigger-deliveries${q ? `?${q}` : ''}`, accessToken);
 
   // The platform API always writes all three keys, so a body missing one is a
-  // malformed 200 - version skew, a truncated upstream, a proxy's error page -
-  // and not a page. `next_cursor ?? null` read that as "last page", and this
-  // layer then re-wrapped it as a well-formed `{ data, next_cursor }`, leaving
-  // the browser's own guard nothing to catch: Load more disappeared and the list
-  // was silently truncated. Refusing here keeps the failure visible, and
-  // withAuth turns it into a real error response rather than an empty grid.
+  // malformed 200 (version skew, a proxy's error page), not a page. Coercing it
+  // here would re-wrap it as a well-formed `{ data, next_cursor }` and leave the
+  // browser's own guard nothing to catch: Load more gone, list silently truncated.
   //
   // has_next_page carries the check because it is the only field that is always
   // a plain boolean. `deliveries` is null on an empty page - Go marshals the nil
@@ -287,8 +265,7 @@ export async function listDeliveries(
   }
   // '' is refused with the absent case: it is not null, so a consumer offers
   // Load more, but a falsy cursor is omitted from the next request and the
-  // backend answers page one again - an unbounded duplicate loop rather than a
-  // page walk. The contract is null or a non-empty opaque string.
+  // backend answers page one again - an unbounded duplicate loop, not a page walk.
   const cursor = env.next_cursor;
   if (cursor !== null && (typeof cursor !== 'string' || cursor === '')) {
     throw new ApiError(
@@ -302,8 +279,7 @@ export async function listDeliveries(
   }
   // Upstream derives has_next_page as `nextCursor != ""` and writes next_cursor
   // only when non-empty, so the two cannot disagree. If they do, this is not the
-  // envelope this client was written against, and trusting either one would put
-  // the page boundary somewhere neither side meant.
+  // envelope this client was written against.
   if (env.has_next_page !== (cursor !== null)) {
     throw new ApiError(
       502,

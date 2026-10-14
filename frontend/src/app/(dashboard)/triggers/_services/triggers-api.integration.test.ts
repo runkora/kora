@@ -1,17 +1,9 @@
 /**
- * Integration tests for the browser-side `listDeliveries` and, through it,
- * `sendPage` — the paginated sibling of `send`.
+ * Integration tests for the browser-side `listDeliveries` and, through it, the
+ * private `sendPage`.
  *
- * `sendPage` is private, so these drive it through the exported
- * `listDeliveries`. Two contracts are under test:
- *
- *  1. The request: repeated `status`/`outcome`, plus `limit` and `cursor`,
- *     reach the BFF route as a query string it can read back with getAll.
- *  2. The response: errors are values, never exceptions. A refusal, a body
- *     that is not JSON, and the network being down all have to resolve — a
- *     throw here would take the Triggers page down with it.
- *
- * MSW intercepts the relative BFF path, so no Next.js server is involved.
+ * Errors here are values, never exceptions: a throw would take the Triggers
+ * page down with it, so every failure branch below has to resolve.
  */
 import { describe, it, expect } from 'vitest';
 import { http, HttpResponse, type JsonBodyType } from 'msw';
@@ -68,8 +60,7 @@ describe('listDeliveries (browser client)', () => {
   });
 
   // The route always writes both keys, so a body missing `data` is a gateway
-  // artefact, not an empty result. Accepting it reported "no deliveries" and
-  // hid Load more, silently truncating the list.
+  // artefact, not an empty result.
   it('reports an error when the envelope is missing its data array', async () => {
     respondWith({});
 
@@ -91,8 +82,6 @@ describe('listDeliveries (browser client)', () => {
   });
 
   it('reports an error when data is present but next_cursor is missing', async () => {
-    // Coercing the absent key to null would read as "last page", hide Load
-    // more, and truncate the list without saying so.
     respondWith({ data: [] });
 
     await expect(listDeliveries()).resolves.toEqual({
@@ -179,9 +168,6 @@ describe('listDeliveries (browser client)', () => {
   });
 
   // ── Error as value ─────────────────────────────────────────────────────────
-  //
-  // Every branch below has to resolve. `resolves.toEqual` is the assertion
-  // that matters: a rejection fails the test even if the shape is right.
 
   it('resolves with the message from a refusal rather than throwing', async () => {
     server.use(
@@ -207,9 +193,7 @@ describe('listDeliveries (browser client)', () => {
     });
   });
 
-  // A 200 that is not JSON (an HTML error page from a proxy, say). Reporting it
-  // as an empty page would be indistinguishable from the end of history, so the
-  // grid would say "no deliveries" and hide Load more on a truncated list.
+  // A 200 that is not JSON — an HTML error page from a proxy, say.
   it('reports an error when a 200 body is not JSON, rather than an empty page', async () => {
     server.use(
       http.get(BFF, () =>
@@ -226,11 +210,8 @@ describe('listDeliveries (browser client)', () => {
     });
   });
 
-  // The header of triggers-api.ts promises these functions never throw, and
-  // every caller relies on it: an escaping rejection skips the completion
-  // handler entirely, so Load more stays on a disabled "Loading..." with no
-  // error line and therefore no Retry. res.text() rejects when the body fails
-  // after the headers arrived, which a plain `await` would let through.
+  // res.text() rejects when the body fails after the headers arrived, which a
+  // plain `await` would let through.
   it('reports an error rather than throwing when the body fails mid-stream', async () => {
     server.use(
       http.get(BFF, () => {
@@ -267,8 +248,7 @@ describe('listDeliveries (browser client)', () => {
   });
 
   // A non-ok body that is the JSON literal `null` parses successfully, so the
-  // catch in errorMessage never fires. Reading .message off it threw, which
-  // escaped as a rejection on the one path this PR added.
+  // catch in errorMessage never fires and reading .message off it throws.
   it('reports a status message when a non-ok body is the JSON literal null', async () => {
     server.use(http.get(BFF, () => HttpResponse.json(null, { status: 500 })));
 

@@ -1,14 +1,11 @@
 /**
- * @tier 3 — triggers-owned, with two feature-area consumers: the Triggers page
- * and the agent detail page (`agents/[slug]/_components/agent-triggers-tab.tsx`),
- * which imports it across feature areas. Stays Tier 3 deliberately: this file IS
+ * @tier 3 — triggers-owned; also imported by the agent detail page
+ * (`agents/[slug]/_components/agent-triggers-tab.tsx`). Stays Tier 3: this file IS
  * the Triggers vocabulary, and promoting it would move the whole domain into
- * `src/components/` for the sake of one consumer.
+ * `src/components/` for one consumer.
  *
- * Display-layer types for the Triggers feature.
- *
- * *Row types are the shapes consumed by the UI. The raw API shapes
- * (WebhookSource, Trigger, TriggerDelivery) only appear at the service boundary.
+ * Display-layer types: `*Row` types are what the UI consumes, and the raw API
+ * shapes appear only at the service boundary.
  */
 
 import type { IconName } from '@orbit/hades';
@@ -26,13 +23,7 @@ import type {
 
 export type { InputField, TriggerKind, TriggerOverflow };
 
-/**
- * Deliveries requested per page, by the server render and by every Load more.
- *
- * One constant so every page is the same size. The cursor encodes the last row
- * returned, not an offset, so a different size would be correct either way - it
- * would just make the grid grow in uneven steps.
- */
+/** Deliveries per page, for the server render and every Load more. */
 export const DELIVERY_PAGE_SIZE = 100;
 
 /** Burst coalescing for a webhook trigger: a key template and a window in seconds. */
@@ -46,15 +37,12 @@ export type Senders = Required<SenderRestriction>;
 
 // ── Shared vocabulary ─────────────────────────────────────────────────────────
 //
-// Constants both the create surface (wizard) and the read/edit surfaces (list,
-// drawer) need. They live here rather than in either one, so a bound or an icon
-// cannot mean two things depending on which screen you are looking at.
+// Constants the create surface and the read/edit surfaces share, so a bound or
+// an icon cannot mean two things depending on the screen.
 
 /**
- * Bounds the platform enforces, mirrored here so the UI refuses before the API
- * does. `parallel.max` matches the backend ceiling (and its DB check
- * constraint) exactly: a wizard that offered more would collect a value the API
- * then rejects.
+ * Bounds the platform enforces, mirrored so the UI refuses before the API does.
+ * `parallel.max` matches the backend ceiling and its DB check constraint exactly.
  */
 export const LIMITS = {
   parallel: { min: 1, max: 16 },
@@ -78,9 +66,8 @@ export interface SourceRow {
   enabled: boolean;
   createdAt: string;
   /**
-   * Requests that failed authentication. Never deliveries, since those are
-   * unauthenticated requests; surfaced here so a wrong signing secret is
-   * diagnosable rather than silent.
+   * Requests that failed authentication — never deliveries, since a rejected
+   * request never became one. Surfaced so a wrong signing secret is not silent.
    */
   rejectionCount: number;
   lastRejectionAt: string | null;
@@ -122,9 +109,8 @@ export interface TriggerRow {
   autopauseEnabled: boolean;
   consecutiveFailures: number;
   /**
-   * Set when the platform paused this trigger itself after sustained failure.
-   * Shown differently from a trigger a person turned off: one needs
-   * investigating, the other was deliberate.
+   * Set when the platform paused this trigger itself after sustained failure;
+   * shown differently from a trigger a person turned off.
    */
   autoPausedAt: string | null;
   /**
@@ -180,9 +166,8 @@ export interface DeliveryRunRow {
   /** The delivery whose fire replaced this one; set when the status is `superseded`. */
   supersededBy?: string;
   /**
-   * When this outcome was recorded. Against the delivery's receivedAt this is
-   * how long the platform took to start the run, which is the only dispatch
-   * latency signal available without instrumenting the agent API.
+   * When this outcome was recorded. Against the delivery's receivedAt, the only
+   * dispatch-latency signal available without instrumenting the agent API.
    */
   createdAt: string | null;
 }
@@ -192,10 +177,7 @@ export interface AgentOption {
   id: string;
   slug: string;
   name: string;
-  /**
-   * Identity model of the agent. Delegated agents cannot be bound to triggers
-   * (they only run on behalf of a person), so the picker disables them.
-   */
+  /** Delegated agents cannot be bound to triggers, so the picker disables them. */
   identityMode: 'autonomous' | 'delegated';
 }
 
@@ -249,15 +231,11 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     autopauseEnabled: t.autopause_enabled ?? true,
     consecutiveFailures: t.consecutive_failures ?? 0,
     autoPausedAt: t.auto_paused_at ?? null,
-    // Zero until the backend reports it, so a console deployed ahead of the
-    // API shows nothing rather than a wrong number.
     pendingCount: t.pending_count ?? 0,
   };
 }
 
 export function toDeliveryRow(d: TriggerDelivery): DeliveryRow {
-  // trigger_name falls back to null, so a console deployed ahead of the API
-  // shows the id fallback rather than breaking; no lockstep deploy required.
   return {
     id: d.id,
     kind: d.kind,
@@ -302,9 +280,8 @@ export interface TriggerScheduleDraft {
 }
 
 /**
- * A correction to a stored trigger, in the console's own vocabulary. Every
- * field is optional: a caller sends only what it owns, so adjusting a limit
- * cannot disturb a prompt.
+ * A correction to a stored trigger, in the console's vocabulary. Every field is
+ * optional: a caller sends only what it owns.
  */
 export interface TriggerPatch {
   name?: string;
@@ -343,11 +320,9 @@ export function toScheduleConfigRequest(schedule: TriggerScheduleDraft) {
 }
 
 /**
- * The single camelCase → snake_case mapper for a trigger update.
- *
- * Written once so a renamed API field is one edit, and so no component has to
- * know the wire casing. Absent keys stay absent: PATCH semantics mean an
- * omitted field is unchanged, and sending `undefined` would risk clearing it.
+ * The single camelCase → snake_case mapper for a trigger update. Absent keys stay
+ * absent: under PATCH an omitted field is unchanged, and sending `undefined`
+ * would risk clearing it.
  */
 export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateRequest {
   return {
@@ -378,23 +353,15 @@ export function toTriggerUpdateRequest(patch: TriggerPatch): TriggerUpdateReques
 
 // ── Display helpers shared by the trigger and delivery surfaces ──────────────
 
-/**
- * Characters of an id worth showing.
- *
- * Enough to correlate a row with a log line, short enough that an id never
- * wraps a table row onto a second line. Full ids stay available in the panel.
- */
+/** Characters of an id worth showing: enough to match a log line, short enough
+ * that a row never wraps. */
 export const SHORT_ID_LENGTH = 8;
 
 export function shortId(id: string): string {
   return id.length > SHORT_ID_LENGTH ? id.slice(0, SHORT_ID_LENGTH) : id;
 }
 
-/**
- * Relative time, because "2m ago" answers the question and a timestamp does
- * not. Shared, so the trigger list and the delivery list cannot phrase the same
- * gap two ways.
- */
+/** Relative time, shared so two lists cannot phrase the same gap two ways. */
 export function relativeTime(iso: string | null): string {
   if (iso === null) return 'Never';
   const ms = Date.now() - Date.parse(iso);
@@ -408,8 +375,7 @@ export function relativeTime(iso: string | null): string {
 }
 
 /**
- * The absolute time for hover titles, the delivery panel, and the agent page:
- * one formatter, so those surfaces spell the same instant the same way. The
+ * Absolute time for hover titles, the delivery panel and the agent page. The
  * drawer's delivery history deliberately uses a different-grain formatter.
  */
 export function formatTimestampUtc(iso: string): string {
@@ -426,8 +392,7 @@ export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'er
       return 'healthy';
     case 'verified':
     case 'skipped':
-    // A repeat arrival and a tick that fired while the platform was away are
-    // notable but not faults; they share the cautionary tone with skipped.
+    // A repeat arrival and a missed tick are notable but not faults.
     case 'duplicate':
     case 'missed':
       return 'degraded';
@@ -441,9 +406,8 @@ export function deliveryStatusTone(status: string): 'healthy' | 'degraded' | 'er
 }
 
 /**
- * StatusDot has no "unknown" tone. An outcome the console does not recognise is
- * shown as idle rather than as healthy or failed: inventing a verdict for a
- * status we have not taught the UI about is worse than showing none.
+ * StatusDot has no "unknown" tone, so an unrecognised status shows as idle
+ * rather than as a healthy or failed verdict the console cannot vouch for.
  */
 export function deliveryDotStatus(status: string): 'healthy' | 'degraded' | 'error' | 'idle' {
   const tone = deliveryStatusTone(status);
@@ -451,15 +415,10 @@ export function deliveryDotStatus(status: string): 'healthy' | 'degraded' | 'err
 }
 
 /**
- * Which trigger this delivery was for, in the best terms available.
- *
- * A delivery is an arrival, not a dispatch: one can fan out to several triggers
- * or to none at all. The denormalised name is preferred, then the fan-out's own
- * names, then a shortened id, and finally nothing at all for an arrival that
- * matched no trigger, which is a real and interesting outcome rather than
- * missing data. `kind` lets a caller render an id differently from a name; the
- * id is already shortened, because a uuid wrapped over three lines is what turns
- * a list into a wall.
+ * Which trigger this delivery was for, in the best terms available. A delivery is
+ * an arrival, not a dispatch: it can fan out to several triggers or to none, and
+ * `none` is a real outcome rather than missing data. `kind` lets a caller render
+ * an id differently from a name.
  */
 export type DeliveryTriggerIdentity =
   { kind: 'name'; label: string } | { kind: 'id'; label: string } | { kind: 'none' };
@@ -486,11 +445,9 @@ export function deliveryTriggerLabel(d: DeliveryRow): string {
 }
 
 /**
- * How long the platform took to turn an arrival into a recorded outcome.
- *
- * Null when the outcome carries no timestamp: an event that was filtered or
- * denied never reached a run, so there is no duration to report and a "0ms"
- * would read as suspiciously fast rather than as not-applicable.
+ * How long the platform took to turn an arrival into a recorded outcome. An
+ * event that was filtered or denied never reached a run, so it has no duration:
+ * "0ms" would read as suspiciously fast rather than as not-applicable.
  */
 export function dispatchDuration(receivedAt: string, createdAt: string | null): string {
   if (createdAt === null) return '—';
@@ -509,15 +466,11 @@ export function deliveryDuration(d: DeliveryRow, triggerId?: string): string {
 }
 
 /**
- * Outcomes a replay could actually recover.
- *
- * The backend refuses what is genuinely unreplayable, but a delivery that
- * already dispatched is replayable and should still not be offered: one stray
- * click would start a second, duplicate run of work that already succeeded.
- *
- * `superseded` belongs here for the same reason as `dropped`: a delivery the
- * queue discarded in favour of a newer one never ran, so replaying it is the
- * only way to recover the work it was carrying.
+ * Outcomes a replay could actually recover. The backend refuses what is genuinely
+ * unreplayable, but a delivery that already dispatched is replayable and still
+ * must not be offered: one stray click would re-run work that already succeeded.
+ * `superseded` belongs here like `dropped` — the queue discarded it in favour of
+ * a newer fire, so it never ran.
  */
 const REDELIVERABLE_STATUSES = new Set(['failed', 'denied', 'dropped', 'superseded']);
 
@@ -526,30 +479,22 @@ export function isRedeliverable(status: string): boolean {
 }
 
 /**
- * What to show for the key a trigger rendered on a delivery.
- *
- * A key too long to use is stated plainly, since the fire ran on its own and
- * the reader would otherwise wonder why nothing was coalesced.
+ * What to show for the key a trigger rendered. An over-long key is stated
+ * plainly: that fire ran on its own rather than coalescing.
  */
 export function coalesceKeyText(entry: DeliveryCoalesceKeyRow): string {
   if (entry.keyTooLong) return 'Key too long, not coalesced';
   return entry.key ?? '';
 }
 
-/**
- * The coalescing keys to show for a delivery. Scoped to one trigger when the
- * surface is, so a trigger's drawer never shows another trigger's key.
- */
+/** The coalescing keys to show, scoped to one trigger when the surface is. */
 export function coalesceKeysFor(d: DeliveryRow, triggerId?: string): DeliveryCoalesceKeyRow[] {
   return triggerId === undefined
     ? d.coalesceKeys
     : d.coalesceKeys.filter((c) => c.triggerId === triggerId);
 }
 
-/**
- * The runs of a delivery that a newer delivery replaced, with the replacing
- * delivery's id. Scoped to one trigger when the surface is.
- */
+/** The runs a newer delivery replaced, with its replacement's id. Scoped per trigger. */
 export function supersededRuns(d: DeliveryRow, triggerId?: string): DeliveryRunRow[] {
   return d.runs.filter(
     (r) => r.supersededBy !== undefined && (triggerId === undefined || r.triggerId === triggerId),
@@ -562,13 +507,9 @@ export const DELIVERY_EXCERPT_MAX = 120;
 /**
  * Decision for the Deliveries "Detail" column, in priority order:
  * fan-out run count > error > single run id > payload excerpt > none.
- * Pure so the priority chain and excerpt truncation are unit-testable. The grid
- * reads it through `deliverySummary`, which clips it to one line and styles from
- * `kind`; the panel shows the untrimmed form.
  *
- * Note: `text` for `excerpt` is derived from `payload_excerpt`, which is
- * untrusted webhook data — it is rendered through Hades `<Text>` (React-escaped),
- * never as HTML.
+ * `text` for `excerpt` is derived from `payload_excerpt`, untrusted webhook data:
+ * it must stay inside Hades `<Text>` (React-escaped), never rendered as HTML.
  */
 export type DeliveryDetail =
   | { kind: 'runs'; text: string }
@@ -624,12 +565,9 @@ function clip(text: string): string {
 }
 
 /**
- * One line about what a delivery did, for a list row.
- *
- * The same priority chain as `deliveryDetail`, reduced to something that fits a
- * cell: an error becomes its human end rather than the whole wrapped chain, and
- * everything is flattened to a single line. The full chain stays in the panel,
- * which is where a person goes once the summary tells them to look.
+ * One line about what a delivery did, for a list row: the same priority chain as
+ * `deliveryDetail`, with an error reduced to its human end and flattened to one
+ * line. The full chain stays in the panel.
  */
 export type DeliverySummary =
   { kind: 'runs' | 'error' | 'runId' | 'excerpt'; text: string } | { kind: 'none' };
