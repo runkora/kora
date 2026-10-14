@@ -76,7 +76,7 @@ Every inference request produces one row in `inference_usage` with 22 columns co
 - [ ] Routing section shows: routing strategy, retry count.
 - [ ] Performance section shows: latency, prompt tokens, completion tokens, cache read tokens, cache creation tokens, cache hit rate (computed), estimated cost.
 - [ ] Failure section (shown only when status is not `success`) shows: status badge, error code.
-- [ ] The modal uses the existing `Modal` component from `@orbit/hades` with `size="lg"` and a constrained scrollable body.
+- [ ] The modal uses the existing `Modal` component from `@runkora/hades` with `size="lg"` and a constrained scrollable body.
 - [ ] The modal is triggered by row click on `DataTable`, following the same pattern as `ModelDetailModal` in the Models tab.
 - [ ] The modal can be dismissed via the close button, Escape key, or clicking the backdrop.
 - [ ] No new API call is made when opening the modal — all data comes from the row already loaded in the table.

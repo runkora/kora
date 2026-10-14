@@ -94,7 +94,7 @@ Some components use `as?: ElementTypeUnion`, some use `asChild?: boolean`, some 
 
 **Acceptance Criteria:**
 - [ ] `local/no-raw-interactive-elements` rule blocks `<button>` in all `src/**/*.tsx` except `src/packages/hades/**`
-- [ ] Error message names `<Button>` from `@orbit/hades` and links to `hades-design-system.md`
+- [ ] Error message names `<Button>` from `@runkora/hades` and links to `hades-design-system.md`
 - [ ] All existing raw `<button>` usages in the app migrated to `<Button>` before rule activation
 
 ---

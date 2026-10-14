@@ -220,7 +220,7 @@ const noRawInteractiveElements = {
           context.report({
             node,
             message:
-              'Use <Button> from @orbit/hades instead of a raw <button>. ' +
+              'Use <Button> from @runkora/hades instead of a raw <button>. ' +
               'See frontend/docs/reference/hades-design-system.md.',
           })
         }
@@ -232,11 +232,11 @@ const noRawInteractiveElements = {
 
 Applied to `src/**/*.tsx` excluding `src/packages/hades/**`. Added to the `no-hades-disable-comment` HADES_RULES set.
 
-**Pre-activation migration:** Search for `<button` in `src/**/*.tsx` (excluding hades). Migrate each occurrence to `<Button>` from `@orbit/hades`. Verify variant mapping (if the raw button used custom classes to achieve a ghost/outline/destructive appearance, map to the appropriate `variant` prop).
+**Pre-activation migration:** Search for `<button` in `src/**/*.tsx` (excluding hades). Migrate each occurrence to `<Button>` from `@runkora/hades`. Verify variant mapping (if the raw button used custom classes to achieve a ghost/outline/destructive appearance, map to the appropriate `variant` prop).
 
 #### A2. Extend rule: `local/no-raw-inline-elements`
 
-Add `'code'`, `'kbd'`, `'samp'`, `'var'` to the blocked element set in `no-raw-inline-elements`. Update the error message to include: `"Use <Code> from @orbit/hades for inline code, keyboard input, and sample output."` The `Code` component in Hades accepts a `variant` prop (`"inline"` | `"bare"`) for the two common use cases.
+Add `'code'`, `'kbd'`, `'samp'`, `'var'` to the blocked element set in `no-raw-inline-elements`. Update the error message to include: `"Use <Code> from @runkora/hades for inline code, keyboard input, and sample output."` The `Code` component in Hades accepts a `variant` prop (`"inline"` | `"bare"`) for the two common use cases.
 
 **Pre-activation migration:**
 - `vocabulary-tab.tsx`: replace raw `<code>` elements with `<Code variant="inline">` or `<Code variant="bare">` as appropriate
