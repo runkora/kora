@@ -102,11 +102,12 @@ export function DeliveryDetail({
     (triggerId === undefined ? (delivery.triggerId ?? undefined) : undefined);
   const runSlug = runTriggerId === undefined ? undefined : resolveAgentSlug?.(runTriggerId);
 
-  // Every run this arrival started. The delivery's own run_id is folded in when
+  // Every run this arrival started, on an unscoped surface only: a scoped panel
+  // shows one trigger's outcome and lists no fan-out. The delivery's own run_id is folded in when
   // no fan-out row carries it: without the fold, a run whose row failed to write
   // is listed nowhere once a sibling has one, because the list renders the
   // siblings and the inline cluster below is suppressed.
-  const fanOutRuns =
+  const listedRuns =
     triggerId === undefined
       ? (() => {
           const rows = delivery.runs.filter((r) => r.runId !== null);
@@ -129,13 +130,14 @@ export function DeliveryDetail({
   // service_dispatch, so a read between them sees a fan-out run with no
   // delivery-level run id — and reading only delivery.runId renders the run
   // nowhere: the list above needs two, the cluster below needs runId.
-  const soleRun = runId ?? (fanOutRuns.length === 1 ? fanOutRuns[0]?.runId : null) ?? null;
-  const soleRunSlug = runId != null ? runSlug : resolveAgentSlug?.(fanOutRuns[0]?.triggerId ?? '');
+  const inlineRunId = runId ?? (listedRuns.length === 1 ? listedRuns[0]?.runId : null) ?? null;
+  const inlineRunSlug =
+    runId != null ? runSlug : resolveAgentSlug?.(listedRuns[0]?.triggerId ?? '');
 
   // "No run started" has to agree with both of these, or the panel claims
   // nothing ran while listing what did.
-  const showRunCluster = soleRun != null && fanOutRuns.length <= 1;
-  const showNoRunText = soleRun == null && fanOutRuns.length === 0;
+  const showRunCluster = inlineRunId != null && listedRuns.length <= 1;
+  const showNoRunText = inlineRunId == null && listedRuns.length === 0;
 
   const canRedeliver =
     onRedeliver !== undefined && isRedeliverable(outcome?.status ?? delivery.status);
@@ -265,12 +267,12 @@ export function DeliveryDetail({
         </Callout>
       )}
 
-      {fanOutRuns.length > 1 && (
+      {listedRuns.length > 1 && (
         <Stack gap="tight">
           <Text mono size="micro" color="subtle">
             runs
           </Text>
-          {fanOutRuns.map((r) => (
+          {listedRuns.map((r) => (
             <Stack key={r.runId} direction="horizontal" align="center" gap="tight">
               <Text size="caption" color="muted" truncate>
                 {r.triggerName || r.triggerId}
@@ -296,7 +298,7 @@ export function DeliveryDetail({
               <Text mono size="micro" color="subtle">
                 run
               </Text>
-              <RunRef runId={soleRun} agentSlug={soleRunSlug} />
+              <RunRef runId={inlineRunId} agentSlug={inlineRunSlug} />
             </Stack>
           )}
           {showNoRunText && (

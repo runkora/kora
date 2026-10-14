@@ -437,15 +437,15 @@ func (c *Controller) handleListDeliveries(w http.ResponseWriter, r *http.Request
 	ctx := r.Context()
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	// status and outcome repeat rather than taking a comma list: ?status=failed
-	// &status=missed is what a multi-select filter sends, and a value can never
-	// contain a comma.
 	cursor, err := parseDeliveryCursor(q.Get("cursor"))
 	if err != nil {
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeValidationFailed, "'cursor' is not a valid pagination cursor", nil), err)
 		return
 	}
+	// status and outcome repeat rather than taking a comma list: ?status=failed
+	// &status=missed is what a multi-select filter sends, and a value can never
+	// contain a comma.
 	filter := DeliveryFilter{
 		SourceID:    q.Get("source_id"),
 		TriggerID:   q.Get("trigger_id"),

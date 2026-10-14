@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -276,13 +277,15 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 // write. Ignoring an unknown value would silently return an unfiltered page,
 // which reads as a bug rather than as the typo it is.
 func validateDeliveryFilter(filter DeliveryFilter) error {
+	statuses := AllDeliveryStatuses()
 	for _, v := range filter.Status {
-		if !deliveryStatusSet[v] {
+		if !slices.Contains(statuses, v) {
 			return fmt.Errorf("%w: unknown delivery status %q", ErrValidation, v)
 		}
 	}
+	outcomes := AllRunStatuses()
 	for _, v := range filter.Outcome {
-		if !runStatusSet[v] {
+		if !slices.Contains(outcomes, v) {
 			return fmt.Errorf("%w: unknown delivery outcome %q", ErrValidation, v)
 		}
 	}

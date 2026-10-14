@@ -243,11 +243,11 @@ export async function listDeliveries(
   if (opts.cursor) qs.set('cursor', opts.cursor);
   if (opts.omitPayload) qs.set('omit_payload', 'true');
   const q = qs.toString();
-  const body = await request<{
+  const env = await request<{
     deliveries?: unknown;
     has_next_page?: unknown;
     next_cursor?: unknown;
-  }>(`/trigger-deliveries${q ? `?${q}` : ''}`, accessToken);
+  } | null>(`/trigger-deliveries${q ? `?${q}` : ''}`, accessToken);
 
   // The platform API always writes all three keys, so a body missing one is a
   // malformed 200 (version skew, a proxy's error page), not a page. Coercing it
@@ -258,8 +258,6 @@ export async function listDeliveries(
   // a plain boolean. `deliveries` is null on an empty page - Go marshals the nil
   // slice the repository returns for no rows - so an array check would reject a
   // tenant's first visit.
-  const env = body as
-    { deliveries?: unknown; has_next_page?: unknown; next_cursor?: unknown } | null | undefined;
   if (env == null || typeof env.has_next_page !== 'boolean') {
     throw new ApiError(502, 'bad_upstream_response', 'deliveries response was not a page');
   }
@@ -275,7 +273,7 @@ export async function listDeliveries(
     );
   }
   if (env.deliveries !== null && !Array.isArray(env.deliveries)) {
-    throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no deliveries');
+    throw new ApiError(502, 'bad_upstream_response', 'deliveries response had no delivery list');
   }
   // Upstream derives has_next_page as `nextCursor != ""` and writes next_cursor
   // only when non-empty, so the two cannot disagree. If they do, this is not the

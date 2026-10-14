@@ -104,23 +104,6 @@ func AllRunStatuses() []string {
 	}
 }
 
-// deliveryStatusSet and runStatusSet are the filterable values as sets, built
-// once from the same constants the All* slices return. validateDeliveryFilter
-// checks one value per query parameter and is on the read path, so it should
-// not rebuild a slice and scan it linearly for each.
-var (
-	deliveryStatusSet = newStringSet(AllDeliveryStatuses())
-	runStatusSet      = newStringSet(AllRunStatuses())
-)
-
-func newStringSet(values []string) map[string]bool {
-	set := make(map[string]bool, len(values))
-	for _, v := range values {
-		set[v] = true
-	}
-	return set
-}
-
 // TerminalRunStatuses are the per-trigger outcomes that mean no run will ever
 // start for this trigger and delivery. The console must show them as settled
 // rather than pending.
