@@ -2357,10 +2357,9 @@ func insertTestDelivery(t *testing.T, r *postgresRepository, tenant, id, status 
 	}
 }
 
-// TestPostgres_ListDeliveriesCursorHandlesTimestampTies is the test the mock
-// cannot stand in for: it proves the real row-tuple predicate and ORDER BY
-// agree, so a page boundary that falls inside a group of deliveries sharing
-// received_at neither drops nor repeats a row.
+// The mock cannot stand in for this: it needs the real row-tuple predicate and
+// ORDER BY to agree, so a page boundary inside a group sharing received_at
+// neither drops nor repeats a row.
 func TestPostgres_ListDeliveriesCursorHandlesTimestampTies(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
@@ -2401,9 +2400,8 @@ func TestPostgres_ListDeliveriesCursorHandlesTimestampTies(t *testing.T) {
 	}
 }
 
-// TestPostgres_ListDeliveriesFiltersByStatus proves the status predicate runs
-// in SQL, so paging applies to the filtered set rather than to a page that was
-// filtered afterwards.
+// The predicate runs in SQL, so paging applies to the filtered set rather than
+// to a page filtered afterwards.
 func TestPostgres_ListDeliveriesFiltersByStatus(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
@@ -2441,11 +2439,8 @@ func TestPostgres_ListDeliveriesFiltersByStatus(t *testing.T) {
 	}
 }
 
-// TestPostgres_ListDeliveriesStatusShapesAgree pins the optimisation in the
-// status branch: one value is emitted as scalar equality and several as ANY,
-// because ANY over a parameter is a ScalarArrayOp the generic plan cannot see
-// into, which costs the index. Two query shapes for one filter is only safe
-// while they return the same rows, so that is what this asserts.
+// Two query shapes for one filter is only safe while they return the same rows.
+// See the keyset-pagination ADR for why one value uses scalar equality.
 func TestPostgres_ListDeliveriesStatusShapesAgree(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
@@ -2469,7 +2464,6 @@ func TestPostgres_ListDeliveriesStatusShapesAgree(t *testing.T) {
 		return out
 	}
 
-	// One value: the scalar branch. It must select exactly that status.
 	if got := ids(t, DeliveryFilter{Status: []string{StatusFailed}, Limit: 10}); !slices.Equal(got, []string{failed}) {
 		t.Errorf("single status: want [%s], got %v", failed, got)
 	}
@@ -2480,16 +2474,14 @@ func TestPostgres_ListDeliveriesStatusShapesAgree(t *testing.T) {
 		t.Errorf("duplicated status: want [%s], got %v", failed, got)
 	}
 
-	// Several values: the ANY branch, newest first.
 	want := []string{failed, dispatched}
 	if got := ids(t, DeliveryFilter{Status: []string{StatusFailed, StatusDispatched}, Limit: 10}); !slices.Equal(got, want) {
 		t.Errorf("multi status: want %v, got %v", want, got)
 	}
 }
 
-// TestPostgres_ListDeliveriesFiltersByOutcome proves the EXISTS over
-// trigger_delivery_runs selects deliveries without multiplying them: a join
-// would return one row per matching run and corrupt both the page and cursor.
+// EXISTS selects deliveries without multiplying them. A join would return one
+// row per matching run and corrupt both the page and the cursor.
 func TestPostgres_ListDeliveriesFiltersByOutcome(t *testing.T) {
 	r, tenant := testRepo(t)
 	ctx := context.Background()
@@ -2521,7 +2513,6 @@ func TestPostgres_ListDeliveriesFiltersByOutcome(t *testing.T) {
 		t.Fatalf("want the delivery with a denied run, got %s", page[0].ID)
 	}
 
-	// An outcome nothing holds returns nothing, rather than everything.
 	none, _, err := r.ListDeliveries(ctx, tenant,
 		DeliveryFilter{Outcome: []string{RunStatusSuperseded}, Limit: 10})
 	if err != nil {
@@ -2532,9 +2523,8 @@ func TestPostgres_ListDeliveriesFiltersByOutcome(t *testing.T) {
 	}
 }
 
-// TestPostgres_ListDeliveriesOutcomeNarrowsToTheTriggersOwnRun pins the
-// per-trigger narrowing inside the outcome EXISTS, and the limit the surrounding
-// query puts on it.
+// The per-trigger narrowing inside the outcome EXISTS, and the limit the
+// surrounding query puts on it.
 //
 // The narrowing is load-bearing, not redundant with the outer
 // trigger_deliveries.trigger_id predicate. A fanned-out delivery carries one
