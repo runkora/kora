@@ -926,6 +926,41 @@ func TestTriggerCoalesceForwarding(t *testing.T) {
 	}
 }
 
+// TestServerReadsTheBrand proves the server name and the tool descriptions that
+// name the product carry the brand it was given.
+func TestServerReadsTheBrand(t *testing.T) {
+	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()), testBrand)
+	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
+	defer gw.Close()
+	call := mcpCaller(t, gw.URL)
+
+	init := call("initialize", map[string]any{"protocolVersion": "2025-06-18", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "t", "version": "0"}})
+	info, _ := init["result"].(map[string]any)["serverInfo"].(map[string]any)
+	if info["name"] != "Acme" {
+		t.Errorf("serverInfo.name = %v, want Acme", info["name"])
+	}
+
+	list := call("tools/list", map[string]any{})
+	tools, _ := list["result"].(map[string]any)["tools"].([]any)
+	descriptions := map[string]string{}
+	for _, tt := range tools {
+		m, _ := tt.(map[string]any)
+		name, _ := m["name"].(string)
+		desc, _ := m["description"].(string)
+		descriptions[name] = desc
+	}
+	for _, name := range []string{"agents.create", "agents.sandbox_images.list", "models.list"} {
+		if _, ok := descriptions[name]; !ok {
+			t.Fatalf("%s not in tools/list", name)
+		}
+	}
+	for _, name := range []string{"agents.create", "agents.sandbox_images.list", "models.list"} {
+		if !strings.Contains(descriptions[name], "Acme") {
+			t.Errorf("%s description does not name the brand: %q", name, descriptions[name])
+		}
+	}
+}
+
 // testBrand is a product name no default could produce, so a description that
 // carries it proves the injection.
 var testBrand = brand.MustNew("Acme")

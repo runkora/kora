@@ -316,6 +316,13 @@ func noDirectWriteHeader(m dsl.Matcher) {
 			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
 }
 
+// speakingPackages and productNameWord are shared by both noProductNameLiteral
+// matchers, so the scope and the match cannot drift apart.
+const (
+	speakingPackages = `^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`
+	productNameWord  = `(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`
+)
+
 // noProductNameLiteral flags a string literal that names the product in prose
 // inside a speaking package, where the name must come from
 // internal/platform/brand so a white-labelled install never shows it.
@@ -353,9 +360,9 @@ func noDirectWriteHeader(m dsl.Matcher) {
 //	fmt.Sprintf("%s paused this run: ...", product, n)
 func noProductNameLiteral(m dsl.Matcher) {
 	m.Match(`$recv.$method($*_, $s, $*_)`).
-		Where(m.File().PkgPath.Matches(`^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`) &&
+		Where(m.File().PkgPath.Matches(speakingPackages) &&
 			m["s"].Node.Is("BasicLit") &&
-			m["s"].Text.Matches(`(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`) &&
+			m["s"].Text.Matches(productNameWord) &&
 			!m["recv"].Type.Implements(`github.com/clear-route/orbit/internal/platform/logging.Logger`)).
 		At(m["s"]).
 		Report(`docs/adr/2026-10-12-white-labelling-theme.md: the product name must come from internal/platform/brand, not a literal — ` +
@@ -367,9 +374,9 @@ func noProductNameLiteral(m dsl.Matcher) {
 		`const $_ = $s`, `var $_ = $s`, `const $_ $_ = $s`, `var $_ $_ = $s`,
 		`return $s`, `$_ = $s`, `$_ := $s`,
 		`$s + $_`, `$_ + $s`).
-		Where(m.File().PkgPath.Matches(`^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`) &&
+		Where(m.File().PkgPath.Matches(speakingPackages) &&
 			m["s"].Node.Is("BasicLit") &&
-			m["s"].Text.Matches(`(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`)).
+			m["s"].Text.Matches(productNameWord)).
 		At(m["s"]).
 		Report(`docs/adr/2026-10-12-white-labelling-theme.md: the product name must come from internal/platform/brand, not a literal — ` +
 			`a white-labelled install must never show the kora name in text its people or agents read. ` +

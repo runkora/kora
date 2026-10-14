@@ -155,10 +155,18 @@ type K8sProvisioner struct {
 // Without it, grant reconciliation uses the agent's own scopes.
 func (p *K8sProvisioner) SetScopeResolver(r *ScopeResolver) { p.scopeResolver = r }
 
+// ErrProvisionerProductNameEmpty is returned when the provisioner is built with no product name.
+var ErrProvisionerProductNameEmpty = errors.New("k8s provisioner: product name is empty")
+
 // NewK8sProvisioner builds a provisioner using in-cluster config when inCluster
 // is true, otherwise falling back to KUBECONFIG (local development).
 // policyClient may be nil; grant creation is skipped when unset (local dev).
 func NewK8sProvisioner(inCluster bool, logger logging.Logger, cfg K8sProvisionerConfig, policyClient *policyclient.Client) (*K8sProvisioner, error) {
+	// An empty name is dropped from the pod's environment, so the session-manager
+	// would silently fall back to the image default.
+	if strings.TrimSpace(cfg.ProductName) == "" {
+		return nil, ErrProvisionerProductNameEmpty
+	}
 	restCfg, err := buildRestConfig(inCluster)
 	if err != nil {
 		return nil, fmt.Errorf("build k8s rest config: %w", err)

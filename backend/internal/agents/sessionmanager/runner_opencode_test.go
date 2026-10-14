@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
@@ -553,6 +554,7 @@ func TestOpenCodeReadLoop_MalformedLinesSkipped(t *testing.T) {
 // can pick: with none configured it chose its own hosted free model.
 func TestOpenCodeWriteConfig(t *testing.T) {
 	r := newTestOpenCodeRunner()
+	r.cfg.Brand = brand.MustNew("Acme")
 
 	data, err := r.openCodeConfig(t.TempDir())
 	if err != nil {
@@ -567,6 +569,7 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 		Autoupdate       *bool             `json:"autoupdate"`
 		Permission       map[string]string `json:"permission"`
 		Provider         map[string]struct {
+			Name    string            `json:"name"`
 			NPM     string            `json:"npm"`
 			Options map[string]string `json:"options"`
 			Models  map[string]any    `json:"models"`
@@ -587,6 +590,9 @@ func TestOpenCodeWriteConfig(t *testing.T) {
 		t.Fatalf("providers = %v, want only orbit", cfg.Provider)
 	}
 	orbit := cfg.Provider["orbit"]
+	if orbit.Name != "Acme" {
+		t.Errorf("provider name = %q, want Acme", orbit.Name)
+	}
 	if orbit.NPM != "@ai-sdk/openai-compatible" {
 		t.Errorf("npm = %q, want @ai-sdk/openai-compatible", orbit.NPM)
 	}
