@@ -1895,7 +1895,8 @@ func TestPostgres_EnqueueCoalescing_ReplacesInsideTheWindow(t *testing.T) {
 	if len(opened) != 1 {
 		t.Fatalf("waiting rows after the first fire = %d, want 1", len(opened))
 	}
-	if d := time.Until(opened[0].dispatchAfter); d < 50*time.Second || d > time.Minute {
+	// The window end comes from the database clock, which can run slightly ahead of the host.
+	if d := time.Until(opened[0].dispatchAfter); d < 50*time.Second || d > time.Minute+5*time.Second {
 		t.Errorf("window ends in %s, want about a minute from the first fire", d)
 	}
 
