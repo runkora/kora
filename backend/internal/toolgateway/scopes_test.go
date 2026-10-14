@@ -1,6 +1,7 @@
 package toolgateway
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
@@ -123,6 +124,63 @@ func TestBuildScopes_LeafPrefixCollision(t *testing.T) {
 	}
 	if _, ok := got["mcp:search-svc:search:use"]; !ok {
 		t.Error("expected the search rollup (from search.advanced) to still exist")
+	}
+}
+
+func TestGroupByTenant(t *testing.T) {
+	snaps := []ServerSnapshot{
+		{Server: Server{TenantID: "", Name: "orbit"}},
+		{Server: Server{TenantID: "acme", Name: "slack"}},
+		{Server: Server{TenantID: "globex", Name: "slack"}},
+	}
+
+	groups := groupByTenant(snaps)
+	if len(groups) != 3 {
+		t.Fatalf("got %d groups, want 3 (global, acme, globex)", len(groups))
+	}
+	for tenant, wantServer := range map[string]string{"": "orbit", "acme": "slack", "globex": "slack"} {
+		g := groups[tenant]
+		if len(g) != 1 || g[0].Server.Name != wantServer {
+			t.Errorf("group %q = %+v, want one server named %q", tenant, g, wantServer)
+		}
+	}
+}
+
+func TestGroupByTenant_GlobalGroupAlwaysPresent(t *testing.T) {
+	groups := groupByTenant([]ServerSnapshot{{Server: Server{TenantID: "acme", Name: "slack"}}})
+
+	g, ok := groups[""]
+	if !ok {
+		t.Fatal("global group missing; it must exist to carry mcp:invoke")
+	}
+	if len(g) != 0 {
+		t.Errorf("global group has %d servers, want 0", len(g))
+	}
+}
+
+// Publish builds scopes per tenant group, so same-named servers in different
+// tenants each keep their own declarations instead of collapsing.
+func TestBuildScopes_PerTenantGroupsKeepOwnDescriptions(t *testing.T) {
+	snaps := []ServerSnapshot{
+		{
+			Server: Server{TenantID: "acme", Name: "slack"},
+			State:  StateOK,
+			Tools:  []Tool{{Name: "messages.post", Description: "from Acme"}},
+		},
+		{
+			Server: Server{TenantID: "globex", Name: "slack"},
+			State:  StateOK,
+			Tools:  []Tool{{Name: "messages.post", Description: "from Globex"}},
+		},
+	}
+
+	groups := groupByTenant(snaps)
+	for tenant, want := range map[string]string{"acme": "from Acme", "globex": "from Globex"} {
+		decls, _ := BuildScopes(groups[tenant])
+		leaf := scopeSet(decls)["mcp:slack:messages:post:use"]
+		if !strings.Contains(leaf.Description, want) {
+			t.Errorf("tenant %q leaf description = %q, want it to contain %q", tenant, leaf.Description, want)
+		}
 	}
 }
 

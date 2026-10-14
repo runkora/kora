@@ -21,7 +21,7 @@ import (
 // the vocabulary check.
 type knownVocab struct{ idempotentVocab }
 
-func (knownVocab) Exists(context.Context, string) (bool, error) { return true, nil }
+func (knownVocab) Exists(context.Context, string, string) (bool, error) { return true, nil }
 
 const serviceSubject = "spiffe://orbit.local/tenant/orbit-tenant-example/service/billing"
 

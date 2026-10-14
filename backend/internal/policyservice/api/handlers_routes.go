@@ -10,11 +10,14 @@ import (
 
 // registerRoutesRequest is the body for POST /policy/routes/register.
 // The tenant scope (global vs tenant-specific) is derived from the caller's
-// platform token — it is not a caller-supplied field.
+// platform token, except that a SYSTEM caller may name the tenant itself.
 type registerRoutesRequest struct {
 	Service string                    `json:"service"`
 	Routes  []routes.RouteScope       `json:"routes"`
 	Scopes  []routes.ScopeDeclaration `json:"scopes,omitempty"`
+	// TenantID is the tenant to register under. Only a SYSTEM caller may name a
+	// tenant (empty means global); any other caller is bound to its token's tenant.
+	TenantID string `json:"tenant_id,omitempty"`
 	// SkipPrune upserts the declared scopes without the destructive orphan
 	// prune (DeleteOrphans + PurgeScopeFromAll). Default false preserves the
 	// prune-on-publish behavior. Honored only for global (SYSTEM) registrations
@@ -39,7 +42,8 @@ func (c *Controller) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 
 // handleRegisterRoutes handles POST /policy/routes/register.
 // The caller's principal type determines registration scope:
-//   - SYSTEM → global registration (compiled into every tenant bundle)
+//   - SYSTEM → global registration (compiled into every tenant bundle), or a
+//     tenant-scoped one when the request names a tenant_id
 //   - SERVICE → tenant-scoped registration (compiled into that tenant's bundle only;
 //     all required_scopes must exist in the tenant's vocabulary)
 //
@@ -53,12 +57,8 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var tenantID string
 	switch claims.Orbit.PrincipalType {
-	case token.PrincipalTypeSystem:
-		tenantID = ""
-	case token.PrincipalTypeService:
-		tenantID = claims.Orbit.TenantID
+	case token.PrincipalTypeSystem, token.PrincipalTypeService:
 	default:
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
@@ -68,6 +68,12 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 
 	var req registerRoutesRequest
 	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
+		return
+	}
+
+	// SYSTEM names the tenant ("" is global); a SERVICE is bound to its token's tenant.
+	tenantID, ok := c.resolveTenantID(w, r, claims, req.TenantID)
+	if !ok {
 		return
 	}
 

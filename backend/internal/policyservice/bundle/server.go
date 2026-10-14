@@ -123,7 +123,9 @@ func (s *Server) RecompileGateway(ctx context.Context) error {
 		return fmt.Errorf("list tenants for gateway bundle: %w", err)
 	}
 
-	vocab, err := s.vocabRepo.List(ctx, "")
+	// The gateway bundle is shared by every tenant, so it carries the global
+	// vocabulary only; tenant-owned scopes live in each tenant's own bundle.
+	vocab, err := s.vocabRepo.List(ctx, "", "")
 	if err != nil {
 		return fmt.Errorf("list vocabulary for gateway bundle: %w", err)
 	}
@@ -180,12 +182,16 @@ func (s *Server) ServeGatewayHTTP(w http.ResponseWriter, r *http.Request) {
 // Bootstrap pre-compiles bundles for all tenants that have at least one grant.
 // Called once at startup so enforcement points do not receive a 404 on first poll.
 func (s *Server) Bootstrap(ctx context.Context, tenantIDs []string) {
-	vocab, err := s.vocabRepo.List(ctx, "")
-	if err != nil {
-		s.logger.Error(ctx, "bundle bootstrap: failed to list vocabulary", logging.Field{Key: "error", Value: err.Error()})
-		return
-	}
 	for _, tenantID := range tenantIDs {
+		// Each tenant's bundle compiles from its own vocabulary plus the global one.
+		vocab, err := s.vocabRepo.List(ctx, tenantID, "")
+		if err != nil {
+			s.logger.Error(ctx, "bundle bootstrap: failed to list vocabulary",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
 		if err := s.Recompile(ctx, tenantID, vocab); err != nil {
 			s.logger.Error(ctx, "bundle bootstrap: failed to compile",
 				logging.Field{Key: "tenant_id", Value: tenantID},
@@ -205,7 +211,7 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 	}
 
 	if vocabEntries == nil {
-		vocabEntries, err = s.vocabRepo.List(ctx, "")
+		vocabEntries, err = s.vocabRepo.List(ctx, tenantID, "")
 		if err != nil {
 			return fmt.Errorf("list vocabulary: %w", err)
 		}

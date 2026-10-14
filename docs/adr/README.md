@@ -139,6 +139,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [MCP OAuth Authentication Model](2026-06-29-mcp-oauth-authentication.md) — `Accepted` · 2026-06-29
 - [kora MCP — Platform Management MCP Server](2026-06-30-orbit-mcp.md) — `Accepted` · 2026-06-30
 - [Tenant MCP Servers as a Recognised Workload Class](2026-09-17-mcp-workload-class.md) — `Proposed` · 2026-09-17
+- [Tenant-Scoped MCP Scope Vocabulary](2026-10-14-tenant-scoped-mcp-scope-vocabulary.md) — `Proposed` · 2026-10-14
 
 ### Service Mesh, Operator & Deployment
 
@@ -297,4 +298,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
+| 2026-10-14 | [Tenant-Scoped MCP Scope Vocabulary](2026-10-14-tenant-scoped-mcp-scope-vocabulary.md) | Proposed | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

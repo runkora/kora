@@ -198,7 +198,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 		if isStructurallyValidEgressScope(scope) {
 			continue
 		}
-		exists, err := s.vocabRepo.Exists(ctx, scope)
+		exists, err := s.vocabRepo.Exists(ctx, tenantID, scope)
 		if err != nil {
 			return nil, fmt.Errorf("vocabulary check: %w", err)
 		}
@@ -207,7 +207,7 @@ func (s *Service) CreateGrant(ctx context.Context, tenantID string, principalTyp
 			// upstream set — validated structurally against their unqualified
 			// vocabulary base, mirroring egress host scopes above.
 			if base, ok := qualifiedConnectionScopeBase(scope); ok {
-				exists, err = s.vocabRepo.Exists(ctx, base)
+				exists, err = s.vocabRepo.Exists(ctx, tenantID, base)
 				if err != nil {
 					return nil, fmt.Errorf("vocabulary check: %w", err)
 				}
@@ -300,8 +300,8 @@ func (s *Service) ListGrants(ctx context.Context, tenantID string, principalType
 	return s.grantRepo.List(ctx, tenantID, principalType, principalID, limit, offset)
 }
 
-func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*vocabulary.ScopeEntry, error) {
-	return s.vocabRepo.List(ctx, resourceType)
+func (s *Service) ListVocabulary(ctx context.Context, tenantID, resourceType string) ([]*vocabulary.ScopeEntry, error) {
+	return s.vocabRepo.List(ctx, tenantID, resourceType)
 }
 
 // ListVocabularyWithUsage returns all scopes with grant and role usage counts
@@ -312,7 +312,7 @@ func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, ten
 	if err != nil {
 		return nil, err
 	}
-	admin, err := s.adminScopes(ctx)
+	admin, err := s.adminScopes(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -324,9 +324,10 @@ func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, ten
 	return entries, nil
 }
 
-// adminScopes derives the platform-admin scopes from the current vocabulary.
-func (s *Service) adminScopes(ctx context.Context) ([]string, error) {
-	vocab, err := s.vocabRepo.List(ctx, "")
+// adminScopes derives the platform-admin scopes from the vocabulary visible to
+// the tenant (its own entries plus global ones).
+func (s *Service) adminScopes(ctx context.Context, tenantID string) ([]string, error) {
+	vocab, err := s.vocabRepo.List(ctx, tenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary: %w", err)
 	}
@@ -402,8 +403,8 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 	}, nil
 }
 
-func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.ScopeEntry, error) {
-	return s.vocabRepo.GetByScope(ctx, scope)
+func (s *Service) GetScope(ctx context.Context, tenantID, scope string) (*vocabulary.ScopeEntry, error) {
+	return s.vocabRepo.GetByScope(ctx, tenantID, scope)
 }
 
 // EffectiveScopes returns the union of all scopes a principal holds, derived from
@@ -433,7 +434,7 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 	// This lets users create PATs with finer-grained scopes when they hold a
 	// parent scope that implies access to all children. Requires are expanded
 	// too, so the ceiling matches what the bundle grants.
-	allVocab, err := s.vocabRepo.List(ctx, "")
+	allVocab, err := s.vocabRepo.List(ctx, tenantID, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary for scope expansion: %w", err)
 	}
@@ -451,7 +452,7 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 			continue
 		}
 		if role == bundle.PlatformAdminRole {
-			admin, err := s.adminScopes(ctx)
+			admin, err := s.adminScopes(ctx, tenantID)
 			if err != nil {
 				return err
 			}
@@ -542,7 +543,7 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 		return nil, &ReservedRoleError{Role: role}
 	}
 	for _, scope := range scopes {
-		exists, err := s.vocabRepo.Exists(ctx, scope)
+		exists, err := s.vocabRepo.Exists(ctx, tenantID, scope)
 		if err != nil {
 			return nil, fmt.Errorf("vocabulary check: %w", err)
 		}
@@ -578,7 +579,7 @@ func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset 
 		return custom, nil
 	}
 
-	admin, err := s.adminScopes(ctx)
+	admin, err := s.adminScopes(ctx, tenantID)
 	if err != nil {
 		return nil, err
 	}
@@ -634,14 +635,14 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	// registration moved anything a bundle is compiled from: services
 	// re-register on a timer, and recompiling every tenant for a registration
 	// that changed nothing is pure load.
-	incomingScopes, changed, err := s.upsertDeclaredScopes(ctx, service, scopeDecls)
+	incomingScopes, changed, err := s.upsertDeclaredScopes(ctx, service, tenantID, scopeDecls)
 	if err != nil {
 		return err
 	}
 
 	if tenantID == "" {
 		if prune {
-			pruned, pErr := s.pruneOwnedScopes(ctx, service, incomingScopes)
+			pruned, pErr := s.pruneOwnedScopes(ctx, service, tenantID, incomingScopes)
 			if pErr != nil {
 				return pErr
 			}
@@ -659,7 +660,7 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 
 	if tenantID != "" {
 		for _, r := range routeScopes {
-			exists, xErr := s.vocabRepo.Exists(ctx, r.RequiredScope)
+			exists, xErr := s.vocabRepo.Exists(ctx, tenantID, r.RequiredScope)
 			if xErr != nil {
 				return fmt.Errorf("vocabulary check: %w", xErr)
 			}
@@ -699,7 +700,7 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 // upsertDeclaredScopes writes the service's declared scopes into the
 // vocabulary and reports the scope strings it declared plus whether any row
 // actually changed.
-func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scopeDecls []routes.ScopeDeclaration) (incomingScopes []string, changed bool, err error) {
+func (s *Service) upsertDeclaredScopes(ctx context.Context, service, tenantID string, scopeDecls []routes.ScopeDeclaration) (incomingScopes []string, changed bool, err error) {
 	incomingScopes = make([]string, len(scopeDecls))
 	for i := range scopeDecls {
 		incomingScopes[i] = scopeDecls[i].Scope
@@ -710,6 +711,7 @@ func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scop
 			Action:       scopeDecls[i].Action,
 			Description:  scopeDecls[i].Description,
 			RegisteredBy: service,
+			TenantID:     tenantID,
 			Requires:     scopeDecls[i].Requires,
 		})
 		if uErr != nil {
@@ -724,8 +726,8 @@ func (s *Service) upsertDeclaredScopes(ctx context.Context, service string, scop
 // are no longer in its catalog, cascading each deletion into the grants and
 // roles that referenced it, and reports whether anything was removed. A
 // virtual model that was deleted is the usual reason one disappears.
-func (s *Service) pruneOwnedScopes(ctx context.Context, service string, incomingScopes []string) (bool, error) {
-	deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, incomingScopes)
+func (s *Service) pruneOwnedScopes(ctx context.Context, service, tenantID string, incomingScopes []string) (bool, error) {
+	deleted, err := s.vocabRepo.DeleteOrphans(ctx, service, tenantID, incomingScopes)
 	if err != nil {
 		return false, fmt.Errorf("prune orphan scopes for %q: %w", service, err)
 	}
@@ -868,16 +870,18 @@ func (s *Service) scheduleRecompileAll(ctx context.Context) {
 		s.markRecompileAllHealth(false)
 		return
 	}
-	vocab, err := s.vocabRepo.List(ctx, "")
-	if err != nil {
-		s.logger.Error(ctx, "recompile all: failed to list vocabulary",
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		s.markRecompileAllHealth(false)
-		return
-	}
 	ok := true
 	for _, tenantID := range tenantIDs {
+		// Each tenant's bundle compiles from its own vocabulary plus the global one.
+		vocab, err := s.vocabRepo.List(ctx, tenantID, "")
+		if err != nil {
+			ok = false
+			s.logger.Error(ctx, "recompile all: failed to list vocabulary",
+				logging.Field{Key: "tenant_id", Value: tenantID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			continue
+		}
 		if err := s.bundleSrv.Recompile(ctx, tenantID, vocab); err != nil {
 			ok = false
 			s.logger.Error(ctx, "recompile all: bundle recompile failed",
