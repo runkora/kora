@@ -25,12 +25,7 @@ import {
   type SessionPayload,
   type BackendSessionResponse,
 } from '@orbit/server/auth-config';
-import {
-  APP_ROUTES,
-  PUBLIC_PATHS,
-  isSafeRedirectPath,
-  isThemeAssetPath,
-} from '@orbit/lib/routing';
+import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath, isThemeAssetPath } from '@orbit/lib/routing';
 
 // ── Inline refresh ────────────────────────────────────────────────────────────
 
