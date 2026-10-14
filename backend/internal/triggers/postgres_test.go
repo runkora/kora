@@ -2341,3 +2341,93 @@ func TestPostgres_Admission_Coalesces(t *testing.T) {
 		t.Errorf("superseded delivery status = %q, want skipped", first.Status)
 	}
 }
+
+// shareEnqueuedAt puts several pending rows on one enqueued_at. This is not a
+// contrived state: the column defaults to now(), now() is the transaction
+// timestamp, and a single statement is one transaction, so rows written
+// together already tie.
+func shareEnqueuedAt(t *testing.T, r *postgresRepository, ids ...string) {
+	t.Helper()
+	_, err := r.pool.Exec(context.Background(), `
+		UPDATE trigger_pending_deliveries
+		SET    enqueued_at = now()
+		WHERE  id = ANY($1)
+	`, ids)
+	if err != nil {
+		t.Fatalf("share enqueued_at: %v", err)
+	}
+}
+
+// Ordering on enqueued_at alone is not a total order, so which of two tied rows
+// the per-trigger ceiling admits is whatever the plan happens to produce. The id
+// tiebreaker makes it the same row every time.
+func TestPostgres_ClaimPendingBreaksEnqueuedAtTiesByID(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 1)
+
+	a, b := newPending(tenant, tr.ID), newPending(tenant, tr.ID)
+	for _, p := range []*PendingDelivery{a, b} {
+		if err := r.EnqueuePending(ctx, p); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+	}
+	shareEnqueuedAt(t, r, a.ID, b.ID)
+
+	ids := []string{a.ID, b.ID}
+	slices.Sort(ids)
+
+	claimed, err := r.ClaimPending(ctx, 10)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	// ClaimPending is not tenant-scoped, so assert about this trigger's rows only.
+	var mine []PendingDelivery
+	for _, p := range claimed {
+		if p.TriggerID == tr.ID {
+			mine = append(mine, p)
+		}
+	}
+	if len(mine) != 1 {
+		t.Fatalf("claimed %d of this trigger's rows, want 1 under a ceiling of 1", len(mine))
+	}
+	if mine[0].ID != ids[0] {
+		t.Errorf("claimed %s, want the lower id %s: a tie must resolve the same way every run",
+			mine[0].ID, ids[0])
+	}
+}
+
+// TrimPending deletes what it does not keep, so an undefined order over tied
+// rows means an undefined row is evicted.
+func TestPostgres_TrimPendingBreaksEnqueuedAtTiesByID(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	s := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, s.ID, "pending", 4)
+
+	ids := make([]string, 0, 3)
+	for i := 0; i < 3; i++ {
+		p := newPending(tenant, tr.ID)
+		if err := r.EnqueuePending(ctx, p); err != nil {
+			t.Fatalf("EnqueuePending: %v", err)
+		}
+		ids = append(ids, p.ID)
+	}
+	shareEnqueuedAt(t, r, ids...)
+	slices.Sort(ids)
+
+	// depth 3 is OFFSET 2 over (enqueued_at DESC, id DESC): the two highest ids
+	// are kept and the lowest is evicted.
+	evicted, err := r.TrimPending(ctx, tr.ID, 3)
+	if err != nil {
+		t.Fatalf("TrimPending: %v", err)
+	}
+	if len(evicted) != 1 {
+		t.Fatalf("evicted %d rows, want 1", len(evicted))
+	}
+	if evicted[0].ID != ids[0] {
+		t.Errorf("evicted %s, want the lowest id %s: a tie must resolve the same way every run",
+			evicted[0].ID, ids[0])
+	}
+}
