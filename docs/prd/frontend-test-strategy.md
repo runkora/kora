@@ -289,7 +289,7 @@ Each workspace package owns its own test configuration:
 - `vitest.config.unit.ts` — includes `**/*.test.ts?(x)`, excludes `**/*.integration.test.ts?(x)` and `src/packages/**`
 - `vitest.config.integration.ts` — includes only `**/*.integration.test.ts?(x)`, excludes `src/packages/**`
 
-Both configs exclude `src/packages/**` so that Hades' tests never run under the wrong environment (`jsdom`) or the wrong Vite config. Hades is exercised exclusively by `make frontend-test-hades` / `make frontend-test-unit` via `pnpm --filter @orbit/hades`.
+Both configs exclude `src/packages/**` so that Hades' tests never run under the wrong environment (`jsdom`) or the wrong Vite config. Hades is exercised exclusively by `make frontend-test-hades` / `make frontend-test-unit` via `pnpm --filter @runkora/hades`.
 
 Both configs also include the `server-only` shim alias, the `@orbit/test-utils` path alias pointing at `src/test-utils/`, and `setupFiles: ['./src/test-utils/setup.ts']`.
 
@@ -843,7 +843,7 @@ frontend-test: frontend-test-unit frontend-test-integration
 - **Category B E2E**: System-level tests that would exercise the full stack (Next.js + Go backend + Postgres + Redis). Explicitly out of scope for this PRD. No directory, no Playwright config, and no CI step exists for them. A dedicated ADR is required before any work begins.
 - **Tier**: A category of test distinguished by its scope, speed, and execution environment (unit, component, integration, E2E).
 - **`test-utils/`**: The canonical location for all shared test infrastructure in the app — MSW server, handlers, factory functions, and `renderWithProviders`. Not a workspace package.
-- **Workspace package**: A self-contained npm package within the pnpm workspace, declared in `frontend/pnpm-workspace.yaml`. Currently: `@orbit/hades`.
+- **Workspace package**: A self-contained npm package within the pnpm workspace, declared in `frontend/pnpm-workspace.yaml`. Currently: `@runkora/hades`.
 - **`server-only` shim**: An empty module substituted via Vitest's `resolve.alias` to bypass the Next.js `server-only` runtime guard in the test environment. Has no effect on production builds.
 - **MSW (Mock Service Worker)**: A library that intercepts HTTP requests at the `fetch` layer. In Node.js (Vitest), it uses HTTP interceptors via `setupServer()`. In the browser (Playwright), it uses a Service Worker. The same handler definitions are reused in both environments.
 - **`renderWithProviders()`**: The single render function used in all component tests. Wraps RTL's `render` with all required React contexts and MSW server lifecycle management.
