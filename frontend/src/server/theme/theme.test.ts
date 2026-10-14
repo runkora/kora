@@ -83,6 +83,19 @@ describe('loadThemeFrom', () => {
     expect(line).toContain('favicon.light');
   });
 
+  it('warns at startup when the theme mixes its identity with kora defaults', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await loadThemeFrom(VALID);
+    expect(warn).toHaveBeenCalledTimes(1);
+    const line = String(warn.mock.calls[0]![0]);
+    expect(line).toContain('mixes its own identity with kora defaults');
+    expect(line).toContain('still showing kora: favicon.light');
+    warn.mockClear();
+    await loadThemeFrom(ABSENT);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('emits an @font-face and a preload per theme font, and a favicon per mode', async () => {
     const { theme, brand, css, fontPreloads } = await loadThemeFrom(WITH_FONT);
     const url = `/theme/${theme!.hash}/assets/fonts/sans.woff2`;

@@ -14,7 +14,7 @@
  * deploy fails with a message that says so.
  *
  * On success it prints the report: every ignored entry and every identity
- * value that falls through to the default. On failure it prints every fault.
+ * value that falls through to the default, then a warning when the theme mixes its own identity with kora's. On failure it prints every fault.
  * Exit 0 or 1. Bundled by `scripts/bundle-validate-theme.mjs` into the image's
  * standalone directory. No React, no DOM, no Next.
  */
@@ -25,6 +25,7 @@ import manifest from '@runkora/hades/manifest.json';
 import {
   ThemeYamlTooLargeError,
   isMissing,
+  mixedIdentity,
   readBundleAsset,
   readThemeDocument,
 } from '../src/lib/theme-bundle';
@@ -77,6 +78,12 @@ function reportLines(report: ThemeReport): string[] {
       ? `falls through to the default: ${report.fallThrough.join(', ')}`
       : 'falls through to the default: nothing',
   );
+  const mixed = mixedIdentity(report, manifest);
+  if (mixed.length) {
+    lines.push(
+      `warning: this theme mixes its own identity with kora defaults; still showing kora: ${mixed.join(', ')}`,
+    );
+  }
   return lines;
 }
 

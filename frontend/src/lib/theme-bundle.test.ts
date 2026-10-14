@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   MAX_THEME_YAML_BYTES,
   ThemeYamlTooLargeError,
+  mixedIdentity,
   readBundleAsset,
   readThemeDocument,
 } from './theme-bundle';
@@ -78,5 +79,34 @@ describe('readThemeDocument', () => {
     expect((await readThemeDocument(file)).length).toBe(MAX_THEME_YAML_BYTES);
     await writeFile(file, '#'.repeat(MAX_THEME_YAML_BYTES + 1));
     await expect(readThemeDocument(file)).rejects.toBeInstanceOf(ThemeYamlTooLargeError);
+  });
+});
+
+describe('mixedIdentity', () => {
+  const manifest = {
+    slots: [
+      { kind: 'image', modes: ['dark', 'light'] },
+      { kind: 'image', modes: ['dark', 'light'] },
+      { kind: 'font', modes: [] },
+    ],
+  };
+  const ALL = ['productName', 'logo.dark', 'logo.light', 'favicon.dark', 'favicon.light'];
+
+  it('is empty when the theme sets none or all of the identity values', () => {
+    expect(mixedIdentity({ fallThrough: ALL }, manifest)).toEqual([]);
+    expect(mixedIdentity({ fallThrough: [] }, manifest)).toEqual([]);
+  });
+
+  it('lists the fall-through values when the theme sets some', () => {
+    expect(mixedIdentity({ fallThrough: ['logo.light', 'favicon.light'] }, manifest)).toEqual([
+      'logo.light',
+      'favicon.light',
+    ]);
+    expect(mixedIdentity({ fallThrough: ALL.slice(1) }, manifest)).toEqual(ALL.slice(1));
+  });
+
+  it("prefers the validator's own field when the report has it", () => {
+    expect(mixedIdentity({ fallThrough: ALL, mixedIdentity: ['x'] }, manifest)).toEqual(['x']);
+    expect(mixedIdentity({ fallThrough: ['logo.dark'], mixedIdentity: [] }, manifest)).toEqual([]);
   });
 });

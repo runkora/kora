@@ -34,6 +34,7 @@ import { defaultTheme, type IdentityTheme } from '@orbit/theme/default';
 import {
   ThemeYamlTooLargeError,
   isMissing,
+  mixedIdentity,
   readBundleAsset,
   readThemeDocument,
 } from '@orbit/lib/theme-bundle';
@@ -80,7 +81,8 @@ export class ThemeLoadError extends Error {
   }
 }
 
-const EMPTY_REPORT: ThemeReport = { ignored: [], fallThrough: [] };
+// Unannotated so it fits a ThemeReport with or without the `mixedIdentity` field.
+const EMPTY_REPORT = { ignored: [], fallThrough: [] };
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   svg: 'image/svg+xml',
@@ -148,6 +150,12 @@ function logLoaded(dir: string, loaded: LoadedTheme): void {
       `; ignored: ${ignored.length ? ignored.join(', ') : 'none'}` +
       `; falls through to the default: ${report.fallThrough.length ? report.fallThrough.join(', ') : 'nothing'}`,
   );
+  const mixed = mixedIdentity(report, manifest);
+  if (mixed.length) {
+    console.warn(
+      `[theme] the theme at ${dir} mixes its own identity with kora defaults; still showing kora: ${mixed.join(', ')}`,
+    );
+  }
 }
 
 /**

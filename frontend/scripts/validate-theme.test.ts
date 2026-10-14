@@ -50,6 +50,9 @@ describe('validateBundle', () => {
       'ignored (unknown to this Hades): token --hades-raw-not-a-token, slot not-a-slot',
     );
     expect(run.lines).toContain('falls through to the default: favicon.light');
+    expect(run.lines.at(-1)).toBe(
+      'warning: this theme mixes its own identity with kora defaults; still showing kora: favicon.light',
+    );
   });
 
   it('fails a valid bundle whose chart document differs in substance', async () => {
