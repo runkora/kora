@@ -73,6 +73,7 @@ export default defineConfig({
       KORA_AGENTS_URL: process.env.KORA_AGENTS_URL ?? 'http://localhost:8080',
       KORA_TRIGGERS_URL: process.env.KORA_TRIGGERS_URL ?? 'http://localhost:8097',
       TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
+      SKILLS_SERVICE_URL: process.env.SKILLS_SERVICE_URL ?? 'http://localhost:8085/v1',
     },
   },
 });
