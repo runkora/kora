@@ -69,11 +69,15 @@ The envelope follows the convention `inferencegw` established for `GET /v1/usage
 - A status filter means the same thing at any tenant size.
 - Paging is stable under concurrent arrivals, which offset pagination is not.
 - Filter changes stay interactive, with no skeleton flash.
-- The repo has three keyset implementations rather than one shared helper. This change follows the `inferencegw` envelope rather than inventing a fourth, but consolidating them is still owed.
+- No new envelope: this follows the `inferencegw` shape rather than inventing one.
 
 ### Negative
 
-- One more index on a write-hot table: `(tenant_id, status, received_at DESC)`. `received_at DESC` matches the keyset `ORDER BY` so a single index serves both the filter and the page walk, and `id` is deliberately excluded because it only breaks exact ties the existing index already locates cheaply.
+- Two more indexes on write-hot tables, one per filter:
+  - `trigger_deliveries (tenant_id, status, received_at DESC)` for the status filter. `received_at DESC` matches the keyset `ORDER BY`, so one index serves both the filter and the page walk. `id` is excluded: it only breaks exact ties the existing index already locates cheaply.
+  - `trigger_delivery_runs (tenant_id, status, delivery_id)` for the outcome filter, which is an `EXISTS` over that table. `delivery_id` is third so the selective side satisfies the semi-join from the index alone.
+
+  Both tables are on the webhook ingestion path, so every arrival now maintains one more index than before, and a fan-out arrival maintains one per run it writes.
 - A single status is emitted as scalar equality rather than `= ANY($n)`. A ScalarArrayOp cannot serve as an index condition on the leading columns, so the planner costs this index worse than the tenant index plus a filter and abandons it. Measured on 300k rows under the default `plan_cache_mode`: the scalar form read 102 rows under an index condition using 106 buffers, the `ANY` form discarded 101,898 rows by filter using 2,266, and the `ANY` plan varied between indexes across sessions where the scalar one did not. This is not a generic-plan effect; `pg_prepared_statements` reported `generic_plans = 0` throughout, so it holds for the plans pgx actually gets. The multi-value case keeps `ANY` and keeps the scan; a covering answer for multi-select would need a different index and is not justified by current usage.
 - The cursor encoding is now a compatibility surface. It is documented as opaque and is ours to change, but a client that parses it will break.
 - The keyset cursor now exists in three packages (`triggers`, `inferencegw` and `agents`), each with its own envelope. Lifting one into `internal/platform/` is the right follow-up and is not done here.
