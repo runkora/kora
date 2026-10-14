@@ -18,7 +18,7 @@
  * Exit 0 or 1. Bundled by `scripts/bundle-validate-theme.mjs` into the image's
  * standalone directory. No React, no DOM, no Next.
  */
-import { readFile } from 'node:fs/promises';
+import { open, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
@@ -105,9 +105,17 @@ export async function validateBundle(
   const result = await validateTheme(bundleText, {
     manifest: hadesManifest,
     contractVersion: hadesManifest.contractVersion,
-    readAsset: async (assetPath) => {
+    readAsset: async (assetPath, maxBytes) => {
       try {
-        return new Uint8Array(await readFile(path.join(bundleDir, 'assets', assetPath)));
+        // At most maxBytes + 1: an oversize asset is reported without being loaded.
+        const handle = await open(path.join(bundleDir, 'assets', assetPath), 'r');
+        try {
+          const buffer = Buffer.alloc(maxBytes + 1);
+          const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+          return new Uint8Array(buffer.subarray(0, bytesRead));
+        } finally {
+          await handle.close();
+        }
       } catch (err) {
         if (isMissing(err)) return null;
         throw err;

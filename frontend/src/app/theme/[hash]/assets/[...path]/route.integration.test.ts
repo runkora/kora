@@ -37,6 +37,10 @@ describe('GET /theme/[hash]/assets/[...path]', () => {
     expect(res.headers.get('content-type')).toBe('image/svg+xml');
     expect(res.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
     expect(res.headers.get('content-length')).toBe(String(svg.byteLength));
+    expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(res.headers.get('content-security-policy')).toBe(
+      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+    );
     // Array.from: jsdom and Node hand out typed arrays from different realms.
     expect(Array.from(new Uint8Array(await res.arrayBuffer()))).toEqual(Array.from(svg));
   });

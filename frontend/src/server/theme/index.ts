@@ -16,7 +16,7 @@
  */
 import 'server-only';
 
-import { readFile } from 'node:fs/promises';
+import { open, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import manifest from '@runkora/hades/manifest.json';
 import {
@@ -100,12 +100,25 @@ function isMissing(err: unknown): boolean {
  * file. The validator has already refused paths that leave the bundle; the
  * resolved-path check here is the belt to that brace.
  */
-async function readBundleAsset(dir: string, assetPath: string): Promise<Uint8Array | null> {
+async function readBundleAsset(
+  dir: string,
+  assetPath: string,
+  maxBytes: number,
+): Promise<Uint8Array | null> {
   const assetsDir = path.resolve(dir, 'assets');
   const resolved = path.resolve(assetsDir, assetPath);
   if (!resolved.startsWith(assetsDir + path.sep)) return null;
   try {
-    return new Uint8Array(await readFile(resolved));
+    // At most maxBytes + 1: enough for the validator to see an oversize file
+    // without allocating all of it.
+    const handle = await open(resolved, 'r');
+    try {
+      const buffer = Buffer.alloc(maxBytes + 1);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      return new Uint8Array(buffer.subarray(0, bytesRead));
+    } finally {
+      await handle.close();
+    }
   } catch (err) {
     if (isMissing(err)) return null;
     throw err;
@@ -183,7 +196,7 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
   const result = await validateTheme(text, {
     manifest: hadesManifest,
     contractVersion,
-    readAsset: (assetPath) => readBundleAsset(dir, assetPath),
+    readAsset: (assetPath, maxBytes) => readBundleAsset(dir, assetPath, maxBytes),
   });
   if (!result.ok) {
     const error = new ThemeLoadError(dir, result.errors);

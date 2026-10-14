@@ -297,7 +297,7 @@ export const webhookKind: TriggerKindDefinition = {
   icon: 'webhook',
   title: 'Webhook',
   description: (productName) =>
-    `An external service posts a signed event to a ${productName} endpoint.`,
+    `An external service posts a signed event to your ${productName} endpoint.`,
   example: 'GitHub · Alertmanager',
   steps: [
     {

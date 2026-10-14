@@ -105,9 +105,12 @@ export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`}
   );
 }
 
+/** A product name with no ASCII letters or digits (東京, &) has an empty slug, which is not a valid config key. */
+const FALLBACK_PROVIDER_KEY = 'provider';
+
 function CodexGuide({ baseUrl }: { baseUrl: string }) {
   const { productName } = useBrand();
-  const providerKey = deriveSlug(productName);
+  const providerKey = deriveSlug(productName) || FALLBACK_PROVIDER_KEY;
   return (
     <Stack gap="none">
       <Step number={1} title="Set the active provider and model">
@@ -165,7 +168,7 @@ wire_api = "responses"`}
 
 function OpenCodeGuide({ baseUrl }: { baseUrl: string }) {
   const { productName } = useBrand();
-  const providerKey = deriveSlug(productName);
+  const providerKey = deriveSlug(productName) || FALLBACK_PROVIDER_KEY;
   return (
     <Stack gap="none">
       <Step number={1} title={`Add ${productName} as a provider`} isLast>

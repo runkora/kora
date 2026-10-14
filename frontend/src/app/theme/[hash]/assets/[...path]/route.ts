@@ -28,6 +28,10 @@ export async function GET(_request: Request, context: RouteContext): Promise<Nex
       'Content-Type': asset.contentType,
       'Content-Length': String(asset.bytes.byteLength),
       'Cache-Control': 'public, max-age=31536000, immutable',
+      // An SVG opened by direct navigation cannot run script even if the
+      // validator's no-script rule were bypassed (ADR decision 4).
+      'X-Content-Type-Options': 'nosniff',
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
     },
   });
 }
