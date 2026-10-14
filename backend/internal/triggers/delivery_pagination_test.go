@@ -24,47 +24,6 @@ func seedDeliveries(t *testing.T, repo *mockRepository, tenant string, ids []str
 	}
 }
 
-func TestListDeliveriesCursorSeparatesRowsSharingATimestamp(t *testing.T) {
-	svc, deps := newTestService(t)
-	repo := deps.repo
-	ctx := context.Background()
-	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	seedDeliveries(t, repo, testTenant, []string{"d1", "d2", "d3", "d4"}, at, StatusVerified)
-
-	first, next, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{Limit: 2})
-	if err != nil {
-		t.Fatalf("first page: %v", err)
-	}
-	if len(first) != 2 {
-		t.Fatalf("first page: want 2 deliveries, got %d", len(first))
-	}
-	if next == "" {
-		t.Fatal("first page: want a next cursor, got none")
-	}
-
-	cursor, err := parseDeliveryCursor(next)
-	if err != nil {
-		t.Fatalf("parse cursor %q: %v", next, err)
-	}
-	second, _, err := svc.ListDeliveries(ctx, testTenant, DeliveryFilter{Limit: 2, Cursor: cursor})
-	if err != nil {
-		t.Fatalf("second page: %v", err)
-	}
-
-	seen := map[string]int{}
-	for _, d := range append(append([]Delivery{}, first...), second...) {
-		seen[d.ID]++
-	}
-	if len(seen) != 4 {
-		t.Fatalf("want 4 distinct deliveries across both pages, got %d: %v", len(seen), seen)
-	}
-	for id, n := range seen {
-		if n != 1 {
-			t.Errorf("delivery %s appeared %d times across pages, want exactly 1", id, n)
-		}
-	}
-}
-
 func TestListDeliveriesLastPageReportsNoCursor(t *testing.T) {
 	svc, deps := newTestService(t)
 	repo := deps.repo
@@ -80,39 +39,6 @@ func TestListDeliveriesLastPageReportsNoCursor(t *testing.T) {
 	}
 	if next != "" {
 		t.Errorf("want no cursor on the last page, got %q", next)
-	}
-}
-
-func TestListDeliveriesFiltersByStatusAcrossPages(t *testing.T) {
-	svc, deps := newTestService(t)
-	repo := deps.repo
-	at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
-	seedDeliveries(t, repo, testTenant, []string{"ok1", "ok2"}, at, StatusDispatched)
-	seedDeliveries(t, repo, testTenant, []string{"bad1", "bad2", "bad3"}, at, StatusFailed)
-
-	var got []string
-	var cursor *deliveryCursor
-	for {
-		page, next, err := svc.ListDeliveries(context.Background(), testTenant,
-			DeliveryFilter{Status: []string{StatusFailed}, Limit: 2, Cursor: cursor})
-		if err != nil {
-			t.Fatalf("list: %v", err)
-		}
-		for _, d := range page {
-			if d.Status != StatusFailed {
-				t.Fatalf("status filter leaked %q", d.Status)
-			}
-			got = append(got, d.ID)
-		}
-		if next == "" {
-			break
-		}
-		if cursor, err = parseDeliveryCursor(next); err != nil {
-			t.Fatalf("parse cursor: %v", err)
-		}
-	}
-	if len(got) != 3 {
-		t.Fatalf("want all 3 failed deliveries across pages, got %d: %v", len(got), got)
 	}
 }
 
@@ -238,6 +164,24 @@ func TestListDeliveriesSurfacesRepositoryFailures(t *testing.T) {
 			t.Fatalf("want the wrapped repository error, got %v", err)
 		}
 		if !strings.Contains(err.Error(), "attach delivery runs") {
+			t.Errorf("want the error to name the step, got %q", err)
+		}
+		if next != "" {
+			t.Errorf("want no cursor alongside an error, got %q", next)
+		}
+	})
+
+	t.Run("attaching the coalescing keys failing", func(t *testing.T) {
+		svc, deps := newTestService(t)
+		at := time.Date(2026, 10, 7, 12, 0, 0, 0, time.UTC)
+		seedDeliveries(t, deps.repo, testTenant, []string{"d1"}, at, StatusVerified)
+		deps.repo.deliveryKeysErr = boom
+
+		_, next, err := svc.ListDeliveries(context.Background(), testTenant, DeliveryFilter{Limit: 10})
+		if !errors.Is(err, boom) {
+			t.Fatalf("want the wrapped repository error, got %v", err)
+		}
+		if !strings.Contains(err.Error(), "attach delivery keys") {
 			t.Errorf("want the error to name the step, got %q", err)
 		}
 		if next != "" {

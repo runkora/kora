@@ -76,11 +76,12 @@ type mockRepository struct {
 	// and UpdateTrigger, so a test can land a concurrent update in between.
 	beforeGrantUpdate func()
 	beforeUpdate      func()
-	// listDeliveriesErr and deliveryRunsErr make the two reads ListDeliveries
-	// depends on fail, so the service's error paths are reachable without a
-	// database that has to be broken on purpose.
+	// These make the three reads ListDeliveries depends on fail, so the
+	// service's error paths are reachable without a database that has to be
+	// broken on purpose.
 	listDeliveriesErr error
 	deliveryRunsErr   error
+	deliveryKeysErr   error
 }
 
 // LatestJoinKeyRun mirrors the SQL: the newest decision of the trigger with the
@@ -672,6 +673,9 @@ func (m *mockRepository) InsertDeliveryKey(_ context.Context, k *DeliveryKey) er
 }
 
 func (m *mockRepository) ListDeliveryKeysForDeliveries(_ context.Context, tenantID string, deliveryIDs []string) (map[string][]DeliveryKey, error) {
+	if m.deliveryKeysErr != nil {
+		return nil, m.deliveryKeysErr
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := map[string][]DeliveryKey{}
