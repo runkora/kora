@@ -56,12 +56,17 @@ function modeDeclarations(theme: Theme, mode: Mode): [string, string][] {
     });
 }
 
-/** Escapes a value for use inside a double-quoted CSS string. */
+/**
+ * Escapes a value for use inside a double-quoted CSS string. `<` is escaped
+ * because the CSS lands in an inline `<style>`, which the HTML parser closes at
+ * `</style>` whatever the CSS quoting says.
+ */
 function cssString(value: string): string {
   return value
     .replace(/\\/g, '\\\\')
     .replace(/"/g, '\\"')
-    .replace(/[\n\r]/g, '\\a ');
+    .replace(/</g, '\\3c ')
+    .replace(/[\n\r\f]/g, '\\a ');
 }
 
 export function generateThemeCss(theme: Theme, options: CssOptions): string {

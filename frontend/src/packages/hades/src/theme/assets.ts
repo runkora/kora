@@ -48,10 +48,11 @@ export function svgFaults(bytes: Uint8Array): string[] {
   }
 
   if (/<script/i.test(text)) faults.push('contains a <script> element');
-  if (/\son[a-z]+\s*=/i.test(text)) faults.push('contains an event attribute (on*=)');
-  const href = /(?:^|[\s"'])(?:xlink:)?href\s*=\s*["']?\s*(?!#|data:image\/)[^\s"'>]/gi;
+  if (/[\s/"']on[a-z]+\s*=/i.test(text)) faults.push('contains an event attribute (on*=)');
+  const href = /(?:^|[\s"'/])(?:xlink:)?href\s*=\s*(?:["']\s*)?(?!#|data:image\/)[^\s"'>]/i;
   if (href.test(text)) faults.push('references an external resource through href');
-  const url = /url\(\s*["']?\s*(?!#)[^\s"')]/gi;
+  const url = /url\(\s*(?:["']\s*)?(?!#)[^\s"')]/i;
+  if (/@import/i.test(text)) faults.push('references an external stylesheet through @import');
   if (url.test(text)) faults.push('references an external resource through url()');
 
   return faults;

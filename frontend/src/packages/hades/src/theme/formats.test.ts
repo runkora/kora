@@ -133,4 +133,22 @@ describe('svgFaults', () => {
     expect(faults).toHaveLength(4);
     expect(svgFaults(new TextEncoder().encode('<!-- open'))).toEqual(['unterminated comment']);
   });
+
+  it('catches an event attribute after a slash and an @import with no url()', () => {
+    const encode = (text: string) => new TextEncoder().encode(text);
+    expect(svgFaults(encode('<svg/onload=alert(1)/>'))).toEqual([
+      'contains an event attribute (on*=)',
+    ]);
+    expect(
+      svgFaults(encode('<svg><style>@import "https://x.example/a.css";</style></svg>')),
+    ).toEqual(['references an external stylesheet through @import']);
+  });
+
+  it('does not backtrack on long runs of whitespace', () => {
+    const spaces = ' '.repeat(100_000);
+    const started = performance.now();
+    svgFaults(new TextEncoder().encode(`<svg><a href=${spaces}</svg>`));
+    svgFaults(new TextEncoder().encode(`<svg><a style="fill:url(${spaces}"/></svg>`));
+    expect(performance.now() - started).toBeLessThan(500);
+  });
 });

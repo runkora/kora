@@ -91,6 +91,13 @@ describe('generateThemeCss', () => {
     expect(css).toContain('src:url("https://cdn.example/a\\"b\\\\c.woff2")');
   });
 
+  it('escapes < so a path cannot close the inline <style> element', async () => {
+    const theme = await load('contractVersion: "1.0"\nslots:\n  font.sans: assets/sans.woff2\n');
+    const css = generateThemeCss(theme, { resolveAsset: () => '/x</style><script>.woff2' });
+    expect(css).not.toContain('<');
+    expect(css).toContain('\\3c /style>');
+  });
+
   it('is deterministic whatever the document order', async () => {
     const a = await load(
       'contractVersion: "1.0"\ntokens:\n  --hades-raw-black:\n    dark: "#000"\n  --hades-raw-accent-400:\n    dark: "#111"\n',
