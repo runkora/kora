@@ -68,12 +68,16 @@ RUN apk add --no-cache ca-certificates bash git curl
 ENV SHELL=/opt/orbit/shell/bash
 ENV CLAUDE_CODE_SHELL=/opt/orbit/shell/bash
 
-# Install claude CLI.
-RUN npm install -g @anthropic-ai/claude-code@2
-
-# Install OpenCode (Node.js app; ACP stdio mode requires no additional system packages).
-# Validate opencode.acp protocol compatibility on upgrade.
-RUN npm install -g opencode-ai@1
+# Install the claude and opencode CLIs from the lockfile in cmd/session-manager/agent-clis,
+# so every build gets the same versions. Validate the opencode ACP protocol on upgrade.
+COPY cmd/session-manager/agent-clis/package.json cmd/session-manager/agent-clis/package-lock.json /opt/orbit/agent-clis/
+RUN cd /opt/orbit/agent-clis && \
+    npm ci --omit=dev && \
+    rm -rf /root/.npm && \
+    ln -s /opt/orbit/agent-clis/node_modules/.bin/claude /usr/local/bin/claude && \
+    ln -s /opt/orbit/agent-clis/node_modules/.bin/opencode /usr/local/bin/opencode && \
+    claude --version && \
+    opencode --version
 
 # Install Codex (musl-only statically linked binary; runs on Alpine without glibc).
 # Validate app-server JSONL notification schema on upgrade.

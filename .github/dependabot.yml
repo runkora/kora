@@ -28,3 +28,17 @@ updates:
         update-types:
           - version-update:semver-major
           - version-update:semver-minor
+
+  # The agent CLIs the session-manager image installs with npm ci. A new major
+  # changes the runner protocol, so Dependabot moves minor and patch releases only.
+  - package-ecosystem: npm
+    directory: /backend/cmd/session-manager/agent-clis
+    schedule:
+      interval: weekly
+    groups:
+      agent-clis:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
