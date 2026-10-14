@@ -18,4 +18,8 @@ var (
 	// ErrRedisUnavailable is returned when Redis fails. It means HTTP 503
 	// (ADR "Status-Code Summary").
 	ErrRedisUnavailable = errors.New("redis unavailable")
+
+	// ErrInvalidCursor is returned when the pagination cursor sent by the
+	// client cannot be decoded. It means HTTP 400.
+	ErrInvalidCursor = errors.New("invalid cursor")
 )

@@ -250,13 +250,72 @@ func TestControllerServerCap(t *testing.T) {
 		t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
 	}
 	var body struct {
-		Skills []map[string]any `json:"skills"`
+		Skills     []map[string]any `json:"skills"`
+		NextCursor string           `json:"nextCursor"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
 	if len(body.Skills) != serverCap {
 		t.Fatalf("got %d skills, want serverCap %d", len(body.Skills), serverCap)
+	}
+	if body.NextCursor == "" {
+		t.Fatal("nextCursor missing when more than serverCap skills exist")
+	}
+}
+
+func TestControllerPagination(t *testing.T) {
+	fix := newHandlerController(false)
+	items := make([]SkillEntry, serverCap+10)
+	for i := range items {
+		items[i] = SkillEntry{
+			Name:      fmt.Sprintf("skill-%03d", i),
+			SkillSlug: handlerSource.MarketplaceSlug + fmt.Sprintf("__skill-%03d", i),
+		}
+	}
+	fix.crawler.entries = items
+	base := "/marketplaces/" + handlerSource.MarketplaceSlug + "/skills"
+
+	type page struct {
+		Skills     []map[string]any `json:"skills"`
+		NextCursor string           `json:"nextCursor"`
+	}
+	get := func(target string) page {
+		rr := handlerRequest(fix, target, "tenant-a")
+		if rr.Code != http.StatusOK {
+			t.Fatalf("status %d: %s", rr.Code, rr.Body.String())
+		}
+		var p page
+		if err := json.Unmarshal(rr.Body.Bytes(), &p); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	first := get(base)
+	if len(first.Skills) != serverCap || first.NextCursor == "" {
+		t.Fatalf("first page: %d skills, cursor %q", len(first.Skills), first.NextCursor)
+	}
+
+	// Cursor is base64url, so it is safe in a query string unescaped.
+	second := get(base + "?cursor=" + first.NextCursor)
+	if len(second.Skills) != 10 || second.NextCursor != "" {
+		t.Fatalf("second page: %d skills, cursor %q", len(second.Skills), second.NextCursor)
+	}
+	if fix.crawler.fetchCalls != 1 {
+		t.Fatalf("crawls %d, want 1 (second page must hit cache)", fix.crawler.fetchCalls)
+	}
+}
+
+func TestControllerInvalidCursor(t *testing.T) {
+	fix := newHandlerController(true)
+	target := "/marketplaces/" + handlerSource.MarketplaceSlug + "/skills?cursor=!!bad!!"
+	rr := handlerRequest(fix, target, "tenant-a")
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400: %s", rr.Code, rr.Body.String())
+	}
+	if len(fix.cache.getCalls) != 0 {
+		t.Fatal("invalid cursor reached the cache")
 	}
 }
 

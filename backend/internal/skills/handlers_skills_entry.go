@@ -135,6 +135,8 @@ func (c *Controller) handleListMarketplaces(w http.ResponseWriter, r *http.Reque
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"marketplaces": marketplaces})
 }
 
+// handleListSkills returns up to serverCap skills per call. Clients pass the
+// previous response's nextCursor as ?cursor= to fetch the next batch.
 func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -142,12 +144,13 @@ func (c *Controller) handleListSkills(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-
+	query := r.URL.Query()
 	result, err := c.service.ListSkills(
 		ctx,
 		tenantID,
 		r.PathValue("marketplaceSlug"),
-		r.URL.Query().Get("search"),
+		query.Get("search"),
+		query.Get("cursor"),
 	)
 	if err != nil {
 		c.respondError(w, r, err)
@@ -213,6 +216,9 @@ func (c *Controller) respondError(w http.ResponseWriter, r *http.Request, err er
 	var apiErr *api.APIError
 
 	switch {
+	case errors.Is(err, ErrInvalidCursor):
+		apiErr = api.ValidationError(api.ErrCodeInvalidField, "cursor is invalid", nil)
+
 	case errors.Is(err, ErrMarketplaceNotFound):
 		apiErr = api.NotFoundError(api.ErrCodeResourceNotFound, "marketplace not found", nil)
 
