@@ -468,6 +468,10 @@ kubectl logs -n orbit-system <pod> -c validate-theme
 
 It prints every fault, or, on success, every entry this version ignores and every identity value left at the kora default. A bundle that was not rebuilt after the document changed, or a document that was not committed after the bundle was, fails with a message that says so: rebuild and push, or commit, then roll again. A pod stuck in `ContainerCreating` with an event about the `theme-bundle` volume is a node below the floor above.
 
+A theme that sets some identity values and leaves others at the kora default shows visitors a mix of two brands, such as your product name beside the kora logo. The init container and the frontend's startup log say so with a `warning:` line that names the values still showing kora. A theme that sets none of them, such as colours or fonts only, is not warned about, and neither is one that sets all of them. The warning does not fail the rollout.
+
+While the rollout runs, old and new frontend pods serve side by side, and each knows only the theme it loaded. A page from one pod can ask for a logo or font URL that only the other pod serves, and gets a 404 until the rollout completes. A browser tab left open across a rollout loses assets it loads late until it is reloaded. There is no fallback to the previous theme's URLs, so schedule a theme change like any other frontend rollout.
+
 ## Run behind an existing gateway
 
 By default kora creates its own ingress gateway. Set `gateway.create: false` to front kora with an Istio gateway you already operate. kora then renders no `Gateway` resource, and binds its `VirtualService`s to the provided gateway.
