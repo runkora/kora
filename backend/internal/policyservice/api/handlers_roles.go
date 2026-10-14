@@ -73,7 +73,7 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	platformapi.JSON(ctx, w, c.logger, http.StatusOK, roleWriteResponse{RoleEntry: entry, Warnings: c.svc.LintScopes(ctx, req.Scopes)})
+	platformapi.JSON(ctx, w, c.logger, http.StatusOK, roleWriteResponse{RoleEntry: entry, Warnings: c.svc.LintScopes(ctx, tenantID, req.Scopes)})
 }
 
 // roleBudgetFromRequest validates a role budget body. nil clears the budget.

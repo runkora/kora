@@ -84,6 +84,9 @@ type registrationRequest struct {
 	Service string             `json:"service"`
 	Routes  []RouteScope       `json:"routes"`
 	Scopes  []ScopeDeclaration `json:"scopes,omitempty"`
+	// TenantID names the tenant to register under. The policy service honors it
+	// only from a SYSTEM caller; empty means a global registration.
+	TenantID string `json:"tenant_id,omitempty"`
 	// SkipPrune, when true, upserts the declared scopes WITHOUT running the
 	// destructive orphan-prune (DeleteOrphans + PurgeScopeFromAll). Default
 	// false preserves the prune-on-publish behavior every existing caller
@@ -140,6 +143,13 @@ func (c *Client) Register(ctx context.Context, service string, routes []RouteSco
 // incomplete. prune=true is identical to Register.
 func (c *Client) RegisterWithPrune(ctx context.Context, service string, routes []RouteScope, scopes []ScopeDeclaration, prune bool) error {
 	return c.register(ctx, registrationRequest{Service: service, Routes: routes, Scopes: scopes, SkipPrune: !prune})
+}
+
+// RegisterTenantWithPrune is RegisterWithPrune for a registration owned by one
+// tenant. A SYSTEM caller names the tenant explicitly; an empty tenantID is a
+// global registration, identical to RegisterWithPrune.
+func (c *Client) RegisterTenantWithPrune(ctx context.Context, service, tenantID string, routes []RouteScope, scopes []ScopeDeclaration, prune bool) error {
+	return c.register(ctx, registrationRequest{Service: service, TenantID: tenantID, Routes: routes, Scopes: scopes, SkipPrune: !prune})
 }
 
 // register makes exactly one registration call. Failure is returned to the

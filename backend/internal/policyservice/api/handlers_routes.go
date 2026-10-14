@@ -11,11 +11,14 @@ import (
 
 // registerRoutesRequest is the body for POST /policy/routes/register.
 // The tenant scope (global vs tenant-specific) is derived from the caller's
-// platform token — it is not a caller-supplied field.
+// platform token, except that a SYSTEM caller may name the tenant itself.
 type registerRoutesRequest struct {
 	Service string                    `json:"service"`
 	Routes  []routes.RouteScope       `json:"routes"`
 	Scopes  []routes.ScopeDeclaration `json:"scopes,omitempty"`
+	// TenantID is the tenant to register under. Only a SYSTEM caller may name a
+	// tenant (empty means global); any other caller is bound to its token's tenant.
+	TenantID string `json:"tenant_id,omitempty"`
 	// SkipPrune upserts the declared scopes without the destructive orphan
 	// prune (DeleteOrphans + PurgeScopeFromAll). Default false preserves the
 	// prune-on-publish behavior. Honored only for global (SYSTEM) registrations
@@ -40,7 +43,8 @@ func (c *Controller) handleListRoutes(w http.ResponseWriter, r *http.Request) {
 
 // handleRegisterRoutes handles POST /policy/routes/register.
 // The caller's principal type determines registration scope:
-//   - SYSTEM → global registration (compiled into every tenant bundle)
+//   - SYSTEM → global registration (compiled into every tenant bundle), or a
+//     tenant-scoped one when the request names a tenant_id
 //   - SERVICE → tenant-scoped registration (compiled into that tenant's bundle only;
 //     it may not declare scopes, and all required_scopes must already exist)
 //
@@ -54,12 +58,8 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var tenantID string
 	switch claims.Kora.PrincipalType {
-	case token.PrincipalTypeSystem:
-		tenantID = ""
-	case token.PrincipalTypeService:
-		tenantID = claims.Kora.TenantID
+	case token.PrincipalTypeSystem, token.PrincipalTypeService:
 	default:
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
@@ -72,12 +72,26 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// SYSTEM names the tenant ("" is global); a SERVICE is bound to its token's tenant.
+	tenantID, ok := c.resolveTenantID(w, r, claims, req.TenantID)
+	if !ok {
+		return
+	}
+
 	// A registration publishes routes, scopes, or both. Scopes alone suit a
 	// service whose routes stay unpublished.
 	if req.Service == "" || (len(req.Routes) == 0 && len(req.Scopes) == 0) {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField,
 				"service and routes or scopes are required", nil), nil)
+		return
+	}
+
+	// The vocabulary is tenant-keyed, but a tenant principal may still not write
+	// to it: only SYSTEM declares scopes, for a tenant or globally.
+	if claims.Kora.PrincipalType != token.PrincipalTypeSystem && len(req.Scopes) > 0 && tenantID != "" {
+		platformapi.ErrorResponse(ctx, w, c.logger,
+			platformapi.ForbiddenError(platformapi.ErrCodeForbidden, ErrTenantScopeDeclaration.Error(), nil), nil)
 		return
 	}
 

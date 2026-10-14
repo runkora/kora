@@ -11,11 +11,17 @@ import (
 func (c *Controller) handleGetScope(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
-	if _, ok := c.claimsFromContext(w, r); !ok {
+	claims, ok := c.claimsFromContext(w, r)
+	if !ok {
 		return
 	}
 
-	entry, err := c.svc.GetScope(ctx, r.PathValue("scope"))
+	tenantID, ok := c.resolveTenantID(w, r, claims, "")
+	if !ok {
+		return
+	}
+
+	entry, err := c.svc.GetScope(ctx, tenantID, r.PathValue("scope"))
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, vocabularyErrorResponse(err), err)
 		return
@@ -41,12 +47,15 @@ func (c *Controller) handleListVocabulary(w http.ResponseWriter, r *http.Request
 	resourceType := q.Get("resource_type")
 	tenantIDParam := q.Get("tenant_id")
 
+	// The caller sees its own tenant's scopes plus global ones. A SYSTEM caller
+	// with no tenant_id sees only the global ones.
+	tenantID, ok := c.resolveTenantID(w, r, claims, tenantIDParam)
+	if !ok {
+		return
+	}
+
 	// When tenant_id is provided, return scopes with usage counts.
 	if tenantIDParam != "" {
-		tenantID, ok := c.resolveTenantID(w, r, claims, tenantIDParam)
-		if !ok {
-			return
-		}
 		entries, err := c.svc.ListVocabularyWithUsage(ctx, resourceType, tenantID)
 		if err != nil {
 			platformapi.ErrorResponse(ctx, w, c.logger, vocabularyErrorResponse(err), err)
@@ -56,7 +65,7 @@ func (c *Controller) handleListVocabulary(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	entries, err := c.svc.ListVocabulary(ctx, resourceType)
+	entries, err := c.svc.ListVocabulary(ctx, tenantID, resourceType)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger, vocabularyErrorResponse(err), err)
 		return

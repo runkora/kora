@@ -54,7 +54,9 @@ func (f fixedRoles) GetByRole(_ context.Context, _, role string) (*roles.RoleEnt
 // emptyVocab has no entries, so expansion adds nothing.
 type emptyVocab struct{ vocabulary.Repository }
 
-func (emptyVocab) List(context.Context, string) ([]*vocabulary.ScopeEntry, error) { return nil, nil }
+func (emptyVocab) List(context.Context, string, string) ([]*vocabulary.ScopeEntry, error) {
+	return nil, nil
+}
 
 // Each principal gets back only what the bundle grants it. A PAT gets its own
 // grant, never its owner's grants or roles. A delegation-marked grant gives nothing.
