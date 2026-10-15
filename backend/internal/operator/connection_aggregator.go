@@ -163,6 +163,9 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 			return nil, nil, fmt.Errorf("list Connections in %q: %w", ns, err)
 		}
 
+		// Earlier connections win a conflict, matching the admission webhook.
+		sort.Slice(list.Items, func(i, j int) bool { return createdBefore(&list.Items[i], &list.Items[j]) })
+		var kept []*Connection
 		for j := range list.Items {
 			conn := &list.Items[j]
 
@@ -175,6 +178,17 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 				)
 				continue
 			}
+
+			if earlier := firstConflict(conn, kept); earlier != nil {
+				a.logger.Warn(ctx, "connection conflicts with an earlier connection on the same host, skipping",
+					logging.Field{Key: "connection", Value: conn.Name},
+					logging.Field{Key: "conflictsWith", Value: earlier.Name},
+					logging.Field{Key: "namespace", Value: ns},
+				)
+				continue
+			}
+			// Kept before the Secret read, so a late Secret never flips the winner.
+			kept = append(kept, conn)
 
 			// tenant_id MUST equal claims.Orbit.TenantID — the OrbitTenant CR
 			// name, the identifier the CA aggregator keys on. Do not invent one.
@@ -210,6 +224,17 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 		return entries[i].Name < entries[j].Name
 	})
 	return entries, secretData, nil
+}
+
+// firstConflict returns the first of kept that the egress gateway could not
+// tell apart from conn, or nil.
+func firstConflict(conn *Connection, kept []*Connection) *Connection {
+	for _, k := range kept {
+		if connectionsConflict(conn, k) {
+			return k
+		}
+	}
+	return nil
 }
 
 // readConnectionSecret resolves the secret material for one Connection from its

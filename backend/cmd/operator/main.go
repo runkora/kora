@@ -290,6 +290,12 @@ func initWebhooks(mgr ctrl.Manager) {
 			IstioRevision: install.IstioRevision,
 		},
 	})
+	mgr.GetWebhookServer().Register("/validate-connection", &webhook.Admission{
+		Handler: &operator.ConnectionValidator{
+			Client:  mgr.GetClient(),
+			Decoder: decoder,
+		},
+	})
 }
 
 func initControllers(mgr ctrl.Manager, logger logging.Logger, checks *preflight.Runner) error {

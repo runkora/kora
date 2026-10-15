@@ -66,3 +66,21 @@ webhooks:
         orbit.io/role: tenant
     sideEffects: None
     timeoutSeconds: 10
+  # Rejects a Connection the egress gateway cannot tell apart from an earlier one.
+  - name: connection.orbit.io
+    admissionReviewVersions: ["v1"]
+    clientConfig:
+      service:
+        name: orbit-operator-webhook
+        namespace: {{ include "orbit.systemNamespace" . }}
+        path: /validate-connection
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["orbit.io"]
+        apiVersions: ["v1alpha1"]
+        resources: ["connections"]
+    namespaceSelector:
+      matchLabels:
+        orbit.io/role: tenant
+    sideEffects: None
+    timeoutSeconds: 10
