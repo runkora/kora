@@ -15,7 +15,7 @@ kora ships three Helm charts (`charts/orbit-operator`, `charts/orbit-platform`, 
 
 The operator's second job grew after that ADR: tenant namespaces, per-tenant CA minting, per-tenant OPA configuration, the sandbox egress NetworkPolicy, six aggregators (tenants, OIDC client secrets, tenant CAs, connections, OAuth clients, MCP servers) and a pod mutating webhook that stamps tenant identity and injection templates onto every tenant pod. None of that appears in the ADR, and all of it is continuous reconciliation of state that changes after install.
 
-Several documented behaviours do not exist in code. `spec.version` is echoed into status and drives nothing. `upgradeStrategy` is read by nothing. `spire.enabled: false` and `istio.enabled: false` skip the install with no validation of what is present. `deleteNamespaceOnRemoval` has no finalizer. `docs/guides/deployment.md` points at `oci://ghcr.io/clear-route/charts/orbit-operator`, which has never been published.
+Several documented behaviours do not exist in code. `spec.version` is echoed into status and drives nothing. `upgradeStrategy` is read by nothing. `spire.enabled: false` and `istio.enabled: false` skip the install with no validation of what is present. `deleteNamespaceOnRemoval` has no finalizer. `docs/guides/deployment.md` points at `oci://ghcr.io/runkora/charts/orbit-operator`, which has never been published.
 
 ### Problem Statement
 
@@ -179,7 +179,7 @@ The `OrbitPlatform` CRD is deleted. Its surviving inputs become chart values con
 global:
   trustDomain: orbit.example.com     # required
   systemNamespace: ""                # defaults to .Release.Namespace
-  imageRegistry: ghcr.io/clear-route
+  imageRegistry: ghcr.io/runkora
   imageTag: ""                       # empty = chart appVersion; a release stamps per-component digests
   imagePullSecrets: []
   logFormat: json                    # applied to every service
@@ -259,7 +259,7 @@ releases:
   - name: orbit-crds  { namespace: '{{`{{ .Values.systemNamespace }}`}}', chart: '{{`{{ .Values.orbit.crdsChart }}`}}' }
   - name: orbit
     namespace: '{{`{{ .Values.systemNamespace }}`}}'
-    chart: '{{`{{ .Values.orbit.chart }}`}}'  # oci://ghcr.io/clear-route/charts/orbit in production
+    chart: '{{`{{ .Values.orbit.chart }}`}}'  # oci://ghcr.io/runkora/charts/orbit in production
     needs: ['{{`{{ .Values.systemNamespace }}`}}/orbit-crds', spire-system/spire, istio-system/istiod]
     values: [values/orbit.yaml]               # the consumer's chart values
     set:                                       # the two facts SPIRE, Istio and Orbit share
@@ -275,7 +275,7 @@ There is no separate gateway release. kora's ingress gateway pods, their `Gatewa
 
 **Local development is an overlay, not the shipped reference.** The image digests `redeploy.sh` records, the k3s CNI paths, and the identity `hostAliases` and external-service CIDRs `resolve-docker-ips.sh` generates are local concerns. They live in `values/orbit.local.yaml`, `values/cni.local.yaml` and the gitignored `local.generated.yaml`, which the local environment layers onto the base values. The base `values/orbit.yaml` carries none of them.
 
-`deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. The `orbit` Application points its values at the consumer's own GitOps repository, the values `values/orbit.yaml` demonstrates. While `ghcr.io/clear-route/charts` is private, pulling `orbit-crds`/`orbit` needs OCI registry credentials the app-of-apps does not provide; a comment marks where they belong, and the repository credential itself is the consumer's Argo CD setup (`argocd repo add` or a Repository credential template). Flux is not a supported install path in v1; the charts are standard Helm charts and would work under it, but no example is published or maintained.
+`deploy/reference/argocd/` holds an app-of-apps: one `Application` per release with `argocd.argoproj.io/sync-wave` on the `Application` objects, since an `ApplicationSet` gives no ordering between the Applications it generates. The `orbit` Application points its values at the consumer's own GitOps repository, the values `values/orbit.yaml` demonstrates. While `ghcr.io/runkora/charts` is private, pulling `orbit-crds`/`orbit` needs OCI registry credentials the app-of-apps does not provide; a comment marks where they belong, and the repository credential itself is the consumer's Argo CD setup (`argocd repo add` or a Repository credential template). Flux is not a supported install path in v1; the charts are standard Helm charts and would work under it, but no example is published or maintained.
 
 `make up` becomes: `dev-cluster` (k3d, Postgres, Redis, Dex), create and label the system namespace, `create-secrets.sh`, `resolve-docker-ips.sh`, `helmfile -e local apply`, then tenant fixtures. `cluster-operator`, `cluster-operator-chart` and the Makefile's readiness waits are removed. `redeploy.sh` changes: the operator's namespace comes from the system namespace, `cluster-update` no longer calls `cluster-operator-chart`, and after each push `redeploy.sh` pins the workload with `kubectl set image` and records the digest under `<component>.image.digest` in `local.generated.yaml`; the next `helmfile apply` renders the same image. `make up` runs `helmfile apply` unconditionally; Helmfile diffs before applying, so an unchanged environment is a no-op.
 
@@ -288,7 +288,7 @@ A `release.yml` workflow on `v*` tags, reusing `docker.yml` through `workflow_ca
 1. Build and push every image at the tag for `linux/amd64` and `linux/arm64`, capturing each digest.
 2. Resolve digests for the third-party images the chart references (OPA).
 3. Set `version` and `appVersion` on both charts to the tag, and write every digest into the packaged chart's `values.yaml` at `helm package` time. Source `values.yaml` keeps empty digests so local development uses tags and the tag matches the published source.
-4. `helm push` both charts to `oci://ghcr.io/clear-route/charts/`.
+4. `helm push` both charts to `oci://ghcr.io/runkora/charts/`.
 5. Sign charts and images with cosign using a repository-held key while the repository is private (keyless signing writes image names to the public transparency log), switching to keyless with the GitHub OIDC identity when the repository opens. Attach SLSA provenance. The workflow holds `id-token: write`, `packages: write`, `attestations: write`.
 6. Publish release assets: `images.txt` (every image the release publishes, plus the third-party images the chart references), `compatibility.yaml` (supported Kubernetes, Istio, SPIRE, Helm, Helmfile and helm-diff versions), and release notes generated from conventional commits with a breaking-changes section.
 
@@ -343,7 +343,7 @@ Rollback is `helm rollback orbit` (or the GitOps equivalent). CRDs are never rol
 global:
   trustDomain: ""                 # required
   systemNamespace: ""             # defaults to .Release.Namespace
-  imageRegistry: ghcr.io/clear-route
+  imageRegistry: ghcr.io/runkora
   imageTag: ""                    # empty = chart appVersion
   imagePullSecrets: []
   imagePullPolicy: IfNotPresent
@@ -412,7 +412,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 3. Introduce `orbit.image`, `orbit.scheduling` and `orbit.imagePullSecrets` helpers; apply to every Deployment, DaemonSet, StatefulSet template and to the operator. Add the cross-cutting `global` settings (`logFormat`, `postgres.sslMode`, `postgres.captureQueryText`, `observability.otlpInsecure`, `imageTag`) and default every component's service-config and image to them, removing the per-component repetition of these fields from `values.yaml`.
 4. Close the configuration gaps: `agents.config.*` rendered as env overrides for session-manager image, sandbox image, git author and trust domain; `agents.extraEnv`; `agents.runtimePods.*`; `inferenceGateway.bedrock.accounts[]`; `inferenceGateway.serviceAccount.annotations`; identity mounts `orbit-tenant-oauth-clients`; identity's tenants mount `optional: true`; ext_proc `message_timeout: 1s`; policy-service bundle AuthorizationPolicy `ports`; `gateway.create`/`gateway.name`; `gateway.ingress` and `frontend.ingress`, which when enabled also set `x-forwarded-proto: https` on API routes because the fronting Ingress terminates TLS; warmer and headroom templates.
 5. Render `orbit-config` from `config.*`. Remove `platform.namespaces.tenants`. Collapse `existingSecret` values into `config.platformSecretName`.
-6. Switch defaults to `ghcr.io/clear-route`; remove every `orbit-registry:5001` default outside `deploy/reference/environments/local.yaml`.
+6. Switch defaults to `ghcr.io/runkora`; remove every `orbit-registry:5001` default outside `deploy/reference/environments/local.yaml`.
 7. `values.schema.json` for both charts; helm-docs README; the ownership table in `docs/guides/deployment.md`.
 
 ### Phase 2: Operator narrowing
@@ -446,7 +446,7 @@ A deployment driven from its own GitOps repository with copied charts:
 1. Annotate the four CRDs, the ClusterRole, ClusterRoleBinding and webhook configuration with `helm.sh/resource-policy: keep`.
 2. Remove the `orbit-operator` and `orbit-platform` release records (delete their `sh.helm.release.v1.*` Secrets) so no uninstall runs against them.
 3. Relabel the kept cluster-scoped objects with `meta.helm.sh/release-name` and `meta.helm.sh/release-namespace` for `orbit-crds` (CRDs) and `orbit` (the rest).
-4. Replace the three chart sources with `oci://ghcr.io/clear-route/charts/orbit-crds` and `oci://ghcr.io/clear-route/charts/orbit`; move environment values into the single `orbit` values file; install.
+4. Replace the three chart sources with `oci://ghcr.io/runkora/charts/orbit-crds` and `oci://ghcr.io/runkora/charts/orbit`; move environment values into the single `orbit` values file; install.
 5. Recreated objects: the operator Deployment, webhook Service, ClusterRole, ClusterRoleBinding and webhook configurations. Deployment `spec.selector` is immutable, so any service Deployment whose selector changes is deleted and recreated in a maintenance window.
 6. Delete the replicated istiod injection templates and the vendored charts; delete the `orbit-operator` namespace.
 

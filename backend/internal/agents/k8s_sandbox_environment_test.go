@@ -20,7 +20,7 @@ import (
 func testSandboxSpec() SandboxSpec {
 	return SandboxSpec{
 		Environment: DefaultEnvironmentName,
-		Image:       "ghcr.io/clear-route/kora-sandbox-base@sha256:base",
+		Image:       "ghcr.io/runkora/kora-sandbox-base@sha256:base",
 		Size:        testSizes.Default,
 	}
 }

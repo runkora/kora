@@ -43,7 +43,7 @@ func TestProvisionSandbox_BuiltinDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 	spec := k8s.provisionSpec
-	if spec.Image != "ghcr.io/clear-route/kora-sandbox-base@sha256:base" || spec.Size != testSizes.Default || spec.EnvironmentID != "" {
+	if spec.Image != "ghcr.io/runkora/kora-sandbox-base@sha256:base" || spec.Size != testSizes.Default || spec.EnvironmentID != "" {
 		t.Errorf("spec = %+v, want kora-base pinned at the default size", spec)
 	}
 	if repo.runs["run-1"].EnvironmentID != nil {

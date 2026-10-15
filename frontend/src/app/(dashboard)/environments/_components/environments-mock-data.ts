@@ -164,7 +164,7 @@ export const MOCK_IMAGES: SandboxImage[] = [
   {
     name: 'kora-base',
     description: 'The kora base image.',
-    image: 'ghcr.io/clear-route/kora-sandbox-base:1.0.0',
+    image: 'ghcr.io/runkora/kora-sandbox-base:1.0.0',
     digest: 'sha256:ab12',
     valid: true,
     warm: true,

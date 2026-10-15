@@ -4,7 +4,7 @@
 
 kora's control plane runs the operator, the cluster-scoped identity and gateway resources, and the platform services. Install orbit-crds first, and have Istio and SPIRE already running on the cluster.
 
-**Homepage:** <https://github.com/clear-route/orbit>
+**Homepage:** <https://github.com/runkora/kora>
 
 ## Maintainers
 
@@ -200,7 +200,7 @@ Kubernetes: `>=1.34.0-0`
 | global.affinity | object | `{}` |  |
 | global.imagePullPolicy | string | `"IfNotPresent"` |  |
 | global.imagePullSecrets | list | `[]` |  |
-| global.imageRegistry | string | `"ghcr.io/clear-route"` |  |
+| global.imageRegistry | string | `"ghcr.io/runkora"` |  |
 | global.imageTag | string | `""` |  |
 | global.logFormat | string | `"json"` |  |
 | global.nodeSelector | object | `{}` |  |

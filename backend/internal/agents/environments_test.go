@@ -98,7 +98,7 @@ func TestCreateEnvironment(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
 		"acme-go":   validSandboxImage("acme-go", "ghcr.io/acme/go:1", "sha256:go"),
 		"broken":    {Status: si.Status{}},
-		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"),
 	}}
 	ctx := withTenantCtx(context.Background(), "t-1")
 	for _, tc := range []struct {
@@ -183,7 +183,7 @@ func TestDeriveSlug(t *testing.T) {
 // and rejects a slug that is not a DNS-1123 label.
 func TestCreateEnvironment_Slug(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
-		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"),
 	}}
 	ctx := withTenantCtx(context.Background(), "t-1")
 	for _, tc := range []struct {
@@ -220,7 +220,7 @@ func TestCreateEnvironment_Slug(t *testing.T) {
 // An update keeps the stored slug, even one that is not a DNS-1123 label, and refuses to change it.
 func TestUpdateEnvironment_SlugIsImmutable(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
-		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"),
 	}}
 	ctx := withTenantCtx(context.Background(), "t-1")
 	for _, tc := range []struct {
@@ -260,7 +260,7 @@ func TestUpdateEnvironment_SlugIsImmutable(t *testing.T) {
 // An update that changes the slug is a 400.
 func TestHandleUpdateEnvironment_SlugChange(t *testing.T) {
 	k8s := &mockK8s{sandboxImages: map[string]*si.SandboxImage{
-		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/clear-route/kora-sandbox-base:1", "sha256:base"),
+		si.BaseName: validSandboxImage(si.BaseName, "ghcr.io/runkora/kora-sandbox-base:1", "sha256:base"),
 	}}
 	store := &fakeEnvStore{envs: map[string]Environment{
 		"env-1": {ID: "env-1", TenantID: "t-1", Slug: "go", Name: "Go", SandboxImage: si.BaseName},

@@ -11,8 +11,8 @@ trustDomain: orbit.example.com
 clusterName: orbit
 
 orbit:
-  chart: oci://ghcr.io/clear-route/charts/orbit
-  crdsChart: oci://ghcr.io/clear-route/charts/orbit-crds
+  chart: oci://ghcr.io/runkora/charts/orbit
+  crdsChart: oci://ghcr.io/runkora/charts/orbit-crds
   version: 0.0.0
 
 istio:

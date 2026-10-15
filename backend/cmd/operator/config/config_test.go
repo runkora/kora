@@ -18,7 +18,7 @@ func TestBaseDefaults(t *testing.T) {
 	if in.SystemNamespace != "orbit-system" || in.PodSecurity.Enforce != "restricted" || in.Injection.BundlePollingMaxDelay != 60 {
 		t.Errorf("install defaults = %+v", in)
 	}
-	if in.SandboxImages.BaseImage != "ghcr.io/clear-route/kora-sandbox-base:latest" || in.SandboxImages.WarmBase {
+	if in.SandboxImages.BaseImage != "ghcr.io/runkora/kora-sandbox-base:latest" || in.SandboxImages.WarmBase {
 		t.Errorf("sandboxImages defaults = %+v", in.SandboxImages)
 	}
 	if in.TrustDomain != "" {

@@ -11,10 +11,10 @@ func TestBaseDefaults_NoLocalRegistryOrTrustDomain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load base config: %v", err)
 	}
-	if cfg.Agents.SessionManagerImage != "ghcr.io/clear-route/orbit-session-manager:latest" {
+	if cfg.Agents.SessionManagerImage != "ghcr.io/runkora/orbit-session-manager:latest" {
 		t.Errorf("sessionManagerImage = %q, want the ghcr.io default", cfg.Agents.SessionManagerImage)
 	}
-	if cfg.Agents.SandboxImage != "ghcr.io/clear-route/kora-sandbox-base:latest" {
+	if cfg.Agents.SandboxImage != "ghcr.io/runkora/kora-sandbox-base:latest" {
 		t.Errorf("sandboxImage = %q, want the ghcr.io default", cfg.Agents.SandboxImage)
 	}
 	if cfg.Platform.TrustDomain != "" {

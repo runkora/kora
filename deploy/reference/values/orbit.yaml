@@ -1,4 +1,4 @@
-# kora chart values, the same set `helm show values oci://ghcr.io/clear-route/charts/orbit`
+# kora chart values, the same set `helm show values oci://ghcr.io/runkora/charts/orbit`
 # prints. Copy this file into your GitOps repository and edit it. A cluster
 # already running SPIRE and Istio installs the chart with this file, no Helmfile.
 #
@@ -6,7 +6,7 @@
 # endpoints with your own.
 global:
   trustDomain: orbit.example.com
-  imageRegistry: ghcr.io/clear-route
+  imageRegistry: ghcr.io/runkora
   imagePullPolicy: IfNotPresent
   # Shared service config; a component's configOverrides overrides it.
   logFormat: json

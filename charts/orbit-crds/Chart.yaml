@@ -11,6 +11,6 @@ kubeVersion: ">=1.34.0-0"
 keywords:
   - orbit
   - crds
-home: https://github.com/clear-route/orbit
+home: https://github.com/runkora/kora
 maintainers:
   - name: kora Team

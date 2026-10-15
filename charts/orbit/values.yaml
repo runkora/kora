@@ -9,7 +9,7 @@ global:
   systemNamespace: ""
 
   # Registry prefix for every kora image. Overridable per component.
-  imageRegistry: ghcr.io/clear-route
+  imageRegistry: ghcr.io/runkora
 
   # Image tag for every kora image. Empty uses the chart appVersion. Local
   # development sets this to pin a pushed tag; a release stamps digests instead.
