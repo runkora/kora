@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -53,6 +54,7 @@ type Broker struct {
 	adapters    *AdapterRegistry
 	passthrough credentials.Adapter
 	logger      logging.Logger
+	nodeOwners  *ownerCache
 }
 
 // NewBroker constructs a Broker. None of the dependencies are optional; passing
@@ -68,7 +70,7 @@ func NewBroker(
 	pass credentials.Adapter,
 	logger logging.Logger,
 ) *Broker {
-	return &Broker{policy: pol, conns: conns, adapters: adapters, passthrough: pass, logger: logger}
+	return &Broker{policy: pol, conns: conns, adapters: adapters, passthrough: pass, logger: logger, nodeOwners: newOwnerCache(time.Now)}
 }
 
 // Authorize is the broker's one entry point. It validates the request, looks

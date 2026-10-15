@@ -547,3 +547,87 @@ func (w *graphqlWalker) argument(f *ast.Field, name string) any {
 	}
 	return v
 }
+
+// graphqlOwnerFields maps a field that names an account to the argument holding it.
+var graphqlOwnerFields = map[string]string{
+	"repository": "owner", "organization": "login", "repositoryOwner": "login", "user": "login",
+}
+
+// graphqlNonNodeIDs are arguments and input fields whose names end in Id or Ids
+// but hold no node id in the GitHub schema.
+var graphqlNonNodeIDs = map[string]bool{
+	"clientMutationId": true, "externalId": true, "ghsaId": true,
+	"iterationId": true, "multiSelectOptionIds": true, "singleSelectOptionId": true,
+}
+
+// graphqlOwners returns the owners and node ids a GraphQL request names. A body
+// that cannot be read or parsed names neither. The body is restored for forwarding.
+func graphqlOwners(req *http.Request) credentials.RequestOwners {
+	out := credentials.RequestOwners{Subject: subjectGraphQL}
+	buf, ok := bufferGraphQLBody(req)
+	if !ok {
+		return out
+	}
+	gql, ok := decodeGraphQLRequest(buf)
+	if !ok || gql.Query == "" {
+		return out
+	}
+	doc, err := parser.ParseQueryWithTokenLimit(&ast.Source{Input: gql.Query}, graphqlTokenLimit)
+	if err != nil {
+		return out
+	}
+	op := selectOperation(doc, gql.OperationName)
+	if op == nil {
+		return out
+	}
+	w := &graphqlWalker{doc: doc, vars: operationVariables(op, gql.Variables), active: map[string]bool{}}
+	owners, ids := map[string]bool{}, map[string]bool{}
+	w.collectOwners(op.SelectionSet, owners, ids)
+	out.Owners, out.NodeIDs = slices.Sorted(maps.Keys(owners)), slices.Sorted(maps.Keys(ids))
+	return out
+}
+
+// collectOwners walks every field at any depth for the accounts and node ids
+// its arguments name.
+func (w *graphqlWalker) collectOwners(set ast.SelectionSet, owners, ids map[string]bool) {
+	w.fields(set, func(f *ast.Field) {
+		if arg, ok := graphqlOwnerFields[f.Name]; ok {
+			if owner, _ := w.argument(f, arg).(string); owner != "" {
+				owners[normalizeName(owner)] = true
+			}
+		}
+		for _, arg := range f.Arguments {
+			if v, err := arg.Value.Value(w.vars); err == nil {
+				collectNodeIDs(arg.Name, v, ids)
+			}
+		}
+		w.collectOwners(f.SelectionSet, owners, ids)
+	})
+}
+
+// collectNodeIDs records the string values of a node id argument, descending
+// into input objects to find their node id fields.
+func collectNodeIDs(name string, v any, ids map[string]bool) {
+	switch val := v.(type) {
+	case map[string]any:
+		for k, inner := range val {
+			collectNodeIDs(k, inner, ids)
+		}
+	case []any:
+		for _, inner := range val {
+			collectNodeIDs(name, inner, ids)
+		}
+	case string:
+		if isNodeIDName(name) && val != "" {
+			ids[val] = true
+		}
+	}
+}
+
+// isNodeIDName reports whether an argument or input field name carries node ids.
+func isNodeIDName(name string) bool {
+	if graphqlNonNodeIDs[name] {
+		return false
+	}
+	return name == "id" || name == "ids" || strings.HasSuffix(name, "Id") || strings.HasSuffix(name, "Ids")
+}

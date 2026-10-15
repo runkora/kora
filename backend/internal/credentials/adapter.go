@@ -81,6 +81,17 @@ type Connector interface {
 	Mint(ctx context.Context, id CallerIdentity) (Credential, error)
 }
 
+// RequestOwners is what a request names that can tie it to the upstream
+// account it addresses. See docs/adr/2026-10-15-same-host-connection-selection.md.
+type RequestOwners struct {
+	// Owners are the normalized accounts the request names.
+	Owners []string
+	// NodeIDs are the global node ids a GraphQL document names.
+	NodeIDs []string
+	// Subject is the part of the request read for owners, such as "request path".
+	Subject string
+}
+
 // DecodeConfig reads a connection's adapter configuration into out. It is the
 // one place adapter config is decoded, so every adapter fails the same way. A
 // connection with no config leaves out at its zero value, which the adapter

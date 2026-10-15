@@ -82,6 +82,7 @@ type API interface {
 	CreateInstallationToken(ctx context.Context, appJWT string, installationID int64, body ghclient.InstallationTokenRequest) (ghclient.InstallationToken, error)
 	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
+	NodeOwners(ctx context.Context, installationToken string, ids []string) (map[string]string, error)
 }
 
 // instPermsCacheTTL is how long the installation's permission set is cached
@@ -220,44 +221,87 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 // The broker matches it against RequestOwner to choose among same-host connections.
 func (c *connector) Owner() string { return normalizeName(c.cfg.Owner) }
 
-// RequestOwner returns the account a request path addresses, normalized, or ""
-// when the path addresses none. See
-// docs/adr/2026-10-15-same-host-connection-selection.md.
-func (c *connector) RequestOwner(req *http.Request) string {
+// Request subjects reported in RequestOwners, used in the unresolved denial.
+const (
+	subjectPath    = "request path"
+	subjectGraphQL = "GraphQL document"
+	subjectSearch  = "search query"
+)
+
+// RequestOwners returns the accounts and node ids a request names: the path
+// owner, else the owners and node ids of a GraphQL document, else the owners of
+// a search query. See docs/adr/2026-10-15-same-host-connection-selection.md.
+func (c *connector) RequestOwners(req *http.Request) credentials.RequestOwners {
 	if req == nil || req.URL == nil {
-		return ""
+		return credentials.RequestOwners{Subject: subjectPath}
 	}
 	host := requestHost(req)
 	segs := pathSegments(req.URL.Path)
 	switch {
 	case host == "api.github.com":
-		return apiOwner(segs)
+		return apiOwners(req, segs)
 	case len(segs) > 0 && segs[0] == "api":
 		// GitHub Enterprise serves REST under /api/v3 and GraphQL at /api/graphql.
 		if len(segs) > 1 && segs[1] == "v3" {
-			return apiOwner(segs[2:])
+			return apiOwners(req, segs[2:])
 		}
-		return ""
+		if len(segs) == 2 && segs[1] == "graphql" {
+			return graphqlOwners(req)
+		}
+		return credentials.RequestOwners{Subject: subjectPath}
 	case strings.HasSuffix(host, ".githubusercontent.com") && host != "raw.githubusercontent.com":
-		return ""
+		return credentials.RequestOwners{Subject: subjectPath}
 	case len(segs) >= 2:
-		return normalizeName(segs[0])
+		return pathOwner(segs[0])
 	default:
-		return ""
+		return credentials.RequestOwners{Subject: subjectPath}
 	}
 }
 
-// apiOwner returns the owner segment of a REST path addressed to a repository,
-// organization or user.
-func apiOwner(segs []string) string {
-	if len(segs) < 2 {
-		return ""
+// apiOwners reads the owner of a REST path, or the owners named by a GraphQL
+// document or search query.
+func apiOwners(req *http.Request, segs []string) credentials.RequestOwners {
+	switch {
+	case len(segs) == 1 && segs[0] == "graphql":
+		return graphqlOwners(req)
+	case len(segs) > 0 && segs[0] == "search":
+		return credentials.RequestOwners{Owners: searchOwners(req.URL.Query().Get("q")), Subject: subjectSearch}
+	case len(segs) >= 2 && (segs[0] == "repos" || segs[0] == "orgs" || segs[0] == "users"):
+		return pathOwner(segs[1])
+	default:
+		return credentials.RequestOwners{Subject: subjectPath}
 	}
-	switch segs[0] {
-	case "repos", "orgs", "users":
-		return normalizeName(segs[1])
+}
+
+func pathOwner(owner string) credentials.RequestOwners {
+	return credentials.RequestOwners{Owners: []string{normalizeName(owner)}, Subject: subjectPath}
+}
+
+// searchOwners returns the owners of the repo:, org: and user: qualifiers in a
+// search query. A qualifier negated with a leading - or NOT addresses no owner.
+func searchOwners(q string) []string {
+	var owners []string
+	negated := false
+	for term := range strings.FieldsSeq(q) {
+		if negated || term == "NOT" {
+			negated = term == "NOT"
+			continue
+		}
+		key, value, ok := strings.Cut(term, ":")
+		value = strings.Trim(value, `"`)
+		if !ok || value == "" {
+			continue
+		}
+		switch strings.ToLower(key) {
+		case "repo":
+			if owner, _, ok := strings.Cut(value, "/"); ok && owner != "" {
+				owners = append(owners, normalizeName(owner))
+			}
+		case "org", "user":
+			owners = append(owners, normalizeName(value))
+		}
 	}
-	return ""
+	return owners
 }
 
 // classifyGitSmartHTTP recognizes the two well-known git smart-HTTP shapes:
@@ -782,6 +826,54 @@ func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, in
 	a.mu.Unlock()
 
 	return perms, nil
+}
+
+// lookupPermissions are the read permissions a node id lookup token may carry:
+// the categories whose objects node ids name.
+var lookupPermissions = []string{"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"}
+
+// NodeOwners resolves node ids to their owners' logins with a read-only
+// installation token. Ids this installation cannot see are absent. See
+// docs/adr/2026-10-15-same-host-connection-selection.md.
+func (c *connector) NodeOwners(ctx context.Context, ids []string) (map[string]string, error) {
+	a, conn, cfg := c.adapter, c.conn, c.cfg
+	pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
+	if err != nil {
+		return nil, fmt.Errorf("resolve github app secret: %w", err)
+	}
+	appJWT, err := signAppJWT(cfg.AppID, pem, a.now())
+	if err != nil {
+		return nil, fmt.Errorf("sign github app jwt: %w", err)
+	}
+	installationPerms, err := a.installationPermissions(ctx, appJWT, cfg.InstallationID)
+	if err != nil {
+		return nil, fmt.Errorf("fetch installation permissions: %w", err)
+	}
+	perms := map[string]string{}
+	for _, key := range lookupPermissions {
+		if permissionLevels[installationPerms[key]] >= permissionLevels[verbRead] {
+			perms[key] = verbRead
+		}
+	}
+
+	// Prefixed so a lookup token never satisfies a Mint, which needs the header form.
+	cacheKey := "lookup|" + a.cacheKey(conn.ID, nil, perms)
+	token := ""
+	if cred, ok := a.cached(cacheKey); ok {
+		token = cred.Token
+	} else {
+		tok, mintErr := a.api.CreateInstallationToken(ctx, appJWT, cfg.InstallationID, ghclient.InstallationTokenRequest{Permissions: perms})
+		if mintErr != nil {
+			return nil, fmt.Errorf("mint lookup token: %w", mintErr)
+		}
+		a.store(cacheKey, credentials.Credential{Token: tok.Token, ExpiresAt: tok.ExpiresAt})
+		token = tok.Token
+	}
+	owners, err := a.api.NodeOwners(ctx, token, ids)
+	if err != nil {
+		return nil, fmt.Errorf("node owner lookup: %w", err)
+	}
+	return owners, nil
 }
 
 func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (credentials.Credential, error) {
