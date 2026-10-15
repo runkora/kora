@@ -3,12 +3,14 @@ package egressgw
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/clear-route/orbit/internal/credentials"
 	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
@@ -217,8 +219,88 @@ func TestResolveConnection_NodeOwnersDoNotLeak(t *testing.T) {
 		pol.scopes = holdsRunkoraAcme
 		_, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ nodes(ids: [\"PR_rk\", \"PR_acme\"]) { id } }"}`))
 		d := denial(t, err)
-		if body := d.Message(); strings.Contains(body, "owner runkora") || strings.Contains(body, "owners") {
+		if body := d.Message(); strings.Contains(body, "runkora,") || strings.Contains(body, "acme from") || !strings.Contains(d.Unresolved, "different connections") {
 			t.Errorf("denial body names owners: %q", body)
 		}
 	})
+}
+
+func TestResolveConnection_OwnerResolutionEdges(t *testing.T) {
+	both := candidateConns{githubConn(t, "clear-route-github", "clear-route"), githubConn(t, "runkora-github", "runkora")}
+	holdsBoth := []string{"connection:clear-route-github:repo:read", "connection:runkora-github:repo:read"}
+	many := make([]string, MaxNodeIDs+1)
+	for i := range many {
+		many[i] = fmt.Sprintf("PR_%d", i)
+	}
+	tests := []struct {
+		name          string
+		scopes        []string
+		req           EgressRequest
+		want          string
+		wantAmbiguous bool
+		wantInMsg     string
+	}{
+		{name: "unserved owner with one held candidate uses it", scopes: holdsBoth[1:], req: searchRequest("org:facebook bug"), want: "runkora-github"},
+		{name: "unserved owner with two held candidates is unresolved", scopes: holdsBoth, req: searchRequest("org:facebook bug"), wantInMsg: "owner facebook from the search query is served by no connection"},
+		{name: "parenthesised qualifiers spanning candidates denied", scopes: holdsBoth, req: searchRequest("(org:runkora OR org:clear-route) bug"), wantAmbiguous: true, wantInMsg: "different connections"},
+		{name: "too many node ids denied", scopes: holdsBoth, req: graphqlRequest(`{"query":"{ nodes(ids: [\"` + strings.Join(many, `\", \"`) + `\"]) { id } }"}`), wantAmbiguous: true, wantInMsg: "more than 100 node ids"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			la := &lookupAdapter{}
+			b := lookupBroker(&selectionPolicy{scopes: tc.scopes}, both, la)
+			conn, _, err := b.resolveConnection(context.Background(), acmeClaims, tc.req)
+			if tc.want != "" {
+				if err != nil || conn.Name != tc.want {
+					t.Fatalf("resolved %v (err %v), want %s", conn, err, tc.want)
+				}
+				return
+			}
+			var d *Denial
+			if !errors.As(err, &d) || d.Reason != DenialConnectionUnresolved || d.ambiguous != tc.wantAmbiguous {
+				t.Fatalf("err = %v, want a connection_unresolved denial (ambiguous %v)", err, tc.wantAmbiguous)
+			}
+			if !strings.Contains(d.Unresolved, tc.wantInMsg) || la.lookups != 0 {
+				t.Errorf("unresolved %q, lookups %d", d.Unresolved, la.lookups)
+			}
+		})
+	}
+}
+
+// An id no held connection can see is remembered, so a repeat request does not
+// look it up again.
+func TestResolveConnection_UnseenNodeIDCached(t *testing.T) {
+	both := candidateConns{githubConn(t, "clear-route-github", "clear-route"), githubConn(t, "runkora-github", "runkora")}
+	la := &lookupAdapter{}
+	b := lookupBroker(&selectionPolicy{scopes: []string{"connection:clear-route-github:repo:read", "connection:runkora-github:repo:read"}}, both, la)
+	for range 3 {
+		if _, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ node(id: \"nope\") { id } }"}`)); err == nil {
+			t.Fatal("want an unresolved denial")
+		}
+	}
+	if la.lookups != 2 {
+		t.Errorf("lookups = %d, want one per held connection", la.lookups)
+	}
+}
+
+func TestOwnerCache_ExpiryAndBound(t *testing.T) {
+	now := time.Date(2026, 10, 15, 0, 0, 0, 0, time.UTC)
+	c := newOwnerCache(func() time.Time { return now })
+	c.put("acme", "api.github.com", "gh", "PR_1", "runkora")
+	if owner, ok := c.get("acme", "api.github.com", "gh", "PR_1"); !ok || owner != "runkora" {
+		t.Fatalf("get = %q %v", owner, ok)
+	}
+	if _, ok := c.get("acme", "api.github.com", "other", "PR_1"); ok {
+		t.Error("entry served for another connection")
+	}
+	now = now.Add(nodeOwnerTTL + time.Second)
+	if _, ok := c.get("acme", "api.github.com", "gh", "PR_1"); ok {
+		t.Error("expired entry served")
+	}
+	for i := range nodeOwnerEntries + 5 {
+		c.put("acme", "api.github.com", "gh", fmt.Sprint(i), "runkora")
+	}
+	if len(c.entries) > nodeOwnerEntries {
+		t.Errorf("entries = %d, want at most %d", len(c.entries), nodeOwnerEntries)
+	}
 }

@@ -2,6 +2,7 @@ package githubapp
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -71,6 +72,7 @@ func TestConnector_RequestOwners_Search(t *testing.T) {
 		{"NOT org:runkora bug", nil},
 		{"state:open bug", nil},
 		{"repo:noslash", nil},
+		{"(org:runkora OR org:clear-route) bug", []string{"runkora", "clear-route"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.q, func(t *testing.T) {
@@ -168,5 +170,23 @@ func TestConnector_NodeOwners(t *testing.T) {
 	}
 	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}); err != nil || lookups != 2 {
 		t.Errorf("second lookup err %v, lookups %d", err, lookups)
+	}
+}
+
+// An installation granting none of the lookup permissions mints no token, since
+// an empty permission set would carry every installation permission.
+func TestConnector_NodeOwnersWithoutLookupPermissions(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/app/installations/42" {
+			t.Errorf("unexpected call to %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"permissions": map[string]string{"administration": "write"}})
+	}))
+	defer srv.Close()
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
+	c := open(t, a, credentials.Connection{ID: "x", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42})}).(*connector)
+	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}); !errors.Is(err, errNoLookupPermissions) {
+		t.Errorf("err = %v, want errNoLookupPermissions", err)
 	}
 }

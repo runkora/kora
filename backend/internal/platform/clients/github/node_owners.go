@@ -3,10 +3,15 @@ package github
 import (
 	"cmp"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 )
+
+// ErrGraphQLQuery is returned when GitHub answers a GraphQL query with errors and no data.
+var ErrGraphQLQuery = errors.New("github graphql query failed")
 
 // MaxNodeLookup is the most node ids NodeOwners resolves in one call.
 const MaxNodeLookup = 100
@@ -68,10 +73,15 @@ func (c *Client) NodeOwners(ctx context.Context, installationToken string, ids [
 	}
 
 	var out struct {
-		Data map[string]*nodeOwner `json:"data"`
+		Data   map[string]*nodeOwner `json:"data"`
+		Errors []json.RawMessage     `json:"errors"`
 	}
 	if err := c.DecodeJSON(span, resp, &out); err != nil {
 		return nil, err
+	}
+	// No data at all, with errors, is a failed query rather than unseen ids.
+	if out.Data == nil && len(out.Errors) > 0 {
+		return nil, c.RecordError(span, fmt.Errorf("%w: %s", ErrGraphQLQuery, out.Errors[0]))
 	}
 	owners := make(map[string]string, len(ids))
 	for i, id := range ids {

@@ -30,6 +30,10 @@ type ownerScoped interface {
 // errNodeLookup is the span status of a failed node id owner lookup.
 var errNodeLookup = errors.New("node owner lookup")
 
+// MaxNodeIDs is the most node ids a document may name for the lookup to select a
+// connection. It matches the most ids one lookup call resolves.
+const MaxNodeIDs = 100
+
 // selectConnection chooses among the connections serving one host: by the
 // owners the request names, else by the one candidate the caller holds, else by
 // the owners its node ids resolve to. A request it cannot resolve returns an
@@ -53,8 +57,13 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 		target.Subject = "request path"
 	}
 
+	var unserved string
 	if len(target.Owners) > 0 {
-		return selectByOwners(req.Host, candidates, owners, target.Owners, target.Subject)
+		conn, name, err := selectByOwners(req.Host, candidates, owners, target.Owners, target.Subject)
+		if name == "" {
+			return conn, err
+		}
+		unserved = name
 	}
 
 	held, err := b.heldCandidates(ctx, claims, candidates)
@@ -67,29 +76,34 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 	}
 	switch {
 	case len(held) == 1:
+		// The held token reaches only public data of an owner it does not serve.
 		return held[0], nil
+	case unserved != "":
+		return nil, unresolved(req.Host, candidates, false, fmt.Sprintf("owner %s from the %s is served by no connection", unserved, target.Subject))
+	case len(held) > 1 && len(target.NodeIDs) > MaxNodeIDs:
+		return nil, unresolved(req.Host, candidates, true, fmt.Sprintf("the %s names more than %d node ids", target.Subject, MaxNodeIDs))
 	case len(held) > 1 && len(target.NodeIDs) > 0:
 		return b.selectByNodeIDs(ctx, claims, req.Host, candidates, held, scoped, target)
 	}
 	return nil, unresolved(req.Host, candidates, len(held) > 1, "the "+target.Subject+" names no owner")
 }
 
-// selectByOwners returns the one candidate every named owner maps to. An owner
-// no candidate serves leaves the request unresolved. Owners that span
-// candidates deny it, since one request carries one token.
-func selectByOwners(host string, candidates []*credentials.Connection, owners, named []string, subject string) (*credentials.Connection, error) {
+// selectByOwners returns the one candidate every named owner maps to, or the
+// first named owner no candidate serves. Owners that span candidates deny the
+// request, since one request carries one token.
+func selectByOwners(host string, candidates []*credentials.Connection, owners, named []string, subject string) (*credentials.Connection, string, error) {
 	var selected *credentials.Connection
 	for _, name := range named {
 		i := slices.Index(owners, name)
 		if i < 0 {
-			return nil, unresolved(host, candidates, false, fmt.Sprintf("owner %s from the %s is served by no connection", name, subject))
+			return nil, name, nil
 		}
 		if selected != nil && selected != candidates[i] {
-			return nil, unresolved(host, candidates, true, fmt.Sprintf("owners %s from the %s are served by different connections", strings.Join(named, ", "), subject))
+			return nil, "", unresolved(host, candidates, true, fmt.Sprintf("owners %s from the %s are served by different connections", strings.Join(named, ", "), subject))
 		}
 		selected = candidates[i]
 	}
-	return selected, nil
+	return selected, "", nil
 }
 
 // selectByNodeIDs selects among the held candidates by the owners the
@@ -133,10 +147,12 @@ func (b *Broker) resolveNodeOwners(ctx context.Context, claims *token.PlatformCl
 		resolved := map[string]string{}
 		var misses []string
 		for _, id := range pending {
-			if owner, hit := b.nodeOwners.get(tenantID, host, c.Name, id); hit {
-				resolved[id] = owner
-			} else {
+			owner, hit := b.nodeOwners.get(tenantID, host, c.Name, id)
+			switch {
+			case !hit:
 				misses = append(misses, id)
+			case owner != "":
+				resolved[id] = owner
 			}
 		}
 		if len(misses) > 0 {
@@ -144,17 +160,18 @@ func (b *Broker) resolveNodeOwners(ctx context.Context, claims *token.PlatformCl
 			if err != nil {
 				return nil, err
 			}
-			for id, owner := range looked {
-				resolved[id] = owner
-				b.nodeOwners.put(tenantID, host, c.Name, id, owner)
+			// An id this token cannot see is cached as "" to spare repeat lookups.
+			for _, id := range misses {
+				resolved[id] = looked[id]
+				b.nodeOwners.put(tenantID, host, c.Name, id, looked[id])
 			}
 		}
 		pending = slices.DeleteFunc(pending, func(id string) bool {
-			owner, ok := resolved[id]
-			if ok {
+			owner := resolved[id]
+			if owner != "" {
 				found[owner] = true
 			}
-			return ok
+			return owner != ""
 		})
 	}
 	return slices.Sorted(maps.Keys(found)), nil

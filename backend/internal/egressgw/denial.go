@@ -88,7 +88,7 @@ func (d *Denial) Message() string {
 		return fmt.Sprintf("kora egress policy allowed %s on connection %s, but the upstream refused to issue a credential for it. To allow it, add that permission upstream (for GitHub, on the App installation).",
 			d.actionPhrase(), d.Connection)
 	case DenialConnectionUnresolved:
-		return fmt.Sprintf("kora egress policy denied %s: connections %s all serve this host and the request selects none of them: %s. A request that names a repository owner uses the connection bound to that owner. Any other request needs the agent to hold exactly one of these connections.",
+		return fmt.Sprintf("kora egress policy denied %s: connections %s all serve this host, and the request selects none of them (%s). A connection is selected by the owner in the request path, the owners a GraphQL document or search query names, or the owners of a GraphQL document's node ids. A request that names none needs the agent to hold exactly one of these connections.",
 			d.Host, strings.Join(d.Candidates, ", "), d.Unresolved)
 	case DenialPolicyUnavailable:
 		return fmt.Sprintf("kora egress policy could not be evaluated for %s, so the call was denied. Retry shortly; report it to an admin if it persists.",

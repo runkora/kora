@@ -287,7 +287,7 @@ func searchOwners(q string) []string {
 			negated = term == "NOT"
 			continue
 		}
-		key, value, ok := strings.Cut(term, ":")
+		key, value, ok := strings.Cut(strings.Trim(term, "()"), ":")
 		value = strings.Trim(value, `"`)
 		if !ok || value == "" {
 			continue
@@ -828,6 +828,10 @@ func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, in
 	return perms, nil
 }
 
+// errNoLookupPermissions is returned when the installation grants none of the
+// lookup permissions.
+var errNoLookupPermissions = errors.New("installation grants no permission a node lookup can use")
+
 // lookupPermissions are the read permissions a node id lookup token may carry:
 // the categories whose objects node ids name.
 var lookupPermissions = []string{"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"}
@@ -855,8 +859,12 @@ func (c *connector) NodeOwners(ctx context.Context, ids []string) (map[string]st
 			perms[key] = verbRead
 		}
 	}
+	// An empty set would mint a token with every installation permission.
+	if len(perms) == 0 {
+		return nil, errNoLookupPermissions
+	}
 
-	// Prefixed so a lookup token never satisfies a Mint, which needs the header form.
+	// Prefixed so Mint never returns a lookup token, which carries no injected header.
 	cacheKey := "lookup|" + a.cacheKey(conn.ID, nil, perms)
 	token := ""
 	if cred, ok := a.cached(cacheKey); ok {

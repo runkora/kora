@@ -39,17 +39,23 @@ func (c *ownerCache) get(tenantID, host, connection, id string) (string, bool) {
 	return e.owner, true
 }
 
-// put stores an owner. At the size bound it drops expired entries, then any
-// entries needed to make room.
+// put stores an owner, or "" for an id the connection cannot see. At the size
+// bound it drops expired entries, then any entries needed to make room.
 func (c *ownerCache) put(tenantID, host, connection, id, owner string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.entries) >= nodeOwnerEntries {
 		now := c.now()
 		for k, e := range c.entries {
-			if now.After(e.expires) || len(c.entries) >= nodeOwnerEntries {
+			if now.After(e.expires) {
 				delete(c.entries, k)
 			}
+		}
+		for k := range c.entries {
+			if len(c.entries) < nodeOwnerEntries {
+				break
+			}
+			delete(c.entries, k)
 		}
 	}
 	c.entries[ownerKey(tenantID, host, connection, id)] = ownerEntry{owner: owner, expires: c.now().Add(nodeOwnerTTL)}
