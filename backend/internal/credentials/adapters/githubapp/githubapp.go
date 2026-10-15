@@ -216,6 +216,50 @@ func (c *connector) Classify(req *http.Request) (credentials.Classification, err
 	return credentials.Classification{Action: catRepo + ":" + verb}, nil
 }
 
+// Owner returns the account the connection's installation is bound to, normalized.
+// The broker matches it against RequestOwner to choose among same-host connections.
+func (c *connector) Owner() string { return normalizeName(c.cfg.Owner) }
+
+// RequestOwner returns the account a request path addresses, normalized, or ""
+// when the path addresses none. See
+// docs/adr/2026-10-15-same-host-connection-selection.md.
+func (c *connector) RequestOwner(req *http.Request) string {
+	if req == nil || req.URL == nil {
+		return ""
+	}
+	host := requestHost(req)
+	segs := pathSegments(req.URL.Path)
+	switch {
+	case host == "api.github.com":
+		return apiOwner(segs)
+	case len(segs) > 0 && segs[0] == "api":
+		// GitHub Enterprise serves REST under /api/v3 and GraphQL at /api/graphql.
+		if len(segs) > 1 && segs[1] == "v3" {
+			return apiOwner(segs[2:])
+		}
+		return ""
+	case strings.HasSuffix(host, ".githubusercontent.com") && host != "raw.githubusercontent.com":
+		return ""
+	case len(segs) >= 2:
+		return normalizeName(segs[0])
+	default:
+		return ""
+	}
+}
+
+// apiOwner returns the owner segment of a REST path addressed to a repository,
+// organization or user.
+func apiOwner(segs []string) string {
+	if len(segs) < 2 {
+		return ""
+	}
+	switch segs[0] {
+	case "repos", "orgs", "users":
+		return normalizeName(segs[1])
+	}
+	return ""
+}
+
 // classifyGitSmartHTTP recognizes the two well-known git smart-HTTP shapes:
 //
 //	GET  /{owner}/{repo}(.git)/info/refs?service=git-upload-pack    → contents:read

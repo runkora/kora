@@ -34,6 +34,7 @@ type stubEvaluator struct {
 	allow  bool
 	reason string
 	err    error
+	scopes []string
 
 	mu    sync.Mutex
 	calls []policy.CheckInput
@@ -47,6 +48,10 @@ func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (polic
 		return policy.Result{}, s.err
 	}
 	return policy.Result{Allow: s.allow, Reason: s.reason}, nil
+}
+
+func (s *stubEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
+	return s.scopes, nil
 }
 
 type memConnRepo struct {
@@ -63,10 +68,10 @@ func (m *memConnRepo) Create(_ context.Context, c *credentials.Connection) error
 	m.items[c.TenantID+"|"+c.Name] = c
 	return nil
 }
-func (m *memConnRepo) GetByHost(_ context.Context, tenantID, host string) (*credentials.Connection, error) {
+func (m *memConnRepo) ListByHost(_ context.Context, tenantID, host string) ([]*credentials.Connection, error) {
 	for _, c := range m.items {
 		if c.TenantID == tenantID && c.BaseHost == host {
-			return c, nil
+			return []*credentials.Connection{c}, nil
 		}
 	}
 	return nil, credentials.ErrConnectionNotFound
@@ -118,7 +123,7 @@ func claimsFor(tenant, principal, run string) *token.PlatformClaims {
 // ── end-to-end fixture ────────────────────────────────────────────────────────
 //
 // In production the agent calls https://github.com/... directly; the gateway's
-// TLS terminator sees Host: github.com and the broker's GetByHost("github.com")
+// TLS terminator sees Host: github.com and the broker's ListByHost("github.com")
 // resolves the connection. The test simulates that by registering the
 // connection with base_host equal to the upstream httptest server's host:port,
 // and setting r.Host to the same value on inbound requests.

@@ -36,6 +36,10 @@ func (p *postureEvaluator) Check(_ context.Context, in policy.CheckInput) (polic
 	return policy.Result{Reason: noMatchingGrant}, nil
 }
 
+func (p *postureEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
+	return nil, nil
+}
+
 // TestProxy_AnonymousReadFallback covers Amendment 5: a GitHub read the grant
 // does not authorize is forwarded anonymously when the agent's own posture
 // reaches the host, and every other case keeps its denial.

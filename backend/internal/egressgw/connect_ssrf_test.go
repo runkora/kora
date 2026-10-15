@@ -77,8 +77,8 @@ func recordingTLSUpstream(hit *int32) *httptest.Server {
 // to the request Host, inject nothing), exactly the path pinning protects.
 type interceptAllConns struct{}
 
-func (interceptAllConns) GetByHost(context.Context, string, string) (*credentials.Connection, error) {
-	return &credentials.Connection{}, nil
+func (interceptAllConns) ListByHost(context.Context, string, string) ([]*credentials.Connection, error) {
+	return []*credentials.Connection{{}}, nil
 }
 
 // buildPassthroughGateway wires a gateway whose broker has NO registered
