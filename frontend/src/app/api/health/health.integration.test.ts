@@ -20,10 +20,9 @@ describe('GET /api/health', () => {
     vi.mocked(getTheme).mockReset();
   });
 
-  it('reports ok, the running Hades and contract versions and the loaded theme hash', async () => {
+  it('reports ok, the instance version and the loaded theme hash', async () => {
     vi.mocked(getTheme).mockResolvedValue({
-      hadesVersion: '1.0.0',
-      contractVersion: '1.0',
+      koraVersion: '1.0.0',
       theme: { hash: 'c'.repeat(64) },
     } as Loaded);
 
@@ -32,16 +31,14 @@ describe('GET /api/health', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       status: 'ok',
-      hadesVersion: '1.0.0',
-      contractVersion: '1.0',
+      version: '1.0.0',
       theme: { hash: 'c'.repeat(64) },
     });
   });
 
-  it('reports theme null when no bundle is mounted', async () => {
+  it('reports theme null, and a null version for a build that is not from a release, when no bundle is mounted', async () => {
     vi.mocked(getTheme).mockResolvedValue({
-      hadesVersion: '1.0.0',
-      contractVersion: '1.0',
+      koraVersion: null,
       theme: null,
     } as Loaded);
 
@@ -49,8 +46,7 @@ describe('GET /api/health', () => {
 
     expect(await res.json()).toEqual({
       status: 'ok',
-      hadesVersion: '1.0.0',
-      contractVersion: '1.0',
+      version: null,
       theme: null,
     });
   });

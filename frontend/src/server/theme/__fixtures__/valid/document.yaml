@@ -10,5 +10,5 @@ tokens:
     dark: "oklch(70% 0.15 250)"
   "--hades-raw-100": {light: "#fafafa", dark: "#0a0a0a"}
 productName: "Acme Agents"
-contractVersion: "1.0"
+koraVersion: "1.0.0"
 

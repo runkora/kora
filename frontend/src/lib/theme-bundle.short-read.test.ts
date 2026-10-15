@@ -21,7 +21,7 @@ function trickle(contents: Buffer, chunk: number): ReadableHandle & { reads: num
 
 describe('readUpTo', () => {
   it('returns the whole file when each read returns a few bytes', async () => {
-    const contents = Buffer.from('contractVersion: "1.0"\nproductName: Acme\n');
+    const contents = Buffer.from('koraVersion: "1.0.0"\nproductName: Acme\n');
     const handle = trickle(contents, 3);
     const bytes = await readUpTo(handle, 1024);
     expect(Buffer.from(bytes).toString('utf8')).toBe(contents.toString('utf8'));

@@ -22,6 +22,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { parse as parseYaml } from 'yaml';
 import manifest from '@runkora/hades/manifest.json';
+import { instanceKoraVersion } from '../src/lib/kora-version';
 import {
   ThemeYamlTooLargeError,
   isMissing,
@@ -32,6 +33,11 @@ import { validateTheme, type ThemeManifest, type ThemeReport } from '@runkora/ha
 
 // The JSON import widens the manifest's unions to string; the cast restores them.
 const hadesManifest = manifest as ThemeManifest;
+
+function describeInstance(): string {
+  const version = instanceKoraVersion();
+  return version ? `kora ${version}` : 'a kora development build';
+}
 
 export interface ValidationRun {
   readonly ok: boolean;
@@ -120,12 +126,12 @@ export async function validateBundle(
 
   const result = await validateTheme(bundleText, {
     manifest: hadesManifest,
-    contractVersion: hadesManifest.contractVersion,
+    koraVersion: instanceKoraVersion(),
     readAsset: (assetPath, maxBytes) => readBundleAsset(bundleDir, assetPath, maxBytes),
   });
 
   if (!result.ok) {
-    lines.push(`theme at ${bundlePath} is invalid against Hades ${hadesManifest.version}:`);
+    lines.push(`theme at ${bundlePath} is invalid against ${describeInstance()}:`);
     for (const e of result.errors) lines.push(`  ${e.path || '(document)'}: ${e.message}`);
     lines.push(...reportLines(result.report));
     return { ok: false, lines };
@@ -153,7 +159,7 @@ export async function validateBundle(
   }
 
   lines.push(
-    `theme ok: written for contract ${result.theme.contractVersion}, validated by contract ${hadesManifest.contractVersion} (Hades ${hadesManifest.version}), hash ${result.theme.hash}`,
+    `theme ok: written for kora ${result.theme.koraVersion}, validated by ${describeInstance()}${result.report.versionCheckSkipped ? ' (version not compared: not a release build)' : ''}, hash ${result.theme.hash}`,
   );
   lines.push(...reportLines(result.report));
   return { ok: true, lines };

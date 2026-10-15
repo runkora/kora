@@ -29,6 +29,7 @@ import {
   type ThemeManifest,
   type ThemeReport,
 } from '@runkora/hades/theme';
+import { instanceKoraVersion } from '@orbit/lib/kora-version';
 import { THEME_ASSET_PREFIX } from '@orbit/lib/routing';
 import { defaultTheme, type IdentityTheme } from '@orbit/theme/default';
 import {
@@ -46,10 +47,12 @@ const hadesManifest = manifest as ThemeManifest;
 
 /** What the process holds after loading: the theme, or the default when there is none. */
 export interface LoadedTheme {
-  /** The running Hades version. */
-  readonly hadesVersion: string;
-  /** The running contract version, which the theme's contract major must equal. */
-  readonly contractVersion: string;
+  /**
+   * The kora release this instance is, whose major a theme's `koraVersion` must
+   * equal; null for a build that is not from a release tag, where the
+   * comparison is skipped.
+   */
+  readonly koraVersion: string | null;
   /** The validated theme, or null when no bundle is mounted. */
   readonly theme: Theme | null;
   /** The validator's report; empty when no bundle is mounted. */
@@ -80,7 +83,12 @@ export class ThemeLoadError extends Error {
   }
 }
 
-const EMPTY_REPORT: ThemeReport = { ignored: [], fallThrough: [], mixedIdentity: [] };
+const EMPTY_REPORT: ThemeReport = {
+  ignored: [],
+  fallThrough: [],
+  mixedIdentity: [],
+  versionCheckSkipped: false,
+};
 
 const CONTENT_TYPES: Readonly<Record<string, string>> = {
   svg: 'image/svg+xml',
@@ -132,19 +140,23 @@ function brandFromTheme(theme: Theme): IdentityTheme {
   };
 }
 
+function describeVersion(koraVersion: string | null): string {
+  return koraVersion ? `kora ${koraVersion}` : 'kora development build';
+}
+
 function logLoaded(dir: string, loaded: LoadedTheme): void {
   // The frontend has no server-side logger; one line at startup is the
   // monitoring the ADR asks for (Validation, Monitoring).
   if (!loaded.theme) {
     console.info(
-      `[theme] no bundle at ${dir}; serving the default (Hades ${loaded.hadesVersion}, contract ${loaded.contractVersion})`,
+      `[theme] no bundle at ${dir}; serving the default (${describeVersion(loaded.koraVersion)})`,
     );
     return;
   }
   const { theme, report } = loaded;
   const ignored = report.ignored.map((e) => `${e.kind} ${e.name}`);
   console.info(
-    `[theme] loaded bundle at ${dir}: Hades ${loaded.hadesVersion}, contract ${loaded.contractVersion}, theme written for contract ${theme.contractVersion}, hash ${theme.hash}` +
+    `[theme] loaded bundle at ${dir}: ${describeVersion(loaded.koraVersion)}, theme written for kora ${theme.koraVersion}${report.versionCheckSkipped ? ' (not compared: not a release build)' : ''}, hash ${theme.hash}` +
       `; ignored: ${ignored.length ? ignored.join(', ') : 'none'}` +
       `; falls through to the default: ${report.fallThrough.length ? report.fallThrough.join(', ') : 'nothing'}`,
   );
@@ -161,8 +173,7 @@ function logLoaded(dir: string, loaded: LoadedTheme): void {
  * `getTheme()`, which loads once.
  */
 export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
-  const hadesVersion = hadesManifest.version;
-  const contractVersion = hadesManifest.contractVersion;
+  const koraVersion = instanceKoraVersion();
   let text: string;
   try {
     text = await readThemeDocument(path.join(dir, 'theme.yaml'));
@@ -186,8 +197,7 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
       throw error;
     }
     const loaded: LoadedTheme = {
-      hadesVersion,
-      contractVersion,
+      koraVersion,
       theme: null,
       report: EMPTY_REPORT,
       css: '',
@@ -200,7 +210,7 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
 
   const result = await validateTheme(text, {
     manifest: hadesManifest,
-    contractVersion,
+    koraVersion,
     readAsset: (assetPath, maxBytes) => readBundleAsset(dir, assetPath, maxBytes),
   });
   if (!result.ok) {
@@ -212,8 +222,7 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
   const { theme, report } = result;
   const resolveAsset = (assetPath: string) => themeAssetUrl(theme.hash, assetPath);
   const loaded: LoadedTheme = {
-    hadesVersion,
-    contractVersion,
+    koraVersion,
     theme,
     report,
     css: generateThemeCss(theme, { resolveAsset }),

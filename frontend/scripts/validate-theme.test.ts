@@ -15,18 +15,16 @@ const MALFORMED = path.join(FIXTURES, 'malformed');
 
 describe('documentsEqual', () => {
   it('ignores line endings, quoting, trailing whitespace and key order', () => {
-    const bundle = 'contractVersion: "1.0"\nproductName: Acme\ntokens:\n  --a:\n    dark: "#000"\n';
+    const bundle = 'koraVersion: "1.0.0"\nproductName: Acme\ntokens:\n  --a:\n    dark: "#000"\n';
     const rendered =
-      'tokens:\r\n  "--a": {dark: \'#000\'}   \r\nproductName: "Acme"\r\ncontractVersion: "1.0"\r\n';
+      'tokens:\r\n  "--a": {dark: \'#000\'}   \r\nproductName: "Acme"\r\nkoraVersion: "1.0.0"\r\n';
     expect(documentsEqual(bundle, rendered)).toBe(true);
   });
 
   it('sees a changed value, a missing key and an extra key', () => {
-    const bundle = 'contractVersion: "1.0"\nproductName: Acme\n';
-    expect(documentsEqual(bundle, 'contractVersion: "1.0"\nproductName: Acme Robots\n')).toBe(
-      false,
-    );
-    expect(documentsEqual(bundle, 'contractVersion: "1.0"\n')).toBe(false);
+    const bundle = 'koraVersion: "1.0.0"\nproductName: Acme\n';
+    expect(documentsEqual(bundle, 'koraVersion: "1.0.0"\nproductName: Acme Robots\n')).toBe(false);
+    expect(documentsEqual(bundle, 'koraVersion: "1.0.0"\n')).toBe(false);
     expect(documentsEqual(bundle, `${bundle}tokens: {}\n`)).toBe(false);
   });
 
@@ -44,7 +42,7 @@ describe('validateBundle', () => {
     const run = await validateBundle(VALID, path.join(VALID, 'document.yaml'));
     expect(run.ok).toBe(true);
     expect(run.lines[0]).toMatch(
-      /^theme ok: written for contract 1\.0, validated by contract 1\.0 \(Hades 1\.0\.0\), hash [0-9a-f]{64}$/,
+      /^theme ok: written for kora 1\.0\.0, validated by a kora development build \(version not compared: not a release build\), hash [0-9a-f]{64}$/,
     );
     expect(run.lines).toContain(
       'ignored (unknown to this Hades): token --hades-raw-not-a-token, slot not-a-slot',
@@ -65,7 +63,7 @@ describe('validateBundle', () => {
   it('fails a malformed bundle with every fault, before comparing documents', async () => {
     const run = await validateBundle(MALFORMED, path.join(MALFORMED, 'theme.yaml'));
     expect(run.ok).toBe(false);
-    expect(run.lines[0]).toContain('is invalid against Hades');
+    expect(run.lines[0]).toContain('is invalid against a kora development build');
     expect(run.lines).toContain('  brand: unknown top-level key');
     expect(run.lines).toContain(
       '  tokens.--hades-raw-100.dark: "red" is not a valid hex-or-oklch value',
@@ -111,7 +109,7 @@ describe('validateBundle: hostile bundles', () => {
   });
 
   const logoDocument = (file: string) =>
-    `contractVersion: "1.0"\nslots:\n  logo:\n    dark: ${file}\n`;
+    `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: ${file}\n`;
 
   async function run(text: string) {
     await writeFile(path.join(bundle, 'theme.yaml'), text);
@@ -126,7 +124,7 @@ describe('validateBundle: hostile bundles', () => {
   });
 
   it('refuses a chart document over the size cap', async () => {
-    await writeFile(path.join(bundle, 'theme.yaml'), 'contractVersion: "1.0"\n');
+    await writeFile(path.join(bundle, 'theme.yaml'), 'koraVersion: "1.0.0"\n');
     await writeFile(document, '#'.repeat(70 * 1024));
     const result = await validateBundle(bundle, document);
     expect(result.ok).toBe(false);

@@ -1,6 +1,6 @@
 # Every kind of fault at once: an unknown top-level key, a colour that is not a
 # colour, a referenced asset that is not in the bundle.
-contractVersion: "1.0"
+koraVersion: "1.0.0"
 productName: Broken Co
 brand: nope
 tokens:

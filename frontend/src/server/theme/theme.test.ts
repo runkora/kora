@@ -8,7 +8,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import manifest from '@runkora/hades/manifest.json';
 import { defaultTheme } from '@orbit/theme/default';
 import { ThemeLoadError, loadThemeFrom, themeAssetUrl } from './index';
 
@@ -38,8 +37,7 @@ describe('loadThemeFrom', () => {
 
   it('loads a valid bundle and derives the brand, the CSS and the report', async () => {
     const loaded = await loadThemeFrom(VALID);
-    expect(loaded.hadesVersion).toBe(manifest.version);
-    expect(loaded.contractVersion).toBe(manifest.contractVersion);
+    expect(loaded.koraVersion).toBeNull();
     expect(loaded.theme).not.toBeNull();
     const { theme, brand, css, report } = loaded;
     const hash = theme!.hash;
@@ -74,13 +72,31 @@ describe('loadThemeFrom', () => {
     const loaded = await loadThemeFrom(VALID);
     expect(info).toHaveBeenCalledTimes(1);
     const line = String(info.mock.calls[0]![0]);
-    expect(line).toContain(`Hades ${manifest.version}`);
-    expect(line).toContain(`contract ${manifest.contractVersion}`);
-    expect(line).toContain('theme written for contract 1.0');
+    expect(line).toContain('kora development build');
+    expect(line).toContain('theme written for kora 1.0.0 (not compared: not a release build)');
     expect(line).toContain(loaded.theme!.hash);
     expect(line).toContain('token --hades-raw-not-a-token');
     expect(line).toContain('slot not-a-slot');
     expect(line).toContain('favicon.light');
+  });
+
+  it('accepts a theme of the same major and compares it on a release build', async () => {
+    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', 'v1.4.0');
+    const loaded = await loadThemeFrom(VALID);
+    expect(loaded.koraVersion).toBe('1.4.0');
+    expect(loaded.report.versionCheckSkipped).toBe(false);
+    expect(String(info.mock.calls[0]![0])).toContain('kora 1.4.0, theme written for kora 1.0.0');
+    vi.unstubAllEnvs();
+  });
+
+  it('refuses a theme written against another major, naming both releases', async () => {
+    vi.stubEnv('NEXT_PUBLIC_ORBIT_VERSION', 'v2.0.0');
+    const failure = await loadThemeFrom(VALID).catch((e: unknown) => e);
+    expect(failure).toBeInstanceOf(ThemeLoadError);
+    expect(String((failure as Error).message)).toContain('kora 1.0.0 (major 1)');
+    expect(String((failure as Error).message)).toContain('kora 2.0.0');
+    expect(error).toHaveBeenCalled();
+    vi.unstubAllEnvs();
   });
 
   it('warns at startup when the theme mixes its identity with kora defaults', async () => {
@@ -141,9 +157,13 @@ describe('loadThemeFrom', () => {
     expect(loaded.brand).toBe(defaultTheme);
     expect(loaded.css).toBe('');
     expect(loaded.fontPreloads).toEqual([]);
-    expect(loaded.report).toEqual({ ignored: [], fallThrough: [], mixedIdentity: [] });
-    expect(loaded.hadesVersion).toBe(manifest.version);
-    expect(loaded.contractVersion).toBe(manifest.contractVersion);
+    expect(loaded.report).toEqual({
+      ignored: [],
+      fallThrough: [],
+      mixedIdentity: [],
+      versionCheckSkipped: false,
+    });
+    expect(loaded.koraVersion).toBeNull();
     expect(String(info.mock.calls[0]![0])).toContain('no bundle');
   });
 });
@@ -242,7 +262,7 @@ describe('loadThemeFrom: hostile bundles', () => {
   });
 
   const logoDocument = (file: string) =>
-    `contractVersion: "1.0"\nslots:\n  logo:\n    dark: ${file}\n`;
+    `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: ${file}\n`;
 
   it('refuses a theme.yaml over the size cap before parsing it', async () => {
     await writeFile(path.join(bundle, 'theme.yaml'), '#'.repeat(70 * 1024));
