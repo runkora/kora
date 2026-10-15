@@ -113,9 +113,6 @@ jobs:
     name: Frontend CI
     needs: changes
     if: needs.changes.outputs.frontend == 'true'
-    permissions:
-      contents: read
-      pull-requests: write
     uses: ./.github/workflows/frontend-ci.yml
     with:
       # Runs the Hades classifier only when the package changed.

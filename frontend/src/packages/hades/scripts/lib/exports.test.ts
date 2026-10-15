@@ -97,8 +97,6 @@ describe('readExportSurface', () => {
     };
     const surface = readExportSurface(read);
     expect(surface.exports).toContain('Button');
-    expect(surface.exports).toContain('HADES_VERSION');
-    expect(surface.exports).toContain('CONTRACT_VERSION');
     expect(surface.props.ButtonProps).toContain('asChild');
   });
 });

@@ -1,15 +1,17 @@
 /**
- * Classifies the Hades change at head against the last `hades/v*` release, or
- * against `--base <ref>` while no release exists, on two axes, and checks the
- * version bumps meet the two floors the classification sets: `package.json`
- * `version` for the package, and `manifest.json` `contractVersion` for the
- * theme contract.
+ * Classifies the Hades changes at head against the last final kora release, or
+ * against `--base <ref>` while no final release exists, and says what the kora
+ * release that carries them must be: none, patch, minor or major.
  *
- *   node scripts/classify.ts [--base <ref>] [--format text|markdown|json]
+ *   node scripts/classify.ts [--release <version>] [--base <ref>] [--format text|markdown|json]
  *
- * Exit 1 when a release exists and either bump is below its floor. Before the
- * first release the report is labelled "no baseline" and nothing is enforced.
- * See the design system versioning ADR, SD-3 and SD-4.
+ * With `--release`, the version being cut, the script checks that it is at
+ * least what the changes require and exits 1 with an explanation when it is
+ * not. Without it, as on a pull request, it reports what the next release would
+ * owe and always exits 0. Nothing is enforced before the first final release at
+ * or above 1.0.0: below it the report is labelled "not enforced". Hades has no
+ * version of its own; the release is the version. See the design system
+ * versioning ADR, SD-3 and SD-4.
  */
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -18,19 +20,14 @@ import { fileURLToPath } from 'node:url';
 
 import {
   classify,
-  compareSemver,
-  contractFloorMet,
   floorMet,
-  formatContractVersion,
   formatSemver,
   isDocumentationOnly,
-  parseContractVersion,
+  lastFinalRelease,
   parseSemver,
-  requiredContractVersion,
   requiredVersion,
   type Classification,
-  type ContractLevel,
-  type ContractVersion,
+  type Finding,
   type Level,
   type Semver,
 } from './lib/classify.ts';
@@ -71,6 +68,17 @@ function option(name: string): string | undefined {
 }
 const format = option('--format') ?? 'text';
 const baseOption = option('--base');
+const releaseOption = option('--release');
+
+const parsedRelease = releaseOption ? parseSemver(releaseOption) : null;
+if (releaseOption && !parsedRelease) {
+  console.error(
+    `--release "${releaseOption}" is not a version such as 1.4.0, v1.4.0 or 1.4.0-rc.1`,
+  );
+  process.exit(2);
+}
+/** The version being cut; null on a pull request, which only reports. */
+const release: Semver | null = parsedRelease;
 
 // ─── Baseline ────────────────────────────────────────────────────────────────
 
@@ -81,34 +89,24 @@ interface Baseline {
   readonly isRelease: boolean;
 }
 
-function lastReleaseTag(): { tag: string; version: Semver } | null {
-  const tags = (gitOrNull('tag', '--list', 'hades/v*') ?? '')
-    .split('\n')
-    .map((t) => t.trim())
-    .filter(Boolean)
-    .flatMap((tag) => {
-      const version = parseSemver(tag.slice('hades/v'.length));
-      return version ? [{ tag, version }] : [];
-    })
-    .sort((a, b) => compareSemver(b.version, a.version));
-  return tags[0] ?? null;
+function isAncestorOfHead(ref: string): boolean {
+  return gitOrNull('merge-base', '--is-ancestor', ref, 'HEAD') !== null;
 }
 
 function resolveBaseline(): Baseline {
-  const release = lastReleaseTag();
-  if (release)
-    return { ref: release.tag, label: release.tag, version: release.version, isRelease: true };
+  const tags = (gitOrNull('tag', '--list', 'v*') ?? '')
+    .split('\n')
+    .map((t) => t.trim())
+    .filter(Boolean)
+    .filter(isAncestorOfHead);
+  const last = lastFinalRelease(tags, release ?? undefined);
+  if (last) return { ref: last.tag, label: last.tag, version: last.version, isRelease: true };
   const requested = baseOption ?? 'origin/main';
   const mergeBase = gitOrNull('merge-base', requested, 'HEAD')?.trim();
-  const ref = mergeBase || requested;
-  const versionText = readAtRef(ref, 'package.json');
-  const version = versionText
-    ? parseSemver((JSON.parse(versionText) as { version: string }).version)
-    : null;
   return {
-    ref,
-    label: `no baseline (comparing against ${requested}${mergeBase ? ` at ${ref.slice(0, 12)}` : ''})`,
-    version,
+    ref: mergeBase || requested,
+    label: `no baseline (no final release yet; comparing against ${requested}${mergeBase ? ` at ${mergeBase.slice(0, 12)}` : ''})`,
+    version: null,
     isRelease: false,
   };
 }
@@ -142,34 +140,12 @@ const headManifest: Manifest = parseManifest(headManifestText);
 const baseManifestText = baseReader('manifest.json');
 const baseManifest = baseManifestText ? parseManifest(baseManifestText) : null;
 
-const headPackage = JSON.parse(readAtHead('package.json')!) as {
-  version: string;
+interface PackageJson {
   peerDependencies?: Record<string, string>;
-};
+}
+const headPackage = JSON.parse(readAtHead('package.json')!) as PackageJson;
 const basePackageText = baseReader('package.json');
-const basePackage = basePackageText
-  ? (JSON.parse(basePackageText) as { version: string; peerDependencies?: Record<string, string> })
-  : null;
-
-const parsedHeadVersion = parseSemver(headPackage.version);
-if (!parsedHeadVersion) {
-  console.error(`package.json version "${headPackage.version}" is not a semver version`);
-  process.exit(1);
-}
-// Narrowed here so the closures below see a Semver, not Semver | null.
-const headVersion: Semver = parsedHeadVersion;
-
-const parsedHeadContract = parseContractVersion(headManifest.contractVersion);
-if (!parsedHeadContract) {
-  console.error(
-    `manifest.json contractVersion "${headManifest.contractVersion}" is not MAJOR.MINOR. Run: make hades-manifest`,
-  );
-  process.exit(1);
-}
-const headContract: ContractVersion = parsedHeadContract;
-const baseContract: ContractVersion | null = baseManifest?.contractVersion
-  ? parseContractVersion(baseManifest.contractVersion)
-  : null;
+const basePackage = basePackageText ? (JSON.parse(basePackageText) as PackageJson) : null;
 
 const changedFiles = [
   ...(gitOrNull('diff', '--name-only', baseline.ref, '--', packageRel) ?? '').split('\n'),
@@ -189,13 +165,7 @@ const preExistingSources = (
   .map((f) => f.trim())
   .filter((f) => f.startsWith(`${packageRel}/src/`))
   .map((f) => f.slice(packageRel.length + 1))
-  .filter(
-    (f) =>
-      /\.tsx?$/.test(f) &&
-      !isDocumentationOnly(f) &&
-      f !== 'src/tokens/surface.ts' &&
-      f !== 'src/version.ts',
-  );
+  .filter((f) => /\.tsx?$/.test(f) && !isDocumentationOnly(f) && f !== 'src/tokens/surface.ts');
 
 function findReads(patterns: readonly RegExp[]): string[] {
   const hits: string[] = [];
@@ -220,69 +190,107 @@ const classification: Classification = classify({
   findReads,
 });
 
-// ─── Floors ──────────────────────────────────────────────────────────────────
+// ─── What the release owes ───────────────────────────────────────────────────
 
+const level: Level = classification.package;
+const breaksThemes = classification.contract === 'major';
+/** Below 1.0.0, and before the first final release, nothing is promised and nothing is blocked. */
 const enforced = baseline.isRelease && baseline.version !== null && baseline.version.major >= 1;
-const required = baseline.version
-  ? requiredVersion(classification.package, baseline.version)
-  : null;
-const met = baseline.version
-  ? floorMet(classification.package, baseline.version, headVersion)
-  : true;
-const requiredContract = baseContract
-  ? requiredContractVersion(classification.contract, baseContract)
-  : null;
-const contractMet = baseContract
-  ? contractFloorMet(classification.contract, baseContract, headContract)
-  : true;
-const failed = enforced && (!met || !contractMet);
+const required = baseline.version ? requiredVersion(level, baseline.version) : null;
+const met = baseline.version && release ? floorMet(level, baseline.version, release) : true;
+const failed = enforced && release !== null && !met;
 
 // ─── Report ──────────────────────────────────────────────────────────────────
 
 const REVIEW_QUESTIONS = [
   'Does any token keep its name, kind and format but change what it means, such as an accent repurposed as a status colour? ' +
-    'That is a contract major whatever the table says, and no script decides it.',
+    'That breaks themes, so it needs a major, whatever the table says, and no script decides it.',
   'Does any prop narrow its type, or any exported function tighten its signature? ' +
-    'That is a package major, and the classifier reads member names and optionality, not types.',
+    'That breaks consumers of the package, so it needs a major, and the classifier reads member names and optionality, not types.',
 ];
 
-function status(isMet: boolean): string {
+const LEVEL_MEANING: Record<Level, string> = {
+  major:
+    'a major release. A major means a theme written for an earlier release can fail validation or change meaning, or a consumer of @runkora/hades can fail to compile or render.',
+  minor: 'a minor release or higher. A minor means the surface or the package gained something.',
+  patch: 'a new version above the last final release.',
+  none: 'no new version.',
+};
+
+function releaseText(): string {
+  return release ? formatSemver(release) : 'not given (pull request report)';
+}
+
+function enforcementText(): string {
+  if (!baseline.version) return 'no final release to compare with; nothing to enforce';
+  if (!required) return 'nothing to enforce';
+  const lead = `${level} requires at least ${formatSemver(required)}`;
+  if (!release) return `${lead}; the next release must be that or higher`;
+  const state = met ? 'met' : 'NOT MET';
   return enforced
-    ? isMet
-      ? 'met'
-      : 'NOT MET'
-    : isMet
-      ? 'met (not enforced before the first release)'
-      : 'not met (not enforced before the first release)';
+    ? `${lead}; this release is ${formatSemver(release)}: ${state}`
+    : `${lead}; this release is ${formatSemver(release)}: ${met ? 'met' : 'not met'} (not enforced below 1.0.0)`;
 }
 
-function packageFloorLine(level: Level): string {
-  if (!baseline.version || !required) return 'no version at the baseline; nothing to enforce';
-  return `${level} requires at least ${formatSemver(required)}; head is ${formatSemver(headVersion)}: ${status(met)}`;
-}
-
-function contractFloorLine(level: ContractLevel): string {
-  if (!baseContract || !requiredContract)
-    return 'no contract version at the baseline; nothing to enforce';
-  return `${level} requires at least ${formatContractVersion(requiredContract)}; head is ${formatContractVersion(headContract)}: ${status(contractMet)}`;
+/** The fixed explanation printed when a release is blocked. */
+function blockedLines(esc: (s: string) => string): string[] {
+  const base = formatSemver(baseline.version!);
+  const rel = formatSemver(release!);
+  const need = formatSemver(required!);
+  const causes = classification.findings.filter((f) => f.package === level);
+  const isBreak = level === 'major';
+  const lines = [
+    `HADES RELEASE BLOCKED: v${rel} is too low for the Hades changes in it.`,
+    '',
+    `This release is v${rel}. The last final release is v${base}. Between them Hades changed in a way that needs ${LEVEL_MEANING[level]} ` +
+      `So this release must be at least v${need}.`,
+    '',
+    'Why this is checked: Hades is released with kora under one version, so the kora version has to say what Hades did. ' +
+      (isBreak
+        ? breaksThemes
+          ? 'At least one change below breaks themes, so every deployed theme would be affected by a release that claims otherwise.'
+          : 'No change below breaks themes, but each breaks consumers of the published @runkora/hades package, which follow caret ranges.'
+        : 'A package consumer on a caret range relies on additions arriving as a minor at least.'),
+    '',
+    `What changed (${causes.length} finding${causes.length === 1 ? '' : 's'} at ${level}):`,
+    ...causes.flatMap((f) => [
+      `  - ${esc(f.subject)}: ${esc(f.detail)} [${f.rule}]`,
+      ...(f.matches ?? []).map((m) => `      ${esc(m)}`),
+    ]),
+    '',
+    'How to fix it:',
+    `  1. Release as v${need} or higher. Delete this tag if it still exists (git push origin --delete v${rel}; git tag -d v${rel}), then tag the same commit as v${need}.`,
+    ...(isBreak
+      ? [
+          `  2. Or keep v${rel}: revert or rework the breaking changes listed above so Hades does not break, then re-cut the release.`,
+        ]
+      : []),
+    '',
+    `Reproduce locally: make hades-classify RELEASE=${rel}`,
+    '',
+    'This check cannot see two cases, so a release can owe a major it does not report:',
+    ...REVIEW_QUESTIONS.map((q) => `  - ${q}`),
+  ];
+  return lines;
 }
 
 function renderText(): string {
-  const lines = [
-    `Hades classification: package ${classification.package}, contract ${classification.contract}`,
-    `Baseline: ${baseline.label}${baseline.version ? ` (version ${formatSemver(baseline.version)}${baseContract ? `, contract ${formatContractVersion(baseContract)}` : ''})` : ''}`,
-    `Head: version ${formatSemver(headVersion)}, contract ${formatContractVersion(headContract)}`,
-    `Package floor:  ${packageFloorLine(classification.package)}`,
-    `Contract floor: ${contractFloorLine(classification.contract)}`,
+  const identity = (s: string): string => s;
+  const lines: string[] = failed ? [...blockedLines(identity), '', '---', ''] : [];
+  lines.push(
+    `Hades classification: ${level}${breaksThemes ? ' (breaks themes)' : ''}`,
+    `Baseline: ${baseline.label}${baseline.version ? ` (version ${formatSemver(baseline.version)})` : ''}`,
+    `Release: ${releaseText()}`,
+    `Owes:     ${enforcementText()}`,
     '',
-  ];
+  );
   if (!baseManifest) lines.push('No manifest at the baseline; manifest rules not applied.', '');
   lines.push(
-    classification.findings.length === 0 ? 'No findings.' : 'Findings (contract / package):',
+    classification.findings.length === 0 ? 'No findings.' : 'Findings (breaks themes / level):',
   );
   for (const f of classification.findings) {
     lines.push(
-      `  ${f.contract.padEnd(5)} / ${f.package.padEnd(5)}  ${f.rule.padEnd(26)}  ${f.subject}: ${f.detail}`,
+      `  ${(f.contract === 'major' ? 'yes' : 'no').padEnd(3)} / ${f.package.padEnd(5)}  ${f.rule.padEnd(26)}  ${f.subject}: ${f.detail}`,
     );
     for (const m of f.matches ?? []) lines.push(`         ${m}`);
   }
@@ -291,28 +299,29 @@ function renderText(): string {
 }
 
 function renderMarkdown(): string {
-  const rows = classification.findings.map((f) => {
+  const row = (f: Finding): string => {
     const matches = (f.matches ?? []).map((m) => `<br><code>${escapeHtml(m)}</code>`).join('');
-    return `| ${f.contract} | ${f.package} | ${f.rule} | \`${f.subject}\` | ${escapeHtml(f.detail)}${matches} |`;
-  });
+    return `| ${f.package} | ${f.contract === 'major' ? 'yes' : 'no'} | ${f.rule} | \`${f.subject}\` | ${escapeHtml(f.detail)}${matches} |`;
+  };
   return [
-    '<!-- hades-classification -->',
-    `### Hades classification: package **${classification.package}**, contract **${classification.contract}**`,
+    ...(failed
+      ? ['### Hades release blocked', '', '```text', ...blockedLines((s) => s), '```', '']
+      : []),
+    `### Hades classification: **${level}**${breaksThemes ? ', breaks themes' : ''}`,
     '',
-    '| | Package | Contract |',
-    '|---|---|---|',
-    `| Baseline | ${escapeHtml(baseline.label)} | |`,
-    `| At baseline | ${baseline.version ? formatSemver(baseline.version) : 'none'} | ${baseContract ? formatContractVersion(baseContract) : 'none'} |`,
-    `| At head | ${formatSemver(headVersion)} | ${formatContractVersion(headContract)} |`,
-    `| Floor | ${escapeHtml(packageFloorLine(classification.package))} | ${escapeHtml(contractFloorLine(classification.contract))} |`,
+    '| | |',
+    '|---|---|',
+    `| Baseline | ${escapeHtml(baseline.label)} |`,
+    `| Release | ${escapeHtml(releaseText())} |`,
+    `| Owes | ${escapeHtml(enforcementText())} |`,
     '',
     ...(baseManifest ? [] : ['No manifest at the baseline; manifest rules not applied.', '']),
-    ...(rows.length === 0
+    ...(classification.findings.length === 0
       ? ['No findings.']
       : [
-          '| Contract | Package | Rule cited | Subject | Detail |',
+          '| Level | Breaks themes | Rule cited | Subject | Detail |',
           '|---|---|---|---|---|',
-          ...rows,
+          ...classification.findings.map(row),
         ]),
     '',
     ...REVIEW_QUESTIONS.map((q) => `**Review question.** ${q}`).flatMap((q) => [q, '']),
@@ -334,25 +343,19 @@ const outputs: Record<string, () => string> = {
   json: () =>
     JSON.stringify(
       {
-        package: classification.package,
-        contract: classification.contract,
+        level,
+        breaksThemes,
         baseline: {
           ref: baseline.ref,
           label: baseline.label,
           version: baseline.version ? formatSemver(baseline.version) : null,
-          contractVersion: baseContract ? formatContractVersion(baseContract) : null,
           isRelease: baseline.isRelease,
         },
-        head: {
-          version: formatSemver(headVersion),
-          contractVersion: formatContractVersion(headContract),
-        },
-        required: {
-          version: required ? formatSemver(required) : null,
-          contractVersion: requiredContract ? formatContractVersion(requiredContract) : null,
-        },
-        floorMet: { package: met, contract: contractMet },
+        release: release ? formatSemver(release) : null,
+        requiredVersion: required ? formatSemver(required) : null,
+        met,
         enforced,
+        blocked: failed,
         findings: classification.findings,
         reviewQuestions: REVIEW_QUESTIONS,
       },

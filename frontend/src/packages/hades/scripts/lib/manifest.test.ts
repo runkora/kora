@@ -48,9 +48,9 @@ const SMALL_SURFACE: SurfaceInput = {
 
 describe('buildManifest', () => {
   it('lists every raw token with its kind, format and both modes, sorted', () => {
-    const m = buildManifest(SMALL_CSS, '1.2.3', '1.0', SMALL_SURFACE);
-    expect(m.version).toBe('1.2.3');
-    expect(m.contractVersion).toBe('1.0');
+    const m = buildManifest(SMALL_CSS, SMALL_SURFACE);
+    expect(m).not.toHaveProperty('version');
+    expect(m).not.toHaveProperty('contractVersion');
     expect(m.modes).toEqual(['dark', 'light']);
     expect(m.tokens).toEqual([
       {
@@ -75,7 +75,7 @@ describe('buildManifest', () => {
   });
 
   it('records direct, derived and literal mappings', () => {
-    const { mapping } = buildManifest(SMALL_CSS, '1.0.0', '1.0', SMALL_SURFACE);
+    const { mapping } = buildManifest(SMALL_CSS, SMALL_SURFACE);
     expect(mapping['--color-background']).toEqual({
       tokens: ['--hades-raw-black'],
       derived: false,
@@ -89,7 +89,7 @@ describe('buildManifest', () => {
   });
 
   it('carries the slots and product-name bounds through', () => {
-    const m = buildManifest(SMALL_CSS, '1.0.0', '1.0', SMALL_SURFACE);
+    const m = buildManifest(SMALL_CSS, SMALL_SURFACE);
     expect(m.slots).toEqual([
       {
         name: 'favicon',
@@ -107,10 +107,8 @@ describe('buildManifest', () => {
       ...SMALL_SURFACE,
       tokenKinds: { '--hades-raw-black': 'color', '--hades-raw-shadow-sm': 'shadow' },
     };
-    expect(() => buildManifest(SMALL_CSS, '1.0.0', '1.0', missingKind)).toThrow(
-      SurfaceMismatchError,
-    );
-    expect(() => buildManifest(SMALL_CSS, '1.0.0', '1.0', missingKind)).toThrow(
+    expect(() => buildManifest(SMALL_CSS, missingKind)).toThrow(SurfaceMismatchError);
+    expect(() => buildManifest(SMALL_CSS, missingKind)).toThrow(
       /--hades-raw-accent-400 is in tokens.css/,
     );
 
@@ -118,13 +116,13 @@ describe('buildManifest', () => {
       ...SMALL_SURFACE,
       tokenKinds: { ...SMALL_SURFACE.tokenKinds, '--hades-raw-ghost': 'color' },
     };
-    expect(() => buildManifest(SMALL_CSS, '1.0.0', '1.0', extraKind)).toThrow(
+    expect(() => buildManifest(SMALL_CSS, extraKind)).toThrow(
       /--hades-raw-ghost has a kind in surface.ts/,
     );
   });
 
   it('builds from the real token sheet and surface declaration', () => {
-    const m = buildManifest(tokensCss, '0.0.0', '1.0', SURFACE);
+    const m = buildManifest(tokensCss, SURFACE);
     expect(m.tokens.length).toBeGreaterThan(30);
     expect(m.tokens.every((t) => t.name.startsWith('--hades-raw-'))).toBe(true);
     expect(m.slots.map((s) => s.name)).toEqual(['favicon', 'font.mono', 'font.sans', 'logo']);
@@ -135,16 +133,14 @@ describe('buildManifest', () => {
 
 describe('serializeManifest and parseManifest', () => {
   it('round-trips with a trailing newline', () => {
-    const m = buildManifest(SMALL_CSS, '1.0.0', '1.0', SMALL_SURFACE);
+    const m = buildManifest(SMALL_CSS, SMALL_SURFACE);
     const text = serializeManifest(m);
     expect(text.endsWith('}\n')).toBe(true);
     expect(parseManifest(text)).toEqual(m);
   });
 
   it('rejects a manifest missing a top-level field', () => {
-    expect(() => parseManifest('{"version":"1.0.0"}')).toThrow(/missing "contractVersion"/);
-    expect(() => parseManifest('{"version":"1.0.0","contractVersion":"1.0"}')).toThrow(
-      /missing "modes"/,
-    );
+    expect(() => parseManifest('{}')).toThrow(/missing "modes"/);
+    expect(() => parseManifest('{"modes":["dark","light"]}')).toThrow(/missing "tokens"/);
   });
 });

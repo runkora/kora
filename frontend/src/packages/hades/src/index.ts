@@ -18,7 +18,6 @@
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 export { cn } from './utils';
-export { CONTRACT_VERSION, HADES_VERSION } from './version';
 
 // ─── Atoms ───────────────────────────────────────────────────────────────────
 

@@ -1,9 +1,9 @@
 /**
  * The deterministic classifier: compares the manifest, the component API and
- * the changed files at head against those at the baseline and decides, on two
- * axes, what the change does to the package version (patch, minor or major,
- * Semantic Versioning) and to the contract version (none, minor or major),
- * citing the rule for every finding. Pure; `scripts/classify.ts` supplies git
+ * the changed files at head against those at the baseline and decides what the
+ * change requires of the kora release that carries it (none, patch, minor or
+ * major, Semantic Versioning), citing the rule for every finding. Each finding
+ * also says whether it breaks themes. Pure; `scripts/classify.ts` supplies git
  * and the filesystem. See the design system versioning ADR, SD-3.
  */
 import type { Manifest, ManifestSlot, ManifestToken } from './manifest.ts';
@@ -11,7 +11,7 @@ import type { ExportSurface } from './exports.ts';
 import { compareRanges } from './ranges.ts';
 
 export type Level = 'none' | 'patch' | 'minor' | 'major';
-/** The contract version has no patch: a change that leaves the surface alone does not move it. */
+/** What a change does to the theme contract. There is no patch: a change that leaves the surface alone does not touch it. */
 export type ContractLevel = 'none' | 'minor' | 'major';
 
 const ORDER: Record<Level, number> = { none: 0, patch: 1, minor: 2, major: 3 };
@@ -26,9 +26,9 @@ export const RULE_5 = 'boundary rule 5';
 export const SEMVER = 'Semantic Versioning';
 
 export interface Finding {
-  /** What the finding does to the contract version. */
+  /** What the finding does to the theme contract; `major` means it breaks themes. */
   readonly contract: ContractLevel;
-  /** What the finding does to the package version; never below `contract`. */
+  /** What the finding requires of the release, the level it owes; never below `contract`. */
   readonly package: Level;
   readonly rule: string;
   /** The token, slot, semantic name, export or file set concerned. */
@@ -40,8 +40,8 @@ export interface Finding {
 
 /**
  * The manifest, `tokens.css` and the schema are part of the package's public
- * surface, so a contract change is always a package change of at least the
- * same level. The reverse does not hold: a removed prop moves the package and
+ * surface, so a contract change always requires at least the same level of the
+ * release. The reverse does not hold: a removed prop requires a major and
  * leaves the contract alone.
  */
 function finding(
@@ -79,7 +79,9 @@ export interface ClassifyInput {
 }
 
 export interface Classification {
+  /** The level the release owes: the highest of any finding. */
   readonly package: Level;
+  /** The highest level any finding reaches on the theme contract. */
   readonly contract: ContractLevel;
   readonly findings: readonly Finding[];
 }
@@ -465,7 +467,7 @@ function fmt(list: readonly string[]): string {
   return list.length === 0 ? '(none)' : list.join(', ');
 }
 
-// ─── Versions and the floor ──────────────────────────────────────────────────
+// ─── Versions and what a release owes ────────────────────────────────────────
 
 export interface Semver {
   readonly major: number;
@@ -509,47 +511,37 @@ export function floorMet(level: Level, base: Semver, head: Semver): boolean {
   return compareSemver(head, required) >= 0;
 }
 
-/** The contract version: `MAJOR.MINOR`, no patch. */
-export interface ContractVersion {
-  readonly major: number;
-  readonly minor: number;
+/** A kora release tag: `vX.Y.Z`, or `vX.Y.Z-rc.N` for a release candidate. */
+export interface ReleaseTag {
+  readonly tag: string;
+  readonly version: Semver;
+  /** True for `-rc.N` and any other pre-release; the version is then the core it leads to. */
+  readonly prerelease: boolean;
 }
 
-export function parseContractVersion(text: string): ContractVersion | null {
-  const m = /^(\d+)\.(\d+)$/.exec(text.trim());
-  return m ? { major: Number(m[1]), minor: Number(m[2]) } : null;
+export function parseReleaseTag(tag: string): ReleaseTag | null {
+  const m = /^v(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?$/.exec(tag.trim());
+  if (!m) return null;
+  return {
+    tag: tag.trim(),
+    version: { major: Number(m[1]), minor: Number(m[2]), patch: Number(m[3]) },
+    prerelease: m[4] !== undefined,
+  };
 }
 
-export function formatContractVersion(v: ContractVersion): string {
-  return `${v.major}.${v.minor}`;
-}
-
-export function compareContractVersions(a: ContractVersion, b: ContractVersion): number {
-  return a.major - b.major || a.minor - b.minor;
-}
-
-/** The lowest contract version that satisfies the floor for `level` above `base`; a major resets the minor. */
-export function requiredContractVersion(
-  level: ContractLevel,
-  base: ContractVersion,
-): ContractVersion {
-  switch (level) {
-    case 'major':
-      return { major: base.major + 1, minor: 0 };
-    case 'minor':
-      return { major: base.major, minor: base.minor + 1 };
-    case 'none':
-      return base;
-  }
-}
-
-export function contractFloorMet(
-  level: ContractLevel,
-  base: ContractVersion,
-  head: ContractVersion,
-): boolean {
-  if (level === 'none') return compareContractVersions(head, base) >= 0;
-  const required = requiredContractVersion(level, base);
-  if (level === 'major') return head.major >= required.major;
-  return head.major > base.major || (head.major === base.major && head.minor >= required.minor);
+/**
+ * The baseline a release is compared with: the highest final release tag, never
+ * a release candidate, so a candidate and its final release owe the same.
+ * `exclude` drops the release being cut, whose own tag may already exist.
+ */
+export function lastFinalRelease(tags: readonly string[], exclude?: Semver): ReleaseTag | null {
+  return (
+    tags
+      .flatMap((t) => {
+        const parsed = parseReleaseTag(t);
+        return parsed && !parsed.prerelease ? [parsed] : [];
+      })
+      .filter((r) => !exclude || compareSemver(r.version, exclude) !== 0)
+      .sort((a, b) => compareSemver(b.version, a.version))[0] ?? null
+  );
 }
