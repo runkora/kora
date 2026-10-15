@@ -1,6 +1,8 @@
-// Client-side fetch helper. Calls the BFF route at /api/marketplace/skills.
-// Never calls the Marketplace Service directly — that is server-only.
+// Client-side fetch helpers. Call the BFF routes at /api/marketplace/skills
+// and /api/marketplace/skill. Never call the Marketplace Service directly —
+// that is server-only.
 
+import type { Skill } from '@orbit/shared/api';
 import { ApiRoute } from '@orbit/lib/routing/api-routes';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
 
@@ -57,6 +59,63 @@ export async function fetchMarketplaceOverview(
       return { overview: null, error: null, cancelled: true };
     }
     return { overview: null, error: 'Invalid response from the server.', cancelled: false };
+  }
+}
+
+export interface FetchSkillDetailResult {
+  /** The loaded Skill. Null when the request failed, found nothing, or was cancelled. */
+  skill: Skill | null;
+  /** True when the Marketplace has no Skill with this skillSlug (404). */
+  notFound: boolean;
+  error: string | null;
+  /** True when a newer request cancelled this one. The caller ignores the result. */
+  cancelled: boolean;
+}
+
+/**
+ * Fetches the details of one Skill from the BFF.
+ *
+ * Returns a normalised result object — never throws — like
+ * fetchMarketplaceOverview.
+ */
+export async function fetchSkillDetail(
+  marketplaceSlug: string,
+  skillSlug: string,
+  signal: AbortSignal,
+): Promise<FetchSkillDetailResult> {
+  const failed = { skill: null, notFound: false, cancelled: false };
+  let res: Response;
+  try {
+    res = await fetch(ApiRoute.marketplaceSkill.GET(marketplaceSlug, skillSlug), {
+      cache: 'no-store',
+      signal,
+    });
+  } catch (err) {
+    if (isAbortError(err)) {
+      return { ...failed, error: null, cancelled: true };
+    }
+    return { ...failed, error: 'Network error: could not reach the server.' };
+  }
+
+  if (res.status === 404) {
+    // No Skill has this slug. This is not a failure to retry.
+    return { ...failed, notFound: true, error: null };
+  }
+
+  if (!res.ok) {
+    const failure = await readError(res);
+    return { ...failed, error: failure.message };
+  }
+
+  try {
+    const body = (await res.json()) as { data: Skill };
+    return { skill: body.data, notFound: false, error: null, cancelled: false };
+  } catch (err) {
+    if (isAbortError(err)) {
+      // The request was cancelled while the body was read.
+      return { ...failed, error: null, cancelled: true };
+    }
+    return { ...failed, error: 'Invalid response from the server.' };
   }
 }
 

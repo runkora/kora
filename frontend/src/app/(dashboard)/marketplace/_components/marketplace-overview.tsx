@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. Overview: header, toolbar, request notices, and Skill results. */
+/** @tier 3 — marketplace-scoped. Overview: header, toolbar, request notices, and Skill results, or the open Skill. */
 
 import { useState } from 'react';
 import {
@@ -22,14 +22,14 @@ import {
   ViewToggle,
   type ViewToggleProps,
 } from '@orbit/hades';
-import type { SkillSort } from '@orbit/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
-import { MIN_SEARCH_LENGTH, SORT_OPTIONS } from '../_types';
+import { MIN_SEARCH_LENGTH, SORT_OPTIONS, type SkillSort } from '../_types';
 import { toResultState } from '../_utils/browse-params';
 import { MarketplacePagination } from './marketplace-pagination';
 import { MarketplaceResultsSkeleton } from './marketplace-results-skeleton';
 import { MarketplaceSkillGrid } from './marketplace-skill-grid';
 import { MarketplaceSkillList } from './marketplace-skill-list';
+import { MarketplaceSkillView } from './marketplace-skill-view';
 
 type ViewMode = ViewToggleProps['viewMode'];
 
@@ -40,8 +40,15 @@ const SORT_LABELS: Record<SkillSort, string> = {
 };
 
 export function MarketplaceOverview() {
-  const { marketplaces } = useMarketplaceContext();
+  const { marketplaces, openSlug } = useMarketplaceContext();
+  // This component stays mounted while a Skill is open, so the list/card
+  // choice survives. The browse state lives in the context.
   const [view, setView] = useState<ViewMode>('list');
+
+  if (openSlug !== null) {
+    // A Skill is open. It replaces the results; the address does not change.
+    return <MarketplaceSkillView />;
+  }
 
   return (
     <Stack gap="comfortable">
@@ -114,8 +121,15 @@ function Toolbar({
   view: ViewMode;
   onViewChange: (view: ViewMode) => void;
 }) {
-  const { marketplaces, browse, searchText, setSearchText, selectMarketplace, setSort } =
-    useMarketplaceContext();
+  const {
+    marketplaces,
+    marketplaceName,
+    browse,
+    searchText,
+    setSearchText,
+    selectMarketplace,
+    setSort,
+  } = useMarketplaceContext();
   const [pickerOpen, setPickerOpen] = useState(false);
 
   function handleMarketplaceChange(name: string) {
@@ -149,18 +163,18 @@ function Toolbar({
         <Stack shrink>
           <Popover open={pickerOpen} onOpenChange={setPickerOpen}>
             <PopoverTrigger asChild>
-              <Button variant="outline" aria-label={`Marketplace: ${browse.marketplace}`}>
+              <Button variant="outline" aria-label={`Marketplace: ${marketplaceName}`}>
                 <Icon name="filter" size="2xs" />
-                {browse.marketplace}
+                {marketplaceName}
               </Button>
             </PopoverTrigger>
             <PopoverContent align="end" style={{ width: 240 }}>
               <RadioGroup value={browse.marketplace} onValueChange={handleMarketplaceChange}>
                 <Stack gap="snug">
                   {marketplaces.map((marketplace) => (
-                    <Label key={marketplace.name}>
+                    <Label key={marketplace.marketplaceSlug}>
                       <Stack direction="horizontal" align="center" gap="snug">
-                        <RadioGroupItem value={marketplace.name} />
+                        <RadioGroupItem value={marketplace.marketplaceSlug} />
                         <Text as="span" size="supporting">
                           {marketplace.name}
                         </Text>

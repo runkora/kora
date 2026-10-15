@@ -22,14 +22,18 @@ vi.mock('@orbit/server/marketplace-client', () => ({
 }));
 import { GET } from './route';
 
+/** The test uses each name as its marketplaceSlug, so `?marketplace=Core` selects it. */
+const MARKETPLACES = [
+  { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+  { name: 'Other', marketplaceSlug: 'Other', link: 'https://github.com/example/other' },
+];
+
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.getSession.mockResolvedValue({ accessToken: 'test-token' });
   mocks.isSessionValid.mockReturnValue(true);
-  mocks.fetchMarketplaces.mockResolvedValue({
-    marketplaces: [{ name: 'Core' }, { name: 'Other' }],
-  });
-  mocks.fetchSkills.mockResolvedValue({ packages: [], total: 0 });
+  mocks.fetchMarketplaces.mockResolvedValue({ marketplaces: MARKETPLACES });
+  mocks.fetchSkills.mockResolvedValue({ skills: [] });
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -59,7 +63,7 @@ describe('GET /api/marketplace/skills', () => {
     expect(mocks.fetchSkills).toHaveBeenCalledWith(
       'test-token',
       'Core',
-      { offset: 0, limit: 24, search: '', sort: 'name-asc' },
+      '',
       expect.any(AbortSignal),
     );
   });
@@ -72,7 +76,7 @@ describe('GET /api/marketplace/skills', () => {
       expect(response.status).toBe(status >= 500 ? 502 : status);
       expect(await response.json()).toMatchObject({
         code: 'upstream_error',
-        data: { marketplaces: [{ name: 'Core' }, { name: 'Other' }], skills: [] },
+        data: { marketplaces: MARKETPLACES, skills: [] },
       });
     },
   );

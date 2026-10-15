@@ -46,9 +46,8 @@ export const APP_ROUTES = {
     server: (slug: string) => `/mcp-gateway/${slug}` as const,
   },
   marketplace: {
+    /** A Skill opens in place on the overview, so no route names a Skill. */
     overview: '/marketplace',
-    /** `slug` is the backend Skill slug, used as an opaque value. It can contain `/`. */
-    detail: (slug: string) => `/marketplace/${encodeURIComponent(slug)}` as const,
   },
 
   // ── Policy ───────────────────────────────────────────────────────────────

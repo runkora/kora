@@ -511,6 +511,23 @@ export const ApiRoute = {
       return `${API_BASE}/marketplace/skills?${qs.toString()}`;
     },
   },
+
+  /**
+   * `/api/marketplace/skill`
+   *
+   * GET — returns the details of one Skill. `marketplace` is the
+   *       marketplaceSlug and `skill` is the skillSlug, both from the
+   *       skills-service.
+   */
+  marketplaceSkill: {
+    GET: (
+      marketplaceSlug: string,
+      skillSlug: string,
+    ): `${typeof API_BASE}/marketplace/skill?${string}` => {
+      const qs = new URLSearchParams({ marketplace: marketplaceSlug, skill: skillSlug });
+      return `${API_BASE}/marketplace/skill?${qs.toString()}`;
+    },
+  },
 } as const;
 
 /**
@@ -542,6 +559,7 @@ export type ApiRoutePath =
   | ReturnType<(typeof ApiRoute)['policySimulate']['POST']>
   | ReturnType<(typeof ApiRoute)['usage']['GET']>
   | ReturnType<(typeof ApiRoute)['marketplaceSkills']['GET']>
+  | ReturnType<(typeof ApiRoute)['marketplaceSkill']['GET']>
   | ReturnType<(typeof ApiRoute)['usageBudget']['GET']>
   | ReturnType<(typeof ApiRoute)['catalogPricing']['GET']>
   | ReturnType<(typeof ApiRoute)['catalogPricingOverride']['PUT']>

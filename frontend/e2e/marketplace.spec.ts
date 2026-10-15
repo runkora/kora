@@ -1,45 +1,166 @@
 /**
  * E2E — Marketplace overview and Skill detail.
  *
- * No live skills-service backend exists yet (mock client + fixtures,
- * src/server/marketplace-fixtures.ts). page.route() cannot intercept a
- * server-side RSC fetch, so the first render of every test below uses the
- * real fixture data rather than a mocked one — these tests assert against
- * that real fixture data (Marketplace names, Skill titles) directly. Only
- * later, browser-triggered BFF calls are intercepted with page.route().
+ * The skills-service is a live Go backend, so Category A
+ * (docs/adr/2026-05-08-frontend-test-strategy-and-toolchain.md) forbids these
+ * tests from reaching it. page.route() cannot intercept the server-side RSC
+ * fetch either, so the very first render of every test always shows the
+ * overview's load-error state, the same way dashboard.spec.ts lets an
+ * unreachable RSC fetch degrade to an empty state. load() below drives past
+ * that error with the real "Try again" retry, which runs client-side through
+ * the BFF and is what page.route() mocks from here on: /api/marketplace/skills
+ * and /api/marketplace/skill. Those mocked responses are built from
+ * marketplace-fixtures.ts with resolveOverview(), the same sort/page/total
+ * rules marketplace-server.ts applies to a real skills-service response.
  */
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
 import { injectSessionCookie, injectExpiredSessionCookie } from './fixtures';
+import {
+  MARKETPLACE_FIXTURES,
+  SKILL_DETAIL_FIXTURES,
+  SKILL_FIXTURES_BY_MARKETPLACE,
+} from './marketplace-fixtures';
 
-const restoredBrowse = {
-  marketplace: 'Platform Engineering',
+/** The fixture Marketplace "Platform Engineering" and its skills-service slug. */
+const chosenMarketplace = { name: 'Platform Engineering', slug: 'platform-engineering__skills' };
+
+const chosenBrowse = {
+  marketplace: chosenMarketplace.slug,
   query: 'ter',
   page: 2,
   pageSize: 12,
   sort: 'name-desc',
 };
 
-async function expectBrowseUrl(page: Page, pathname = '/marketplace') {
-  await expect(page).toHaveURL(
-    (url) =>
-      url.pathname === pathname &&
-      Object.entries(restoredBrowse).every(
-        ([key, value]) => url.searchParams.get(key) === String(value),
-      ),
+// ── Marketplace route mocks ──────────────────────────────────────────────────
+//
+// Mirrors marketplace-server.ts's loadMarketplaceOverview: pick the requested
+// Marketplace, falling back to the first one; filter by search; sort by name;
+// cut the page; count the total.
+
+function resolveOverview(query: {
+  marketplace: string;
+  query: string;
+  page: number;
+  pageSize: number;
+  sort: string;
+}) {
+  const known = MARKETPLACE_FIXTURES.some((m) => m.marketplaceSlug === query.marketplace);
+  const marketplaceSlug = known ? query.marketplace : MARKETPLACE_FIXTURES[0].marketplaceSlug;
+  const all = SKILL_FIXTURES_BY_MARKETPLACE[marketplaceSlug] ?? [];
+  const needle = query.query.toLowerCase();
+  const matched = needle ? all.filter((skill) => skill.name.toLowerCase().includes(needle)) : all;
+  const ordered = [...matched].sort((a, b) =>
+    query.sort === 'name-desc' ? b.name.localeCompare(a.name) : a.name.localeCompare(b.name),
   );
+  const lastPage = Math.max(1, Math.ceil(ordered.length / query.pageSize));
+  const page = Math.min(Math.max(1, query.page), lastPage);
+  const start = (page - 1) * query.pageSize;
+
+  return {
+    marketplaces: MARKETPLACE_FIXTURES,
+    requested: {
+      marketplace: query.marketplace,
+      query: query.query,
+      page: query.page,
+      pageSize: query.pageSize,
+      sort: query.sort,
+    },
+    browse: {
+      marketplace: marketplaceSlug,
+      query: query.query,
+      page,
+      pageSize: query.pageSize,
+      sort: query.sort,
+    },
+    skills: ordered.slice(start, start + query.pageSize),
+    total: ordered.length,
+  };
 }
 
-async function expectRestoredOverview(page: Page) {
-  await expectBrowseUrl(page);
+/** Installs the default, always-succeeding Marketplace route mocks. */
+async function mockMarketplaceRoutes(page: Page) {
+  await page.route('**/api/marketplace/skills*', (route: Route) => {
+    const url = new URL(route.request().url());
+    const overview = resolveOverview({
+      marketplace: url.searchParams.get('marketplace') ?? '',
+      query: url.searchParams.get('query') ?? '',
+      page: Number(url.searchParams.get('page') ?? '1'),
+      pageSize: Number(url.searchParams.get('pageSize') ?? '24'),
+      sort: url.searchParams.get('sort') ?? 'name-asc',
+    });
+    return route.fulfill({ json: { data: overview } });
+  });
+
+  // The bare "?" is a glob wildcard for one character, not the query-string
+  // mark, so it must be escaped: unescaped, this pattern also matches
+  // /api/marketplace/skills?... (the plural "s" satisfies the wildcard).
+  await page.route('**/api/marketplace/skill\\?*', (route: Route) => {
+    const url = new URL(route.request().url());
+    const marketplaceSlug = url.searchParams.get('marketplace') ?? '';
+    const skillSlug = url.searchParams.get('skill') ?? '';
+    const skill = SKILL_DETAIL_FIXTURES.find(
+      (candidate) =>
+        candidate.skillSlug === skillSlug && skillSlug.startsWith(`${marketplaceSlug}__`),
+    );
+    if (!skill) {
+      return route.fulfill({
+        status: 404,
+        json: { code: 'not_found', message: 'Skill not found' },
+      });
+    }
+    return route.fulfill({ json: { data: skill } });
+  });
+}
+
+/**
+ * Clicks "Try again" and waits for the overview it loads.
+ *
+ * The dev server's hydration occasionally cancels this first client-side
+ * fetch outside the app's own retry path (not an app bug: a cancelled
+ * request is deliberately left for a newer request to replace, but no newer
+ * request exists here). That leaves the overview stuck loading, with no
+ * "Try again" to click. A fresh reload gives hydration a clean second try.
+ */
+async function retryLoad(page: Page) {
+  const picker = page.getByRole('button', { name: /^Marketplace:/ });
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await page.getByRole('button', { name: 'Try again' }).click();
+    try {
+      await expect(picker).toBeVisible({ timeout: 5_000 });
+      return;
+    } catch (err) {
+      if (attempt === 2) throw err;
+      await page.reload();
+    }
+  }
+}
+
+/** Navigates to a Marketplace page and resolves its forced initial load error. */
+async function load(page: Page, path = '/marketplace') {
+  await page.goto(path);
+  await retryLoad(page);
+}
+
+/** Reloads the page and resolves its forced initial load error, like load(). */
+async function reload(page: Page) {
+  await page.reload();
+  await retryLoad(page);
+}
+
+async function expectCleanUrl(page: Page, pathname = '/marketplace') {
+  await expect(page).toHaveURL((url) => url.pathname === pathname && url.search === '');
+}
+
+async function expectChosenOverview(page: Page) {
+  await expectCleanUrl(page);
   await expect(
-    page.getByRole('button', { name: `Marketplace: ${restoredBrowse.marketplace}`, exact: true }),
+    page.getByRole('button', { name: `Marketplace: ${chosenMarketplace.name}`, exact: true }),
   ).toBeVisible();
   await expect(page.getByRole('textbox', { name: 'Search Skills' })).toHaveValue(
-    restoredBrowse.query,
+    chosenBrowse.query,
   );
-  await expect(page.getByRole('combobox', { name: 'Sort skills' })).toHaveValue(
-    restoredBrowse.sort,
-  );
+  await expect(page.getByRole('combobox', { name: 'Sort skills' })).toHaveValue(chosenBrowse.sort);
   await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveValue('12');
   await expect(page.getByRole('button', { name: 'Page 2', exact: true })).toHaveAttribute(
     'aria-current',
@@ -52,89 +173,146 @@ async function expectRestoredOverview(page: Page) {
   await expect(results.nth(1)).toHaveAccessibleName('Open Bicep Linter');
 }
 
+async function expectDefaultOverview(page: Page) {
+  await expectCleanUrl(page);
+  await expect(
+    page.getByRole('button', { name: 'Marketplace: ClearRoute Core', exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Search Skills' })).toHaveValue('');
+  await expect(page.getByRole('combobox', { name: 'Sort skills' })).toHaveValue('name-asc');
+  await expect(page.getByRole('combobox', { name: 'Results per page' })).toHaveValue('24');
+  await expect(page.getByRole('button', { name: 'Page 1', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  );
+  await expect(page.getByText('1–6 of 6', { exact: true })).toBeVisible();
+  await expect(page.getByRole('row', { name: /^Open / })).toHaveCount(6);
+  await expect(page.getByRole('row', { name: /^Open / }).first()).toHaveAccessibleName(
+    'Open Change Freeze Checker',
+  );
+}
+
+async function choosePlatformEngineering(page: Page) {
+  await page.getByRole('button', { name: 'Marketplace: ClearRoute Core', exact: true }).click();
+  await page.getByRole('radio', { name: 'Platform Engineering' }).click();
+  await expect(page.getByRole('row', { name: 'Open Airflow Access Review' })).toBeVisible();
+  await expectCleanUrl(page);
+}
+
+async function chooseOverviewState(page: Page) {
+  await choosePlatformEngineering(page);
+  await page.getByRole('combobox', { name: 'Results per page' }).selectOption('12');
+  await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
+  // This search matches fourteen Skills, so all five browse values can be non-default.
+  await page.getByRole('textbox', { name: 'Search Skills' }).fill(chosenBrowse.query);
+  await expect(page.getByText('1–12 of 14', { exact: true })).toBeVisible();
+  await page.getByRole('combobox', { name: 'Sort skills' }).selectOption(chosenBrowse.sort);
+  await expect(page.getByRole('row', { name: /^Open / }).first()).toHaveAccessibleName(
+    'Open Terraform Module Reviewer',
+  );
+  await page.getByRole('button', { name: 'Next', exact: true }).click();
+  await expectChosenOverview(page);
+}
+
 test.describe('/marketplace — overview and Skill detail', () => {
   test.beforeEach(async ({ page }) => {
     await injectSessionCookie(page.context());
     await page.route('**/api/preferences', (route) => route.fulfill({ json: {} }));
+    await mockMarketplaceRoutes(page);
   });
 
-  test('browsing from the overview to a Skill detail and back returns to the same results', async ({
+  test('browsing keeps a clean address, opens a slug-only Skill and returns to defaults', async ({
     page,
   }) => {
-    await page.goto('/marketplace');
-
+    const browseRequests: URL[] = [];
+    page.on('request', (request) => {
+      const url = new URL(request.url());
+      if (url.pathname === '/api/marketplace/skills') browseRequests.push(url);
+    });
+    await load(page);
     // No saved preference exists yet, so the first Marketplace in name order loads.
-    await expect(page.getByRole('button', { name: /Marketplace: ClearRoute Core/ })).toBeVisible();
+    await expectDefaultOverview(page);
+    const initialHistoryLength = await page.evaluate(() => window.history.length);
+    await chooseOverviewState(page);
+    expect(await page.evaluate(() => window.history.length)).toBe(initialHistoryLength);
+    const finalRequest = browseRequests.at(-1);
+    expect(finalRequest).toBeDefined();
+    expect(finalRequest && Object.fromEntries(finalRequest.searchParams)).toEqual({
+      marketplace: chosenBrowse.marketplace,
+      query: chosenBrowse.query,
+      page: '2',
+      pageSize: '12',
+      sort: chosenBrowse.sort,
+    });
 
-    await page.getByRole('button', { name: /Marketplace: ClearRoute Core/ }).click();
-    await page.getByRole('radio', { name: 'Platform Engineering' }).click();
-    await expect(page.getByRole('row', { name: 'Open Airflow Access Review' })).toBeVisible();
-
-    await page.getByRole('combobox', { name: 'Results per page' }).selectOption('12');
-    await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
-    // This search matches fourteen Skills, so all five browse values can be non-default.
-    await page.getByRole('textbox', { name: 'Search Skills' }).fill(restoredBrowse.query);
-    await expect(page.getByText('1–12 of 14', { exact: true })).toBeVisible();
-    await page.getByRole('combobox', { name: 'Sort skills' }).selectOption(restoredBrowse.sort);
-    await expect(page.getByRole('row', { name: /^Open / }).first()).toHaveAccessibleName(
-      'Open Terraform Module Reviewer',
+    const skillRequest = page.waitForRequest(
+      (request) => new URL(request.url()).pathname === '/api/marketplace/skill',
     );
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
-    await expectRestoredOverview(page);
-    const originalResults = await page.getByRole('row', { name: /^Open / }).allTextContents();
-
     await page.getByRole('row', { name: 'Open Budget Forecaster' }).click();
 
-    const detailPath = '/marketplace/platform-engineering%2Fskills%2Fbudget-forecaster';
-    await expectBrowseUrl(page, detailPath);
+    // The Skill opens in place: the address and the history do not change.
+    const skillParams = new URL((await skillRequest).url()).searchParams;
+    expect(skillParams.get('marketplace')).toBe(chosenMarketplace.slug);
+    expect(skillParams.get('skill')).toBe('platform-engineering__skills__budget-forecaster');
     await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
     await expect(
       page.getByText('Projects month-end cloud spend from the current burn rate.', { exact: true }),
     ).toBeVisible();
-    const backLink = page.getByRole('link', { name: 'Skills', exact: true });
-    const browseQuery = new URLSearchParams(
-      Object.fromEntries(
-        Object.entries(restoredBrowse).map(([key, value]) => [key, String(value)]),
-      ),
-    ).toString();
-    await expect(backLink).toHaveAttribute('href', `/marketplace?${browseQuery}`);
+    await expectCleanUrl(page);
+    expect(await page.evaluate(() => window.history.length)).toBe(initialHistoryLength);
+    const skillsButton = page.getByRole('button', { name: 'Skills', exact: true });
+    await expect(skillsButton).toBeFocused();
 
-    // A shared encoded detail URL must also survive a full RSC reload.
-    await page.reload();
-    await expectBrowseUrl(page, detailPath);
+    // Closing the Skill shows the same results, from memory.
+    await skillsButton.click();
+    await expectChosenOverview(page);
+
+    // A reload forgets the open Skill and the browse values.
+    await page.getByRole('row', { name: 'Open Budget Forecaster' }).click();
     await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
-    await backLink.click();
-
-    await expectRestoredOverview(page);
-    await expect(page.getByRole('row', { name: /^Open / })).toHaveText(originalResults);
+    await reload(page);
+    await expectDefaultOverview(page);
   });
 
-  test('a shared overview link restores all browse values and results, including after a refresh', async ({
+  test('an old Skill address opens the default overview', async ({ page }) => {
+    await load(page, '/marketplace/platform-engineering%2Fskills%2Fbudget-forecaster');
+
+    await expectDefaultOverview(page);
+  });
+
+  test('old browse queries are ignored and a refresh resets in-memory browse values', async ({
     page,
   }) => {
-    await page.goto(
+    await load(
+      page,
       '/marketplace?marketplace=Platform+Engineering&query=ter&page=2&pageSize=12&sort=name-desc',
     );
-    await expectRestoredOverview(page);
-    const originalResults = await page.getByRole('row', { name: /^Open / }).allTextContents();
+    await expectDefaultOverview(page);
+    await chooseOverviewState(page);
 
-    await page.reload();
+    await reload(page);
 
-    await expectRestoredOverview(page);
-    await expect(page.getByRole('row', { name: /^Open / })).toHaveText(originalResults);
+    await expectDefaultOverview(page);
   });
 
-  test('an unknown Skill slug shows a not-found message with a way back', async ({ page }) => {
-    await page.goto('/marketplace/does-not-exist');
+  test('a Skill that no longer exists shows a not-found message with a way back', async ({
+    page,
+  }) => {
+    await load(page);
+    await page.route('**/api/marketplace/skill\\?*', (route: Route) =>
+      route.fulfill({ status: 404, json: { code: 'not_found', message: 'Skill not found' } }),
+    );
+    await page.getByRole('row', { name: 'Open Change Freeze Checker' }).click();
 
     await expect(page.getByText('Skill not found')).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Back to Skills' })).toBeVisible();
+    await page.getByRole('button', { name: 'Back to Skills' }).click();
+    await expectDefaultOverview(page);
   });
 
   test('a later browse change that fails keeps the previous results and offers a retry', async ({
     page,
   }) => {
-    await page.goto('/marketplace');
+    await load(page);
     await expect(page.getByRole('button', { name: /Marketplace: /, exact: false })).toBeVisible();
 
     await page.route('**/api/marketplace/skills*', (route: Route) => {
@@ -238,12 +416,13 @@ test.describe('/marketplace — accessibility and layout', () => {
   test.beforeEach(async ({ page }) => {
     await injectSessionCookie(page.context());
     await page.route('**/api/preferences', (route) => route.fulfill({ json: {} }));
+    await mockMarketplaceRoutes(page);
   });
 
   test('search, Marketplace selection, sort and both views work through the keyboard', async ({
     page,
   }) => {
-    await page.goto('/marketplace');
+    await load(page);
     const search = page.getByRole('textbox', { name: 'Search Skills' });
     const picker = page.getByRole('button', { name: /^Marketplace:/ });
     const sort = page.getByRole('combobox', { name: 'Sort skills' });
@@ -293,7 +472,7 @@ test.describe('/marketplace — accessibility and layout', () => {
     await expect(cards).toHaveAttribute('aria-pressed', 'true');
     await expect(list).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('table', { name: 'skills' })).toHaveCount(0);
-    await expect(page.locator('a[href^="/marketplace/"]')).toHaveCount(2);
+    await expect(page.getByRole('main').getByRole('button', { name: /^Open / })).toHaveCount(2);
 
     await page.keyboard.press('Tab');
     await expect(list).toBeFocused();
@@ -306,7 +485,10 @@ test.describe('/marketplace — accessibility and layout', () => {
   });
 
   test('page controls and results per page operate through the keyboard', async ({ page }) => {
-    await page.goto('/marketplace?marketplace=Platform+Engineering&pageSize=12');
+    await load(page);
+    await choosePlatformEngineering(page);
+    await page.getByRole('combobox', { name: 'Results per page' }).selectOption('12');
+    await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
     const size = page.getByRole('combobox', { name: 'Results per page' });
     const previous = page.getByRole('button', { name: 'Previous', exact: true });
     const next = page.getByRole('button', { name: 'Next', exact: true });
@@ -351,16 +533,20 @@ test.describe('/marketplace — accessibility and layout', () => {
   test('a named retry can be reached and recover a failed request through the keyboard', async ({
     page,
   }) => {
+    await load(page);
+    // Counts only from here: load() may itself need more than one attempt
+    // (see retryLoad's comment), so counting from test start would be
+    // brittle. The next request is the ArrowUp Marketplace switch below.
     let requests = 0;
     await page.route('**/api/marketplace/skills*', async (route) => {
       requests += 1;
       if (requests === 1) {
         await route.fulfill({ status: 503, json: { message: 'Temporary catalogue failure.' } });
       } else {
-        await route.continue();
+        // The manual retry below falls back to the good-data mock.
+        await route.fallback();
       }
     });
-    await page.goto('/marketplace');
     const picker = page.getByRole('button', { name: /^Marketplace:/ });
     await tabTo(page, picker);
     await page.keyboard.press('Enter');
@@ -389,7 +575,8 @@ test.describe('/marketplace — accessibility and layout', () => {
       page,
     }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
-      await page.goto('/marketplace?marketplace=Platform+Engineering');
+      await load(page);
+      await choosePlatformEngineering(page);
       await expect(page.getByRole('table', { name: 'skills' })).toBeVisible();
       await page.evaluate(async () => {
         await document.fonts.ready;
@@ -411,7 +598,7 @@ test.describe('/marketplace — accessibility and layout', () => {
       }
       await tabTo(page, page.getByRole('button', { name: 'Card view' }));
       await page.keyboard.press('Space');
-      await expect(page.locator('a[href^="/marketplace/"]')).toHaveCount(24);
+      await expect(page.getByRole('main').getByRole('button', { name: /^Open / })).toHaveCount(24);
       await expectNoPageOverflow(page);
       await testInfo.attach(`toolbar-${width}px`, {
         body: await page.screenshot({ fullPage: true }),
@@ -426,7 +613,13 @@ test.describe('/marketplace — accessibility and layout', () => {
   ]) {
     test(`overview list and cards fit at ${viewport.width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
-      await page.goto('/marketplace?marketplace=Platform+Engineering&pageSize=12&page=3');
+      await load(page);
+      await choosePlatformEngineering(page);
+      await page.getByRole('combobox', { name: 'Results per page' }).selectOption('12');
+      await expect(page.getByText('1–12 of 61', { exact: true })).toBeVisible();
+      await page.getByRole('button', { name: 'Page 3', exact: true }).click();
+      await expect(page.getByText('25–36 of 61', { exact: true })).toBeVisible();
+      await expectCleanUrl(page);
       await expect(page.getByRole('row', { name: /^Open / })).toHaveCount(12);
       const controls = [
         ...overviewControls(page),
@@ -443,7 +636,7 @@ test.describe('/marketplace — accessibility and layout', () => {
 
       await tabTo(page, page.getByRole('button', { name: 'Card view' }));
       await page.keyboard.press('Enter');
-      const cards = page.locator('a[href^="/marketplace/"]');
+      const cards = page.getByRole('main').getByRole('button', { name: /^Open / });
       await expect(cards).toHaveCount(12);
       const first = await bounds(cards.nth(0));
       const second = await bounds(cards.nth(1));
@@ -463,8 +656,12 @@ test.describe('/marketplace — accessibility and layout', () => {
 
     test(`detail Contents and Source fit at ${viewport.width}px`, async ({ page }, testInfo) => {
       await page.setViewportSize(viewport);
-      await page.goto('/marketplace/platform-engineering/skills/react-expert');
+      await load(page);
+      await choosePlatformEngineering(page);
+      await page.getByRole('textbox', { name: 'Search Skills' }).fill('React Expert');
+      await page.getByRole('row', { name: 'Open React Expert' }).click();
       await expect(page.getByRole('heading', { name: 'React Expert', exact: true })).toBeVisible();
+      await expectCleanUrl(page);
       const contents = page
         .getByRole('heading', { name: 'Contents', exact: true })
         .locator('../..');

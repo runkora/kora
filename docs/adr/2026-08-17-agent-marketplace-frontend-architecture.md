@@ -7,6 +7,108 @@
 
 ---
 
+## Amendment: skills-service types and identifiers (2026-10-13)
+
+**Status:** Accepted for this amendment. The original architecture remains Proposed.
+**Requirement:** the skills-service API in the [Marketplace backend ADR](2026-08-28-marketplace-adr-backend.md). The backend contract has priority over the frontend's earlier draft types.
+
+### Context
+
+The frontend used its own draft types (`PackageOverview`, `PackageDetail`, `title_of_package`, `resources_of_package`, `offset`, `limit`, `total`). The skills-service serves different JSON. `GET /v1/marketplaces` returns `name`, `marketplaceSlug`, and `link`. `GET /v1/marketplaces/{marketplaceSlug}/skills?search=` returns at most 200 Skills with `name`, `description`, and `skillSlug`, sorted by `skillSlug`, with no paging or name sort. `GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}` returns the Skill with `skill` (the `SKILL.md`) and `documents`. The Marketplace name is the repository name, so it is not unique.
+
+### Options
+
+1. Keep the draft types and map the skills-service JSON to them in the client.
+2. Use the skills-service shapes in `frontend/src/shared/api.ts`, which mirrors backend JSON, and change the frontend to use them.
+
+### Decision
+
+Use option 2.
+
+- `shared/api.ts` defines `Marketplace`, `GetMarketplaces`, `SkillSummary`, `ListSkillsResponse`, `SkillFile`, and `Skill` with the backend field names. `SkillSort` moves to the Marketplace feature types, because sorting by name is a frontend feature.
+- `marketplaceSlug` identifies a Marketplace in the browse state, the picker, the BFF query, and the saved preference `marketplace.lastSelected`. The name is only a label.
+- A Skill is opened with its `marketplaceSlug` and its `skillSlug`. The BFF route is `GET /api/marketplace/skill?marketplace=&skill=`. The frontend does not split `skillSlug`.
+- `marketplace-client.ts` has one function for each skills-service endpoint, with the same parameters and shapes. It still serves fixtures in these shapes until the frontend calls the service.
+- `marketplace-server.ts` sorts the list by name, cuts the page, and counts the total, because the skills-service does not.
+
+### Consequences
+
+- An old saved preference holds a Marketplace name, not a slug. That user gets the first Marketplace once.
+- The total and the pages cover at most the 200 Skills that the skills-service returns.
+- The Source panel takes the Marketplace name from the Marketplace list, because a skills-service Skill has no Marketplace field.
+- **Who is this agent?** No change. **What can it access?** No change. **How does it connect?** No change until the client calls the skills-service. That change adds `SKILLS_SERVICE_URL` and keeps the call server-side with the user's token.
+
+---
+
+## Amendment: Skill detail without an address change (2026-10-12)
+
+**Status:** Accepted for this amendment. The original architecture remains Proposed.
+
+### Context
+
+The clean URL amendment below kept browse values out of the address, but a selected Skill still opened `/marketplace/{slug}`. The requested experience keeps the address at `/marketplace` while a Skill is open, with the same rules as browsing: no history entries, and a reload starts at the default overview.
+
+### Options
+
+1. Keep the dedicated detail route, and replace the address with `/marketplace` after the page loads (`history.replaceState`). The Next.js router then holds a route that the address does not show, so reload and Back give unexpected results.
+2. Keep the selected Skill in client state, and load its detail through an authenticated BFF route. The overview shows the detail in place of the results.
+3. Use intercepting or parallel routes. These routes change the address too, so they do not meet the requirement.
+
+### Decision
+
+Use option 2. This amendment supersedes the decisions below that Skill details use a dedicated server-rendered route without a browser data request.
+
+- `useSkillDetail` (`_hooks/use-skill-detail.ts`) owns the selected slug, the loaded Skill, the request status, cancellation, latest-response ordering, and retry. `MarketplaceProvider` exposes it through the Marketplace context beside the browse state.
+- A list row or a card calls `openSkill(slug)`. Neither navigates. The overview replaces its toolbar and results with the detail view, and "Skills" closes it. The browse state and the list/card choice stay in memory, so closing the detail shows the same results.
+- `GET /api/marketplace/skill` is a BFF route. It checks the session with `withAuth`, calls `loadSkillDetail`, and maps a missing Skill to 404 and other failures to the upstream 4xx status or 502. Query values carry the identifiers, so they need no path decoding. Since the 2026-10-13 amendment, the query is `?marketplace=&skill=` (the `marketplaceSlug` and the `skillSlug`).
+- `/marketplace/{slug}` remains only as a server redirect to `/marketplace`, so old links open the default overview.
+
+### Consequences
+
+- The address does not identify an open Skill. A Skill cannot be shared by link, and reload shows the default overview.
+- Opening a Skill adds no history entry. Back leaves the Marketplace; the detail view's "Skills" control returns to the results.
+- The browser sends one BFF request for each opened Skill. The detail view shows loading, missing-Skill, and failed-load states, and the failed-load "Try again" repeats the BFF request.
+- The shared header no longer shows a Skill name in its breadcrumb, because the path has no Skill segment.
+- **Who is this agent?** No change. The BFF route requires the existing verified session.
+- **What can it access?** No change. The upstream Marketplace call still uses the user's token server-side, so its authorization decides what the user sees.
+- **How does it connect?** The browser calls one more authenticated BFF route. Credentials and upstream calls stay server-side.
+
+---
+
+## Amendment: Clean Marketplace URL (2026-10-12)
+
+**Status:** Accepted for this amendment. The original architecture remains Proposed.
+
+### Context
+
+The approved product change keeps the overview address at `/marketplace` on the current host. Browse values belong to the interactive view and must no longer appear in overview, Skill, or return URLs. This amendment supersedes the URL-state and browse-restoration requirements in the original decision below, including its references to the earlier PRD's FR-17.
+
+### Options
+
+1. Retain URL-driven state and the existing share/refresh/history restoration.
+2. Keep browse values in client state, retaining server-rendered defaults and BFF updates.
+3. Persist all browse values in cookies or user preferences to restore them without URL parameters.
+
+### Decision
+
+Use option 2. The overview Server Component ignores browser browse query parameters and loads default browse values with the existing saved-Marketplace fallback. The hook owns subsequent changes, retains cancellation and retry behavior, and writes no browse values or pagination history entries. It removes existing browse parameters while preserving unrelated query keys, Next.js history state, the current pathname, and any fragment. Skill navigation contains only the encoded identifier; the return link is `/marketplace`.
+
+The BFF still parses browse query parameters on API requests. Server Components still perform the initial and detail fetches directly. No origin is hardcoded and no persistent browse store is introduced.
+
+### Consequences
+
+- Reload and fresh overview navigation use page 1, empty search, default sort/page size, and the saved or first available Marketplace.
+- Browser Back/Forward navigates routes rather than pagination states; returning from a Skill does not reconstruct the earlier search/page.
+- The address no longer shares a particular browse result. Dedicated Skill links remain usable.
+- URL/history regression tests and Storybook setup must follow this contract; API parameter and request-coordination tests remain necessary.
+- **Who is this agent?** This is presentation state only; existing verified user sessions remain the identity boundary.
+- **What can it access?** Authorization and tenant enforcement remain with the existing server/API path.
+- **How does it connect?** Credentials and upstream calls remain server-side; the browser keeps using the authenticated BFF.
+
+The remaining sections record the original decision and its rationale. Where they describe browse values in browser URLs or their restoration, this amendment takes precedence.
+
+---
+
 ## Context
 
 > **RSC** (React Server Component): a React component that runs only on the server.

@@ -1,18 +1,15 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. List view of Skill results; each row opens its detail route. */
+/** @tier 3 — marketplace-scoped. List view of Skill results; each row opens its Skill in place. */
 
-import { useRouter } from 'next/navigation';
 import { DataTable, Icon, Stack, Text, type DataTableColumn } from '@orbit/hades';
-import type { PackageOverview } from '@orbit/shared/api';
+import type { SkillSummary } from '@orbit/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
-import { buildSkillUrl } from '../_utils/browse-params';
 
 export function MarketplaceSkillList() {
-  const { skills, browse } = useMarketplaceContext();
-  const router = useRouter();
+  const { skills, browse, marketplaceName, openSkill } = useMarketplaceContext();
 
-  const columns: DataTableColumn<PackageOverview>[] = [
+  const columns: DataTableColumn<SkillSummary>[] = [
     {
       id: 'skill',
       header: 'Skill',
@@ -20,9 +17,9 @@ export function MarketplaceSkillList() {
       locked: true,
       cell: (skill) => (
         <Stack gap="none" style={{ minWidth: 0 }}>
-          <Text truncate>{skill.title_of_package}</Text>
+          <Text truncate>{skill.name}</Text>
           <Text as="span" mono size="caption" weight="emphasis" color="subtle" truncate>
-            {skill.slug}
+            {skill.skillSlug}
           </Text>
         </Stack>
       ),
@@ -57,7 +54,7 @@ export function MarketplaceSkillList() {
       cell: () => (
         <Stack direction="horizontal" align="center" justify="between" gap="snug">
           <Text size="supporting" truncate>
-            {browse.marketplace}
+            {marketplaceName}
           </Text>
           <Icon name="chevron-right" size="2xs" color="muted" />
         </Stack>
@@ -69,11 +66,11 @@ export function MarketplaceSkillList() {
     <DataTable
       data={skills}
       columns={columns}
-      getRowKey={(skill) => skill.slug}
+      getRowKey={(skill) => skill.skillSlug}
       noun="skills"
       emptyMessage="No skills to show."
-      onRowClick={(skill) => router.push(buildSkillUrl(skill.slug, browse))}
-      rowLabel={(skill) => `Open ${skill.title_of_package}`}
+      onRowClick={(skill) => openSkill(browse.marketplace, skill.skillSlug)}
+      rowLabel={(skill) => `Open ${skill.name}`}
     />
   );
 }

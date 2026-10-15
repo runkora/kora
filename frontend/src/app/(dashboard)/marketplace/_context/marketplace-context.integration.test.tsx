@@ -27,7 +27,18 @@ import { MarketplaceProvider, useMarketplaceContext } from './marketplace-contex
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
-const MARKETPLACES = [{ name: 'ClearRoute Core' }, { name: 'Platform Engineering' }];
+const MARKETPLACES = [
+  {
+    name: 'ClearRoute Core',
+    marketplaceSlug: 'ClearRoute Core',
+    link: 'https://github.com/example/clearroute-core',
+  },
+  {
+    name: 'Platform Engineering',
+    marketplaceSlug: 'Platform Engineering',
+    link: 'https://github.com/example/platform-engineering',
+  },
+];
 
 const CORE_BROWSE: MarketplaceBrowseParams = {
   marketplace: 'ClearRoute Core',

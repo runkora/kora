@@ -23,7 +23,7 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 | `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
 | `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
 | `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
-| `skills-service` | Read-only Agent Marketplace: browses and serves skills from GitHub-hosted repositories; cache-aside via Redis | `8098` | none |
+| `skills-service` | Read-only Agent Marketplace: browses and serves skills from GitHub-hosted repositories; cache-aside via Redis | `8089` | none |
 | `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |

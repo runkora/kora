@@ -1,19 +1,21 @@
 /** @tier 3 — marketplace-scoped. Read-only presentation of one Skill's details. */
 
 import { Card, CardContent, CardHeader, CodeBlock, Heading, Stack, Text } from '@orbit/hades';
-import type { PackageDetail } from '@orbit/shared/api';
+import type { Skill } from '@orbit/shared/api';
 
 interface MarketplaceSkillDetailProps {
-  skill: PackageDetail;
+  skill: Skill;
+  /** The display name of the Marketplace. The skills-service Skill has no Marketplace field. */
+  marketplaceName: string;
 }
 
-export function MarketplaceSkillDetail({ skill }: MarketplaceSkillDetailProps) {
+export function MarketplaceSkillDetail({ skill, marketplaceName }: MarketplaceSkillDetailProps) {
   return (
     <Stack gap="relaxed">
       <Stack gap="snug" style={{ minWidth: 0 }}>
-        <Heading variant="title">{skill.title_of_package}</Heading>
+        <Heading variant="title">{skill.name}</Heading>
         <Text size="supporting" color="subtle">
-          {skill.name_of_marketplace}
+          {marketplaceName}
         </Text>
         <Stack maxWidth="prose">
           <Text size="supporting" color="muted">
@@ -27,24 +29,15 @@ export function MarketplaceSkillDetail({ skill }: MarketplaceSkillDetailProps) {
           <Stack direction="horizontal" align="baseline" justify="between">
             <Heading variant="section">Contents</Heading>
             <Text as="span" size="caption" color="subtle">
-              {skill.resources_of_package.length} resource
-              {skill.resources_of_package.length === 1 ? '' : 's'}
+              {skill.documents.length} resource
+              {skill.documents.length === 1 ? '' : 's'}
             </Text>
           </Stack>
 
-          <CodeBlock
-            filename={skill.package.name_of_package}
-            text={skill.package.body_of_package}
-            wrap
-          />
+          <CodeBlock filename={skill.skill.name} text={skill.skill.content} wrap />
 
-          {skill.resources_of_package.map((resource) => (
-            <CodeBlock
-              key={resource.path_of_resource_in_repo}
-              filename={resource.name_of_resource}
-              text={resource.body_of_resource}
-              wrap
-            />
+          {skill.documents.map((resource) => (
+            <CodeBlock key={resource.path} filename={resource.name} text={resource.content} wrap />
           ))}
         </Stack>
         <Stack
@@ -58,8 +51,8 @@ export function MarketplaceSkillDetail({ skill }: MarketplaceSkillDetailProps) {
             <CardHeader title="Source" />
             <CardContent>
               <Stack gap="cozy">
-                <SourceRow label="Marketplace" value={skill.name_of_marketplace} />
-                <SourceRow label="Path" value={skill.package.path_of_package_in_repo} mono />
+                <SourceRow label="Marketplace" value={marketplaceName} />
+                <SourceRow label="Path" value={skill.skill.path} mono />
               </Stack>
             </CardContent>
           </Card>

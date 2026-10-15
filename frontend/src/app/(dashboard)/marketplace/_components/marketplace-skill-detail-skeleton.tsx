@@ -1,5 +1,5 @@
-// Server Component: the sub-components are imported by name because terra is a
-// 'use client' entrypoint and SidebarLayout.Main does not survive that boundary.
+/** @tier 3 — marketplace-scoped. Placeholder for one Skill while its details load. */
+
 import {
   Card,
   CardContent,
@@ -12,18 +12,13 @@ import {
 } from '@orbit/hades';
 
 /**
- * The Skill detail page loads one Skill in one server pass, so the skeleton
- * stands in for the whole surface: the back link, the identity header, the
- * files, and the Source sidebar.
+ * Stands in for the Skill details while the BFF request runs: the identity
+ * header, the files, and the Source sidebar. The "Skills" control above it
+ * stays usable.
  */
-export default function SkillDetailLoading() {
+export function MarketplaceSkillDetailSkeleton() {
   return (
-    <Stack gap="comfortable">
-      {/* Back link to the Skills overview. */}
-      <Stack direction="horizontal">
-        <Skeleton shape="block" width="quarter" size="md" />
-      </Stack>
-
+    <Stack role="status" aria-label="Loading the Skill">
       <Stack gap="relaxed">
         {/* Identity header: title, Marketplace, and description. */}
         <Stack gap="tight">

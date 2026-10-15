@@ -42,7 +42,7 @@ spec:
 
           ports:
             - name: http
-              containerPort: 8085
+              containerPort: 8089
               protocol: TCP
 
           env:

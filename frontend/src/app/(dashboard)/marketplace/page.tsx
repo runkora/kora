@@ -1,23 +1,16 @@
-// RSC — reads the browse values (marketplace, query, page, pageSize, sort) from the
-// URL, validates them, and loads that result page server-side, so the page
+// RSC — loads the default result page with the saved Marketplace, so the page
 // renders with real data. Later browse changes go through the BFF route
-// (see _hooks/use-marketplace.ts). The co-located loading.tsx shows a
-// skeleton while this load completes.
+// (see _hooks/use-marketplace.ts). The co-located loading.tsx shows a skeleton
+// while this load completes. Browser query parameters do not own browse state.
 
 import { getSession, isSessionValid } from '@orbit/server/session';
 import { loadMarketplaceOverview } from './_services/marketplace-server';
 import { MarketplaceShell } from './_components/marketplace-shell';
-import { parseBrowseParams, recordToSearchParams } from './_utils/browse-params';
+import { parseBrowseParams } from './_utils/browse-params';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from './_types';
 
-interface MarketplaceOverviewPageProps {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}
-
-export default async function MarketplaceOverviewPage({
-  searchParams,
-}: MarketplaceOverviewPageProps) {
-  const browse = parseBrowseParams(recordToSearchParams(await searchParams));
+export default async function MarketplaceOverviewPage() {
+  const browse = parseBrowseParams(new URLSearchParams());
   const session = await getSession();
 
   if (!isSessionValid(session)) {

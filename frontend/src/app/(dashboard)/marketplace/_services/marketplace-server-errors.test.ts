@@ -21,7 +21,7 @@ import { loadMarketplaceOverview, loadSkillDetail } from './marketplace-server';
 import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
 import { getPreferences } from '../../_preferences/preferences-server';
 import { ApiError } from '@orbit/server/api-error';
-import type { PackageDetail } from '@orbit/shared/api';
+import type { Skill } from '@orbit/shared/api';
 import type { MarketplaceBrowseParams } from '../_types';
 import type { UserPreferences } from '../../_preferences/preferences.schema';
 
@@ -41,7 +41,7 @@ beforeEach(() => {
   vi.mocked(fetchSkillDetail).mockReset();
   vi.mocked(getPreferences).mockReset();
   vi.mocked(getPreferences).mockResolvedValue(preferencesWith(''));
-  vi.mocked(fetchSkills).mockResolvedValue({ packages: [], offset: 0, limit: 24, total: 0 });
+  vi.mocked(fetchSkills).mockResolvedValue({ skills: [] });
 });
 
 describe('zero Marketplaces', () => {
@@ -62,8 +62,12 @@ describe('zero Marketplaces', () => {
 
 describe('Skills page', () => {
   it('returns empty Skills when the selected Marketplace has none', async () => {
-    vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [{ name: 'Solo' }] });
-    vi.mocked(fetchSkills).mockResolvedValue({ packages: [], offset: 0, limit: 24, total: 0 });
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [
+        { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+      ],
+    });
+    vi.mocked(fetchSkills).mockResolvedValue({ skills: [] });
 
     const result = await loadMarketplaceOverview(ACCESS_TOKEN, browse({ marketplace: 'Solo' }));
 
@@ -73,26 +77,64 @@ describe('Skills page', () => {
     expect(result.overview.total).toBe(0);
   });
 
-  it('forwards search, sort, offset, and limit to fetchSkills', async () => {
-    vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [{ name: 'Solo' }] });
-    vi.mocked(fetchSkills).mockResolvedValue({ packages: [], offset: 12, limit: 12, total: 100 });
+  it('forwards the Marketplace slug and the search to fetchSkills', async () => {
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [
+        { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+      ],
+    });
 
     await loadMarketplaceOverview(
       ACCESS_TOKEN,
       browse({ marketplace: 'Solo', query: 'react', sort: 'name-desc', page: 2, pageSize: 12 }),
     );
 
-    expect(fetchSkills).toHaveBeenCalledWith(
+    expect(fetchSkills).toHaveBeenCalledWith(ACCESS_TOKEN, 'Solo', 'react', undefined);
+  });
+
+  it('sorts by name, cuts the page, and counts the total from the whole list', async () => {
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [
+        { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+      ],
+    });
+    // The skills-service sorts by skillSlug, not by name.
+    vi.mocked(fetchSkills).mockResolvedValue({
+      skills: ['Charlie', 'alpha', 'Bravo', 'delta', 'Echo'].map((name) => ({
+        name,
+        description: '',
+        skillSlug: `solo__${name.toLowerCase()}`,
+      })),
+    });
+
+    const ascending = await loadMarketplaceOverview(
       ACCESS_TOKEN,
-      'Solo',
-      { offset: 12, limit: 12, search: 'react', sort: 'name-desc' },
-      undefined,
+      browse({ marketplace: 'Solo', page: 2, pageSize: 2 }),
     );
+    const descending = await loadMarketplaceOverview(
+      ACCESS_TOKEN,
+      browse({ marketplace: 'Solo', sort: 'name-desc', page: 1, pageSize: 2 }),
+    );
+
+    if (!ascending.ok || !descending.ok) throw new Error('expected ok');
+    expect(ascending.overview.skills.map((skill) => skill.name)).toEqual(['Charlie', 'delta']);
+    expect(ascending.overview.total).toBe(5);
+    expect(descending.overview.skills.map((skill) => skill.name)).toEqual(['Echo', 'delta']);
   });
 
   it('clamps a page beyond the last page to the last page', async () => {
-    vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [{ name: 'Solo' }] });
-    vi.mocked(fetchSkills).mockResolvedValue({ packages: [], offset: 0, limit: 24, total: 30 });
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [
+        { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+      ],
+    });
+    vi.mocked(fetchSkills).mockResolvedValue({
+      skills: Array.from({ length: 30 }, (_, index) => ({
+        name: `Skill ${String(index).padStart(2, '0')}`,
+        description: '',
+        skillSlug: `solo__skill-${index}`,
+      })),
+    });
 
     const result = await loadMarketplaceOverview(
       ACCESS_TOKEN,
@@ -102,14 +144,10 @@ describe('Skills page', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error('expected ok');
     expect(result.overview.browse.page).toBe(2);
-    expect(fetchSkills).toHaveBeenCalledTimes(2);
-    expect(fetchSkills).toHaveBeenNthCalledWith(
-      2,
-      ACCESS_TOKEN,
-      'Solo',
-      { offset: 24, limit: 24, search: '', sort: 'name-asc' },
-      undefined,
-    );
+    expect(result.overview.skills).toHaveLength(6);
+    expect(result.overview.total).toBe(30);
+    // The whole list arrives in one request, so the last page needs no second request.
+    expect(fetchSkills).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -126,7 +164,11 @@ describe('cancellation', () => {
 
   it('treats an aborted Skills request as a cancellation, not a failure', async () => {
     const controller = new AbortController();
-    vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [{ name: 'Solo' }] });
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [
+        { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+      ],
+    });
     vi.mocked(fetchSkills).mockImplementation(async () => {
       controller.abort();
       throw new DOMException('aborted', 'AbortError');
@@ -163,7 +205,11 @@ describe('error mapping', () => {
   });
 
   it('maps an ApiError from fetchSkills to its upstream status and message', async () => {
-    vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [{ name: 'Solo' }] });
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [
+        { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+      ],
+    });
     vi.mocked(fetchSkills).mockRejectedValue(new ApiError(503, 'unavailable', 'Service down'));
 
     const result = await loadMarketplaceOverview(ACCESS_TOKEN, browse({ marketplace: 'Solo' }));
@@ -175,7 +221,11 @@ describe('error mapping', () => {
   });
 
   it('maps a non-ApiError failure from fetchSkills to 502', async () => {
-    vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [{ name: 'Solo' }] });
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [
+        { name: 'Solo', marketplaceSlug: 'Solo', link: 'https://github.com/example/solo' },
+      ],
+    });
     vi.mocked(fetchSkills).mockRejectedValue(new Error('boom'));
 
     const result = await loadMarketplaceOverview(ACCESS_TOKEN, browse({ marketplace: 'Solo' }));
@@ -188,18 +238,13 @@ describe('error mapping', () => {
 });
 
 describe('loadSkillDetail', () => {
-  function makeSkill(overrides: Partial<PackageDetail> = {}): PackageDetail {
+  function makeSkill(overrides: Partial<Skill> = {}): Skill {
     return {
-      slug: 'core/skills/react-expert',
-      title_of_package: 'React Expert',
+      skillSlug: 'core__skills__react-expert',
+      name: 'React Expert',
       description: 'Senior React developer.',
-      name_of_marketplace: 'Core',
-      package: {
-        path_of_package_in_repo: 'skills/react-expert/SKILL.md',
-        name_of_package: 'SKILL.md',
-        body_of_package: '# React Expert',
-      },
-      resources_of_package: [],
+      skill: { path: 'skills/react-expert/SKILL.md', name: 'SKILL.md', content: '# React Expert' },
+      documents: [],
       ...overrides,
     };
   }
@@ -208,15 +253,20 @@ describe('loadSkillDetail', () => {
     const skill = makeSkill();
     vi.mocked(fetchSkillDetail).mockResolvedValue(skill);
 
-    const result = await loadSkillDetail(ACCESS_TOKEN, skill.slug);
+    const result = await loadSkillDetail(ACCESS_TOKEN, 'core__skills', skill.skillSlug);
 
     expect(result).toEqual({ ok: true, skill });
+    expect(fetchSkillDetail).toHaveBeenCalledWith(ACCESS_TOKEN, 'core__skills', skill.skillSlug);
   });
 
   it('returns a 404 with a message distinct from a failed load for a missing Skill', async () => {
     vi.mocked(fetchSkillDetail).mockResolvedValue(null);
 
-    const result = await loadSkillDetail(ACCESS_TOKEN, 'core/skills/does-not-exist');
+    const result = await loadSkillDetail(
+      ACCESS_TOKEN,
+      'core__skills',
+      'core__skills__does-not-exist',
+    );
 
     expect(result).toEqual({ ok: false, status: 404, message: 'Skill not found' });
   });
@@ -226,7 +276,11 @@ describe('loadSkillDetail', () => {
       new ApiError(500, 'internal', 'Upstream failure'),
     );
 
-    const result = await loadSkillDetail(ACCESS_TOKEN, 'core/skills/react-expert');
+    const result = await loadSkillDetail(
+      ACCESS_TOKEN,
+      'core__skills',
+      'core__skills__react-expert',
+    );
 
     expect(result).toEqual({ ok: false, status: 500, message: 'Upstream failure' });
     expect(result.ok).toBe(false);
@@ -236,7 +290,11 @@ describe('loadSkillDetail', () => {
   it('maps an unexpected failure to 502', async () => {
     vi.mocked(fetchSkillDetail).mockRejectedValue(new Error('boom'));
 
-    const result = await loadSkillDetail(ACCESS_TOKEN, 'core/skills/react-expert');
+    const result = await loadSkillDetail(
+      ACCESS_TOKEN,
+      'core__skills',
+      'core__skills__react-expert',
+    );
 
     expect(result).toEqual({ ok: false, status: 502, message: 'Failed to load the Skill' });
   });

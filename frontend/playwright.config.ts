@@ -73,7 +73,14 @@ export default defineConfig({
       ORBIT_AGENTS_URL: process.env.ORBIT_AGENTS_URL ?? 'http://localhost:8080',
       ORBIT_TRIGGERS_URL: process.env.ORBIT_TRIGGERS_URL ?? 'http://localhost:8097',
       TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
-      SKILLS_SERVICE_URL: process.env.SKILLS_SERVICE_URL ?? 'http://localhost:8085/v1',
+      // Unlike the URLs above, this one IS called during E2E tests: the
+      // Marketplace RSC page fetches skills-service server-side, which
+      // page.route() cannot intercept (marketplace.spec.ts relies on that
+      // call failing, to reach the overview's "Try again" retry). A real
+      // process bound to the usual 8089 on the host machine would make that
+      // first load succeed with unmocked data instead, so this points at a
+      // privileged port nothing local can bind to.
+      SKILLS_SERVICE_URL: process.env.SKILLS_SERVICE_URL ?? 'http://127.0.0.1:1/v1',
     },
   },
 });

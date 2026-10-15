@@ -1,13 +1,15 @@
 import 'server-only';
 
-import type { Marketplace, PackageDetail, PackageOverview } from '@orbit/shared/api';
+import type { Marketplace, Skill, SkillSummary } from '@orbit/shared/api';
 import { ApiError } from '@orbit/server/api-error';
 import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
 import { getPreferences } from '../../_preferences/preferences-server';
-import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
+import type { MarketplaceBrowseParams, MarketplaceOverviewData, SkillSort } from '../_types';
 
 // The only module that calls the Marketplace client. The RSC pages and the
-// BFF route share it. Each function returns a discriminated union and never
+// BFF route share it. The skills-service returns a Marketplace's whole Skill
+// list (at most 200 Skills) without paging or a name sort, so this module
+// sorts by name, cuts the page, and counts the total. Each function returns a discriminated union and never
 // throws, so that each caller can handle a failure in its own way:
 //   - RSC page: pass initialError to the shell
 //   - BFF route: return an HTTP status to the browser
@@ -23,14 +25,13 @@ export type MarketplaceOverviewResult =
     };
 
 export type SkillDetailResult =
-  { ok: true; skill: PackageDetail } | { ok: false; status: number; message: string };
+  { ok: true; skill: Skill } | { ok: false; status: number; message: string };
 
 /** The status of a request that its caller cancelled. Nobody reads the response. */
 const CANCELLED_STATUS = 499;
 
-type SkillsPageResult =
-  | { ok: true; skills: PackageOverview[]; total: number }
-  | { ok: false; status: number; message: string };
+type SkillListResult =
+  { ok: true; skills: SkillSummary[] } | { ok: false; status: number; message: string };
 
 /**
  * Loads one result page of the overview. The browse values must come from
@@ -46,8 +47,9 @@ export async function loadMarketplaceOverview(
   let marketplaces: Marketplace[];
   try {
     const response = await fetchMarketplaces(accessToken, signal);
-    // Sort a copy. The client can return an array that other callers share.
-    marketplaces = [...response.marketplaces].sort((a, b) => a.name.localeCompare(b.name));
+    // Keep the skills-service order: the platform team orders the
+    // Marketplaces, and the first one is the default.
+    marketplaces = response.marketplaces;
   } catch (err) {
     if (signal && signal.aborted) {
       // The caller cancelled the request. This is not a failure.
@@ -73,7 +75,6 @@ export async function loadMarketplaceOverview(
     };
   }
 
-  let page = browse.page;
   const partialOverview: MarketplaceOverviewData = {
     marketplaces,
     requested: browse,
@@ -81,16 +82,17 @@ export async function loadMarketplaceOverview(
     skills: [],
     total: 0,
   };
-  let result = await loadSkillsPage(accessToken, marketplace, browse, signal);
+  const result = await loadSkillList(accessToken, marketplace, browse.query, signal);
   if (!result.ok) return { ...result, overview: partialOverview };
 
-  const lastPage = Math.max(1, Math.ceil(result.total / browse.pageSize));
+  const ordered = sortByName(result.skills, browse.sort);
+  const lastPage = Math.max(1, Math.ceil(ordered.length / browse.pageSize));
+  let page = browse.page;
   if (page > lastPage) {
-    // The URL asks for a page after the last page. Load the last page.
+    // The request asks for a page after the last page. Show the last page.
     page = lastPage;
-    result = await loadSkillsPage(accessToken, marketplace, { ...browse, page }, signal);
-    if (!result.ok) return { ...result, overview: partialOverview };
   }
+  const start = (page - 1) * browse.pageSize;
 
   return {
     ok: true,
@@ -98,20 +100,21 @@ export async function loadMarketplaceOverview(
       marketplaces,
       requested: browse,
       browse: { ...browse, marketplace, page },
-      skills: result.skills,
-      total: result.total,
+      skills: ordered.slice(start, start + browse.pageSize),
+      total: ordered.length,
     },
   };
 }
 
-/** Loads one Skill for the detail route. A missing Skill is a 404. */
+/** Loads one Skill of one Marketplace. A missing Skill is a 404. */
 export async function loadSkillDetail(
   accessToken: string,
-  slug: string,
+  marketplaceSlug: string,
+  skillSlug: string,
 ): Promise<SkillDetailResult> {
-  let skill: PackageDetail | null;
+  let skill: Skill | null;
   try {
-    skill = await fetchSkillDetail(accessToken, slug);
+    skill = await fetchSkillDetail(accessToken, marketplaceSlug, skillSlug);
   } catch (err) {
     console.error('[loadSkillDetail] failed to load the Skill:', err);
     return fromApiError(err, 'Failed to load the Skill');
@@ -145,57 +148,62 @@ async function readSavedMarketplace(
 }
 
 /**
- * Returns the name of the Marketplace to show, in this order: the requested
- * Marketplace, the saved Marketplace, the first Marketplace. A name counts
- * only when that Marketplace exists. Returns '' when no Marketplaces exist.
+ * Returns the marketplaceSlug of the Marketplace to show, in this order: the
+ * requested Marketplace, the saved Marketplace, the first Marketplace. A slug
+ * counts only when that Marketplace exists. Returns '' when no Marketplaces
+ * exist.
  */
 function selectMarketplace(marketplaces: Marketplace[], requested: string, saved: string): string {
-  const requestedMarketplace = marketplaces.find((marketplace) => marketplace.name === requested);
-  const savedMarketplace = marketplaces.find((marketplace) => marketplace.name === saved);
+  const requestedMarketplace = marketplaces.find(
+    (marketplace) => marketplace.marketplaceSlug === requested,
+  );
+  const savedMarketplace = marketplaces.find(
+    (marketplace) => marketplace.marketplaceSlug === saved,
+  );
   const firstMarketplace = marketplaces[0];
   if (requestedMarketplace) {
-    // The URL names a Marketplace that exists.
-    return requestedMarketplace.name;
+    // The request names a Marketplace that exists.
+    return requestedMarketplace.marketplaceSlug;
   } else if (savedMarketplace) {
     // No Marketplace in the URL. Use the Marketplace that the user selected last.
-    return savedMarketplace.name;
+    return savedMarketplace.marketplaceSlug;
   } else if (firstMarketplace) {
-    // A first visit, an unknown name in the URL, or a saved Marketplace that
-    // no longer exists. Use the first Marketplace.
-    return firstMarketplace.name;
+    // A first visit, an unknown slug in the request, or a saved Marketplace
+    // that no longer exists. Use the first Marketplace.
+    return firstMarketplace.marketplaceSlug;
   } else {
     // No Marketplaces exist.
     return '';
   }
 }
 
-async function loadSkillsPage(
+async function loadSkillList(
   accessToken: string,
-  marketplace: string,
-  browse: MarketplaceBrowseParams,
+  marketplaceSlug: string,
+  search: string,
   signal?: AbortSignal,
-): Promise<SkillsPageResult> {
+): Promise<SkillListResult> {
   try {
-    const page = await fetchSkills(
-      accessToken,
-      marketplace,
-      {
-        offset: (browse.page - 1) * browse.pageSize,
-        limit: browse.pageSize,
-        search: browse.query,
-        sort: browse.sort,
-      },
-      signal,
-    );
-    return { ok: true, skills: page.packages, total: page.total };
+    const list = await fetchSkills(accessToken, marketplaceSlug, search, signal);
+    return { ok: true, skills: list.skills };
   } catch (err) {
     if (signal && signal.aborted) {
       // The caller cancelled the request. This is not a failure.
       return { ok: false, status: CANCELLED_STATUS, message: 'Request cancelled' };
     }
-    console.error('[loadSkillsPage] failed to load Skills:', err);
+    console.error('[loadSkillList] failed to load Skills:', err);
     return fromApiError(err, 'Failed to load Skills');
   }
+}
+
+/** Returns a copy of the Skills, sorted by name in the requested order. */
+function sortByName(skills: SkillSummary[], sort: SkillSort): SkillSummary[] {
+  const ordered = [...skills].sort((a, b) => a.name.localeCompare(b.name));
+  if (sort === 'name-desc') {
+    // Z to A by Skill name.
+    ordered.reverse();
+  }
+  return ordered;
 }
 
 /**

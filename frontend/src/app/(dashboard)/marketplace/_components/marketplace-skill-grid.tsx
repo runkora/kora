@@ -1,24 +1,22 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. Card view of Skill results; each card opens its detail route. */
+/** @tier 3 — marketplace-scoped. Card view of Skill results; each card opens its Skill in place. */
 
-import Link from 'next/link';
 import { Card, CardContent, CardFooter, CardHeader, Grid, Icon, Stack, Text } from '@orbit/hades';
-import type { PackageOverview } from '@orbit/shared/api';
+import type { SkillSummary } from '@orbit/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
-import { buildSkillUrl } from '../_utils/browse-params';
 
 export function MarketplaceSkillGrid() {
-  const { skills, browse } = useMarketplaceContext();
+  const { skills, browse, marketplaceName, openSkill } = useMarketplaceContext();
 
   return (
     <Grid cols={{ base: 1, lg: 2 }} gap="comfortable">
       {skills.map((skill) => (
         <SkillCard
-          key={skill.slug}
+          key={skill.skillSlug}
           skill={skill}
-          marketplaceName={browse.marketplace}
-          href={buildSkillUrl(skill.slug, browse)}
+          marketplaceName={marketplaceName}
+          onOpen={() => openSkill(browse.marketplace, skill.skillSlug)}
         />
       ))}
     </Grid>
@@ -26,18 +24,17 @@ export function MarketplaceSkillGrid() {
 }
 
 /**
- * One Skill result. The whole card is a link to the detail route. The link is
- * inside the card, so that the focus ring of the interactive card shows when
- * the link has keyboard focus.
+ * One Skill result. The whole card is a button that opens the Skill in place,
+ * so the address does not change. Enter and Space open it, as on a list row.
  */
 function SkillCard({
   skill,
   marketplaceName,
-  href,
+  onOpen,
 }: {
-  skill: PackageOverview;
+  skill: SkillSummary;
   marketplaceName: string;
-  href: string;
+  onOpen: () => void;
 }) {
   let description: string;
   if (skill.description) {
@@ -48,33 +45,48 @@ function SkillCard({
     description = 'No description provided.';
   }
 
+  function handleKeyDown(event: React.KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Enter' || event.key === ' ') {
+      // Space would scroll the page. Open the Skill instead.
+      event.preventDefault();
+      onOpen();
+    }
+  }
+
   return (
-    <Card interactive column>
-      <Stack asChild grow gap="none">
-        <Link href={href}>
-          <CardHeader
-            title={skill.title_of_package}
-            description={
-              <Text mono size="caption" weight="emphasis" color="subtle" truncate>
-                {skill.slug}
-              </Text>
-            }
-          />
-
-          {/* grow keeps the footers of the cards in one row aligned. */}
-          <CardContent grow>
-            <Text size="supporting" color="muted">
-              {description}
+    <Card
+      interactive
+      column
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${skill.name}`}
+      onClick={onOpen}
+      onKeyDown={handleKeyDown}
+      style={{ cursor: 'pointer' }}
+    >
+      <Stack grow gap="none">
+        <CardHeader
+          title={skill.name}
+          description={
+            <Text mono size="caption" weight="emphasis" color="subtle" truncate>
+              {skill.skillSlug}
             </Text>
-          </CardContent>
+          }
+        />
 
-          <CardFooter compact justify="between">
-            <Text as="span" size="caption" color="subtle">
-              {marketplaceName}
-            </Text>
-            <Icon name="chevron-right" size="2xs" color="muted" />
-          </CardFooter>
-        </Link>
+        {/* grow keeps the footers of the cards in one row aligned. */}
+        <CardContent grow>
+          <Text size="supporting" color="muted">
+            {description}
+          </Text>
+        </CardContent>
+
+        <CardFooter compact justify="between">
+          <Text as="span" size="caption" color="subtle">
+            {marketplaceName}
+          </Text>
+          <Icon name="chevron-right" size="2xs" color="muted" />
+        </CardFooter>
       </Stack>
     </Card>
   );

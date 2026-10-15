@@ -1,112 +1,100 @@
 import 'server-only';
 
-import type {
-  GetMarketplaces,
-  GetPackageOverview,
-  GetPackageOverviewParams,
-  PackageDetail,
-  PackageOverview,
-} from '@orbit/shared/api';
-import {
-  MARKETPLACE_FIXTURES,
-  PACKAGE_DETAIL_FIXTURES,
-  PACKAGE_FIXTURES_BY_MARKETPLACE,
-} from './marketplace-fixtures';
+import type { GetMarketplaces, ListSkillsResponse, Skill } from '@orbit/shared/api';
+import { config } from '@orbit/server/config';
+import { ApiError } from './api-error';
 
-// Mock Marketplace client. It serves fixtures until the Marketplace Service
-// exists. The signatures already have the shape that a real client needs:
-// each call takes the session access token and, for browse calls, an
-// optional abort signal. The mock does not use the token.
+// Marketplace client. Calls skills-service (backend/internal/skills) over
+// SKILLS_SERVICE_URL. Each function matches one skills-service endpoint; see
+// docs/adr/2026-08-28-marketplace-adr-backend.md for the route contract.
 //
-// The real client must use a 10-second timeout, together with the caller's
-// abort signal (golden-path checklist). Like triggers-client.ts, it should
-// throw an ApiError with the upstream status for each failed response.
-//
-// The real client must also pass `sort` to the backend. The backend must sort
-// all matching skills before it applies offset and limit, as this mock does,
-// so that the order is correct across pages.
+// The skills-service does not page or sort by name, and does not follow a
+// Marketplace's cursor beyond its first batch: the server service does the
+// sort/page/total work (see marketplace-server.ts) over that one batch. A
+// Marketplace with more than SKILL_LIST_CAP Skills is not fully shown yet.
 
+const UPSTREAM_TIMEOUT_MS = 10_000;
+
+/** The most Skills that the skills-service returns for one list request. */
+export const SKILL_LIST_CAP = 200;
+
+/** Combines the caller's own cancellation, when given, with a fixed timeout. */
+function requestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+async function request<T>(path: string, accessToken: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${config.skillsServiceUrl}${path}`, {
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+    cache: 'no-store',
+    signal: requestSignal(signal),
+  });
+
+  if (!response.ok) {
+    const errJson = await response.json().catch(() => ({}));
+    const err = errJson as { code?: string; message?: string };
+    throw new ApiError(response.status, err.code ?? 'UNKNOWN', err.message ?? response.statusText);
+  }
+
+  return (await response.json()) as T;
+}
+
+/** GET /marketplaces */
 export async function fetchMarketplaces(
   accessToken: string,
   signal?: AbortSignal,
 ): Promise<GetMarketplaces> {
-  throwIfAborted(signal);
-  return { marketplaces: MARKETPLACE_FIXTURES };
+  return request<GetMarketplaces>('/marketplaces', accessToken, signal);
 }
 
+/**
+ * GET /marketplaces/{marketplaceSlug}/skills?search=
+ *
+ * A 404 from the skills-service (unknown Marketplace) surfaces as an
+ * ApiError, same as any other failed response.
+ */
 export async function fetchSkills(
   accessToken: string,
-  marketplaceName: string,
-  params: GetPackageOverviewParams,
+  marketplaceSlug: string,
+  search: string,
   signal?: AbortSignal,
-): Promise<GetPackageOverview> {
-  throwIfAborted(signal);
-  const all = PACKAGE_FIXTURES_BY_MARKETPLACE[marketplaceName] ?? [];
-
-  let matched: PackageOverview[] = all;
-  if (params.search) {
-    matched = [];
-    all.forEach((skill) => {
-      if (matchesSearch(skill, params.search!)) {
-        matched.push(skill);
-      }
-    });
+): Promise<ListSkillsResponse> {
+  const query = new URLSearchParams();
+  if (search) {
+    query.set('search', search);
   }
-
-  // Sort all matching skills before the page is cut, so that the order is
-  // correct across pages. Sort a copy, because the fixtures are shared.
-  let ordered: PackageOverview[];
-  if (params.sort === 'name-asc') {
-    // A to Z by skill name.
-    ordered = [...matched].sort((a, b) => a.title_of_package.localeCompare(b.title_of_package));
-  } else if (params.sort === 'name-desc') {
-    // Z to A by skill name.
-    ordered = [...matched].sort((a, b) => b.title_of_package.localeCompare(a.title_of_package));
-  } else {
-    // No sort requested. Keep the source order.
-    ordered = matched;
-  }
-
-  const { offset, limit } = params;
-
-  return {
-    packages: ordered.slice(offset, offset + limit),
-    offset,
-    limit,
-    total: ordered.length,
-  };
+  const qs = query.toString();
+  return request<ListSkillsResponse>(
+    `/marketplaces/${marketplaceSlug}/skills${qs ? `?${qs}` : ''}`,
+    accessToken,
+    signal,
+  );
 }
 
+/**
+ * GET /marketplaces/{marketplaceSlug}/skills/{skillSlug}
+ *
+ * Returns null for a missing Skill (404), so a caller can show a not-found
+ * state without needing to inspect the error.
+ */
 export async function fetchSkillDetail(
   accessToken: string,
-  slug: string,
-): Promise<PackageDetail | null> {
-  let packageDetail: PackageDetail | undefined;
-
-  PACKAGE_DETAIL_FIXTURES.forEach((skill) => {
-    if (skill.slug === slug) {
-      packageDetail = skill;
+  marketplaceSlug: string,
+  skillSlug: string,
+): Promise<Skill | null> {
+  try {
+    return await request<Skill>(
+      `/marketplaces/${marketplaceSlug}/skills/${skillSlug}`,
+      accessToken,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.isNotFound) {
+      return null;
     }
-  });
-
-  return packageDetail ?? null;
-}
-
-/** Stops a mock call when the caller cancels it, as a real fetch does. */
-function throwIfAborted(signal: AbortSignal | undefined) {
-  if (signal) {
-    signal.throwIfAborted();
+    throw err;
   }
-}
-
-function matchesSearch(skill: PackageOverview, query: string): boolean {
-  const trimmed = query.trim().toLowerCase();
-
-  if (!trimmed) {
-    return true;
-  }
-
-  const name = skill.title_of_package.toLowerCase();
-
-  return name.includes(trimmed);
 }
