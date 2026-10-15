@@ -1,15 +1,17 @@
 # White-labelling Theme
 
-**Status:** Accepted
+**Status:** Accepted, amended 2026-10-15
 **Date:** 2026-10-12
 **Deciders:** Qj Stout-Spykers
 **Technical Story:** The six architectural decisions the [White-labelling PRD](../prd/white-labelling.md) defers to this ADR, numbered as that PRD numbers them so other documents can cite each one. Depends on [Design System Semantic Versioning](2026-10-11-design-system-semantic-versioning.md) for the manifest, the version and the contract boundary rules, and on [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) for how a producer obtains Hades.
+
+> **Amendment, 2026-10-15.** The theme no longer records a Hades contract version. Hades is released with kora under one version, so a theme records the kora release it was written against, `koraVersion`, and an instance accepts a theme of the same major. The versioning ADR carries the reasoning. The `contractVersion` key, the `contractVersion` and `hadesVersion` health fields and the contract-minor handling in this ADR are replaced accordingly; nothing else in the decisions changes.
 
 ---
 
 ## Context
 
-A kora deployment serves one client organisation and should look and read like that client's product. The PRD defines the theme as a deployment artefact: it conforms to a contract defined by the Hades design system major, it is supplied with the rest of an instance's configuration, it changes only on redeploy, it may be partial, and a malformed value fails the deploy while a missing value falls back to the kora default. The PRD is written without reference to any producer of themes, and this ADR keeps that stance: nothing here depends on how a theme is authored.
+A kora deployment serves one client organisation and should look and read like that client's product. The PRD defines the theme as a deployment artefact: it conforms to a contract defined by the Hades design system as released with the kora major it was written for, it is supplied with the rest of an instance's configuration, it changes only on redeploy, it may be partial, and a malformed value fails the deploy while a missing value falls back to the kora default. The PRD is written without reference to any producer of themes, and this ADR keeps that stance: nothing here depends on how a theme is authored.
 
 ### Background
 
@@ -81,7 +83,7 @@ Each decision below records its own options. The two overall shapes that were we
 
 **The document.** `theme.yaml`, with these top-level keys and no others. An unknown top-level key fails validation.
 
-- `contractVersion`: the contract version, `MAJOR.MINOR`, the theme was written against, as `CONTRACT_VERSION` in the package and `contractVersion` in the manifest carry it. The only required key, written as a quoted string because YAML reads an unquoted `1.0` as the number 1 and `1.10` as 1.1; the validator refuses a number. The instance accepts a theme whose contract major equals its own and refuses every other (Decision 3).
+- `koraVersion`: the kora release, `MAJOR.MINOR.PATCH`, the theme was written against. The only required key, written as a quoted string; the validator refuses a number, which is what YAML makes of an unquoted `1.10`. Every kora release carries the manifest and schema for its own version as release assets, so a producer selects a release and gets the surface that release accepts. The instance accepts a theme whose major equals its own and refuses every other (Decision 3). A theme is not promised to keep working across a major.
 - `productName`: a single verbatim string within the manifest's product-name bounds.
 - `tokens`: a map keyed by manifest token name, each holding `dark` and `light` values. Either mode may be omitted and falls through to the kora default. The radius steps are tokens like any other.
 - `slots`: a map keyed by manifest slot name. Image slots hold a path per mode; font slots hold one path. Paths are relative to the bundle root.
@@ -146,13 +148,13 @@ An entry under `tokens` or `slots` whose key the running manifest does not know 
 2. **The version on the existing health route.**
 3. **The version and the manifest on a read-only endpoint.** The manifest is internal, which rules this out.
 
-**Chosen: in-deploy validation, one code path, same contract major only, the versions on the health route.**
+**Chosen: in-deploy validation, one code path, same major only, the version on the health route.**
 
-- **Compatibility.** A theme passes when the major of its `contractVersion` equals the major of the instance's `CONTRACT_VERSION`. A newer contract minor's tokens are unknown to an older instance and are ignored and logged, per Decision 1; an older theme on a newer instance leaves the new tokens at default. A theme of any other contract major fails validation. The Hades package version plays no part: a Hades major that leaves the contract alone invalidates no theme.
+- **Compatibility.** A theme passes when the major of its `koraVersion` equals the major of the instance's own version, the kora release it is running. A newer release's tokens are unknown to an older instance and are ignored and logged, per Decision 1; an older theme on a newer instance leaves the new tokens at default. A theme of any other major fails validation. Within a major this holds because the release workflow refuses a release that contains a Hades break unless it is a major (the versioning ADR). Below `1.0.0` every release has major `0`, so nothing is rejected on version and nothing is promised. A build that is not from a release tag identifies as `0.0.0-dev` and skips the version comparison, reporting that it did.
 - **Bundle matches document.** The init container also receives the chart-supplied document, mounted as a file from the frontend's ConfigMap, and fails validation unless the two parse to the same document, because the chart-supplied copy has passed through templating and a ConfigMap, which can change line endings and trailing whitespace. A committed document whose bundle was not rebuilt, or the reverse, fails the deploy with a message that says so.
 - **The module is pure.** It takes the document and a function that reads an asset by bundle path, and returns the validated theme and the report. It never touches the filesystem, so the delivery ADR's smoke build compiles it and Decision 6's decorator runs it in a browser. The init container entry point and the frontend's server module read `/etc/orbit/theme` and hand the bytes over.
 - **What validation reports.** Besides faults, the validator reports every ignored entry and every identity value the theme leaves to fall through to the kora default, as the PRD requires. The init container prints the report; the instance logs it at startup.
-- **Health.** `GET /api/health` gains `hadesVersion` and `contractVersion` fields. No manifest endpoint.
+- **Health.** `GET /api/health` reports the instance's version. No manifest endpoint.
 - **Nothing validates in Go.** The backend reads a value the chart rendered from a document the frontend's init container has accepted, and never calls the validator.
 
 ### Decision 4: Startup loading, first HTML, assets and identity slots
@@ -220,7 +222,7 @@ An entry under `tokens` or `slots` whose key the running manifest does not know 
 
 ## Decision
 
-**Chosen Option:** Decision 1 Option 1; Decision 2 values, OCI image, image volume; Decision 3 in-deploy validation, one code path, same contract major only, versions on health; Decision 4 Option 1; Decision 5 chart extraction, everything a client's people or agents read, a lint rule on each side; Decision 6 not viable at this stage.
+**Chosen Option:** Decision 1 Option 1; Decision 2 values, OCI image, image volume; Decision 3 in-deploy validation, one code path, same major only, version on health; Decision 4 Option 1; Decision 5 chart extraction, everything a client's people or agents read, a lint rule on each side; Decision 6 not viable at this stage.
 
 ### Rationale
 
@@ -260,7 +262,7 @@ The theme is install configuration, so it travels as values, and its assets are 
 ### Hades
 
 - `src/theme/` module: the validator, the loader, the CSS generator with its asset resolver, and the SVG, size and product-name checks driven by manifest data, all pure. `theme.schema.json` generated from the manifest and checked in beside it; the delivery ADR ships it in the package and attaches it to each release.
-- The agnostic slot components for logo, favicon and product name, and the move of `KoraLogo` to the app, are the pre-1.0 changes SD-1 of the versioning ADR schedules; this ADR adds nothing to them.
+- The agnostic slot components for logo, favicon and product name, and the move of `KoraLogo` to the app, are the pre-contract changes SD-1 of the versioning ADR schedules; this ADR adds nothing to them.
 
 ### Frontend
 
@@ -283,7 +285,7 @@ None. No deployment carries a theme today, and an install without `theme.bundle.
 
 ### Timeline
 
-The implementation lands as separate pull requests, each stacked on the previous, in this order: the versioning ADR's pre-1.0 changes and classifier, the delivery ADR's rename and release workflow, then the Hades, frontend, backend and chart changes above. `hades/v1.0.0` is cut before the first theme, because a document records a Hades version whose major the instance must match.
+The implementation lands as separate pull requests, each stacked on the previous, in this order: the versioning ADR's pre-contract changes and classifier, the delivery ADR's rename and release jobs, then the Hades, frontend, backend and chart changes above. No Hades release is cut first: a theme records a kora release, and the instance compares majors against its own.
 
 ---
 
@@ -298,7 +300,7 @@ The implementation lands as separate pull requests, each stacked on the previous
 
 ### Monitoring
 
-- The instance logs its own Hades version, the version the theme records, the theme hash, every ignored token and every identity value left to fall through, at startup.
+- The instance logs its own version, the `koraVersion` the theme records, the theme hash, every ignored token and every identity value left to fall through, at startup.
 - The init container's log is the diagnostic for a failed rollout.
 
 ---
@@ -306,7 +308,7 @@ The implementation lands as separate pull requests, each stacked on the previous
 ## Related Decisions
 
 - [Design System Semantic Versioning](2026-10-11-design-system-semantic-versioning.md) - the manifest, the version and the contract boundary rules this ADR builds on; its deferred runtime-exposure question is answered in Decision 3.
-- [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) - how a producer obtains the Hades version a theme targets.
+- [Hades Delivery to External Consumers](2026-10-11-hades-delivery-to-external-consumers.md) - how a producer obtains the Hades release a theme targets.
 - [Install and Distribution Model](2026-09-04-install-and-distribution-model.md) - charts as the product, GitOps cleanliness, the operator's scope and the prerequisites contract.
 - [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) - the path the product name takes into the backend.
 - [Hades Frontend Design System](2026-03-25-terra-frontend-design-system.md) - the token sheet the overrides target.
@@ -326,4 +328,4 @@ The implementation lands as separate pull requests, each stacked on the previous
 
 The decision numbers match the list in the PRD's Solution Overview, so a document in another repository cites "decision 6 of the white-labelling theme ADR" and finds it here.
 
-**Last Updated:** 2026-10-12
+**Last Updated:** 2026-10-15
