@@ -457,7 +457,7 @@ The image and the document come together: one without the other fails the render
 
 ### Roll out a theme
 
-A theme change is a values change: a new digest, a changed document, or both, rolled out by the standard rolling update and rolled back by a revert. The frontend pod mounts the bundle read-only at `/etc/orbit/theme` and runs a `validate-theme` init container before the application starts. It validates the bundle with the Hades version the image carries and checks that the bundle's `theme.yaml` matches the document the chart was given. A fault stops the pod there: the rollout stalls, the previous pods keep serving, and under Argo CD the Application goes Degraded once the Deployment's progress deadline passes.
+A theme change is a values change: a new digest, a changed document, or both, rolled out by the standard rolling update and rolled back by a revert. The frontend pod mounts the bundle read-only at `/etc/orbit/theme` and runs a `validate-theme` init container before the application starts. It validates the bundle against the kora release the image is (a theme of the same major passes) and checks that the bundle's `theme.yaml` matches the document the chart was given. A fault stops the pod there: the rollout stalls, the previous pods keep serving, and under Argo CD the Application goes Degraded once the Deployment's progress deadline passes.
 
 When a rollout stalls, read the init container's log on the new pod:
 

@@ -48,7 +48,7 @@ spec:
         {{- end }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "frontend") | nindent 8 }}
       {{- if $theme }}
-      # Validates the bundle with the Hades version this image runs, and checks
+      # Validates the bundle against the kora release this image is, and checks
       # it against the document. A fault keeps the pod from starting, the
       # rollout stalls and the previous pods keep serving; the reason is in
       # this container's log.
