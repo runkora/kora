@@ -21,8 +21,8 @@ func TestClient_NodeOwners(t *testing.T) {
 	}{
 		{
 			name:  "repository shapes, a user and an unseen id",
-			reply: `{"data":{"n0":{"owner":{"login":"RunKora"}},"n1":{"repository":{"owner":{"login":"clear-route"}}},"n2":{"login":"octocat"},"n3":null},"errors":[{"message":"Could not resolve to a node"}]}`,
-			want:  map[string]string{"R_1": "runkora", "PR_1": "clear-route"},
+			reply: `{"data":{"n0":{"owner":{"login":"Fabrikam"}},"n1":{"repository":{"owner":{"login":"contoso"}}},"n2":{"login":"octocat"},"n3":null},"errors":[{"message":"Could not resolve to a node"}]}`,
+			want:  map[string]string{"R_1": "fabrikam", "PR_1": "contoso"},
 		},
 		{name: "errors without data fail", reply: `{"data":null,"errors":[{"type":"RATE_LIMITED"}]}`, wantErr: ErrGraphQLQuery},
 	}

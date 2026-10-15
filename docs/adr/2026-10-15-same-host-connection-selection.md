@@ -81,7 +81,7 @@ This decision touches **How does it connect?** It changes which connection and u
 
 **Option 2d (rejected):** Fetch the agent's connectors from `orbit-agents`. The gateway would need a new typed client and a service call per request. The grant compiled from those connectors is already in the gateway's bundle.
 
-**Option 2e (chosen):** Select GraphQL and search requests by the owners the document or query names, and fall back to the held-connection rule when they name none. `classifyGraphQL` already walks every `repository(owner:, name:)` call, including variables and fragments (`backend/internal/credentials/adapters/githubapp/graphql.go:483`). An agent that holds several GitHub connections otherwise has no way to call GraphQL or search. The anonymous fallback cannot serve these requests. Anonymous GraphQL returns 403, anonymous `/user` returns 401, and anonymous search for `org:runkora` returned 1 result against 6 authenticated.
+**Option 2e (chosen):** Select GraphQL and search requests by the owners the document or query names, and fall back to the held-connection rule when they name none. `classifyGraphQL` already walks every `repository(owner:, name:)` call, including variables and fragments (`backend/internal/credentials/adapters/githubapp/graphql.go:483`). An agent that holds several GitHub connections otherwise has no way to call GraphQL or search. The anonymous fallback cannot serve these requests. Anonymous GraphQL returns 403, anonymous `/user` returns 401, and anonymous search omits private repositories.
 
 ### D3. Requests that resolve to no candidate
 

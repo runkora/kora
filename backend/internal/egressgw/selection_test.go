@@ -89,12 +89,12 @@ func TestResolveConnection_SameHostSelection(t *testing.T) {
 		wantAmbiguous bool
 		wantScopeRead bool
 	}{
-		{name: "owner selects runkora", conns: both, url: "https://github.com/runkora/kora.git/info/refs?service=git-upload-pack", want: "runkora-github"},
-		{name: "owner selects clear-route", conns: both, url: "https://api.github.com/repos/Clear-Route/orbit/pulls", want: "clear-route-github"},
+		{name: "owner selects fabrikam", conns: both, url: "https://github.com/fabrikam/widgets.git/info/refs?service=git-upload-pack", want: "fabrikam-github"},
+		{name: "owner selects contoso", conns: both, url: "https://api.github.com/repos/Contoso/gadgets/pulls", want: "contoso-github"},
 		{name: "owner matches no candidate", conns: both, url: "https://github.com/octocat/hello-world.git/info/refs?service=git-upload-pack", wantScopeRead: true},
-		{name: "owner-less with one held", conns: both, scopes: []string{"connection:runkora-github:contents:read", "inference:invoke"}, url: "https://api.github.com/graphql", want: "runkora-github", wantScopeRead: true},
-		{name: "owner-less with two held", conns: both, scopes: []string{"connection:runkora-github:contents:read", "connection:clear-route-github:issues:write"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
-		{name: "owner-less with none held", conns: both, scopes: []string{"connection:runkora-github-old:contents:read"}, url: "https://api.github.com/search/issues", wantScopeRead: true},
+		{name: "owner-less with one held", conns: both, scopes: []string{"connection:fabrikam-github:contents:read", "inference:invoke"}, url: "https://api.github.com/graphql", want: "fabrikam-github", wantScopeRead: true},
+		{name: "owner-less with two held", conns: both, scopes: []string{"connection:fabrikam-github:contents:read", "connection:contoso-github:issues:write"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
+		{name: "owner-less with none held", conns: both, scopes: []string{"connection:fabrikam-github-old:contents:read"}, url: "https://api.github.com/search/issues", wantScopeRead: true},
 		{name: "owner-less with a scope covering every connection", conns: both, scopes: []string{"connection:read"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
 		{name: "fully-qualified host selects by owner", conns: both, url: "https://api.github.com./repos/fabrikam/widgets", want: "fabrikam-github"},
 		{name: "single connection unchanged", conns: candidateConns{contoso}, url: "https://api.github.com/graphql", want: "contoso-github"},

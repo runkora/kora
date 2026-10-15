@@ -44,7 +44,7 @@ func TestConnector_RequestOwners_Path(t *testing.T) {
 		{"https://objects.githubusercontent.com/github-production-release-asset/1/2", ""},
 		{"https://ghe.example.com/team/app.git/git-upload-pack", "team"},
 		{"https://ghe.example.com/api/v3/repos/team/app/issues", "team"},
-		{"https://api.github.com./repos/runkora/kora", "runkora"},
+		{"https://api.github.com./repos/fabrikam/widgets", "fabrikam"},
 		{"https://objects.githubusercontent.com./a/b", ""},
 	}
 	for _, tc := range cases {
@@ -64,15 +64,15 @@ func TestConnector_RequestOwners_Search(t *testing.T) {
 		q    string
 		want []string
 	}{
-		{"repo:RunKora/kora is:pr", []string{"runkora"}},
-		{"bug org:clear-route", []string{"clear-route"}},
+		{"repo:Fabrikam/widgets is:pr", []string{"fabrikam"}},
+		{"bug org:contoso", []string{"contoso"}},
 		{`user:"octocat"`, []string{"octocat"}},
-		{"repo:runkora/kora org:clear-route", []string{"runkora", "clear-route"}},
-		{"-org:runkora bug", nil},
-		{"NOT org:runkora bug", nil},
+		{"repo:fabrikam/widgets org:contoso", []string{"fabrikam", "contoso"}},
+		{"-org:fabrikam bug", nil},
+		{"NOT org:fabrikam bug", nil},
 		{"state:open bug", nil},
 		{"repo:noslash", nil},
-		{"(org:runkora OR org:clear-route) bug", []string{"runkora", "clear-route"}},
+		{"(org:fabrikam OR org:contoso) bug", []string{"fabrikam", "contoso"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.q, func(t *testing.T) {
@@ -95,14 +95,14 @@ func TestConnector_RequestOwners_GraphQL(t *testing.T) {
 		wantOwners []string
 		wantIDs    []string
 	}{
-		{"repository owner", `{"query":"{ repository(owner: \"RunKora\", name: \"kora\") { id } }"}`, []string{"runkora"}, nil},
-		{"organization login", `{"query":"{ organization(login: \"clear-route\") { id } }"}`, []string{"clear-route"}, nil},
-		{"repositoryOwner login", `{"query":"{ repositoryOwner(login: \"runkora\") { id } }"}`, []string{"runkora"}, nil},
+		{"repository owner", `{"query":"{ repository(owner: \"Fabrikam\", name: \"widgets\") { id } }"}`, []string{"fabrikam"}, nil},
+		{"organization login", `{"query":"{ organization(login: \"contoso\") { id } }"}`, []string{"contoso"}, nil},
+		{"repositoryOwner login", `{"query":"{ repositoryOwner(login: \"fabrikam\") { id } }"}`, []string{"fabrikam"}, nil},
 		{"user login", `{"query":"{ user(login: \"octocat\") { id } }"}`, []string{"octocat"}, nil},
-		{"owner from variable", `{"query":"query($o: String!) { repository(owner: $o, name: \"kora\") { id } }","variables":{"o":"runkora"}}`, []string{"runkora"}, nil},
-		{"owner from variable default", `{"query":"query($o: String = \"runkora\") { repository(owner: $o, name: \"kora\") { id } }"}`, []string{"runkora"}, nil},
-		{"owner inside fragment", `{"query":"query { ...F } fragment F on Query { organization(login: \"clear-route\") { id } }"}`, []string{"clear-route"}, nil},
-		{"owners spanning two accounts", `{"query":"{ a: repository(owner: \"runkora\", name: \"kora\") { id } b: organization(login: \"clear-route\") { id } }"}`, []string{"clear-route", "runkora"}, nil},
+		{"owner from variable", `{"query":"query($o: String!) { repository(owner: $o, name: \"widgets\") { id } }","variables":{"o":"fabrikam"}}`, []string{"fabrikam"}, nil},
+		{"owner from variable default", `{"query":"query($o: String = \"fabrikam\") { repository(owner: $o, name: \"widgets\") { id } }"}`, []string{"fabrikam"}, nil},
+		{"owner inside fragment", `{"query":"query { ...F } fragment F on Query { organization(login: \"contoso\") { id } }"}`, []string{"contoso"}, nil},
+		{"owners spanning two accounts", `{"query":"{ a: repository(owner: \"fabrikam\", name: \"widgets\") { id } b: organization(login: \"contoso\") { id } }"}`, []string{"contoso", "fabrikam"}, nil},
 		{"node and nodes ids", `{"query":"{ node(id: \"PR_1\") { id } nodes(ids: [\"I_2\", \"I_3\"]) { id } }"}`, nil, []string{"I_2", "I_3", "PR_1"}},
 		{"mutation input ids", `{"query":"mutation($in: AddLabelsToLabelableInput!) { addLabelsToLabelable(input: $in) { clientMutationId } }","variables":{"in":{"labelableId":"I_9","labelIds":["LA_1"],"clientMutationId":"abc"}}}`, nil, []string{"I_9", "LA_1"}},
 		{"excluded id names", `{"query":"mutation { updateProjectV2ItemFieldValue(input: {projectId: \"PVT_1\", itemId: \"PVTI_1\", fieldId: \"F_1\", value: {singleSelectOptionId: \"abc\", iterationId: \"it\"}, clientMutationId: \"x\"}) { clientMutationId } }"}`, nil, []string{"F_1", "PVTI_1", "PVT_1"}},
@@ -143,7 +143,7 @@ func TestConnector_NodeOwners(t *testing.T) {
 				t.Errorf("lookup authorization = %q", r.Header.Get("Authorization"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data":   map[string]any{"n0": map[string]any{"repository": map[string]any{"owner": map[string]any{"login": "RunKora"}}}, "n1": nil, "n2": map[string]any{"owner": map[string]any{"login": "clear-route"}}},
+				"data":   map[string]any{"n0": map[string]any{"repository": map[string]any{"owner": map[string]any{"login": "Fabrikam"}}}, "n1": nil, "n2": map[string]any{"owner": map[string]any{"login": "contoso"}}},
 				"errors": []any{map[string]any{"message": "Could not resolve to a node"}},
 			})
 		default:
@@ -155,14 +155,14 @@ func TestConnector_NodeOwners(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
-	c := open(t, a, credentials.Connection{ID: "acme|runkora", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "runkora"})}).(*connector)
+	c := open(t, a, credentials.Connection{ID: "acme|fabrikam", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "fabrikam"})}).(*connector)
 
 	got, err := c.NodeOwners(t.Context(), []string{"PR_1", "garbage", "O_1"}, []string{"contents", "issues"})
 	if err != nil {
 		t.Fatalf("NodeOwners: %v", err)
 	}
-	if len(got) != 2 || got["PR_1"] != "runkora" || got["O_1"] != "clear-route" {
-		t.Errorf("owners = %v, want PR_1=runkora O_1=clear-route", got)
+	if len(got) != 2 || got["PR_1"] != "fabrikam" || got["O_1"] != "contoso" {
+		t.Errorf("owners = %v, want PR_1=fabrikam O_1=contoso", got)
 	}
 	want := map[string]string{"contents": "read", "issues": "read", "metadata": "read"}
 	if len(minted.Permissions) != len(want) || minted.Permissions["contents"] != "read" || minted.Permissions["issues"] != "read" || minted.Permissions["administration"] != "" {
