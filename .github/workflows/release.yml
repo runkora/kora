@@ -64,7 +64,7 @@ jobs:
         run: cd frontend && pnpm install --frozen-lockfile
 
       - name: Hades type check under its strict flags
-        run: cd frontend && pnpm --filter @runkora/hades run build
+        run: cd frontend && pnpm --filter @runkora/hades run type-check
 
       - name: Hades unit tests
         run: make frontend-test-hades
