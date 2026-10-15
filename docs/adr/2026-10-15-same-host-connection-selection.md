@@ -109,6 +109,12 @@ This decision touches **How does it connect?** It changes which connection and u
 
 **Option 6b (rejected):** `failurePolicy: Ignore`. Any Connection would be admitted during an outage, and only the aggregation backstop would catch a conflict. `webhookcert.Manager.wire` and the preflight check would each need an exception for one entry.
 
+### D7. Connections for the same owner
+
+**Option 7a (chosen):** Two connections with the same owner in one tenant conflict. Connector `resources` serve per-agent least privilege within one organization. They compile to repository-qualified scopes (`AgentType.ConnectorScopes` in `backend/internal/agents/models.go:240`). The minted token is narrowed to the request's repository by `reposFor` (`backend/internal/credentials/adapters/githubapp/githubapp.go:693`).
+
+**Option 7b (rejected):** Allow same-owner connections when each declares a repository list and the lists are disjoint, and select by owner and then by repository. Each connection would need its own repository list, and selection would need a repository lookup. Requests that name no repository, such as GraphQL and search, would carry the same ambiguity across the same-owner connections.
+
 ---
 
 ## Decision
@@ -143,11 +149,13 @@ The egress gateway resolves every connection in the caller's tenant that serves 
 *   A github.com connection without an `owner` blocks every second github.com connection in its tenant until it declares one.
 *   Connection CREATE and UPDATE fail while the operator webhook is unreachable.
 *   A later conflicting connection that bypasses the webhook is absent from the gateway registry. Only an operator log warning reports it.
+*   One GitHub organization maps to one connection per tenant.
 *   The anonymous read fallback for an unresolved request carries no connection CA. A GitHub Enterprise host with a private CA and several connections cannot serve it.
 
 ### Neutral
 
 *   An owner-less request in a multi-candidate tenant adds one in-process scope-set evaluation.
+*   The conflict rule can be relaxed to allow same-owner connections with disjoint repository lists without changing owner selection. A distinct bot identity per agent, different App permission sets and installations administered by different teams would need that relaxation.
 
 ---
 
