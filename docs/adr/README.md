@@ -85,6 +85,7 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Connection Scope Qualifiers — Grant-Time Resource Scoping for Connectors](2026-07-22-connection-scope-qualifiers.md) — `Accepted` · 2026-07-22
 - [GitHub Connection — Category-Scoped Actions, Repository Qualifiers, and Down-Scoped Token Minting](2026-07-22-github-connection-category-scoped-actions.md) — `Accepted` · 2026-07-22
 - [GitHub GraphQL Authorised by the Granular Actions of Selected Fields](2026-09-29-github-graphql-field-classification.md) — `Accepted` · 2026-09-29
+- [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) — `Accepted` · 2026-10-15
 - [Agent Sandbox Toolchain and Connectivity Environments](2026-06-14-agent-sandbox-toolchain-and-connectivity-environments.md) — `Superseded by [sandbox-environments](2026-10-03-sandbox-environments.md)` · 2026-06-14
 - [Sandbox Environments](2026-10-03-sandbox-environments.md) — `Accepted (Amended 2026-10-08)` · 2026-10-03
 - [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) — `Accepted` · 2026-10-07
@@ -299,4 +300,5 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |
 | 2026-10-13 | [Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) | Accepted | — |
+| 2026-10-15 | [Same-Host Connection Selection in the Egress Gateway](2026-10-15-same-host-connection-selection.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |
