@@ -56,6 +56,8 @@ config:
 
 The connection does not name repositories. An agent is narrowed to specific repositories when a connector is attached to it, which compiles to a qualified grant; the App installation bounds everything beyond that.
 
+A tenant can hold one `github_app` connection per GitHub organization, each with its own `owner`. A request whose path names an owner, such as a clone or `/repos/{owner}/...`, uses the connection with that `owner`. A request that names none, such as GraphQL or search, uses the one connection the agent is granted. An agent granted several of them is denied those requests with the reason `connection_unresolved`.
+
 ### kubernetes
 
 Authenticates an agent to a Kubernetes API server as a ServiceAccount. `secretRef` should hold the bearer token under `secretKey: token`. The adapter reads no `config`.

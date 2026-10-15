@@ -4,7 +4,7 @@ package credentials
 // the operator renders into orbit-system. The ConnectionAggregator writes one
 // ConfigMap key, connections.json, holding a JSON array of registry entries;
 // the gateway mounts it and parses it into Connection values, serving the
-// GetByHost and ListByTenant lookups the broker and ScopePublisher use.
+// ListByHost and ListByTenant lookups the broker and ScopePublisher use.
 //
 // Hot-reload watches the directory with fsnotify, since Kubernetes rotates the
 // "..data" symlink atomically on a ConfigMap-volume update. Reload fires the
@@ -85,30 +85,37 @@ func (r *ConfigMapRegistry) OnReload(fn func(ctx context.Context)) {
 	r.mu.Unlock()
 }
 
-// GetByHost returns the connection serving host within tenantID. A connection
-// serves its base_host and the family of hosts its adapter declares. github_app
-// also serves api.github.com, codeload.github.com and *.githubusercontent.com,
-// so REST/archive/raw calls to those hosts are brokered and credentialed rather
-// than passed through unauthenticated. Comparison is case-insensitive and ignores
-// any :port suffix. Returns ErrConnectionNotFound when no connection serves host.
-func (r *ConfigMapRegistry) GetByHost(_ context.Context, tenantID, host string) (*Connection, error) {
+// ListByHost returns every connection serving host within tenantID, in load
+// order. A connection serves its base_host and the family of hosts its adapter
+// declares. Comparison is case-insensitive and ignores any :port suffix.
+// Returns ErrConnectionNotFound when no connection serves host.
+func (r *ConfigMapRegistry) ListByHost(_ context.Context, tenantID, host string) ([]*Connection, error) {
 	want := normalizeHost(host)
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	var out []*Connection
 	for _, c := range r.conns {
-		if c.TenantID != tenantID {
-			continue
-		}
-		if normalizeHost(c.BaseHost) == want {
-			return c, nil
-		}
-		for _, h := range platformconns.EgressHosts(string(c.Adapter), c.BaseHost) {
-			if hostPatternMatches(normalizeHost(h), want) {
-				return c, nil
-			}
+		if c.TenantID == tenantID && serves(c, want) {
+			out = append(out, c)
 		}
 	}
-	return nil, ErrConnectionNotFound
+	if len(out) == 0 {
+		return nil, ErrConnectionNotFound
+	}
+	return out, nil
+}
+
+// serves reports whether c serves the normalized host.
+func serves(c *Connection, host string) bool {
+	if normalizeHost(c.BaseHost) == host {
+		return true
+	}
+	for _, h := range platformconns.EgressHosts(string(c.Adapter), c.BaseHost) {
+		if hostPatternMatches(normalizeHost(h), host) {
+			return true
+		}
+	}
+	return false
 }
 
 // hostPatternMatches reports whether the (already normalized) host matches the

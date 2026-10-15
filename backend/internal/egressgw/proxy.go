@@ -63,7 +63,7 @@ func (p *ProxyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Forward to the host the client asked for, not the connection's base_host:
 	// one connection can serve a host family (github.com for git, plus
 	// api.github.com, codeload.github.com and *.githubusercontent.com for the
-	// REST API, archives and raw content). GetByHost has already constrained
+	// REST API, archives and raw content). ListByHost has already constrained
 	// that host to the connection's own, so the minted credential never leaves
 	// them.
 	//

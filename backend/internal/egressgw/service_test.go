@@ -22,6 +22,15 @@ func (h heldScopes) Check(_ context.Context, in policy.CheckInput) (policy.Resul
 	return policy.Result{Allow: slices.Contains(h, scope)}, nil
 }
 
+// Scopes reports each held scope in its full connection:<path>:<action> form.
+func (h heldScopes) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
+	out := make([]string, len(h))
+	for i, s := range h {
+		out[i] = resourceType + ":" + s
+	}
+	return out, nil
+}
+
 // failingOn errors for one scope and allows every other.
 type failingOn string
 
@@ -31,6 +40,8 @@ func (f failingOn) Check(_ context.Context, in policy.CheckInput) (policy.Result
 	}
 	return policy.Result{Allow: true}, nil
 }
+
+func (f failingOn) Scopes(context.Context, policy.ScopesInput) ([]string, error) { return nil, nil }
 
 func TestEvaluatePolicy_AlsoRequiredEvaluatorErrorFailsClosed(t *testing.T) {
 	cls := credentials.Classification{Action: "pulls:read", AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}

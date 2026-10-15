@@ -37,48 +37,48 @@ const sampleRegistry = `[
   {"tenant_id":"globex","name":"github","adapter":"github_app","base_host":"github.com","secret_ref":"globex.github.key"}
 ]`
 
-func TestConfigMapRegistry_GetByHost(t *testing.T) {
+func TestConfigMapRegistry_ListByHost(t *testing.T) {
 	r := newTestRegistry(t, sampleRegistry)
 	ctx := context.Background()
 
 	// Exact host within tenant.
-	got, err := r.GetByHost(ctx, "acme", "github.com")
+	got, err := r.ListByHost(ctx, "acme", "github.com")
 	if err != nil {
-		t.Fatalf("GetByHost: %v", err)
+		t.Fatalf("ListByHost: %v", err)
 	}
-	if got.Name != "github" || got.SecretRef != "acme.github.key" {
+	if got[0].Name != "github" || got[0].SecretRef != "acme.github.key" {
 		t.Errorf("got %+v, want acme/github", got)
 	}
 	// ID is derived tenant|name so the github adapter's cache key is stable.
-	if got.ID != "acme|github" {
-		t.Errorf("ID = %q, want acme|github", got.ID)
+	if got[0].ID != "acme|github" {
+		t.Errorf("ID = %q, want acme|github", got[0].ID)
 	}
 
 	// Host carrying a :port and mixed case still matches base_host.
-	if _, err := r.GetByHost(ctx, "acme", "GitHub.com:443"); err != nil {
-		t.Errorf("GetByHost with port+case: %v", err)
+	if _, err := r.ListByHost(ctx, "acme", "GitHub.com:443"); err != nil {
+		t.Errorf("ListByHost with port+case: %v", err)
 	}
 
 	// Same host, different tenant resolves that tenant's connection.
-	gx, err := r.GetByHost(ctx, "globex", "github.com")
+	gx, err := r.ListByHost(ctx, "globex", "github.com")
 	if err != nil {
-		t.Fatalf("GetByHost globex: %v", err)
+		t.Fatalf("ListByHost globex: %v", err)
 	}
-	if gx.SecretRef != "globex.github.key" {
-		t.Errorf("globex secret = %q, want globex.github.key", gx.SecretRef)
+	if gx[0].SecretRef != "globex.github.key" {
+		t.Errorf("globex secret = %q, want globex.github.key", gx[0].SecretRef)
 	}
 
 	// Unknown host → not found.
-	if _, err := r.GetByHost(ctx, "acme", "example.com"); !errors.Is(err, ErrConnectionNotFound) {
+	if _, err := r.ListByHost(ctx, "acme", "example.com"); !errors.Is(err, ErrConnectionNotFound) {
 		t.Errorf("unknown host err = %v, want ErrConnectionNotFound", err)
 	}
 	// Known host, wrong tenant → not found (cross-tenant isolation).
-	if _, err := r.GetByHost(ctx, "nobody", "github.com"); !errors.Is(err, ErrConnectionNotFound) {
+	if _, err := r.ListByHost(ctx, "nobody", "github.com"); !errors.Is(err, ErrConnectionNotFound) {
 		t.Errorf("wrong tenant err = %v, want ErrConnectionNotFound", err)
 	}
 }
 
-func TestConfigMapRegistry_GetByHost_AdapterHostFamily(t *testing.T) {
+func TestConfigMapRegistry_ListByHost_AdapterHostFamily(t *testing.T) {
 	r := newTestRegistry(t, sampleRegistry)
 	ctx := context.Background()
 
@@ -91,13 +91,13 @@ func TestConfigMapRegistry_GetByHost_AdapterHostFamily(t *testing.T) {
 		"objects.githubusercontent.com", // ditto
 		"API.GitHub.com:443",            // case + port normalize first
 	} {
-		got, err := r.GetByHost(ctx, "acme", host)
+		got, err := r.ListByHost(ctx, "acme", host)
 		if err != nil {
-			t.Errorf("GetByHost(%q): %v", host, err)
+			t.Errorf("ListByHost(%q): %v", host, err)
 			continue
 		}
-		if got.Name != "github" {
-			t.Errorf("GetByHost(%q) = %q, want github", host, got.Name)
+		if got[0].Name != "github" {
+			t.Errorf("ListByHost(%q) = %q, want github", host, got[0].Name)
 		}
 	}
 
@@ -109,8 +109,8 @@ func TestConfigMapRegistry_GetByHost_AdapterHostFamily(t *testing.T) {
 		"github.com.evil.com",   // suffix-confusion attempt
 		"notgithubusercontent.com",
 	} {
-		if _, err := r.GetByHost(ctx, "acme", host); !errors.Is(err, ErrConnectionNotFound) {
-			t.Errorf("GetByHost(%q) err = %v, want ErrConnectionNotFound", host, err)
+		if _, err := r.ListByHost(ctx, "acme", host); !errors.Is(err, ErrConnectionNotFound) {
+			t.Errorf("ListByHost(%q) err = %v, want ErrConnectionNotFound", host, err)
 		}
 	}
 }
@@ -152,7 +152,7 @@ func TestConfigMapRegistry_EmptyAndMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("empty path: %v", err)
 	}
-	if _, err := empty.GetByHost(ctx, "acme", "github.com"); !errors.Is(err, ErrConnectionNotFound) {
+	if _, err := empty.ListByHost(ctx, "acme", "github.com"); !errors.Is(err, ErrConnectionNotFound) {
 		t.Errorf("empty registry err = %v, want ErrConnectionNotFound", err)
 	}
 
@@ -184,21 +184,38 @@ func TestConfigMapRegistry_MalformedJSON(t *testing.T) {
 	}
 }
 
-// TestGetByHost_FullyQualifiedHost locks the trailing-dot form against the
+// TestListByHost_FullyQualifiedHost locks the trailing-dot form against the
 // registry. net/http accepts "github.com." and passes it through as the request
 // Host; left unnormalised it matches no connection, and the broker falls back
 // to passthrough, skipping the connection-scope check on a host that has one.
-func TestGetByHost_FullyQualifiedHost(t *testing.T) {
+func TestListByHost_FullyQualifiedHost(t *testing.T) {
 	reg := newTestRegistry(t, sampleRegistry)
 
 	for _, host := range []string{"github.com", "github.com.", "GitHub.Com.", "api.github.com."} {
-		conn, err := reg.GetByHost(t.Context(), "acme", host)
+		conn, err := reg.ListByHost(t.Context(), "acme", host)
 		if err != nil {
-			t.Errorf("GetByHost(%q) = %v, want the github connection", host, err)
+			t.Errorf("ListByHost(%q) = %v, want the github connection", host, err)
 			continue
 		}
-		if conn.Name != "github" {
-			t.Errorf("GetByHost(%q) resolved %q, want github", host, conn.Name)
+		if conn[0].Name != "github" {
+			t.Errorf("ListByHost(%q) resolved %q, want github", host, conn[0].Name)
+		}
+	}
+}
+
+// Same-host connections in one tenant are all returned, so the broker can choose among them.
+func TestListByHost_ReturnsEverySameHostConnection(t *testing.T) {
+	reg := newTestRegistry(t, `[
+  {"tenant_id":"acme","name":"contoso-github","adapter":"github_app","base_host":"github.com","secret_ref":"a.key"},
+  {"tenant_id":"acme","name":"fabrikam-github","adapter":"github_app","base_host":"github.com","secret_ref":"b.key"}
+]`)
+	for _, host := range []string{"github.com", "api.github.com"} {
+		got, err := reg.ListByHost(t.Context(), "acme", host)
+		if err != nil {
+			t.Fatalf("ListByHost(%q): %v", host, err)
+		}
+		if len(got) != 2 || got[0].Name != "contoso-github" || got[1].Name != "fabrikam-github" {
+			t.Errorf("ListByHost(%q) = %d connections, want both in load order", host, len(got))
 		}
 	}
 }

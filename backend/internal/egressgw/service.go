@@ -26,10 +26,12 @@ var (
 	errOpenConnector     = errors.New("open connector")
 )
 
-// policyChecker is the single method the broker needs from the policy
-// evaluator: does this caller hold the scope the classified call requires.
+// policyChecker is what the broker needs from the policy evaluator: does this
+// caller hold the scope the classified call requires, and which scopes does it
+// hold. Scopes only chooses among same-host connections and never authorizes.
 type policyChecker interface {
 	Check(ctx context.Context, input policy.CheckInput) (policy.Result, error)
+	Scopes(ctx context.Context, input policy.ScopesInput) ([]string, error)
 }
 
 // Broker is the orchestrator that turns one verified inbound request into a
@@ -93,7 +95,12 @@ func (b *Broker) Authorize(ctx context.Context, claims *token.PlatformClaims, re
 		return Decision{}, ErrMissingHost
 	}
 
-	conn, registered, err := b.resolveConnection(ctx, tenantID, req.Host)
+	conn, registered, err := b.resolveConnection(ctx, claims, req)
+	var unresolved *Denial
+	if errors.As(err, &unresolved) {
+		span.RecordError(err)
+		return b.unresolvedConnection(ctx, span, claims, req, unresolved)
+	}
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, errResolveConnection.Error())
@@ -259,6 +266,16 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 // logDenial records a refused call once, after the fallback has declined it.
 // The query string and headers stay out of the log: either can carry tokens.
 func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressRequest, d *Denial) {
+	if d.Reason == DenialConnectionUnresolved {
+		b.logger.Info(ctx, "egress denied: connection unresolved",
+			logging.Field{Key: "host", Value: req.Host},
+			logging.Field{Key: "method", Value: req.Method},
+			logging.Field{Key: "path", Value: requestPath(req)},
+			logging.Field{Key: "candidates", Value: strings.Join(d.Candidates, ",")},
+			logging.Field{Key: "tenant_id", Value: tenantID},
+		)
+		return
+	}
 	if d.Reason == DenialUnclassified {
 		cause := ""
 		if d.cause != nil {
@@ -505,8 +522,9 @@ func splitActionFragment(action string) (category, verb string) {
 // the name, because the broker synthesizes it only on a lookup miss.
 const passthroughConnectionName = "passthrough"
 
-// resolveConnection finds the connection serving host within the caller's
-// tenant. Cross-tenant access is impossible because GetByHost is tenant-scoped:
+// resolveConnection finds the connection serving the request's host within the
+// caller's tenant, choosing among several with selectConnection. Cross-tenant
+// access is impossible because ListByHost is tenant-scoped:
 // a connection in another tenant matching the same host is indistinguishable
 // from "not found" here.
 //
@@ -514,11 +532,15 @@ const passthroughConnectionName = "passthrough"
 // synthesizes one for the passthrough adapter, which injects nothing.
 // Connections are a credential overlay, not the reachability gate, so a host
 // that only needs to be reached needs the egress whitelist and nothing else.
-func (b *Broker) resolveConnection(ctx context.Context, tenantID, host string) (*credentials.Connection, bool, error) {
-	conn, err := b.conns.GetByHost(ctx, tenantID, host)
+func (b *Broker) resolveConnection(ctx context.Context, claims *token.PlatformClaims, req EgressRequest) (*credentials.Connection, bool, error) {
+	tenantID, host := claims.Orbit.TenantID, req.Host
+	candidates, err := b.conns.ListByHost(ctx, tenantID, host)
 	switch {
+	case err == nil && len(candidates) == 1:
+		return candidates[0], true, nil
 	case err == nil:
-		return conn, true, nil
+		conn, selectErr := b.selectConnection(ctx, claims, req, candidates)
+		return conn, selectErr == nil, selectErr
 	case errors.Is(err, credentials.ErrConnectionNotFound):
 		return &credentials.Connection{
 			TenantID: tenantID,

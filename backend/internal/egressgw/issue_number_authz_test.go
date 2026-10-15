@@ -33,6 +33,10 @@ func (g grantEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.R
 	return policy.Result{Allow: g.held[action], Reason: "test grant"}, nil
 }
 
+func (g grantEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
+	return nil, nil
+}
+
 // reactOnPR authorizes the 👀 reaction on PR 1054 for a caller whose grant is
 // eval, and returns the decision, the permissions the installation token was
 // requested with, and how many tokens were minted.

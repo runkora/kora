@@ -92,12 +92,11 @@ type ConnectHandler struct {
 	logger logging.Logger
 }
 
-// connLookup is the narrow slice of the connection repository the CONNECT
-// handler needs: "is there a registered connection for this host?", used to
-// decide intercept-vs-relay for non-:443 ports. *credentials.ConfigMapRegistry
-// (the gateway's registry since Amendment 3) and the test repos satisfy it.
+// connLookup is the narrow slice of the connection registry the broker and the
+// CONNECT handler need: every connection serving a host in a tenant.
+// *credentials.ConfigMapRegistry and the test repos satisfy it.
 type connLookup interface {
-	GetByHost(ctx context.Context, tenantID, host string) (*credentials.Connection, error)
+	ListByHost(ctx context.Context, tenantID, host string) ([]*credentials.Connection, error)
 }
 
 // NewConnectHandler constructs a ConnectHandler. bundle resolves the per-tenant
@@ -328,7 +327,7 @@ func (h *ConnectHandler) shouldIntercept(ctx context.Context, tenantID, authorit
 	if h.conns == nil {
 		return false
 	}
-	_, err := h.conns.GetByHost(ctx, tenantID, authority)
+	_, err := h.conns.ListByHost(ctx, tenantID, authority)
 	return err == nil
 }
 

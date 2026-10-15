@@ -1,6 +1,11 @@
 package egressgw
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+
+	"github.com/clear-route/orbit/internal/credentials"
+)
 
 // DenialReason names why the broker refused an egress call. It is part of the
 // denial body, so callers can branch on it without parsing the message.
@@ -13,6 +18,9 @@ const (
 	DenialUnclassified      DenialReason = "unclassified"
 	DenialCredentialRefused DenialReason = "credential_refused"
 	DenialPolicyUnavailable DenialReason = "policy_unavailable"
+	// DenialConnectionUnresolved is a request on a host several connections
+	// serve that selects none of them.
+	DenialConnectionUnresolved DenialReason = "connection_unresolved"
 )
 
 // Denial is a refused egress call described in terms the agent can act on: the
@@ -30,6 +38,15 @@ type Denial struct {
 	// PolicyReason is the policy decision label when a held grant did not apply,
 	// such as deny:delegation_required. It is our own bundle's label, never a secret.
 	PolicyReason string
+	// Candidates are the connections serving the host, set only on an
+	// unresolved-connection denial.
+	Candidates []string
+	// ambiguous marks an unresolved request the caller holds several
+	// candidates for. The anonymous read fallback does not serve it.
+	ambiguous bool
+	// adapter is the candidates' adapter, which decides whether the anonymous
+	// read fallback applies.
+	adapter credentials.AdapterType
 	// decision is the raw policy label behind a policy denial, for the log.
 	decision string
 	cause    error
@@ -67,6 +84,9 @@ func (d *Denial) Message() string {
 	case DenialCredentialRefused:
 		return fmt.Sprintf("kora egress policy allowed %s on connection %s, but the upstream refused to issue a credential for it. To allow it, add that permission upstream (for GitHub, on the App installation).",
 			d.actionPhrase(), d.Connection)
+	case DenialConnectionUnresolved:
+		return fmt.Sprintf("kora egress policy denied %s: connections %s all serve this host and the request selects none of them. A request that names a repository owner uses the connection bound to that owner. Any other request needs the agent to hold exactly one of these connections.",
+			d.Host, strings.Join(d.Candidates, ", "))
 	case DenialPolicyUnavailable:
 		return fmt.Sprintf("kora egress policy could not be evaluated for %s, so the call was denied. Retry shortly; report it to an admin if it persists.",
 			d.Host)
@@ -78,6 +98,9 @@ func (d *Denial) Message() string {
 // Details is the structured half of the denial body.
 func (d *Denial) Details() map[string]any {
 	details := map[string]any{"reason": string(d.Reason), "host": d.Host, "connection": d.Connection}
+	if len(d.Candidates) > 0 {
+		details["candidates"] = d.Candidates
+	}
 	for key, value := range map[string]string{"action": d.Action, "qualifier": d.Qualifier, "required_scope": d.RequiredScope, "policy_reason": d.PolicyReason} {
 		if value != "" {
 			details[key] = value
