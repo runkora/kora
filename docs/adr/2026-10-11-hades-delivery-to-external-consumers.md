@@ -1,9 +1,11 @@
 # Hades Delivery to External Consumers
 
-**Status:** Accepted
+**Status:** Accepted, amended 2026-10-15
 **Date:** 2026-10-11
 **Deciders:** Qj Stout-Spykers
-**Technical Story:** The versioning story in the [Hades Design System PRD](../prd/design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it) requires that Hades can be obtained outside the kora frontend as a buildable package, per major, so that consumers kora assumes will exist can render the product's own components.
+**Technical Story:** The versioning story in the [Hades Design System PRD](../prd/design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it) requires that Hades can be obtained outside the kora frontend as a buildable package, per release, so that consumers kora assumes will exist can render the product's own components.
+
+> **Amendment, 2026-10-15.** Hades no longer has releases of its own. The [versioning ADR](2026-10-11-design-system-semantic-versioning.md) withdrew the `hades/v*` tag, the package Semantic Version and the contract version: Hades is released with kora, under the kora tag. This ADR keeps what it delivers and how, and changes when and under which version: the jobs that were a separate `hades-release.yml` workflow are now jobs of kora's `release.yml`, and the package version is the kora release version.
 
 ---
 
@@ -11,11 +13,11 @@
 
 Hades lives at `frontend/src/packages/hades/` and stays there, named `@orbit/hades`. The frontend consumes it by pnpm workspace link and Next.js compiles it from TypeScript source; there is no build output, no publish step, and `package.json` is marked `private`. Its runtime dependencies are declared as peer dependencies, apart from one ordinary dependency, and installed at the workspace root. Its styling is Tailwind v4 utilities, which the consuming application compiles after importing `tokens.css` and scanning the package's component files with `@source`. Fonts are not part of the package: the font tokens reference CSS variables the application sets.
 
-The white-labelling PRDs assume consumers outside this repository will render kora's own components against a theme, one release per major. Those consumers are specified in their own documents and are not named here, so that Hades never depends on anything that depends on it. What this ADR decides is the artefact Hades ships and the mechanism that ships it, for any consumer.
+The white-labelling PRDs assume consumers outside this repository will render kora's own components against a theme, one release per kora release. Those consumers are specified in their own documents and are not named here, so that Hades never depends on anything that depends on it. What this ADR decides is the artefact Hades ships and the mechanism that ships it, for any consumer.
 
 ### Background
 
-- The [versioning ADR](2026-10-11-design-system-semantic-versioning.md) decides that a Hades release is a `hades/vX.Y.Z` tag matching `package.json`, and that each release carries `manifest.json`, `CONTRACT.md` and exported `HADES_VERSION` and `CONTRACT_VERSION`.
+- The [versioning ADR](2026-10-11-design-system-semantic-versioning.md) decides that Hades is released with kora under the kora `vX.Y.Z` tag, that the tag is stamped into the package when the release is built, and that every release carries `manifest.json`, `CONTRACT.md` and `theme.schema.json`.
 - The organisation already publishes container images to `ghcr.io`, so GitHub Packages is in use and authenticated from CI.
 - The Hades PRD excludes Storybook, and any design-tooling artefact, from the Hades deliverable.
 
@@ -27,7 +29,7 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 
 - A consumer can install a specific Hades release by version and build a React application with it, without cloning this repository or the kora frontend.
 - The deliverable carries the tokens, the manifest, the contract boundary rules, the components, and the theme module and schema the white-labelling theme ADR places in Hades. Nothing else.
-- Publishing is a consequence of tagging a release, with no manual step.
+- Publishing is a consequence of a kora release, with no manual step and no release of its own to cut.
 - The mechanism costs this repository as little as possible, because Hades is first a workspace package and only second a published one.
 
 ### Non-Goals
@@ -51,7 +53,7 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 
 ## Considered Options
 
-### Option 1: Publish to the GitHub Packages npm registry on each `hades/v*` tag
+### Option 1: Publish to the GitHub Packages npm registry on each final kora release
 
 **Description:** The release workflow packs the package and publishes it to `npm.pkg.github.com`. That registry accepts only packages whose scope is the owning account, so the package must be renamed from `@orbit/hades` to `@runkora/hades`. The package ships its TypeScript source, `tokens.css`, `manifest.json`, `CONTRACT.md` and `README.md`. Consumers add the registry for the scope in their `.npmrc`, authenticate with a token that can read packages, and depend on the package by semver range.
 
@@ -69,7 +71,7 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 
 ### Option 2: Consume by git reference to a subdirectory of this repository
 
-**Description:** The consumer depends on `github:clear-route/orbit#hades/v1.2.0` and points at the package subdirectory.
+**Description:** The consumer depends on `github:clear-route/orbit#v1.2.0` and points at the package subdirectory.
 
 **Pros:**
 - No registry, no publish step.
@@ -106,7 +108,7 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 
 ## Decision
 
-**Chosen Option:** Option 1, publish to the GitHub Packages npm registry on each `hades/v*` tag, with the tarball also attached to the GitHub Release as a fallback. The package is renamed `@runkora/hades`, because the registry requires the scope to be the owning organisation.
+**Chosen Option:** Option 1, publish to the GitHub Packages npm registry on each final kora release, with the tarball also attached to the GitHub Release, for release candidates too, as a fallback. The package is renamed `@runkora/hades`, because the registry requires the scope to be the owning organisation.
 
 ### What ships
 
@@ -116,7 +118,7 @@ The published package contains exactly:
 - `src/tokens/tokens.css` and `src/tokens/surface.ts`.
 - `manifest.json` and `CONTRACT.md` from the versioning ADR, and `theme.schema.json` from the white-labelling theme ADR.
 - `README.md`, which documents the consumer requirements below.
-- `package.json` named `@runkora/hades`, with `private` removed, a `files` whitelist producing the list above, `publishConfig` pointing at `npm.pkg.github.com`, the `repository` field with `directory`, the existing dependencies, and `exports` extended with `./manifest.json`, `./CONTRACT.md` and `./theme.schema.json` so a consumer can read what it is told it receives. `src/index.ts` exports `HADES_VERSION` and `CONTRACT_VERSION`.
+- `package.json` named `@runkora/hades`, with `private` removed and `version` set from the release tag by the workflow, a `files` whitelist producing the list above, `publishConfig` pointing at `npm.pkg.github.com`, the `repository` field with `directory`, the existing dependencies, and `exports` extended with `./manifest.json`, `./CONTRACT.md` and `./theme.schema.json` so a consumer can read what it is told it receives.
 
 It does not contain fonts, Storybook, stories, tests, or any build of its own. The kora frontend's own consumption is unaffected beyond the rename: the workspace link ignores `files` and `publishConfig`, and `exports` keeps its existing entries.
 
@@ -128,33 +130,32 @@ Stated in the README and treated as part of the deliverable:
 - Tailwind v4, importing `tokens.css` and scanning the package with `@source` the way the kora frontend does.
 - TypeScript compilation of the package source, as the frontend does through `transpilePackages`.
 - The font slot tokens `--hades-raw-font-sans` and `--hades-raw-font-mono` set by the consumer, or by the theme it renders, to font families it loads itself. Hades references them and never loads a font.
-- Standard Semantic Versioning for the package: a caret range such as `^1.2.0` is safe, because a breaking change to the components, props, peer ranges or tokens is a major. A consumer that renders themes reads `CONTRACT_VERSION`, exported from the package and recorded in `manifest.json`, to decide whether a theme is compatible; the contract version is independent of the package version, as the versioning ADR defines.
+- Standard Semantic Versioning for the package from `1.0.0`: a caret range such as `^1.2.0` is safe, because the release workflow refuses a kora release that contains a break to the components, props, peer ranges or tokens unless it is a major. Below `1.0.0` nothing is promised. The package version is the kora release version; a consumer that renders themes decides whether a theme is compatible by the rule in the white-labelling theme ADR, comparing the theme's `koraVersion` with that version.
 
 ### Release workflow
 
-One workflow, `.github/workflows/hades-release.yml`, triggered by `hades/v*` tags. The versioning ADR owns its first jobs; this ADR owns the rest. Jobs, in order, each depending on the previous:
+The jobs are part of kora's `.github/workflows/release.yml`, triggered by `v*` tags, in the order below. The versioning ADR owns job 1; this ADR owns the rest. Hades jobs sit beside the image and chart jobs and share the workflow's tag, concurrency group and cleanup.
 
-1. **verify**: the tag equals `package.json` `version`, is not a `0.x` version, `version.ts` and `manifest.json` agree with it, `CONTRACT_VERSION` and the manifest's `contractVersion` agree with each other, and the manifest is in sync with its sources.
-2. **test**: the Hades unit tests.
-3. **pack-and-smoke**: `pnpm --filter @runkora/hades pack` into `runkora-hades-X.Y.Z.tgz`, uploaded as a workflow artefact. Then the **smoke build**: scaffold a minimal Vite plus React plus Tailwind v4 application in a temporary directory, install the tarball into it, render a page that imports `tokens.css`, the `Button` component, `HADES_VERSION` and `CONTRACT_VERSION`, and run its production build. This is the proof that the package is buildable without the Next.js application, and it runs on every release.
-4. **release**: create a GitHub Release named `hades/vX.Y.Z` with the tarball, `manifest.json`, `CONTRACT.md` and `theme.schema.json` attached, marked as not the repository's latest release, so kora's own releases keep that position. The release notes state the contract version and whether it changed from the previous release.
-5. **publish**: publish the same tarball to GitHub Packages. It runs last, because a published package version cannot be removed or published again, so everything that can fail and be undone runs before it.
-6. **cleanup**, run only if any job above failed: delete the tag and any GitHub Release created for it, so the version can be re-cut once the cause is fixed. Because `publish` is last, a failure in any earlier job, or in `publish` itself, leaves no package version published, and is reported on the commit.
+1. **hades-verify**: the classifier from the versioning ADR runs on the tagged commit against the last final release and fails the release when the version is too low for the Hades changes it contains, with the message the versioning ADR specifies. The manifest is also verified in sync with its sources. It runs first, before any image is built or anything is published.
+2. **hades-test**: the Hades unit tests.
+3. **hades-pack-and-smoke**: set `package.json` `version` from the tag, then `pnpm --filter @runkora/hades pack` into `runkora-hades-X.Y.Z.tgz`, uploaded as a workflow artefact. Then the **smoke build**: scaffold a minimal Vite plus React plus Tailwind v4 application in a temporary directory, install the tarball into it, render a page that imports `tokens.css` and the `Button` component, and run its production build. This is the proof that the package is buildable without the Next.js application, and it runs on every release, release candidates included.
+4. **release assets**: attach the tarball, `manifest.json`, `CONTRACT.md` and `theme.schema.json` to kora's GitHub Release for the tag, release candidates included, so a theme builder can offer every release and read its surface. The kora release notes state whether the release contains a Hades break, from the classifier's report.
+5. **hades-publish**: publish the same tarball to GitHub Packages, for a final release only. A release candidate does not publish, because a published package version can be neither removed nor published again. It runs after every job that can fail and be undone, in the same position kora's own irreversible publishing steps hold, so a failure anywhere earlier leaves no package version published.
+6. **cleanup**, the workflow's existing failure path: delete the tag and any GitHub Release created for it, so the version can be re-cut once the cause is fixed. A failure in any job, or in `hades-publish` itself, is reported on the commit.
 
 ### Workflow requirements
 
-- **Permissions.** The workflow declares `permissions: contents: read` at the top, as every workflow in this repository does. The `publish` job alone adds `packages: write`; the `release` and `cleanup` jobs each add `contents: write`. No job holds both.
+- **Permissions.** The workflow declares `permissions: contents: read` at the top, as every workflow in this repository does. The `hades-publish` job alone adds `packages: write` for the registry; the jobs that attach release assets and the cleanup job each add `contents: write`. The Hades jobs hold nothing more than the permissions kora's existing jobs for the same steps hold.
 - **Actions pinned by commit SHA**, per the repository's Scorecard convention. The actions needed are checkout, the pnpm and Node setup already used by `frontend-ci`, upload and download of the tarball artefact, and the GitHub CLI for the release, which is preinstalled on the runner.
 - **Registry authentication.** The Node setup step is given `registry-url: https://npm.pkg.github.com` and `scope: @runkora`, which writes the `.npmrc` for the job; `NODE_AUTH_TOKEN` is the workflow token. The built-in token can publish to GitHub Packages for the repository that owns the workflow; no personal access token is stored.
 - **Package linkage.** `package.json` gains `"repository": { "type": "git", "url": "git+https://github.com/runkora/kora.git", "directory": "frontend/src/packages/hades" }`. GitHub Packages links a package to the repository named here, which is what lets the workflow token publish it.
 - **Consumer access.** A package first published with the workflow token inherits the access of the linked repository: accounts that can read the repository can read the package. A consumer in another repository of the organisation reads it with a personal access token (classic) that has `read:packages`, held as a secret in that repository, because the GitHub Packages npm registry accepts neither fine-grained personal access tokens nor GitHub App installation tokens, or, for its Actions workflows, that repository granted access in the package's own settings after the first publish, after which its built-in token suffices. The consumer's `.npmrc` carries two lines: the scope-to-registry mapping and the token reference. Which of these a given consumer uses is that consumer's decision. Making the package public with the repository widens who may read it but does not remove the token: the GitHub Packages npm registry requires one for every install, and kora accepts that cost in exchange for the registry, the scope and the publishing path that already exist. `publishConfig` carries only the registry; an `access` field does not govern visibility on GitHub Packages and is not set.
 - **No provenance attestation.** npm provenance is supported only for the public npm registry, not GitHub Packages. kora signs its images with cosign; the equivalent for the Hades tarball is the checksum published in the GitHub Release, which is enough while every consumer is inside the organisation. Revisit when the package is made public, if provenance is wanted by consumers outside it.
-- **Tag isolation.** kora's `release.yml` triggers on `v*`, which does not match `hades/v*`, and this workflow triggers only on `hades/v*`. One shared surface remains: kora's release step finds the previous release with an unfiltered `gh release list`, which would return a Hades release once one exists. That lookup is changed to consider only tags starting with `v`.
-- **Local tagging.** `make hades-release VERSION=X.Y.Z` verifies the working tree is on `main`, clean and up to date, that `package.json` already carries `X.Y.Z`, then creates and pushes the tag. It is a convenience; the workflow re-verifies everything.
+- **No second tag namespace.** There is no `hades/v*` tag, so no filter on kora's previous-release lookup and no local tagging target. A Hades release is cut by cutting a kora release.
 
 ### Rationale
 
-Option 1 is the only option that gives consumers semver resolution, and it is the one whose infrastructure already exists. Shipping source rather than a build keeps one toolchain, matches how the frontend consumes the package today, and defers the compiled distribution until a consumer that needs it appears. The smoke build in the release workflow turns "buildable without the Next.js app" from a claim into a check that runs every release.
+Option 1 is the only option that gives consumers semver resolution, and it is the one whose infrastructure already exists. Shipping source rather than a build keeps one toolchain, matches how the frontend consumes the package today, and defers the compiled distribution until a consumer that needs it appears. The smoke build in the release workflow turns "buildable without the Next.js app" from a claim into a check that runs every release. Releasing with kora, rather than on its own tags, removes a second release train whose only purpose was independence nobody asked for.
 
 ---
 
@@ -163,7 +164,7 @@ Option 1 is the only option that gives consumers semver resolution, and it is th
 ### Positive
 
 - A consumer installs Hades by version and upgrades by range, like any dependency.
-- Each release is proven to build outside kora before it is published.
+- Each release is proven to build outside kora before it is published, and cannot be published under a version that understates a Hades break.
 - The deliverable is exactly the contract surface plus the components, which is what the white-labelling PRDs need and nothing a client should not see.
 - No second repository.
 
@@ -171,13 +172,13 @@ Option 1 is the only option that gives consumers semver resolution, and it is th
 
 - The rename to `@runkora/hades` is a one-time change across 292 files. It is mechanical, but it lands as its own PR before the first release.
 - `package.json` is no longer `private`, so a mistaken `pnpm publish` from a developer machine is possible. Mitigated by `publishConfig` naming the registry, and by the registry requiring a token with write scope that developers do not hold.
-- Consumers that render themes have a second number to read, `CONTRACT_VERSION`, in addition to the package version.
+- A consumer that wants only a Hades fix receives a kora version number that moves for reasons unrelated to Hades. Accepted: the version is one number, and kora releases frequently.
 - Consumers carry the Tailwind v4 and TypeScript requirements. Acceptable while every consumer is a React application on the same stack.
 - The smoke build adds a minute or two to each Hades release.
 
 ### Neutral
 
-- The GitHub Release for a Hades tag sits beside kora's own releases in the same repository, distinguished by the `hades/` prefix.
+- Hades assets are attached to kora's own GitHub Release; there is no separate Hades release.
 - Consumers see one release per published version; which majors continue to be published is undecided until it matters.
 
 ---
@@ -185,22 +186,21 @@ Option 1 is the only option that gives consumers semver resolution, and it is th
 ## Implementation
 
 - Rename `@orbit/hades` to `@runkora/hades` everywhere: the package name, the frontend's dependency, every import under `frontend/src`, the ESLint rules under `frontend/eslint`, `next.config.ts`, the Vitest configs, the Makefile's `--filter` arguments, the Dockerfile, and the docs. The ESLint rule names, Storybook titles and make target names keep the word Hades and do not change.
-- `frontend/src/packages/hades/package.json`: remove `private`; add `files`, `publishConfig` (`registry` only), the `repository` field with `directory`, and the three new `exports` entries.
-- `frontend/src/packages/hades/src/index.ts`: export `HADES_VERSION` and `CONTRACT_VERSION`.
-- `frontend/src/packages/hades/README.md`: consumer requirements, the contract version and how to read it, and the two `.npmrc` lines a consumer needs.
-- `.github/workflows/hades-release.yml`: the six jobs above, with the permissions and pinning stated under Workflow requirements. Jobs 1 and 2 are the versioning ADR's.
-- `.github/workflows/release.yml`: the previous-release lookup filtered to tags starting with `v`.
+- `frontend/src/packages/hades/package.json`: remove `private`; add `files`, `publishConfig` (`registry` only), the `repository` field with `directory`, and the three new `exports` entries. `version` stays `0.0.0` in the tree.
+- `frontend/src/packages/hades/README.md`: consumer requirements, how a theme's `koraVersion` is checked, and the two `.npmrc` lines a consumer needs.
+- `.github/workflows/release.yml`: the six jobs above, with the permissions and pinning stated under Workflow requirements. Job 1 is the versioning ADR's.
+- `.github/workflows/hades-release.yml`: removed.
 - `.github/scripts/hades-smoke-build.sh`: the Vite scaffold, install and build, taking the tarball path as its argument.
-- `Makefile`: `hades-release`.
+- `Makefile`: no `hades-release` target.
 - Organisation settings: nothing. Package access for consumer repositories is configured per package after the first publish, by whoever owns the consumer.
 
 ### Migration Path
 
-None for kora. The first published version is `1.0.0`, per the versioning ADR. Nothing is published pre-1.0.
+None for kora. The first published version is the first final kora release that contains this mechanism, which is `0.x`; nothing is promised below `1.0.0`, per the versioning ADR. Release candidates are packed and smoke-built but never published.
 
 ### Timeline
 
-With the `1.0.0` release.
+With the first final kora release after this ADR lands.
 
 ---
 
@@ -208,9 +208,9 @@ With the `1.0.0` release.
 
 ### Success Metrics
 
-- A `hades/v1.0.0` tag results in a package at `npm.pkg.github.com` and a GitHub Release with the four assets, with no manual step.
+- A final kora release `vX.Y.Z` results in `@runkora/hades@X.Y.Z` at `npm.pkg.github.com` and the four assets on kora's GitHub Release, with no manual step; a release candidate attaches the assets and publishes no package.
 - The smoke build passes on every release, and fails the release if the package cannot build outside kora.
-- A consumer in another repository installs `@runkora/hades@~1.0.0` with only an `.npmrc` entry and a read token.
+- A consumer in another repository installs `@runkora/hades` at a released version with only an `.npmrc` entry and a read token.
 - The kora frontend builds and its tests pass after the rename, with no change to how it consumes the package.
 
 ### Monitoring
@@ -239,4 +239,4 @@ With the `1.0.0` release.
 
 The package is renamed `@runkora/hades` because the GitHub Packages registry requires a package's scope to be the owning organisation. Nothing else about the package's identity changes: the ESLint rules, Storybook titles and make targets keep the name Hades.
 
-**Last Updated:** 2026-10-11
+**Last Updated:** 2026-10-15
