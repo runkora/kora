@@ -4,7 +4,7 @@
 
 Defines the OrbitTenant, Connection, OAuthClient, MCPServer, InferenceProvider and SandboxImage resources kora runs on. Apply this chart before orbit.
 
-**Homepage:** <https://github.com/clear-route/orbit>
+**Homepage:** <https://github.com/runkora/kora>
 
 ## Maintainers
 

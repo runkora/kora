@@ -17,7 +17,7 @@ keywords:
   - spiffe
   - istio
 
-home: https://github.com/clear-route/orbit
+home: https://github.com/runkora/kora
 maintainers:
   - name: kora Team
 

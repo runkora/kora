@@ -159,7 +159,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: ghcr.io/clear-route/charts
+    repoURL: ghcr.io/runkora/charts
     chart: orbit-crds
     targetRevision: 0.0.0
   destination:
@@ -184,7 +184,7 @@ spec:
   # orbit's values are environment-specific: database, redis, hosts.
   # Point the second source at your own GitOps values repository and path.
   sources:
-    - repoURL: ghcr.io/clear-route/charts
+    - repoURL: ghcr.io/runkora/charts
       chart: orbit
       targetRevision: 0.0.0
       helm:

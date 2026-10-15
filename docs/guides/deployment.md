@@ -320,7 +320,7 @@ The example at `deploy/reference/values/orbit.yaml` can be copied directly into 
 global:
   trustDomain: orbit.example.com      # required; equal to Istio and SPIRE
   # systemNamespace defaults to the install namespace
-  imageRegistry: ghcr.io/clear-route
+  imageRegistry: ghcr.io/runkora
 
 frontendHost: orbit.example.com       # required; api.<frontendHost> is the API host
 
@@ -436,10 +436,10 @@ kubectl label namespace orbit-system \
   pod-security.kubernetes.io/warn=restricted \
   pod-security.kubernetes.io/audit=restricted
 
-helm upgrade --install orbit-crds oci://ghcr.io/clear-route/charts/orbit-crds \
+helm upgrade --install orbit-crds oci://ghcr.io/runkora/charts/orbit-crds \
   --namespace orbit-system
 
-helm upgrade --install orbit oci://ghcr.io/clear-route/charts/orbit \
+helm upgrade --install orbit oci://ghcr.io/runkora/charts/orbit \
   --namespace orbit-system \
   --values orbit.yaml
 ```
@@ -492,9 +492,9 @@ Now that the platform is running, you can configure it through the following gui
 Upgrade `orbit-crds` before `orbit`, on every upgrade.
 
 ```bash
-helm upgrade orbit-crds oci://ghcr.io/clear-route/charts/orbit-crds \
+helm upgrade orbit-crds oci://ghcr.io/runkora/charts/orbit-crds \
   --namespace orbit-system --version <target>
-helm upgrade orbit oci://ghcr.io/clear-route/charts/orbit \
+helm upgrade orbit oci://ghcr.io/runkora/charts/orbit \
   --namespace orbit-system --version <target> --values orbit.yaml
 ```
 

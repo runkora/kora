@@ -14,7 +14,7 @@ function fakeDigest(seed: string): string {
 type Spec = [name: string, description: string, ref: string, warm: boolean, problem?: string];
 
 const SPECS: Spec[] = [
-  ['kora-base', 'The kora base image.', 'ghcr.io/clear-route/kora-sandbox-base:1.0.0', true],
+  ['kora-base', 'The kora base image.', 'ghcr.io/runkora/kora-sandbox-base:1.0.0', true],
   ['acme-go', 'Go 1.26, buf and golangci-lint.', 'registry.acme.example/sandbox/go:1.26', true],
   [
     'acme-go-legacy',
