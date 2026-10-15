@@ -1,6 +1,6 @@
 {
   "name": "@orbit/hades",
-  "version": "0.1.0",
+  "version": "0.0.0",
   "private": true,
   "description": "Hades, the underworld half of kora: the tokens and primitives beneath every screen.",
   "main": "./src/index.ts",

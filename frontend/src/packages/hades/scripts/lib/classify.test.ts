@@ -2,14 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   classify,
-  contractFloorMet,
   floorMet,
-  formatContractVersion,
   formatSemver,
   isDocumentationOnly,
-  parseContractVersion,
+  lastFinalRelease,
+  parseReleaseTag,
   parseSemver,
-  requiredContractVersion,
   requiredVersion,
   semanticPatterns,
   slotPattern,
@@ -20,8 +18,6 @@ import type { ExportSurface } from './exports.ts';
 import type { Manifest } from './manifest.ts';
 
 const MANIFEST: Manifest = {
-  version: '1.0.0',
-  contractVersion: '1.0',
   modes: ['dark', 'light'],
   tokens: [
     {
@@ -449,7 +445,7 @@ describe('documentation-only paths', () => {
   });
 });
 
-describe('versions and the floor', () => {
+describe('versions and what a release owes', () => {
   it('parses and formats semver', () => {
     expect(parseSemver('1.2.3')).toEqual({ major: 1, minor: 2, patch: 3 });
     expect(parseSemver('v1.2.3-rc.1')).toEqual({ major: 1, minor: 2, patch: 3 });
@@ -477,28 +473,41 @@ describe('versions and the floor', () => {
     expect(floorMet('none', base, base)).toBe(true);
   });
 
-  it('parses and formats the contract version, which has no patch', () => {
-    expect(parseContractVersion('1.2')).toEqual({ major: 1, minor: 2 });
-    expect(parseContractVersion('1.2.3')).toBeNull();
-    expect(parseContractVersion('1')).toBeNull();
-    expect(formatContractVersion({ major: 1, minor: 0 })).toBe('1.0');
+  it('parses release tags, marking release candidates', () => {
+    expect(parseReleaseTag('v1.4.0')).toEqual({
+      tag: 'v1.4.0',
+      version: { major: 1, minor: 4, patch: 0 },
+      prerelease: false,
+    });
+    expect(parseReleaseTag('v1.4.0-rc.2')).toEqual({
+      tag: 'v1.4.0-rc.2',
+      version: { major: 1, minor: 4, patch: 0 },
+      prerelease: true,
+    });
+    expect(parseReleaseTag('hades/v1.0.0')).toBeNull();
+    expect(parseReleaseTag('1.4.0')).toBeNull();
+    expect(parseReleaseTag('v1.4')).toBeNull();
   });
 
-  it('computes the required contract version, a major resetting the minor', () => {
-    const base = { major: 1, minor: 4 };
-    expect(requiredContractVersion('major', base)).toEqual({ major: 2, minor: 0 });
-    expect(requiredContractVersion('minor', base)).toEqual({ major: 1, minor: 5 });
-    expect(requiredContractVersion('none', base)).toEqual(base);
+  it('takes the highest final release as the baseline, never a release candidate', () => {
+    const tags = ['v0.7.0', 'v0.8.0-rc.4', 'v0.8.0-rc.1', 'v0.7.1', 'hades/v1.0.0', 'v0.6.0'];
+    expect(lastFinalRelease(tags)?.tag).toBe('v0.7.1');
   });
 
-  it('holds the contract floor independently of the package floor', () => {
-    const base = { major: 1, minor: 4 };
-    expect(contractFloorMet('major', base, { major: 2, minor: 0 })).toBe(true);
-    expect(contractFloorMet('major', base, { major: 1, minor: 9 })).toBe(false);
-    expect(contractFloorMet('minor', base, { major: 1, minor: 5 })).toBe(true);
-    expect(contractFloorMet('minor', base, { major: 2, minor: 0 })).toBe(true);
-    expect(contractFloorMet('minor', base, { major: 1, minor: 4 })).toBe(false);
-    expect(contractFloorMet('none', base, base)).toBe(true);
-    expect(contractFloorMet('none', base, { major: 1, minor: 3 })).toBe(false);
+  it('leaves out the release being cut, whose own tag may already exist', () => {
+    const tags = ['v0.7.0', 'v0.8.0', 'v0.8.0-rc.1'];
+    expect(lastFinalRelease(tags, { major: 0, minor: 8, patch: 0 })?.tag).toBe('v0.7.0');
+  });
+
+  it('has no baseline before the first final release', () => {
+    expect(lastFinalRelease(['v0.1.0-rc.1', 'v0.1.0-rc.2'])).toBeNull();
+    expect(lastFinalRelease([])).toBeNull();
+  });
+
+  it('owes the same to a release candidate and its final release', () => {
+    const base = { major: 1, minor: 2, patch: 3 };
+    const rc = parseReleaseTag('v2.0.0-rc.1')!.version;
+    const final = parseReleaseTag('v2.0.0')!.version;
+    expect(floorMet('major', base, rc)).toBe(floorMet('major', base, final));
   });
 });

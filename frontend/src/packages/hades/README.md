@@ -244,7 +244,6 @@ frontend/src/packages/hades/
 │   │       ├── section.stories.tsx
 │   │       └── index.ts
 │   ├── utils.ts                  # cn() utility (clsx + tailwind-merge)
-│   ├── version.ts                # HADES_VERSION (package.json) and CONTRACT_VERSION (the theme contract)
 │   ├── tokens/
 │   │   ├── tokens.css            # Design token definitions (@theme block)
 │   │   ├── surface.ts            # Theme surface declaration: token kinds, slots, product-name bounds
@@ -266,13 +265,13 @@ frontend/src/packages/hades/
 
 ## Versioning and the theme surface manifest
 
-Hades carries two versions. The **package version** follows Semantic Versioning for everything a consumer of the package can depend on: components, props, peer ranges, tokens, the manifest and the theme schema. The **contract version**, `MAJOR.MINOR`, versions the **theme contract**: the set of values a white-labelling theme can set, and the format it is written in. A theme targets the contract version, never the package version, so a package major that leaves the contract alone invalidates no theme. The rules are in the [design system versioning ADR](../../../../docs/adr/2026-10-11-design-system-semantic-versioning.md); this section is the working summary.
+Hades has no version of its own. It is released with kora, under the kora version, so the version of Hades in a release is that release's version. A theme records the kora release it was written against, and an instance accepts a theme of the same major. Hades follows Semantic Versioning, so a consumer of the published `@runkora/hades` package can use a caret range, and the release workflow makes that true: it refuses a kora release that contains a Hades break unless the release is a major. The rules are in the [design system versioning ADR](../../../../docs/adr/2026-10-11-design-system-semantic-versioning.md); this section is the working summary.
 
 ### The version
 
-`package.json` `version` is the source of truth for the package version. `src/version.ts` exports the same value as `HADES_VERSION`, and `manifest.json` carries it too; `make check-versions` fails when the three disagree. A release is a `hades/vX.Y.Z` tag on a `main` commit where the field equals `X.Y.Z`; the `hades-release.yml` workflow verifies that, refuses any `0.x` tag, and deletes the tag on failure. Version bumps travel in the pull request that makes the change, so `main` is releasable at any commit.
+The version is the kora release tag, `vX.Y.Z`. `package.json` carries the placeholder `0.0.0` in the tree; the release workflow sets it from the tag before packing, so nothing here is bumped by hand and nothing can drift. There is no `version.ts` and the manifest carries no version: it ships inside a release, and the release is its version. A build that is not from a release tag identifies as `0.0.0-dev`.
 
-The contract version is `CONTRACT_VERSION` in `src/version.ts`, exported from the package, and `contractVersion` in `manifest.json`, generated from it; `make check-versions` fails when they disagree. A consumer that renders themes imports `CONTRACT_VERSION` (or reads the manifest) to decide whether a theme is compatible: a theme passes when its contract major equals the instance's. A contract major means a theme can fail or change meaning; a contract minor means the surface gained something a theme may now set. There is no contract patch.
+Nothing is promised below `1.0.0`. From the first final release at or above it, a theme written for one major is not promised to work on another, and a Hades break needs a major kora release.
 
 ### The manifest
 
@@ -287,7 +286,6 @@ The generator reads token names from the `:root` blocks of `src/tokens/tokens.cs
 
 | Field         | Contents                                                                                                                                                                                                                   |
 | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version`     | Equal to `package.json`.                                                                                                                                                                                                   |
 | `modes`       | `["dark", "light"]`.                                                                                                                                                                                                       |
 | `tokens`      | One entry per raw token: `name`, `kind` (`color`, `shadow`, `length`, `font`), `format` (`hex-or-oklch`, `css-shadow-list`, `css-length`, `font-family-name`) and `modes`.                                                 |
 | `mapping`     | For each `@theme inline` name, the raw tokens it resolves to, transitively, and whether it is `derived` through an expression such as `color-mix()`. A theme never sets a semantic name, but components read through them. |
@@ -300,17 +298,18 @@ The generator reads token names from the `:root` blocks of `src/tokens/tokens.cs
 
 ### The classifier
 
-Every change to Hades is classified twice, comparing the manifest, the exported component API, the peer ranges and the changed files at head against the last `hades/v*` release: for the **package** as `none`, `patch`, `minor` or `major`, and for the **contract** as `none`, `minor` or `major`. Each finding cites the boundary rule or Semantic Versioning it applied:
+The classifier compares the manifest, the exported component API, the peer ranges and the changed files at head against the **last final kora release**, never a release candidate, and says what the release carrying the change must be: `none`, `patch`, `minor` or `major`. Each finding cites the boundary rule or Semantic Versioning it applied and says whether it breaks themes:
 
 ```bash
-make hades-classify                       # against the last release
-make hades-classify BASE=origin/main      # before the first release exists
-make hades-classify FORMAT=markdown       # what CI posts on the pull request
+make hades-classify                       # what the next release owes, against the last final release
+make hades-classify RELEASE=1.4.0         # also checks that 1.4.0 is enough; exits 1 with an explanation if not
+make hades-classify BASE=origin/main      # before a final release exists
+make hades-classify FORMAT=markdown       # what CI writes to the job summary
 ```
 
-In short: a token or slot removed, renamed or re-typed, a semantic name remapped, a slot's limits shrunk, the product-name bounds tightened, or a new token that a pre-existing component reads is a **major** for both. A new token read only by new components, or a slot's limits grown, is a **minor** for both. A contract change is always a package change of at least the same level. Changes that no theme can see move only the package: an export removed or renamed, a prop removed or made required, a peer dependency added or narrowed, or a semantic name removed is a package **major**; an export or optional prop added, a peer range widened, a peer removed, or a semantic name added is a package **minor**. Any other source change is a package **patch**. Documentation, stories and tests alone are **none**.
+In short: a token or slot removed, renamed or re-typed, a semantic name remapped, a slot's limits shrunk, the product-name bounds tightened, or a new token that a pre-existing component reads is a **major** and breaks themes. A new token read only by new components, or a slot's limits grown, is a **minor**. Changes that no theme can see still count for the package: an export removed or renamed, a prop removed or made required, a peer dependency added or narrowed, or a semantic name removed is a **major**; an export or optional prop added, a peer range widened, a peer removed, or a semantic name added is a **minor**. Any other source change is a **patch**. Documentation, stories and tests alone are **none**. The release owes the highest level of any finding.
 
-The classifications set two floors, one for `package.json` and one for the contract version (`CONTRACT_VERSION` and the generated `contractVersion`, a major resetting the minor to zero); a bump above a floor is fine, below it CI fails. The CI job posts one comment on the pull request with both classifications and two questions no script decides: whether a token kept its name but changed its meaning (a contract major), and whether a prop narrowed its type or a function tightened its signature (a package major). Before the first release the classifier compares against the pull request base, reports "no baseline", and enforces nothing.
+It runs in two places. On a pull request that touches Hades, a job writes the report to the job summary and never fails, so a developer or an agent learns early that a change is a break. At release, the first job of `release.yml` runs it against the tag being cut and refuses the release when the version is too low for the changes in it, with a message that names the findings and says how to fix it. Below `1.0.0` it reports and refuses nothing. It also prints two questions no script decides: whether a token kept its name but changed its meaning, and whether a prop narrowed its type or a function tightened its signature. Both need a major.
 
 ---
 

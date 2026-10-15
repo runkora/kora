@@ -170,17 +170,17 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-  # ── Hades classification ─────────────────────────────────────────────────
-  # Classifies the Hades change against the last hades/v* release per the
-  # contract boundary rules, and fails when the version bumps in package.json
-  # and the manifest are below their floors. Full history and tags are needed
-  # because the comparison point is a tag. Wired into frontend-gate through
-  # this workflow, so it cannot be bypassed.
+  # ── Hades classification (advisory) ──────────────────────────────────────
+  # Reports what the next kora release would owe for the Hades changes in this
+  # pull request, so a developer or an agent learns early that a change is a
+  # break. It never fails the check and posts nothing to the pull request: the
+  # report goes to the job summary. The block is at release, in release.yml,
+  # where the version is a fact. See the design system versioning ADR, SD-4.
   #
-  # This job installs dependencies and runs the PR's scripts, so it is
-  # read-only and keeps no credential in the checkout. It hands the report to
-  # hades-comment as an artifact, and the token that can write to the pull
-  # request never meets code from the PR.
+  # The manifest sync check does fail, because a stale manifest is a defect
+  # whatever the version. The job installs dependencies and runs the PR's
+  # scripts, so it is read-only and keeps no credential in the checkout. Full
+  # history and tags are needed because the baseline is the last final release.
   hades-classify:
     name: Hades Classification
     if: inputs.hades
@@ -214,73 +214,12 @@ jobs:
       - name: Manifest and contract in sync
         run: make hades-check
 
-      # Before the first release the classifier compares against the PR base
-      # (or the previous commit on main) and reports without enforcing.
+      # Before the first final release the classifier compares against the PR
+      # base (or the previous commit on main) and reports without enforcing.
+      # Without --release it always exits 0.
       - name: Classify
-        id: classify
         env:
           BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^' }}
         run: |
-          set +e
-          make hades-classify BASE="$BASE" FORMAT=markdown > hades-classification.md
-          status=$?
-          set -e
-          cat hades-classification.md >> "$GITHUB_STEP_SUMMARY"
-          make hades-classify BASE="$BASE" || true
-          exit $status
-
-      - name: Upload the report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: hades-classification
-          path: hades-classification.md
-          retention-days: 7
-          if-no-files-found: ignore
-
-  # Posts the report as the one PR comment. It holds the only write token and
-  # installs nothing: it runs the comment script from the PR's base commit, not
-  # its head, and reads the report, which is untrusted text, from the artifact.
-  # The comment is a convenience and the check status carries the verdict, so a
-  # failure here never fails the gate. Fork PRs get a read-only token and skip.
-  hades-comment:
-    name: Hades Classification Comment
-    needs: hades-classify
-    if: >-
-      always() &&
-      needs.hades-classify.result != 'skipped' &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    permissions:
-      contents: read
-      pull-requests: write
-
-    steps:
-      - name: Checkout the comment script from the base commit
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          sparse-checkout: .github/scripts
-          persist-credentials: false
-
-      - name: Download the report
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: hades-classification
-          path: ${{ runner.temp }}/hades-report
-
-      - name: Comment with the classification
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        env:
-          HADES_REPORT_FILE: ${{ runner.temp }}/hades-report/hades-classification.md
-        with:
-          script: |
-            const fs = require('fs')
-            const script = `${process.env.GITHUB_WORKSPACE}/.github/scripts/comment-hades-classification.js`
-            if (!fs.existsSync(script)) {
-              core.notice('The base commit has no comment script yet; skipping the comment.')
-              return
-            }
-            await require(script)({ github, context })
+          make hades-classify BASE="$BASE" FORMAT=markdown >> "$GITHUB_STEP_SUMMARY"
+          make hades-classify BASE="$BASE"
