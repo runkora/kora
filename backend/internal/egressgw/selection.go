@@ -10,6 +10,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
 	"github.com/clear-route/orbit/internal/platform/token"
 )
@@ -29,7 +30,7 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 	owners := make([]string, len(candidates))
 	requestOwner := ""
 	for i, c := range candidates {
-		scoped, ok := b.ownerScoped(c)
+		scoped, ok := b.openOwnerScoped(c)
 		if !ok {
 			continue
 		}
@@ -50,7 +51,11 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 
 	held, err := b.heldCandidates(ctx, claims, candidates)
 	if err != nil {
-		return nil, err
+		b.logger.Error(ctx, "reading caller scopes failed",
+			logging.Field{Key: "host", Value: req.Host},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return nil, &Denial{Reason: DenialPolicyUnavailable, Host: req.Host, cause: err}
 	}
 	if len(held) == 1 {
 		return held[0], nil
@@ -58,9 +63,9 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 	return nil, unresolved(req.Host, candidates, len(held) > 1)
 }
 
-// ownerScoped opens c and returns its connector when it reports owners. A
+// openOwnerScoped opens c and returns its connector when it reports owners. A
 // connection that fails to open is skipped here and fails if selected.
-func (b *Broker) ownerScoped(c *credentials.Connection) (ownerScoped, bool) {
+func (b *Broker) openOwnerScoped(c *credentials.Connection) (ownerScoped, bool) {
 	adapter, ok := b.adapters.Lookup(c.Adapter)
 	if !ok {
 		return nil, false
@@ -73,11 +78,17 @@ func (b *Broker) ownerScoped(c *credentials.Connection) (ownerScoped, bool) {
 	return scoped, ok
 }
 
-// heldCandidates returns the candidates the caller holds any scope on.
+// heldCandidates returns the candidates the caller holds any scope on. A
+// two-part connection:<verb> scope covers every connection, so it holds them all.
 func (b *Broker) heldCandidates(ctx context.Context, claims *token.PlatformClaims, candidates []*credentials.Connection) ([]*credentials.Connection, error) {
 	scopes, err := b.policy.Scopes(ctx, policy.ScopesInput{Claims: claims})
 	if err != nil {
 		return nil, fmt.Errorf("read caller scopes: %w", err)
+	}
+	for _, s := range scopes {
+		if parts := strings.Split(s, ":"); len(parts) == 2 && parts[0] == resourceType {
+			return candidates, nil
+		}
 	}
 	var held []*credentials.Connection
 	for _, c := range candidates {
@@ -102,10 +113,10 @@ func unresolved(host string, candidates []*credentials.Connection, ambiguous boo
 }
 
 // unresolvedConnection handles a request selectConnection could not resolve. No
-// credential is minted. An ambiguous request is denied. Any other is served by
-// the anonymous read fallback when it qualifies.
+// credential is minted. An ambiguous request or a failed scope read is denied.
+// Any other is served by the anonymous read fallback when it qualifies.
 func (b *Broker) unresolvedConnection(ctx context.Context, span trace.Span, claims *token.PlatformClaims, req EgressRequest, d *Denial) (Decision, error) {
-	if d.ambiguous {
+	if d.ambiguous || d.Reason != DenialConnectionUnresolved {
 		span.SetStatus(codes.Error, ErrForbidden.Error())
 		b.logDenial(ctx, claims.Orbit.TenantID, req, d)
 		return Decision{}, d

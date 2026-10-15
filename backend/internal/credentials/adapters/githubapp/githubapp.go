@@ -575,7 +575,8 @@ func requestHost(req *http.Request) string {
 	if i := strings.LastIndex(h, ":"); i > 0 && !strings.Contains(h[i+1:], "]") {
 		h = h[:i]
 	}
-	return h
+	// The registry matches a fully-qualified "github.com." to the same connections.
+	return strings.TrimSuffix(h, ".")
 }
 
 // pathSegments splits a URL path into non-empty segments.

@@ -39,6 +39,8 @@ func TestConnector_RequestOwner(t *testing.T) {
 		{"https://ghe.example.com/team/app.git/git-upload-pack", "team"},
 		{"https://ghe.example.com/api/v3/repos/team/app/issues", "team"},
 		{"https://ghe.example.com/api/graphql", ""},
+		{"https://api.github.com./repos/runkora/kora", "runkora"},
+		{"https://objects.githubusercontent.com./a/b", ""},
 	}
 	for _, tc := range cases {
 		t.Run(tc.url, func(t *testing.T) {

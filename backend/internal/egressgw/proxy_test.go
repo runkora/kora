@@ -34,7 +34,6 @@ type stubEvaluator struct {
 	allow  bool
 	reason string
 	err    error
-	scopes []string
 
 	mu    sync.Mutex
 	calls []policy.CheckInput
@@ -51,7 +50,7 @@ func (s *stubEvaluator) Check(_ context.Context, input policy.CheckInput) (polic
 }
 
 func (s *stubEvaluator) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
-	return s.scopes, nil
+	return nil, nil
 }
 
 type memConnRepo struct {

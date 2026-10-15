@@ -30,23 +30,26 @@ func (c candidateConns) ListByHost(context.Context, string, string) ([]*credenti
 }
 
 // selectionPolicy holds the listed scopes, answers the egress posture check with
-// ownEgress and counts Scopes reads.
+// ownEgress, denies every connection scope and records which connections it checked.
 type selectionPolicy struct {
 	scopes     []string
+	scopesErr  error
 	ownEgress  bool
 	scopeReads int
+	checked    []string
 }
 
 func (p *selectionPolicy) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
 	if in.ResourceType == "egress" {
 		return policy.Result{Allow: p.ownEgress}, nil
 	}
+	p.checked = append(p.checked, in.PathSegments[0])
 	return policy.Result{Reason: noMatchingGrant}, nil
 }
 
 func (p *selectionPolicy) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
 	p.scopeReads++
-	return p.scopes, nil
+	return p.scopes, p.scopesErr
 }
 
 func githubConn(t *testing.T, name, owner string) *credentials.Connection {
@@ -92,6 +95,8 @@ func TestResolveConnection_SameHostSelection(t *testing.T) {
 		{name: "owner-less with one held", conns: both, scopes: []string{"connection:runkora-github:contents:read", "inference:invoke"}, url: "https://api.github.com/graphql", want: "runkora-github", wantScopeRead: true},
 		{name: "owner-less with two held", conns: both, scopes: []string{"connection:runkora-github:contents:read", "connection:clear-route-github:issues:write"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
 		{name: "owner-less with none held", conns: both, scopes: []string{"connection:runkora-github-old:contents:read"}, url: "https://api.github.com/search/issues", wantScopeRead: true},
+		{name: "owner-less with a scope covering every connection", conns: both, scopes: []string{"connection:read"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
+		{name: "fully-qualified host selects by owner", conns: both, url: "https://api.github.com./repos/runkora/kora", want: "runkora-github"},
 		{name: "single connection unchanged", conns: candidateConns{clearRoute}, url: "https://api.github.com/graphql", want: "clear-route-github"},
 	}
 	for _, tc := range tests {
@@ -163,5 +168,29 @@ func TestDenial_ConnectionUnresolvedNamesCandidates(t *testing.T) {
 	}
 	if got := d.Details()["candidates"]; !slices.Equal(got.([]string), d.Candidates) {
 		t.Errorf("details candidates = %v, want %v", got, d.Candidates)
+	}
+}
+
+// A failed scope read denies as policy_unavailable and never falls back.
+func TestAuthorize_ScopeReadFailureDenies(t *testing.T) {
+	both := candidateConns{githubConn(t, "clear-route-github", "clear-route"), githubConn(t, "runkora-github", "runkora")}
+	b := selectionBroker(&selectionPolicy{scopesErr: errors.New("bundle down"), ownEgress: true}, both)
+	_, err := b.Authorize(context.Background(), acmeClaims, egressRequest(http.MethodGet, "https://api.github.com/user"))
+	var d *Denial
+	if !errors.As(err, &d) || d.Reason != DenialPolicyUnavailable {
+		t.Fatalf("err = %v, want a policy_unavailable denial", err)
+	}
+}
+
+// Policy is evaluated against the connection the owner selects.
+func TestAuthorize_PolicyCheckedOnSelectedConnection(t *testing.T) {
+	both := candidateConns{githubConn(t, "clear-route-github", "clear-route"), githubConn(t, "runkora-github", "runkora")}
+	pol := &selectionPolicy{scopes: []string{"connection:clear-route-github:repo:read"}, ownEgress: true}
+	got, err := selectionBroker(pol, both).Authorize(context.Background(), acmeClaims, egressRequest(http.MethodGet, "https://api.github.com/repos/runkora/kora"))
+	if err != nil || got.Action != anonymousReadAction {
+		t.Fatalf("decision = %+v, err %v, want the anonymous read after a policy deny", got, err)
+	}
+	if len(pol.checked) == 0 || slices.ContainsFunc(pol.checked, func(c string) bool { return c != "runkora-github" }) {
+		t.Errorf("policy checked %v, want only runkora-github", pol.checked)
 	}
 }
