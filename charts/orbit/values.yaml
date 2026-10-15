@@ -484,6 +484,7 @@ frontend:
     policyServiceUrl: ""
     orbitAgentsUrl: ""
     toolGatewayUrl: ""
+    skillsServiceUrl: ""
     nextPublicAppUrl: ""
   # Holds BFF_SESSION_SECRET.
   existingSecret: orbit-frontend-secrets
@@ -848,6 +849,31 @@ policyGateway:
   # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
   # the Go config structs; an unknown key fails startup.
   configOverrides: {}
+
+skillsService:
+  image:
+    registry: ""
+    repository: orbit-skills-service
+    tag: ""
+    digest: ""
+    pullPolicy: ""
+  replicas: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  nodeSelector: {}
+  # githubApps lists the GitHub App Secrets to mount into the pod.
+  # Each entry mounts one Kubernetes Secret as a read-only directory.
+  # The operator writes the mountPath as credentialsRef in marketplace-sources.json.
+  # The first entry is also used as the default App (GITHUB_APP_PRIVATE_KEY_PATH).
+  # Add one entry per distinct GitHub App installation needed across all tenants.
+  githubApps:
+    - secretName: orbit-skills-github-app
+      mountPath: /var/run/secrets/skills/github-apps/default
 
 triggers:
   image:

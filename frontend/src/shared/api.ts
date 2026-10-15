@@ -1090,3 +1090,53 @@ export interface AgentTypeGuardrails {
   wait_rearm_warn?: number;
   wait_rearm_pause?: number;
 }
+
+// ── Marketplace ─────────────────────────────────────────────────────────
+// Mirrors the skills-service (backend/internal/skills) JSON: GET
+// /v1/marketplaces, /v1/marketplaces/{marketplaceSlug}/skills and
+// /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}.
+
+export interface Marketplace {
+  /** Display name. The backend uses the repository name, so it is not unique. */
+  name: string;
+  /** Identifier: `org__repo` in lower case. */
+  marketplaceSlug: string;
+  /** The GitHub repository link. */
+  link: string;
+}
+
+export interface GetMarketplaces {
+  marketplaces: Marketplace[];
+}
+
+/** One item of a Marketplace's Skill list. */
+export interface SkillSummary {
+  name: string;
+  description: string;
+  /** Identifier: `{marketplaceSlug}__{slugified name}`. */
+  skillSlug: string;
+}
+
+/**
+ * The Skills of one Marketplace. At most 200 items, sorted by skillSlug,
+ * with no paging, sort, or total.
+ */
+export interface ListSkillsResponse {
+  skills: SkillSummary[];
+}
+
+/** One file of a Skill: the SKILL.md or a resource document. */
+export interface SkillFile {
+  path: string;
+  name: string;
+  content: string;
+}
+
+/** One Skill with its full SKILL.md and resource documents. */
+export interface Skill {
+  name: string;
+  description: string;
+  skillSlug: string;
+  skill: SkillFile;
+  documents: SkillFile[];
+}

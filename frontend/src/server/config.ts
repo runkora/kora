@@ -67,6 +67,13 @@ export const config = {
   toolGatewayUrl: requireEnv('TOOL_GATEWAY_URL').replace(/\/$/, ''),
 
   /**
+   * Base URL of the skills-service (port 8085), including its `/v1` base
+   * path. The BFF reads the Marketplaces, their Skill lists, and Skill
+   * details. Never sent to the browser.
+   */
+  skillsServiceUrl: requireEnv('SKILLS_SERVICE_URL').replace(/\/$/, ''),
+
+  /**
    * Secret used to sign/verify session tokens.
    * Lazy — only validated when the session layer first accesses it.
    */

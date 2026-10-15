@@ -28,6 +28,7 @@ const MAIN_NAV: NavEntry[] = [
     icon: 'layers',
     requiredScope: 'agents:environments:read',
   },
+  { label: 'Marketplace', href: APP_ROUTES.marketplace.overview, icon: 'box' },
   {
     label: 'Triggers',
     href: APP_ROUTES.triggers,

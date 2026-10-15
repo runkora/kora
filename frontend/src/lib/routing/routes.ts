@@ -45,6 +45,11 @@ export const APP_ROUTES = {
     servers: '/mcp-gateway',
     server: (slug: string) => `/mcp-gateway/${slug}` as const,
   },
+  marketplace: {
+    overview: '/marketplace',
+    /** `slug` is the backend Skill slug, used as an opaque value. It can contain `/`. */
+    detail: (slug: string) => `/marketplace/${encodeURIComponent(slug)}` as const,
+  },
 
   // ── Policy ───────────────────────────────────────────────────────────────
   policy: {

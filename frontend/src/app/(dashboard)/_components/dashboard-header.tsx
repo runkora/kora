@@ -27,12 +27,21 @@ const SECTIONS: Record<string, SectionHeader> = {
   'model-gateway': { title: 'Model Gateway' },
   'mcp-gateway': { title: 'MCP Servers', tag: 'tool-gateway', showEndpoint: true },
   chat: { title: 'Chat' },
+  marketplace: { title: 'Marketplace' },
 };
 
 // useSyncExternalStore plumbing for reading the browser host: the host never
 // changes, so the store has no subscription; the server snapshot is empty.
 const subscribeNoop = () => () => {};
 const getServerHost = () => '';
+
+function marketplaceDetailLabel(path: string): string {
+  try {
+    return decodeURIComponent(path).split('/').pop() ?? path;
+  } catch {
+    return path;
+  }
+}
 
 export function DashboardHeader() {
   const pathname = usePathname();
@@ -45,7 +54,10 @@ export function DashboardHeader() {
   // (header.title below is not optional-chained, and would crash the whole page).
   const header = SECTIONS[section] ?? { title: 'Dashboard' };
   const isDetail = segments.length > 1;
-  const detailLabel = segments[segments.length - 1];
+  const detailLabel =
+    section === 'marketplace'
+      ? marketplaceDetailLabel(segments.slice(1).join('/'))
+      : segments[segments.length - 1];
 
   // Derived from the dashboard origin. useSyncExternalStore reads window on the
   // client and '' on the server with no hydration mismatch (window isn't

@@ -88,6 +88,27 @@ See [table-layout.md](../golden-paths/table-layout.md) for the sizing rules arou
 
 **When to use:** A wrapping list in a cell that should show as many items as fit in a fixed number of rows, then a "+N more" trigger. It is a hook, so the caller owns the markup: render every item, then a trigger element marked `data-clamp-trigger` with no children. The hook hides what does not fit and writes the trigger's text. See `ScopeChipList` and the connections `UsedByList` for both usages.
 
+---
+
+## ViewToggle
+
+**Import:** `import { ViewToggle } from '@orbit/hades'`
+
+**When to use:** Any result list that the user can show as cards or as a list. It renders two icon buttons in a Hades `ButtonGroup` and sets `aria-pressed` on the active button. The policy Grants and Roles tabs and the Marketplace overview use it.
+
+```tsx
+interface ViewToggleProps {
+  viewMode: 'cards' | 'list';
+  onToggle: (mode: 'cards' | 'list') => void;
+}
+```
+
+```tsx
+<ViewToggle viewMode={viewMode} onToggle={setViewMode} />
+```
+
+---
+
 ## RUN_STATE_DISPLAY
 
 `RUN_STATE_DISPLAY` maps a run state to the status dot and label every run surface shows. A `pending` run reads Queued, `starting` reads Starting and `active` reads Running.

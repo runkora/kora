@@ -1,0 +1,25 @@
+app:
+  version: "0.1.0"
+
+server:
+  port: 8085
+  basePath: /v1
+  shutdownTimeoutSecs: 10
+
+observability:
+  serviceName: orbit-skills-service
+
+identity:
+  internalURL: "http://orbit-identity.orbit-system.svc.cluster.local"
+
+policy:
+  bundleEndpoint: "http://orbit-policy-service.orbit-system.svc/api/v1/policy/bundles"
+  bundlePollIntervalSecs: 30
+  policyServiceURL: "http://orbit-policy-service.orbit-system.svc"
+  registerRoutes: false
+
+marketplace:
+  cacheTTL: 12h
+
+github:
+  apiBaseURL: https://api.github.com

@@ -479,9 +479,11 @@ dev-cluster-down: ## Tear down the local k3d cluster
 # matters only for readability — they're all built serially via redeploy.sh.
 # Adding a new service is a one-line edit here plus an entry in redeploy.sh.
 REDEPLOY_PLATFORM_SERVICES := \
-	identity identity-proxy inference-gateway policy-service policy-gateway \
-	egress-gateway agents frontend orbit-mcp tool-gateway orbit-triggers migrate operator \
-	session-manager sandbox-mount sandbox-base
+	identity identity-proxy inference-gateway policy-service \
+	policy-gateway \
+	egress-gateway agents frontend orbit-mcp tool-gateway \
+	orbit-triggers skills-service migrate operator \
+	session-manager sandbox-exec sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
 # Services with a long-lived orbit-system workload that `cluster-update` rolls
