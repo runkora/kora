@@ -24,7 +24,7 @@ import (
 type ownerScoped interface {
 	Owner() string
 	RequestOwners(req *http.Request) credentials.RequestOwners
-	NodeOwners(ctx context.Context, ids []string) (map[string]string, error)
+	NodeOwners(ctx context.Context, ids, categories []string) (map[string]string, error)
 }
 
 // errNodeLookup is the span status of a failed node id owner lookup.
@@ -66,7 +66,7 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 		unserved = name
 	}
 
-	held, err := b.heldCandidates(ctx, claims, candidates)
+	held, scopes, err := b.heldCandidates(ctx, claims, candidates)
 	if err != nil {
 		b.logger.Error(ctx, "reading caller scopes failed",
 			logging.Field{Key: "host", Value: req.Host},
@@ -83,7 +83,7 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 	case len(held) > 1 && len(target.NodeIDs) > MaxNodeIDs:
 		return nil, unresolved(req.Host, candidates, true, fmt.Sprintf("the %s names more than %d node ids", target.Subject, MaxNodeIDs))
 	case len(held) > 1 && len(target.NodeIDs) > 0:
-		return b.selectByNodeIDs(ctx, claims, req.Host, candidates, held, scoped, target)
+		return b.selectByNodeIDs(ctx, claims, req.Host, candidates, held, scoped, scopes, target)
 	}
 	return nil, unresolved(req.Host, candidates, len(held) > 1, "the "+target.Subject+" names no owner")
 }
@@ -109,8 +109,8 @@ func selectByOwners(host string, candidates []*credentials.Connection, owners, n
 // selectByNodeIDs selects among the held candidates by the owners the
 // document's node ids resolve to. Its denials never name a resolved owner, to
 // keep objects outside the caller's connections from leaking through them.
-func (b *Broker) selectByNodeIDs(ctx context.Context, claims *token.PlatformClaims, host string, candidates, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, target credentials.RequestOwners) (*credentials.Connection, error) {
-	resolved, err := b.resolveNodeOwners(ctx, claims, host, held, scoped, target.NodeIDs)
+func (b *Broker) selectByNodeIDs(ctx context.Context, claims *token.PlatformClaims, host string, candidates, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, scopes []string, target credentials.RequestOwners) (*credentials.Connection, error) {
+	resolved, err := b.resolveNodeOwners(ctx, claims, host, held, scoped, scopes, target.NodeIDs)
 	if err != nil {
 		return nil, unresolved(host, candidates, true, "the node id lookup failed")
 	}
@@ -132,22 +132,25 @@ func (b *Broker) selectByNodeIDs(ctx context.Context, claims *token.PlatformClai
 }
 
 // resolveNodeOwners returns the distinct owners of the node ids that resolve,
-// trying each held candidate in turn for the ids still unresolved. A cached
-// owner counts only for the connection whose token resolved it. Ids no held
+// trying each held candidate in turn for the ids still unresolved. A lookup sees
+// only the categories the caller holds unqualified on that connection, and a
+// cached owner counts only for the same connection and categories. Ids no held
 // candidate can see are ignored.
-func (b *Broker) resolveNodeOwners(ctx context.Context, claims *token.PlatformClaims, host string, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, ids []string) ([]string, error) {
+func (b *Broker) resolveNodeOwners(ctx context.Context, claims *token.PlatformClaims, host string, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, scopes, ids []string) ([]string, error) {
 	tenantID := claims.Orbit.TenantID
 	found := map[string]bool{}
 	pending := slices.Clone(ids)
 	for _, c := range held {
 		s, ok := scoped[c]
-		if len(pending) == 0 || !ok {
+		categories := lookupCategories(scopes, c.Name)
+		if len(pending) == 0 || !ok || len(categories) == 0 {
 			continue
 		}
+		cacheConn := c.Name + "|" + strings.Join(categories, ",")
 		resolved := map[string]string{}
 		var misses []string
 		for _, id := range pending {
-			owner, hit := b.nodeOwners.get(tenantID, host, c.Name, id)
+			owner, hit := b.nodeOwners.get(tenantID, host, cacheConn, id)
 			switch {
 			case !hit:
 				misses = append(misses, id)
@@ -156,14 +159,14 @@ func (b *Broker) resolveNodeOwners(ctx context.Context, claims *token.PlatformCl
 			}
 		}
 		if len(misses) > 0 {
-			looked, err := b.lookupNodeOwners(ctx, claims, c, s, misses)
+			looked, err := b.lookupNodeOwners(ctx, claims, c, s, misses, categories)
 			if err != nil {
 				return nil, err
 			}
 			// An id this token cannot see is cached as "" to spare repeat lookups.
 			for _, id := range misses {
 				resolved[id] = looked[id]
-				b.nodeOwners.put(tenantID, host, c.Name, id, looked[id])
+				b.nodeOwners.put(tenantID, host, cacheConn, id, looked[id])
 			}
 		}
 		pending = slices.DeleteFunc(pending, func(id string) bool {
@@ -179,12 +182,12 @@ func (b *Broker) resolveNodeOwners(ctx context.Context, claims *token.PlatformCl
 
 // lookupNodeOwners runs one candidate's node id lookup under its own span and
 // logs it with the run attribution. Its result never reaches the agent.
-func (b *Broker) lookupNodeOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids []string) (map[string]string, error) {
+func (b *Broker) lookupNodeOwners(ctx context.Context, claims *token.PlatformClaims, c *credentials.Connection, s ownerScoped, ids, categories []string) (map[string]string, error) {
 	ctx, span := tracer.Start(ctx, "egress.node_owner_lookup", trace.WithSpanKind(trace.SpanKindInternal))
 	defer span.End()
 	span.SetAttributes(attribute.String("orbit.connection", c.Name), attribute.Int("orbit.node_ids", len(ids)))
 
-	resolved, err := s.NodeOwners(ctx, ids)
+	resolved, err := s.NodeOwners(ctx, ids, categories)
 	fields := []logging.Field{
 		{Key: "connection", Value: c.Name},
 		{Key: "node_ids", Value: len(ids)},
@@ -220,14 +223,14 @@ func (b *Broker) openOwnerScoped(c *credentials.Connection) (ownerScoped, bool) 
 
 // heldCandidates returns the candidates the caller holds any scope on. A
 // two-part connection:<verb> scope covers every connection, so it holds them all.
-func (b *Broker) heldCandidates(ctx context.Context, claims *token.PlatformClaims, candidates []*credentials.Connection) ([]*credentials.Connection, error) {
+func (b *Broker) heldCandidates(ctx context.Context, claims *token.PlatformClaims, candidates []*credentials.Connection) ([]*credentials.Connection, []string, error) {
 	scopes, err := b.policy.Scopes(ctx, policy.ScopesInput{Claims: claims})
 	if err != nil {
-		return nil, fmt.Errorf("read caller scopes: %w", err)
+		return nil, nil, fmt.Errorf("read caller scopes: %w", err)
 	}
 	for _, s := range scopes {
 		if parts := strings.Split(s, ":"); len(parts) == 2 && parts[0] == resourceType {
-			return candidates, nil
+			return candidates, scopes, nil
 		}
 	}
 	var held []*credentials.Connection
@@ -240,7 +243,25 @@ func (b *Broker) heldCandidates(ctx context.Context, claims *token.PlatformClaim
 			}
 		}
 	}
-	return held, nil
+	return held, scopes, nil
+}
+
+// lookupCategories returns the categories the caller holds without a repository
+// qualifier on a connection, the only ones a node id lookup may read. A
+// two-part connection:<verb> scope holds every category, as the repo umbrella.
+func lookupCategories(scopes []string, connection string) []string {
+	held := map[string]bool{}
+	for _, s := range scopes {
+		parts := strings.Split(s, ":")
+		switch {
+		case parts[0] != resourceType:
+		case len(parts) == 2:
+			held["repo"] = true
+		case len(parts) == 4 && parts[1] == connection:
+			held[parts[2]] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(held))
 }
 
 // unresolved builds the denial for a request no single candidate serves. part

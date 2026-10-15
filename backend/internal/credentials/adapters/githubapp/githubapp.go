@@ -832,14 +832,23 @@ func (a *Adapter) installationPermissions(ctx context.Context, appJWT string, in
 // lookup permissions.
 var errNoLookupPermissions = errors.New("installation grants no permission a node lookup can use")
 
-// lookupPermissions are the read permissions a node id lookup token may carry:
-// the categories whose objects node ids name.
-var lookupPermissions = []string{"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"}
+// lookupPermissions maps a held category to the read permissions a node id
+// lookup token may carry for it. The repo umbrella reads every one.
+var lookupPermissions = map[string][]string{
+	"metadata": {"metadata"},
+	"contents": {"contents"},
+	"issues":   {"issues"},
+	"pulls":    {"pull_requests"},
+	"checks":   {"checks"},
+	"actions":  {"actions"},
+	"repo":     {"metadata", "contents", "issues", "pull_requests", "discussions", "checks", "actions"},
+}
 
 // NodeOwners resolves node ids to their owners' logins with a read-only
-// installation token. Ids this installation cannot see are absent. See
+// installation token limited to categories, the ones the caller holds. Ids the
+// token cannot see are absent. See
 // docs/adr/2026-10-15-same-host-connection-selection.md.
-func (c *connector) NodeOwners(ctx context.Context, ids []string) (map[string]string, error) {
+func (c *connector) NodeOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
 	a, conn, cfg := c.adapter, c.conn, c.cfg
 	pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
 	if err != nil {
@@ -854,9 +863,11 @@ func (c *connector) NodeOwners(ctx context.Context, ids []string) (map[string]st
 		return nil, fmt.Errorf("fetch installation permissions: %w", err)
 	}
 	perms := map[string]string{}
-	for _, key := range lookupPermissions {
-		if permissionLevels[installationPerms[key]] >= permissionLevels[verbRead] {
-			perms[key] = verbRead
+	for _, category := range append([]string{"metadata"}, categories...) {
+		for _, key := range lookupPermissions[category] {
+			if permissionLevels[installationPerms[key]] >= permissionLevels[verbRead] {
+				perms[key] = verbRead
+			}
 		}
 	}
 	// An empty set would mint a token with every installation permission.

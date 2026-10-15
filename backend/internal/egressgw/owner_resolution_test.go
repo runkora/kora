@@ -23,9 +23,10 @@ import (
 // connection name, then node id, to owner login.
 type lookupAdapter struct {
 	credentials.Adapter
-	visible map[string]map[string]string
-	err     error
-	lookups int
+	visible    map[string]map[string]string
+	err        error
+	lookups    int
+	categories [][]string
 }
 
 type lookupConnector struct {
@@ -43,8 +44,9 @@ func (a *lookupAdapter) Open(conn credentials.Connection) (credentials.Connector
 	return &lookupConnector{Connector: c, ownerScoped: c.(ownerScoped), name: conn.Name, adapter: a}, nil
 }
 
-func (c *lookupConnector) NodeOwners(_ context.Context, ids []string) (map[string]string, error) {
+func (c *lookupConnector) NodeOwners(_ context.Context, ids, categories []string) (map[string]string, error) {
 	c.adapter.lookups++
+	c.adapter.categories = append(c.adapter.categories, categories)
 	if c.adapter.err != nil {
 		return nil, c.adapter.err
 	}
@@ -303,4 +305,33 @@ func TestOwnerCache_ExpiryAndBound(t *testing.T) {
 	if len(c.entries) > nodeOwnerEntries {
 		t.Errorf("entries = %d, want at most %d", len(c.entries), nodeOwnerEntries)
 	}
+}
+
+// A lookup reads only the categories the caller holds without a repository
+// qualifier, and a caller holding only qualified grants triggers none.
+func TestResolveConnection_LookupLimitedToUnqualifiedCategories(t *testing.T) {
+	both := candidateConns{githubConn(t, "clear-route-github", "clear-route"), githubConn(t, "runkora-github", "runkora")}
+	visible := map[string]map[string]string{"runkora-github": {"PR_rk": "runkora"}}
+	doc := graphqlRequest(`{"query":"{ node(id: \"PR_rk\") { id } }"}`)
+
+	t.Run("qualified grants only", func(t *testing.T) {
+		la := &lookupAdapter{visible: visible}
+		b := lookupBroker(&selectionPolicy{scopes: []string{"connection:clear-route-github:pulls:orbit:read", "connection:runkora-github:pulls:kora:read"}}, both, la)
+		_, _, err := b.resolveConnection(context.Background(), acmeClaims, doc)
+		var d *Denial
+		if !errors.As(err, &d) || la.lookups != 0 {
+			t.Fatalf("err %v, lookups %d, want an unresolved denial and no lookup", err, la.lookups)
+		}
+	})
+	t.Run("categories passed to the lookup", func(t *testing.T) {
+		la := &lookupAdapter{visible: visible}
+		b := lookupBroker(&selectionPolicy{scopes: []string{"connection:clear-route-github:metadata:read", "connection:runkora-github:metadata:read", "connection:runkora-github:pulls:read", "connection:runkora-github:issues:kora:read"}}, both, la)
+		conn, _, err := b.resolveConnection(context.Background(), acmeClaims, doc)
+		if err != nil || conn.Name != "runkora-github" {
+			t.Fatalf("resolved %v, err %v", conn, err)
+		}
+		if len(la.categories) != 2 || strings.Join(la.categories[0], ",") != "metadata" || strings.Join(la.categories[1], ",") != "metadata,pulls" {
+			t.Errorf("lookup categories = %v", la.categories)
+		}
+	})
 }

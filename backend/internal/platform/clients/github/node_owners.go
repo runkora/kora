@@ -16,13 +16,13 @@ var ErrGraphQLQuery = errors.New("github graphql query failed")
 // MaxNodeLookup is the most node ids NodeOwners resolves in one call.
 const MaxNodeLookup = 100
 
-// nodeOwnerFields selects the owner login of a repository, a repository-scoped
-// object, an organization or a user.
-const nodeOwnerFields = `{ ... on Repository { owner { login } } ... on RepositoryNode { repository { owner { login } } } ... on Organization { login } ... on User { login } }`
+// nodeOwnerFields selects the owner login of a repository or a repository-scoped
+// object. Users and organizations resolve to no owner, so ids such as assignees
+// do not take part in selection.
+const nodeOwnerFields = `{ ... on Repository { owner { login } } ... on RepositoryNode { repository { owner { login } } } }`
 
 // nodeOwner is one aliased node in the lookup response.
 type nodeOwner struct {
-	Login string `json:"login"`
 	Owner struct {
 		Login string `json:"login"`
 	} `json:"owner"`
@@ -89,7 +89,7 @@ func (c *Client) NodeOwners(ctx context.Context, installationToken string, ids [
 		if n == nil {
 			continue
 		}
-		if login := strings.ToLower(cmp.Or(n.Owner.Login, n.Repository.Owner.Login, n.Login)); login != "" {
+		if login := strings.ToLower(cmp.Or(n.Owner.Login, n.Repository.Owner.Login)); login != "" {
 			owners[id] = login
 		}
 	}

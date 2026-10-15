@@ -143,7 +143,7 @@ func TestConnector_NodeOwners(t *testing.T) {
 				t.Errorf("lookup authorization = %q", r.Header.Get("Authorization"))
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"data":   map[string]any{"n0": map[string]any{"repository": map[string]any{"owner": map[string]any{"login": "RunKora"}}}, "n1": nil, "n2": map[string]any{"login": "clear-route"}},
+				"data":   map[string]any{"n0": map[string]any{"repository": map[string]any{"owner": map[string]any{"login": "RunKora"}}}, "n1": nil, "n2": map[string]any{"owner": map[string]any{"login": "clear-route"}}},
 				"errors": []any{map[string]any{"message": "Could not resolve to a node"}},
 			})
 		default:
@@ -157,7 +157,7 @@ func TestConnector_NodeOwners(t *testing.T) {
 	a.now = func() time.Time { return time.Date(2026, 6, 6, 12, 0, 0, 0, time.UTC) }
 	c := open(t, a, credentials.Connection{ID: "acme|runkora", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42, Owner: "runkora"})}).(*connector)
 
-	got, err := c.NodeOwners(t.Context(), []string{"PR_1", "garbage", "O_1"})
+	got, err := c.NodeOwners(t.Context(), []string{"PR_1", "garbage", "O_1"}, []string{"contents", "issues"})
 	if err != nil {
 		t.Fatalf("NodeOwners: %v", err)
 	}
@@ -165,10 +165,10 @@ func TestConnector_NodeOwners(t *testing.T) {
 		t.Errorf("owners = %v, want PR_1=runkora O_1=clear-route", got)
 	}
 	want := map[string]string{"contents": "read", "issues": "read", "metadata": "read"}
-	if len(minted.Permissions) != len(want) || minted.Permissions["contents"] != "read" || minted.Permissions["administration"] != "" {
+	if len(minted.Permissions) != len(want) || minted.Permissions["contents"] != "read" || minted.Permissions["issues"] != "read" || minted.Permissions["administration"] != "" {
 		t.Errorf("lookup token permissions = %v, want %v", minted.Permissions, want)
 	}
-	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}); err != nil || lookups != 2 {
+	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}, []string{"contents", "issues"}); err != nil || lookups != 2 {
 		t.Errorf("second lookup err %v, lookups %d", err, lookups)
 	}
 }
@@ -186,7 +186,7 @@ func TestConnector_NodeOwnersWithoutLookupPermissions(t *testing.T) {
 	logger := logging.NewLoggerWithOutput(io.Discard)
 	a := New(ghclient.NewClient(srv.URL, logger), stubSecrets{pem: testKeyPEM(t)}, logger)
 	c := open(t, a, credentials.Connection{ID: "x", SecretRef: "ref", Config: mustConfig(t, config{AppID: "1", InstallationID: 42})}).(*connector)
-	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}); !errors.Is(err, errNoLookupPermissions) {
+	if _, err := c.NodeOwners(t.Context(), []string{"PR_1"}, []string{"repo"}); !errors.Is(err, errNoLookupPermissions) {
 		t.Errorf("err = %v, want errNoLookupPermissions", err)
 	}
 }
