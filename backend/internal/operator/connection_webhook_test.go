@@ -58,12 +58,12 @@ func connectionRequest(t *testing.T, conn, old *Connection) admission.Request {
 }
 
 func TestConnectionValidator(t *testing.T) {
-	existingGitHub := testConnection("clear-route-github", "github_app", "github.com", "clear-route", 0)
+	existingGitHub := testConnection("contoso-github", "github_app", "github.com", "contoso", 0)
 	existingKube := testConnection("prod-cluster", "kubernetes", "k8s.example:443", "", 0)
-	laterDup := testConnection("later-dup", "github_app", "github.com", "clear-route", 5)
-	labeled := testConnection("later-dup", "github_app", "github.com", "clear-route", 5)
+	laterDup := testConnection("later-dup", "github_app", "github.com", "contoso", 5)
+	labeled := testConnection("later-dup", "github_app", "github.com", "contoso", 5)
 	labeled.Labels = map[string]string{"team": "platform"}
-	generated := testConnection("", "github_app", "github.com", "clear-route", 5)
+	generated := testConnection("", "github_app", "github.com", "contoso", 5)
 	generated.GenerateName = "github-"
 
 	tests := []struct {
@@ -73,17 +73,17 @@ func TestConnectionValidator(t *testing.T) {
 		wantAllowed bool
 		wantNamed   string
 	}{
-		{"github same owner rejected", testConnection("dup", "github_app", "github.com", "Clear-Route", 5), nil, []client.Object{existingGitHub}, false, "clear-route-github"},
-		{"github missing owner rejected", testConnection("no-owner", "github_app", "github.com", "", 5), nil, []client.Object{existingGitHub}, false, "clear-route-github"},
-		{"github distinct owner allowed", testConnection("runkora-github", "github_app", "github.com", "runkora", 5), nil, []client.Object{existingGitHub}, true, ""},
+		{"github same owner rejected", testConnection("dup", "github_app", "github.com", "Contoso", 5), nil, []client.Object{existingGitHub}, false, "contoso-github"},
+		{"github missing owner rejected", testConnection("no-owner", "github_app", "github.com", "", 5), nil, []client.Object{existingGitHub}, false, "contoso-github"},
+		{"github distinct owner allowed", testConnection("fabrikam-github", "github_app", "github.com", "fabrikam", 5), nil, []client.Object{existingGitHub}, true, ""},
 		{"kubernetes same host rejected", testConnection("prod-cluster-2", "kubernetes", "K8S.example:443", "", 5), nil, []client.Object{existingKube}, false, "prod-cluster"},
 		{"kubernetes distinct host allowed", testConnection("staging-cluster", "kubernetes", "staging.example:443", "", 5), nil, []client.Object{existingKube}, true, ""},
-		{"generateName create rejected with its prefix", generated, nil, []client.Object{existingGitHub}, false, "clear-route-github"},
+		{"generateName create rejected with its prefix", generated, nil, []client.Object{existingGitHub}, false, "contoso-github"},
 		{"update keeping an existing conflict allowed", labeled, laterDup, []client.Object{existingGitHub, laterDup}, true, ""},
 		{"update of the earlier connection keeping its conflict allowed", existingGitHub, existingGitHub, []client.Object{existingGitHub, laterDup}, true, ""},
 		{"update introducing a conflict with a later connection rejected", testConnection("prod-cluster", "kubernetes", "b.example:443", "", 0), existingKube, []client.Object{existingKube, testConnection("b-cluster", "kubernetes", "b.example:443", "", 5)}, false, "b-cluster"},
-		{"update dropping the owner rejected", testConnection("runkora-github", "github_app", "github.com", "", 5), testConnection("runkora-github", "github_app", "github.com", "runkora", 5), []client.Object{existingGitHub}, false, "clear-route-github"},
-		{"update compared with itself allowed", testConnection("clear-route-github", "github_app", "github.com", "", 0), existingGitHub, []client.Object{existingGitHub}, true, ""},
+		{"update dropping the owner rejected", testConnection("fabrikam-github", "github_app", "github.com", "", 5), testConnection("fabrikam-github", "github_app", "github.com", "fabrikam", 5), []client.Object{existingGitHub}, false, "contoso-github"},
+		{"update compared with itself allowed", testConnection("contoso-github", "github_app", "github.com", "", 0), existingGitHub, []client.Object{existingGitHub}, true, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -105,9 +105,9 @@ func TestConnectionValidator(t *testing.T) {
 
 func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T) {
 	objs := []client.Object{
-		testConnection("b-later-dup", "github_app", "github.com", "clear-route", 5),
-		testConnection("clear-route-github", "github_app", "github.com", "clear-route", 0),
-		testConnection("runkora-github", "github_app", "github.com", "runkora", 3),
+		testConnection("b-later-dup", "github_app", "github.com", "contoso", 5),
+		testConnection("contoso-github", "github_app", "github.com", "contoso", 0),
+		testConnection("fabrikam-github", "github_app", "github.com", "fabrikam", 3),
 		testConnection("a-same-time", "kubernetes", "k8s.example:443", "", 1),
 		testConnection("b-same-time", "kubernetes", "k8s.example:443", "", 1),
 		testConnection("staging-no-secret", "kubernetes", "staging.example:443", "", 2),
@@ -132,7 +132,7 @@ func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T)
 	for _, e := range entries {
 		names = append(names, e.Name)
 	}
-	if got, want := strings.Join(names, ","), "a-same-time,clear-route-github,runkora-github"; got != want {
+	if got, want := strings.Join(names, ","), "a-same-time,contoso-github,fabrikam-github"; got != want {
 		t.Errorf("rendered %s, want %s", got, want)
 	}
 
@@ -155,7 +155,7 @@ func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T)
 	for _, e := range entries {
 		names = append(names, e.Name)
 	}
-	if got, want := strings.Join(names, ","), "a-same-time,clear-route-github,runkora-github"; got != want {
+	if got, want := strings.Join(names, ","), "a-same-time,contoso-github,fabrikam-github"; got != want {
 		t.Errorf("rendered %s, want %s", got, want)
 	}
 }
