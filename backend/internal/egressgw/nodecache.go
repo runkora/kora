@@ -12,8 +12,8 @@ const (
 	nodeOwnerEntries = 10_000
 )
 
-// ownerCache maps a node id to its owner login per tenant and host, with a TTL
-// and a size bound.
+// ownerCache maps a node id to its owner login per tenant, host and the
+// connection whose token resolved it, with a TTL and a size bound.
 type ownerCache struct {
 	mu      sync.Mutex
 	now     func() time.Time
@@ -29,10 +29,10 @@ func newOwnerCache(now func() time.Time) *ownerCache {
 	return &ownerCache{now: now, entries: map[string]ownerEntry{}}
 }
 
-func (c *ownerCache) get(tenantID, host, id string) (string, bool) {
+func (c *ownerCache) get(tenantID, host, connection, id string) (string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	e, ok := c.entries[tenantID+"|"+host+"|"+id]
+	e, ok := c.entries[ownerKey(tenantID, host, connection, id)]
 	if !ok || c.now().After(e.expires) {
 		return "", false
 	}
@@ -41,7 +41,7 @@ func (c *ownerCache) get(tenantID, host, id string) (string, bool) {
 
 // put stores an owner. At the size bound it drops expired entries, then any
 // entries needed to make room.
-func (c *ownerCache) put(tenantID, host, id, owner string) {
+func (c *ownerCache) put(tenantID, host, connection, id, owner string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if len(c.entries) >= nodeOwnerEntries {
@@ -52,5 +52,9 @@ func (c *ownerCache) put(tenantID, host, id, owner string) {
 			}
 		}
 	}
-	c.entries[tenantID+"|"+host+"|"+id] = ownerEntry{owner: owner, expires: c.now().Add(nodeOwnerTTL)}
+	c.entries[ownerKey(tenantID, host, connection, id)] = ownerEntry{owner: owner, expires: c.now().Add(nodeOwnerTTL)}
+}
+
+func ownerKey(tenantID, host, connection, id string) string {
+	return tenantID + "|" + host + "|" + connection + "|" + id
 }

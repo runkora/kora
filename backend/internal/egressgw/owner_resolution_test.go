@@ -154,3 +154,71 @@ func TestResolveConnection_NodeOwnerCacheHit(t *testing.T) {
 		t.Errorf("lookups = %d, want 1", la.lookups)
 	}
 }
+
+// Owners resolved from node ids select only among the caller's held connections
+// and never appear in a denial, so a caller learns nothing its own connections
+// could not tell it.
+func TestResolveConnection_NodeOwnersDoNotLeak(t *testing.T) {
+	three := candidateConns{
+		githubConn(t, "clear-route-github", "clear-route"),
+		githubConn(t, "runkora-github", "runkora"),
+		githubConn(t, "acme-github", "acme"),
+	}
+	visible := map[string]map[string]string{
+		"clear-route-github": {"PR_cr": "clear-route"},
+		"runkora-github":     {"PR_rk": "runkora", "R_crpublic": "clear-route"},
+		"acme-github":        {"PR_acme": "acme"},
+	}
+	holdsAll := []string{"connection:clear-route-github:repo:read", "connection:runkora-github:repo:read", "connection:acme-github:repo:read"}
+	holdsRunkoraAcme := []string{"connection:runkora-github:repo:read", "connection:acme-github:repo:read"}
+	la := &lookupAdapter{visible: visible}
+	logger := logging.NewLoggerWithOutput(io.Discard)
+	la.Adapter = githubapp.New(nil, nil, logger)
+	adapters := NewAdapterRegistry()
+	adapters.Register(la)
+	pol := &selectionPolicy{scopes: holdsAll}
+	b := NewBroker(pol, three, adapters, passthrough.New(), logger)
+
+	denial := func(t *testing.T, err error) *Denial {
+		t.Helper()
+		var d *Denial
+		if !errors.As(err, &d) || d.Reason != DenialConnectionUnresolved {
+			t.Fatalf("err = %v, want a connection_unresolved denial", err)
+		}
+		for _, owner := range []string{"clear-route ", "runkora ", "acme "} {
+			if strings.Contains(d.Unresolved+" ", owner) {
+				t.Errorf("denial names a resolved owner: %q", d.Unresolved)
+			}
+		}
+		return d
+	}
+
+	// A caller holding every connection resolves PR_cr through clear-route-github.
+	if conn, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ node(id: \"PR_cr\") { id } }"}`)); err != nil || conn.Name != "clear-route-github" {
+		t.Fatalf("resolved %v, err %v", conn, err)
+	}
+
+	t.Run("cache entry from a connection the caller does not hold is unused", func(t *testing.T) {
+		pol.scopes, la.lookups = holdsRunkoraAcme, 0
+		_, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ node(id: \"PR_cr\") { id } }"}`))
+		denial(t, err)
+		if la.lookups != 2 {
+			t.Errorf("lookups = %d, want the caller's own 2", la.lookups)
+		}
+	})
+	t.Run("owner resolved to a connection the caller does not hold", func(t *testing.T) {
+		pol.scopes = holdsRunkoraAcme
+		_, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ node(id: \"R_crpublic\") { id } }"}`))
+		if d := denial(t, err); !strings.Contains(d.Unresolved, "none of the agent's connections") {
+			t.Errorf("unresolved = %q", d.Unresolved)
+		}
+	})
+	t.Run("node ids spanning held connections name no owner", func(t *testing.T) {
+		pol.scopes = holdsRunkoraAcme
+		_, _, err := b.resolveConnection(context.Background(), acmeClaims, graphqlRequest(`{"query":"{ nodes(ids: [\"PR_rk\", \"PR_acme\"]) { id } }"}`))
+		d := denial(t, err)
+		if body := d.Message(); strings.Contains(body, "owner runkora") || strings.Contains(body, "owners") {
+			t.Errorf("denial body names owners: %q", body)
+		}
+	})
+}

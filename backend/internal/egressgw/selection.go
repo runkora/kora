@@ -69,14 +69,7 @@ func (b *Broker) selectConnection(ctx context.Context, claims *token.PlatformCla
 	case len(held) == 1:
 		return held[0], nil
 	case len(held) > 1 && len(target.NodeIDs) > 0:
-		resolved, err := b.resolveNodeOwners(ctx, claims, req.Host, held, scoped, target.NodeIDs)
-		if err != nil {
-			return nil, unresolved(req.Host, candidates, true, "the node id lookup failed")
-		}
-		if len(resolved) > 0 {
-			return selectByOwners(req.Host, candidates, owners, resolved, "node ids in the "+target.Subject)
-		}
-		return nil, unresolved(req.Host, candidates, true, "the "+target.Subject+" names no owner, and none of its node ids resolved to one")
+		return b.selectByNodeIDs(ctx, claims, req.Host, candidates, held, scoped, target)
 	}
 	return nil, unresolved(req.Host, candidates, len(held) > 1, "the "+target.Subject+" names no owner")
 }
@@ -99,34 +92,67 @@ func selectByOwners(host string, candidates []*credentials.Connection, owners, n
 	return selected, nil
 }
 
+// selectByNodeIDs selects among the held candidates by the owners the
+// document's node ids resolve to. Its denials never name a resolved owner, to
+// keep objects outside the caller's connections from leaking through them.
+func (b *Broker) selectByNodeIDs(ctx context.Context, claims *token.PlatformClaims, host string, candidates, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, target credentials.RequestOwners) (*credentials.Connection, error) {
+	resolved, err := b.resolveNodeOwners(ctx, claims, host, held, scoped, target.NodeIDs)
+	if err != nil {
+		return nil, unresolved(host, candidates, true, "the node id lookup failed")
+	}
+	if len(resolved) == 0 {
+		return nil, unresolved(host, candidates, true, "the "+target.Subject+" names no owner, and none of its node ids resolved to one")
+	}
+	var selected *credentials.Connection
+	for _, owner := range resolved {
+		i := slices.IndexFunc(held, func(c *credentials.Connection) bool { return scoped[c] != nil && scoped[c].Owner() == owner })
+		if i < 0 {
+			return nil, unresolved(host, candidates, true, "the node ids in the "+target.Subject+" resolve to an account none of the agent's connections serves")
+		}
+		if selected != nil && selected != held[i] {
+			return nil, unresolved(host, candidates, true, "the node ids in the "+target.Subject+" resolve to accounts served by different connections")
+		}
+		selected = held[i]
+	}
+	return selected, nil
+}
+
 // resolveNodeOwners returns the distinct owners of the node ids that resolve,
-// trying each held candidate's lookup in turn for the ids still unresolved. Ids
-// no held candidate can see are ignored. Results are cached per tenant and host.
+// trying each held candidate in turn for the ids still unresolved. A cached
+// owner counts only for the connection whose token resolved it. Ids no held
+// candidate can see are ignored.
 func (b *Broker) resolveNodeOwners(ctx context.Context, claims *token.PlatformClaims, host string, held []*credentials.Connection, scoped map[*credentials.Connection]ownerScoped, ids []string) ([]string, error) {
 	tenantID := claims.Orbit.TenantID
 	found := map[string]bool{}
-	var pending []string
-	for _, id := range ids {
-		if owner, ok := b.nodeOwners.get(tenantID, host, id); ok {
-			found[owner] = true
-		} else {
-			pending = append(pending, id)
-		}
-	}
+	pending := slices.Clone(ids)
 	for _, c := range held {
 		s, ok := scoped[c]
 		if len(pending) == 0 || !ok {
 			continue
 		}
-		resolved, err := b.lookupNodeOwners(ctx, claims, c, s, pending)
-		if err != nil {
-			return nil, err
+		resolved := map[string]string{}
+		var misses []string
+		for _, id := range pending {
+			if owner, hit := b.nodeOwners.get(tenantID, host, c.Name, id); hit {
+				resolved[id] = owner
+			} else {
+				misses = append(misses, id)
+			}
+		}
+		if len(misses) > 0 {
+			looked, err := b.lookupNodeOwners(ctx, claims, c, s, misses)
+			if err != nil {
+				return nil, err
+			}
+			for id, owner := range looked {
+				resolved[id] = owner
+				b.nodeOwners.put(tenantID, host, c.Name, id, owner)
+			}
 		}
 		pending = slices.DeleteFunc(pending, func(id string) bool {
 			owner, ok := resolved[id]
 			if ok {
 				found[owner] = true
-				b.nodeOwners.put(tenantID, host, id, owner)
 			}
 			return ok
 		})
