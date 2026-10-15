@@ -41,6 +41,9 @@ type Denial struct {
 	// Candidates are the connections serving the host, set only on an
 	// unresolved-connection denial.
 	Candidates []string
+	// Unresolved states which part of the request could not be tied to an
+	// owner, set only on an unresolved-connection denial.
+	Unresolved string
 	// ambiguous marks an unresolved request the caller holds several
 	// candidates for. The anonymous read fallback does not serve it.
 	ambiguous bool
@@ -85,8 +88,8 @@ func (d *Denial) Message() string {
 		return fmt.Sprintf("kora egress policy allowed %s on connection %s, but the upstream refused to issue a credential for it. To allow it, add that permission upstream (for GitHub, on the App installation).",
 			d.actionPhrase(), d.Connection)
 	case DenialConnectionUnresolved:
-		return fmt.Sprintf("kora egress policy denied %s: connections %s all serve this host and the request selects none of them. A request that names a repository owner uses the connection bound to that owner. Any other request needs the agent to hold exactly one of these connections.",
-			d.Host, strings.Join(d.Candidates, ", "))
+		return fmt.Sprintf("kora egress policy denied %s: connections %s all serve this host, and the request selects none of them (%s). A connection is selected by the owner in the request path, the owners a GraphQL document or search query names, or the owners of a GraphQL document's node ids. A request that names none needs the agent to hold exactly one of these connections.",
+			d.Host, strings.Join(d.Candidates, ", "), d.Unresolved)
 	case DenialPolicyUnavailable:
 		return fmt.Sprintf("kora egress policy could not be evaluated for %s, so the call was denied. Retry shortly; report it to an admin if it persists.",
 			d.Host)
@@ -101,7 +104,7 @@ func (d *Denial) Details() map[string]any {
 	if len(d.Candidates) > 0 {
 		details["candidates"] = d.Candidates
 	}
-	for key, value := range map[string]string{"action": d.Action, "qualifier": d.Qualifier, "required_scope": d.RequiredScope, "policy_reason": d.PolicyReason} {
+	for key, value := range map[string]string{"unresolved": d.Unresolved, "action": d.Action, "qualifier": d.Qualifier, "required_scope": d.RequiredScope, "policy_reason": d.PolicyReason} {
 		if value != "" {
 			details[key] = value
 		}

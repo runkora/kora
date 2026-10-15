@@ -33,7 +33,8 @@ A test against the real registry loaded two GitHub App connections into one tena
 
 *   The gateway selects among connections in one tenant that serve the same host.
 *   A request that addresses an owner uses the connection bound to that owner.
-*   A request that addresses no owner uses the one candidate connection the caller holds, and is denied with a clear reason when the caller holds several.
+*   A GraphQL or search request is tied to an owner by the owners and node ids its document or query names.
+*   A request that can be tied to no owner uses the one candidate connection the caller holds, and is denied with a clear reason when the caller holds several.
 *   A tenant with one connection per host behaves exactly as it does today.
 *   Registration rejects a connection that cannot be told apart from an existing connection in the same tenant.
 
@@ -48,7 +49,7 @@ A test against the real registry loaded two GitHub App connections into one tena
 
 This decision touches **How does it connect?** It changes which connection and upstream credential serve a request.
 
-**Who is this agent?** and **What can it access?** are preserved. Policy is evaluated against the selected connection's scopes exactly as it is today. The caller's scope set is read only to choose a candidate and never authorizes a call. No credential is minted for a request that resolves to no connection, and no credential reaches the agent.
+**Who is this agent?** and **What can it access?** are preserved. Policy is evaluated against the selected connection's scopes exactly as it is today. The caller's scope set is read only to choose a candidate and never authorizes a call. No credential is minted for a request that resolves to no connection, and no credential reaches the agent. The node id lookup runs with a read-only token, and neither the token nor the lookup result reaches the agent.
 
 ---
 
@@ -80,7 +81,7 @@ This decision touches **How does it connect?** It changes which connection and u
 
 **Option 2d (rejected):** Fetch the agent's connectors from `orbit-agents`. The gateway would need a new typed client and a service call per request. The grant compiled from those connectors is already in the gateway's bundle.
 
-**Option 2e (rejected):** Select GraphQL requests by the owner named in the document. `classifyGraphQL` already resolves every `repository(owner:, name:)` call (`backend/internal/credentials/adapters/githubapp/graphql.go:483`). Documents that use `node`, `viewer` or `search` name no owner. GraphQL would still need the held-connection rule, and one endpoint would carry two selection rules.
+**Option 2e (chosen):** Select GraphQL and search requests by the owners the document or query names, and fall back to the held-connection rule when they name none. `classifyGraphQL` already walks every `repository(owner:, name:)` call, including variables and fragments (`backend/internal/credentials/adapters/githubapp/graphql.go:483`). An agent that holds several GitHub connections otherwise has no way to call GraphQL or search. The anonymous fallback cannot serve these requests. Anonymous GraphQL returns 403, anonymous `/user` returns 401, and anonymous search omits private repositories.
 
 ### D3. Requests that resolve to no candidate
 
@@ -114,6 +115,16 @@ This decision touches **How does it connect?** It changes which connection and u
 
 **Option 7b (rejected):** Allow same-owner connections when each declares a repository list and the lists are disjoint, and select by owner and then by repository. Each connection would need its own repository list, and selection would need a repository lookup. Requests that name no repository, such as GraphQL and search, would carry the same ambiguity across the same-owner connections.
 
+### D8. Documents addressed only by node id
+
+**Option 8a (chosen):** Resolve each node id to its owner login with a lookup query the gateway sends with the installation tokens of the held candidates. The request is then selected by the resolved owners.
+
+**Option 8b (rejected):** Deny every document that is addressed only by node id. `gh pr view`, review comments and most mutations address objects by node id. An agent holding several GitHub connections could not use them.
+
+**Option 8c (rejected):** Decode the owner from the node id. A node id encodes the object type and database ids. It carries no owner login, and mapping it to an owner needs a lookup anyway.
+
+**Option 8d (rejected):** Configure a default connection per tenant for requests that name no owner. The gateway would mint the default installation's token for requests addressed to another organization's objects without a denial.
+
 ---
 
 ## Decision
@@ -124,10 +135,18 @@ The egress gateway resolves every connection in the caller's tenant that serves 
 
 *   **Single candidate:** When one connection serves the host, the broker uses it without reading the owner or the caller's scopes.
 *   **Owner-addressed requests:** For `github_app`, the addressed owner is the first path segment of a path with at least two segments on `github.com`, `codeload.github.com` and `raw.githubusercontent.com`. On the API it is the segment after `/repos/`, `/orgs/` or `/users/`, after any `/api/v3` prefix is removed. The candidate whose `owner` matches is selected.
-*   **Owner-less requests:** Every other path addresses no owner, including `/graphql`, `/search`, `/user` and opaque content-host paths. The broker reads the caller's scope set once and selects the one candidate the caller holds.
+*   **Owner-less paths:** Every other path addresses no owner, including `/graphql`, `/search`, `/user` and opaque content-host paths.
+*   **GraphQL owners:** The classifier walk returns the owners a document addresses through `repository(owner:)`, `organization(login:)`, `repositoryOwner(login:)` and `user(login:)`. It reads literals, variables and variable defaults at any depth and inside fragments.
+*   **Search owners:** For `/search/*`, the owners are the owner of each `repo:owner/name` term and the value of each `org:` and `user:` qualifier in `q`. Negated qualifiers address no owner.
+*   **Owner rule:** When every named owner maps to one candidate, that candidate is selected. Owners that span candidates deny the request. One request carries one token. An owner bound to no candidate falls back to the held-connection rule. The held token reaches only public data of an owner it does not serve. The request is unresolved when the caller does not hold exactly one candidate.
+*   **Node ids:** A GraphQL document that names no owner is resolved by its node ids when the caller holds several candidates. The ids are the string values of every argument or input-object field named `id` or `ids`, or ending in `Id` or `Ids`. This covers `node(id:)`, `nodes(ids:)` and mutation inputs such as `subjectId` and `labelIds`. Six names match the rule and carry no node id in the GitHub schema, and they are excluded: `clientMutationId`, `externalId`, `ghsaId`, `iterationId`, `multiSelectOptionIds` and `singleSelectOptionId`. The ids of a document that names an owner are not resolved. The token minted for that owner's installation cannot read another installation's private objects.
+*   **Node id lookup:** The gateway mints a read-only token for a held candidate and sends one aliased `node(id:)` field per id, with inline fragments that return the owner login of a repository or a repository-scoped object. A user or organization id resolves to no owner. The token carries `metadata` and read access to the categories the caller holds on that connection without a repository qualifier, and a connection where the caller holds only qualified grants is not used for the lookup. The lookup can then see only what the caller's own grants on that connection reach. A document that names more than 100 node ids is unresolved. The lookup runs with each held candidate's token as needed, and collects the owners of the ids that resolve. Ids that no held candidate can see are ignored for selection. The selected installation's token cannot read an object that it could not see in the lookup. Selection uses the resolved owners among the caller's held candidates and ignores which candidate's token saw each id. A public object is visible to every installation. The request is unresolved when no id resolves or the lookup fails.
+*   **Lookup cache:** Resolved owners are cached for 10 minutes, with at most 10,000 entries. An entry is keyed by tenant, host, node id, the connection whose token resolved it and that token's categories, and it counts only for a caller that holds the same. An id the connection cannot see is cached as unseen.
+*   **Lookup audit:** Each lookup is logged with the run attribution, the candidate used and the number of ids, and is recorded as a span. Its result is never returned to the agent.
+*   **Held connections:** A request tied to no owner selects the one candidate the caller holds. The broker reads the caller's scope set once.
 *   **Unresolved requests:** An owner bound to no candidate, or an owner-less request from a caller that holds no candidate, mints no credential. The anonymous read fallback serves it when it is a read and the caller's own egress reaches the host. Otherwise it is denied.
 *   **Ambiguous requests:** An owner-less request from a caller that holds two or more candidates is denied.
-*   **Denial:** Both denials use a new reason, `connection_unresolved`. The denial body lists the candidate connection names and states that owner-addressed requests use the connection bound to that owner.
+*   **Denial:** Both denials use a new reason, `connection_unresolved`. The denial body lists the candidate connection names, states which part of the request could not be tied to an owner, and states that owner-addressed requests use the connection bound to that owner. A denial names only owners the caller wrote in the path, document or query. An owner resolved from a node id does not appear in a denial.
 *   **Conflict rule:** Two connections in one tenant namespace conflict when they cannot be told apart. For an adapter that declares an owner (`github_app`), that is when their host families intersect and either side has no `owner` or both declare the same `owner`, compared case-insensitively. For every other pair, that is when their host families intersect.
 *   **Registration guard:** The operator registers a Connection handler on its webhook server and adds a Connection entry to `orbit-agent-pod-validator`. The entry covers CREATE and UPDATE in namespaces labeled `orbit.io/role: tenant` and inherits the CA bundle and `failurePolicy: Fail` from `webhookcert.Manager`. The handler lists the namespace's Connections from the manager's cached client. A CREATE is rejected when it conflicts with any of them. An UPDATE is rejected only for a conflict its previous version did not have. The rejection message cites the conflicting connection. The existing connection is never changed.
 *   **Aggregation backstop:** `ConnectionAggregator.collect` orders each tenant's connections by creation timestamp and then by name. It drops a connection that conflicts with an earlier kept connection and logs a warning that cites both. The conflict is decided by the spec alone, and an earlier connection whose Secret is missing still wins. This covers connections created before the webhook existed and concurrent creates admitted against a stale cache.
@@ -144,7 +163,9 @@ The egress gateway resolves every connection in the caller's tenant that serves 
 
 ### Negative
 
-*   An agent that holds two GitHub connections cannot call owner-less endpoints such as GraphQL, `/search` and `/user`.
+*   An agent that holds two GitHub connections cannot call `/user`, `viewer` queries, or GraphQL and search requests that name no owner and no resolvable node id.
+*   A node id lookup that misses the cache adds one GitHub API call to the request and counts against the candidate installation's rate limit.
+*   A caller with unqualified grants on two connections can drive one lookup per connection per request before its action is checked. It can also evict other callers' entries from the shared cache.
 *   A github.com connection without an `owner` blocks every second github.com connection in its tenant until it declares one.
 *   Connection CREATE and UPDATE fail while the operator webhook is unreachable.
 *   A later conflicting connection that bypasses the webhook is absent from the gateway registry. Only an operator log warning reports it.
@@ -162,6 +183,7 @@ The egress gateway resolves every connection in the caller's tenant that serves 
 
 1.  **Registry and broker selection:** `ConfigMapRegistry` returns every connection that serves a host. The `github_app` connector reports its configured owner and the owner a request addresses. `Broker.resolveConnection` selects among the candidates and returns the `connection_unresolved` denial.
 2.  **Registration guard and aggregation backstop:** One conflict function in `backend/internal/operator` serves the Connection webhook handler and `ConnectionAggregator.collect`. The chart change sits in `charts/orbit/templates/operator/webhook.yaml`, and the handler is wired in `backend/cmd/operator/main.go`.
+3.  **GraphQL and search owners:** The GraphQL walk returns the owners and node ids a document names, `/search` parses its owner qualifiers, and the broker resolves node ids through the lookup and its cache.
 
 ---
 

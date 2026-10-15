@@ -91,7 +91,7 @@ func TestResolveConnection_SameHostSelection(t *testing.T) {
 	}{
 		{name: "owner selects fabrikam", conns: both, url: "https://github.com/fabrikam/widgets.git/info/refs?service=git-upload-pack", want: "fabrikam-github"},
 		{name: "owner selects contoso", conns: both, url: "https://api.github.com/repos/Contoso/gadgets/pulls", want: "contoso-github"},
-		{name: "owner matches no candidate", conns: both, url: "https://github.com/octocat/hello-world.git/info/refs?service=git-upload-pack"},
+		{name: "owner matches no candidate", conns: both, url: "https://github.com/octocat/hello-world.git/info/refs?service=git-upload-pack", wantScopeRead: true},
 		{name: "owner-less with one held", conns: both, scopes: []string{"connection:fabrikam-github:contents:read", "inference:invoke"}, url: "https://api.github.com/graphql", want: "fabrikam-github", wantScopeRead: true},
 		{name: "owner-less with two held", conns: both, scopes: []string{"connection:fabrikam-github:contents:read", "connection:contoso-github:issues:write"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
 		{name: "owner-less with none held", conns: both, scopes: []string{"connection:fabrikam-github-old:contents:read"}, url: "https://api.github.com/search/issues", wantScopeRead: true},
