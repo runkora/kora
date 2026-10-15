@@ -2,7 +2,7 @@
 
 <!-- Filename: 2026-10-15-same-host-connection-selection.md -->
 
-**Status:** Proposed  
+**Status:** Accepted  
 **Date:** 2026-10-15  
 **Deciders:** Justin Wilkin  
 **Technical Story:** Two GitHub App connections for different GitHub organizations in one tenant.
