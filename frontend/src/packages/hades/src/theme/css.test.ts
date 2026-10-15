@@ -2,7 +2,6 @@
 import { describe, expect, it } from 'vitest';
 
 import manifestJson from '../../manifest.json';
-import { CONTRACT_VERSION } from '../version';
 import { DARK_SELECTOR, LIGHT_SELECTOR, fontPreloads, generateThemeCss } from './css';
 import { FULL_BUNDLE, FULL_DOCUMENT, MANIFEST, bundle } from './fixtures.test-support';
 import type { ThemeManifest } from './manifest';
@@ -15,9 +14,9 @@ async function load(
   text: string,
   files: Record<string, Uint8Array> = FULL_BUNDLE,
   manifest: ThemeManifest = MANIFEST,
-  contractVersion = '1.3',
+  koraVersion: string | null = '1.3.0',
 ): Promise<Theme> {
-  const result = await validateTheme(text, { manifest, contractVersion, readAsset: bundle(files) });
+  const result = await validateTheme(text, { manifest, koraVersion, readAsset: bundle(files) });
   if (!result.ok) throw new Error(result.errors.map((e) => `${e.path}: ${e.message}`).join('\n'));
   return result.theme;
 }
@@ -25,7 +24,7 @@ async function load(
 describe('generateThemeCss', () => {
   it('puts a dark-only token in the dark block only, and omits an empty light block', async () => {
     const theme = await load(
-      'contractVersion: "1.0"\ntokens:\n  --hades-raw-black:\n    dark: "#0d0f11"\n',
+      'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-black:\n    dark: "#0d0f11"\n',
       {},
     );
     const css = generateThemeCss(theme, { resolveAsset });
@@ -35,7 +34,7 @@ describe('generateThemeCss', () => {
 
   it('puts a light-only token in the light block only', async () => {
     const theme = await load(
-      'contractVersion: "1.0"\ntokens:\n  --hades-raw-black:\n    light: "#fff"\n',
+      'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-black:\n    light: "#fff"\n',
       {},
     );
     expect(generateThemeCss(theme, { resolveAsset })).toBe(
@@ -44,7 +43,7 @@ describe('generateThemeCss', () => {
   });
 
   it('returns an empty string for a theme that sets no token and no font', async () => {
-    const theme = await load('contractVersion: "1.0"\nproductName: Acme\n', {});
+    const theme = await load('koraVersion: "1.0.0"\nproductName: Acme\n', {});
     expect(generateThemeCss(theme, { resolveAsset })).toBe('');
     expect(fontPreloads(theme, { resolveAsset })).toEqual([]);
   });
@@ -86,13 +85,13 @@ describe('generateThemeCss', () => {
   });
 
   it('escapes the resolved URL inside the CSS string', async () => {
-    const theme = await load('contractVersion: "1.0"\nslots:\n  font.sans: assets/sans.woff2\n');
+    const theme = await load('koraVersion: "1.0.0"\nslots:\n  font.sans: assets/sans.woff2\n');
     const css = generateThemeCss(theme, { resolveAsset: () => 'https://cdn.example/a"b\\c.woff2' });
     expect(css).toContain('src:url("https://cdn.example/a\\"b\\\\c.woff2")');
   });
 
   it('escapes < so a path cannot close the inline <style> element', async () => {
-    const theme = await load('contractVersion: "1.0"\nslots:\n  font.sans: assets/sans.woff2\n');
+    const theme = await load('koraVersion: "1.0.0"\nslots:\n  font.sans: assets/sans.woff2\n');
     const css = generateThemeCss(theme, { resolveAsset: () => '/x</style><script>.woff2' });
     expect(css).not.toContain('<');
     expect(css).toContain('\\3c /style>');
@@ -100,11 +99,11 @@ describe('generateThemeCss', () => {
 
   it('is deterministic whatever the document order', async () => {
     const a = await load(
-      'contractVersion: "1.0"\ntokens:\n  --hades-raw-black:\n    dark: "#000"\n  --hades-raw-accent-400:\n    dark: "#111"\n',
+      'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-black:\n    dark: "#000"\n  --hades-raw-accent-400:\n    dark: "#111"\n',
       {},
     );
     const b = await load(
-      'contractVersion: "1.0"\ntokens:\n  --hades-raw-accent-400:\n    dark: "#111"\n  --hades-raw-black:\n    dark: "#000"\n',
+      'koraVersion: "1.0.0"\ntokens:\n  --hades-raw-accent-400:\n    dark: "#111"\n  --hades-raw-black:\n    dark: "#000"\n',
       {},
     );
     expect(generateThemeCss(a, { resolveAsset })).toBe(generateThemeCss(b, { resolveAsset }));
@@ -126,11 +125,11 @@ describe('generateThemeCss', () => {
       tokens[token.name] = { dark: sample[token.format]!, light: sample[token.format]! };
     }
     const doc = JSON.stringify({
-      contractVersion: CONTRACT_VERSION,
+      koraVersion: '1.0.0',
       tokens,
       slots: { 'font.sans': 'assets/sans.woff2', 'font.mono': 'assets/mono.woff2' },
     });
-    const theme = await load(doc, FULL_BUNDLE, manifest, CONTRACT_VERSION);
+    const theme = await load(doc, FULL_BUNDLE, manifest, '1.0.0');
     const css = generateThemeCss(theme, { resolveAsset: (p) => `/theme/${theme.hash}/${p}` });
     const preloads = fontPreloads(theme, { resolveAsset: (p) => `/theme/${theme.hash}/${p}` })
       .map((url) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${url}">`)
@@ -143,7 +142,7 @@ describe('generateThemeCss', () => {
 describe('generateThemeCss: font family tokens', () => {
   const fontCss = async (value: string) => {
     const theme = await load(
-      `contractVersion: "1.0"\ntokens:\n  --hades-raw-font-sans:\n    dark: ${JSON.stringify(value)}\n`,
+      `koraVersion: "1.0.0"\ntokens:\n  --hades-raw-font-sans:\n    dark: ${JSON.stringify(value)}\n`,
       {},
     );
     return generateThemeCss(theme, { resolveAsset });

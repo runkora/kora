@@ -22,9 +22,6 @@ export interface ThemeManifestSlot {
 }
 
 export interface ThemeManifest {
-  readonly version: string;
-  /** The contract version, `MAJOR.MINOR`; a theme's contract major must equal its major. */
-  readonly contractVersion: string;
   readonly modes: readonly Mode[];
   readonly tokens: readonly ThemeManifestToken[];
   readonly slots: readonly ThemeManifestSlot[];

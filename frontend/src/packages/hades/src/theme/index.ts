@@ -17,10 +17,11 @@ export { familyNameForSlot, familyTokenForSlot } from './manifest';
 export type { ThemeManifest, ThemeManifestSlot, ThemeManifestToken } from './manifest';
 export {
   BUNDLE_PATH_PATTERN,
-  CONTRACT_VERSION_PATTERN,
+  KORA_VERSION_PATTERN,
   FORMAT_PATTERNS,
   isBundlePath,
-  isContractVersion,
+  isKoraVersion,
+  koraMajor,
   matchesFormat,
 } from './formats';
 export { svgFaults, isWoff2 } from './assets';

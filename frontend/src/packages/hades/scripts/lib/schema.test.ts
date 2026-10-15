@@ -7,33 +7,32 @@ import { describe, expect, it } from 'vitest';
 
 import {
   BUNDLE_PATH_PATTERN,
-  CONTRACT_VERSION_PATTERN,
   FORMAT_PATTERNS,
+  KORA_VERSION_PATTERN,
 } from '../../src/theme/formats';
-import { CONTRACT_VERSION } from '../../src/version';
 import { validateTheme } from '../../src/theme/validate';
 import { buildManifest, SURFACE } from './manifest.ts';
 import { buildThemeSchema, readSchemaSurface, serializeSchema } from './schema.ts';
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tokensCss = fs.readFileSync(path.join(packageDir, 'src', 'tokens', 'tokens.css'), 'utf8');
-const manifest = buildManifest(tokensCss, '1.0.0', '1.0', SURFACE);
+const manifest = buildManifest(tokensCss, SURFACE);
 const schema = buildThemeSchema(manifest);
 
 describe('buildThemeSchema', () => {
-  it('declares the document shape: four top-level keys, nothing else, contractVersion required', () => {
+  it('declares the document shape: four top-level keys, nothing else, koraVersion required', () => {
     expect(schema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
     expect(schema.additionalProperties).toBe(false);
-    expect(schema.required).toEqual(['contractVersion']);
+    expect(schema.required).toEqual(['koraVersion']);
     expect(Object.keys(schema.properties)).toEqual([
-      'contractVersion',
+      'koraVersion',
       'productName',
       'tokens',
       'slots',
     ]);
-    expect(schema.properties.contractVersion).toEqual({
+    expect(schema.properties.koraVersion).toEqual({
       type: 'string',
-      pattern: CONTRACT_VERSION_PATTERN,
+      pattern: KORA_VERSION_PATTERN,
     });
     expect(schema.properties.productName).toEqual({
       type: 'string',
@@ -86,7 +85,7 @@ describe('buildThemeSchema', () => {
     expect(text.endsWith('}\n')).toBe(true);
     expect(readSchemaSurface(text)).toEqual({
       properties: {
-        contractVersion: 'string',
+        koraVersion: 'string',
         productName: 'string',
         tokens: 'object',
         slots: 'object',
@@ -97,16 +96,7 @@ describe('buildThemeSchema', () => {
 
   it('matches the checked-in theme.schema.json', () => {
     const checkedIn = fs.readFileSync(path.join(packageDir, 'theme.schema.json'), 'utf8');
-    const version = (
-      JSON.parse(fs.readFileSync(path.join(packageDir, 'package.json'), 'utf8')) as {
-        version: string;
-      }
-    ).version;
-    expect(checkedIn).toBe(
-      serializeSchema(
-        buildThemeSchema(buildManifest(tokensCss, version, CONTRACT_VERSION, SURFACE)),
-      ),
-    );
+    expect(checkedIn).toBe(serializeSchema(buildThemeSchema(buildManifest(tokensCss, SURFACE))));
   });
 });
 
@@ -118,7 +108,7 @@ describe('the schema and the validator agree', () => {
   async function both(doc: unknown): Promise<{ schema: boolean; validator: boolean }> {
     const result = await validateTheme(JSON.stringify(doc), {
       manifest,
-      contractVersion: '1.0',
+      koraVersion: '1.0.0',
       readAsset: noAssets,
     });
     return { schema: check(doc), validator: result.ok };
@@ -126,7 +116,7 @@ describe('the schema and the validator agree', () => {
 
   it('on a valid sample document', async () => {
     const doc = {
-      contractVersion: '1.0',
+      koraVersion: '1.0.0',
       productName: "Acme & Co.'s Agents",
       tokens: {
         '--hades-raw-black': { dark: '#0d0f11', light: 'oklch(97% 0.01 90)' },
@@ -141,7 +131,7 @@ describe('the schema and the validator agree', () => {
   it('on an unknown token, which both let through', async () => {
     expect(
       await both({
-        contractVersion: '1.0',
+        koraVersion: '1.0.0',
         tokens: { '--hades-raw-future': { dark: 'anything' } },
       }),
     ).toEqual({
@@ -152,19 +142,20 @@ describe('the schema and the validator agree', () => {
 
   it('on each fault both can see', async () => {
     const faults: unknown[] = [
-      { contractVersion: '1.0', fonts: {} },
+      { koraVersion: '1.0.0', fonts: {} },
       { productName: 'Acme' },
-      { contractVersion: '1', tokens: {} },
-      { contractVersion: '1.0', productName: '<b>x</b>' },
-      { contractVersion: '1.0', productName: 'a'.repeat(41) },
-      { contractVersion: '1.0', tokens: { '--hades-raw-black': { dark: 'red' } } },
-      { contractVersion: '1.0', tokens: { '--hades-raw-black': { dim: '#000' } } },
-      { contractVersion: '1.0', tokens: { '--hades-raw-black': '#000' } },
-      { contractVersion: '1.0', tokens: { '--hades-raw-radius-md': { dark: '6' } } },
-      { contractVersion: '1.0', tokens: { '--hades-raw-shadow-sm': { dark: '0 0 0 #000; }' } } },
-      { contractVersion: '1.0', slots: { logo: { dark: '../x.svg' } } },
-      { contractVersion: '1.0', slots: { 'font.sans': { dark: 'x.woff2' } } },
-      { contractVersion: '1.0', slots: { logo: 'x.svg' } },
+      { koraVersion: '1', tokens: {} },
+      { koraVersion: '1.0', tokens: {} },
+      { koraVersion: '1.0.0', productName: '<b>x</b>' },
+      { koraVersion: '1.0.0', productName: 'a'.repeat(41) },
+      { koraVersion: '1.0.0', tokens: { '--hades-raw-black': { dark: 'red' } } },
+      { koraVersion: '1.0.0', tokens: { '--hades-raw-black': { dim: '#000' } } },
+      { koraVersion: '1.0.0', tokens: { '--hades-raw-black': '#000' } },
+      { koraVersion: '1.0.0', tokens: { '--hades-raw-radius-md': { dark: '6' } } },
+      { koraVersion: '1.0.0', tokens: { '--hades-raw-shadow-sm': { dark: '0 0 0 #000; }' } } },
+      { koraVersion: '1.0.0', slots: { logo: { dark: '../x.svg' } } },
+      { koraVersion: '1.0.0', slots: { 'font.sans': { dark: 'x.woff2' } } },
+      { koraVersion: '1.0.0', slots: { logo: 'x.svg' } },
     ];
     for (const doc of faults) {
       expect(await both(doc), JSON.stringify(doc)).toEqual({ schema: false, validator: false });

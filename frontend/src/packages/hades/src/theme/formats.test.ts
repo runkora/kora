@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from 'vitest';
 
-import { isBundlePath, isContractVersion, matchesFormat, svgFaults } from './index';
+import { isBundlePath, isKoraVersion, koraMajor, matchesFormat, svgFaults } from './index';
 import { fontFamilyFault, fontFamilyList } from './formats';
 import { NOT_SVG, SVG, SVG_WITH_BOM } from './fixtures.test-support';
 
@@ -92,11 +92,29 @@ describe('font-family-name', () => {
   ])('rejects %j', (v) => expect(matchesFormat('font-family-name', v)).toBe(false));
 });
 
-describe('contract versions and bundle paths', () => {
-  it('recognises MAJOR.MINOR and nothing else', () => {
-    for (const v of ['1.0', '0.0', '1.10', '10.20']) expect(isContractVersion(v)).toBe(true);
-    for (const v of ['1', '1.0.0', '01.0', '1.00', 'v1.0', '1.0 ', '1.0.0.0', ''])
-      expect(isContractVersion(v)).toBe(false);
+describe('kora versions and bundle paths', () => {
+  it('recognises MAJOR.MINOR.PATCH and nothing else', () => {
+    for (const v of ['1.0.0', '0.0.0', '1.10.2', '10.20.30']) expect(isKoraVersion(v)).toBe(true);
+    for (const v of [
+      '1',
+      '1.0',
+      '01.0.0',
+      '1.00.0',
+      'v1.0.0',
+      '1.0.0 ',
+      '1.0.0.0',
+      '1.0.0-rc.1',
+      '',
+    ])
+      expect(isKoraVersion(v)).toBe(false);
+  });
+
+  it('reads the major of an instance version, tolerating a v and a pre-release suffix', () => {
+    expect(koraMajor('1.4.0')).toBe(1);
+    expect(koraMajor('v2.0.1')).toBe(2);
+    expect(koraMajor('0.8.0-rc.2')).toBe(0);
+    expect(koraMajor('0.0.0-dev')).toBe(0);
+    for (const v of ['1.4', 'dev', '', 'vX.Y.Z']) expect(koraMajor(v)).toBeNull();
   });
 
   it('accepts bundle-relative paths and rejects escapes', () => {

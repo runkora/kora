@@ -1,16 +1,16 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "Hades theme document",
-  "description": "A white-labelling theme for contract 1.0 (Hades 1.0.0). Unknown tokens and slots are ignored by the instance; an unknown top-level key is refused.",
+  "description": "A white-labelling theme, written against a kora release. An instance accepts a theme of its own major. Unknown tokens and slots are ignored by the instance; an unknown top-level key is refused.",
   "type": "object",
   "additionalProperties": false,
   "required": [
-    "contractVersion"
+    "koraVersion"
   ],
   "properties": {
-    "contractVersion": {
+    "koraVersion": {
       "type": "string",
-      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$"
+      "pattern": "^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$"
     },
     "productName": {
       "type": "string",

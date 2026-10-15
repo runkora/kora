@@ -96,8 +96,8 @@ export function fontFamilyList(value: string, quote: (name: string) => string): 
     .join(', ');
 }
 
-/** The contract version: `MAJOR.MINOR`, no patch, no leading zeros. */
-export const CONTRACT_VERSION_PATTERN = '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$';
+/** A kora release a theme was written against: `MAJOR.MINOR.PATCH`, no leading zeros, no pre-release suffix. */
+export const KORA_VERSION_PATTERN = '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$';
 
 /**
  * A bundle-relative path: `/`-separated segments, none empty, none `.` or
@@ -127,12 +127,17 @@ export function matchesFormat(format: TokenFormat, value: string): boolean {
   return pattern(FORMAT_PATTERNS[format]).test(value);
 }
 
-export function isContractVersion(value: string): boolean {
-  return pattern(CONTRACT_VERSION_PATTERN).test(value);
+export function isKoraVersion(value: string): boolean {
+  return pattern(KORA_VERSION_PATTERN).test(value);
 }
 
-export function contractMajor(value: string): number | null {
-  const m = /^(\d+)\./.exec(value);
+/**
+ * The major of a kora version. Tolerates a leading `v` and a pre-release
+ * suffix, because the instance's own version is its release tag: `0.8.0-rc.2`
+ * is major 0.
+ */
+export function koraMajor(value: string): number | null {
+  const m = /^v?(\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.exec(value);
   return m ? Number(m[1]) : null;
 }
 

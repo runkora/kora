@@ -13,9 +13,9 @@ import { contentFaults, extensionOf } from './assets';
 import {
   FORBIDDEN_IN_VALUES,
   fontFamilyFault,
-  contractMajor,
   isBundlePath,
-  isContractVersion,
+  isKoraVersion,
+  koraMajor,
   matchesFormat,
   pattern,
 } from './formats';
@@ -41,12 +41,17 @@ export type AssetReader = (path: string, maxBytes: number) => Promise<Uint8Array
 
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
-  /** The instance's contract version, `MAJOR.MINOR`; the document's major must equal its major. */
-  readonly contractVersion: string;
+  /**
+   * The instance's own kora version, its release tag without the `v`; the
+   * document's major must equal its major. Null for a build that is not from a
+   * release: the shape is still checked and the comparison is skipped, which
+   * the report says.
+   */
+  readonly koraVersion: string | null;
   readonly readAsset: AssetReader;
 }
 
-const TOP_LEVEL_KEYS = ['contractVersion', 'productName', 'tokens', 'slots'] as const;
+const TOP_LEVEL_KEYS = ['koraVersion', 'productName', 'tokens', 'slots'] as const;
 
 export async function validateTheme(
   text: string,
@@ -55,8 +60,10 @@ export async function validateTheme(
   const { manifest, readAsset } = options;
   const errors: ThemeError[] = [];
   const ignored: IgnoredEntry[] = [];
+  const versionCheckSkipped = options.koraVersion === null;
   const emptyReport = (): ThemeReport => ({
     ignored,
+    versionCheckSkipped,
     ...identityReport(manifest, undefined, {}),
   });
 
@@ -78,11 +85,7 @@ export async function validateTheme(
     }
   }
 
-  const contractVersion = checkContractVersion(
-    parsed.contractVersion,
-    options.contractVersion,
-    errors,
-  );
+  const koraVersion = checkKoraVersion(parsed.koraVersion, options.koraVersion, errors);
   const productName = checkProductName(parsed.productName, manifest, errors);
   const tokens = checkTokens(parsed.tokens, manifest, errors, ignored);
   const slots = checkSlots(parsed.slots, manifest, errors, ignored);
@@ -98,14 +101,18 @@ export async function validateTheme(
   }
 
   const assets = await readAssets(slots, manifest, readAsset, errors);
-  const report: ThemeReport = { ignored, ...identityReport(manifest, productName, slots) };
+  const report: ThemeReport = {
+    ignored,
+    versionCheckSkipped,
+    ...identityReport(manifest, productName, slots),
+  };
 
-  if (errors.length > 0 || contractVersion === null) {
+  if (errors.length > 0 || koraVersion === null) {
     return { ok: false, errors, report };
   }
 
   const theme: Theme = {
-    contractVersion,
+    koraVersion,
     ...(productName === undefined ? {} : { productName }),
     tokens,
     slots,
@@ -117,36 +124,45 @@ export async function validateTheme(
 
 // ─── Fields ──────────────────────────────────────────────────────────────────
 
-function checkContractVersion(
+function checkKoraVersion(
   value: unknown,
-  running: string,
+  running: string | null,
   errors: ThemeError[],
 ): string | null {
   if (value === undefined || value === null) {
     errors.push({
-      path: 'contractVersion',
-      message: 'required: the contract version the theme was written against, such as "1.0"',
+      path: 'koraVersion',
+      message: 'required: the kora release the theme was written against, such as "1.4.0"',
     });
     return null;
   }
-  // YAML reads an unquoted 1.0 as the number 1 and 1.10 as 1.1, so a number
-  // can never be trusted to be the version its author wrote.
-  if (typeof value !== 'string' || !isContractVersion(value)) {
+  // YAML reads an unquoted 1.10 as the number 1.1, so a number can never be
+  // trusted to be the version its author wrote.
+  if (typeof value !== 'string' || !isKoraVersion(value)) {
     errors.push({
-      path: 'contractVersion',
+      path: 'koraVersion',
       message:
         typeof value === 'number'
-          ? `must be a quoted string such as "1.0": YAML reads an unquoted ${value} as a number`
-          : 'must be MAJOR.MINOR such as "1.0"',
+          ? `must be a quoted string such as "1.4.0": YAML reads an unquoted ${value} as a number`
+          : 'must be MAJOR.MINOR.PATCH such as "1.4.0"',
     });
     return null;
   }
-  const major = contractMajor(value);
-  const runningMajor = contractMajor(running);
+  // A build that is not from a release has no major to compare with.
+  if (running === null) return value;
+  const runningMajor = koraMajor(running);
+  if (runningMajor === null) {
+    errors.push({
+      path: '',
+      message: `this instance cannot tell which kora release it is ("${running}"), so it cannot compare the theme's koraVersion; run a released image, or leave the version unset in a development build`,
+    });
+    return null;
+  }
+  const major = koraMajor(value)!;
   if (major !== runningMajor) {
     errors.push({
-      path: 'contractVersion',
-      message: `contract major ${major} does not match the running contract ${running}; this instance accepts contract major ${runningMajor} only`,
+      path: 'koraVersion',
+      message: `the theme was written against kora ${value} (major ${major}), but this instance is kora ${running}, which accepts major ${runningMajor} only; rewrite the theme against a ${runningMajor}.x release`,
     });
     return null;
   }

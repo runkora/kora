@@ -11,7 +11,7 @@
  */
 import {
   BUNDLE_PATH_PATTERN,
-  CONTRACT_VERSION_PATTERN,
+  KORA_VERSION_PATTERN,
   FORMAT_PATTERNS,
 } from '../../src/theme/formats.ts';
 import type { Manifest } from './manifest.ts';
@@ -73,12 +73,13 @@ export function buildThemeSchema(manifest: Manifest): ThemeSchema {
   return {
     $schema: SCHEMA_DIALECT,
     title: 'Hades theme document',
-    description: `A white-labelling theme for contract ${manifest.contractVersion} (Hades ${manifest.version}). Unknown tokens and slots are ignored by the instance; an unknown top-level key is refused.`,
+    description:
+      'A white-labelling theme, written against a kora release. An instance accepts a theme of its own major. Unknown tokens and slots are ignored by the instance; an unknown top-level key is refused.',
     type: 'object',
     additionalProperties: false,
-    required: ['contractVersion'],
+    required: ['koraVersion'],
     properties: {
-      contractVersion: { type: 'string', pattern: CONTRACT_VERSION_PATTERN },
+      koraVersion: { type: 'string', pattern: KORA_VERSION_PATTERN },
       productName: {
         type: 'string',
         minLength: manifest.productName.minLength,

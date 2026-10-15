@@ -12,8 +12,8 @@ export type ThemeSlot =
   | { readonly kind: 'font'; readonly path: string };
 
 export interface Theme {
-  /** The contract version the document records, `MAJOR.MINOR`. */
-  readonly contractVersion: string;
+  /** The kora release the document records, `MAJOR.MINOR.PATCH`. */
+  readonly koraVersion: string;
   readonly productName?: string;
   /** Known tokens only, keyed by custom property name, each with the modes the theme sets. */
   readonly tokens: Readonly<Record<string, ThemeTokenValues>>;
@@ -47,6 +47,11 @@ export interface ThemeReport {
    * affects `ok`.
    */
   readonly mixedIdentity: readonly string[];
+  /**
+   * True when the instance is not from a release (a development build), so the
+   * theme's `koraVersion` was checked for shape but not compared with a major.
+   */
+  readonly versionCheckSkipped: boolean;
 }
 
 export type ValidationResult =
