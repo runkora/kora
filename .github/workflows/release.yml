@@ -63,6 +63,9 @@ jobs:
       - name: Install dependencies
         run: cd frontend && pnpm install --frozen-lockfile
 
+      - name: Hades type check under its strict flags
+        run: cd frontend && pnpm --filter @runkora/hades run build
+
       - name: Hades unit tests
         run: make frontend-test-hades
 
