@@ -11,9 +11,9 @@ import (
 
 func TestConnector_Owner(t *testing.T) {
 	a := New(nil, stubSecrets{}, logging.NewLoggerWithOutput(io.Discard))
-	c := open(t, a, credentials.Connection{Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: " RunKora "})})
-	if got := c.(*connector).Owner(); got != "runkora" {
-		t.Errorf("Owner() = %q, want runkora", got)
+	c := open(t, a, credentials.Connection{Config: mustConfig(t, config{AppID: "1", InstallationID: 1, Owner: " Fabrikam "})})
+	if got := c.(*connector).Owner(); got != "fabrikam" {
+		t.Errorf("Owner() = %q, want fabrikam", got)
 	}
 }
 
@@ -24,22 +24,22 @@ func TestConnector_RequestOwner(t *testing.T) {
 		url  string
 		want string
 	}{
-		{"https://github.com/RunKora/kora.git/info/refs?service=git-upload-pack", "runkora"},
-		{"https://github.com/runkora", ""},
-		{"https://api.github.com/repos/clear-route/orbit/pulls", "clear-route"},
-		{"https://api.github.com/orgs/runkora/repos", "runkora"},
+		{"https://github.com/Fabrikam/widgets.git/info/refs?service=git-upload-pack", "fabrikam"},
+		{"https://github.com/fabrikam", ""},
+		{"https://api.github.com/repos/contoso/gadgets/pulls", "contoso"},
+		{"https://api.github.com/orgs/fabrikam/repos", "fabrikam"},
 		{"https://api.github.com/users/octocat", "octocat"},
 		{"https://api.github.com/graphql", ""},
-		{"https://api.github.com/search/issues?q=repo:runkora/kora", ""},
+		{"https://api.github.com/search/issues?q=repo:fabrikam/widgets", ""},
 		{"https://api.github.com/user", ""},
 		{"https://api.github.com/repositories/123", ""},
-		{"https://codeload.github.com/runkora/kora/tar.gz/main", "runkora"},
-		{"https://raw.githubusercontent.com/runkora/kora/main/README.md", "runkora"},
+		{"https://codeload.github.com/fabrikam/widgets/tar.gz/main", "fabrikam"},
+		{"https://raw.githubusercontent.com/fabrikam/widgets/main/README.md", "fabrikam"},
 		{"https://objects.githubusercontent.com/github-production-release-asset/1/2", ""},
 		{"https://ghe.example.com/team/app.git/git-upload-pack", "team"},
 		{"https://ghe.example.com/api/v3/repos/team/app/issues", "team"},
 		{"https://ghe.example.com/api/graphql", ""},
-		{"https://api.github.com./repos/runkora/kora", "runkora"},
+		{"https://api.github.com./repos/fabrikam/widgets", "fabrikam"},
 		{"https://objects.githubusercontent.com./a/b", ""},
 	}
 	for _, tc := range cases {

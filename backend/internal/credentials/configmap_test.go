@@ -206,15 +206,15 @@ func TestListByHost_FullyQualifiedHost(t *testing.T) {
 // Same-host connections in one tenant are all returned, so the broker can choose among them.
 func TestListByHost_ReturnsEverySameHostConnection(t *testing.T) {
 	reg := newTestRegistry(t, `[
-  {"tenant_id":"acme","name":"clear-route-github","adapter":"github_app","base_host":"github.com","secret_ref":"a.key"},
-  {"tenant_id":"acme","name":"runkora-github","adapter":"github_app","base_host":"github.com","secret_ref":"b.key"}
+  {"tenant_id":"acme","name":"contoso-github","adapter":"github_app","base_host":"github.com","secret_ref":"a.key"},
+  {"tenant_id":"acme","name":"fabrikam-github","adapter":"github_app","base_host":"github.com","secret_ref":"b.key"}
 ]`)
 	for _, host := range []string{"github.com", "api.github.com"} {
 		got, err := reg.ListByHost(t.Context(), "acme", host)
 		if err != nil {
 			t.Fatalf("ListByHost(%q): %v", host, err)
 		}
-		if len(got) != 2 || got[0].Name != "clear-route-github" || got[1].Name != "runkora-github" {
+		if len(got) != 2 || got[0].Name != "contoso-github" || got[1].Name != "fabrikam-github" {
 			t.Errorf("ListByHost(%q) = %d connections, want both in load order", host, len(got))
 		}
 	}

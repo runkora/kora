@@ -76,9 +76,9 @@ func egressRequest(method, url string) EgressRequest {
 var acmeClaims = &token.PlatformClaims{Orbit: token.OrbitClaims{TenantID: "acme"}}
 
 func TestResolveConnection_SameHostSelection(t *testing.T) {
-	clearRoute := githubConn(t, "clear-route-github", "clear-route")
-	runkora := githubConn(t, "runkora-github", "RunKora")
-	both := candidateConns{clearRoute, runkora}
+	contoso := githubConn(t, "contoso-github", "contoso")
+	fabrikam := githubConn(t, "fabrikam-github", "Fabrikam")
+	both := candidateConns{contoso, fabrikam}
 
 	tests := []struct {
 		name          string
@@ -89,15 +89,15 @@ func TestResolveConnection_SameHostSelection(t *testing.T) {
 		wantAmbiguous bool
 		wantScopeRead bool
 	}{
-		{name: "owner selects runkora", conns: both, url: "https://github.com/runkora/kora.git/info/refs?service=git-upload-pack", want: "runkora-github"},
-		{name: "owner selects clear-route", conns: both, url: "https://api.github.com/repos/Clear-Route/orbit/pulls", want: "clear-route-github"},
+		{name: "owner selects fabrikam", conns: both, url: "https://github.com/fabrikam/widgets.git/info/refs?service=git-upload-pack", want: "fabrikam-github"},
+		{name: "owner selects contoso", conns: both, url: "https://api.github.com/repos/Contoso/gadgets/pulls", want: "contoso-github"},
 		{name: "owner matches no candidate", conns: both, url: "https://github.com/octocat/hello-world.git/info/refs?service=git-upload-pack"},
-		{name: "owner-less with one held", conns: both, scopes: []string{"connection:runkora-github:contents:read", "inference:invoke"}, url: "https://api.github.com/graphql", want: "runkora-github", wantScopeRead: true},
-		{name: "owner-less with two held", conns: both, scopes: []string{"connection:runkora-github:contents:read", "connection:clear-route-github:issues:write"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
-		{name: "owner-less with none held", conns: both, scopes: []string{"connection:runkora-github-old:contents:read"}, url: "https://api.github.com/search/issues", wantScopeRead: true},
+		{name: "owner-less with one held", conns: both, scopes: []string{"connection:fabrikam-github:contents:read", "inference:invoke"}, url: "https://api.github.com/graphql", want: "fabrikam-github", wantScopeRead: true},
+		{name: "owner-less with two held", conns: both, scopes: []string{"connection:fabrikam-github:contents:read", "connection:contoso-github:issues:write"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
+		{name: "owner-less with none held", conns: both, scopes: []string{"connection:fabrikam-github-old:contents:read"}, url: "https://api.github.com/search/issues", wantScopeRead: true},
 		{name: "owner-less with a scope covering every connection", conns: both, scopes: []string{"connection:read"}, url: "https://api.github.com/graphql", wantAmbiguous: true, wantScopeRead: true},
-		{name: "fully-qualified host selects by owner", conns: both, url: "https://api.github.com./repos/runkora/kora", want: "runkora-github"},
-		{name: "single connection unchanged", conns: candidateConns{clearRoute}, url: "https://api.github.com/graphql", want: "clear-route-github"},
+		{name: "fully-qualified host selects by owner", conns: both, url: "https://api.github.com./repos/fabrikam/widgets", want: "fabrikam-github"},
+		{name: "single connection unchanged", conns: candidateConns{contoso}, url: "https://api.github.com/graphql", want: "contoso-github"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -120,7 +120,7 @@ func TestResolveConnection_SameHostSelection(t *testing.T) {
 			if d.ambiguous != tc.wantAmbiguous {
 				t.Errorf("ambiguous = %v, want %v", d.ambiguous, tc.wantAmbiguous)
 			}
-			if !slices.Equal(d.Candidates, []string{"clear-route-github", "runkora-github"}) {
+			if !slices.Equal(d.Candidates, []string{"contoso-github", "fabrikam-github"}) {
 				t.Errorf("candidates = %v, want both", d.Candidates)
 			}
 		})
@@ -128,8 +128,8 @@ func TestResolveConnection_SameHostSelection(t *testing.T) {
 }
 
 func TestAuthorize_UnresolvedConnection(t *testing.T) {
-	both := candidateConns{githubConn(t, "clear-route-github", "clear-route"), githubConn(t, "runkora-github", "runkora")}
-	holdsBoth := []string{"connection:clear-route-github:repo:read", "connection:runkora-github:repo:read"}
+	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
+	holdsBoth := []string{"connection:contoso-github:repo:read", "connection:fabrikam-github:repo:read"}
 
 	tests := []struct {
 		name       string
@@ -162,8 +162,8 @@ func TestAuthorize_UnresolvedConnection(t *testing.T) {
 }
 
 func TestDenial_ConnectionUnresolvedNamesCandidates(t *testing.T) {
-	d := &Denial{Reason: DenialConnectionUnresolved, Host: "api.github.com", Candidates: []string{"clear-route-github", "runkora-github"}}
-	if msg := d.Message(); !strings.Contains(msg, "clear-route-github, runkora-github") || strings.Contains(msg, "—") {
+	d := &Denial{Reason: DenialConnectionUnresolved, Host: "api.github.com", Candidates: []string{"contoso-github", "fabrikam-github"}}
+	if msg := d.Message(); !strings.Contains(msg, "contoso-github, fabrikam-github") || strings.Contains(msg, "—") {
 		t.Errorf("message = %q, want both candidates and no em dash", msg)
 	}
 	if got := d.Details()["candidates"]; !slices.Equal(got.([]string), d.Candidates) {
@@ -173,7 +173,7 @@ func TestDenial_ConnectionUnresolvedNamesCandidates(t *testing.T) {
 
 // A failed scope read denies as policy_unavailable and never falls back.
 func TestAuthorize_ScopeReadFailureDenies(t *testing.T) {
-	both := candidateConns{githubConn(t, "clear-route-github", "clear-route"), githubConn(t, "runkora-github", "runkora")}
+	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
 	b := selectionBroker(&selectionPolicy{scopesErr: errors.New("bundle down"), ownEgress: true}, both)
 	_, err := b.Authorize(context.Background(), acmeClaims, egressRequest(http.MethodGet, "https://api.github.com/user"))
 	var d *Denial
@@ -184,13 +184,13 @@ func TestAuthorize_ScopeReadFailureDenies(t *testing.T) {
 
 // Policy is evaluated against the connection the owner selects.
 func TestAuthorize_PolicyCheckedOnSelectedConnection(t *testing.T) {
-	both := candidateConns{githubConn(t, "clear-route-github", "clear-route"), githubConn(t, "runkora-github", "runkora")}
-	pol := &selectionPolicy{scopes: []string{"connection:clear-route-github:repo:read"}, ownEgress: true}
-	got, err := selectionBroker(pol, both).Authorize(context.Background(), acmeClaims, egressRequest(http.MethodGet, "https://api.github.com/repos/runkora/kora"))
+	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
+	pol := &selectionPolicy{scopes: []string{"connection:contoso-github:repo:read"}, ownEgress: true}
+	got, err := selectionBroker(pol, both).Authorize(context.Background(), acmeClaims, egressRequest(http.MethodGet, "https://api.github.com/repos/fabrikam/widgets"))
 	if err != nil || got.Action != anonymousReadAction {
 		t.Fatalf("decision = %+v, err %v, want the anonymous read after a policy deny", got, err)
 	}
-	if len(pol.checked) == 0 || slices.ContainsFunc(pol.checked, func(c string) bool { return c != "runkora-github" }) {
-		t.Errorf("policy checked %v, want only runkora-github", pol.checked)
+	if len(pol.checked) == 0 || slices.ContainsFunc(pol.checked, func(c string) bool { return c != "fabrikam-github" }) {
+		t.Errorf("policy checked %v, want only fabrikam-github", pol.checked)
 	}
 }
