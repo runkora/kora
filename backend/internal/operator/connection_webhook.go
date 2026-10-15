@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/http"
@@ -13,7 +14,8 @@ import (
 )
 
 // ConnectionValidator rejects a Connection the egress gateway could not tell
-// apart from an earlier Connection in the same namespace. See
+// apart from another Connection in the same namespace. An update is rejected
+// only for a conflict its previous version did not have. See
 // docs/adr/2026-10-15-same-host-connection-selection.md.
 type ConnectionValidator struct {
 	// Client is the manager's cached client. TenantReconciler watches every
@@ -32,17 +34,24 @@ func (v *ConnectionValidator) Handle(ctx context.Context, req admission.Request)
 	if err := v.Client.List(ctx, list, client.InNamespace(req.Namespace)); err != nil {
 		return admission.Errored(http.StatusInternalServerError, fmt.Errorf("list connections: %w", err))
 	}
-	create := req.Operation == admissionv1.Create
+	var old *Connection
+	if req.Operation == admissionv1.Update {
+		old = &Connection{}
+		if err := v.Decoder.DecodeRaw(req.OldObject, old); err != nil {
+			return admission.Errored(http.StatusBadRequest, err)
+		}
+	}
 	for i := range list.Items {
 		other := &list.Items[i]
-		if other.Name == conn.Name || (!create && !createdBefore(other, conn)) {
+		if other.Name == conn.Name || !connectionsConflict(conn, other) {
 			continue
 		}
-		if connectionsConflict(conn, other) {
-			return admission.Denied(fmt.Sprintf(
-				"connection %q conflicts with existing connection %q: the egress gateway cannot tell them apart. github_app connections on one host must each declare a different config.owner, and other connections must use different base hosts.",
-				conn.Name, other.Name))
+		if old != nil && connectionsConflict(old, other) {
+			continue
 		}
+		return admission.Denied(fmt.Sprintf(
+			"connection %q conflicts with existing connection %q: the egress gateway cannot tell them apart. github_app connections on one host must each declare a different config.owner, and other connections must use different base hosts.",
+			cmp.Or(conn.Name, conn.GenerateName), other.Name))
 	}
 	return admission.Allowed("")
 }
@@ -52,6 +61,7 @@ func connectionsConflict(a, b *Connection) bool {
 	return platformconns.Conflict(connectionIdentity(a), connectionIdentity(b))
 }
 
+// connectionIdentity is what the conflict rule compares for one Connection.
 func connectionIdentity(c *Connection) platformconns.Identity {
 	return platformconns.Identity{
 		Adapter:  c.Spec.Adapter,
@@ -61,7 +71,7 @@ func connectionIdentity(c *Connection) platformconns.Identity {
 }
 
 // createdBefore orders connections by creation timestamp, then by name. The
-// webhook and the aggregation backstop both keep the earlier of a conflicting pair.
+// aggregation backstop keeps the earlier of a conflicting pair.
 func createdBefore(a, b *Connection) bool {
 	if !a.CreationTimestamp.Equal(&b.CreationTimestamp) {
 		return a.CreationTimestamp.Before(&b.CreationTimestamp)

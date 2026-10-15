@@ -40,48 +40,64 @@ func testConnection(name, adapter, baseHost, owner string, age int) *Connection 
 	}
 }
 
-func connectionRequest(t *testing.T, op admissionv1.Operation, conn *Connection) admission.Request {
+// connectionRequest builds an admission request. A non-nil old makes it an UPDATE.
+func connectionRequest(t *testing.T, conn, old *Connection) admission.Request {
 	t.Helper()
-	raw, err := json.Marshal(conn)
-	if err != nil {
-		t.Fatal(err)
+	encode := func(c *Connection) runtime.RawExtension {
+		raw, err := json.Marshal(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return runtime.RawExtension{Raw: raw}
 	}
-	return admission.Request{AdmissionRequest: admissionv1.AdmissionRequest{
-		Operation: op, Namespace: connTestNS, Object: runtime.RawExtension{Raw: raw},
-	}}
+	req := admissionv1.AdmissionRequest{Operation: admissionv1.Create, Namespace: connTestNS, Object: encode(conn)}
+	if old != nil {
+		req.Operation, req.OldObject = admissionv1.Update, encode(old)
+	}
+	return admission.Request{AdmissionRequest: req}
 }
 
 func TestConnectionValidator(t *testing.T) {
 	existingGitHub := testConnection("clear-route-github", "github_app", "github.com", "clear-route", 0)
 	existingKube := testConnection("prod-cluster", "kubernetes", "k8s.example:443", "", 0)
+	laterDup := testConnection("later-dup", "github_app", "github.com", "clear-route", 5)
+	labeled := testConnection("later-dup", "github_app", "github.com", "clear-route", 5)
+	labeled.Labels = map[string]string{"team": "platform"}
+	generated := testConnection("", "github_app", "github.com", "clear-route", 5)
+	generated.GenerateName = "github-"
 
 	tests := []struct {
 		name        string
-		op          admissionv1.Operation
-		conn        *Connection
+		conn, old   *Connection
 		existing    []client.Object
 		wantAllowed bool
 		wantNamed   string
 	}{
-		{"github same owner rejected", admissionv1.Create, testConnection("dup", "github_app", "github.com", "Clear-Route", 5), []client.Object{existingGitHub}, false, "clear-route-github"},
-		{"github missing owner rejected", admissionv1.Create, testConnection("no-owner", "github_app", "github.com", "", 5), []client.Object{existingGitHub}, false, "clear-route-github"},
-		{"github distinct owner allowed", admissionv1.Create, testConnection("runkora-github", "github_app", "github.com", "runkora", 5), []client.Object{existingGitHub}, true, ""},
-		{"kubernetes same host rejected", admissionv1.Create, testConnection("prod-cluster-2", "kubernetes", "K8S.example:443", "", 5), []client.Object{existingKube}, false, "prod-cluster"},
-		{"kubernetes distinct host allowed", admissionv1.Create, testConnection("staging-cluster", "kubernetes", "staging.example:443", "", 5), []client.Object{existingKube}, true, ""},
-		{"update of the earlier connection allowed", admissionv1.Update, testConnection("clear-route-github", "github_app", "github.com", "clear-route", 0), []client.Object{existingGitHub, testConnection("later-dup", "github_app", "github.com", "clear-route", 5)}, true, ""},
-		{"update of the later connection rejected", admissionv1.Update, testConnection("later-dup", "github_app", "github.com", "clear-route", 5), []client.Object{existingGitHub, testConnection("later-dup", "github_app", "github.com", "clear-route", 5)}, false, "clear-route-github"},
-		{"update compared with itself allowed", admissionv1.Update, testConnection("clear-route-github", "github_app", "github.com", "", 0), []client.Object{existingGitHub}, true, ""},
+		{"github same owner rejected", testConnection("dup", "github_app", "github.com", "Clear-Route", 5), nil, []client.Object{existingGitHub}, false, "clear-route-github"},
+		{"github missing owner rejected", testConnection("no-owner", "github_app", "github.com", "", 5), nil, []client.Object{existingGitHub}, false, "clear-route-github"},
+		{"github distinct owner allowed", testConnection("runkora-github", "github_app", "github.com", "runkora", 5), nil, []client.Object{existingGitHub}, true, ""},
+		{"kubernetes same host rejected", testConnection("prod-cluster-2", "kubernetes", "K8S.example:443", "", 5), nil, []client.Object{existingKube}, false, "prod-cluster"},
+		{"kubernetes distinct host allowed", testConnection("staging-cluster", "kubernetes", "staging.example:443", "", 5), nil, []client.Object{existingKube}, true, ""},
+		{"generateName create rejected with its prefix", generated, nil, []client.Object{existingGitHub}, false, "clear-route-github"},
+		{"update keeping an existing conflict allowed", labeled, laterDup, []client.Object{existingGitHub, laterDup}, true, ""},
+		{"update of the earlier connection keeping its conflict allowed", existingGitHub, existingGitHub, []client.Object{existingGitHub, laterDup}, true, ""},
+		{"update introducing a conflict with a later connection rejected", testConnection("prod-cluster", "kubernetes", "b.example:443", "", 0), existingKube, []client.Object{existingKube, testConnection("b-cluster", "kubernetes", "b.example:443", "", 5)}, false, "b-cluster"},
+		{"update dropping the owner rejected", testConnection("runkora-github", "github_app", "github.com", "", 5), testConnection("runkora-github", "github_app", "github.com", "runkora", 5), []client.Object{existingGitHub}, false, "clear-route-github"},
+		{"update compared with itself allowed", testConnection("clear-route-github", "github_app", "github.com", "", 0), existingGitHub, []client.Object{existingGitHub}, true, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			c := fake.NewClientBuilder().WithScheme(NewScheme()).WithObjects(tc.existing...).Build()
 			v := &ConnectionValidator{Client: c, Decoder: admission.NewDecoder(NewScheme())}
-			resp := v.Handle(context.Background(), connectionRequest(t, tc.op, tc.conn))
+			resp := v.Handle(context.Background(), connectionRequest(t, tc.conn, tc.old))
 			if resp.Allowed != tc.wantAllowed {
 				t.Fatalf("allowed = %v, want %v (%s)", resp.Allowed, tc.wantAllowed, resp.Result.Message)
 			}
-			if tc.wantNamed != "" && !strings.Contains(resp.Result.Message, `"`+tc.wantNamed+`"`) {
+			if tc.wantNamed != "" && !strings.Contains(resp.Result.Message, `existing connection "`+tc.wantNamed+`"`) {
 				t.Errorf("message %q does not cite %q", resp.Result.Message, tc.wantNamed)
+			}
+			if tc.conn.GenerateName != "" && !strings.Contains(resp.Result.Message, `"github-"`) {
+				t.Errorf("message %q does not cite the generateName prefix", resp.Result.Message)
 			}
 		})
 	}
@@ -94,8 +110,12 @@ func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T)
 		testConnection("runkora-github", "github_app", "github.com", "runkora", 3),
 		testConnection("a-same-time", "kubernetes", "k8s.example:443", "", 1),
 		testConnection("b-same-time", "kubernetes", "k8s.example:443", "", 1),
+		testConnection("staging-no-secret", "kubernetes", "staging.example:443", "", 2),
 	}
 	for _, o := range objs {
+		if o.GetName() == "staging-no-secret" {
+			continue
+		}
 		objs = append(objs, &corev1.Secret{
 			ObjectMeta: metav1.ObjectMeta{Name: o.GetName(), Namespace: connTestNS},
 			Data:       map[string][]byte{"key": []byte("material")},
@@ -109,6 +129,29 @@ func TestConnectionAggregator_KeepsEarlierOfConflictingConnections(t *testing.T)
 		t.Fatalf("collect: %v", err)
 	}
 	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name)
+	}
+	if got, want := strings.Join(names, ","), "a-same-time,clear-route-github,runkora-github"; got != want {
+		t.Errorf("rendered %s, want %s", got, want)
+	}
+
+	// The earlier connection still wins while its Secret is missing.
+	later := testConnection("staging-later", "kubernetes", "staging.example:443", "", 9)
+	laterSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: later.Name, Namespace: connTestNS},
+		Data:       map[string][]byte{"key": []byte("material")},
+	}
+	for _, o := range []client.Object{later, laterSecret} {
+		if err := c.Create(context.Background(), o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	entries, _, err = a.collect(context.Background(), []OrbitTenant{{ObjectMeta: metav1.ObjectMeta{Name: "acme"}}})
+	if err != nil {
+		t.Fatalf("collect: %v", err)
+	}
+	names = names[:0]
 	for _, e := range entries {
 		names = append(names, e.Name)
 	}

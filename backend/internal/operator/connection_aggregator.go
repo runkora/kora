@@ -187,6 +187,8 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 				)
 				continue
 			}
+			// Kept before the Secret read, so a late Secret never flips the winner.
+			kept = append(kept, conn)
 
 			// tenant_id MUST equal claims.Orbit.TenantID — the OrbitTenant CR
 			// name, the identifier the CA aggregator keys on. Do not invent one.
@@ -200,7 +202,6 @@ func (a *ConnectionAggregator) collect(ctx context.Context, tenants []OrbitTenan
 				continue
 			}
 			secretData[secretRef] = material
-			kept = append(kept, conn)
 
 			entries = append(entries, connectionRegistryEntry{
 				TenantID:  tenantID,
