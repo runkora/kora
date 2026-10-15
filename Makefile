@@ -483,7 +483,7 @@ REDEPLOY_PLATFORM_SERVICES := \
 	policy-gateway \
 	egress-gateway agents frontend orbit-mcp tool-gateway \
 	orbit-triggers skills-service migrate operator \
-	session-manager sandbox-exec sandbox-mount sandbox-base
+	session-manager sandbox-mount sandbox-base
 REDEPLOY_TENANT_SERVICES := example
 
 # Services with a long-lived orbit-system workload that `cluster-update` rolls
