@@ -321,7 +321,7 @@ It runs in two places. On a pull request that touches Hades, a job writes the re
 
 ## Consuming Hades from another repository
 
-Each `hades/vX.Y.Z` tag publishes `@runkora/hades` to the GitHub Packages npm registry and creates a GitHub Release of the same name with the tarball, `manifest.json` and `CONTRACT.md` attached. The package ships TypeScript source, `tokens.css`, the manifest, the contract and this README: no compiled JavaScript, no fonts, no Storybook, no stories, no tests. The rules are in the [Hades delivery ADR](../../../../docs/adr/2026-10-11-hades-delivery-to-external-consumers.md); a consumer needs the following.
+Each final kora release `vX.Y.Z` publishes `@runkora/hades@X.Y.Z` to the GitHub Packages npm registry and attaches the tarball, `manifest.json` and `CONTRACT.md` to kora's GitHub Release. A release candidate attaches the same files and publishes no package. The package ships TypeScript source, `tokens.css`, the manifest, the contract and this README: no compiled JavaScript, no fonts, no Storybook, no stories, no tests. The rules are in the [Hades delivery ADR](../../../../docs/adr/2026-10-11-hades-delivery-to-external-consumers.md); a consumer needs the following.
 
 **Registry and token.** An `.npmrc` with the scope mapped to the registry, and a token that has `read:packages` for this repository (a personal access token (classic), or, for a workflow in a repository granted access to the package, its own `GITHUB_TOKEN`; the GitHub Packages npm registry accepts neither fine-grained personal access tokens nor GitHub App installation tokens):
 
@@ -330,11 +330,7 @@ Each `hades/vX.Y.Z` tag publishes `@runkora/hades` to the GitHub Packages npm re
 //npm.pkg.github.com/:_authToken=${NPM_TOKEN}
 ```
 
-**A caret range is safe, and the contract version is a separate number.** The package follows Semantic Versioning: a removed export, a removed or newly required prop, a narrowed peer range or a removed token is a major, so a caret range such as `^1.2.0` will not take a breaking change. The theme contract has its own version, `CONTRACT_VERSION`, exported from the package and recorded as `contractVersion` in `manifest.json`. A consumer that renders themes reads it to decide whether a theme is compatible: a theme passes when its contract major equals the instance's, whatever the package version.
-
-```ts
-import { CONTRACT_VERSION } from '@runkora/hades';
-```
+**The package version is the kora release version, and a caret range is safe from 1.0.0.** The package follows Semantic Versioning: a removed export, a removed or newly required prop, a narrowed peer range or a removed token is a major, and the release workflow refuses a kora release that contains one unless it is a major, so a caret range such as `^1.2.0` will not take a breaking change. A consumer that renders themes decides whether a theme is compatible by comparing the theme's `koraVersion` with this version: a theme passes when its major equals the package's major. Every release carries its own `manifest.json`, so a consumer can read the surface of any release. Below `1.0.0` nothing is promised.
 
 **React 19 and the declared peers.** Every runtime dependency except `@tanstack/react-table` is a peer dependency; install each at the range `package.json` declares.
 
@@ -349,7 +345,7 @@ import { CONTRACT_VERSION } from '@runkora/hades';
 
 **The two font slots.** Hades never loads a font. It reads `--hades-raw-font-sans` and `--hades-raw-font-mono`, which default to generic stacks; the consumer, or the theme it renders, sets them to font families it loads itself.
 
-`make hades-smoke` packs the package and builds exactly such a consumer (Vite, React, Tailwind v4) from the tarball in a temporary directory; the release workflow runs the same script on every tag.
+`make hades-smoke` packs the package and builds exactly such a consumer (Vite, React, Tailwind v4) from the tarball in a temporary directory; the release workflow runs the same script on every release tag.
 
 ---
 
