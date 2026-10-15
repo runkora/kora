@@ -3,7 +3,9 @@ package operator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"runtime"
 	"strconv"
 	"strings"
@@ -12,6 +14,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/remote/transport"
 
 	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 )
@@ -59,11 +62,7 @@ func (r remoteRegistry) Read(ctx context.Context, ref string, auth []dockerConfi
 	if err != nil {
 		return imageConfig{}, fmt.Errorf("parse image reference: %w", err)
 	}
-	desc, err := remote.Get(parsed,
-		remote.WithContext(ctx),
-		remote.WithAuthFromKeychain(dockerKeychain(auth)),
-		remote.WithPlatform(v1.Platform{OS: "linux", Architecture: runtime.GOARCH}),
-	)
+	desc, err := getManifest(ctx, parsed, dockerKeychain(auth).authenticators(parsed.Context().RegistryStr()))
 	if err != nil {
 		return imageConfig{}, fmt.Errorf("read manifest: %w", err)
 	}
@@ -76,6 +75,28 @@ func (r remoteRegistry) Read(ctx context.Context, ref string, auth []dockerConfi
 		return imageConfig{}, fmt.Errorf("read image config: %w", err)
 	}
 	return imageConfig{Digest: desc.Digest.String(), User: cfg.Config.User, Labels: cfg.Config.Labels}, nil
+}
+
+// getManifest reads the manifest with each credential in turn. It moves to the next on
+// 401 or 403, stops at the first success and returns the last error when all fail.
+func getManifest(ctx context.Context, ref name.Reference, auths []authn.Authenticator) (*remote.Descriptor, error) {
+	var err error
+	for _, a := range auths {
+		var desc *remote.Descriptor
+		desc, err = remote.Get(ref,
+			remote.WithContext(ctx),
+			remote.WithAuth(a),
+			remote.WithPlatform(v1.Platform{OS: "linux", Architecture: runtime.GOARCH}),
+		)
+		if err == nil {
+			return desc, nil
+		}
+		var terr *transport.Error
+		if !errors.As(err, &terr) || (terr.StatusCode != http.StatusUnauthorized && terr.StatusCode != http.StatusForbidden) {
+			return nil, err
+		}
+	}
+	return nil, err
 }
 
 // dockerConfig is the parsed .dockerconfigjson of one pull secret.
@@ -92,21 +113,31 @@ func parseDockerConfig(raw []byte) (dockerConfig, error) {
 	return c, nil
 }
 
-// dockerKeychain resolves a registry against pull secrets. The first match wins.
+// dockerKeychain resolves a registry against pull secrets. Resolve returns the first
+// match. authenticators returns every match, in order.
 type dockerKeychain []dockerConfig
 
 // Resolve implements authn.Keychain. Keys may carry the scheme or path that
 // `docker login` writes.
 func (k dockerKeychain) Resolve(res authn.Resource) (authn.Authenticator, error) {
-	want := res.RegistryStr()
+	return k.authenticators(res.RegistryStr())[0], nil
+}
+
+// authenticators returns one authenticator per matching credential, or anonymous
+// when none matches.
+func (k dockerKeychain) authenticators(registry string) []authn.Authenticator {
+	var out []authn.Authenticator
 	for _, c := range k {
 		for host, cfg := range c.Auths {
-			if registryHost(host) == want {
-				return authn.FromConfig(cfg), nil
+			if registryHost(host) == registry {
+				out = append(out, authn.FromConfig(cfg))
 			}
 		}
 	}
-	return authn.Anonymous, nil
+	if len(out) == 0 {
+		out = append(out, authn.Anonymous)
+	}
+	return out
 }
 
 func registryHost(key string) string {
