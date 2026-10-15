@@ -3,4 +3,4 @@ theme:
   bundle:
     image: registry.example.com/acme/kora-theme:1.0.0
   document: |
-    contractVersion: "1.0"
+    koraVersion: "1.0.0"

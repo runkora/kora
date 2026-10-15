@@ -398,7 +398,7 @@ Point your service mesh's own telemetry at the same collector to get the mesh ho
 
 ## White-labelling theme
 
-A deployment can carry one theme: the product name, the colours and the identity assets a client's people see in place of kora's ([white-labelling theme](../adr/2026-10-12-white-labelling-theme.md)). A theme is a bundle, a directory with the document `theme.yaml` at its root and its assets under `assets/`, written against the contract version the release runs, recorded as `hades-contract` in the release's `compatibility.yaml`. The document's `contractVersion` must be a quoted string such as `"1.0"`; the chart also fails the render when `productName` is outside the Hades product-name bounds, before any workload rolls. The frontend validates it before any page serves. Without a theme the chart renders exactly as before.
+A deployment can carry one theme: the product name, the colours and the identity assets a client's people see in place of kora's ([white-labelling theme](../adr/2026-10-12-white-labelling-theme.md)). A theme is a bundle, a directory with the document `theme.yaml` at its root and its assets under `assets/`, written against a kora release, whose manifest and `theme.schema.json` are attached to that release on GitHub. The document's `koraVersion` must be a quoted `MAJOR.MINOR.PATCH` string such as `"1.4.0"`, and the instance accepts a theme written against its own major, so a theme is reissued on each major; the chart also fails the render when `productName` is outside the Hades product-name bounds, before any workload rolls. The frontend validates it before any page serves. Without a theme the chart renders exactly as before.
 
 ### Nodes
 
