@@ -1,9 +1,5 @@
 /**
- * Unit tests for the Skill URL and the back link URL.
- *
- * A Skill URL carries the browse values of the overview. The Skill page reads
- * them back and builds its back link, so that the link returns to the same
- * results (PRD FR-17).
+ * Unit tests for clean navigation URLs and API browse parsing.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -13,26 +9,14 @@ import {
   type MarketplaceBrowseParams,
 } from '../_types';
 import {
-  buildBrowseUrl,
-  buildOverviewUrl,
-  buildSkillUrl,
+  cleanBrowseUrl,
   parseBrowseParams,
-  parseSkillSlug,
   recordToSearchParams,
   toResultState,
   toSearchQuery,
 } from './browse-params';
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
-
-/** The browse values of `/marketplace` with no query keys. */
-const DEFAULT_BROWSE: MarketplaceBrowseParams = {
-  marketplace: '',
-  query: '',
-  page: 1,
-  pageSize: 24,
-  sort: 'name-asc',
-};
 
 /** Page 3 of a search in "Platform Engineering", with other values that are not defaults. */
 const PAGE_3_BROWSE: MarketplaceBrowseParams = {
@@ -46,80 +30,17 @@ const PAGE_3_BROWSE: MarketplaceBrowseParams = {
 const PAGE_3_QUERY =
   'marketplace=Platform+Engineering&query=review&page=3&pageSize=12&sort=name-desc';
 
-const SLUG = 'platform-engineering/skills/react-reviewer';
-
 // ── Tests ─────────────────────────────────────────────────────────────────────
-
-describe('parseSkillSlug', () => {
-  it.each([
-    'platform-engineering/skills/react-expert',
-    'org/repo/Skill name?query#fragment&value+extra',
-    'org/repo/literal%2Fand%20',
-    'org/repo/技能',
-  ])('restores the opaque identifier %s from its encoded route segment', (slug) => {
-    const url = new URL(buildSkillUrl(slug, DEFAULT_BROWSE), 'http://localhost');
-    const segments = url.pathname.slice('/marketplace/'.length).split('/');
-    expect(parseSkillSlug(segments)).toBe(slug);
-  });
-
-  it('accepts an existing link with separate path segments', () => {
-    expect(parseSkillSlug(['platform-engineering', 'skills', 'react-expert'])).toBe(
-      'platform-engineering/skills/react-expert',
-    );
-  });
-
-  it.each(['bad%', 'bad%ZZ', 'bad%E0%A4%A'])('rejects malformed encoding %s', (segment) => {
-    expect(parseSkillSlug([segment])).toBeNull();
-  });
-});
-
-describe('buildSkillUrl', () => {
-  it('carries the browse values in the Skill URL', () => {
-    expect(buildSkillUrl(SLUG, PAGE_3_BROWSE)).toBe(
-      `/marketplace/${encodeURIComponent(SLUG)}?${PAGE_3_QUERY}`,
-    );
-  });
-
-  it('adds no query for the default values', () => {
-    expect(buildSkillUrl(SLUG, DEFAULT_BROWSE)).toBe(`/marketplace/${encodeURIComponent(SLUG)}`);
-  });
-
-  it('preserves reserved characters in the slug without changing browse parameters', () => {
-    const slug = 'org/repo/a?b#c%20';
-    const url = new URL(buildSkillUrl(slug, PAGE_3_BROWSE), 'http://localhost');
-    expect(decodeURIComponent(url.pathname.slice('/marketplace/'.length))).toBe(slug);
-    expect(url.hash).toBe('');
-    expect(parseBrowseParams(url.searchParams)).toEqual(PAGE_3_BROWSE);
-  });
-});
-
-describe('buildOverviewUrl', () => {
-  it('returns to the browse values that the Skill URL carries', () => {
-    const skillUrl = new URL(buildSkillUrl(SLUG, PAGE_3_BROWSE), 'http://localhost');
-    const browse = parseBrowseParams(skillUrl.searchParams);
-
-    expect(browse).toEqual(PAGE_3_BROWSE);
-    expect(buildOverviewUrl(browse)).toBe(`/marketplace?${PAGE_3_QUERY}`);
-  });
-
-  it('keeps only the browse values of a Skill URL', () => {
-    const browse = parseBrowseParams(
-      new URLSearchParams('page=2&agent=new&next=https://example.com'),
-    );
-
-    expect(buildOverviewUrl(browse)).toBe('/marketplace?page=2');
-  });
-
-  it('opens the plain overview when the Skill URL has no browse values', () => {
-    expect(buildOverviewUrl(parseBrowseParams(new URLSearchParams()))).toBe('/marketplace');
-  });
-});
 
 function params(query: string): URLSearchParams {
   return new URLSearchParams(query);
 }
 
 describe('parseBrowseParams', () => {
+  it('keeps the complete browse values available to API requests', () => {
+    expect(parseBrowseParams(params(PAGE_3_QUERY))).toEqual(PAGE_3_BROWSE);
+  });
+
   it('returns all defaults for an empty query', () => {
     expect(parseBrowseParams(params(''))).toEqual<MarketplaceBrowseParams>({
       marketplace: '',
@@ -258,50 +179,24 @@ describe('recordToSearchParams', () => {
   });
 });
 
-describe('buildBrowseUrl', () => {
-  const defaults: MarketplaceBrowseParams = {
-    marketplace: '',
-    query: '',
-    page: 1,
-    pageSize: DEFAULT_PAGE_SIZE,
-    sort: DEFAULT_SORT,
-  };
-
-  it('returns the bare pathname when every browse value is a default and no other keys exist', () => {
-    expect(buildBrowseUrl('/marketplace', '', defaults)).toBe('/marketplace');
+describe('cleanBrowseUrl', () => {
+  it('keeps a pathname with no query parameters', () => {
+    expect(cleanBrowseUrl('/marketplace', '')).toBe('/marketplace');
   });
 
-  it('preserves an unrelated key while rewriting the browse keys', () => {
-    const url = buildBrowseUrl('/marketplace', '?agent=123&page=9', { ...defaults, page: 2 });
-    const search = new URL(url, 'http://localhost').searchParams;
-    expect(search.get('agent')).toBe('123');
-    expect(search.get('page')).toBe('2');
+  it('removes every browse key, including repeated values', () => {
+    expect(cleanBrowseUrl('/marketplace', `?${PAGE_3_QUERY}&page=4`)).toBe('/marketplace');
   });
 
-  it('omits each browse key that is at its default value', () => {
-    const url = buildBrowseUrl('/marketplace', '', { ...defaults, marketplace: 'Core' });
-    const search = new URL(url, 'http://localhost').searchParams;
-    expect(search.has('query')).toBe(false);
-    expect(search.has('page')).toBe(false);
-    expect(search.has('pageSize')).toBe(false);
-    expect(search.has('sort')).toBe(false);
-    expect(search.get('marketplace')).toBe('Core');
+  it('preserves unrelated query parameters used by the agent builder and Storybook', () => {
+    expect(
+      cleanBrowseUrl('/iframe.html', `?agent=123&id=app-marketplace--default&${PAGE_3_QUERY}`),
+    ).toBe('/iframe.html?agent=123&id=app-marketplace--default');
   });
 
-  it('writes every non-default browse value', () => {
-    const url = buildBrowseUrl('/marketplace', '', {
-      marketplace: 'Core',
-      query: 'react',
-      page: 3,
-      pageSize: 48,
-      sort: 'name-desc',
-    });
-    const search = new URL(url, 'http://localhost').searchParams;
-    expect(search.get('marketplace')).toBe('Core');
-    expect(search.get('query')).toBe('react');
-    expect(search.get('page')).toBe('3');
-    expect(search.get('pageSize')).toBe('48');
-    expect(search.get('sort')).toBe('name-desc');
+  it('returns a relative URL that uses the current environment hostname', () => {
+    const path = cleanBrowseUrl('/marketplace', '?page=2');
+    expect(new URL(path, 'https://kora.example').href).toBe('https://kora.example/marketplace');
   });
 });
 

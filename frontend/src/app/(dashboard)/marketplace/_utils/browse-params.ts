@@ -1,9 +1,6 @@
-// Reads, validates, and writes the Marketplace browse values in the URL.
-// The RSC page, the BFF route, and the client hook all use these functions,
-// so the three request paths apply the same rules and defaults.
+// Validates Marketplace browse values for API requests and initial defaults.
+// Navigation URLs carry only the route, without the overview's browse state.
 
-import type { SkillSort } from '@orbit/shared/api';
-import { APP_ROUTES } from '@orbit/lib/routing';
 import {
   DEFAULT_PAGE_SIZE,
   DEFAULT_SORT,
@@ -12,9 +9,10 @@ import {
   SORT_OPTIONS,
   type MarketplaceBrowseParams,
   type ResultState,
+  type SkillSort,
 } from '../_types';
 
-/** The URL keys of the browse values. Other keys in the URL stay unchanged. */
+/** The browse query keys removed from navigation URLs. */
 const BROWSE_KEYS = ['marketplace', 'query', 'page', 'pageSize', 'sort'];
 
 /**
@@ -115,63 +113,18 @@ export function recordToSearchParams(
 }
 
 /**
- * Returns the URL of the overview with the given browse values. The other
- * query keys, such as `agent` for the agent builder, stay unchanged. Default
- * values are not written, so that the URL stays short.
+ * Removes browse values from an existing URL. Other query keys, such as
+ * `agent` for the agent builder or Storybook's `id`, stay unchanged.
  */
-export function buildBrowseUrl(
-  pathname: string,
-  currentSearch: string,
-  browse: MarketplaceBrowseParams,
-): string {
+export function cleanBrowseUrl(pathname: string, currentSearch: string): string {
   const search = new URLSearchParams(currentSearch);
   BROWSE_KEYS.forEach((key) => search.delete(key));
-
-  if (browse.marketplace) {
-    search.set('marketplace', browse.marketplace);
-  }
-  if (browse.query) {
-    search.set('query', browse.query);
-  }
-  if (browse.page !== 1) {
-    search.set('page', String(browse.page));
-  }
-  if (browse.pageSize !== DEFAULT_PAGE_SIZE) {
-    search.set('pageSize', String(browse.pageSize));
-  }
-  if (browse.sort !== DEFAULT_SORT) {
-    search.set('sort', browse.sort);
-  }
 
   const queryString = search.toString();
   if (queryString) {
     return `${pathname}?${queryString}`;
   }
   return pathname;
-}
-
-/**
- * Returns the URL of a Skill page. The URL carries the browse values of the
- * overview, so that the back link on the Skill page returns to the same
- * results (PRD FR-17). The Skill page uses these values only for that link.
- */
-export function buildSkillUrl(slug: string, browse: MarketplaceBrowseParams): string {
-  return buildBrowseUrl(APP_ROUTES.marketplace.detail(slug), '', browse);
-}
-
-/** Reads the opaque Skill slug from Next.js's encoded catch-all path segments. */
-export function parseSkillSlug(segments: readonly string[]): string | null {
-  try {
-    // Decode once: a literal `%2F` in the backend identifier must stay literal.
-    return decodeURIComponent(segments.join('/'));
-  } catch {
-    return null;
-  }
-}
-
-/** Returns the URL of the overview with the given browse values, and no other query keys. */
-export function buildOverviewUrl(browse: MarketplaceBrowseParams): string {
-  return buildBrowseUrl(APP_ROUTES.marketplace.overview, '', browse);
 }
 
 /** Tells what a successful browse request found. */

@@ -7,7 +7,6 @@ import { server, renderWithProviders } from '@orbit/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import { MarketplacePagination } from './marketplace-pagination';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
-import { buildBrowseUrl } from '../_utils/browse-params';
 
 function browse(overrides: Partial<MarketplaceBrowseParams> = {}): MarketplaceBrowseParams {
   return { marketplace: 'Core', query: '', page: 1, pageSize: 24, sort: 'name-asc', ...overrides };
@@ -15,11 +14,19 @@ function browse(overrides: Partial<MarketplaceBrowseParams> = {}): MarketplaceBr
 
 function overviewWith(page: number, pageSize: number, total: number): MarketplaceOverviewData {
   const b = browse({ page, pageSize });
-  return { marketplaces: [{ name: 'Core' }], requested: b, browse: b, skills: [], total };
+  return {
+    marketplaces: [
+      { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+    ],
+    requested: b,
+    browse: b,
+    skills: [],
+    total,
+  };
 }
 
 function renderPagination(data: MarketplaceOverviewData) {
-  window.history.replaceState(null, '', buildBrowseUrl('/marketplace', '', data.browse));
+  window.history.replaceState(null, '', '/marketplace');
   return renderWithProviders(
     <MarketplaceProvider initialData={data} initialError={null}>
       <MarketplacePagination />

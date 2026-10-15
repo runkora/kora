@@ -1,50 +1,101 @@
 import 'server-only';
 
+import type { GetMarketplaces, ListSkillsResponse, Skill } from '@orbit/shared/api';
 import { config } from '@orbit/server/config';
-import type { Marketplace, Skill, SkillSummary } from '@orbit/lib/marketplace';
+import { ApiError } from './api-error';
 
-const TIMEOUT_MS = 15_000;
+// Marketplace client. Calls skills-service (backend/internal/skills) over
+// SKILLS_SERVICE_URL. Each function matches one skills-service endpoint; see
+// docs/adr/2026-08-28-marketplace-adr-backend.md for the route contract.
+//
+// The skills-service does not page or sort by name, and does not follow a
+// Marketplace's cursor beyond its first batch: the server service does the
+// sort/page/total work (see marketplace-server.ts) over that one batch. A
+// Marketplace with more than SKILL_LIST_CAP Skills is not fully shown yet.
 
-async function request<T>(path: string, accessToken: string): Promise<T> {
-  const res = await fetch(`${config.skillsServiceUrl}${path}`, {
+const UPSTREAM_TIMEOUT_MS = 10_000;
+
+/** The most Skills that the skills-service returns for one list request. */
+export const SKILL_LIST_CAP = 200;
+
+/** Combines the caller's own cancellation, when given, with a fixed timeout. */
+function requestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(UPSTREAM_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+async function request<T>(path: string, accessToken: string, signal?: AbortSignal): Promise<T> {
+  const response = await fetch(`${config.skillsServiceUrl}${path}`, {
     headers: {
+      Accept: 'application/json',
       Authorization: `Bearer ${accessToken}`,
-      'Content-Type': 'application/json',
     },
     cache: 'no-store',
-    signal: AbortSignal.timeout(TIMEOUT_MS),
+    signal: requestSignal(signal),
   });
-  if (!res.ok) {
-    throw new Error(`skills-service ${path} failed: ${res.status}`);
+
+  if (!response.ok) {
+    const errJson = await response.json().catch(() => ({}));
+    const err = errJson as { code?: string; message?: string };
+    throw new ApiError(response.status, err.code ?? 'UNKNOWN', err.message ?? response.statusText);
+  }
+
+  return (await response.json()) as T;
+}
+
+/** GET /marketplaces */
+export async function fetchMarketplaces(
+  accessToken: string,
+  signal?: AbortSignal,
+): Promise<GetMarketplaces> {
+  return request<GetMarketplaces>('/marketplaces', accessToken, signal);
+}
+
+/**
+ * GET /marketplaces/{marketplaceSlug}/skills?search=
+ *
+ * A 404 from the skills-service (unknown Marketplace) surfaces as an
+ * ApiError, same as any other failed response.
+ */
+export async function fetchSkills(
+  accessToken: string,
+  marketplaceSlug: string,
+  search: string,
+  signal?: AbortSignal,
+): Promise<ListSkillsResponse> {
+  const query = new URLSearchParams();
+  if (search) {
+    query.set('search', search);
+  }
+  const qs = query.toString();
+  return request<ListSkillsResponse>(
+    `/marketplaces/${marketplaceSlug}/skills${qs ? `?${qs}` : ''}`,
+    accessToken,
+    signal,
+  );
+}
+
+/**
+ * GET /marketplaces/{marketplaceSlug}/skills/{skillSlug}
+ *
+ * Returns null for a missing Skill (404), so a caller can show a not-found
+ * state without needing to inspect the error.
+ */
+export async function fetchSkillDetail(
+  accessToken: string,
+  marketplaceSlug: string,
+  skillSlug: string,
+): Promise<Skill | null> {
+  try {
+    return await request<Skill>(
+      `/marketplaces/${marketplaceSlug}/skills/${skillSlug}`,
+      accessToken,
+    );
+  } catch (err) {
+    if (err instanceof ApiError && err.isNotFound) {
+      return null;
+    }
+    throw err;
   }
   return res.json() as Promise<T>;
-}
-
-export async function listMarketplaces(accessToken: string): Promise<Marketplace[]> {
-  const body = await request<{ marketplaces: Marketplace[] }>('/v1/marketplaces', accessToken);
-  return body.marketplaces ?? [];
-}
-
-export async function listSkills(
-  accessToken: string,
-  marketplace: string,
-  search?: string,
-): Promise<SkillSummary[]> {
-  const qs = search ? `?search=${encodeURIComponent(search)}` : '';
-  const body = await request<{ skills: SkillSummary[] }>(
-    `/v1/marketplaces/${encodeURIComponent(marketplace)}/skills${qs}`,
-    accessToken,
-  );
-  return body.skills ?? [];
-}
-
-export async function getSkill(
-  accessToken: string,
-  marketplace: string,
-  skill: string,
-): Promise<Skill> {
-  return request<Skill>(
-    `/v1/marketplaces/${encodeURIComponent(marketplace)}/skills/${encodeURIComponent(skill)}`,
-    accessToken,
-  );
 }

@@ -1,19 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@orbit/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import { MarketplaceSkillGrid } from './marketplace-skill-grid';
 import type { MarketplaceOverviewData } from '../_types';
-import { buildBrowseUrl } from '../_utils/browse-params';
 
 const BROWSE = { marketplace: 'Core', query: '', page: 1, pageSize: 24, sort: 'name-asc' as const };
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}));
-
 function renderGrid(overview: MarketplaceOverviewData) {
-  window.history.replaceState(null, '', buildBrowseUrl('/marketplace', '', overview.browse));
+  window.history.replaceState(null, '', '/marketplace');
   return renderWithProviders(
     <MarketplaceProvider initialData={overview} initialError={null}>
       <MarketplaceSkillGrid />
@@ -24,18 +19,20 @@ function renderGrid(overview: MarketplaceOverviewData) {
 describe('MarketplaceSkillGrid rendering', () => {
   it('renders every Skill as its own card with title, slug, and description', () => {
     renderGrid({
-      marketplaces: [{ name: 'Core' }],
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+      ],
       requested: BROWSE,
       browse: BROWSE,
       skills: [
         {
-          slug: 'core/skills/react-expert',
-          title_of_package: 'React Expert',
+          skillSlug: 'core/skills/react-expert',
+          name: 'React Expert',
           description: 'Senior React developer.',
         },
         {
-          slug: 'core/skills/go-expert',
-          title_of_package: 'Go Expert',
+          skillSlug: 'core/skills/go-expert',
+          name: 'Go Expert',
           description: 'Senior Go developer.',
         },
       ],
@@ -50,10 +47,12 @@ describe('MarketplaceSkillGrid rendering', () => {
 
   it('shows a placeholder for an empty description', () => {
     renderGrid({
-      marketplaces: [{ name: 'Core' }],
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+      ],
       requested: BROWSE,
       browse: BROWSE,
-      skills: [{ slug: 'core/skills/blank', title_of_package: 'Blank', description: '' }],
+      skills: [{ skillSlug: 'core/skills/blank', name: 'Blank', description: '' }],
       total: 1,
     });
 
@@ -62,17 +61,19 @@ describe('MarketplaceSkillGrid rendering', () => {
 
   it('renders the same result set that the list view renders', () => {
     const skills = [
-      { slug: 'core/skills/a', title_of_package: 'A', description: 'Skill A' },
-      { slug: 'core/skills/b', title_of_package: 'B', description: 'Skill B' },
+      { skillSlug: 'core/skills/a', name: 'A', description: 'Skill A' },
+      { skillSlug: 'core/skills/b', name: 'B', description: 'Skill B' },
     ];
     renderGrid({
-      marketplaces: [{ name: 'Core' }],
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+      ],
       requested: BROWSE,
       browse: BROWSE,
       skills,
       total: 2,
     });
 
-    expect(screen.getAllByRole('link')).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(2);
   });
 });

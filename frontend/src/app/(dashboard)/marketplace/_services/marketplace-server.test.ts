@@ -1,22 +1,40 @@
 /**
  * Unit tests for the Marketplace choice in loadMarketplaceOverview.
  *
- * Order: the Marketplace in the URL, the saved Marketplace from the user
- * preferences, the first Marketplace in name order.
+ * Order: the requested Marketplace, the saved Marketplace from the user
+ * preferences, the first Marketplace in the skills-service order. Each choice
+ * is a marketplaceSlug.
  *
  * Strategy:
- * - The Marketplace client serves its fixtures, so it runs unchanged. In name
- *   order, the fixture Marketplaces are "ClearRoute Core", "ClearRoute
- *   Platform", "Partner Reference", and "Platform Engineering".
+ * - The Marketplace client is mocked (it now calls the live skills-service),
+ *   so fetchMarketplaces/fetchSkills return fixed sample data below. In that
+ *   sample order, the Marketplaces are "ClearRoute Core"
+ *   (clearroute__core-skills), "ClearRoute Platform", "Partner Reference"
+ *   (partner-org__reference-skills), and "Platform Engineering"
+ *   (platform-engineering__skills).
  * - getPreferences is mocked, so each test sets the saved Marketplace.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
-import { loadMarketplaceOverview } from './marketplace-server';
 
-const { getPreferences } = vi.hoisted(() => ({ getPreferences: vi.fn() }));
+const CORE = 'clearroute__core-skills';
+const PARTNER = 'partner-org__reference-skills';
+const PLATFORM = 'platform-engineering__skills';
+
+const { getPreferences, fetchMarketplaces, fetchSkills } = vi.hoisted(() => ({
+  getPreferences: vi.fn(),
+  fetchMarketplaces: vi.fn(),
+  fetchSkills: vi.fn(),
+}));
 vi.mock('../../_preferences/preferences-server', () => ({ getPreferences }));
+vi.mock('@orbit/server/marketplace-client', () => ({
+  fetchMarketplaces,
+  fetchSkills,
+  fetchSkillDetail: vi.fn(),
+}));
+
+import { loadMarketplaceOverview } from './marketplace-server';
 
 /** The browse values of `/marketplace` with no query keys. */
 const DEFAULT_BROWSE: MarketplaceBrowseParams = {
@@ -41,6 +59,31 @@ async function loadOverview(browse: MarketplaceBrowseParams): Promise<Marketplac
 
 beforeEach(() => {
   getPreferences.mockReset();
+  fetchMarketplaces.mockReset().mockResolvedValue({
+    marketplaces: [
+      {
+        name: 'ClearRoute Core',
+        marketplaceSlug: CORE,
+        link: 'https://github.com/clearroute/core-skills',
+      },
+      {
+        name: 'ClearRoute Platform',
+        marketplaceSlug: 'clearroute__platform-skills',
+        link: 'https://github.com/clearroute/platform-skills',
+      },
+      {
+        name: 'Partner Reference',
+        marketplaceSlug: PARTNER,
+        link: 'https://github.com/partner-org/reference-skills',
+      },
+      {
+        name: 'Platform Engineering',
+        marketplaceSlug: PLATFORM,
+        link: 'https://github.com/platform-engineering/skills',
+      },
+    ],
+  });
+  fetchSkills.mockReset().mockResolvedValue({ skills: [] });
 });
 
 describe('loadMarketplaceOverview Marketplace choice', () => {
@@ -49,37 +92,37 @@ describe('loadMarketplaceOverview Marketplace choice', () => {
 
     const overview = await loadOverview(DEFAULT_BROWSE);
 
-    expect(overview.browse.marketplace).toBe('ClearRoute Core');
+    expect(overview.browse.marketplace).toBe(CORE);
   });
 
   it('uses the saved Marketplace when the URL names no Marketplace', async () => {
-    saveMarketplace('Partner Reference');
+    saveMarketplace(PARTNER);
 
     const overview = await loadOverview(DEFAULT_BROWSE);
 
-    expect(overview.browse.marketplace).toBe('Partner Reference');
+    expect(overview.browse.marketplace).toBe(PARTNER);
     // The requested values stay equal to the URL, for the mount check of the hook.
     expect(overview.requested.marketplace).toBe('');
   });
 
   it('uses the Marketplace in the URL and does not read the preferences', async () => {
-    saveMarketplace('Partner Reference');
+    saveMarketplace(PARTNER);
 
-    const overview = await loadOverview({ ...DEFAULT_BROWSE, marketplace: 'Platform Engineering' });
+    const overview = await loadOverview({ ...DEFAULT_BROWSE, marketplace: PLATFORM });
 
-    expect(overview.browse.marketplace).toBe('Platform Engineering');
+    expect(overview.browse.marketplace).toBe(PLATFORM);
     expect(getPreferences).not.toHaveBeenCalled();
   });
 
   it('uses the first Marketplace when the saved Marketplace no longer exists', async () => {
-    saveMarketplace('Removed Marketplace');
+    saveMarketplace('removed__marketplace');
 
     const overview = await loadOverview(DEFAULT_BROWSE);
 
-    expect(overview.browse.marketplace).toBe('ClearRoute Core');
+    expect(overview.browse.marketplace).toBe(CORE);
   });
 
-  it('sorts Marketplaces alphabetically', async () => {
+  it('keeps the skills-service order of the Marketplaces', async () => {
     saveMarketplace('');
 
     const overview = await loadOverview(DEFAULT_BROWSE);
@@ -92,14 +135,14 @@ describe('loadMarketplaceOverview Marketplace choice', () => {
     ]);
   });
 
-  it('falls back to the first Marketplace for an unknown name in the URL', async () => {
+  it('falls back to the first Marketplace for an unknown requested slug', async () => {
     saveMarketplace('');
 
     const overview = await loadOverview({
       ...DEFAULT_BROWSE,
-      marketplace: 'Nonexistent Marketplace',
+      marketplace: 'nobody__nothing',
     });
 
-    expect(overview.browse.marketplace).toBe('ClearRoute Core');
+    expect(overview.browse.marketplace).toBe(CORE);
   });
 });

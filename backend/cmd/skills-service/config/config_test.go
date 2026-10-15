@@ -25,8 +25,8 @@ func TestConfigLoadsFromBaseYAML(t *testing.T) {
 
 	c := config.MustLoadService[sc.Config]("cmd/skills-service", "")
 
-	if c.Server.Port != 8085 {
-		t.Errorf("expected port 8085, got %d", c.Server.Port)
+	if c.Server.Port != 8089 {
+		t.Errorf("expected port 8089, got %d", c.Server.Port)
 	}
 	if c.Server.BasePath != "/v1" {
 		t.Errorf("expected basePath /v1, got %s", c.Server.BasePath)

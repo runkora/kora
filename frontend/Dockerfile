@@ -66,7 +66,7 @@ ARG POLICY_SERVICE_URL=http://orbit-policy-service.orbit-system/api/v1
 ARG ORBIT_AGENTS_URL=http://orbit-agents.orbit-system
 ARG ORBIT_TRIGGERS_URL=http://orbit-triggers.orbit-system/api/v1
 ARG TOOL_GATEWAY_URL=http://orbit-tool-gateway.orbit-system
-ARG SKILLS_SERVICE_URL=http://orbit-skills-service.orbit-system:8085/v1
+ARG SKILLS_SERVICE_URL=http://orbit-skills-service.orbit-system:8089/v1
 # hadolint ignore=DL3025
 # BFF_SESSION_SECRET is a placeholder value only — Next.js evaluates server
 # modules at build time to collect page data, so the variable must be present

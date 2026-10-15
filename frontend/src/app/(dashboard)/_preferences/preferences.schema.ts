@@ -36,7 +36,7 @@ export interface UserPreferences {
     favouriteModels: string[];
   };
   marketplace: {
-    /** Name of the Marketplace that the user selected last on the /marketplace page. '' means none. */
+    /** marketplaceSlug of the Marketplace that the user selected last on the /marketplace page. '' means none. */
     lastSelected: string;
   };
 }

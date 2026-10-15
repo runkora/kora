@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -8,20 +8,14 @@ import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import { MarketplaceShell } from './marketplace-shell';
 import { MarketplaceOverview } from './marketplace-overview';
 import { MarketplaceProvider } from '../_context/marketplace-context';
-import { buildBrowseUrl } from '../_utils/browse-params';
 import type { MarketplaceOverviewData } from '../_types';
-
-// MarketplaceSkillList (rendered whenever results are populated) calls
-// useRouter() to navigate on row click. None of the `MarketplaceShell`
-// fixtures above ever reach a populated result, so this was never needed
-// until the `MarketplaceOverview` tests below, which do.
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}));
 
 const browse = { marketplace: 'Core', query: '', page: 1, pageSize: 24, sort: 'name-asc' as const };
 const partial: MarketplaceOverviewData = {
-  marketplaces: [{ name: 'Core' }, { name: 'Other' }],
+  marketplaces: [
+    { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+    { name: 'Other', marketplaceSlug: 'Other', link: 'https://github.com/example/other' },
+  ],
   requested: browse,
   browse,
   skills: [],
@@ -31,7 +25,7 @@ const partial: MarketplaceOverviewData = {
 afterEach(() => window.history.replaceState(null, '', '/'));
 
 function renderFailure(data: MarketplaceOverviewData) {
-  window.history.replaceState(null, '', '/marketplace?marketplace=Core');
+  window.history.replaceState(null, '', '/marketplace');
   return renderWithProviders(
     <PreferencesProvider initialPreferences={PREFERENCE_DEFAULTS} loaded={false}>
       <MarketplaceShell initialOverview={data} initialError="Failed to load Skills" />
@@ -107,7 +101,9 @@ function browseWith(overrides: Partial<MarketplaceOverviewData['browse']> = {}) 
 function overviewWith(overrides: Partial<MarketplaceOverviewData> = {}): MarketplaceOverviewData {
   const b = browseWith();
   return {
-    marketplaces: [{ name: 'Core' }],
+    marketplaces: [
+      { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+    ],
     requested: b,
     browse: b,
     skills: [],
@@ -117,15 +113,13 @@ function overviewWith(overrides: Partial<MarketplaceOverviewData> = {}): Marketp
 }
 
 const SKILL = {
-  slug: 'core/skills/react-expert',
-  title_of_package: 'React Expert',
+  skillSlug: 'core/skills/react-expert',
+  name: 'React Expert',
   description: 'Senior React developer.',
 };
 
 function renderOverview(data: MarketplaceOverviewData, initialError: string | null = null) {
-  // Match the URL to the rendered browse values, so the hook's mount effect
-  // does not see a URL/render mismatch and fire an unplanned popstate load.
-  window.history.replaceState(null, '', buildBrowseUrl('/marketplace', '', data.browse));
+  window.history.replaceState(null, '', '/marketplace');
   return renderWithProviders(
     <MarketplaceProvider initialData={data} initialError={initialError}>
       <MarketplaceOverview />
@@ -217,7 +211,10 @@ describe('result states', () => {
 describe('later browse changes', () => {
   function populatedOverview() {
     return overviewWith({
-      marketplaces: [{ name: 'Core' }, { name: 'Other' }],
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+        { name: 'Other', marketplaceSlug: 'Other', link: 'https://github.com/example/other' },
+      ],
       skills: [SKILL],
       total: 1,
     });
@@ -233,7 +230,10 @@ describe('later browse changes', () => {
         await pending;
         return HttpResponse.json({
           data: overviewWith({
-            marketplaces: [{ name: 'Core' }, { name: 'Other' }],
+            marketplaces: [
+              { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+              { name: 'Other', marketplaceSlug: 'Other', link: 'https://github.com/example/other' },
+            ],
             skills: [SKILL],
             total: 1,
             requested: browseWith({ sort: 'name-desc' }),
@@ -303,7 +303,7 @@ describe('later browse changes', () => {
 
     await user.click(screen.getByRole('button', { name: 'Clear search' }));
 
-    expect(await screen.findByRole('link', { name: /React Expert/ })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Open React Expert' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Marketplace: Core' })).toBeInTheDocument();
     expect(screen.getByLabelText('Results per page')).toHaveValue('12');
   });

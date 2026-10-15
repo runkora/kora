@@ -23,7 +23,9 @@ const BROWSE: MarketplaceBrowseParams = {
 const SKILLS_URL = ApiRoute.marketplaceSkills.GET(BROWSE);
 
 const OVERVIEW_FIXTURE: MarketplaceOverviewData = {
-  marketplaces: [{ name: 'Core' }],
+  marketplaces: [
+    { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+  ],
   requested: BROWSE,
   browse: BROWSE,
   skills: [],

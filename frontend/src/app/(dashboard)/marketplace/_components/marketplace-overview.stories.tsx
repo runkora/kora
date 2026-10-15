@@ -2,23 +2,27 @@
 
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, fireEvent, userEvent, within } from 'storybook/test';
-import type { PackageOverview } from '@orbit/shared/api';
+import type { SkillSummary } from '@orbit/shared/api';
 import { mockApi, type MockRequest } from '@orbit/storybook/mock-api';
 import { PreferencesProvider } from '../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../../_preferences/preferences.schema';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData } from '../_types';
-import { buildBrowseUrl, parseBrowseParams } from '../_utils/browse-params';
+import { parseBrowseParams } from '../_utils/browse-params';
 import { MarketplaceOverview } from './marketplace-overview';
-import { marketplaceStorySkills } from './marketplace-story-fixtures';
+import {
+  marketplaceStoryMarketplace,
+  marketplaceStorySkillDetail,
+  marketplaceStorySkills,
+} from './marketplace-story-fixtures';
 
-const platformSkills: PackageOverview[] = [
+const platformSkills: SkillSummary[] = [
   ...marketplaceStorySkills,
   ...Array.from({ length: 30 }, (_, index) => {
     const number = String(index + 1).padStart(2, '0');
     return {
-      slug: `platform-engineering/skills/platform-review-${number}`,
-      title_of_package: `Platform Review ${number}`,
+      skillSlug: `platform-engineering/skills/platform-review-${number}`,
+      name: `Platform Review ${number}`,
       description: 'Checks a platform configuration and explains proposed changes.',
     };
   }),
@@ -26,7 +30,7 @@ const platformSkills: PackageOverview[] = [
 
 interface StorySource {
   name: string;
-  skills: PackageOverview[];
+  skills: SkillSummary[];
 }
 
 const defaultSource = { name: 'Platform Engineering', skills: platformSkills };
@@ -36,18 +40,18 @@ const sources: StorySource[] = [
     name: 'ClearRoute Core',
     skills: [
       {
-        slug: 'clearroute-core/skills/architecture-review',
-        title_of_package: 'Architecture Review',
+        skillSlug: 'clearroute-core/skills/architecture-review',
+        name: 'Architecture Review',
         description: 'Reviews component responsibilities and dependency boundaries.',
       },
       {
-        slug: 'clearroute-core/skills/code-review',
-        title_of_package: 'Code Review',
+        skillSlug: 'clearroute-core/skills/code-review',
+        name: 'Code Review',
         description: 'Reviews a change for correctness and maintainability.',
       },
       {
-        slug: 'clearroute-core/skills/release-notes',
-        title_of_package: 'Release Notes',
+        skillSlug: 'clearroute-core/skills/release-notes',
+        name: 'Release Notes',
         description: 'Summarizes changes for a release.',
       },
     ],
@@ -72,8 +76,8 @@ function createOverview(
   const query = requested.query.toLowerCase();
   const direction = requested.sort === 'name-desc' ? -1 : 1;
   const skills = source.skills
-    .filter((skill) => skill.title_of_package.toLowerCase().includes(query))
-    .sort((a, b) => direction * a.title_of_package.localeCompare(b.title_of_package, 'en'));
+    .filter((skill) => skill.name.toLowerCase().includes(query))
+    .sort((a, b) => direction * a.name.localeCompare(b.name, 'en'));
   const pageCount = Math.max(1, Math.ceil(skills.length / requested.pageSize));
   const browse = {
     ...requested,
@@ -83,7 +87,7 @@ function createOverview(
   const offset = (browse.page - 1) * browse.pageSize;
 
   return {
-    marketplaces: catalogue.map(({ name }) => ({ name })),
+    marketplaces: catalogue.map(({ name }) => marketplaceStoryMarketplace(name)),
     requested,
     browse,
     skills: skills.slice(offset, offset + browse.pageSize),
@@ -103,7 +107,7 @@ const meta: Meta<typeof MarketplaceOverview> = {
   parameters: {
     layout: 'padded',
     nextjs: { appDirectory: true },
-    // Isolate each Docs preview's browse URL, fetch mocks, and play setup.
+    // Isolate each Docs preview's fetch mocks and play setup.
     docs: { story: { inline: false, height: '900px' } },
   },
 };
@@ -128,20 +132,6 @@ function createOverviewStory({
   return {
     beforeEach: () => {
       requestCount = 0;
-      const previousBrowse = parseBrowseParams(new URLSearchParams(window.location.search));
-      const previousState = window.history.state;
-      window.history.replaceState(
-        previousState,
-        '',
-        buildBrowseUrl(window.location.pathname, window.location.search, initialData.browse),
-      );
-      return () => {
-        window.history.replaceState(
-          previousState,
-          '',
-          buildBrowseUrl(window.location.pathname, window.location.search, previousBrowse),
-        );
-      };
     },
     decorators: [
       mockApi({
@@ -158,6 +148,9 @@ function createOverviewStory({
           }
           return { data: createOverview(parseBrowseParams(url.searchParams), catalogue) };
         },
+        'GET /api/marketplace/skill': ({ url }: MockRequest) => ({
+          data: marketplaceStorySkillDetail(url.searchParams.get('skill') ?? ''),
+        }),
         'PUT /api/preferences': {},
       }),
       (Story) => (
@@ -182,7 +175,9 @@ export const CardView: Story = {
     const toggle = canvas.getByRole('button', { name: 'Card view' });
     await userEvent.click(toggle);
     await expect(toggle).toHaveAttribute('aria-pressed', 'true');
-    await expect(await canvas.findByRole('link', { name: /API Contract Diff/ })).toBeVisible();
+    await expect(
+      await canvas.findByRole('button', { name: 'Open API Contract Diff' }),
+    ).toBeVisible();
   },
 };
 

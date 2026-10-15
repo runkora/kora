@@ -2,8 +2,8 @@
 
 // ── MarketplaceContext ────────────────────────────────────────────────────────
 //
-// Gives the MarketplaceStateShape to each component in the overview tree
-// without prop drilling. The RSC page passes the first result page to
+// Gives the browse state (useMarketplace) and the open Skill (useSkillDetail)
+// to each component in the overview tree without prop drilling. The RSC page passes the first result page to
 // `MarketplaceProvider`, which starts `useMarketplace` from it synchronously,
 // so there is no loading flash after hydration.
 //
@@ -20,11 +20,15 @@ import { createContext, useCallback, useContext } from 'react';
 import { usePreferences } from '../../_preferences/preferences-context';
 import { useMarketplace } from '../_hooks/use-marketplace';
 import type { MarketplaceStateShape } from '../_hooks/use-marketplace';
+import { useSkillDetail, type SkillDetailShape } from '../_hooks/use-skill-detail';
 import type { MarketplaceOverviewData } from '../_types';
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
-const MarketplaceContext = createContext<MarketplaceStateShape | null>(null);
+/** The browse state and the open Skill of the Marketplace overview. */
+export type MarketplaceContextValue = MarketplaceStateShape & SkillDetailShape;
+
+const MarketplaceContext = createContext<MarketplaceContextValue | null>(null);
 
 // ── Provider ──────────────────────────────────────────────────────────────────
 
@@ -63,18 +67,23 @@ export function MarketplaceProvider({
   );
 
   const state = useMarketplace(initialData, initialError, handleMarketplacePicked);
+  const skillDetail = useSkillDetail();
 
-  return <MarketplaceContext.Provider value={state}>{children}</MarketplaceContext.Provider>;
+  return (
+    <MarketplaceContext.Provider value={{ ...state, ...skillDetail }}>
+      {children}
+    </MarketplaceContext.Provider>
+  );
 }
 
 // ── Consumer hook ─────────────────────────────────────────────────────────────
 
 /**
- * Returns the current MarketplaceStateShape.
+ * Returns the current MarketplaceContextValue.
  *
  * Throws if called outside a MarketplaceProvider. This is intentional.
  */
-export function useMarketplaceContext(): MarketplaceStateShape {
+export function useMarketplaceContext(): MarketplaceContextValue {
   const ctx = useContext(MarketplaceContext);
   if (!ctx) {
     throw new Error('useMarketplaceContext must be used inside <MarketplaceProvider>');

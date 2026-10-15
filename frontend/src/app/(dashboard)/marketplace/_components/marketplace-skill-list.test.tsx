@@ -1,19 +1,14 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@orbit/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import { MarketplaceSkillList } from './marketplace-skill-list';
 import type { MarketplaceOverviewData } from '../_types';
-import { buildBrowseUrl } from '../_utils/browse-params';
-
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ push: vi.fn() }),
-}));
 
 const BROWSE = { marketplace: 'Core', query: '', page: 1, pageSize: 24, sort: 'name-asc' as const };
 
 function renderList(overview: MarketplaceOverviewData) {
-  window.history.replaceState(null, '', buildBrowseUrl('/marketplace', '', overview.browse));
+  window.history.replaceState(null, '', '/marketplace');
   return renderWithProviders(
     <MarketplaceProvider initialData={overview} initialError={null}>
       <MarketplaceSkillList />
@@ -24,18 +19,20 @@ function renderList(overview: MarketplaceOverviewData) {
 describe('MarketplaceSkillList rendering', () => {
   it('renders every Skill with its title, slug, and description', () => {
     renderList({
-      marketplaces: [{ name: 'Core' }],
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+      ],
       requested: BROWSE,
       browse: BROWSE,
       skills: [
         {
-          slug: 'core/skills/react-expert',
-          title_of_package: 'React Expert',
+          skillSlug: 'core/skills/react-expert',
+          name: 'React Expert',
           description: 'Senior React developer.',
         },
         {
-          slug: 'core/skills/go-expert',
-          title_of_package: 'Go Expert',
+          skillSlug: 'core/skills/go-expert',
+          name: 'Go Expert',
           description: 'Senior Go developer.',
         },
       ],
@@ -50,10 +47,12 @@ describe('MarketplaceSkillList rendering', () => {
 
   it('renders without crashing when a description is empty', () => {
     renderList({
-      marketplaces: [{ name: 'Core' }],
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+      ],
       requested: BROWSE,
       browse: BROWSE,
-      skills: [{ slug: 'core/skills/blank', title_of_package: 'Blank', description: '' }],
+      skills: [{ skillSlug: 'core/skills/blank', name: 'Blank', description: '' }],
       total: 1,
     });
 
@@ -63,12 +62,12 @@ describe('MarketplaceSkillList rendering', () => {
   it('renders a long description in full (truncation is a CSS concern, not a content one)', () => {
     const longDescription = 'A very long description. '.repeat(20).trim();
     renderList({
-      marketplaces: [{ name: 'Core' }],
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+      ],
       requested: BROWSE,
       browse: BROWSE,
-      skills: [
-        { slug: 'core/skills/long', title_of_package: 'Long', description: longDescription },
-      ],
+      skills: [{ skillSlug: 'core/skills/long', name: 'Long', description: longDescription }],
       total: 1,
     });
 
@@ -77,12 +76,14 @@ describe('MarketplaceSkillList rendering', () => {
 
   it('shows the current Marketplace name for every row', () => {
     renderList({
-      marketplaces: [{ name: 'Core' }],
+      marketplaces: [
+        { name: 'Core', marketplaceSlug: 'Core', link: 'https://github.com/example/core' },
+      ],
       requested: BROWSE,
       browse: BROWSE,
       skills: [
-        { slug: 'core/skills/a', title_of_package: 'A', description: '' },
-        { slug: 'core/skills/b', title_of_package: 'B', description: '' },
+        { skillSlug: 'core/skills/a', name: 'A', description: '' },
+        { skillSlug: 'core/skills/b', name: 'B', description: '' },
       ],
       total: 2,
     });

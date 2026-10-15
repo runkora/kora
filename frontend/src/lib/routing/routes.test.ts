@@ -8,14 +8,6 @@ import { ApiRoute } from './api-routes';
  * Pure functions — no DOM, no network, no MSW required.
  */
 describe('APP_ROUTES', () => {
-  it('encodes the opaque Marketplace Skill identifier as one path segment', () => {
-    const slug = 'org/repo/a?b#c%20';
-    const url = new URL(APP_ROUTES.marketplace.detail(slug), 'http://localhost');
-    expect(decodeURIComponent(url.pathname.slice('/marketplace/'.length))).toBe(slug);
-    expect(url.search).toBe('');
-    expect(url.hash).toBe('');
-  });
-
   it('overview is the bare Marketplace path', () => {
     expect(APP_ROUTES.marketplace.overview).toBe('/marketplace');
   });
