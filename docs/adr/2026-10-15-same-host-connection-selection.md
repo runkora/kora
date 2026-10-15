@@ -27,7 +27,7 @@ An agent's connectors compile to scopes of the form `connection:<name>:<category
 
 ### Problem Statement
 
-A test against the real registry loaded two connections into one tenant: `clear-route-github` (owner `clear-route`) and `runkora-github` (owner `runkora`). Requests to `github.com` and `api.github.com` both resolved to `clear-route-github`, and `runkora-github` was never selected. Nothing at aggregation reported the overlap between the two connections. Kubernetes connections declare distinct hosts and are unaffected.
+A test against the real registry loaded two GitHub App connections into one tenant: `org-a-github` (owner `org-a`) and `org-b-github` (owner `org-b`). Requests to `github.com` and `api.github.com` both resolved to `org-a-github`, and `org-b-github` was never selected. Nothing at aggregation reported the overlap between the two connections. Kubernetes connections declare distinct hosts and are unaffected.
 
 ### Goals
 
@@ -40,7 +40,6 @@ A test against the real registry loaded two connections into one tenant: `clear-
 ### Non-Goals
 
 *   The GitHub MCP server deployment.
-*   Changes to `constellation-iac` and to production agents and triggers.
 *   GitHub Enterprise behavior beyond keeping its single-connection path unchanged.
 
 ---
