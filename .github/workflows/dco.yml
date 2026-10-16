@@ -1,0 +1,34 @@
+name: DCO
+
+on:
+  pull_request:
+  # The merge queue requires every required check on its merge group. The pull
+  # request's commits were already checked, and the queue's squash commit is
+  # GitHub's, so the merge group run passes without checking again.
+  merge_group:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dco-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dco:
+    name: DCO
+    runs-on: ubuntu-latest
+    steps:
+      - if: github.event_name == 'pull_request'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The check reads every commit in the pull request.
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
+      - if: github.event_name == 'merge_group'
+        run: echo "Commits were checked on the pull request."

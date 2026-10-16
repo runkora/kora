@@ -145,9 +145,17 @@ setup-dns: ## Verify *.orbit.local.clearroute.io resolves (public wildcard recor
 	@bash scripts/setup-dns.sh
 
 .PHONY: hooks
-hooks: ## Configure git to use the project's tracked hooks from .githooks/
+hooks: ## Configure git to use the project's tracked hooks from .githooks/, sign commits and add DCO sign-offs
 	@git config core.hooksPath .githooks
 	@echo "$(COLOR_GREEN)✓ Git hooks installed (.githooks/)$(COLOR_RESET)"
+	@echo "Configuring DCO sign-off..."
+	@if [ -n "$$(git config user.name)" ] && [ -n "$$(git config user.email)" ]; then \
+		echo "$(COLOR_GREEN)✓ Commits are signed off as $$(git config user.name) <$$(git config user.email)>$(COLOR_RESET)"; \
+	else \
+		echo "$(COLOR_YELLOW)! Set git user.name and user.email so commits can be signed off, then run: make hooks$(COLOR_RESET)"; \
+	fi
+	@echo "Configuring commit signing..."
+	@bash scripts/setup-signing.sh
 
 # ===========================================
 # Worktree Management

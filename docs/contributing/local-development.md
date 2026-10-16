@@ -25,7 +25,7 @@ make setup
 - `install-tools-cluster`: Installs `k3d`, `kubectl`, `helm`, `helmfile` and the `helm-diff` plugin.
 - `tidy`: `go mod tidy`.
 - `frontend-install`: Enforces Node 24 and pnpm 10, runs `pnpm install`.
-- `hooks`: Installs the git pre-commit hooks.
+- `hooks`: Installs the git pre-commit hooks and configures commit signing with your SSH key.
 - `setup-dns`: Verifies `*.orbit.local.clearroute.io` resolves. It is a public wildcard record. Nothing to configure.
 - `setup-tls`: Generates mkcert TLS certificates for the local domain.
 

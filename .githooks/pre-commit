@@ -3,6 +3,13 @@
 # Installed automatically via: make setup
 # To skip in an emergency: git commit --no-verify
 
+# Commits to main must be signed. Checking here catches a missing setup at the
+# first commit, before GitHub rejects the push.
+if [ "$(git config --bool commit.gpgsign)" != "true" ] || [ -z "$(git config user.signingkey)" ]; then
+  echo "Commit signing is not configured for this repository. Run: make hooks"
+  exit 1
+fi
+
 echo "Running make check..."
 make check
 exit $?
