@@ -251,11 +251,9 @@ frontend/src/packages/hades/
 │   └── index.ts                  # Public API — all exports live here
 ├── scripts/
 │   ├── manifest.ts               # Generates manifest.json (make hades-manifest)
-│   ├── classify.ts               # Classifies a change against the last release (make hades-classify)
-│   └── lib/                      # The pure parts of both, with their tests
+│   └── lib/                      # The pure parts of the generator, with their tests
 ├── .storybook/                   # Storybook configuration
 ├── manifest.json                 # The theme surface manifest, generated, checked in
-├── CONTRACT.md                   # The five contract boundary rules
 ├── package.json
 ├── tsconfig.json
 └── README.md
@@ -265,13 +263,13 @@ frontend/src/packages/hades/
 
 ## Versioning and the theme surface manifest
 
-Hades has no version of its own. It is released with kora, under the kora version, so the version of Hades in a release is that release's version. A theme records the kora release it was written against, and an instance accepts a theme of the same major. Hades follows Semantic Versioning, so a consumer of the published `@runkora/hades` package can use a caret range, and the release workflow makes that true: it refuses a kora release that contains a Hades break unless the release is a major. The rules are in the [design system versioning ADR](../../../../docs/adr/2026-10-11-design-system-semantic-versioning.md); this section is the working summary.
+Hades has no version of its own. It is released with kora, under the kora version, so the version of Hades in a release is that release's version. A theme records the kora release it was written against, and an instance accepts a theme of the same major. Nothing checks that a release's version reflects its Hades changes: the version is chosen by whoever cuts the release. The decision is in the [design system versioning ADR](../../../../docs/adr/2026-10-11-hades-versioning-and-theme-surface-manifest.md); this section is the working summary.
 
 ### The version
 
 The version is the kora release tag, `vX.Y.Z`. `package.json` carries the placeholder `0.0.0` in the tree; the release workflow sets it from the tag before packing, so nothing here is bumped by hand and nothing can drift. There is no `version.ts` and the manifest carries no version: it ships inside a release, and the release is its version. A build that is not from a release tag identifies as `0.0.0-dev`.
 
-Nothing is promised below `1.0.0`. From the first final release at or above it, a theme written for one major is not promised to work on another, and a Hades break needs a major kora release.
+Nothing is promised below `1.0.0`. From the first final release at or above it, a theme written for one major is not promised to work on another.
 
 ### The manifest
 
@@ -292,24 +290,9 @@ The generator reads token names from the `:root` blocks of `src/tokens/tokens.cs
 | `slots`       | One entry per asset slot: `name`, `kind`, `formats`, `maxBytes`, `modes` (empty when one file serves both modes).                                                                                                          |
 | `productName` | `minLength`, `maxLength` and a Unicode `pattern`, applied after trimming.                                                                                                                                                  |
 
-### The contract boundary rules
+### No kora identity
 
-`CONTRACT.md` carries the five rules that decide what is and is not a change to the contract. The same list is in the Hades PRD and the versioning ADR, and `make hades-contract-check` fails when the copies differ.
-
-### The classifier
-
-The classifier compares the manifest, the exported component API, the peer ranges and the changed files at head against the **last final kora release**, never a release candidate, and says what the release carrying the change must be: `none`, `patch`, `minor` or `major`. Each finding cites the boundary rule or Semantic Versioning it applied and says whether it breaks themes:
-
-```bash
-make hades-classify                       # what the next release owes, against the last final release
-make hades-classify RELEASE=1.4.0         # also checks that 1.4.0 is enough; exits 1 with an explanation if not
-make hades-classify BASE=origin/main      # before a final release exists
-make hades-classify FORMAT=markdown       # what CI writes to the job summary
-```
-
-In short: a token or slot removed, renamed or re-typed, a semantic name remapped, a slot's limits shrunk, the product-name bounds tightened, or a new token that a pre-existing component reads is a **major** and breaks themes. A new token read only by new components, or a slot's limits grown, is a **minor**. Changes that no theme can see still count for the package: an export removed or renamed, a prop removed or made required, a peer dependency added or narrowed, or a semantic name removed is a **major**; an export or optional prop added, a peer range widened, a peer removed, or a semantic name added is a **minor**. Any other source change is a **patch**. Documentation, stories and tests alone are **none**. The release owes the highest level of any finding.
-
-It runs in two places. On a pull request that touches Hades, a job writes the report to the job summary and never fails, so a developer or an agent learns early that a change is a break. At release, the first job of `release.yml` runs it against the tag being cut and refuses the release when the version is too low for the changes in it, with a message that names the findings and says how to fix it. Below `1.0.0` it reports and refuses nothing. It also prints two questions no script decides: whether a token kept its name but changed its meaning, and whether a prop narrowed its type or a function tightened its signature. Both need a major.
+Hades contains no kora identity. The kora default is a theme like any other, owned by the app, and the kora logo is an asset of that theme, not a Hades component. Hades provides the agnostic components that render whatever a theme supplies for a slot.
 
 ---
 

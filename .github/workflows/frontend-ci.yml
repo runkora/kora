@@ -2,12 +2,6 @@ name: Frontend CI
 
 on:
   workflow_call:
-    inputs:
-      hades:
-        description: Whether frontend/src/packages/hades changed, which runs the classifier.
-        type: boolean
-        required: false
-        default: false
 
 # The default token only reads the repository. Jobs that need more
 # declare it themselves.
@@ -54,6 +48,10 @@ jobs:
 
       - name: Format check
         run: make frontend-fmt
+
+      # A stale manifest is a defect whatever the version, so it fails the pull request.
+      - name: Hades manifest in sync
+        run: make hades-check
 
   # ── Unit + integration tests ──────────────────────────────────────────────
   frontend-check:
@@ -169,57 +167,3 @@ jobs:
           path: frontend/test-results/
           retention-days: 30
           if-no-files-found: ignore
-
-  # ── Hades classification (advisory) ──────────────────────────────────────
-  # Reports what the next kora release would owe for the Hades changes in this
-  # pull request, so a developer or an agent learns early that a change is a
-  # break. It never fails the check and posts nothing to the pull request: the
-  # report goes to the job summary. The block is at release, in release.yml,
-  # where the version is a fact. See the design system versioning ADR, SD-4.
-  #
-  # The manifest sync check does fail, because a stale manifest is a defect
-  # whatever the version. The job installs dependencies and runs the PR's
-  # scripts, so it is read-only and keeps no credential in the checkout. Full
-  # history and tags are needed because the baseline is the last final release.
-  hades-classify:
-    name: Hades Classification
-    if: inputs.hades
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-        with:
-          version: ${{ env.PNPM_VERSION }}
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-          cache-dependency-path: frontend/pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: cd frontend && pnpm install --frozen-lockfile
-
-      - name: Manifest and contract in sync
-        run: make hades-check
-
-      # Before the first final release the classifier compares against the PR
-      # base (or the previous commit on main) and reports without enforcing.
-      # Without --release it always exits 0.
-      - name: Classify
-        env:
-          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || 'HEAD^' }}
-        run: |
-          make hades-classify BASE="$BASE" FORMAT=markdown >> "$GITHUB_STEP_SUMMARY"
-          make hades-classify BASE="$BASE"

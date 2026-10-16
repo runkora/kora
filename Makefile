@@ -1108,8 +1108,7 @@ frontend-test-hades: ## Run Hades component unit tests in isolation (happy-dom)
 	@echo "$(COLOR_GREEN)✓ Hades unit tests passed$(COLOR_RESET)"
 
 # ─── Hades versioning ────────────────────────────────────────────────────────
-# The theme surface manifest and the classifier from the design system
-# versioning ADR. The scripts are TypeScript run directly by Node.
+# The theme surface manifest from the design system versioning ADR. The scripts are TypeScript run directly by Node.
 
 HADES_DIR := $(FRONTEND_DIR)/src/packages/hades
 HADES_NODE := node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
@@ -1122,16 +1121,8 @@ hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json) f
 hades-manifest-check: ## Verify manifest.json is what tokens.css and surface.ts generate
 	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts --check
 
-.PHONY: hades-contract-check
-hades-contract-check: ## Verify CONTRACT.md matches the boundary rules in the Hades PRD and the versioning ADR
-	@bash scripts/hades/check-contract.sh
-
 .PHONY: hades-check
-hades-check: hades-manifest-check hades-contract-check ## Hades manifest sync and contract checks (part of make check)
-
-.PHONY: hades-classify
-hades-classify: ## Classify the Hades changes against the last final release and say what the next release owes (RELEASE=<version> checks that version and fails if too low; BASE=<ref> before a final release exists; FORMAT=text|markdown|json)
-	@cd $(HADES_DIR) && $(HADES_NODE) scripts/classify.ts $(if $(RELEASE),--release $(RELEASE),) $(if $(BASE),--base $(BASE),) $(if $(FORMAT),--format $(FORMAT),)
+hades-check: hades-manifest-check ## Hades manifest sync check (part of make check)
 
 .PHONY: frontend-test-e2e
 frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
