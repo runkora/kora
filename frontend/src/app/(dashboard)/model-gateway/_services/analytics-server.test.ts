@@ -54,6 +54,7 @@ beforeAll(async () => {
   vi.stubEnv('ORBIT_AGENTS_URL', 'http://orbit-agents.test');
   vi.stubEnv('ORBIT_TRIGGERS_URL', 'http://orbit-triggers.test');
   vi.stubEnv('TOOL_GATEWAY_URL', 'http://tool-gateway.test');
+  vi.stubEnv('SKILLS_SERVICE_URL', 'http://skills-service.test');
 
   ({ fetchAnalyticsPrincipalByIdFromGateway } = await import('./analytics-server'));
 });
