@@ -150,7 +150,7 @@ The effective theme is the kora default, then the theme. There is no runtime lay
 
 The design system already structures its tokens so that a brand can be substituted beneath the components without touching them. White-labelling builds on that: the theme is the source for those tokens plus identity assets, and the product reads from it at startup rather than from compiled-in defaults.
 
-**The theme contract is versioned with kora: there is one version, the kora release.** Hades is released with kora under the kora version; there is no separate Hades version and no separate contract version. A theme records the release it was written against, and an instance validates against its own release. A break in the theme surface or the theme format is a break in the kora release that carries it, and the release workflow refuses a release that contains one unless it is a major. Below `1.0.0` the rule is reported and not enforced, and no promise is made. What is and is not a contract change is decided by the contract boundary rules, a numbered list owned by the Hades Design System PRD and a requirement of this PRD: Hades defines the shape of every value a theme can set, as its theme surface manifest; who reads a value, the frontend or the backend, is not the contract's concern; Hades contains no kora identity; a kora change that does not change Hades, such as a change to a page or a template or a new place where a value appears, has no effect on the contract, while one that needs a new value is a Hades change; and kora default values are outside the contract. Crossing a major is a breaking change, and a theme for the new major is applied with the upgrade. The versioning rules and how each design system change is classified are specified in the [Hades Design System PRD](design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it).
+**The theme contract is versioned with kora: there is one version, the kora release.** Hades is released with kora under the kora version; there is no separate Hades version and no separate contract version. A theme records the release it was written against, and an instance validates against its own release. A break in the theme surface or the theme format is a break in the kora release that carries it, and crossing a major is a breaking change: a theme for the new major is applied with the upgrade. Nothing checks that a break is released as a major, and below `1.0.0` no promise is made. The theme surface is the Hades manifest, which defines the shape of every value a theme can set; who reads a value, the frontend or the backend, is not the contract's concern; Hades contains no kora identity; and kora default values are outside the contract. The versioning rules are specified in the [Hades Design System PRD](design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it).
 
 The following are contract rules. They hold for every theme, whatever produced it:
 
@@ -238,7 +238,6 @@ The last column is not a contract change, because kora defaults are outside the 
 - [ ] Every unauthenticated page the dashboard serves renders the theme.
 - [ ] The first HTML response carries the effective theme; no client-side restyle after load.
 - [ ] The theme records the kora release it was written against, its only mandatory field, from which the targeted major is derived; a theme is accepted by any kora release in the same major; the validation rules are published per kora release as part of the contract; for every value the theme sets and the instance recognises, the effective value is the theme's value unchanged.
-- [ ] The contract boundary rules are documented explicitly, as the numbered list in the Hades Design System PRD, and the ADR contract subsection cites them. No decision about what a theme can set, or about what counts as a contract change, is made outside them.
 
 **Should Have (P1):**
 - [ ] kora exposes selected real page templates for rendering outside the app, per major, so that a consumer of white-labelling can preview a theme on the product's actual pages rather than on compositions of components. kora does not know which consumers exist, only that they will. **Not viable at this stage, and not delivered:** publishing the templates, as a built Storybook or otherwise, is too complex for the sole purpose of theme previews and would lower the security rating ahead of release. kora provides no preview templates to third parties for now; the requirement stays open to revisit, and decision 6 of the white-labelling theme ADR records the options and the reasoning.
@@ -294,7 +293,7 @@ The last column is not a contract change, because kora defaults are outside the 
 | Unvalidated theme input becomes a styling injection vector | High | Low | Validation of every field and asset in the instance at load, with the rules published so the same check can run before a theme is applied. |
 | An invalid theme blocks a deploy | Low | Medium | The validation rules are published, so a theme can be checked before it is applied; lower environments catch a mistake first. Missing values never fail. |
 | The asset contract is defined without reference to what kora renders | Medium | Medium | Derive it from the identity surfaces in code today and replace those with Hades identity slots as part of the work. |
-| A kora default change is mistaken for a contract change | Low | Medium | Defaults are stated as outside the contract here and in the Hades versioning story, whose classification rule is scoped to the values a theme sets. |
+| A kora default change is mistaken for a contract change | Low | Medium | Defaults are stated as outside the contract here: the contract is the values a theme sets, as the Hades manifest declares them. |
 | Model-facing text still names kora after the dashboard is rebranded | Medium | Medium | Model-facing text is in scope and covered by the same check. |
 
 ---
@@ -349,7 +348,7 @@ None.
 
 - [ ] PRD Approved
 - [ ] Hades Design System PRD versioning story approved
-- [ ] Design system semantic versioning ADR created, including the classifier's trigger point. A precondition for the contract subsection below.
+- [ ] Design system semantic versioning ADR created. A precondition for the contract subsection below.
 - [ ] White-labelling theme ADR created, with the contract subsection agreed first so that anything producing a theme can be specified against it
 - [ ] Implementation complete and verified on the local instance and the `dev` deployment
 
