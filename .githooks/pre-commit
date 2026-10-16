@@ -3,6 +3,12 @@
 # Installed automatically via: make setup
 # To skip in an emergency: git commit --no-verify
 
+# Signed commits are recommended, not required. The reminder points at the
+# one-time setup and never blocks the commit.
+if [ "$(git config --bool commit.gpgsign)" != "true" ] || [ -z "$(git config user.signingkey)" ]; then
+  echo "Commit signing is not configured for this repository. Run: make hooks"
+fi
+
 echo "Running make check..."
 make check
 exit $?

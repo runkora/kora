@@ -1,0 +1,14 @@
+#!/bin/sh
+# prepare-commit-msg hook: add a DCO sign-off for the committer, the same line
+# `git commit -s` adds, so contributors do not have to remember the flag. A
+# message that already carries the line is left unchanged.
+# Installed automatically via: make setup
+
+name="$(git config user.name)"
+email="$(git config user.email)"
+if [ -z "$name" ] || [ -z "$email" ]; then
+  exit 0
+fi
+
+git interpret-trailers --in-place --if-exists doNothing \
+  --trailer "Signed-off-by: $name <$email>" "$1"
