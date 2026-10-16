@@ -18,7 +18,7 @@ Each run has at most one sandbox at a time. The sandbox is ephemeral and is dele
 
 ## Environments
 
-Environments are the composable definition that the platform uses to expose sandboxes to agents. When [creating an agent](../guides/creating-an-agent.md), you can attach one or more environments to the `agent-type`, this allows the agent to choose the appropriate environment for its task. An agent with no attached environment provisions a sandbox using the `kora-base` at the default size.
+Environments are the composable definition that the platform uses to expose sandboxes to agents. When [creating an agent](../guides/create-an-agent.md), you can attach one or more environments to the `agent-type`, this allows the agent to choose the appropriate environment for its task. An agent with no attached environment provisions a sandbox using the `kora-base` at the default size.
 
 ## Sandbox images
 

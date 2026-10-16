@@ -6,7 +6,7 @@ Agents do not have access to credentials in their session or environment. An age
 
 ![Agent pod anatomy](../diagrams/agent-pod-anatomy.svg)
 
-See [creating an agent](../guides/creating-an-agent.md) for configuring an agent-type's identity, behaviour and access.
+See [creating an agent](../guides/create-an-agent.md) for configuring an agent-type's identity, behaviour and access.
 
 ## Control plane and tenant workloads
 

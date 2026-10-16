@@ -210,7 +210,7 @@ None at this time.
 *   `backend/internal/inferencegw/providers/{bedrock,vertexai,azure}/`: the refusal.
 *   `backend/internal/inferencegw/service.go`, `handlers_systemone.go` and `controller.go`: the service method, handler and route.
 *   `backend/cmd/inference-gateway/main.go`: the route table entry.
-*   `docs/guides/model-providers.md` and `docs/adr/2026-04-01-model-capability-taxonomy.md`: provider configuration and the capability taxonomy.
+*   `docs/guides/register-inference-provider.md` and `docs/adr/2026-04-01-model-capability-taxonomy.md`: provider configuration and the capability taxonomy.
 
 ---
 

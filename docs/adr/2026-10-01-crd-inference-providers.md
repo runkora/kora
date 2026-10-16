@@ -213,7 +213,7 @@ One typed kind gives admission-time validation per provider with one list. A dec
 - `charts/orbit/`: the gateway Role, API server label, namespace env and the admission policy.
 - `backend/internal/operator/inferenceprovider_serviceentry.go` and `charts/orbit/templates/operator/role.yaml`: Amendment 1.
 - `scripts/cluster/refresh-bedrock-creds.sh`, `scripts/cluster/create-secrets.sh`, `Makefile`, `.env.example`.
-- `docs/guides/model-providers.md`.
+- `docs/guides/register-inference-provider.md`.
 
 ---
 
