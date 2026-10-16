@@ -236,8 +236,8 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skill
 
 	// If the marketplace list is cached, check whether the skill exists in it
 	// before crawling — a missing skill returns 404 without a GitHub round-trip.
-	if entries, hit, err := s.cache.GetMarketplace(ctx, tenantID, source.MarketplaceSlug); err != nil {
-		return Skill{}, fmt.Errorf("read marketplace cache: %w", err)
+	if entries, hit, mktErr := s.cache.GetMarketplace(ctx, tenantID, source.MarketplaceSlug); mktErr != nil {
+		return Skill{}, fmt.Errorf("read marketplace cache: %w", mktErr)
 	} else if hit {
 		found := false
 		for _, e := range entries {
@@ -251,8 +251,12 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skill
 		}
 	}
 
-	// Cache miss: crawl the marketplace to get full content, warming both the
-	// marketplace list cache and all individual skill caches.
+	return s.crawlAndFind(ctx, tenantID, source, skillSlug)
+}
+
+// crawlAndFind fetches the full marketplace from the crawler, warms both the
+// marketplace list cache and per-skill caches, then returns the target skill.
+func (s *Service) crawlAndFind(ctx context.Context, tenantID string, source MarketplaceSource, skillSlug string) (Skill, error) {
 	skillPaths, err := s.crawler.FetchTree(ctx, source)
 	if err != nil {
 		return Skill{}, fmt.Errorf("fetch tree: %w", err)

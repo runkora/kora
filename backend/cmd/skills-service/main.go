@@ -27,7 +27,7 @@ import (
 
 func main() {
 	ctx := context.Background() // A context is an object used to control how long the operation should continue
-	logger := initLogger() // The logger is used throughout the file to report events and errors.
+	logger := initLogger()      // The logger is used throughout the file to report events and errors.
 
 	if err := sc.Current.ApplyEnvOverrides(); err != nil {
 		logger.Error(ctx, "invalid config", logging.Field{Key: "error", Value: err.Error()})
@@ -62,7 +62,7 @@ func main() {
 	// stops with it.
 	backgroundCtx, stopBackground := context.WithCancel(ctx)
 
-	if err := registry.Watch(backgroundCtx, sc.Current.Marketplace.SourcesConfigPath); err != nil {
+	if err = registry.Watch(backgroundCtx, sc.Current.Marketplace.SourcesConfigPath); err != nil {
 		logger.Error(ctx, "failed to watch marketplace config",
 			logging.Field{Key: "error", Value: err.Error()},
 		)

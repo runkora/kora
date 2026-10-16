@@ -3,13 +3,13 @@ package skills
 import (
 	"context"
 	"fmt"
+	"github.com/fsnotify/fsnotify"
 	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
-	"github.com/fsnotify/fsnotify"
 
 	"sigs.k8s.io/yaml"
 
@@ -148,7 +148,7 @@ func (r *Registry) Watch(ctx context.Context, path string) error {
 				time.Sleep(200 * time.Millisecond)
 
 				if err := r.Reload(path); err != nil {
-					r.logger.Error(context.Background(),
+					r.logger.Error(ctx,
 						"marketplace registry reload failed",
 						logging.Field{Key: "error", Value: err.Error()},
 					)
@@ -158,7 +158,7 @@ func (r *Registry) Watch(ctx context.Context, path string) error {
 				if !ok {
 					return
 				}
-				r.logger.Error(context.Background(),
+				r.logger.Error(ctx,
 					"marketplace file watcher error",
 					logging.Field{Key: "error", Value: err.Error()},
 				)
@@ -218,7 +218,7 @@ func loadYAMLSources(path string, logger logging.Logger) (map[string][]Marketpla
 func parseGitHubURL(raw string) (MarketplaceSource, error) {
 	// Strip trailing .git or /
 	raw = strings.TrimSuffix(
-		strings.TrimSuffix(strings.TrimRight(raw, "/"), ".git"), 
+		strings.TrimSuffix(strings.TrimRight(raw, "/"), ".git"),
 		"/",
 	)
 
