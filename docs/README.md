@@ -1,52 +1,73 @@
 # Documentation
 
-Use this index to find kora's guides, architecture, engineering reference, and decision records.
+Use this index to find kora's concepts, guides, architecture, reference, contributor docs and decision records.
+
+## Concepts
+
+Learning about kora.
+
+- [Runs and sessions](concepts/runs-and-sessions.md): what a run is, how it starts, its states and how to steer it.
+- [Sandboxes](concepts/sandboxes.md): the isolated pods agents provision for compute, and the environments and images behind them.
+- [Identity](concepts/identity.md): agent identity, and the difference between autonomous and delegated agents.
+- [Connectivity](concepts/connectivity.md): how agents reach models, MCP servers and external systems without holding credentials.
 
 ## Guides
 
+Tasks for platform teams running kora.
+
 - [Deployment](guides/deployment.md): install kora in a Kubernetes cluster.
 - [Tenants](guides/tenants.md): onboard a tenant so its team can sign in and get their own workspace.
-- [Model providers](guides/register-inference-provider.md): connect the platform to upstream inference providers.
-- [Connections](guides/register-connection.md): register external services agents can reach without holding credentials.
+- [Register an inference provider](guides/register-inference-provider.md): connect the platform to upstream inference providers and offer models to agents.
+- [Register an MCP server](guides/register-mcp-server.md): give agents and humans governed access to a set of tools.
+- [Register a connection](guides/register-connection.md): give agents access to an external system without holding its credentials.
 - [OAuth clients](guides/oauth-clients.md): configure clients that authenticate users against kora.
-- [MCP servers](guides/register-mcp-server.md): give agents and humans governed access to a set of tools.
-- [Local development](contributing/local-development.md): set up the development environment and work against the local cluster.
-- [Troubleshooting](contributing/troubleshooting.md): diagnose common failures in the local environment.
-- [Backend golden path](contributing/backend-golden-path.md): add a backend feature from storage through to its HTTP API.
-- [Policy and roles](guides/policy-and-roles.md): configure roles, grants, and route access.
-- [Frontend testing](contributing/frontend-testing.md): run and write frontend tests.
+- [Policy and roles](guides/policy-and-roles.md): configure roles, grants and route access.
 
 ## Architecture
 
-The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole. The pages here go deeper into the three questions kora answers for every production agent.
+The [architecture overview](../ARCHITECTURE.md) explains the platform as a whole. These pages cover the moving parts behind each concept.
 
-### Who is this agent?
+### Agent execution
 
-- [Identity](architecture/identity.md): human and workload identity, OIDC, SPIFFE exchange, sessions, and platform tokens.
-- [Agent execution](architecture/agent-execution.md): how an agent run is attributed, scheduled, isolated, and observed.
+- [Agent execution](architecture/agent-execution.md): the agent runtime pod, the session-manager and the control plane that runs agents.
+- [Sandboxes](architecture/sandboxes.md): the sandbox pod, how commands reach it, placement modes and warming.
 
-### What can it access?
+### Identity
+
+- [Identity](architecture/identity.md): human and workload identity, OIDC, SPIFFE exchange, sessions and platform tokens.
+
+### Policy
 
 - [Policy](architecture/policy.md): the authorisation model and where policy is enforced.
-- [Policy plane](architecture/policy-plane.md): the policy services, bundles, and request path.
+- [Policy plane](architecture/policy-plane.md): the policy services, bundles and request path.
 
-### How does it connect?
+### Connectivity
 
-- [Connectivity](architecture/connectivity.md): the end-to-end connection model and credential brokering path.
-- [Egress gateway](architecture/egress-gateway.md): governed outbound traffic and just-in-time credential injection.
-- [MCP tool gateway](architecture/mcp-tool-gateway.md): tool discovery, policy enforcement, and execution.
+- [Connectivity](architecture/connectivity.md): the request path for MCP calls and connections.
 - [Inference gateway](architecture/inference-gateway.md): model-provider routing and the OpenAI- and Anthropic-compatible APIs.
+- [MCP tool gateway](architecture/mcp-tool-gateway.md): tool discovery, policy enforcement and execution.
+- [Egress gateway](architecture/egress-gateway.md): governed outbound traffic and just-in-time credential injection.
 
-[Runtime topology](architecture/runtime-topology.md) maps these concerns onto the deployed services and namespaces.
+[Runtime topology](architecture/runtime-topology.md) maps these onto the deployed services and namespaces.
 
-## Engineering reference
+## Reference
 
-- [Code organisation](code-organization.md): binaries, ports, feature packages, dependency boundaries, and repository structure.
+- [Secrets](reference/secrets.md): secret sources, projection and rotation responsibilities.
+- [Telemetry configuration](reference/telemetry.md): the observability settings for logs, traces and exporters.
+
+## Contributing
+
+People working on kora itself start with [CONTRIBUTING.md](../CONTRIBUTING.md).
+
+- [Local development](contributing/local-development.md): set up the development environment and work against the local cluster.
+- [Troubleshooting](contributing/troubleshooting.md): diagnose common failures in the local environment.
+- [Code organisation](code-organization.md): binaries, ports, feature packages, dependency boundaries and repository structure.
+- [Backend golden path](contributing/backend-golden-path.md): add a backend feature from storage through to its HTTP API.
 - [Configuration](contributing/configuration.md): typed service configuration and environment overlays.
-- [Secrets](reference/secrets.md): secret sources, projection, and rotation responsibilities.
-- [Observability](contributing/observability.md): logging, tracing, and telemetry configuration.
-- [Frontend documentation](../frontend/docs/README.md): Hades, component placement, state patterns, and frontend conventions.
-- [Agent development guide](../AGENTS.md): the complete machine-enforced coding rules used by development agents.
+- [Observability](contributing/observability.md), [logging](contributing/logging.md) and [tracing](contributing/tracing.md): instrumenting kora's services.
+- [Frontend testing](contributing/frontend-testing.md): run and write frontend tests.
+- [Frontend documentation](../frontend/docs/README.md): Hades, component placement, state patterns and frontend conventions.
+- [Agent development guide](../AGENTS.md): the machine-enforced coding rules used by development agents.
 
 ## Decision records
 
