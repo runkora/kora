@@ -12,8 +12,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./src/tokens/tokens.css": "./src/tokens/tokens.css",
-    "./manifest.json": "./manifest.json",
-    "./CONTRACT.md": "./CONTRACT.md"
+    "./manifest.json": "./manifest.json"
   },
   "files": [
     "src",
@@ -22,8 +21,7 @@
     "!src/**/*.test.tsx",
     "!src/test-setup.ts",
     "!src/docs",
-    "manifest.json",
-    "CONTRACT.md"
+    "manifest.json"
   ],
   "publishConfig": {
     "registry": "https://npm.pkg.github.com"

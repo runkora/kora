@@ -218,18 +218,15 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
-          HADES_LEVEL: ${{ needs.hades-verify.outputs.level }}
-          HADES_BREAKS: ${{ needs.hades-verify.outputs.breaks }}
         run: |
           set -euo pipefail
-          # Hades ships in every release: the tarball, the manifest and the
-          # contract rules, so a theme builder can offer any release and read
-          # its surface. A final release also publishes the package.
+          # Hades ships in every release: the tarball and the manifest, so a
+          # theme builder can offer any release and read its surface. A final
+          # release also publishes the package.
           tarball=$(ls "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz)
           checksum=$(sha256sum "$tarball" | cut -d' ' -f1)
           hades_dir=frontend/src/packages/hades
-          hades_note="Hades \`@runkora/hades@${TAG#v}\`, SHA-256 \`${checksum}\`. Hades changes since the last final release: ${HADES_LEVEL}"
-          if [ "${HADES_BREAKS}" = "true" ]; then hades_note="${hades_note}, breaks themes"; fi
+          hades_note="Hades \`@runkora/hades@${TAG#v}\`, SHA-256 \`${checksum}\`"
           if [[ "${TAG}" == *-* ]]; then
             hades_note="${hades_note}. Release candidate: the package is not published."
           else
@@ -250,7 +247,7 @@ jobs:
             fi
           fi
           gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml \
-            "$tarball" "$hades_dir/manifest.json" "$hades_dir/CONTRACT.md"
+            "$tarball" "$hades_dir/manifest.json"
 
   # Last: a published package version can be neither removed nor published
   # again, so everything that can fail runs before it. A failure here leaves no
