@@ -17,17 +17,20 @@ stateDiagram-v2
     active --> idle
     idle --> active
     idle --> completed
+    active --> completed
     pending --> failed
+    starting --> failed
     active --> failed
+    idle --> failed
     active --> budget_exhausted
 ```
 
 | State | Meaning | Moves to |
 | --- | --- | --- |
 | `pending` | Waiting for the agent to have capacity | `starting` when capacity frees, or `failed` after 180 seconds |
-| `starting` | Starting its session | `active` |
-| `active` | The agent is working | `idle` when the agent finishes its turn |
-| `idle` | The agent is waiting for the next message | `active` on a new message, or `completed` after the idle timeout |
+| `starting` | Starting its session | `active`, or `failed` if it never finishes starting |
+| `active` | The agent is working | `idle` when the agent finishes its turn, `completed` when it exits cleanly, `failed` on an error, or `budget_exhausted` |
+| `idle` | The agent is waiting for the next message | `active` on a new message, `completed` after the idle timeout, or `failed` if the agent exits unexpectedly |
 | `completed` | The run ended cleanly | |
 | `failed` | The run hit an error it could not recover from | |
 | `budget_exhausted` | The run reached its budget limit | |
