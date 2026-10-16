@@ -1,25 +1,12 @@
 /**
- * E2E — Marketplace overview and Skill detail.
- *
- * The skills-service is a live Go backend, so Category A
- * (docs/adr/2026-05-08-frontend-test-strategy-and-toolchain.md) forbids these
- * tests from reaching it. page.route() cannot intercept the server-side RSC
- * fetch either, so the very first render of every test always shows the
- * overview's load-error state, the same way dashboard.spec.ts lets an
- * unreachable RSC fetch degrade to an empty state. load() below drives past
- * that error with the real "Try again" retry, which runs client-side through
- * the BFF and is what page.route() mocks from here on: /api/marketplace/skills
- * and /api/marketplace/skill. Those mocked responses are built from
- * marketplace-fixtures.ts with resolveOverview(), the same sort/page/total
- * rules marketplace-server.ts applies to a real skills-service response.
+ * E2E: Marketplace browse controls and server-rendered Skill details.
+ * Next.js server fetches use marketplace-upstream.mjs; later browser browse
+ * requests use page.route. Both use the same test-only fixture data, with no
+ * live Go backend, database, or production mock path.
  */
 import { test, expect, type Locator, type Page, type Route } from '@playwright/test';
 import { injectSessionCookie, injectExpiredSessionCookie } from './fixtures';
-import {
-  MARKETPLACE_FIXTURES,
-  SKILL_DETAIL_FIXTURES,
-  SKILL_FIXTURES_BY_MARKETPLACE,
-} from './marketplace-fixtures';
+import { MARKETPLACE_FIXTURES, SKILL_FIXTURES_BY_MARKETPLACE } from './marketplace-fixtures';
 
 /** The fixture Marketplace "Platform Engineering" and its skills-service slug. */
 const chosenMarketplace = { name: 'Platform Engineering', slug: 'platform-engineering__skills' };
@@ -91,62 +78,21 @@ async function mockMarketplaceRoutes(page: Page) {
     });
     return route.fulfill({ json: { data: overview } });
   });
-
-  // The bare "?" is a glob wildcard for one character, not the query-string
-  // mark, so it must be escaped: unescaped, this pattern also matches
-  // /api/marketplace/skills?... (the plural "s" satisfies the wildcard).
-  await page.route('**/api/marketplace/skill\\?*', (route: Route) => {
-    const url = new URL(route.request().url());
-    const marketplaceSlug = url.searchParams.get('marketplace') ?? '';
-    const skillSlug = url.searchParams.get('skill') ?? '';
-    const skill = SKILL_DETAIL_FIXTURES.find(
-      (candidate) =>
-        candidate.skillSlug === skillSlug && skillSlug.startsWith(`${marketplaceSlug}__`),
-    );
-    if (!skill) {
-      return route.fulfill({
-        status: 404,
-        json: { code: 'not_found', message: 'Skill not found' },
-      });
-    }
-    return route.fulfill({ json: { data: skill } });
-  });
 }
 
-/**
- * Clicks "Try again" and waits for the overview it loads.
- *
- * The dev server's hydration occasionally cancels this first client-side
- * fetch outside the app's own retry path (not an app bug: a cancelled
- * request is deliberately left for a newer request to replace, but no newer
- * request exists here). That leaves the overview stuck loading, with no
- * "Try again" to click. A fresh reload gives hydration a clean second try.
- */
-async function retryLoad(page: Page) {
-  const picker = page.getByRole('button', { name: /^Marketplace:/ });
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await page.getByRole('button', { name: 'Try again' }).click();
-    try {
-      await expect(picker).toBeVisible({ timeout: 5_000 });
-      return;
-    } catch (err) {
-      if (attempt === 2) throw err;
-      await page.reload();
-    }
-  }
-}
-
-/** Navigates to a Marketplace page and resolves its forced initial load error. */
+/** Initial data is fetched by the real Server Component from the HTTP fixture. */
 async function load(page: Page, path = '/marketplace') {
   await page.goto(path);
-  await retryLoad(page);
+  await expect(page.getByRole('button', { name: /^Marketplace:/ })).toBeVisible();
 }
 
-/** Reloads the page and resolves its forced initial load error, like load(). */
 async function reload(page: Page) {
   await page.reload();
-  await retryLoad(page);
+  await expect(page.getByRole('button', { name: /^Marketplace:/ })).toBeVisible();
 }
+
+const budgetSkillPath =
+  '/marketplace/platform-engineering__skills/platform-engineering__skills__budget-forecaster';
 
 async function expectCleanUrl(page: Page, pathname = '/marketplace') {
   await expect(page).toHaveURL((url) => url.pathname === pathname && url.search === '');
@@ -245,39 +191,31 @@ test.describe('/marketplace — overview and Skill detail', () => {
       sort: chosenBrowse.sort,
     });
 
-    const skillRequest = page.waitForRequest(
-      (request) => new URL(request.url()).pathname === '/api/marketplace/skill',
-    );
-    await page.getByRole('row', { name: 'Open Budget Forecaster' }).click();
-
-    // The Skill opens in place: the address and the history do not change.
-    const skillParams = new URL((await skillRequest).url()).searchParams;
-    expect(skillParams.get('marketplace')).toBe(chosenMarketplace.slug);
-    expect(skillParams.get('skill')).toBe('platform-engineering__skills__budget-forecaster');
-    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
-    await expect(
-      page.getByText('Projects month-end cloud spend from the current burn rate.', { exact: true }),
-    ).toBeVisible();
-    await expectCleanUrl(page);
-    expect(await page.evaluate(() => window.history.length)).toBe(initialHistoryLength);
-    const skillsButton = page.getByRole('button', { name: 'Skills', exact: true });
-    await expect(skillsButton).toBeFocused();
-
-    // Closing the Skill shows the same results, from memory.
-    await skillsButton.click();
-    await expectChosenOverview(page);
-
-    // A reload forgets the open Skill and the browse values.
+    const detailRequests: string[] = [];
+    page.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/marketplace/skill')
+        detailRequests.push(request.url());
+    });
     await page.getByRole('row', { name: 'Open Budget Forecaster' }).click();
     await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
-    await reload(page);
+    await expectCleanUrl(page, budgetSkillPath);
+    expect(detailRequests).toEqual([]);
+    expect(await page.evaluate(() => window.history.length)).toBe(initialHistoryLength + 1);
+
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectCleanUrl(page, budgetSkillPath);
+    await page.getByRole('link', { name: 'Skills', exact: true }).click();
     await expectDefaultOverview(page);
   });
 
-  test('an old Skill address opens the default overview', async ({ page }) => {
-    await load(page, '/marketplace/platform-engineering%2Fskills%2Fbudget-forecaster');
-
-    await expectDefaultOverview(page);
+  test('a direct Skill address loads its details and survives refresh', async ({ page }) => {
+    await page.goto(budgetSkillPath);
+    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectCleanUrl(page, budgetSkillPath);
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Budget Forecaster' })).toBeVisible();
+    await expectCleanUrl(page, budgetSkillPath);
   });
 
   test('old browse queries are ignored and a refresh resets in-memory browse values', async ({
@@ -298,15 +236,32 @@ test.describe('/marketplace — overview and Skill detail', () => {
   test('a Skill that no longer exists shows a not-found message with a way back', async ({
     page,
   }) => {
-    await load(page);
-    await page.route('**/api/marketplace/skill\\?*', (route: Route) =>
-      route.fulfill({ status: 404, json: { code: 'not_found', message: 'Skill not found' } }),
-    );
-    await page.getByRole('row', { name: 'Open Change Freeze Checker' }).click();
-
+    await page.goto('/marketplace/clearroute__core-skills/does-not-exist');
     await expect(page.getByText('Skill not found')).toBeVisible();
-    await page.getByRole('button', { name: 'Back to Skills' }).click();
+    await page.getByRole('link', { name: 'Back to Skills' }).click();
     await expectDefaultOverview(page);
+  });
+
+  for (const path of ['/marketplace/old-address', '/marketplace/too/many/segments']) {
+    test(`an address with the wrong number of segments returns 404: ${path}`, async ({ page }) => {
+      const response = await page.goto(path);
+      expect(response?.status()).toBe(404);
+      await expect(page.getByRole('heading', { name: '404', exact: true })).toBeVisible();
+    });
+  }
+
+  test('a failed server detail load stays on its route and offers a retry', async ({ page }) => {
+    const path = '/marketplace/clearroute__core-skills/upstream-error';
+    await page.goto(path);
+    await expect(page.getByRole('alert')).toContainText('could not load this Skill');
+    const retry = page.getByRole('button', { name: 'Try again' });
+    await retry.click();
+    await expect(retry).toBeEnabled();
+    await expectCleanUrl(page, path);
+    await expect(page.getByRole('link', { name: 'Skills', exact: true })).toHaveAttribute(
+      'href',
+      '/marketplace',
+    );
   });
 
   test('a later browse change that fails keeps the previous results and offers a retry', async ({
@@ -472,7 +427,7 @@ test.describe('/marketplace — accessibility and layout', () => {
     await expect(cards).toHaveAttribute('aria-pressed', 'true');
     await expect(list).toHaveAttribute('aria-pressed', 'false');
     await expect(page.getByRole('table', { name: 'skills' })).toHaveCount(0);
-    await expect(page.getByRole('main').getByRole('button', { name: /^Open / })).toHaveCount(2);
+    await expect(page.getByRole('main').getByRole('link', { name: /^Open / })).toHaveCount(2);
 
     await page.keyboard.press('Tab');
     await expect(list).toBeFocused();
@@ -534,9 +489,7 @@ test.describe('/marketplace — accessibility and layout', () => {
     page,
   }) => {
     await load(page);
-    // Counts only from here: load() may itself need more than one attempt
-    // (see retryLoad's comment), so counting from test start would be
-    // brittle. The next request is the ArrowUp Marketplace switch below.
+    // Count the browser request made by the Marketplace switch below.
     let requests = 0;
     await page.route('**/api/marketplace/skills*', async (route) => {
       requests += 1;
@@ -598,7 +551,7 @@ test.describe('/marketplace — accessibility and layout', () => {
       }
       await tabTo(page, page.getByRole('button', { name: 'Card view' }));
       await page.keyboard.press('Space');
-      await expect(page.getByRole('main').getByRole('button', { name: /^Open / })).toHaveCount(24);
+      await expect(page.getByRole('main').getByRole('link', { name: /^Open / })).toHaveCount(24);
       await expectNoPageOverflow(page);
       await testInfo.attach(`toolbar-${width}px`, {
         body: await page.screenshot({ fullPage: true }),
@@ -636,7 +589,7 @@ test.describe('/marketplace — accessibility and layout', () => {
 
       await tabTo(page, page.getByRole('button', { name: 'Card view' }));
       await page.keyboard.press('Enter');
-      const cards = page.getByRole('main').getByRole('button', { name: /^Open / });
+      const cards = page.getByRole('main').getByRole('link', { name: /^Open / });
       await expect(cards).toHaveCount(12);
       const first = await bounds(cards.nth(0));
       const second = await bounds(cards.nth(1));
@@ -661,7 +614,10 @@ test.describe('/marketplace — accessibility and layout', () => {
       await page.getByRole('textbox', { name: 'Search Skills' }).fill('React Expert');
       await page.getByRole('row', { name: 'Open React Expert' }).click();
       await expect(page.getByRole('heading', { name: 'React Expert', exact: true })).toBeVisible();
-      await expectCleanUrl(page);
+      await expectCleanUrl(
+        page,
+        '/marketplace/platform-engineering__skills/platform-engineering__skills__react-expert',
+      );
       const contents = page
         .getByRole('heading', { name: 'Contents', exact: true })
         .locator('../..');

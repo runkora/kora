@@ -1,9 +1,13 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import { renderWithProviders } from '@orbit/test-utils';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import { MarketplaceSkillList } from './marketplace-skill-list';
 import type { MarketplaceOverviewData } from '../_types';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 const BROWSE = { marketplace: 'Core', query: '', page: 1, pageSize: 24, sort: 'name-asc' as const };
 

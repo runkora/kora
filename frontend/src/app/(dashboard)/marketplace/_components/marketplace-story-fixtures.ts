@@ -1,6 +1,6 @@
 /** @tier 3 — marketplace-scoped. Browser-safe sample Skills shared by result stories. */
 
-import type { Marketplace, Skill, SkillSummary } from '@orbit/shared/api';
+import type { Marketplace, SkillSummary } from '@orbit/shared/api';
 
 export const marketplaceStorySkills: SkillSummary[] = [
   {
@@ -37,33 +37,15 @@ export const marketplaceStorySkills: SkillSummary[] = [
   },
 ];
 
-/**
- * The details of a sample Skill, for the mocked `GET /api/marketplace/skill`.
- * A skillSlug that is not in marketplaceStorySkills gets a name from its last part.
- */
-export function marketplaceStorySkillDetail(skillSlug: string): Skill {
-  const summary = marketplaceStorySkills.find((skill) => skill.skillSlug === skillSlug) ?? {
-    skillSlug,
-    name: skillSlug.split('__').pop() ?? skillSlug,
-    description: '',
-  };
-  const folder = summary.skillSlug.split('__').pop() ?? summary.skillSlug;
-  return {
-    ...summary,
-    skill: {
-      path: `skills/${folder}/SKILL.md`,
-      name: 'SKILL.md',
-      content: `# ${summary.name}\n\n${summary.description}`,
-    },
-    documents: [],
-  };
-}
+/** Display names and identifiers stay distinct, matching the skills-service contract. */
+export const marketplaceStoryPlatform: Marketplace = {
+  name: 'Platform Engineering',
+  marketplaceSlug: 'platform-engineering__skills',
+  link: 'https://github.com/platform-engineering/skills',
+};
 
-/**
- * A sample Marketplace. The stories use the display name as the
- * marketplaceSlug too, so a story's browse values can name the Marketplace.
- */
-export function marketplaceStoryMarketplace(name: string): Marketplace {
-  const repo = name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  return { name, marketplaceSlug: name, link: `https://github.com/example/${repo}` };
-}
+export const marketplaceStoryCore: Marketplace = {
+  name: 'ClearRoute Core',
+  marketplaceSlug: 'clearroute__core-skills',
+  link: 'https://github.com/clearroute/core-skills',
+};

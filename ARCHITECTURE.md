@@ -30,6 +30,7 @@ injection. Identity and Policy govern both humans and agents.
 - [Connectivity](docs/architecture/connectivity.md): brokered egress and just-in-time credentials.
 - [Inference gateway](docs/architecture/inference-gateway.md): model brokering, routing, budgets, and usage.
 - [Agent execution](docs/architecture/agent-execution.md): pod topology, per-run sandboxing, identity, and egress.
+- [Marketplace frontend](docs/architecture/marketplace.md): browser components and state, authenticated Next.js routes, and shared server loaders.
 
 Diagrams are Excalidraw sources under [`docs/diagrams/`](docs/diagrams). See
 [`tools/diagrams/README.md`](tools/diagrams/README.md) for how they render.

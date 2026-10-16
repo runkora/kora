@@ -2,15 +2,14 @@
 
 // ── MarketplaceContext ────────────────────────────────────────────────────────
 //
-// Gives the browse state (useMarketplace) and the open Skill (useSkillDetail)
-// to each component in the overview tree without prop drilling. The RSC page passes the first result page to
+// Gives the browse state (useMarketplace) to the overview tree without prop
+// drilling. The RSC page passes the first result page to
 // `MarketplaceProvider`, which starts `useMarketplace` from it synchronously,
 // so there is no loading flash after hydration.
 //
 // The provider also saves the Marketplace that the user picks in the picker in
-// the user preferences (`marketplace.lastSelected`). When the URL names no
-// Marketplace, for example after a click on the sidebar entry, the server
-// opens the saved Marketplace.
+// the user preferences (`marketplace.lastSelected`). The overview's initial
+// server load uses that saved Marketplace, falling back to the first source.
 //
 // A preferences PUT replaces the whole document. So the provider saves only
 // after an explicit pick that loads successfully, and never after a failed
@@ -20,13 +19,12 @@ import { createContext, useCallback, useContext } from 'react';
 import { usePreferences } from '../../_preferences/preferences-context';
 import { useMarketplace } from '../_hooks/use-marketplace';
 import type { MarketplaceStateShape } from '../_hooks/use-marketplace';
-import { useSkillDetail, type SkillDetailShape } from '../_hooks/use-skill-detail';
 import type { MarketplaceOverviewData } from '../_types';
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
-/** The browse state and the open Skill of the Marketplace overview. */
-export type MarketplaceContextValue = MarketplaceStateShape & SkillDetailShape;
+/** The browse state of the Marketplace overview. Skill details have their own route. */
+export type MarketplaceContextValue = MarketplaceStateShape;
 
 const MarketplaceContext = createContext<MarketplaceContextValue | null>(null);
 
@@ -46,9 +44,9 @@ export function MarketplaceProvider({
   const { updatePreferences, loaded } = usePreferences();
 
   // Called once after the load of a picked Marketplace succeeds. The server
-  // has checked the name against the Marketplace list.
+  // has checked the slug against the Marketplace list.
   const handleMarketplacePicked = useCallback(
-    (name: string) => {
+    (marketplaceSlug: string) => {
       if (!loaded) {
         // The preferences read failed, so the client holds only the defaults.
         // A PUT now would replace the user's stored preferences with them.
@@ -56,24 +54,19 @@ export function MarketplaceProvider({
       }
       // PreferencesProvider sends the PUT 500 ms after the last change.
       updatePreferences((prev) => {
-        if (prev.marketplace.lastSelected === name) {
+        if (prev.marketplace.lastSelected === marketplaceSlug) {
           // No change. Keep the same object, so that no PUT is sent.
           return prev;
         }
-        return { ...prev, marketplace: { lastSelected: name } };
+        return { ...prev, marketplace: { lastSelected: marketplaceSlug } };
       });
     },
     [loaded, updatePreferences],
   );
 
   const state = useMarketplace(initialData, initialError, handleMarketplacePicked);
-  const skillDetail = useSkillDetail();
 
-  return (
-    <MarketplaceContext.Provider value={{ ...state, ...skillDetail }}>
-      {children}
-    </MarketplaceContext.Provider>
-  );
+  return <MarketplaceContext.Provider value={state}>{children}</MarketplaceContext.Provider>;
 }
 
 // ── Consumer hook ─────────────────────────────────────────────────────────────

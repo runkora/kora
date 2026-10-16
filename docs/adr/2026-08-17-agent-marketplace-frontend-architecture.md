@@ -1,412 +1,121 @@
 # Agent Marketplace Frontend Architecture
 
-**Status:** Proposed  
-**Date:** 2026-08-17  
-**Deciders:** Frontend Engineering, Product Owner, Security Review (TBD)  
-**Technical Story:** [Agent Marketplace PRD](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md) ([PR #225](https://github.com/clear-route/orbit/pull/225))
+**Status:** Proposed; accepted amendments cover browse state (2026-10-12), backend types (2026-10-13), and server-rendered Skill routing (2026-10-16).
 
----
+**Date:** 2026-08-17
 
-## Amendment: skills-service types and identifiers (2026-10-13)
+**Updated:** 2026-10-16
 
-**Status:** Accepted for this amendment. The original architecture remains Proposed.
-**Requirement:** the skills-service API in the [Marketplace backend ADR](2026-08-28-marketplace-adr-backend.md). The backend contract has priority over the frontend's earlier draft types.
+**Deciders:** Frontend Engineering, Product Owner, Security Review (TBD)
 
-### Context
-
-The frontend used its own draft types (`PackageOverview`, `PackageDetail`, `title_of_package`, `resources_of_package`, `offset`, `limit`, `total`). The skills-service serves different JSON. `GET /v1/marketplaces` returns `name`, `marketplaceSlug`, and `link`. `GET /v1/marketplaces/{marketplaceSlug}/skills?search=` returns at most 200 Skills with `name`, `description`, and `skillSlug`, sorted by `skillSlug`, with no paging or name sort. `GET /v1/marketplaces/{marketplaceSlug}/skills/{skillSlug}` returns the Skill with `skill` (the `SKILL.md`) and `documents`. The Marketplace name is the repository name, so it is not unique.
-
-### Options
-
-1. Keep the draft types and map the skills-service JSON to them in the client.
-2. Use the skills-service shapes in `frontend/src/shared/api.ts`, which mirrors backend JSON, and change the frontend to use them.
-
-### Decision
-
-Use option 2.
-
-- `shared/api.ts` defines `Marketplace`, `GetMarketplaces`, `SkillSummary`, `ListSkillsResponse`, `SkillFile`, and `Skill` with the backend field names. `SkillSort` moves to the Marketplace feature types, because sorting by name is a frontend feature.
-- `marketplaceSlug` identifies a Marketplace in the browse state, the picker, the BFF query, and the saved preference `marketplace.lastSelected`. The name is only a label.
-- A Skill is opened with its `marketplaceSlug` and its `skillSlug`. The BFF route is `GET /api/marketplace/skill?marketplace=&skill=`. The frontend does not split `skillSlug`.
-- `marketplace-client.ts` has one function for each skills-service endpoint, with the same parameters and shapes. It still serves fixtures in these shapes until the frontend calls the service.
-- `marketplace-server.ts` sorts the list by name, cuts the page, and counts the total, because the skills-service does not.
-
-### Consequences
-
-- An old saved preference holds a Marketplace name, not a slug. That user gets the first Marketplace once.
-- The total and the pages cover at most the 200 Skills that the skills-service returns.
-- The Source panel takes the Marketplace name from the Marketplace list, because a skills-service Skill has no Marketplace field.
-- **Who is this agent?** No change. **What can it access?** No change. **How does it connect?** No change until the client calls the skills-service. That change adds `SKILLS_SERVICE_URL` and keeps the call server-side with the user's token.
-
----
-
-## Amendment: Skill detail without an address change (2026-10-12)
-
-**Status:** Accepted for this amendment. The original architecture remains Proposed.
-
-### Context
-
-The clean URL amendment below kept browse values out of the address, but a selected Skill still opened `/marketplace/{slug}`. The requested experience keeps the address at `/marketplace` while a Skill is open, with the same rules as browsing: no history entries, and a reload starts at the default overview.
-
-### Options
-
-1. Keep the dedicated detail route, and replace the address with `/marketplace` after the page loads (`history.replaceState`). The Next.js router then holds a route that the address does not show, so reload and Back give unexpected results.
-2. Keep the selected Skill in client state, and load its detail through an authenticated BFF route. The overview shows the detail in place of the results.
-3. Use intercepting or parallel routes. These routes change the address too, so they do not meet the requirement.
-
-### Decision
-
-Use option 2. This amendment supersedes the decisions below that Skill details use a dedicated server-rendered route without a browser data request.
-
-- `useSkillDetail` (`_hooks/use-skill-detail.ts`) owns the selected slug, the loaded Skill, the request status, cancellation, latest-response ordering, and retry. `MarketplaceProvider` exposes it through the Marketplace context beside the browse state.
-- A list row or a card calls `openSkill(slug)`. Neither navigates. The overview replaces its toolbar and results with the detail view, and "Skills" closes it. The browse state and the list/card choice stay in memory, so closing the detail shows the same results.
-- `GET /api/marketplace/skill` is a BFF route. It checks the session with `withAuth`, calls `loadSkillDetail`, and maps a missing Skill to 404 and other failures to the upstream 4xx status or 502. Query values carry the identifiers, so they need no path decoding. Since the 2026-10-13 amendment, the query is `?marketplace=&skill=` (the `marketplaceSlug` and the `skillSlug`).
-- `/marketplace/{slug}` remains only as a server redirect to `/marketplace`, so old links open the default overview.
-
-### Consequences
-
-- The address does not identify an open Skill. A Skill cannot be shared by link, and reload shows the default overview.
-- Opening a Skill adds no history entry. Back leaves the Marketplace; the detail view's "Skills" control returns to the results.
-- The browser sends one BFF request for each opened Skill. The detail view shows loading, missing-Skill, and failed-load states, and the failed-load "Try again" repeats the BFF request.
-- The shared header no longer shows a Skill name in its breadcrumb, because the path has no Skill segment.
-- **Who is this agent?** No change. The BFF route requires the existing verified session.
-- **What can it access?** No change. The upstream Marketplace call still uses the user's token server-side, so its authorization decides what the user sees.
-- **How does it connect?** The browser calls one more authenticated BFF route. Credentials and upstream calls stay server-side.
-
----
-
-## Amendment: Clean Marketplace URL (2026-10-12)
-
-**Status:** Accepted for this amendment. The original architecture remains Proposed.
-
-### Context
-
-The approved product change keeps the overview address at `/marketplace` on the current host. Browse values belong to the interactive view and must no longer appear in overview, Skill, or return URLs. This amendment supersedes the URL-state and browse-restoration requirements in the original decision below, including its references to the earlier PRD's FR-17.
-
-### Options
-
-1. Retain URL-driven state and the existing share/refresh/history restoration.
-2. Keep browse values in client state, retaining server-rendered defaults and BFF updates.
-3. Persist all browse values in cookies or user preferences to restore them without URL parameters.
-
-### Decision
-
-Use option 2. The overview Server Component ignores browser browse query parameters and loads default browse values with the existing saved-Marketplace fallback. The hook owns subsequent changes, retains cancellation and retry behavior, and writes no browse values or pagination history entries. It removes existing browse parameters while preserving unrelated query keys, Next.js history state, the current pathname, and any fragment. Skill navigation contains only the encoded identifier; the return link is `/marketplace`.
-
-The BFF still parses browse query parameters on API requests. Server Components still perform the initial and detail fetches directly. No origin is hardcoded and no persistent browse store is introduced.
-
-### Consequences
-
-- Reload and fresh overview navigation use page 1, empty search, default sort/page size, and the saved or first available Marketplace.
-- Browser Back/Forward navigates routes rather than pagination states; returning from a Skill does not reconstruct the earlier search/page.
-- The address no longer shares a particular browse result. Dedicated Skill links remain usable.
-- URL/history regression tests and Storybook setup must follow this contract; API parameter and request-coordination tests remain necessary.
-- **Who is this agent?** This is presentation state only; existing verified user sessions remain the identity boundary.
-- **What can it access?** Authorization and tenant enforcement remain with the existing server/API path.
-- **How does it connect?** Credentials and upstream calls remain server-side; the browser keeps using the authenticated BFF.
-
-The remaining sections record the original decision and its rationale. Where they describe browse values in browser URLs or their restoration, this amendment takes precedence.
-
----
+This document describes the implemented frontend after those amendments. The original proposal and the broader [Marketplace PRD](../prd/agent-marketplace.md) retain their existing approval status. The [frontend deep dive](../architecture/marketplace.md) includes the component diagram and file map.
 
 ## Context
 
-> **RSC** (React Server Component): a React component that runs only on the server.
->
-> **BFF** (Backend-for-Frontend): a Next.js route that the browser calls, and that calls the Orbit services for it.
->
-> **Slug:** the text identifier that the backend gives each Skill.
+The Marketplace lets signed-in users browse the Skills exposed by skills-service and read their instructions and supporting files. The overview has interactive source selection, search, name sorting, page size, pagination, and list/card views. Opening a Skill must render its details on a dedicated server route, following the Agents list/detail pattern.
 
-Orbit needs a read-only Marketplace under Control Plane where signed-in users can select a Marketplace, browse and search its Skills, and review Skill details.
+The frontend uses Next.js Server Components, authenticated Backend-for-Frontend (BFF) routes, the existing session and preferences providers, and Hades (`@orbit/hades`). It neither calls GitHub directly nor owns source registration, source credentials, or backend caching. Repository content is read-only data.
 
-This ADR decides how the frontend loads data, divides responsibilities between server and client code, manages browse state, and presents results and errors.
+The earlier in-place detail implementation kept the selected Skill in client state and redirected detail addresses to the overview. The accepted 2026-10-16 amendment restores server-rendered detail navigation. Browse settings remain a separate concern: the current implementation keeps them in memory and off navigation URLs.
 
-### Background
+## Options
 
-Orbit's frontend uses the Next.js App Router, React Server Components, and same-origin Backend-for-Frontend routes. The BFF reads the user session and calls authorized Orbit services.
+1. **Server initial loads with BFF browse updates.** Server Components load overview defaults and Skill details. A client hook handles subsequent browse changes through the authenticated BFF. This retains the existing frontend pattern and keeps previous results visible during requests, with cancellation and response ordering owned by the hook.
+2. **Server navigation for every browse change.** Each search, source, sort, or page change navigates to another server-rendered address. This conflicts with keeping browse settings out of navigation URLs and would replace the current browse request model.
+3. **Client-only loading.** The server returns an empty shell and the browser requests all initial data. This loses the existing server-loaded first response and does not restore the requested server detail route.
 
-All product JSX uses Terra (`@orbit/terra`), the Orbit design system. Shared frontend components follow Orbit's three-tier component model. The Marketplace must use these existing patterns instead of adding another state library, design system, or direct source-provider integration.
-
-The frontend consumes `skills-service`, the back-end service, through a server-only Marketplace client. It does not call GitHub or access backend storage directly. The frontend treats all repository content as unsafe, read-only data.
-
-All three options consume the same backend API. The backend defines the offset/limit pagination, and the frontend uses it as it is.
-
-### Problem Statement
-
-Choose a frontend architecture that:
-
-1. Shows the Marketplace names and one page of Skills in the first response. The page uses the Marketplace in the URL. When the URL contains no Marketplace, the page uses the Marketplace that the user selected last. On a first visit, or for an unknown name, the page uses the first Marketplace in name order.
-2. Keeps the controls and the current results on screen while new results load after a browse change.
-3. Supports Marketplace selection, name search, a sort order by name, a page size that the user selects, and pagination. The browser never loads the complete dataset from the back-end.
-4. Restores the selected view from the URL during refresh, browser Back and Forward navigation, and direct navigation.
-5. Loads read-only Skill details on a dedicated route without an additional browser data request.
-6. Ensures that only the latest active browse request can update the displayed results.
-
-
-### Goals
-
-* Add a Marketplace overview route under Control Plane, and a dedicated Skill detail route that opens when the user selects a Skill in the overview.
-* Show Skills in the first response, and keep the controls and the current results on screen during later browse changes.
-* Keep the URL, displayed results, and pagination position consistent.
-* Render Skill content and supplied resource files read-only.
-* Reuse Terra and Orbit's authentication, component-placement, and testing patterns.
-* Support desktop, tablet, mobile.
-
-### Non-Goals
-
-* This ADR does not choose or restate the backend implementation of source access, credentials, caching, storage, refresh, or search.
-* The frontend does not install, run, assign, update, roll back, or remove Skills.
-* The frontend does not add Skills to agents, AgentTypes, environments, or runs.
-* The frontend does not add separate preview or download interactions for repository files. Content that the detail response supplies stays in scope, and the page renders it.
-* The Marketplace does not add a new frontend framework or state library.
-* The frontend does not manage Marketplace sources. It adds no filters that the [PRD](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md) does not ask for. The sort order ([PRD FR-18](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)) is not in the backend contract yet (see Open Integration Questions).
-
----
-
-## Decision Drivers
-
-* Orbit access and refresh tokens must remain server-side.
-* Every signed-in Orbit user must be able to open the Marketplace. The frontend must reuse Orbit's existing authentication and session mechanisms.
-* Repository content must remain read-only and must not execute in the browser.
-* The user must be able to choose a page size that the backend contract allows.
-* The page must restore the selected Marketplace, search text, sort order, page size, and page number from the URL. It must do so after a refresh, after a click on the browser Back or Forward button, and when a user opens a direct link ([PRD FR-17](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)).
-* A save of the Marketplace must never replace the user's other stored preferences.
-* Skills with the same display name in different Marketplaces must remain distinguishable during navigation.
-* Marketplace failures must not affect unrelated Orbit pages.
-
-
----
-
-## Considered Options
-
-### Option 1: RSC initial rendering with BFF-driven browse updates
-
-**Description:** The overview Server Component loads the Marketplace names, sorted by name, for the initial page render. It also loads one result page of Skills for the Marketplace, search text, page, and page size in the URL. If the URL does not contain a valid Marketplace name, the Server Component uses the first Marketplace in the sorted list.
-
-After the page loads, a client hook sends a BFF request for each Marketplace selection, search, page-size change, and page change. Each BFF response contains the Marketplace list and the new Skill results. The BFF uses the same validation rules as the Server Component. After each successful response, the hook writes the new browse values to the URL with the browser History API. Next.js does not send a server request for these URL changes, so the Server Component does not run again.
-
-Skill details use a dedicated server-rendered route.
-
-
-**Pros:**
-
-
-* The initial server render fills the Marketplace selector, so the browser sends no extra request.
-* The initial server render includes one page of Skills, for the Marketplace in the URL or for the first Marketplace.
-* After the page loads, Marketplace selection, search, and page changes update the results without a new server render of the route.
-* Reuses Orbit's existing React Server Component and BFF architecture.
-
-**Cons:**
-
-* The frontend must support two data-loading paths: server rendering for the initial page load and BFF requests for later user interactions.
-* The Client Component must manage updated Skill results, loading states, pagination, and URL changes after the page loads.
-* The frontend must prevent older requests from replacing newer results when users quickly change Marketplace, search, or pagination.
-* The URL changes without a Next.js navigation, so the Next.js router state stays at the first server render. Back or Forward from another route can show that render again.
-
-
-### Option 2: RSC navigation for every interaction
-
-**Description:** The Server Component renders the initial Marketplace page. When the user selects a Marketplace, searches, changes the page size, or moves between pages, the frontend updates the URL through Next.js navigation. Each navigation causes the Server Component to load the required Skill results and return updated page content. Browse updates use no separate BFF request.
-
-**Pros:**
-
-* Uses the same server-rendered data-loading path for both the initial page load and later browse interactions.
-* Needs no BFF route for browse changes.
-* Requires less client-side request and result-state management than Option 1.
-* Each URL gets its own server render, so Back or Forward from another route shows the correct browse state.
-
-**Cons:**
-
-* Each browse change is a Next.js navigation, so the Server Component runs again before the new results appear. According to the frontend state golden path, each such navigation also shows the loading skeleton.
-* Quick changes to the search text or the Marketplace can start server renders for states that the user no longer needs.
-
-
-### Option 3: Client-only Marketplace application
-
-**Description:** The initial server response renders only the Marketplace page structure. After the page loads in the browser, a Client Component requests the Marketplace names through the BFF. The same Client Component then sends a BFF request for each Marketplace selection, search, page-size change, and page change. It updates the displayed Skill results with each response.
-
-**Pros:**
-
-* Uses one data path, the BFF, for the first load and for all later browse changes.
-* Keeps Marketplace loading and interaction state in one Client Component.
-* Marketplace selection, search, and pagination can update the Skill results area without re-rendering the route.
-
-
-**Cons:**
-
-* The browser loads the Marketplace names only after the page opens and the Client Component sends its first BFF request.
-* The initial server render contains no Marketplace data, so the selector may show a loading state before the Marketplace names appear.
-* The Client Component must manage the first Marketplace data request as well as later Marketplace selection, search, pagination, loading, and error states.
-* For a direct link with a Marketplace in the URL, the Skill results still wait for the first BFF request from the browser.
-
----
+For detail navigation, retaining the in-place view was considered against restoring the dedicated route. The learner selected restoration to follow Agents; the detail redirect and client selection hook are superseded.
 
 ## Decision
 
-The overview Server Component loads the Marketplace names and one page of Skills. It uses the Marketplace in the URL. When the URL names no Marketplace, it uses the Marketplace that the user selected last, which Orbit keeps in the user preferences. When neither Marketplace is available, it uses the first Marketplace in name order.
+Retain option 1 and apply the accepted amendments below. All product JSX uses existing Hades components. Feature components remain scoped to Marketplace, with detail-only files colocated under `[marketplaceSlug]/[skillSlug]`.
 
-The interactive overview receives that initial data and owns the later changes to the Marketplace, the search text, the sort order, the page size, and the page. When the page becomes interactive in the browser, the Client Component must reuse the Marketplace data that the server already loaded. It must not request the same data again when the page loads. Each later BFF response also contains the Marketplace list, because the server needs the list to validate the Marketplace name.
+The accepted named-parameter amendment (2026-10-16) replaces the catch-all directory with `[marketplaceSlug]/[skillSlug]/page.tsx`. The public detail URL stays the same. Next.js supplies two named string parameters and rejects addresses with fewer or more segments through its normal 404 handling.
 
-The initial overview and Skill detail routes use:
+### Routes and state
 
-```text
-React Server Component -> server-only Marketplace client -> skills-service
-```
+| Concern                  | Current behavior                                                                                                                                                                                                                                  |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Overview                 | `/marketplace` loads the default browse values with the saved Marketplace, or the first available source in skills-service order.                                                                                                                 |
+| Browse controls          | `useMarketplace` owns source, search, sort, page, page size, results, loading, error, cancellation, and retry. It sends browse values on API requests without adding them to the address or creating pagination history entries.                  |
+| Old browse links         | The overview ignores old browse query values for its initial load. The hook removes those keys while preserving unrelated query context, fragments, and Next.js history state.                                                                    |
+| Detail                   | `/marketplace/{marketplaceSlug}/{skillSlug}` loads the requested Skill on the server. Each identifier is encoded as one path segment. The page awaits `params`; it does not split an opaque Skill slug or infer identity from browse preferences. |
+| Direct links and refresh | A valid detail link opens that Skill, including after refresh. A missing Skill shows the missing-Skill state; an address with fewer or more than two segments uses the app's 404 page.                                                            |
+| Return                   | The detail page's Skills link returns to `/marketplace`. No extra search/page persistence or browse-state restoration mechanism is introduced.                                                                                                    |
+| Local presentation       | The overview owns list/card selection and the toolbar owns picker-open state. These are not navigation parameters.                                                                                                                                |
 
-Later overview interactions use:
+Browse API requests validate search, page size, page, sort, and Marketplace through the existing parser and server loader. Search is by Skill name, starts after the hook's debounce, and treats fewer than three non-space characters as no search. Sort and page-size changes reset to the first page. A page beyond the results is clamped on the server.
 
-```text
-Browser -> Next.js BFF -> server-only Marketplace client -> skills-service
-```
+### Loading and responsibilities
 
-Server Components do not call their own BFF URLs. The Skill detail route loads its content in the initial server response and does not issue a follow-up BFF data request.
+| Boundary                                    | Responsibility                                                                                                                                                                                                                                         |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Overview `page.tsx`                         | Validates the session, calls `loadMarketplaceOverview`, and passes initial data/error to `MarketplaceShell`.                                                                                                                                           |
+| Overview shell and provider                 | Mount the browse hook/context and render controls and results. No selected-Skill state lives here.                                                                                                                                                     |
+| `[marketplaceSlug]/[skillSlug]/page.tsx`    | Validates the session, reads both named path identifiers, calls `loadSkillPage`, and renders the requested detail or its failure state.                                                                                                                |
+| `[marketplaceSlug]/[skillSlug]/loading.tsx` | Shows the detail loading skeleton while the Server Component resolves.                                                                                                                                                                                 |
+| Detail components                           | Render the Skill title, description, `SKILL.md`, resource files, and Source metadata. The retry component calls `router.refresh()` inside a transition and disables itself while pending.                                                              |
+| Browse BFF                                  | `GET /api/marketplace/skills` uses `withAuth`, parses API query values, and calls the shared overview loader.                                                                                                                                          |
+| Detail BFF                                  | The existing authenticated `GET /api/marketplace/skill?marketplace=&skill=` remains available through `loadSkillDetail`. Dashboard selection no longer calls this API from a browser detail hook.                                                      |
+| Shared server loader                        | Owns source selection and browse shaping. `loadSkillPage` resolves the requested Marketplace display name from the authenticated source list and shares `loadSkillDetail`. Results distinguish success, missing data, refusals, and upstream failures. |
+| Server client                               | Calls skills-service through `SKILLS_SERVICE_URL`, forwarding the session's bearer token with a ten-second timeout. The browse request also combines the caller's abort signal.                                                                        |
 
-**Chosen Option:** Option 1 - RSC initial rendering with BFF-driven browse updates.
+The detail UI, skeleton, retry, tests, and stories live in `frontend/src/app/(dashboard)/marketplace/[marketplaceSlug]/[skillSlug]/_components/`. Overview UI, context, hook, and shared loaders remain in their existing Marketplace directories.
 
-### Rationale
+### Backend types and identifiers
 
-Option 1 loads the Marketplace names and one page of Skills in the initial server response. The interactive component starts with this data and does not request it again when the page loads.
+`frontend/src/shared/api.ts` mirrors skills-service with `Marketplace`, `GetMarketplaces`, `SkillSummary`, `ListSkillsResponse`, `SkillFile`, and `Skill`. `SkillSort` belongs to the frontend feature because the backend does not sort by display name.
 
-After that, each change to the Marketplace, search text, sort order, page size, or page number sends a BFF request. The route does not render again on the server, and the controls stay on screen. The [frontend state golden path](../../frontend/docs/golden-paths/frontend-state-pattern.md) requires the same pattern for server-side filters. It states that `router.push` causes a full RSC render and a loading skeleton flash for each change. Option 2 has that cost for every browse change. Option 3 waits for browser JavaScript before it loads any Marketplace data.
+A Marketplace's `marketplaceSlug` is its identity; its name is a label and need not be unique. The selected source and saved `marketplace.lastSelected` preference hold the slug. A Skill is addressed with both its Marketplace slug and opaque Skill slug. The Source panel obtains the Marketplace label from the authenticated list for that request.
 
-The decision follows Orbit’s three architecture questions.
+The backend list API returns at most 200 Skills per cursor batch, in Skill-slug order, and may include `nextCursor`. The current frontend requests only the first batch and sorts, slices, and counts that batch. It does not yet follow cursors, so page numbers and total do not cover a larger catalogue. Cursor integration remains a separate decision; this routing change does not resolve it.
 
-  - Who makes the request? The Server Component and BFF use the current user’s Orbit session. skills-service authenticates the user’s token on every request.
+### Preferences and request coordination
 
-  - What can it access? skills-service enforces its access rules and the tenant boundaries. The backend ADR requires `marketplace:read`, but the frontend shows the Marketplace to every signed-in user (see Open Integration Questions). A Skill page gives no access to other Orbit resources.
+After an explicit source selection loads successfully, `MarketplaceProvider` updates the shared preferences document with the selected slug. It preserves unrelated preferences, skips a redundant value, and never saves defaults over a failed preferences read. `PreferencesProvider` owns the debounced `PUT /api/preferences`.
 
-  - How does it connect? The browser communicates with Next.js. Server Components load initial and detail data. Later browse requests pass through BFF routes. Only server-side code calls skills-service with the user’s Orbit token.
+Each new browse request aborts its predecessor and receives a newer request ID. Only the latest active response can update the view. Pending and failed later requests retain previous results, and retry repeats the failed intent. If only the initial Skill-list load fails, the successfully loaded Marketplace list remains available for choosing another source.
 
----
+### Identity, policy, and connections
+
+- **Who is this agent?** The dashboard reuses its verified user session. Server Components validate the session, and BFF routes retain `withAuth`. The upstream request uses that session's platform token.
+- **What can it access?** skills-service remains responsible for authorization and tenant-scoped source access. The frontend does not substitute local policy checks or use the saved source selection as authority.
+- **How does it connect?** All upstream calls and credentials stay server-side. The browser navigates to the detail Server Component or calls the authenticated browse BFF. Repository bodies are displayed as plain text through Hades `CodeBlock` without executing Markdown or HTML.
+
+### Stories and verification
+
+Browse stories mock the browse BFF and preferences writes. Their sample Marketplace slugs are distinct from display labels, and card stories assert native detail links. Detail stories supply read-only Skill props directly; retry uses Storybook's mocked App Router.
+
+Vitest covers loaders, sessions and failure states, exact identifier forwarding, link encoding, browse request coordination, preferences, file contents, and retry transitions. Playwright exercises the actual Next.js overview/detail routes using a test-only HTTP skills-service fixture for server fetches and browser route mocks for later browse requests. No live Go backend, Postgres, Redis, or production fixture path is required.
+
+The [accessibility and layout evidence](../../frontend/e2e/marketplace-accessibility.md) records browser checks and the remaining manual screen-reader work. Required frontend checks remain lint and TypeScript; the root quality gate is required before committing.
 
 ## Consequences
 
-### Positive
+- Dedicated Skill URLs work independently of previously selected browse state and survive refresh.
+- Browse controls retain their request cancellation, retained-results, retry, and preference behavior.
+- Keeping server initial loads and browser browse updates requires shared validation and loading rules at both entry points.
+- Search/page/sort state is not shared through navigation URLs, and restoring an arbitrary prior browse view is not guaranteed by the detail return link.
+- Large-catalogue cursor handling, manual screen-reader evidence, and deployment wiring remain independent of the restored detail route.
+- This frontend change adds no source-management, Skill installation, agent assignment, backend authorization, or credential-brokering behavior.
 
-* The server renders the initial Marketplace data and direct-linked Skill details.
-* Later browse changes update the results without a new server render of the route.
-* One owner coordinates interactive state and prevents inconsistent controls, results, and URLs.
-* After a failed request, the page keeps the last authorized results and labels them as the results of the last successful request.
-* The Marketplace reuses Orbit's security, Terra, and testing patterns.
-* The server render, the BFF route, and the browser read and write the URL values with one module (`browse-params.ts`). The server render and the BFF route also share the data rules in `marketplace-server.ts`.
-* A returning user sees the Marketplace that they picked last, also after a link without `marketplace`, such as the sidebar entry. The server reads the saved Marketplace, so the first render shows it with no second request.
-* On a Skill page, the back link returns to the same Marketplace, search, sort order, page size, and page.
+## Decision history
 
-### Negative
+| Date       | Decision                                                                                                                               | Current standing                                                                                   |
+| ---------- | -------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 2026-08-17 | Proposed server initial rendering with BFF-driven browse updates and dedicated Skill details.                                          | Original proposal remains Proposed; the accepted amendments define the implemented behavior above. |
+| 2026-10-12 | Keep browse settings in memory, use server defaults with the saved source, and omit browse parameters from navigation URLs.            | Accepted browse-state amendment.                                                                   |
+| 2026-10-12 | Open Skill details in place through a client hook and detail BFF; redirect old detail addresses to the overview.                       | Superseded by the 2026-10-16 restoration. The hook/view and redirect were removed.                 |
+| 2026-10-13 | Align frontend types and identifiers with skills-service instead of mapping the earlier draft package types.                           | Accepted. The real server client now calls skills-service rather than serving fixtures.            |
+| 2026-10-16 | Restore server-rendered Skill details and colocate their UI/loading/retry/stories/tests under `[...slug]`, following Agents.           | Accepted for this amendment. Further browse URL design is a separate step.                         |
+| 2026-10-16 | Replace the catch-all directory with `[marketplaceSlug]/[skillSlug]`, retaining the two-segment detail URL and colocated detail files. | Accepted named-parameter amendment, explicitly requested by the learner.                           |
 
-* The interactive overview must coordinate debounce, cancellation, late responses, and Back and Forward navigation.
-* Each browse change sends at least two requests to skills-service: one for the Marketplace list and one for the Skills. A page after the last page causes a third request.
-* The history entries that the hook adds keep the Next.js router state of the first server render. After Back from a Skill detail page, Next.js shows that first render from its cache. The overview then sends one BFF request for the URL, and the old results stay on screen until the response arrives.
-* When the URL names no Marketplace, the server also reads the user preferences. In the server render, the dashboard layout already read them, and React `cache()` reuses that result. In the BFF route, the read adds one request to the identity service.
-* After a failed preferences read, the page does not save a pick. The next visit without `marketplace` opens the previously saved Marketplace.
-* The preferences write is best-effort and waits 500 ms after the last change. If the user opens a link without `marketplace` in that time, the server can still read the previous Marketplace. A full page load in that time, such as a click on the sidebar entry, prevents the write.
-* The Skill URL is longer, because it carries the browse values.
-* Until skills-service is available, a mock client serves fixture data. The pages do not show real Skills yet.
+## Related decisions
 
-### Neutral
-
-* skills-service remains responsible for access checks, search, sort, and pagination.
-* The pages use the backend slug as an opaque identifier, so a change to the slug format does not change the pages. The real client must know the format, because the backend detail endpoint takes the Marketplace name and the Skill name as separate path values.
-
-
----
-
-## Implementation
-
-| Area | Behavior |
-| --- | --- |
-| Overview (`/marketplace`) | The server loads the Marketplace names in name order and one page of Skills. The client reuses this initial data. |
-| Browse requests | Marketplace selection, search, sort order, page size, and pagination call the same-origin BFF route `/api/marketplace/skills`. The route validates the input and calls skills-service through the server-only Marketplace client with the Orbit session. The response contains the Marketplace list and one page of Skills. |
-| Overview state | A custom hook (`_hooks/use-marketplace.ts`) and a React Context (`_context/marketplace-context.tsx`) own the state, as the frontend state golden path describes. A new request cancels the previous request. Only the latest successful request updates the results and the URL. A cancelled request shows no error. |
-| Saved Marketplace | The provider (`_context/marketplace-context.tsx`) saves a picked Marketplace in the user preferences key `marketplace.lastSelected` with `usePreferences().updatePreferences`, as the Models page saves its favourites. The key and its default `''` are in `frontend/src/app/(dashboard)/_preferences/preferences.schema.ts`. The provider saves only after the load of the picked Marketplace succeeds (`onMarketplacePicked`), and only when the name changed. A preferences PUT replaces the whole document. So the provider does not save when the preferences read failed (`usePreferences().loaded` is false). The dashboard layout gets this flag from `readPreferences`. |
-| Sort | A select in the toolbar offers A to Z and Z to A by Skill name ([PRD FR-18](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)). A change goes back to page 1. The BFF passes `sort` to the Marketplace client. The mock client sorts all matches before it cuts the page, so the order is correct across pages. |
-| Pagination | A bar below the results shows the result range, a rows-per-page select, Previous and Next buttons, and page buttons. The page buttons show the first page, the last page, and the pages within 2 of the current page. A gap stands for each run of hidden pages. |
-| URL history | A page change adds a history entry (`pushState`). Other changes replace the current entry (`replaceState`). Back and Forward inside the overview reload the results for the restored URL. If that reload fails, the URL of the results on screen comes back. Each overview response also contains the browse values of its request (`requested`). On mount, the hook compares the URL with these values and with the values that the server used. When the URL matches neither set of values, Next.js restored an old server render from its cache. The hook then loads the results for the URL. History restoration cancels pending searches and requests before comparing the restored URL with visible results, so Forward cannot be overwritten by a superseded Back request. |
-| Loading | During the first server load, the overview and the Skill page each show a skeleton (`loading.tsx`). During a later request, the current results stay on screen, and a notice above them says "Loading Skills…". A retry after a failed first load shows the skeleton in place of the toolbar and the results. |
-| Errors | A failed Skills load retains the successfully loaded Marketplace list, including on the first render or retry, so users can pick another source. Later failures keep the last successful results and offer a retry. No-results messaging is suppressed when the first Skills load failed. |
-| Empty results | When no Marketplace exists, the page shows "No Marketplaces available". With no search, the page shows that the Marketplace has no Skills. With a search, the page shows that no Skills match, and it offers "Clear search". |
-| Views | The user can show the results as a list or as cards ([PRD FR-16](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)). The list is the default. The URL and the user preferences do not keep this choice. |
-| Skill detail (`/marketplace/[...slug]`) | The server loads the Skill in the first response, and the page shows its name, Marketplace, description, and path ([PRD FR-7](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)). It shows the `SKILL.md` file and each resource file as plain text ([PRD FR-9](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements), [FR-15](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)). It shows a separate message for an expired session, a missing Skill, and a failed load. The failed-load message has a "Try again" button (`_components/marketplace-skill-load-error.tsx`, [PRD FR-14](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)). The button renders the page on the server again (`router.refresh`) and stays disabled until that render completes. The browser sends no other request. |
-| Back from a Skill | In the card view and the list view, the Skill URL carries the browse values of the results on screen (`buildSkillUrl`). The Skill page reads them back (`parseBrowseParams`) and builds its back link from them (`buildOverviewUrl`). So the back link returns to the same Marketplace, search, sort order, page size, and page, also after a reload or from a shared link ([PRD FR-17](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)). The link shows above the Skill, the failed-load message, and the "Skill not found" message. The "Skill not found" message also has a "Back to Skills" button with the same URL. The shared `DashboardHeader` has no Back button, because [PR #340](https://github.com/clear-route/orbit/pull/340) removed it: its breadcrumb already shows the location. |
-| Skill identifier | The detail route passes the full backend slug to the server. The pages do not split the slug or read display data from its parts. Only the shared header shows the last part of the URL path in its breadcrumb, as in other sections. The list view and the card view show the full slug under the Skill title. Unless the backend adds an endpoint for the full slug, the real client must split the slug (see Open Integration Questions). URL builders percent-encode the full opaque slug before appending browse parameters; the detail route receives its decoded value. |
-| Navigation | The Marketplace entry is visible to every signed-in user. The frontend adds no scope check. The sidebar compares the exact path for every entry, so the Marketplace entry is active on `/marketplace` but not on a Skill page. |
-| Data source | Until skills-service is available, a server-only mock client (`frontend/src/server/marketplace-client.ts`) serves fixture data (`frontend/src/server/marketplace-fixtures.ts`). The fixture Skills have no resource files. The real client must use a 10-second timeout together with the caller's abort signal. It must throw `ApiError` with the upstream status for each failed response. |
-| Testing | Regression coverage accompanies the frontend foundation: Marketplace choice and preferences, encoded Skill/back-link URLs, BFF authentication and mapped errors, partial-list recovery, and hook mount/history handling. Back/Forward and pending-search cancellation have focused integration tests. Routing tests cover the Marketplace builders. The fixture-backed client has name-only search tests; real-client HTTP contract tests will accompany backend integration. |
-
-### Browse Parameters
-
-The overview keeps five values in the URL. The server render, the BFF route, and the browser read and write these values with one module (`frontend/src/app/(dashboard)/marketplace/_utils/browse-params.ts`). Two rules need data from the server: the Marketplace choice and the last-page rule. `loadMarketplaceOverview` applies these two rules on the server (`frontend/src/app/(dashboard)/marketplace/_services/marketplace-server.ts`).
-
-| Parameter | Rule | Default |
-| --- | --- | --- |
-| `marketplace` | A Marketplace name. When the URL has no `marketplace`, the server uses the saved Marketplace (`marketplace.lastSelected`) if it still exists. The server replaces an unknown name with the first Marketplace. | The saved Marketplace, or else the first Marketplace in name order |
-| `query` | The search text without spaces at the start and end. Text with fewer than 3 characters counts as no search, and a hint below the field asks for at least 3 characters. The search starts 300 ms after the last change. skills-service matches the text against the Skill name only. | No search |
-| `sort` | `name-asc` (A to Z) or `name-desc` (Z to A), by Skill name. | `name-asc` |
-| `page` | A whole number from 1. The server replaces a page after the last page with the last page. | 1 |
-| `pageSize` | 12, 24, or 48. All three values are below the backend maximum of 100. | 24 |
-
-* An invalid `sort`, `page`, or `pageSize` value becomes its default.
-* The URL does not contain `query`, `sort`, `page`, or `pageSize` when they have their default values. Other query keys, such as `agent`, stay in the URL.
-* A Skill URL carries the same values, with the same rules, for the back link of the Skill page.
-* After a successful first render, the URL always contains `marketplace` when a Marketplace exists, because the server chooses the Marketplace.
-* After the first render, the browser writes the validated values to the URL. If the first load fails, the URL stays as it is, so a reload tries the same values again.
-* `loadSkillsPage` in `marketplace-server.ts` converts `page` and `pageSize` to the backend `offset` and `limit`.
-
-### Open Integration Questions
-
-The backend ADR for skills-service (PR #224) is not merged yet. These points must agree with it before the Marketplace is complete:
-
-* **Slug format:** the backend ADR uses `{marketplace-name}/{skill-name}`. The mock uses `{org}/{repo}/{skill-name}`. The pages use the slug as it is, so both formats work for the pages. But the backend detail endpoint is `GET /v1/marketplaces/{marketplaceName}/skills/{skillName}`, and no endpoint accepts the full slug. Either the real client splits the slug into its two parts, or the backend adds an endpoint that accepts the full slug.
-* **Field names:** the frontend types use names such as `title_of_package` and a top-level `total`. The backend ADR uses `skills`, `name`, `pagination.totalItems`, `skill`, and `documents`. The real client must map these names, or the types must change.
-* **Marketplace name on the detail page:** [PRD FR-7](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements) asks for the Marketplace on the Skill page, but the backend detail response has no Marketplace name. Until a decision exists, the page shows the mock value.
-* **URL-safe Marketplace name:** the list path needs the URL-safe form of the Marketplace name, but `GET /v1/marketplaces` returns only the display name.
-* **Scope:** the backend ADR requires `marketplace:read` for each endpoint, but the frontend shows the Marketplace to every signed-in user ([PRD FR-2](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements)). This ADR does not yet define the page for a request that skills-service refuses. `marketplace-server.ts` keeps the status and message of an `ApiError`, as the other server services do. The first render of the overview shows the upstream message. After a browse change, the BFF route passes a 4xx status, and the notice shows "Failed to load Skills" for every upstream failure. The Skill page shows its failed-load message for every failure except 404.
-* **Sort:** [PRD FR-18](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#functional-requirements) asks for A to Z and Z to A across all pages. The backend ADR has no sort parameter. The frontend sends `sort`, and only the mock client applies it.
-* **[PRD user journey](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#user-flow):** the [PRD](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md#user-flow) says that the page opens with the first Marketplace in name order. With the saved Marketplace, this is true only on a first visit. This is intended behaviour.
-
-### Open Frontend Questions
-
-* **Back from a Skill detail page:** a browser test on 2026-09-27 confirmed the risk under Negative consequences. The fix is in the Implementation table (URL history), and hook integration tests cover cached-render reconciliation (see Testing). No E2E test covers Back from a Skill detail page yet.
-* **Browser tests:** no browser test covers the saved Marketplace or the back link of a Skill page yet. Unit and integration tests cover these behaviors without a browser (see Testing).
-
-### Migration Path
-
-Marketplace is a new read-only dashboard area, so it needs no migration of existing frontend data. The new preference key `marketplace.lastSelected` needs no backend change and no data migration, because the identity service stores the preferences document as it is (see User App Preferences). Replace the mock client with the real client when the backend API is available. Use Orbit's normal deployment process. Resolve all open questions before the team marks the Marketplace as complete.
-
----
-
-## Validation
-
-### Success Metrics
-
-* The first response of `/marketplace` contains the Marketplace names and one page of Skills. Check: an E2E test reads the first HTML response.
-* A browse change loads new results with no server render of the route. Check: the browser network log shows only `/api/marketplace/skills` requests.
-* A shared overview link opens the same Marketplace, search, sort order, page size, and page. Check: an E2E test.
-* A Skill page sends no browser data request after the first response. Check: the browser network log.
-
-### Monitoring
-
-The BFF route and the server functions log each upstream failure with their name as a prefix, for example `[GET /api/marketplace/skills]` (`frontend/src/app/api/marketplace/skills/route.ts:37-39`).
-
----
-
-## Related Decisions
-
-* [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md) - Next.js App Router and frontend structure.
-* [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md) - sealed server-side session and token boundary.
-* [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md) - scope-aware navigation and presentation.
-* [Terra Frontend Design System](2026-03-25-terra-frontend-design-system.md) - required UI foundation.
-* [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md) - three-tier component placement.
-* [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md) - frontend testing approach.
-* [User App Preferences](2026-05-08-user-app-preferences.md) - server-side user preferences that keep the saved Marketplace (`marketplace.lastSelected`).
-* [Frontend State Golden Path](../../frontend/docs/golden-paths/frontend-state-pattern.md) - custom hook, React Context, RSC page, and BFF route pattern.
-* **Agent Marketplace — Cache-Aside, Tenant-Scoped Redis Keys, and Resource-Aware Skills** ([PR #224](https://github.com/clear-route/orbit/pull/224), branch `siddhant/marketplace-adr-backend`, file `docs/adr/2026-08-28-marketplace_adr_backend.md`, commit `a715373`, not merged yet) - authoritative backend API contract, Skill data model, tenant resolution, pagination, and status-code behavior.
-
----
-
-## References
-
-[Agent Marketplace PRD](https://github.com/clear-route/orbit/blob/feat/skills-marketplace/docs/prd/agent-marketplace.md): `docs/prd/agent-marketplace.md` on branch `feat/skills-marketplace`, [PR #225](https://github.com/clear-route/orbit/pull/225), commit `07841e6` (2026-09-26), not merged yet.
-
-
-**Last Updated:** 2026-10-07
+- [Frontend Scaffolding and Toolchain](2026-03-17-frontend-scaffolding-and-toolchain.md)
+- [Browser-Based Authentication Flow and BFF Session Architecture](2026-04-01-browser-auth-flow-and-bff-session-architecture.md)
+- [Frontend Policy Projection via BFF](2026-04-14-frontend-policy-projection.md)
+- [Frontend Design System](2026-03-25-terra-frontend-design-system.md)
+- [Frontend Component Consolidation](2026-05-04-frontend-component-consolidation.md)
+- [Marketplace backend](2026-08-28-marketplace-adr-backend.md)
+- [Frontend Test Strategy and Toolchain](2026-05-08-frontend-test-strategy-and-toolchain.md)

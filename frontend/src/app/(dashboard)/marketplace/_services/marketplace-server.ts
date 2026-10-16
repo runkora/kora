@@ -7,9 +7,9 @@ import { getPreferences } from '../../_preferences/preferences-server';
 import type { MarketplaceBrowseParams, MarketplaceOverviewData, SkillSort } from '../_types';
 
 // The only module that calls the Marketplace client. The RSC pages and the
-// BFF route share it. The skills-service returns a Marketplace's whole Skill
-// list (at most 200 Skills) without paging or a name sort, so this module
-// sorts by name, cuts the page, and counts the total. Each function returns a discriminated union and never
+// BFF routes share it. Browsing currently uses the first cursor batch from
+// skills-service (at most 200 Skills), so this module sorts that batch by name,
+// cuts the page, and counts its total. Each function returns a discriminated union and never
 // throws, so that each caller can handle a failure in its own way:
 //   - RSC page: pass initialError to the shell
 //   - BFF route: return an HTTP status to the browser
@@ -26,6 +26,10 @@ export type MarketplaceOverviewResult =
 
 export type SkillDetailResult =
   { ok: true; skill: Skill } | { ok: false; status: number; message: string };
+
+export type SkillPageResult =
+  | { ok: true; skill: Skill; marketplaceName: string }
+  | { ok: false; status: number; message: string };
 
 /** The status of a request that its caller cancelled. Nobody reads the response. */
 const CANCELLED_STATUS = 499;
@@ -106,6 +110,30 @@ export async function loadMarketplaceOverview(
   };
 }
 
+/** Loads detail page data using the identifiers in the path, independently of browse preferences. */
+export async function loadSkillPage(
+  accessToken: string,
+  marketplaceSlug: string,
+  skillSlug: string,
+): Promise<SkillPageResult> {
+  let marketplaces: Marketplace[];
+  try {
+    const response = await fetchMarketplaces(accessToken);
+    marketplaces = response.marketplaces;
+  } catch (err) {
+    console.error('[loadSkillPage] failed to load Marketplaces:', err);
+    return fromApiError(err, 'Failed to load Marketplaces');
+  }
+
+  const marketplace = marketplaces.find((entry) => entry.marketplaceSlug === marketplaceSlug);
+  if (!marketplace) {
+    return { ok: false, status: 404, message: 'Marketplace not found' };
+  }
+
+  const result = await loadSkillDetail(accessToken, marketplaceSlug, skillSlug);
+  return result.ok ? { ...result, marketplaceName: marketplace.name } : result;
+}
+
 /** Loads one Skill of one Marketplace. A missing Skill is a 404. */
 export async function loadSkillDetail(
   accessToken: string,
@@ -128,8 +156,8 @@ export async function loadSkillDetail(
 
 /**
  * Returns the Marketplace that the user selected last, from the user
- * preferences. A Marketplace in the URL always wins, so this function reads
- * the preferences only when the URL names no Marketplace. Returns '' when
+ * preferences. An explicit Marketplace in the browse request wins, so this
+ * reads preferences only when the request names no Marketplace. Returns '' when
  * nothing is saved.
  */
 async function readSavedMarketplace(
@@ -137,7 +165,7 @@ async function readSavedMarketplace(
   browse: MarketplaceBrowseParams,
 ): Promise<string> {
   if (browse.marketplace) {
-    // The URL names a Marketplace. The saved selection does not apply.
+    // The browse request names a Marketplace. The saved selection does not apply.
     return '';
   }
   // getPreferences never throws. On a failure it returns the defaults, which
@@ -162,10 +190,10 @@ function selectMarketplace(marketplaces: Marketplace[], requested: string, saved
   );
   const firstMarketplace = marketplaces[0];
   if (requestedMarketplace) {
-    // The request names a Marketplace that exists.
+    // The browse request names a Marketplace that exists.
     return requestedMarketplace.marketplaceSlug;
   } else if (savedMarketplace) {
-    // No Marketplace in the URL. Use the Marketplace that the user selected last.
+    // No Marketplace requested. Use the Marketplace that the user selected last.
     return savedMarketplace.marketplaceSlug;
   } else if (firstMarketplace) {
     // A first visit, an unknown slug in the request, or a saved Marketplace

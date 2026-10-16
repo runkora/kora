@@ -8,8 +8,8 @@ import { ApiError } from './api-error';
 // SKILLS_SERVICE_URL. Each function matches one skills-service endpoint; see
 // docs/adr/2026-08-28-marketplace-adr-backend.md for the route contract.
 //
-// The skills-service does not page or sort by name, and does not follow a
-// Marketplace's cursor beyond its first batch: the server service does the
+// The skills-service returns cursor batches in slug order. This client requests
+// only the first batch; it does not follow nextCursor. The server loader does the
 // sort/page/total work (see marketplace-server.ts) over that one batch. A
 // Marketplace with more than SKILL_LIST_CAP Skills is not fully shown yet.
 
@@ -88,7 +88,7 @@ export async function fetchSkillDetail(
 ): Promise<Skill | null> {
   try {
     return await request<Skill>(
-      `/marketplaces/${marketplaceSlug}/skills/${skillSlug}`,
+      `/marketplaces/${encodeURIComponent(marketplaceSlug)}/skills/${encodeURIComponent(skillSlug)}`,
       accessToken,
     );
   } catch (err) {

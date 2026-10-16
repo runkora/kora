@@ -6,21 +6,21 @@ import type { Marketplace, SkillSummary } from '@orbit/shared/api';
  */
 export type SkillSort = 'name-asc' | 'name-desc';
 
-/** Rows-per-page options. A `pageSize` in the URL must be one of these values. */
+/** Rows-per-page options accepted by the browse controls and BFF request parser. */
 export const PAGE_SIZES = [12, 24, 48] as const;
 
 export const DEFAULT_PAGE_SIZE = 24;
 
-/** Sort options. A `sort` in the URL must be one of these values. */
+/** Sort options accepted by the browse controls and BFF request parser. */
 export const SORT_OPTIONS: readonly SkillSort[] = ['name-asc', 'name-desc'];
 
-/** The sort order when the URL has no `sort`: A to Z by skill name. */
+/** The default sort order: A to Z by Skill name. */
 export const DEFAULT_SORT: SkillSort = 'name-asc';
 
 /** A search shorter than this counts as no search. */
 export const MIN_SEARCH_LENGTH = 3;
 
-/** The browse values that the Marketplace overview keeps in the URL. */
+/** Browse state kept in memory and sent as query values on BFF API requests. */
 export interface MarketplaceBrowseParams {
   /** The marketplaceSlug of the Marketplace. Empty means "use the default Marketplace". */
   marketplace: string;
@@ -38,7 +38,8 @@ export interface MarketplaceOverviewData {
   marketplaces: Marketplace[];
   /**
    * The browse values that the request asked for, before the server corrected
-   * the Marketplace name and the page. The hook compares them with the URL.
+   * the Marketplace slug and page. These describe the request independently
+   * of the browser's address.
    */
   requested: MarketplaceBrowseParams;
   /** The browse values that the server used, after validation. */

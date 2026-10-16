@@ -3,8 +3,8 @@
  *
  * GET — returns one Skill for the authenticated session. Query:
  *       `marketplace` (the marketplaceSlug) and `skill` (the skillSlug), both
- *       from the skills-service. The Marketplace page opens the Skill in
- *       place, so the slugs never appear in the address bar.
+ *       from the skills-service. This authenticated API remains available;
+ *       dashboard selection uses the server-rendered [marketplaceSlug]/[skillSlug] page instead.
  *
  *       Response: 200 { data: Skill }
  *                 400 { code: 'invalid_request', message: string } — a slug is missing

@@ -53,7 +53,7 @@ export interface MarketplaceStateShape {
   /** Sets the search box text. The search starts 300 ms after the last change. */
   setSearchText(text: string): void;
   clearSearch(): void;
-  selectMarketplace(name: string): void;
+  selectMarketplace(marketplaceSlug: string): void;
   goToPage(page: number): void;
   setPageSize(pageSize: number): void;
   /** Sets the sort order of the skills and goes back to page 1. */
@@ -74,7 +74,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 export function useMarketplace(
   initialData: MarketplaceOverviewData,
   initialError: string | null = null,
-  onMarketplacePicked?: (name: string) => void,
+  onMarketplacePicked?: (marketplaceSlug: string) => void,
 ): MarketplaceStateShape {
   const [overview, setOverview] = useState<MarketplaceOverviewData>(initialData);
   const [status, setStatus] = useState<LoadStatus>(() => toInitialStatus(initialError));
@@ -220,11 +220,11 @@ export function useMarketplace(
   }, [baseBrowse, load]);
 
   const selectMarketplace = useCallback(
-    (name: string) => {
+    (marketplaceSlug: string) => {
       // A later request can replace this one, for example a search. The pick
       // counts when a successful load shows this Marketplace.
-      pickedMarketplaceRef.current = name;
-      void load({ browse: { ...baseBrowse(), marketplace: name, page: 1 } });
+      pickedMarketplaceRef.current = marketplaceSlug;
+      void load({ browse: { ...baseBrowse(), marketplace: marketplaceSlug, page: 1 } });
     },
     [baseBrowse, load],
   );

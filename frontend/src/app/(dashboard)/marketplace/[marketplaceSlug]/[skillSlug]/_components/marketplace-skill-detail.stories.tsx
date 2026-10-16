@@ -1,4 +1,4 @@
-/** @tier 3 — marketplace-scoped. Preview of a Skill's contents and source details. */
+/** @tier 3 — marketplace/[marketplaceSlug]/[skillSlug]-scoped. Preview of a Skill's contents and source details. */
 
 import type { Meta, StoryObj } from '@storybook/react';
 import type { Skill } from '@orbit/shared/api';

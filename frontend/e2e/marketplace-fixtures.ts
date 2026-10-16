@@ -1,11 +1,11 @@
 /**
- * Marketplace sample data for e2e route mocks.
+ * Marketplace sample data for browser route mocks and the server HTTP fixture.
  *
  * The skills-service is a live Go backend, so Category A
  * (docs/adr/2026-05-08-frontend-test-strategy-and-toolchain.md) forbids
  * marketplace.spec.ts from reaching it. These fixtures stand in for its
- * responses behind page.route() on the two BFF endpoints the browser calls:
- * /api/marketplace/skills and /api/marketplace/skill. The slugs follow the
+ * responses behind page.route() for browse requests and
+ * marketplace-upstream.mjs for Server Component loads. The slugs follow the
  * backend rules: marketplaceSlug = org__repo, skillSlug =
  * marketplaceSlug__slugify(name).
  */

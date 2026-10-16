@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
@@ -9,6 +9,10 @@ import { MarketplaceShell } from './marketplace-shell';
 import { MarketplaceOverview } from './marketplace-overview';
 import { MarketplaceProvider } from '../_context/marketplace-context';
 import type { MarketplaceOverviewData } from '../_types';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}));
 
 const browse = { marketplace: 'Core', query: '', page: 1, pageSize: 24, sort: 'name-asc' as const };
 const partial: MarketplaceOverviewData = {
@@ -303,7 +307,7 @@ describe('later browse changes', () => {
 
     await user.click(screen.getByRole('button', { name: 'Clear search' }));
 
-    expect(await screen.findByRole('button', { name: 'Open React Expert' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Open React Expert' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Marketplace: Core' })).toBeInTheDocument();
     expect(screen.getByLabelText('Results per page')).toHaveValue('12');
   });

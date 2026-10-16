@@ -1,13 +1,16 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. List view of Skill results; each row opens its Skill in place. */
+/** @tier 3 — marketplace-scoped. List view of Skill results; each row opens its detail route. */
 
+import { useRouter } from 'next/navigation';
 import { DataTable, Icon, Stack, Text, type DataTableColumn } from '@orbit/hades';
+import { APP_ROUTES } from '@orbit/lib/routing';
 import type { SkillSummary } from '@orbit/shared/api';
 import { useMarketplaceContext } from '../_context/marketplace-context';
 
 export function MarketplaceSkillList() {
-  const { skills, browse, marketplaceName, openSkill } = useMarketplaceContext();
+  const { skills, browse, marketplaceName } = useMarketplaceContext();
+  const router = useRouter();
 
   const columns: DataTableColumn<SkillSummary>[] = [
     {
@@ -69,7 +72,9 @@ export function MarketplaceSkillList() {
       getRowKey={(skill) => skill.skillSlug}
       noun="skills"
       emptyMessage="No skills to show."
-      onRowClick={(skill) => openSkill(browse.marketplace, skill.skillSlug)}
+      onRowClick={(skill) =>
+        router.push(APP_ROUTES.marketplace.detail(browse.marketplace, skill.skillSlug))
+      }
       rowLabel={(skill) => `Open ${skill.name}`}
     />
   );

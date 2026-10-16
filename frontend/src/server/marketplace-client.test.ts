@@ -88,6 +88,20 @@ describe('fetchSkills', () => {
 });
 
 describe('fetchSkillDetail', () => {
+  it('encodes both identifiers as opaque upstream path segments', async () => {
+    let seenUrl = '';
+    stubFetch(async (url) => {
+      seenUrl = url;
+      return Response.json({});
+    });
+
+    await fetchSkillDetail('token', 'team/repo ?#', 'skill/50% ?#');
+
+    expect(seenUrl).toBe(
+      'http://skills-service.test/marketplaces/team%2Frepo%20%3F%23/skills/skill%2F50%25%20%3F%23',
+    );
+  });
+
   it('returns the Skill on a successful response', async () => {
     const skill = {
       name: 'React Expert',
