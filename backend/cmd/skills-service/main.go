@@ -26,14 +26,15 @@ import (
 )
 
 func main() {
-	ctx := context.Background()
-	logger := initLogger()
+	ctx := context.Background() // A context is an object used to control how long the operation should continue
+	logger := initLogger() // The logger is used throughout the file to report events and errors.
 
 	if err := sc.Current.ApplyEnvOverrides(); err != nil {
 		logger.Error(ctx, "invalid config", logging.Field{Key: "error", Value: err.Error()})
 		os.Exit(1)
 	}
 
+	// Observability helps you understand what your running service is doing.
 	shutdownObservability, err := initObservability(ctx, logger)
 	if err != nil {
 		logger.Error(ctx, "failed to setup observability", logging.Field{Key: "error", Value: err.Error()})
@@ -60,6 +61,16 @@ func main() {
 	// backgroundCtx ends after the HTTP server stops. The policy bundle poll
 	// stops with it.
 	backgroundCtx, stopBackground := context.WithCancel(ctx)
+
+	if err := registry.Watch(backgroundCtx, sc.Current.Marketplace.SourcesConfigPath); err != nil {
+		logger.Error(ctx, "failed to watch marketplace config",
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		stopBackground()
+		_ = redis.Close()
+		shutdownObservability()
+		os.Exit(1)
+	}
 
 	server, register, err := initServer(backgroundCtx, logger, redis, registry)
 	if err != nil {
@@ -130,12 +141,7 @@ func initRegistry(_ context.Context, logger logging.Logger) (*skills.Registry, e
 	return skills.NewRegistry(sc.Current.Marketplace.SourcesConfigPath, logger)
 }
 
-func initControllers(
-	ctx context.Context,
-	logger logging.Logger,
-	redis *storage.RedisClient,
-	registry *skills.Registry,
-) ([]api.Controller, error) {
+func initControllers(ctx context.Context, logger logging.Logger, redis *storage.RedisClient, registry *skills.Registry) ([]api.Controller, error) {
 	installationID, err := strconv.ParseInt(sc.Current.GitHub.InstallationID, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid GITHUB_APP_INSTALLATION_ID: %w", err)
@@ -143,7 +149,6 @@ func initControllers(
 
 	gh := ghclient.NewClient(sc.Current.GitHub.APIBaseURL, logger)
 
-	// Single GitHub App token provider — all marketplaces share the same credentials.
 	defaultTokens := skills.NewTokenProvider(
 		gh,
 		sc.Current.GitHub.AppID,

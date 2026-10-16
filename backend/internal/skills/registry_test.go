@@ -158,3 +158,34 @@ skillsMapping:
 		t.Errorf("org not lowercased: got %q", sources[0].Org)
 	}
 }
+
+func TestRegistryFindSource(t *testing.T) {
+	dir := t.TempDir()
+	path := writeYAMLMapping(t, dir, `
+skillsMapping:
+  tenants:
+    - id: "tenant-a"
+      marketplaces:
+        - "https://github.com/org/repo-a"
+    - id: "tenant-b"
+      marketplaces:
+        - "https://github.com/org/repo-b"
+`)
+	r := newTestRegistry(t, path)
+
+	source, ok := r.FindSource("tenant-a", "org__repo-a")
+	if !ok {
+		t.Fatal("expected marketplace to be found")
+	}
+	if source.Org != "org" || source.RepoName != "repo-a" {
+		t.Fatalf("unexpected source: %+v", source)
+	}
+
+	if _, ok := r.FindSource("tenant-a", "org__repo-b"); ok {
+		t.Fatal("tenant-a must not access tenant-b's marketplace")
+	}
+
+	if _, ok := r.FindSource("tenant-a", "unknown__repo"); ok {
+		t.Fatal("unknown marketplace must not be found")
+	}
+}
