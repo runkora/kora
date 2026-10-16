@@ -2,14 +2,26 @@
 # =============================================================================
 # check-dco.sh — Check every commit in a range carries a DCO sign-off.
 #
-# Each commit needs a `Signed-off-by:` trailer with its author's email, the
-# contributor's assertion under the Developer Certificate of Origin that they
-# may submit the change under the project's licence. Commits authored by bots
-# are exempt. Merge commits are skipped, since they carry no new content.
+# Each commit needs a `Signed-off-by:` trailer with its author's or committer's
+# email, the contributor's assertion under the Developer Certificate of Origin
+# that they may submit the change under the project's licence. A committer's
+# sign-off covers a cherry-pick or a commit made with --author.
+#
+# Commits from the bots below are exempt. They are matched by exact email,
+# since an author name is free text. An email can be set by anyone too, so the
+# exemption relies on main requiring signed commits: a person's commit under a
+# bot's email does not verify as that bot. Merge commits are skipped, since
+# they carry no new content.
 #
 # Usage: scripts/check-dco.sh <base> <head>
 # =============================================================================
 set -euo pipefail
+
+BOT_EMAILS=(
+  "339521822+runkora[bot]@users.noreply.github.com"
+  "49699333+dependabot[bot]@users.noreply.github.com"
+  "41898282+github-actions[bot]@users.noreply.github.com"
+)
 
 if [ "$#" -ne 2 ]; then
   echo "usage: $0 <base> <head>" >&2
@@ -24,11 +36,12 @@ while IFS= read -r sha; do
   [ -n "$sha" ] || continue
   author_name="$(git log -1 --format='%an' "$sha")"
   author_email="$(git log -1 --format='%ae' "$sha")"
-  case "$author_name" in
-    *"[bot]") continue ;;
-  esac
-  if ! git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$sha" \
-    | grep -qiF "<$author_email>"; then
+  committer_email="$(git log -1 --format='%ce' "$sha")"
+  for bot in "${BOT_EMAILS[@]}"; do
+    [ "$author_email" = "$bot" ] && continue 2
+  done
+  signoffs="$(git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$sha")"
+  if ! grep -qiF -e "<$author_email>" -e "<$committer_email>" <<< "$signoffs"; then
     echo "✗ $(git log -1 --format='%h %s' "$sha")"
     echo "    no Signed-off-by for $author_name <$author_email>"
     missing=$((missing + 1))
