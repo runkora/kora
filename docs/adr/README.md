@@ -165,7 +165,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 - [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) — `Accepted` · 2026-06-19
 - [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) — `Accepted` · 2026-06-19
 - [Profile Page Architecture](2026-05-13-profile-page-architecture.md) — `Proposed` · 2026-05-13
-- [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) — `Proposed (Amended 2026-10-12: clean URL Accepted)` · 2026-08-17
+- [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) — `Proposed (Amended 2026-10-16: server detail routing Accepted)` · 2026-08-17
 
 ## All ADRs (chronological)
 
@@ -268,7 +268,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-07-23 | [Delegated Agent Identity](2026-07-23-delegated-agent-identity.md) | Accepted | — |
 | 2026-07-28 | [OAuth2 Web-Redirect Clients: GitOps Pre-Registration via an OAuthClient CRD](2026-07-28-oauth2-web-redirect-clients.md) | Accepted | — |
 | 2026-08-03 | [Hades Wizard Component](2026-08-03-terra-wizard-component.md) | Proposed | — |
-| 2026-08-17 | [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) | Proposed (Amended 2026-10-12: clean URL Accepted) | — |
+| 2026-08-17 | [Agent Marketplace Frontend Architecture](2026-08-17-agent-marketplace-frontend-architecture.md) | Proposed (Amended 2026-10-16: server detail routing Accepted) | — |
 | 2026-09-06 | [Owner References for Agents and Sandboxes](2026-09-06-owner-references-for-agents-and-sandboxes.md) | Proposed | — |
 | 2026-06-29 | [MCP Server Registration & Introspection](2026-06-29-mcp-server-registration-and-introspection.md) | Accepted | — |
 | 2026-07-24 | [Non-Token Model Pricing: Full Cost Dimension Pipeline](2026-07-24-non-token-model-pricing.md) | Accepted | — |

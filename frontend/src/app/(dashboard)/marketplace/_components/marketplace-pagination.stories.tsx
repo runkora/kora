@@ -13,10 +13,10 @@ import {
 } from '../_types';
 import { parseBrowseParams } from '../_utils/browse-params';
 import { MarketplacePagination } from './marketplace-pagination';
-import { marketplaceStoryMarketplace } from './marketplace-story-fixtures';
+import { marketplaceStoryPlatform } from './marketplace-story-fixtures';
 
 const sampleSkills: SkillSummary[] = Array.from({ length: 240 }, (_, index) => ({
-  skillSlug: `platform-engineering/skills/sample-${index + 1}`,
+  skillSlug: `platform-engineering__skills__sample-${index + 1}`,
   name: `Sample Skill ${index + 1}`,
   description: 'Sample Skill for the pagination preview.',
 }));
@@ -25,11 +25,11 @@ function createOverview(
   requested: MarketplaceBrowseParams,
   skills: SkillSummary[] = sampleSkills,
 ): MarketplaceOverviewData {
-  const browse = { ...requested, marketplace: 'Platform Engineering' };
+  const browse = { ...requested, marketplace: marketplaceStoryPlatform.marketplaceSlug };
   const offset = (browse.page - 1) * browse.pageSize;
 
   return {
-    marketplaces: [marketplaceStoryMarketplace(browse.marketplace)],
+    marketplaces: [marketplaceStoryPlatform],
     requested,
     browse,
     skills: skills.slice(offset, offset + browse.pageSize),

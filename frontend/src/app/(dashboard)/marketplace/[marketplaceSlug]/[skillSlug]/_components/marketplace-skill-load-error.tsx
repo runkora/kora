@@ -1,16 +1,16 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. The failed-load notice of an open Skill, with a retry. */
+/** @tier 3 — marketplace/[marketplaceSlug]/[skillSlug]-scoped. Retries the failed server render. */
 
+import { useTransition } from 'react';
+import { useRouter } from 'next/navigation';
 import { Alert, Button, Icon, Stack, Text } from '@orbit/hades';
 
-interface MarketplaceSkillLoadErrorProps {
-  /** Sends the Skill request again. The view shows the skeleton until it completes. */
-  onRetry: () => void;
-}
-
 /** Shown when the open Skill could not load. This is not a missing Skill. */
-export function MarketplaceSkillLoadError({ onRetry }: MarketplaceSkillLoadErrorProps) {
+export function MarketplaceSkillLoadError() {
+  const router = useRouter();
+  const [pending, startRetry] = useTransition();
+
   return (
     <Alert variant="error">
       <Icon name="triangle-alert" color="status-error" />
@@ -19,7 +19,12 @@ export function MarketplaceSkillLoadError({ onRetry }: MarketplaceSkillLoadError
           Orbit could not load this Skill from the Marketplace.
         </Text>
       </Stack>
-      <Button variant="outline" size="xs" onClick={onRetry}>
+      <Button
+        variant="outline"
+        size="xs"
+        disabled={pending}
+        onClick={() => startRetry(() => router.refresh())}
+      >
         Try again
       </Button>
     </Alert>

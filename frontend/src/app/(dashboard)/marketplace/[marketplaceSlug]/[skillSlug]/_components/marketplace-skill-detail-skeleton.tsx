@@ -1,4 +1,4 @@
-/** @tier 3 — marketplace-scoped. Placeholder for one Skill while its details load. */
+/** @tier 3 — marketplace/[marketplaceSlug]/[skillSlug]-scoped. Placeholder for the server-loaded Skill page. */
 
 import {
   Card,
@@ -12,9 +12,8 @@ import {
 } from '@orbit/hades';
 
 /**
- * Stands in for the Skill details while the BFF request runs: the identity
- * header, the files, and the Source sidebar. The "Skills" control above it
- * stays usable.
+ * Stands in for the Skill details while the Server Component loads:
+ * the identity header, files, and Source sidebar.
  */
 export function MarketplaceSkillDetailSkeleton() {
   return (

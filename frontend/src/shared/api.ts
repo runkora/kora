@@ -1088,11 +1088,13 @@ export interface SkillSummary {
 }
 
 /**
- * The Skills of one Marketplace. At most 200 items, sorted by skillSlug,
- * with no paging, sort, or total.
+ * One cursor batch of a Marketplace's Skills: at most 200 items in skillSlug
+ * order, with no name sort or total. The overview currently uses the first batch.
  */
 export interface ListSkillsResponse {
   skills: SkillSummary[];
+  /** Omitted when there are no further results. */
+  nextCursor?: string;
 }
 
 /** One file of a Skill: the SKILL.md or a resource document. */

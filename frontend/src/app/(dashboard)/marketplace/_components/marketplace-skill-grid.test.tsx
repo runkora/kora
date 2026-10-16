@@ -74,6 +74,6 @@ describe('MarketplaceSkillGrid rendering', () => {
       total: 2,
     });
 
-    expect(screen.getAllByRole('button', { name: /^Open / })).toHaveLength(2);
+    expect(screen.getAllByRole('link', { name: /^Open / })).toHaveLength(2);
   });
 });

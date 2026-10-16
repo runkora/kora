@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 3 — marketplace-scoped. Overview: header, toolbar, request notices, and Skill results, or the open Skill. */
+/** @tier 3 — marketplace-scoped. Overview: header, toolbar, request notices, and Skill results. */
 
 import { useState } from 'react';
 import {
@@ -29,7 +29,6 @@ import { MarketplacePagination } from './marketplace-pagination';
 import { MarketplaceResultsSkeleton } from './marketplace-results-skeleton';
 import { MarketplaceSkillGrid } from './marketplace-skill-grid';
 import { MarketplaceSkillList } from './marketplace-skill-list';
-import { MarketplaceSkillView } from './marketplace-skill-view';
 
 type ViewMode = ViewToggleProps['viewMode'];
 
@@ -40,15 +39,8 @@ const SORT_LABELS: Record<SkillSort, string> = {
 };
 
 export function MarketplaceOverview() {
-  const { marketplaces, openSlug } = useMarketplaceContext();
-  // This component stays mounted while a Skill is open, so the list/card
-  // choice survives. The browse state lives in the context.
+  const { marketplaces } = useMarketplaceContext();
   const [view, setView] = useState<ViewMode>('list');
-
-  if (openSlug !== null) {
-    // A Skill is open. It replaces the results; the address does not change.
-    return <MarketplaceSkillView />;
-  }
 
   return (
     <Stack gap="comfortable">

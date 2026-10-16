@@ -1,9 +1,8 @@
 /**
  * Unit tests for marketplace-server.ts error/edge-case paths that need the
- * Marketplace client mocked (real fixtures can't produce zero Marketplaces,
- * forced pagination edges, cancellations, or upstream errors). Kept in a
- * separate file from marketplace-server.test.ts, which intentionally runs
- * against real fixtures — a file-scoped vi.mock here must not leak there.
+ * Marketplace client mocked to drive missing data, pagination edges,
+ * cancellations, authorization refusals, and upstream errors. The companion
+ * marketplace-server.test.ts covers source selection using its own client mocks.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
@@ -17,7 +16,7 @@ vi.mock('../../_preferences/preferences-server', () => ({
   getPreferences: vi.fn(),
 }));
 
-import { loadMarketplaceOverview, loadSkillDetail } from './marketplace-server';
+import { loadMarketplaceOverview, loadSkillDetail, loadSkillPage } from './marketplace-server';
 import { fetchMarketplaces, fetchSkillDetail, fetchSkills } from '@orbit/server/marketplace-client';
 import { getPreferences } from '../../_preferences/preferences-server';
 import { ApiError } from '@orbit/server/api-error';
@@ -234,6 +233,55 @@ describe('error mapping', () => {
     // failure (see MarketplaceOverviewResult's `overview` field); only the
     // ok/status/message triple matters for this error-mapping assertion.
     expect(result).toMatchObject({ ok: false, status: 502, message: 'Failed to load Skills' });
+  });
+});
+
+describe('loadSkillPage', () => {
+  const skill: Skill = {
+    skillSlug: 'team__repo__reviewer',
+    name: 'Reviewer',
+    description: '',
+    skill: { path: 'SKILL.md', name: 'SKILL.md', content: '# Reviewer' },
+    documents: [],
+  };
+
+  it('takes the Marketplace identity and display name from the route selection', async () => {
+    vi.mocked(fetchMarketplaces).mockResolvedValue({
+      marketplaces: [{ name: 'Team', marketplaceSlug: 'team__repo', link: 'https://example.com' }],
+    });
+    vi.mocked(getPreferences).mockResolvedValue(preferencesWith('another__marketplace'));
+    vi.mocked(fetchSkillDetail).mockResolvedValue(skill);
+
+    const result = await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug);
+
+    expect(result).toEqual({ ok: true, skill, marketplaceName: 'Team' });
+    expect(fetchSkillDetail).toHaveBeenCalledExactlyOnceWith(
+      ACCESS_TOKEN,
+      'team__repo',
+      skill.skillSlug,
+    );
+    expect(getPreferences).not.toHaveBeenCalled();
+    expect(fetchSkills).not.toHaveBeenCalled();
+  });
+
+  it('does not query a Skill under an unknown Marketplace', async () => {
+    vi.mocked(fetchMarketplaces).mockResolvedValue({ marketplaces: [] });
+    expect(await loadSkillPage(ACCESS_TOKEN, 'unknown', skill.skillSlug)).toEqual({
+      ok: false,
+      status: 404,
+      message: 'Marketplace not found',
+    });
+    expect(fetchSkillDetail).not.toHaveBeenCalled();
+  });
+
+  it('preserves an authorization refusal while loading Marketplace metadata', async () => {
+    vi.mocked(fetchMarketplaces).mockRejectedValue(new ApiError(403, 'forbidden', 'No access'));
+    expect(await loadSkillPage(ACCESS_TOKEN, 'team__repo', skill.skillSlug)).toEqual({
+      ok: false,
+      status: 403,
+      message: 'No access',
+    });
+    expect(fetchSkillDetail).not.toHaveBeenCalled();
   });
 });
 
