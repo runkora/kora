@@ -23,7 +23,11 @@
 #
 # Required files:
 #   secrets/signing.key                   RSA private key for JWT signing (orbit-system only)
-#   secrets/orbit-skills-github-app.key   Placeholder GitHub App key for skills-service (orbit-system only)
+#
+# Optional files:
+#   secrets/orbit-github-app.pem          GitHub App private key for skills-service (orbit-system only).
+#                                         Without it skills-service starts, but a skill crawl that
+#                                         needs GitHub fails (HTTP 500) until it exists.
 # =============================================================================
 set -euo pipefail
 
@@ -77,8 +81,6 @@ step "Checking prerequisites"
 if should_run "orbit-system"; then
   [[ -f "${SECRETS_DIR}/signing.key" ]] \
     || fail "secrets/signing.key not found — run 'make gen-signing-key' first"
-  [[ -f "${SECRETS_DIR}/orbit-skills-github-app.key" ]] \
-    || fail "secrets/orbit-skills-github-app.key not found — run 'make gen-skills-github-app-key' first"
   [[ -n "${REDIS_PASSWORD:-}" ]] \
     || fail "REDIS_PASSWORD is not set (required for orbit-system)"
   [[ -n "${BFF_SESSION_SECRET:-}" ]] \
@@ -145,18 +147,20 @@ if should_run "orbit-system"; then
 
   ok "orbit-frontend-secrets in orbit-system"
 
-  # orbit-skills-github-app — skills-service's default GitHub App credential.
-  # charts/orbit/values.yaml mounts this with optional: false, so the pod
-  # can't schedule without it. GITHUB_APP_ID/INSTALLATION_ID are hardcoded
-  # chart placeholders ("local-test"/"1"); the key is only read lazily on the
-  # first token mint, so this throwaway key satisfies the mount without
-  # letting local skills-service actually authenticate to GitHub.
-  kubectl create secret generic orbit-skills-github-app \
-    --namespace orbit-system \
-    --from-file=privateKey="${SECRETS_DIR}/orbit-skills-github-app.key" \
-    --dry-run=client -o yaml | kubectl apply -f -
+  # orbit-skills-github-app — skills-service's default GitHub App credential,
+  # the same PEM the example tenant's github connection uses. The chart mounts
+  # it optional, so a missing PEM does not stop the pod from starting; only a
+  # skill crawl that needs GitHub fails (HTTP 500) until it exists.
+  if [[ -f "${SECRETS_DIR}/orbit-github-app.pem" ]]; then
+    kubectl create secret generic orbit-skills-github-app \
+      --namespace orbit-system \
+      --from-file=privateKey="${SECRETS_DIR}/orbit-github-app.pem" \
+      --dry-run=client -o yaml | kubectl apply -f -
 
-  ok "orbit-skills-github-app in orbit-system"
+    ok "orbit-skills-github-app in orbit-system"
+  else
+    warn "secrets/orbit-github-app.pem not found — skills-service will start without a GitHub credential; a skill crawl that needs GitHub fails with HTTP 500 until it exists"
+  fi
 fi
 
 # ── orbit-tenant-example (example agent) ─────────────────────────────────────
@@ -174,7 +178,7 @@ if [[ -z "${TARGET_NAMESPACE}" ]]; then
   echo -e "${GREEN}  Secrets applied to all namespaces               ${RESET}"
   echo -e "${GREEN}══════════════════════════════════════════════════${RESET}"
   echo ""
-  echo "  orbit-system         → orbit-secrets (DB + Redis + signing key) + orbit-frontend-secrets (BFF session) + orbit-skills-github-app"
+  echo "  orbit-system         → orbit-secrets (DB + Redis + signing key) + orbit-frontend-secrets (BFF session) + orbit-skills-github-app (only when secrets/orbit-github-app.pem exists)"
   echo "  orbit-tenant-example → DB only"
 else
   echo -e "${GREEN}  Secrets applied to ${TARGET_NAMESPACE}${RESET}"

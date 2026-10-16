@@ -402,10 +402,6 @@ dev-up: ## Start Postgres + Redis + glauth + Dex (local OIDC provider) for daily
 		echo "$(COLOR_YELLOW)→ TLS certificates not found — generating for Dex HTTPS...$(COLOR_RESET)"; \
 		$(MAKE) --no-print-directory setup-tls; \
 	fi
-	@if [ ! -f secrets/orbit-skills-github-app.key ]; then \
-		echo "$(COLOR_YELLOW)→ secrets/orbit-skills-github-app.key not found — generating placeholder key...$(COLOR_RESET)"; \
-		$(MAKE) --no-print-directory gen-skills-github-app-key; \
-	fi
 	@echo "$(COLOR_YELLOW)Starting local services (Postgres + Redis + glauth + Dex + port proxy)...$(COLOR_RESET)"
 	@docker compose up -d --wait postgres redis glauth dex port-proxy
 	@echo "$(COLOR_GREEN)✓ Postgres + Redis + glauth + Dex + port proxy ready$(COLOR_RESET)"
@@ -1231,13 +1227,6 @@ gen-signing-key: ## Write a 4096-bit RSA signing key to secrets/signing.key
 	@echo ""
 	@echo "  ORBIT_TOKEN_SIGNING_KEY_FILE=secrets/signing.key"
 	@echo ""
-
-.PHONY: gen-skills-github-app-key
-gen-skills-github-app-key: ## Write a throwaway RSA key to secrets/orbit-skills-github-app.key (local skills-service dev; GITHUB_APP_ID=local-test never mints a real token with it)
-	@mkdir -p secrets
-	@openssl genrsa -out secrets/orbit-skills-github-app.key 4096 2>/dev/null
-	@chmod 600 secrets/orbit-skills-github-app.key
-	@echo "$(COLOR_GREEN)✓ Key written to secrets/orbit-skills-github-app.key (mode 600)$(COLOR_RESET)"
 
 # ===========================================
 # Convenience Targets

@@ -645,3 +645,50 @@ func manySkills(n int) *fakeGitHubTreeClient {
 	}
 	return &fakeGitHubTreeClient{files: files, contents: contents}
 }
+
+// refRecordingGitHubClient records the ref of every raw-content download.
+type refRecordingGitHubClient struct {
+	*fakeGitHubTreeClient
+
+	mu      sync.Mutex
+	rawRefs []string
+}
+
+func (f *refRecordingGitHubClient) GetRawContent(ctx context.Context, token, org, repo, ref, filePath string) ([]byte, error) {
+	f.mu.Lock()
+	f.rawRefs = append(f.rawRefs, ref)
+	f.mu.Unlock()
+	return f.fakeGitHubTreeClient.GetRawContent(ctx, token, org, repo, ref, filePath)
+}
+
+func TestCrawlerReadsConfiguredBranch(t *testing.T) {
+	src := testSource
+	src.Branch = "release"
+	github := &refRecordingGitHubClient{fakeGitHubTreeClient: &fakeGitHubTreeClient{
+		files:    []ghclient.TreeEntry{file("skills/review/SKILL.md")},
+		contents: map[string]string{"skills/review/SKILL.md": skillMD("Review", "Reviews code")},
+	}}
+	c := NewCrawler(github, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewDevelopmentLogger())
+
+	paths, err := c.FetchTree(context.Background(), src)
+	if err != nil {
+		t.Fatalf("FetchTree: %v", err)
+	}
+	if github.ref != "release" {
+		t.Errorf("GetTree ref = %q, want %q", github.ref, "release")
+	}
+
+	if _, err := c.FetchSkills(context.Background(), src, paths); err != nil {
+		t.Fatalf("FetchSkills: %v", err)
+	}
+	github.mu.Lock()
+	defer github.mu.Unlock()
+	if len(github.rawRefs) == 0 {
+		t.Fatal("no raw content was downloaded")
+	}
+	for _, ref := range github.rawRefs {
+		if ref != "release" {
+			t.Errorf("GetRawContent ref = %q, want %q", ref, "release")
+		}
+	}
+}

@@ -72,3 +72,9 @@ egressGateway:
   # scripts/cluster/register-k8s-connection.sh register it.
   upstreamPorts:
     - 6443
+
+skillsService:
+  github:
+    # The local GitHub App (deploy/local/connections/github.yaml).
+    appID: "4015347"
+    installationID: "139299720"

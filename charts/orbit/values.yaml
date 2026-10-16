@@ -873,6 +873,24 @@ skillsService:
   githubApps:
     - secretName: orbit-skills-github-app
       mountPath: /var/run/secrets/skills/github-apps/default
+  # GitHub App every marketplace is crawled with. The private key comes from
+  # the first githubApps Secret.
+  github:
+    # -- GitHub App ID. Required, together with installationID: with either
+    # empty the skills-service process exits at startup ("GITHUB_APP_ID
+    # environment variable is required"), so the pod does not start.
+    appID: ""
+    # -- Installation ID of that App on the organization that owns the
+    # marketplace repositories. Required, together with appID: with either
+    # empty the skills-service process exits at startup, so the pod does not
+    # start.
+    installationID: ""
+  # -- Env vars for secrets only. Settings go in configOverrides.
+  extraEnv: []
+  # -- Raw config merged last over the rendered config files, keyed by config
+  # module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow
+  # the Go config structs; an unknown key fails startup.
+  configOverrides: {}
 
 triggers:
   image:

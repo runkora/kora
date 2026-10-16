@@ -459,6 +459,23 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.resources.requests.cpu | string | `"20m"` |  |
 | sandboxMount.resources.requests.memory | string | `"32Mi"` |  |
 | sandboxMount.tolerations | list | `[]` | Added to the tolerations of agents.workloads.sandbox and agents.workloads.sessionManager, which the agent always carries. |
+| skillsService.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
+| skillsService.extraEnv | list | `[]` | Env vars for secrets only. Settings go in configOverrides. |
+| skillsService.github.appID | string | `""` | GitHub App ID. Required, together with installationID: with either empty the skills-service process exits at startup ("GITHUB_APP_ID environment variable is required"), so the pod does not start. |
+| skillsService.github.installationID | string | `""` | Installation ID of that App on the organization that owns the marketplace repositories. Required, together with appID: with either empty the skills-service process exits at startup, so the pod does not start. |
+| skillsService.githubApps[0].mountPath | string | `"/var/run/secrets/skills/github-apps/default"` |  |
+| skillsService.githubApps[0].secretName | string | `"orbit-skills-github-app"` |  |
+| skillsService.image.digest | string | `""` |  |
+| skillsService.image.pullPolicy | string | `""` |  |
+| skillsService.image.registry | string | `""` |  |
+| skillsService.image.repository | string | `"orbit-skills-service"` |  |
+| skillsService.image.tag | string | `""` |  |
+| skillsService.nodeSelector | object | `{}` |  |
+| skillsService.replicas | int | `1` |  |
+| skillsService.resources.limits.cpu | string | `"500m"` |  |
+| skillsService.resources.limits.memory | string | `"256Mi"` |  |
+| skillsService.resources.requests.cpu | string | `"100m"` |  |
+| skillsService.resources.requests.memory | string | `"64Mi"` |  |
 | spire.className | string | `"spire-system-spire"` |  |
 | toolGateway.affinity | object | `{}` |  |
 | toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |

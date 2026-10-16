@@ -18,6 +18,8 @@ spec:
     metadata:
       labels:
         app: orbit-skills-service
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/skills-service/config.yaml") . | sha256sum }}
 
     spec:
       serviceAccountName: orbit-skills-service
@@ -46,17 +48,13 @@ spec:
               protocol: TCP
 
           env:
-            - name: REDIS_HOST
-              value: "orbit-redis"
-
-            - name: REDIS_PASSWORD
-              value: "orbit"
+            {{- include "orbit.platformEnv" (dict "root" $ "name" "skillsService" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
 
             - name: GITHUB_APP_ID
-              value: "local-test"
+              value: {{ .Values.skillsService.github.appID | quote }}
 
             - name: GITHUB_APP_INSTALLATION_ID
-              value: "1"
+              value: {{ .Values.skillsService.github.installationID | quote }}
 
             - name: GITHUB_APP_PRIVATE_KEY_PATH
               value: {{ index .Values.skillsService.githubApps 0 "mountPath" }}/privateKey
@@ -65,6 +63,8 @@ spec:
               value: "/etc/orbit/marketplace"
 
           volumeMounts:
+            {{- include "orbit.configVolumeMount" . | nindent 12 }}
+            {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             - name: marketplace-sources
               mountPath: /etc/orbit/marketplace
             {{- range .Values.skillsService.githubApps }}
@@ -77,6 +77,8 @@ spec:
             {{- toYaml .Values.skillsService.resources | nindent 12 }}
 
       volumes:
+        {{- include "orbit.configVolume" (dict "root" $ "name" "skillsService" "configMap" "orbit-skills-service-config" "modules" (include "orbit.skillsService.configModules" . | fromYaml)) | nindent 8 }}
+        {{- include "orbit.redisCAVolume" . | nindent 8 }}
         - name: marketplace-sources
           configMap:
             name: orbit-skill-marketplace-sources
@@ -84,4 +86,7 @@ spec:
         - name: github-app-{{ .secretName }}
           secret:
             secretName: {{ .secretName }}
+            # The service starts without it; a skill crawl that needs GitHub
+            # fails (HTTP 500) until it exists.
+            optional: true
         {{- end }}

@@ -1,14 +1,34 @@
 package skills
 
-// MarketplaceSource is one marketplace entry derived from skills-mapping.yaml.
-// Org, RepoName, and MarketplaceSlug are backend-internal — they never appear
-// in API responses or URLs sent to the frontend.
+import "strings"
+
+// MarketplaceSource is one marketplace entry from marketplace-sources.json.
+// Org, RepoName and Branch are backend-internal. MarketplaceSlug is the URL
+// segment, derived from Name; Link points at the repository.
 type MarketplaceSource struct {
 	Name            string `json:"name"`
 	Org             string `json:"org"`
 	RepoName        string `json:"repoName"`
+	Branch          string `json:"branch,omitempty"`
 	Link            string `json:"link"`
 	MarketplaceSlug string `json:"marketplaceSlug"`
+}
+
+// CacheKey identifies the repository and ref this source's skills are read
+// from, as owner/repo@ref. Redis keys use it rather than MarketplaceSlug: the
+// slug comes from the display name, so two tenants can give the same slug to
+// different repositories.
+func (s MarketplaceSource) CacheKey() string {
+	return strings.ToLower(s.Org+"/"+s.RepoName) + "@" + s.ref()
+}
+
+// ref is the Git ref the crawler reads: the configured branch, or HEAD (the
+// repository's default branch) when none is set.
+func (s MarketplaceSource) ref() string {
+	if s.Branch == "" {
+		return defaultBranch
+	}
+	return s.Branch
 }
 
 // SkillEntry is one skill entry stored in the marketplace Redis array and

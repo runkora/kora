@@ -30,7 +30,7 @@ const (
 	// in the process, protecting the shared GitHub rate limit.
 	globalCap = 100
 
-	// defaultBranch is passed as the Git ref when no branch is configured,
+	// defaultBranch is passed as the Git ref when a source has no branch,
 	// causing GitHub to use the repository's default branch.
 	defaultBranch = "HEAD"
 )
@@ -80,7 +80,7 @@ func (c *Crawler) FetchTree(ctx context.Context, source MarketplaceSource) (map[
 		return nil, fmt.Errorf("get github token for marketplace %q: %w", source.Name, err)
 	}
 
-	files, err := c.github.GetTree(ctx, token, source.Org, source.RepoName, defaultBranch)
+	files, err := c.github.GetTree(ctx, token, source.Org, source.RepoName, source.ref())
 	if err != nil {
 		return nil, fmt.Errorf("list files of %s/%s: %w", source.Org, source.RepoName, err)
 	}
@@ -312,7 +312,7 @@ func (c *Crawler) fetchRaw(ctx context.Context, token string, source Marketplace
 	}
 	defer perRepoSem.Release(1)
 
-	content, err := c.github.GetRawContent(ctx, token, source.Org, source.RepoName, defaultBranch, filePath)
+	content, err := c.github.GetRawContent(ctx, token, source.Org, source.RepoName, source.ref(), filePath)
 	if err != nil {
 		return "", fmt.Errorf("download %s: %w", filePath, err)
 	}

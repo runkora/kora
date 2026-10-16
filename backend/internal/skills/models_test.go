@@ -66,3 +66,32 @@ func TestSkillEntryPathInJSON(t *testing.T) {
 		t.Errorf("skillSlug = %v, want org__repo__react-expert", got["skillSlug"])
 	}
 }
+
+func TestMarketplaceSourceCacheKey(t *testing.T) {
+	cases := []struct {
+		name string
+		src  skills.MarketplaceSource
+		want string
+	}{
+		{"owner and repo are lowercased", skills.MarketplaceSource{Org: "Acme-Corp", RepoName: "Internal-Skills", Branch: "main"}, "acme-corp/internal-skills@main"},
+		{"branch keeps its case", skills.MarketplaceSource{Org: "acme", RepoName: "skills", Branch: "Release/V2"}, "acme/skills@Release/V2"},
+		{"no branch reads the default branch", skills.MarketplaceSource{Org: "acme", RepoName: "skills"}, "acme/skills@HEAD"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.src.CacheKey(); got != tc.want {
+				t.Errorf("CacheKey() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+// Two tenants can each name a marketplace "Skills"; the cache must still tell
+// their repositories apart.
+func TestMarketplaceSourceCacheKeyIgnoresDisplayName(t *testing.T) {
+	a := skills.MarketplaceSource{Name: "Skills", MarketplaceSlug: "skills", Org: "acme", RepoName: "skills", Branch: "main"}
+	b := skills.MarketplaceSource{Name: "Skills", MarketplaceSlug: "skills", Org: "globex", RepoName: "skills", Branch: "main"}
+	if a.CacheKey() == b.CacheKey() {
+		t.Fatalf("CacheKey() collides for different repositories: %q", a.CacheKey())
+	}
+}

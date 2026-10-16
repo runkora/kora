@@ -1,0 +1,18 @@
+{{- /*
+skills-service config files (docs/adr/2026-10-06-rendered-service-config-files.md).
+*/}}
+{{- define "orbit.skillsService.configModules" -}}
+cmd/skills-service:
+  identity:
+    internalURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-identity") | toJson }}
+  policy:
+    bundleEndpoint: {{ include "orbit.bundleEndpoint" . | toJson }}
+    policyServiceURL: {{ include "orbit.serviceURL" (dict "root" . "name" "orbit-policy-service") | toJson }}
+    # Registers marketplace:read so roles can grant it; platform-admin holds
+    # every registered scope.
+    registerRoutes: true
+{{ include "orbit.observabilityConfigModule" . }}
+{{ include "orbit.storageConfigModule" (dict "root" . "redisClient" true) }}
+{{ include "orbit.tokenConfigModule" . }}
+{{- end }}
+{{- include "orbit.configMap" (dict "root" $ "name" "skillsService" "configMap" "orbit-skills-service-config" "modules" (include "orbit.skillsService.configModules" . | fromYaml)) }}
