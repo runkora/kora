@@ -17,7 +17,7 @@ A tenant MCP server is a workload an operator deploys into a tenant namespace, r
 
 The mutating webhook stamps `orbit.io/identity-proxy: "enabled"` on every pod it admits, the `identity-proxy-ext-proc` EnvoyFilter attaches to every pod carrying that label, and it injects `Authorization: Bearer <platform token>` into every outbound HTTP request. A server authenticating to its own upstream has that header overwritten.
 
-The validating webhook from [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md) denies any tenant pod carrying `sidecar.istio.io/inject: "false"`, or lacking an `istio-proxy`, `identity-proxy` or `opa` container. That ADR also deleted the `orbit.io/skip-injection` opt-out, because "it is a pod label, so anyone who can create a tenant pod could remove enforcement". `docs/guides/mcp-servers.md` still instructs operators to set both labels, so the documented path is denied at admission.
+The validating webhook from [2026-09-04](2026-09-04-enforcement-sidecar-injection-and-preflight.md) denies any tenant pod carrying `sidecar.istio.io/inject: "false"`, or lacking an `istio-proxy`, `identity-proxy` or `opa` container. That ADR also deleted the `orbit.io/skip-injection` opt-out, because "it is a pod label, so anyone who can create a tenant pod could remove enforcement". `docs/guides/register-mcp-server.md` still instructs operators to set both labels, so the documented path is denied at admission.
 
 The chart's `orbit-system` policies admit tool-gateway ingress *from* tenant namespaces (`allow-tenant-ingress-tool-gateway`, port 8096) and egress within `orbit-system` and to external `:443`. Egress into a tenant namespace is absent, so the tool-gateway cannot dial a tenant MCP.
 

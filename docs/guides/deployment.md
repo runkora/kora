@@ -61,7 +61,7 @@ The `orbit` chart applies its own schema. A `pre-install,pre-upgrade` hook Job (
 
 - Use private endpoints and TLS in production.
 - When either service sits outside the cluster network, add its CIDR and port to `networkPolicy.externalServices`. The default-deny policy otherwise blocks the connection.
-- When the mesh restricts egress, set `istio.outboundTrafficPolicy: REGISTRY_ONLY`. The chart renders a `ServiceEntry` for Postgres and Redis. The operator renders one for each [model provider](model-providers.md#network-access).
+- When the mesh restricts egress, set `istio.outboundTrafficPolicy: REGISTRY_ONLY`. The chart renders a `ServiceEntry` for Postgres and Redis. The operator renders one for each [model provider](register-inference-provider.md#network-access).
 
 Each agent runs against its own workspace on a persistent volume. kora requests a `10Gi ReadWriteOnce` volume from your cluster's default StorageClass. Your cluster's StorageClass controls how the volume behaves, covering its expansion, retention and encryption policies. Set `agents.workspace.storageClassName`, `accessModes` and `size` to use a different class. Agent and sandbox pods run as uid 100 and set `fsGroup: 100`. If your cluster needs a different group for root-owned writable volumes, patch `spec.template.spec.securityContext.fsGroup` on the `StatefulSet` and `spec.securityContext.fsGroup` on the sandbox `Pod`.
 
@@ -481,10 +481,10 @@ Every pod should be running and both endpoints should respond. At this stage, yo
 Now that the platform is running, you can configure it through the following guides:
 
 - [Tenants](tenants.md): onboard a tenant so its team can sign in and get their own workspace.
-- [Model providers](model-providers.md): connect the platform to upstream inference providers.
-- [Connections](connections.md): register external services agents can reach without holding credentials.
+- [Model providers](register-inference-provider.md): connect the platform to upstream inference providers.
+- [Connections](register-connection.md): register external services agents can reach without holding credentials.
 - [OAuth clients](oauth-clients.md): configure clients that authenticate users against kora.
-- [MCP servers](mcp-servers.md): give agents and humans governed access to a set of tools.
+- [MCP servers](register-mcp-server.md): give agents and humans governed access to a set of tools.
 - [Policy and roles](policy-and-roles.md): decide what each person and agent is allowed to do.
 
 ## Upgrade
