@@ -244,7 +244,7 @@ cfg := config.MustLoadService[AppConfig]("cmd/identity", config.Environment())
 // Generic loader (module-relative) is also available: config.Load[T](module, env)
 ```
 
-**Secrets never appear in YAML.** Secret fields are tagged `yaml:"-"` and loaded via `os.Getenv`. See [docs/configuration/config.md](configuration/config.md) and [docs/configuration/secrets.md](configuration/secrets.md).
+**Secrets never appear in YAML.** Secret fields are tagged `yaml:"-"` and loaded via `os.Getenv`. See [docs/contributing/configuration.md](contributing/configuration.md) and [docs/reference/secrets.md](reference/secrets.md).
 
 ### 7. Migrations via Goose (per-binary)
 
@@ -317,5 +317,5 @@ Create `cmd/{name}/` with its own `main.go` and (if it needs config) a `config/b
 - [database-infrastructure-layer](adr/2026-03-03-database-infrastructure-layer.md): Database infrastructure layer
 - [multi-service-backend-deployment-structure](adr/2026-03-19-multi-service-backend-deployment-structure.md): Multi-binary deployment model and typed platform clients
 - [opentelemetry-observability-discipline](adr/2026-03-21-opentelemetry-observability-discipline.md): OpenTelemetry observability discipline
-- [docs/configuration/config.md](configuration/config.md) · [docs/configuration/secrets.md](configuration/secrets.md): Configuration & secret-management reference
-- [docs/guides/local-development.md](guides/local-development.md): Local setup walkthrough
+- [docs/contributing/configuration.md](contributing/configuration.md) · [docs/reference/secrets.md](reference/secrets.md): Configuration & secret-management reference
+- [docs/contributing/local-development.md](contributing/local-development.md): Local setup walkthrough

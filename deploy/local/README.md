@@ -1,6 +1,6 @@
 # Local Tenant Resources
 
-Local-only tenant resources applied after the platform installation. Platform setup, image redeployment, and Helmfile environment values are documented in [docs/guides/local-development.md](../../docs/guides/local-development.md).
+Local-only tenant resources applied after the platform installation. Platform setup, image redeployment, and Helmfile environment values are documented in [docs/contributing/local-development.md](../../docs/contributing/local-development.md).
 
 ## Directory Structure
 

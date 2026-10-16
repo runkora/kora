@@ -28,7 +28,7 @@ Setup, conventions, and the quality gate: [CONTRIBUTING.md](CONTRIBUTING.md#2-de
 
 **Language**: Go 1.26 (control plane)
 
-Local development runs in Kubernetes. There is one environment. For the full walkthrough see **[docs/guides/local-development.md](docs/guides/local-development.md)**.
+Local development runs in Kubernetes. There is one environment. For the full walkthrough see **[docs/contributing/local-development.md](docs/contributing/local-development.md)**.
 
 **First run:**
 

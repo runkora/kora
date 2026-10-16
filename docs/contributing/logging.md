@@ -466,4 +466,4 @@ logger.Info(ctx, "message with trace correlation")
 ## Related Documentation
 
 - [Tracing](tracing.md)
-- [Configuration](configuration.md)
+- [Configuration](../reference/telemetry.md)

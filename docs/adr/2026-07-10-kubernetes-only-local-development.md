@@ -142,5 +142,5 @@ Postgres and Redis passwords stay at fixed local defaults rather than being rand
 - Remove `make dev`, `make frontend-dev`, `.air.toml`, and the `air` install from `make install-tools`.
 - Add `make up`, `make down`, `make auth`; make `SERVICE` optional on `make redeploy`.
 - Strip the host-process variables from `.env.example`, move compose inputs to defaults in `docker-compose.yml`, and have `make setup` generate `.env` with the two real secrets.
-- Rewrite `docs/guides/day-one.md` and `docs/guides/local-development.md` around the single path, and delete the Tier 1 and Tier 2 language from `README.md`, `CONTRIBUTING.md` and `AGENTS.md`.
+- Rewrite `docs/guides/day-one.md` and `docs/contributing/local-development.md` around the single path, and delete the Tier 1 and Tier 2 language from `README.md`, `CONTRIBUTING.md` and `AGENTS.md`.
 - Mark [local-development-environment](2026-03-10-local-development-environment.md) as superseded once this is accepted.

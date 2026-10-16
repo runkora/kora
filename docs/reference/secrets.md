@@ -130,8 +130,8 @@ The application code is identical regardless: it always reads `os.Getenv`.
 
 ## Reference
 
-- [config.md](config.md): YAML-based configuration for non-secret values
-- [guides/local-development.md](../guides/local-development.md): Full local setup walkthrough
+- [config.md](../contributing/configuration.md): YAML-based configuration for non-secret values
+- [contributing/local-development.md](../contributing/local-development.md): Full local setup walkthrough
 - [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md): Configuration system design
 - [oidc-provider-abstraction-and-local-identity-provider](../adr/2026-03-16-oidc-provider-abstraction-and-local-identity-provider.md): OIDC provider abstraction
 - `SECURITY.md`: reporting vulnerabilities

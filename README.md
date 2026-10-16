@@ -17,7 +17,7 @@ kora is not an agent framework, a model router, or an LLM wrapper. It runs the a
 ## Getting started
 
 - **Run kora in a Kubernetes cluster:** Install it with the [deployment guide](docs/guides/deployment.md).
-- **Work on kora:** Get it running locally with the [local development guide](docs/guides/local-development.md).
+- **Work on kora:** Get it running locally with the [local development guide](docs/contributing/local-development.md).
 
 ## Documentation
 

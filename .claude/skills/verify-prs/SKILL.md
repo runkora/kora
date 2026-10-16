@@ -38,7 +38,7 @@ defining principle:
    - **Merging or closing a PR** is the human's decision. Pushing *fix* commits to a PR
      branch is fine and expected; merging/closing is not — propose it, don't do it unasked.
    - **Rebuilding the cluster** tears down the running one (~20-40 min) — confirm first.
-4. **Read** `AGENTS.md` + `docs/guides/local-development.md` for conventions and make targets.
+4. **Read** `AGENTS.md` + `docs/contributing/local-development.md` for conventions and make targets.
 5. **Switch kube context before any redeploy** — `make redeploy-*` uses the *default*
    context, so targeting EKS dev by mistake is the #1 footgun (ArgoCD then masks it as a
    no-op): `kubectl config use-context k3d-orbit-local`.

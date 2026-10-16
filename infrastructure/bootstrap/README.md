@@ -37,7 +37,7 @@ make cluster-deploy     # build + push tenant images; apply OrbitTenant
                         # resources and workload fixtures in deploy/local/
 ```
 
-See [docs/guides/local-development.md](../../docs/guides/local-development.md) for the full annotated install sequence.
+See [docs/contributing/local-development.md](../../docs/contributing/local-development.md) for the full annotated install sequence.
 
 
 ## What lives here vs deploy/local/
