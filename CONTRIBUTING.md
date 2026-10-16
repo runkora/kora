@@ -12,7 +12,7 @@ If you are unsure, open a GitHub issue.
 
 ## Getting set up
 
-Get kora running locally with the [local development guide](docs/guides/local-development.md). You do not need a running cluster to contribute documentation.
+Get kora running locally with the [local development guide](docs/contributing/local-development.md). You do not need a running cluster to contribute documentation.
 
 Please read and follow our [Code of Conduct](CODE_OF_CONDUCT.md).
 

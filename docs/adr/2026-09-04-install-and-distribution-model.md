@@ -428,7 +428,7 @@ Takes `(dict "root" $ "name" "<values key>")`, the values key being the componen
 1. `deploy/reference/helmfile.yaml.gotmpl` (release sequencing and the shared-fact `set:` blocks), `values/orbit.yaml` (the consumer's chart values), `values/spire.yaml` and `values/istiod.yaml` (what kora requires of each prerequisite, shared facts set from the environment), `values/gateway-byo.yaml`, `environments/{local,example}.yaml` (cluster facts for the Helmfile), `argocd/` app-of-apps.
 2. `make up` sequence per Decision 6; remove `cluster-operator`, `cluster-operator-chart`; keep `cluster-deploy` for fixtures; `redeploy.sh` changes per Decision 6; `resolve-docker-ips.sh` writes `local.generated.yaml` as plain chart values; k3d's Kubernetes version moves inside the supported window.
 3. Local-only chart values (k3d registry, `imagePullPolicy: Always`, k3s CNI paths, recorded digests, generated host aliases and external-service CIDRs) live in `values/orbit.local.yaml` and `local.generated.yaml`, layered onto `values/orbit.yaml` by the local environment. Delete `deploy/local/orbit-platform.yaml` and the old `deploy/local/{orbit,platform,operator}-values.yaml`.
-4. Update `docs/guides/local-development.md` and `deploy/local/README.md`.
+4. Update `docs/contributing/local-development.md` and `deploy/local/README.md`.
 
 ### Phase 4: Release and verification
 

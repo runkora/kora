@@ -295,7 +295,7 @@ Each tenant can have an isolated OIDC client. This allows for custom tenancy and
 
 ## Provide platform secrets
 
-Platform credentials and signing keys come from an external secret manager. [Secrets](../configuration/secrets.md) describes the ownership and projection model.
+Platform credentials and signing keys come from an external secret manager. [Secrets](../reference/secrets.md) describes the ownership and projection model.
 
 Platform credentials must be projected into Kubernetes Secrets in the system namespace before installing the `orbit` chart.
 

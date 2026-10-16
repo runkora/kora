@@ -637,7 +637,7 @@ All other mocking uses MSW handlers from `test-utils/`.
 2. Write baseline Category A E2E test: app loads, health status renders (mocked Go backend)
 3. Write BFF handler tests for `/api/auth/discover` and `/api/auth/logout`
 4. Upload coverage reports as CI artifacts
-5. Write `docs/guides/frontend-testing.md`
+5. Write `docs/contributing/frontend-testing.md`
 
 **Phase 3 (Maturity):**
 

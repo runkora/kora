@@ -352,7 +352,7 @@ Single release.
 - [Deployment guide](../guides/deployment.md)
 - [Helm Chart Distribution and GitOps Repository Structure](../adr/2026-03-31-helm-chart-distribution-and-gitops-repository-structure.md)
 - [kora Kubernetes Operator](../adr/2026-03-31-orbit-kubernetes-operator.md)
-- [SPIFFE and SPIRE](../spiffe.md)
+- [Identity](../architecture/identity.md)
 
 ### Glossary
 

@@ -213,4 +213,4 @@ svc := feature.NewService(db, redis, logger, featureCfg)
 - `internal/identity/service.go`: canonical example of feature-level `LoadConfig()` with secret overlays
 - `cmd/identity/config/config.go`: canonical example of binary-level `MustLoadService` package var
 - [yaml-file-based-configuration](../adr/2026-02-18-yaml-file-based-configuration.md): decision record and rationale
-- [Secrets reference](secrets.md): how secrets are separated from config
+- [Secrets reference](../reference/secrets.md): how secrets are separated from config

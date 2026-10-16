@@ -140,7 +140,7 @@ No `vitest.config.ts`, `jest.config.ts`, `playwright.config.ts`, or any test fil
 **So that** I don't have to make tooling decisions from scratch or diverge from established conventions.
 
 **Acceptance Criteria:**
-- [ ] A setup guide (`docs/guides/frontend-testing.md`) documents the exact steps: install Vitest, copy config shape, add `test` script
+- [ ] A setup guide (`docs/contributing/frontend-testing.md`) documents the exact steps: install Vitest, copy config shape, add `test` script
 - [ ] The root `make` target picks up the new package's tests automatically
 - [ ] The new package's tests run in full isolation — no shared global state with other packages
 
@@ -478,7 +478,7 @@ If a story breaks because of a component change, that is caught by the Vitest co
 - [ ] Per-route mandatory rule enforced via convention: every BFF route handler must have happy-path and all error-branch tests before merge
 - [ ] `lib/routing/api-routes.ts` has 100% path coverage (pure functions, trivially testable)
 - [ ] `lib/routing/routes.ts` (`isSafeRedirectPath`) has tests for all edge cases (empty string, relative paths, absolute URLs, `//` protocol-relative)
-- [ ] A setup guide in `docs/guides/frontend-testing.md` documenting the pattern for new workspace packages
+- [ ] A setup guide in `docs/contributing/frontend-testing.md` documenting the pattern for new workspace packages
 - [ ] Vitest reporters configured for CI (JSON/JUnit output) and local (verbose/dot)
 - [ ] `test:watch` script for local development
 
@@ -670,7 +670,7 @@ All open questions have been resolved.
 - Coverage thresholds reported (Hades ≥ 30%, App ≥ 15%; reporting-only, never blocks CI)
 - Playwright config and baseline E2E Category A test (app loads, health status renders with mocked backend)
 - Coverage reports uploaded as CI artifacts
-- `docs/guides/frontend-testing.md` setup guide written
+- `docs/contributing/frontend-testing.md` setup guide written
 - Expand BFF handler tests to cover `/api/auth/discover` and `/api/auth/logout`
 
 **Phase 3: Maturity**

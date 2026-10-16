@@ -133,6 +133,6 @@ Check a workload's rendered values with `kubectl -n orbit-system get configmap o
 
 ## Related Documentation
 
-- [Tracing Implementation](tracing.md)
-- [Logging Implementation](logging.md)
+- [Tracing Implementation](../contributing/tracing.md)
+- [Logging Implementation](../contributing/logging.md)
 - [OpenTelemetry Environment Variables](https://opentelemetry.io/docs/specs/otel/configuration/sdk-environment-variables/)

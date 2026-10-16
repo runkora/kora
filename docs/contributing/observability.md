@@ -10,8 +10,8 @@ kora is a multi-service backend: it compiles to a set of binaries under `backend
 
 ## Documentation Structure
 
-- **[README.md](README.md)** - This file: architecture overview and quick start
-- **[configuration.md](configuration.md)** - Environment variables and configuration options
+- **[README.md](observability.md)** - This file: architecture overview and quick start
+- **[configuration.md](../reference/telemetry.md)** - Environment variables and configuration options
 - **[tracing.md](tracing.md)** - Distributed tracing implementation details
 - **[logging.md](logging.md)** - Structured logging and log-trace correlation
 
@@ -44,7 +44,7 @@ kora is a multi-service backend: it compiles to a set of binaries under `backend
 
 ## Configuration
 
-Service identity (name, version) comes from each binary's YAML config via `observability.serviceName` and `app.version`. `APP_ENV` selects the environment: `local` or `production` (the default). The shared tunables `otlpEndpoint`, `samplingRate` and `logFormat` load from the `internal/platform/observability` config module, which the chart renders from `global.observability` and `global.logFormat`. See [configuration.md](configuration.md).
+Service identity (name, version) comes from each binary's YAML config via `observability.serviceName` and `app.version`. `APP_ENV` selects the environment: `local` or `production` (the default). The shared tunables `otlpEndpoint`, `samplingRate` and `logFormat` load from the `internal/platform/observability` config module, which the chart renders from `global.observability` and `global.logFormat`. See [configuration.md](../reference/telemetry.md).
 
 ### Exporter selection
 
@@ -233,7 +233,7 @@ curl http://localhost:8080/api/v1/example/hello/world
 
 ## Related Documentation
 
-- **[configuration.md](configuration.md)** - Complete configuration reference
+- **[configuration.md](../reference/telemetry.md)** - Complete configuration reference
 - **[tracing.md](tracing.md)** - Distributed tracing deep dive
 - **[logging.md](logging.md)** - Structured logging guide
 - [dependency-injected-logging](../adr/2026-02-17-dependency-injected-logging.md)

@@ -82,7 +82,7 @@ Access tokens last four hours locally, set by `identity.config.accessTokenTtlMin
 
 The local certificates come from a private CA. `curl` needs `-k`, and any other client needs the mkcert root or TLS verification off.
 
-A `403` on a route you expected to reach means your principal lacks its scope. [Policy and roles](policy-and-roles.md) covers grants, roles, and the `platform-admin` bootstrap.
+A `403` on a route you expected to reach means your principal lacks its scope. [Policy and roles](../guides/policy-and-roles.md) covers grants, roles, and the `platform-admin` bootstrap.
 
 ## Deploying a change
 

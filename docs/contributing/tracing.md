@@ -348,7 +348,7 @@ Spans are batched before export:
 
 ## Related Documentation
 
-- [Configuration](configuration.md)
+- [Configuration](../reference/telemetry.md)
 - [Logging](logging.md)
 - [OpenTelemetry Tracing Spec](https://opentelemetry.io/docs/specs/otel/trace/api/)
 - [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/)

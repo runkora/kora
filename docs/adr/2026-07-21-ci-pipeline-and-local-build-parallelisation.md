@@ -136,7 +136,7 @@ The measured waste is structural, not compute-bound: a false job dependency, a c
 - `Makefile`: `redeploy-platform` dispatches to the bake path when `ORBIT_PARALLEL_BUILDS=1`; `redeploy-platform-bake` becomes a single bake invocation of the `local-platform` group with corrected image-name push loop and the mkcert CA layer preserved.
 - `docker-bake.local.hcl`: add `orbit-egress-gateway`, `orbit-mcp`, `orbit-tool-gateway`; extend the `local-platform` group.
 - `.env.example`: document `ORBIT_PARALLEL_BUILDS=1` and recommended Colima sizing for high-spec machines.
-- `docs/guides/local-development.md`: parallel-builds section under the inner-loop guide.
+- `docs/contributing/local-development.md`: parallel-builds section under the inner-loop guide.
 
 ---
 
