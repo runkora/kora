@@ -97,25 +97,3 @@ export function buildThemeSchema(manifest: Manifest): ThemeSchema {
 export function serializeSchema(schema: ThemeSchema): string {
   return `${JSON.stringify(schema, null, 2)}\n`;
 }
-
-/** The top-level properties of a schema, name to `type`, as the classifier compares them. */
-export interface SchemaSurface {
-  readonly properties: Readonly<Record<string, string | undefined>>;
-}
-
-export function readSchemaSurface(text: string): SchemaSurface {
-  const parsed: unknown = JSON.parse(text);
-  if (typeof parsed !== 'object' || parsed === null) throw new Error('schema is not an object');
-  const properties = (parsed as { properties?: unknown }).properties;
-  if (typeof properties !== 'object' || properties === null) {
-    throw new Error('schema has no top-level "properties"');
-  }
-  return {
-    properties: Object.fromEntries(
-      Object.entries(properties as Record<string, SchemaProperty>).map(([name, p]) => [
-        name,
-        typeof p.type === 'string' ? p.type : undefined,
-      ]),
-    ),
-  };
-}

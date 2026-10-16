@@ -12,7 +12,7 @@ import {
 } from '../../src/theme/formats';
 import { validateTheme } from '../../src/theme/validate';
 import { buildManifest, SURFACE } from './manifest.ts';
-import { buildThemeSchema, readSchemaSurface, serializeSchema } from './schema.ts';
+import { buildThemeSchema, serializeSchema } from './schema.ts';
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tokensCss = fs.readFileSync(path.join(packageDir, 'src', 'tokens', 'tokens.css'), 'utf8');
@@ -80,18 +80,15 @@ describe('buildThemeSchema', () => {
     expect(new RegExp(source, 'u').test('Cafe\u0301, Source Sans 3')).toBe(true);
   });
 
-  it('serializes with a trailing newline and reads back its surface', () => {
+  it('serializes with a trailing newline and keeps its top-level properties', () => {
     const text = serializeSchema(schema);
     expect(text.endsWith('}\n')).toBe(true);
-    expect(readSchemaSurface(text)).toEqual({
-      properties: {
-        koraVersion: 'string',
-        productName: 'string',
-        tokens: 'object',
-        slots: 'object',
-      },
-    });
-    expect(() => readSchemaSurface('{"type":"object"}')).toThrow(/properties/);
+    expect(Object.keys((JSON.parse(text) as { properties: object }).properties)).toEqual([
+      'koraVersion',
+      'productName',
+      'tokens',
+      'slots',
+    ]);
   });
 
   it('matches the checked-in theme.schema.json', () => {
