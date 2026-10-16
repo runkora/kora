@@ -2,7 +2,7 @@
 # =============================================================================
 # setup-signing.sh — Configure this repository to sign commits and tags.
 #
-# Commits to main must be signed. The script signs with an SSH key, which every
+# Signed commits are recommended. The script signs with an SSH key, which every
 # contributor already has for GitHub, and registers that key with GitHub as a
 # signing key through the gh CLI so commits show as verified.
 #

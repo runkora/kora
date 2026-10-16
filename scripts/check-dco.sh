@@ -7,18 +7,11 @@
 # that they may submit the change under the project's licence. A committer's
 # sign-off covers a cherry-pick or a commit made with --author.
 #
-# Bot commits are exempt. git alone cannot tell a bot from a person, since the
-# author name and email are free text, so the caller passes the exempt commits
-# in DCO_EXEMPT_SHAS, one SHA per line. The DCO workflow fills it from GitHub,
-# which marks a commit as a bot's only when it is linked to a bot account and
-# carries a verified signature. Merge commits are skipped, since they carry no
-# new content.
+# Merge commits are skipped, since they carry no new content.
 #
-# Usage: [DCO_EXEMPT_SHAS=<shas>] scripts/check-dco.sh <base> <head>
+# Usage: scripts/check-dco.sh <base> <head>
 # =============================================================================
 set -euo pipefail
-
-exempt="${DCO_EXEMPT_SHAS:-}"
 
 if [ "$#" -ne 2 ]; then
   echo "usage: $0 <base> <head>" >&2
@@ -31,9 +24,6 @@ commits="$(git rev-list --no-merges "$1..$2")"
 missing=0
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
-  if grep -qxF "$sha" <<< "$exempt"; then
-    continue
-  fi
   author_name="$(git log -1 --format='%an' "$sha")"
   author_email="$(git log -1 --format='%ae' "$sha")"
   committer_email="$(git log -1 --format='%ce' "$sha")"

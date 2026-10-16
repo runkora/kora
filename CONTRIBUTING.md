@@ -56,19 +56,19 @@ Follow the coding conventions in [docs/conventions.md](docs/conventions.md). Do 
 - Commits follow Conventional Commits with an optional scope, for example `fix(policy): fail closed on unbound and unverified delegation tokens`.
 - Reference the ADR that motivates the change in the PR description.
 - Branch from `main`. Keep each PR to one change.
-- Commits must be signed. `make hooks`, which `make setup` runs, signs your commits with your SSH key and registers that key with GitHub as a signing key through the `gh` CLI. Without `gh`, add the key on GitHub under Settings, SSH and GPG keys, as a **Signing key**.
+- Sign your commits. `make hooks`, which `make setup` runs, signs your commits with your SSH key and registers that key with GitHub as a signing key through the `gh` CLI. Without `gh`, add the key on GitHub under Settings, SSH and GPG keys, as a **Signing key**.
 
 Contributions are accepted under the [Apache License 2.0](LICENSE).
 
 ## Developer Certificate of Origin
 
-Every commit must be signed off under the [Developer Certificate of Origin](https://developercertificate.org/). A sign-off is your statement that you wrote the change or have the right to submit it under the project's licence. It is a line at the end of the commit message with the name and email of the commit's author:
+Every commit in a pull request from a fork must be signed off under the [Developer Certificate of Origin](https://developercertificate.org/). A sign-off is your statement that you wrote the change or have the right to submit it under the project's licence. It is a line at the end of the commit message with the name and email of the commit's author:
 
 ```
 Signed-off-by: Jane Doe <jane@example.com>
 ```
 
-`make hooks` installs a hook that adds the line to every commit. Without the hook, commit with `git commit -s`. The DCO check fails a pull request with any commit that is not signed off. To sign off commits already on your branch, rebase them and push again:
+`make hooks` installs a hook that adds the line to every commit. Without the hook, commit with `git commit -s`. The DCO check fails a pull request from a fork with any commit that is not signed off. To sign off commits already on your branch, rebase them and push again:
 
 ```bash
 git rebase --signoff origin/main

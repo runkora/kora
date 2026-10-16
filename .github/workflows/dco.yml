@@ -1,16 +1,16 @@
 name: DCO
 
+# The DCO covers contributions from forks. A branch in this repository can only
+# be pushed with write access, and the people and apps holding it are covered
+# by their agreements with the project, so those pull requests pass without a
+# check. The merge queue needs the check to report on its merge group too, and
+# the queue's squash commit is GitHub's, so merge groups pass as well.
 on:
   pull_request:
-  # The merge queue requires every required check on its merge group. The pull
-  # request's commits were already checked, and the queue's squash commit is
-  # GitHub's, so the merge group run passes without checking again.
   merge_group:
 
 permissions:
   contents: read
-  # Reads the pull request's commits to find bot commits.
-  pull-requests: read
 
 concurrency:
   group: dco-${{ github.ref }}
@@ -21,27 +21,16 @@ jobs:
     name: DCO
     runs-on: ubuntu-latest
     steps:
-      - if: github.event_name == 'pull_request'
+      - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The check reads every commit in the pull request.
           fetch-depth: 0
           ref: ${{ github.event.pull_request.head.sha }}
-      - if: github.event_name == 'pull_request'
+      - if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
         env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          set -euo pipefail
-          # A commit is a bot's when GitHub links it to a bot account and its
-          # signature verifies. A person cannot produce both by borrowing a
-          # bot's name or email.
-          DCO_EXEMPT_SHAS="$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
-            --jq '.[] | select(.author.type == "Bot" and .commit.verification.verified) | .sha')"
-          export DCO_EXEMPT_SHAS
-          bash scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
-      - if: github.event_name == 'merge_group'
-        run: echo "Commits were checked on the pull request."
+        run: bash scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
+      - if: github.event_name == 'merge_group' || github.event.pull_request.head.repo.full_name == github.repository
+        run: echo "Not a pull request from a fork. The DCO check applies to forks."
