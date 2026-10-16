@@ -12,9 +12,12 @@ A sandbox runs the agent's own code. Each sandbox pod runs as a non-root user un
 
 ## Running commands
 
-Commands reach the sandbox over gRPC. `kora-agents` mints a token for each run when it provisions the sandbox. The session-manager writes the sandbox's address and the token into the run's workspace. Landlock keeps every other run on the pod out of that workspace. `kora-shell` checks for the address on every command. Once a sandbox exists, `kora-shell` streams each command to `sandbox-exec` on port 50051 with the run's token. `sandbox-exec` rejects any call without the token. Another run on the same agent that finds the address cannot execute commands in the sandbox.
+Commands reach the sandbox over gRPC:
 
-ADRs: [sandbox-provisioning-and-shell-proxy](../adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md), [sandbox-exec-trust-boundary](../adr/2026-09-18-sandbox-exec-trust-boundary.md).
+1. `kora-agents` mints a token for the run when it provisions the sandbox.
+2. The session-manager writes the sandbox's address and the token into the run's workspace. Landlock keeps every other run on the pod out of that workspace.
+3. `kora-shell` checks for the address on every command. Once a sandbox exists, it streams each command to `sandbox-exec` on port 50051 with the run's token.
+4. `sandbox-exec` rejects any call without the token. Another run on the same agent that finds the address cannot execute commands in the sandbox.
 
 ## Placement
 
@@ -54,11 +57,14 @@ The sandbox mount requires `kora-sandbox-mount` to run as a privileged container
 
 The working folder is deleted when its sandbox is deleted or replaced.
 
-ADRs: [agent-workspace-model](../adr/2026-05-11-agent-workspace-model.md), [sandbox-workspace-mount](../adr/2026-10-08-sandbox-workspace-mount.md).
-
 ## Warming
 
 A cold sandbox waits for its image to pull and, in a pool that scales to zero, for a node to boot. kora has two warming settings that remove these waits.
+
+| Setting | Removes the wait for | Cost |
+| --- | --- | --- |
+| Image warming | The image to pull | A DaemonSet per tenant and warm image, and disk on every sandbox node |
+| Capacity warming | A node to boot | The idle nodes held open as headroom |
 
 Image warming keeps a sandbox image pulled on every sandbox node. Setting `warm` on a `SandboxImage`, or `agents.sandboxImages.warmBase` for `kora-base`, runs a DaemonSet that pulls the image.
 
@@ -66,10 +72,25 @@ Capacity warming holds sandbox nodes open. With `agents.sandboxWarming.mode: cap
 
 ## When a sandbox dies
 
-If a sandbox dies mid-run, the agent's next command fails to reach it and `kora-shell` asks the session-manager for a new one. The session-manager tries up to three times to provision a new sandbox through `kora-agents`, waiting up to 90 seconds for each one to start. It gives up after 300 seconds in total. Everything in the lost sandbox is gone, including installed tools, build caches and, with the sandbox mount, its working folder. The new sandbox starts fresh.
+If a sandbox dies mid-run, the agent's next command fails to reach it and `kora-shell` asks the session-manager for a new one. The session-manager provisions a new sandbox through `kora-agents` within these limits:
+
+| Limit | Default |
+| --- | --- |
+| Attempts | 3 |
+| Wait for each sandbox to start | 90 seconds |
+| Total time across attempts | 300 seconds |
+
+Everything in the lost sandbox is gone, including installed tools, build caches and, with the sandbox mount, its working folder. The new sandbox starts fresh.
 
 A sandbox that runs out of memory is replaced at the same size. The agent is told which files were lost and to call `replace_environment` with a larger environment.
 
 When every attempt fails, the run records `sandbox_lost` with the reason. The agent cannot provision another sandbox until a person replies to the run.
 
-ADRs: [sandbox-environments](../adr/2026-10-03-sandbox-environments.md), [agent-run-guardrails](../adr/2026-09-29-agent-run-guardrails.md).
+## Related decisions
+
+- [Sandbox provisioning and shell proxy](../adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md)
+- [Sandbox exec trust boundary](../adr/2026-09-18-sandbox-exec-trust-boundary.md)
+- [Agent workspace model](../adr/2026-05-11-agent-workspace-model.md)
+- [Sandbox workspace mount](../adr/2026-10-08-sandbox-workspace-mount.md)
+- [Sandbox environments](../adr/2026-10-03-sandbox-environments.md)
+- [Agent run guardrails](../adr/2026-09-29-agent-run-guardrails.md)

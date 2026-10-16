@@ -2,6 +2,13 @@
 
 In kora, agents reach models, tools and external systems without ever holding a credential. Every request leaves the agent's pod through its sidecars. The sidecars attach the agent's platform token and evaluate the request against policy before it reaches a kora gateway. The gateway holds the credential for the destination and injects it in flight. See [connectivity architecture](../architecture/connectivity.md) for the request path.
 
+| Reaches | Through | Called from | Credential held by | Granted as |
+| --- | --- | --- | --- | --- |
+| Models | Inference gateway | Agent runtime pod | Inference gateway | `inference:<family>:<model>:use` |
+| MCP servers | Tool gateway | Agent runtime pod | The MCP server | `mcp:<server>:<tool>:use` |
+| Connections | Egress gateway | Sandbox | Egress gateway, minted per request | `connection:<name>:<action>` |
+| Other hosts | Egress gateway | Sandbox | None | `egress:<host>:connect` |
+
 ## Models
 
 Every model call in kora goes through the inference gateway. The gateway holds the upstream keys for every inference provider a platform team registers.
@@ -32,4 +39,9 @@ Each connection publishes a scope for every action it supports, such as reading 
 
 Each environment also lists hosts its sandboxes may reach without a connection, such as a package registry. kora denies every other host. Connections and hosts can be attached to an agent directly or through its environments. An agent with several environments can use the connections and hosts of all of them.
 
-ADRs: [mcp-tool-gateway](../adr/2026-06-29-mcp-tool-gateway.md), [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md), [agent-pod-egress-lockdown](../adr/2026-09-30-agent-pod-egress-lockdown.md), [sandbox-environments](../adr/2026-10-03-sandbox-environments.md).
+## Related decisions
+
+- [MCP tool gateway](../adr/2026-06-29-mcp-tool-gateway.md)
+- [JIT credential brokering in the egress gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md)
+- [Agent pod egress lockdown](../adr/2026-09-30-agent-pod-egress-lockdown.md)
+- [Sandbox environments](../adr/2026-10-03-sandbox-environments.md)

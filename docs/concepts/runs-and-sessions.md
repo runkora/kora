@@ -8,22 +8,47 @@ Every run is completed by an agent harness, such as Claude Code, Codex, or OpenC
 
 ## States
 
-- `pending`: waiting for the agent to have capacity
-- `starting`: starting its session
-- `active`: the agent is working
-- `idle`: the agent is waiting for the next message
-- `completed`: the run ended cleanly
-- `failed`: the run hit an error it could not recover from
-- `budget_exhausted`: the run reached its budget limit
+```mermaid
+stateDiagram-v2
+    direction LR
+    [*] --> pending
+    pending --> starting
+    starting --> active
+    active --> idle
+    idle --> active
+    idle --> completed
+    pending --> failed
+    active --> failed
+    active --> budget_exhausted
+```
 
-An `idle` run is healthy. Its session stays alive waiting for the next message until the idle timeout completes the run. A `budget_exhausted` run has not failed, but has used all the budget it was given.
+| State | Meaning | Moves to |
+| --- | --- | --- |
+| `pending` | Waiting for the agent to have capacity | `starting` when capacity frees, or `failed` after 180 seconds |
+| `starting` | Starting its session | `active` |
+| `active` | The agent is working | `idle` when the agent finishes its turn |
+| `idle` | The agent is waiting for the next message | `active` on a new message, or `completed` after the idle timeout |
+| `completed` | The run ended cleanly | |
+| `failed` | The run hit an error it could not recover from | |
+| `budget_exhausted` | The run reached its budget limit | |
+
+An `idle` run is healthy. Its session stays alive waiting for the next message until the idle timeout completes the run, after 20 minutes for a run a person started and 5 minutes for a run a trigger started. A person who messages a triggered run moves it onto the 20 minute timeout. A `budget_exhausted` run has not failed, but has used all the budget it was given.
 
 ## Working with a run
 
-A run can be sent messages and interrupted to steer the agent. For agents using [delegated identity](identity.md), the agent acts with the authority of the user who started the run, and only that user can steer it. Messages sent to a run that is still `pending` or `starting` are rejected. Anyone who can see the run can terminate it.
+| Action | When | Who |
+| --- | --- | --- |
+| Send a message | While the run is `active` or `idle` | Anyone with access to the run. For a [delegated](identity.md) agent, only the person who started it. |
+| Interrupt | While the run is `active` | The same people who can send a message |
+| Terminate | Any state before the run ends | Anyone with access to the run. For a delegated agent, the person who started it or someone who can read every delegated run. |
+
+A delegated agent acts with the authority of the person who started the run. Messages from anyone else are refused.
 
 ## When a run ends
 
 When a run ends, its [sandbox](sandboxes.md) and anything installed or cached inside it are deleted. If the agent stops unexpectedly, kora marks the run as `failed`.
 
-ADRs: [run-and-session-lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md), [run-scheduling](../adr/2026-10-12-run-scheduling.md).
+## Related decisions
+
+- [Run and session lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md)
+- [Run scheduling](../adr/2026-10-12-run-scheduling.md)
