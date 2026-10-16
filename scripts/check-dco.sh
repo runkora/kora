@@ -7,21 +7,18 @@
 # that they may submit the change under the project's licence. A committer's
 # sign-off covers a cherry-pick or a commit made with --author.
 #
-# Commits from the bots below are exempt. They are matched by exact email,
-# since an author name is free text. An email can be set by anyone too, so the
-# exemption relies on main requiring signed commits: a person's commit under a
-# bot's email does not verify as that bot. Merge commits are skipped, since
-# they carry no new content.
+# Bot commits are exempt. git alone cannot tell a bot from a person, since the
+# author name and email are free text, so the caller passes the exempt commits
+# in DCO_EXEMPT_SHAS, one SHA per line. The DCO workflow fills it from GitHub,
+# which marks a commit as a bot's only when it is linked to a bot account and
+# carries a verified signature. Merge commits are skipped, since they carry no
+# new content.
 #
-# Usage: scripts/check-dco.sh <base> <head>
+# Usage: [DCO_EXEMPT_SHAS=<shas>] scripts/check-dco.sh <base> <head>
 # =============================================================================
 set -euo pipefail
 
-BOT_EMAILS=(
-  "339521822+runkora[bot]@users.noreply.github.com"
-  "49699333+dependabot[bot]@users.noreply.github.com"
-  "41898282+github-actions[bot]@users.noreply.github.com"
-)
+exempt="${DCO_EXEMPT_SHAS:-}"
 
 if [ "$#" -ne 2 ]; then
   echo "usage: $0 <base> <head>" >&2
@@ -34,12 +31,12 @@ commits="$(git rev-list --no-merges "$1..$2")"
 missing=0
 while IFS= read -r sha; do
   [ -n "$sha" ] || continue
+  if grep -qxF "$sha" <<< "$exempt"; then
+    continue
+  fi
   author_name="$(git log -1 --format='%an' "$sha")"
   author_email="$(git log -1 --format='%ae' "$sha")"
   committer_email="$(git log -1 --format='%ce' "$sha")"
-  for bot in "${BOT_EMAILS[@]}"; do
-    [ "$author_email" = "$bot" ] && continue 2
-  done
   signoffs="$(git log -1 --format='%(trailers:key=Signed-off-by,valueonly)' "$sha")"
   if ! grep -qiF -e "<$author_email>" -e "<$committer_email>" <<< "$signoffs"; then
     echo "✗ $(git log -1 --format='%h %s' "$sha")"

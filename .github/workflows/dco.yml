@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: read
+  # Reads the pull request's commits to find bot commits.
+  pull-requests: read
 
 concurrency:
   group: dco-${{ github.ref }}
@@ -27,8 +29,19 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
       - if: github.event_name == 'pull_request'
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: bash scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
+        run: |
+          set -euo pipefail
+          # A commit is a bot's when GitHub links it to a bot account and its
+          # signature verifies. A person cannot produce both by borrowing a
+          # bot's name or email.
+          DCO_EXEMPT_SHAS="$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/commits?per_page=100" \
+            --jq '.[] | select(.author.type == "Bot" and .commit.verification.verified) | .sha')"
+          export DCO_EXEMPT_SHAS
+          bash scripts/check-dco.sh "$BASE_SHA" "$HEAD_SHA"
       - if: github.event_name == 'merge_group'
         run: echo "Commits were checked on the pull request."
