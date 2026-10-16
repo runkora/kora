@@ -96,10 +96,8 @@ func (f *handlerCache) SetSkill(_ context.Context, slug string, skill Skill) err
 }
 
 type handlerCrawler struct {
-	entries    []SkillEntry
-	skill      Skill
-	skillsErr  error
-	contentErr error
+	skills    []Skill
+	skillsErr error
 	fetchCalls int
 }
 
@@ -107,13 +105,9 @@ func (f *handlerCrawler) FetchTree(_ context.Context, _ MarketplaceSource) (map[
 	return map[string]skillFilePath{}, nil
 }
 
-func (f *handlerCrawler) FetchSkills(_ context.Context, _ MarketplaceSource, _ map[string]skillFilePath) ([]SkillEntry, error) {
+func (f *handlerCrawler) FetchSkills(_ context.Context, _ MarketplaceSource, _ map[string]skillFilePath) ([]Skill, error) {
 	f.fetchCalls++
-	return f.entries, f.skillsErr
-}
-
-func (f *handlerCrawler) FetchSkillContent(_ context.Context, _ MarketplaceSource, _ SkillEntry) (Skill, error) {
-	return f.skill, f.contentErr
+	return f.skills, f.skillsErr
 }
 
 // handlerFixture bundles a Controller with the fakes for inspection.
@@ -122,6 +116,15 @@ type handlerFixture struct {
 	registry *handlerRegistry
 	cache    *handlerCache
 	crawler  *handlerCrawler
+}
+
+func handlerSkills() []Skill {
+	slug := handlerSource.MarketplaceSlug
+	return []Skill{
+		{Name: "React Expert", Description: "React development", SkillSlug: slug + "__react-expert", File: SkillFile{Path: "skills/react-expert/SKILL.md", Name: "SKILL.md", Content: "# React Expert"}},
+		{Name: "React Testing", Description: "React tests", SkillSlug: slug + "__react-testing", File: SkillFile{Path: "skills/react-testing/SKILL.md", Name: "SKILL.md", Content: "# React Testing"}},
+		{Name: "Go Expert", Description: "Go development", SkillSlug: slug + "__go-expert", File: SkillFile{Path: "skills/go-expert/SKILL.md", Name: "SKILL.md", Content: "# Go Expert"}},
+	}
 }
 
 func handlerSkillEntries() []SkillEntry {
@@ -133,16 +136,6 @@ func handlerSkillEntries() []SkillEntry {
 	}
 }
 
-func handlerSkillDetail(entry SkillEntry) Skill {
-	return Skill{
-		Name:        entry.Name,
-		Description: entry.Description,
-		SkillSlug:   entry.SkillSlug,
-		File:        SkillFile{Path: entry.Path, Name: "SKILL.md", Content: "# " + entry.Name},
-		Documents:   []SkillFile{},
-	}
-}
-
 func newHandlerController(cached bool) *handlerFixture {
 	reg := &handlerRegistry{sources: map[string][]MarketplaceSource{"tenant-a": {handlerSource}}}
 	cache := &handlerCache{}
@@ -151,8 +144,7 @@ func newHandlerController(cached bool) *handlerFixture {
 			handlerSource.MarketplaceSlug: handlerSkillEntries(),
 		}
 	}
-	entries := handlerSkillEntries()
-	crawler := &handlerCrawler{entries: entries, skill: handlerSkillDetail(entries[0])}
+	crawler := &handlerCrawler{skills: handlerSkills()}
 	logger := logging.NewDevelopmentLogger()
 	svc := NewService(reg, cache, crawler, logger)
 	c := &Controller{service: svc, registry: reg, logger: logger}
@@ -238,11 +230,11 @@ func TestControllerListSkills(t *testing.T) {
 
 func TestControllerServerCap(t *testing.T) {
 	fix := newHandlerController(false)
-	items := make([]SkillEntry, serverCap+10)
+	items := make([]Skill, serverCap+10)
 	for i := range items {
-		items[i] = SkillEntry{Name: fmt.Sprintf("skill-%03d", i), SkillSlug: handlerSource.MarketplaceSlug + fmt.Sprintf("__skill-%03d", i)}
+		items[i] = Skill{Name: fmt.Sprintf("skill-%03d", i), SkillSlug: handlerSource.MarketplaceSlug + fmt.Sprintf("__skill-%03d", i)}
 	}
-	fix.crawler.entries = items
+	fix.crawler.skills = items
 
 	slug := handlerSource.MarketplaceSlug
 	rr := handlerRequest(fix, "/marketplaces/"+slug+"/skills", "tenant-a")
@@ -266,14 +258,14 @@ func TestControllerServerCap(t *testing.T) {
 
 func TestControllerPagination(t *testing.T) {
 	fix := newHandlerController(false)
-	items := make([]SkillEntry, serverCap+10)
+	items := make([]Skill, serverCap+10)
 	for i := range items {
-		items[i] = SkillEntry{
+		items[i] = Skill{
 			Name:      fmt.Sprintf("skill-%03d", i),
 			SkillSlug: handlerSource.MarketplaceSlug + fmt.Sprintf("__skill-%03d", i),
 		}
 	}
-	fix.crawler.entries = items
+	fix.crawler.skills = items
 	base := "/marketplaces/" + handlerSource.MarketplaceSlug + "/skills"
 
 	type page struct {
@@ -370,24 +362,22 @@ func TestControllerReadFailures(t *testing.T) {
 	slug := handlerSource.MarketplaceSlug
 	for _, target := range []string{"/skills", "/skills/" + slug + "__react-expert"} {
 		for _, tc := range []struct {
-			name                     string
+			name                   string
 			getErr, crawlErr, setErr error
-			contentErr               error
-			code, crawls, writes     int
+			code, crawls, writes   int
 		}{
-			{"Redis read", fmt.Errorf("private: %w", ErrRedisUnavailable), nil, nil, nil, http.StatusServiceUnavailable, 0, 0},
-			{"GitHub outage", nil, fmt.Errorf("private: %w", ghclient.ErrUnavailable), nil, nil, http.StatusServiceUnavailable, 1, 0},
-			{"Redis write", nil, nil, ErrRedisUnavailable, nil, http.StatusServiceUnavailable, 1, 1},
-			{"corrupt cache", errors.New("private JSON"), nil, nil, nil, http.StatusInternalServerError, 0, 0},
-			{"unexpected crawl error", nil, errors.New("private config"), nil, nil, http.StatusInternalServerError, 1, 0},
-			{"crawl timeout", nil, context.DeadlineExceeded, nil, nil, http.StatusServiceUnavailable, 1, 0},
+			{"Redis read", fmt.Errorf("private: %w", ErrRedisUnavailable), nil, nil, http.StatusServiceUnavailable, 0, 0},
+			{"GitHub outage", nil, fmt.Errorf("private: %w", ghclient.ErrUnavailable), nil, http.StatusServiceUnavailable, 1, 0},
+			{"Redis write", nil, nil, ErrRedisUnavailable, http.StatusServiceUnavailable, 1, 1},
+			{"corrupt cache", errors.New("private JSON"), nil, nil, http.StatusInternalServerError, 0, 0},
+			{"unexpected crawl error", nil, errors.New("private config"), nil, http.StatusInternalServerError, 1, 0},
+			{"crawl timeout", nil, context.DeadlineExceeded, nil, http.StatusServiceUnavailable, 1, 0},
 		} {
 			t.Run(target+"/"+tc.name, func(t *testing.T) {
 				fix := newHandlerController(false)
 				fix.cache.getError = tc.getErr
 				fix.cache.setErr = tc.setErr
 				fix.crawler.skillsErr = tc.crawlErr
-				fix.crawler.contentErr = tc.contentErr
 				rr := handlerRequest(fix, "/marketplaces/"+slug+target, "tenant-a")
 				if rr.Code != tc.code {
 					t.Fatalf("status %d, want %d: %s", rr.Code, tc.code, rr.Body.String())

@@ -338,8 +338,8 @@ func TestFetchSkills(t *testing.T) {
 		if len(got) != 1 || got[0].SkillSlug != "org__repo__code-review-pro" {
 			t.Errorf("SkillSlug = %q, want org__repo__code-review-pro", got[0].SkillSlug)
 		}
-		if got[0].Path != "skills/s/SKILL.md" {
-			t.Errorf("Path = %q, want skills/s/SKILL.md", got[0].Path)
+		if got[0].File.Path != "skills/s/SKILL.md" {
+			t.Errorf("File.Path = %q, want skills/s/SKILL.md", got[0].File.Path)
 		}
 	})
 
@@ -369,29 +369,35 @@ func TestFetchSkills(t *testing.T) {
 		}
 	})
 
-	t.Run("deduplicates skills with same slug", func(t *testing.T) {
+	t.Run("downloads full content and resource docs", func(t *testing.T) {
+		body := skillMD("React Expert", "React development")
+		docBody := "# Error Handling\n- handle errors\n"
 		github := &fakeGitHubTreeClient{
 			contents: map[string]string{
-				"a/SKILL.md": skillMD("Same Name", "first"),
-				"b/SKILL.md": skillMD("Same Name", "second"),
+				"skills/react-expert/SKILL.md":            body,
+				"skills/react-expert/resources/errors.md": docBody,
 			},
 		}
-		var logs bytes.Buffer
-		c := NewCrawler(github, &fakeGitHubTokenProvider{token: "test-token"}, logging.NewLoggerWithOutput(&logs))
+		c := newTestCrawler(github, &fakeGitHubTokenProvider{token: "test-token"})
 
 		skillPaths := map[string]skillFilePath{
-			"a": {skillPath: "a/SKILL.md"},
-			"b": {skillPath: "b/SKILL.md"},
+			"skills/react-expert": {
+				skillPath: "skills/react-expert/SKILL.md",
+				docPaths:  []string{"skills/react-expert/resources/errors.md"},
+			},
 		}
 		got, err := c.FetchSkills(context.Background(), testSource, skillPaths)
 		if err != nil {
 			t.Fatalf("FetchSkills: %v", err)
 		}
 		if len(got) != 1 {
-			t.Errorf("FetchSkills = %d entries, want 1 (duplicate slug deduped)", len(got))
+			t.Fatalf("FetchSkills = %d entries, want 1", len(got))
 		}
-		if !strings.Contains(logs.String(), "duplicate slug") {
-			t.Errorf("no duplicate-slug warning; logs:\n%s", logs.String())
+		if got[0].File.Content != body {
+			t.Errorf("File.Content = %q, want full SKILL.md body", got[0].File.Content)
+		}
+		if len(got[0].Documents) != 1 || got[0].Documents[0].Content != docBody {
+			t.Errorf("Documents = %+v, want one doc with body %q", got[0].Documents, docBody)
 		}
 	})
 
@@ -447,87 +453,6 @@ func TestFetchSkills(t *testing.T) {
 		}
 		if got != nil {
 			t.Errorf("FetchSkills = %#v, want nil on canceled context", got)
-		}
-	})
-}
-
-func TestFetchSkillContent(t *testing.T) {
-	t.Run("returns full skill with SKILL.md and documents", func(t *testing.T) {
-		body := skillMD("React Expert", "React development")
-		docBody := "# Error Handling\n- handle errors\n"
-		github := &fakeGitHubTreeClient{
-			contents: map[string]string{
-				"skills/react-expert/SKILL.md":            body,
-				"skills/react-expert/resources/errors.md": docBody,
-			},
-		}
-		c := newTestCrawler(github, &fakeGitHubTokenProvider{token: "test-token"})
-
-		entry := SkillEntry{
-			Name:        "React Expert",
-			Description: "React development",
-			SkillSlug:   "org__repo__react-expert",
-			Path:        "skills/react-expert/SKILL.md",
-			DocPaths:    []string{"skills/react-expert/resources/errors.md"},
-		}
-		skill, err := c.FetchSkillContent(context.Background(), testSource, entry)
-		if err != nil {
-			t.Fatalf("FetchSkillContent: %v", err)
-		}
-		if skill.Name != "React Expert" || skill.SkillSlug != "org__repo__react-expert" {
-			t.Errorf("skill = %+v, want name=React Expert slug=org__repo__react-expert", skill)
-		}
-		if skill.File.Content != body {
-			t.Errorf("File.Content = %q, want full SKILL.md body", skill.File.Content)
-		}
-		if skill.File.Name != "SKILL.md" {
-			t.Errorf("File.Name = %q, want SKILL.md", skill.File.Name)
-		}
-		if len(skill.Documents) != 1 || skill.Documents[0].Content != docBody {
-			t.Errorf("Documents = %+v, want one doc with body %q", skill.Documents, docBody)
-		}
-		if skill.Documents[0].Name != "errors.md" {
-			t.Errorf("Documents[0].Name = %q, want errors.md", skill.Documents[0].Name)
-		}
-	})
-
-	t.Run("returns skill with no documents when DocPaths is empty", func(t *testing.T) {
-		body := skillMD("React Expert", "React development")
-		github := &fakeGitHubTreeClient{
-			contents: map[string]string{"skills/react-expert/SKILL.md": body},
-		}
-		c := newTestCrawler(github, &fakeGitHubTokenProvider{token: "test-token"})
-
-		entry := SkillEntry{
-			Name:        "React Expert",
-			Description: "React development",
-			SkillSlug:   "org__repo__react-expert",
-			Path:        "skills/react-expert/SKILL.md",
-		}
-		skill, err := c.FetchSkillContent(context.Background(), testSource, entry)
-		if err != nil {
-			t.Fatalf("FetchSkillContent: %v", err)
-		}
-		if skill.File.Content != body {
-			t.Errorf("File.Content = %q, want full SKILL.md body", skill.File.Content)
-		}
-		if len(skill.Documents) != 0 {
-			t.Errorf("Documents = %+v, want empty", skill.Documents)
-		}
-	})
-
-	t.Run("download error is returned", func(t *testing.T) {
-		github := &fakeGitHubTreeClient{
-			downloadErrs: map[string]error{
-				"skills/a/SKILL.md": fmt.Errorf("%w: 404", ghclient.ErrUnexpectedStatus),
-			},
-		}
-		c := newTestCrawler(github, &fakeGitHubTokenProvider{token: "test-token"})
-
-		entry := SkillEntry{Path: "skills/a/SKILL.md", SkillSlug: "org__repo__a"}
-		_, err := c.FetchSkillContent(context.Background(), testSource, entry)
-		if err == nil {
-			t.Fatal("expected error, got nil")
 		}
 	})
 }

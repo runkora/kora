@@ -62,8 +62,7 @@ type skillCache interface {
 
 type skillCrawler interface {
 	FetchTree(ctx context.Context, source MarketplaceSource) (map[string]skillFilePath, error)
-	FetchSkills(ctx context.Context, source MarketplaceSource, skillPaths map[string]skillFilePath) ([]SkillEntry, error)
-	FetchSkillContent(ctx context.Context, source MarketplaceSource, entry SkillEntry) (Skill, error)
+	FetchSkills(ctx context.Context, source MarketplaceSource, skillPaths map[string]skillFilePath) ([]Skill, error)
 }
 
 // sourceRegistry is the minimal interface the service needs from the registry.
@@ -131,9 +130,15 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 		return nil, fmt.Errorf("fetch tree: %w", err)
 	}
 
-	entries, err = s.crawler.FetchSkills(ctx, source, skillPaths)
+	skills, err := s.crawler.FetchSkills(ctx, source, skillPaths)
 	if err != nil {
 		return nil, fmt.Errorf("fetch skills: %w", err)
+	}
+
+	// Project []Skill to []SkillEntry for the marketplace list cache.
+	entries = make([]SkillEntry, len(skills))
+	for i, sk := range skills {
+		entries[i] = skillToEntry(sk)
 	}
 
 	// FetchTree returns a map, so crawl order is not stable. Sort before caching.
@@ -141,6 +146,16 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 
 	if err := s.cache.SetMarketplace(ctx, tenantID, source.MarketplaceSlug, entries); err != nil {
 		return nil, fmt.Errorf("write marketplace cache: %w", err)
+	}
+
+	// Warm the individual skill cache while we have the full content.
+	for _, sk := range skills {
+		if err := s.cache.SetSkill(ctx, sk.SkillSlug, sk); err != nil {
+			s.logger.Warn(ctx, "failed to cache skill",
+				logging.Field{Key: "skillSlug", Value: sk.SkillSlug},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
 	}
 
 	return entries, nil
@@ -219,33 +234,80 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skill
 		return skill, nil
 	}
 
-	// Cache miss: look up the skill's path from the marketplace array.
-	entries, err := s.resolveMarketplace(ctx, tenantID, source)
-	if err != nil {
-		return Skill{}, err
+	// If the marketplace list is cached, check whether the skill exists in it
+	// before crawling — a missing skill returns 404 without a GitHub round-trip.
+	if entries, hit, err := s.cache.GetMarketplace(ctx, tenantID, source.MarketplaceSlug); err != nil {
+		return Skill{}, fmt.Errorf("read marketplace cache: %w", err)
+	} else if hit {
+		found := false
+		for _, e := range entries {
+			if e.SkillSlug == skillSlug {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return Skill{}, ErrSkillNotFound
+		}
 	}
 
-	var entry SkillEntry
+	// Cache miss: crawl the marketplace to get full content, warming both the
+	// marketplace list cache and all individual skill caches.
+	skillPaths, err := s.crawler.FetchTree(ctx, source)
+	if err != nil {
+		return Skill{}, fmt.Errorf("fetch tree: %w", err)
+	}
+
+	skills, err := s.crawler.FetchSkills(ctx, source, skillPaths)
+	if err != nil {
+		return Skill{}, fmt.Errorf("fetch skills: %w", err)
+	}
+
+	entries := make([]SkillEntry, len(skills))
+	for i, sk := range skills {
+		entries[i] = skillToEntry(sk)
+	}
+	if err := s.cache.SetMarketplace(ctx, tenantID, source.MarketplaceSlug, sortedBySlug(entries)); err != nil {
+		return Skill{}, fmt.Errorf("write marketplace cache: %w", err)
+	}
+
+	var result Skill
 	found := false
-	for _, e := range entries {
-		if e.SkillSlug == skillSlug {
-			entry = e
+	for _, sk := range skills {
+		if err := s.cache.SetSkill(ctx, sk.SkillSlug, sk); err != nil {
+			s.logger.Warn(ctx, "failed to cache skill",
+				logging.Field{Key: "skillSlug", Value: sk.SkillSlug},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+		}
+		if sk.SkillSlug == skillSlug {
+			result = sk
 			found = true
-			break
 		}
 	}
 	if !found {
 		return Skill{}, ErrSkillNotFound
 	}
+	return result, nil
+}
 
-	skill, err = s.crawler.FetchSkillContent(ctx, source, entry)
-	if err != nil {
-		return Skill{}, fmt.Errorf("fetch skill content: %w", err)
+func skillToEntry(sk Skill) SkillEntry {
+	return SkillEntry{
+		Name:        sk.Name,
+		Description: sk.Description,
+		SkillSlug:   sk.SkillSlug,
+		Path:        sk.File.Path,
+		DocPaths:    skillDocPaths(sk.Documents),
 	}
+}
 
-	if err := s.cache.SetSkill(ctx, skillSlug, skill); err != nil {
-		return Skill{}, fmt.Errorf("write skill cache: %w", err)
+func skillDocPaths(docs []SkillFile) []string {
+	if len(docs) == 0 {
+		return nil
 	}
-
-	return skill, nil
+	paths := make([]string, len(docs))
+	for i, d := range docs {
+		paths[i] = d.Path
+	}
+	return paths
 }
