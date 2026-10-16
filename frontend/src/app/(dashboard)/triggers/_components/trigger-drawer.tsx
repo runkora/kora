@@ -936,6 +936,9 @@ export function TriggerDrawer({
                     triggerId={trigger.id}
                     expandedId={expanded}
                     onToggleExpanded={setExpanded}
+                    // The drawer is scoped to one trigger, so every run it
+                    // shows belongs to that trigger's agent.
+                    resolveAgentSlug={(id) => (id === trigger.id ? trigger.agentSlug : undefined)}
                     onRedeliver={onRedeliver}
                   />
                 </>

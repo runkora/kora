@@ -68,6 +68,42 @@ const (
 	RunStatusPaused     = "paused"     // the trigger was auto-paused when this fire arrived
 )
 
+// AllDeliveryStatuses lists every arrival-level status a delivery can hold.
+//
+// Written next to the constants rather than re-listed elsewhere, so the filter's
+// allow-list has one home. It guarantees less than that sounds: this is a
+// hand-maintained slice, so dropping a value here drops it from the filter too
+// and no Go test notices. The trigger_deliveries_status_check constraint is the
+// authority on what the pipeline can actually write, and
+// TestPostgres_FilterableStatusesMatchTheDatabase compares the two. That test
+// needs ORBIT_TEST_DB_URL, which CI does not set, so it guards locally only.
+func AllDeliveryStatuses() []string {
+	return []string{
+		StatusVerified,
+		StatusDispatched,
+		StatusSkipped,
+		StatusFailed,
+		StatusDuplicate,
+		StatusMissed,
+	}
+}
+
+// AllRunStatuses lists every per-trigger outcome a delivery's fan-out can
+// record. Derived from the constants above for the same reason as
+// AllDeliveryStatuses; the trigger_delivery_runs_status_check constraint holds
+// the same seven values.
+func AllRunStatuses() []string {
+	return []string{
+		RunStatusDispatched,
+		RunStatusFailed,
+		RunStatusFiltered,
+		RunStatusDenied,
+		RunStatusSuperseded,
+		RunStatusDropped,
+		RunStatusPaused,
+	}
+}
+
 // TerminalRunStatuses are the per-trigger outcomes that mean no run will ever
 // start for this trigger and delivery. The console must show them as settled
 // rather than pending.

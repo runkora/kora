@@ -20,6 +20,7 @@ export default async function TriggersPageRoute() {
       sources={result.ok ? result.sources : []}
       triggers={result.ok ? result.triggers : []}
       deliveries={result.ok ? result.deliveries : []}
+      initialDeliveryCursor={result.ok ? result.deliveryCursor : null}
       agents={result.ok ? result.agents : []}
       initialError={result.ok ? null : result.message}
     />

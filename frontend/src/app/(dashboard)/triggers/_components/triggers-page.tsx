@@ -3,7 +3,7 @@
 /** @tier 3 — triggers-scoped. Platform-wide Triggers control surface:
  * Sources / Triggers / Deliveries. */
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Alert,
@@ -31,7 +31,8 @@ import { FleetKpis } from './fleet-kpis';
 import { TriggerDrawer } from './trigger-drawer';
 import { TriggerList } from './trigger-list';
 import { DeliveryGrid } from './delivery-grid';
-import { matchesStatusFilter } from '../_types';
+import { toDeliveryRow, DELIVERY_PAGE_SIZE } from '../_types';
+import { listDeliveries } from '../_services/triggers-api';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
 
@@ -39,6 +40,10 @@ interface TriggersPageProps {
   sources: SourceRow[];
   triggers: TriggerRow[];
   deliveries: DeliveryRow[];
+  /**
+   * Cursor for the page after `deliveries`, null when there is no next page.
+   */
+  initialDeliveryCursor?: string | null;
   agents: AgentOption[];
   error: string | null;
 }
@@ -54,7 +59,28 @@ const DELIVERY_STATUS_OPTIONS = [
   { value: 'missed', label: 'Missed' },
 ];
 
-export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
+/**
+ * One state object so a response is accepted or rejected as a unit. Splitting
+ * these across separate useState calls lets a retired request publish its error
+ * or its rows onto a page it no longer describes.
+ */
+interface DeliveryPageState {
+  rows: DeliveryRow[];
+  cursor: string | null;
+  applied: string;
+  epoch: number;
+  error: string | null;
+  loading: boolean;
+}
+
+export function TriggersPage({
+  sources,
+  triggers,
+  deliveries,
+  initialDeliveryCursor = null,
+  agents,
+  error,
+}: TriggersPageProps) {
   const router = useRouter();
   const ingestHost = ingestHostFromWindow();
 
@@ -83,15 +109,119 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
     [triggers, kindFilter],
   );
 
-  // ── Deliveries: status filter ─────────────────────────────────────────────────
-  const [deliveryStatus, setDeliveryStatus] = useState('all');
+  // ── Deliveries: status filter and paging ──────────────────────────────────────
+  //
+  // selectedStatus is what the control shows; page.applied is what the rows on
+  // screen are. They differ while a request is in flight, which stops the grid
+  // relabelling the previous filter's rows as the new filter's answer.
+  const [selectedStatus, setSelectedStatus] = useState('all');
+  const [page, setPage] = useState<DeliveryPageState>({
+    rows: deliveries,
+    cursor: initialDeliveryCursor,
+    applied: 'all',
+    epoch: 0,
+    error: null,
+    loading: false,
+  });
 
-  const visibleDeliveries = useMemo(
-    () =>
-      deliveryStatus === 'all'
-        ? deliveries
-        : deliveries.filter((d) => matchesStatusFilter(d, new Set([deliveryStatus]))),
-    [deliveries, deliveryStatus],
+  // Only the newest request may write.
+  const requestSeq = useRef(0);
+
+  // The epoch is compared inside the updater because that is the only place the
+  // current value is readable: a ref cannot be written during render, and a
+  // closure captured at request time is stale by definition.
+  const fetchDeliveries = useCallback(
+    async (status: string, cursor: string | null, epoch: number) => {
+      const seq = ++requestSeq.current;
+      setPage((cur) => (cur.epoch !== epoch ? cur : { ...cur, error: null, loading: true }));
+      const res = await listDeliveries({
+        status: status === 'all' ? undefined : [status],
+        limit: DELIVERY_PAGE_SIZE,
+        cursor,
+        // The grid never renders the full payload, only the excerpt.
+        omitPayload: true,
+      });
+      if (requestSeq.current !== seq) return; // superseded; its writes are stale
+      setPage((cur) => {
+        // A fresh server page landed while this was in flight; it owns the
+        // list, the error line and the loading state alike.
+        if (cur.epoch !== epoch) return cur;
+        if (res.error) {
+          // Clear the page rather than leave the previous filter's rows sitting
+          // under the new label. An empty list with an error says "could not
+          // load"; stale rows would claim to be the answer. A failed Load more
+          // keeps its rows and cursor, because the page it has is still true.
+          return cursor === null
+            ? { ...cur, loading: false, error: res.error, rows: [], cursor: null, applied: status }
+            : { ...cur, loading: false, error: res.error };
+        }
+        const rows = res.deliveries.map(toDeliveryRow);
+        return {
+          ...cur,
+          loading: false,
+          error: null,
+          rows: cursor === null ? rows : [...cur.rows, ...rows],
+          cursor: res.nextCursor,
+          applied: status,
+        };
+      });
+    },
+    [],
+  );
+
+  // A new filter is a new query, not a narrowing of what is on screen, so it
+  // reads from the start rather than from the current cursor.
+  const applyDeliveryStatus = useCallback(
+    (next: string) => {
+      setSelectedStatus(next);
+      void fetchDeliveries(next, null, page.epoch);
+    },
+    [fetchDeliveries, page.epoch],
+  );
+
+  // One handler for Load more and Retry: the state already says which request
+  // to issue. A failed filter change cleared the cursor, so this starts over; a
+  // failed Load more left its cursor in place, so this resumes and keeps the
+  // pages already on screen.
+  const loadDeliveries = useCallback(() => {
+    if (page.loading) return;
+    void fetchDeliveries(page.applied, page.cursor, page.epoch);
+  }, [page.applied, page.cursor, page.epoch, page.loading, fetchDeliveries]);
+
+  // The server re-renders this page after a fire, redeliver or delete
+  // (use-trigger-actions calls router.refresh so the new arrival shows up). A
+  // prop read once at mount would never see it, so the accumulated list is
+  // re-seeded whenever a new server page arrives.
+  //
+  // React's "adjust state when a prop changes" pattern, during render rather
+  // than in an effect, which would paint the stale list first. trigger-drawer
+  // resets its own state the same way.
+  //
+  // Re-seeding also drops back to All. The alternative, re-running the active
+  // filter, means a second round trip before the row the user just created can
+  // appear, and they refreshed precisely to see it.
+  const [serverPage, setServerPage] = useState(deliveries);
+  if (serverPage !== deliveries) {
+    setServerPage(deliveries);
+    // Bumping the epoch retires any request still in flight: its updater sees a
+    // different epoch and returns the state untouched, so the fresh server page
+    // keeps the list rather than having the old filter's rows appended to it.
+    setPage((cur) => ({
+      rows: deliveries,
+      cursor: initialDeliveryCursor,
+      applied: 'all',
+      epoch: cur.epoch + 1,
+      error: null,
+      loading: false,
+    }));
+    setSelectedStatus('all');
+  }
+
+  // A delivery's fan-out names the trigger; the run route is keyed by agent
+  // slug. The page already has every trigger, so the lookup is local.
+  const agentSlugForTrigger = useCallback(
+    (id: string) => triggers.find((t) => t.id === id)?.agentSlug,
+    [triggers],
   );
 
   const [fireResult, setFireResult] = useState<TriggerNotice | null>(null);
@@ -233,8 +363,8 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
             quickFilters={
               <NativeSelect
                 aria-label="Filter deliveries by status"
-                value={deliveryStatus}
-                onChange={(e) => setDeliveryStatus(e.target.value)}
+                value={selectedStatus}
+                onChange={(e) => applyDeliveryStatus(e.target.value)}
               >
                 <option value="all">All statuses</option>
                 {DELIVERY_STATUS_OPTIONS.map((o) => (
@@ -244,16 +374,48 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                 ))}
               </NativeSelect>
             }
-            resetKey={deliveryStatus}
-            deliveries={visibleDeliveries}
+            resetKey={page.applied}
+            deliveries={page.rows}
             sourceName={sourceName}
             onOpen={setDetailDelivery}
             emptyMessage={
-              deliveries.length === 0
-                ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
-                : `No ${deliveryStatus === 'all' ? '' : deliveryStatus + ' '}deliveries.`
+              // A failed request clears the rows, so without this the grid
+              // would say "No failed deliveries" next to the error: a claim
+              // about the data from a request that never returned any.
+              //
+              // loading is checked first because the request opener clears
+              // error, so a retry after a failed filter change sits with no
+              // rows, no cursor and no error. Falling through to "No failed
+              // deliveries" there states the same untrue thing the error arm
+              // exists to prevent, about a request still in flight.
+              page.loading
+                ? 'Loading deliveries...'
+                : page.error !== null
+                  ? 'Could not load deliveries.'
+                  : page.applied === 'all'
+                    ? 'No deliveries yet. Arrivals and their outcomes appear here once a source receives events, a schedule ticks, or a trigger is fired.'
+                    : `No ${page.applied} deliveries.`
             }
           />
+          {/* Below the grid, because it extends the set the grid pages over
+              rather than moving within it. Absent once the cursor is spent,
+              which is how "that is all of them" is said. */}
+          {(page.cursor !== null || page.error !== null) && (
+            <Stack direction="horizontal" align="center" gap="snug">
+              {page.error !== null && (
+                /* role="alert": this appears after the response lands, so
+                   without a live region a screen reader never hears that the
+                   filter or Load more failed. Text forwards role, which is how
+                   guardrail-rows.tsx announces its inline errors. */
+                <Text size="supporting" color="status-error" role="alert">
+                  {page.error}
+                </Text>
+              )}
+              <Button variant="outline" size="sm" disabled={page.loading} onClick={loadDeliveries}>
+                {page.error !== null ? 'Retry' : page.loading ? 'Loading...' : 'Load more'}
+              </Button>
+            </Stack>
+          )}
         </TabsContent>
       </Tabs>
 
@@ -264,6 +426,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
           onRedeliver={redeliver}
+          resolveAgentSlug={agentSlugForTrigger}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);

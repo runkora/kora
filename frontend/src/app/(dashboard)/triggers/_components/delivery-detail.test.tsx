@@ -354,3 +354,203 @@ describe('coalescing', () => {
     expect(screen.queryByText('Replaced by')).toBeNull();
   });
 });
+
+describe('run link when the fan-out row is missing', () => {
+  // outcomeRecorder.insert logs an InsertDeliveryRun failure and carries on, so
+  // a delivery can hold a run_id and a trigger_id with no fan-out row behind
+  // them. The owning trigger is still known, so the link is still buildable.
+  it("falls back to the delivery's own trigger id", () => {
+    const d = makeDelivery({
+      id: 'd-orphan',
+      receivedAt: '2026-07-28T09:00:00Z',
+      triggerId: 't1',
+      runId: 'run-5',
+      status: 'dispatched',
+      runs: [],
+    });
+    render(
+      <DeliveryDetail
+        delivery={d}
+        resolveAgentSlug={(id) => (id === 't1' ? 'coder' : undefined)}
+      />,
+    );
+    expect(screen.getByRole('link', { name: 'run-5' })).toHaveAttribute(
+      'href',
+      '/agents/coder/runs/run-5',
+    );
+  });
+});
+
+describe('a delivery run missing from its own fan-out', () => {
+  // outcomeRecorder.insert swallows an InsertDeliveryRun failure while
+  // UpdateDeliveryOutcome still stamps the delivery, so delivery.runId can name
+  // a run that has no fan-out row. With siblings present the list used to show
+  // only them and suppress the inline cluster, hiding that run entirely.
+  it('lists it alongside the runs that did write their rows', () => {
+    const d = makeDelivery({
+      id: 'd-mixed',
+      receivedAt: '2026-07-28T09:00:00Z',
+      triggerId: 't3',
+      runId: 'run-orphan',
+      status: 'dispatched',
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'a',
+          runId: 'run-1',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:01Z',
+        },
+        {
+          triggerId: 't2',
+          triggerName: 'b',
+          runId: 'run-2',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:02Z',
+        },
+      ],
+    });
+    render(<DeliveryDetail delivery={d} resolveAgentSlug={() => 'coder'} />);
+
+    expect(screen.getByRole('link', { name: 'run-1' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'run-2' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'run-orphan' })).toBeInTheDocument();
+  });
+
+  it('does not duplicate it when a fan-out row already carries it', () => {
+    const d = makeDelivery({
+      id: 'd-dup',
+      receivedAt: '2026-07-28T09:00:00Z',
+      triggerId: 't1',
+      runId: 'run-1',
+      status: 'dispatched',
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'a',
+          runId: 'run-1',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:01Z',
+        },
+        {
+          triggerId: 't2',
+          triggerName: 'b',
+          runId: 'run-2',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:02Z',
+        },
+      ],
+    });
+    render(<DeliveryDetail delivery={d} resolveAgentSlug={() => 'coder'} />);
+    expect(screen.getAllByRole('link', { name: 'run-1' })).toHaveLength(1);
+  });
+});
+
+describe('fan-out runs', () => {
+  it('links every run when one delivery started several', () => {
+    // The issue asks for each run to be reachable, not just the first: one
+    // arrival can match several triggers and start a run for each.
+    const d = makeDelivery({
+      id: 'd-2',
+      receivedAt: '2026-07-28T09:00:00Z',
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'gh-push',
+          runId: 'run-1',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:01Z',
+        },
+        {
+          triggerId: 't2',
+          triggerName: 'gh-label',
+          runId: 'run-2',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:02Z',
+        },
+      ],
+    });
+    const slugs: Record<string, string> = { t1: 'coder', t2: 'labeller' };
+    render(<DeliveryDetail delivery={d} resolveAgentSlug={(id) => slugs[id]} />);
+
+    expect(screen.getByRole('link', { name: 'run-1' })).toHaveAttribute(
+      'href',
+      '/agents/coder/runs/run-1',
+    );
+    // The second run points at its own trigger's agent, not the first one's.
+    expect(screen.getByRole('link', { name: 'run-2' })).toHaveAttribute(
+      'href',
+      '/agents/labeller/runs/run-2',
+    );
+  });
+});
+
+describe('run visibility agrees with the fan-out', () => {
+  // service_dispatch writes the DeliveryRun before it stamps delivery.run_id,
+  // so a read between the two sees a fan-out run and no delivery-level id.
+  const midDispatch = () =>
+    makeDelivery({
+      id: 'd-mid',
+      receivedAt: '2026-07-28T09:00:00Z',
+      runId: null,
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'gh-push',
+          runId: 'run-1',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:01Z',
+        },
+      ],
+    });
+
+  it('shows the single fan-out run even when the delivery has no run id yet', () => {
+    render(<DeliveryDetail delivery={midDispatch()} resolveAgentSlug={() => 'coder'} />);
+    expect(screen.getByRole('link', { name: 'run-1' })).toHaveAttribute(
+      'href',
+      '/agents/coder/runs/run-1',
+    );
+  });
+
+  it('does not claim nothing ran while a run is reachable', () => {
+    render(<DeliveryDetail delivery={midDispatch()} resolveAgentSlug={() => 'coder'} />);
+    expect(screen.queryByText('No run started for this delivery.')).toBeNull();
+  });
+
+  it('does not claim nothing ran while listing several runs', () => {
+    const d = makeDelivery({
+      id: 'd-fan',
+      receivedAt: '2026-07-28T09:00:00Z',
+      runId: null,
+      runs: [
+        {
+          triggerId: 't1',
+          triggerName: 'gh-push',
+          runId: 'run-1',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:01Z',
+        },
+        {
+          triggerId: 't2',
+          triggerName: 'gh-label',
+          runId: 'run-2',
+          status: 'dispatched',
+          error: null,
+          createdAt: '2026-07-28T09:00:02Z',
+        },
+      ],
+    });
+    render(<DeliveryDetail delivery={d} resolveAgentSlug={() => 'coder'} />);
+    expect(screen.getByRole('link', { name: 'run-1' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'run-2' })).toBeInTheDocument();
+    expect(screen.queryByText('No run started for this delivery.')).toBeNull();
+  });
+});

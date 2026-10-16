@@ -4,7 +4,7 @@ import { listSources, listTriggers, listDeliveries } from '@orbit/server/trigger
 import { agentsClient } from '@orbit/server/agents-client';
 import { ApiError } from '@orbit/server/client';
 import type { AgentType } from '@orbit/shared/api';
-import { toSourceRow, toTriggerRow, toDeliveryRow } from '../_types';
+import { toSourceRow, toTriggerRow, toDeliveryRow, DELIVERY_PAGE_SIZE } from '../_types';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerRow } from '../_types';
 
 export type TriggersResult =
@@ -13,6 +13,7 @@ export type TriggersResult =
       sources: SourceRow[];
       triggers: TriggerRow[];
       deliveries: DeliveryRow[];
+      deliveryCursor: string | null;
       agents: AgentOption[];
     }
   | { ok: false; message: string };
@@ -35,16 +36,19 @@ export const SESSION_EXPIRED_MESSAGE = 'Session expired. Sign in again.';
  */
 export async function fetchTriggersPage(accessToken: string): Promise<TriggersResult> {
   try {
-    const [sources, triggers, deliveries] = await Promise.all([
+    const [sources, triggers, deliveryPage] = await Promise.all([
       listSources(accessToken),
       listTriggers(accessToken),
-      listDeliveries(accessToken, { limit: 100 }),
+      // The grid reads payloadExcerpt; the full body is never rendered, so
+      // asking for it costs a hundred webhook bodies a page for nothing.
+      listDeliveries(accessToken, { limit: DELIVERY_PAGE_SIZE, omitPayload: true }),
     ]);
     return {
       ok: true,
       sources: sources.map(toSourceRow),
       triggers: triggers.map(toTriggerRow),
-      deliveries: deliveries.map(toDeliveryRow),
+      deliveries: deliveryPage.deliveries.map(toDeliveryRow),
+      deliveryCursor: deliveryPage.nextCursor,
       agents: await loadAgents(accessToken),
     };
   } catch (err) {

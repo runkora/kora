@@ -118,7 +118,8 @@ kora records every significant technical decision as an ADR. This index is the c
 - [Agent Triggers and Webhook Ingestion](2026-06-17-agent-triggers-and-webhook-ingestion.md) — `Accepted (Decision item 3 superseded in part 2026-09-29)` · 2026-06-17
 - [Run Task Summarization](2026-06-19-run-task-summarization.md) — `Accepted` · 2026-06-19
 - [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) — `Accepted (field map, empty event_type rule and declared event types superseded 2026-09-29)` · 2026-06-20
-- [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) — `Accepted` · 2026-06-20
+- [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) — `Superseded by [trigger-deliveries-keyset-pagination](2026-10-07-trigger-deliveries-keyset-pagination.md)` · 2026-06-20
+- [Trigger Deliveries: Keyset Pagination and Server-Side Filtering](2026-10-07-trigger-deliveries-keyset-pagination.md) — `Accepted` · 2026-10-07
 - [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) — `Accepted (Amended 2026-10-06)` · 2026-06-23
 - [Agent Builder](2026-07-17-agent-builder.md) — `Accepted` · 2026-07-17
 - [Agent Detail Configuration and the Shared Builder Motif](2026-07-17-agent-detail-configuration.md) — `Accepted` · 2026-07-17
@@ -253,7 +254,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-06-19 | [Nav Cleanup and Live Dashboard](2026-06-19-nav-cleanup-and-live-dashboard.md) | Accepted | — |
 | 2026-06-19 | [Mobile & Tablet Responsive Design](2026-06-19-mobile-responsive-design.md) | Accepted | — |
 | 2026-06-19 | [Run Task Summarization](2026-06-19-run-task-summarization.md) | Accepted | — |
-| 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Accepted | — |
+| 2026-06-20 | [Trigger Deliveries: Client-Side Status Filter and Inline Payload Excerpt](2026-06-20-trigger-deliveries-filter.md) | Superseded by [trigger-deliveries-keyset-pagination](2026-10-07-trigger-deliveries-keyset-pagination.md) | — |
 | 2026-06-20 | [Extended Trigger Types and an Operable Delivery Pipeline](2026-06-20-extended-trigger-types.md) | Accepted (field map, empty event_type rule and declared event types superseded 2026-09-29) | — |
 | 2026-06-22 | [Model Cost Visibility: Pricing on the Models Page and Virtual Models Catalog](2026-06-22-model-cost-visibility.md) | Accepted | — |
 | 2026-06-23 | [Agent Token Breakdown and Spend Card](2026-06-23-agent-token-breakdown-and-spend-card.md) | Accepted (Amended 2026-10-06) | — |
@@ -296,6 +297,7 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-03 | [Sandbox Environments](2026-10-03-sandbox-environments.md) | Accepted (Amended 2026-10-08) | — |
 | 2026-10-06 | [Rendered Service Config Files](2026-10-06-rendered-service-config-files.md) | Accepted | — |
 | 2026-10-07 | [Bundled Sandbox Images](2026-10-07-bundled-sandbox-images.md) | Accepted | — |
+| 2026-10-07 | [Trigger Deliveries: Keyset Pagination and Server-Side Filtering](2026-10-07-trigger-deliveries-keyset-pagination.md) | Accepted | — |
 | 2026-10-08 | [Sandbox Workspace Mount](2026-10-08-sandbox-workspace-mount.md) | Accepted | — |
 | 2026-10-10 | [Decision Models and the System One API](2026-10-10-systemone-decision-models.md) | Accepted | — |
 | 2026-10-12 | [Run Scheduling](2026-10-12-run-scheduling.md) | Accepted | — |

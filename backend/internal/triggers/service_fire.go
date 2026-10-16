@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -12,8 +13,11 @@ import (
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
 
-// Delivery listing bounds. An out-of-range ask gets the default page rather
-// than an error: the limit shapes a read, it does not change what exists.
+// Delivery listing bounds. An out-of-range ask is shaped rather than refused:
+// the limit shapes a read, it does not change what exists. Absent or
+// non-positive gets the default; above the ceiling clamps DOWN to the ceiling,
+// which is the whole point of having one. It used to reset to the default, so
+// asking for 501 returned five times fewer rows than a legal request.
 const (
 	defaultDeliveryPageSize = 100
 	maxDeliveryPageSize     = 500
@@ -222,22 +226,28 @@ func (s *Service) TickScheduled(ctx context.Context, tick ScheduledTick) {
 	)
 }
 
-// ListDeliveries returns recent deliveries for a tenant, each with its full
-// per-trigger run fan-out and coalescing keys attached (one batched query each,
-// no N+1).
-func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, error) {
-	// The page-size bounds are business policy, so they live here rather than
-	// in the storage layer: an unset limit gets the default page, and a caller
-	// cannot ask for more than the ceiling.
-	if filter.Limit <= 0 || filter.Limit > maxDeliveryPageSize {
+// ListDeliveries returns one page of a tenant's deliveries, newest first, each
+// with its per-trigger run fan-out and coalescing keys attached (one batched
+// query each, no N+1). nextCursor is empty on the last page.
+func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter DeliveryFilter) ([]Delivery, string, error) {
+	// Page-size bounds are business policy, not storage. An over-ceiling limit
+	// clamps DOWN to the ceiling rather than collapsing to the default, so asking
+	// for more than the maximum returns the maximum.
+	switch {
+	case filter.Limit <= 0:
 		filter.Limit = defaultDeliveryPageSize
+	case filter.Limit > maxDeliveryPageSize:
+		filter.Limit = maxDeliveryPageSize
 	}
-	deliveries, err := s.repo.ListDeliveries(ctx, tenantID, filter)
+	if err := validateDeliveryFilter(filter); err != nil {
+		return nil, "", err
+	}
+	deliveries, hasNext, err := s.repo.ListDeliveries(ctx, tenantID, filter)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	if len(deliveries) == 0 {
-		return deliveries, nil
+		return deliveries, "", nil
 	}
 	ids := make([]string, len(deliveries))
 	for i := range deliveries {
@@ -245,17 +255,41 @@ func (s *Service) ListDeliveries(ctx context.Context, tenantID string, filter De
 	}
 	runs, err := s.repo.ListDeliveryRunsForDeliveries(ctx, tenantID, ids)
 	if err != nil {
-		return nil, fmt.Errorf("attach delivery runs: %w", err)
+		return nil, "", fmt.Errorf("attach delivery runs: %w", err)
 	}
 	keys, err := s.repo.ListDeliveryKeysForDeliveries(ctx, tenantID, ids)
 	if err != nil {
-		return nil, fmt.Errorf("attach delivery keys: %w", err)
+		return nil, "", fmt.Errorf("attach delivery keys: %w", err)
 	}
 	for i := range deliveries {
 		deliveries[i].Runs = runs[deliveries[i].ID]
 		deliveries[i].CoalesceKeys = keys[deliveries[i].ID]
 	}
-	return deliveries, nil
+	var nextCursor string
+	if hasNext {
+		last := deliveries[len(deliveries)-1]
+		nextCursor = deliveryCursor{ReceivedAt: last.ReceivedAt, ID: last.ID}.encode()
+	}
+	return deliveries, nextCursor, nil
+}
+
+// validateDeliveryFilter rejects a status or outcome the pipeline can never
+// write. Ignoring an unknown value would silently return an unfiltered page,
+// which reads as a bug rather than as the typo it is.
+func validateDeliveryFilter(filter DeliveryFilter) error {
+	statuses := AllDeliveryStatuses()
+	for _, v := range filter.Status {
+		if !slices.Contains(statuses, v) {
+			return fmt.Errorf("%w: unknown delivery status %q", ErrValidation, v)
+		}
+	}
+	outcomes := AllRunStatuses()
+	for _, v := range filter.Outcome {
+		if !slices.Contains(outcomes, v) {
+			return fmt.Errorf("%w: unknown delivery outcome %q", ErrValidation, v)
+		}
+	}
+	return nil
 }
 
 // Redeliver replays a delivery: it records a NEW delivery naming the original

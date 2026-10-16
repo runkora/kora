@@ -3,11 +3,21 @@ import { type NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@orbit/server/route-helpers';
 import { listDeliveries } from '@orbit/server/triggers-client';
 
-// GET /api/trigger-deliveries?source_id=&limit= — recent deliveries for the tenant.
+// One page of deliveries for the tenant, newest first. status and outcome repeat
+// (?status=failed&status=missed) rather than taking a comma list, so they pass
+// straight through to the platform API.
 export const GET = withAuth(async (req: NextRequest, session) => {
-  const sourceId = req.nextUrl.searchParams.get('source_id') ?? undefined;
-  const limitRaw = req.nextUrl.searchParams.get('limit');
-  const limit = limitRaw ? Number(limitRaw) : undefined;
-  const deliveries = await listDeliveries(session.accessToken, { sourceId, limit });
-  return NextResponse.json({ data: deliveries });
+  const q = req.nextUrl.searchParams;
+  const limitRaw = q.get('limit');
+  const page = await listDeliveries(session.accessToken, {
+    sourceId: q.get('source_id') ?? undefined,
+    triggerId: q.get('trigger_id') ?? undefined,
+    kind: q.get('kind') ?? undefined,
+    status: q.getAll('status'),
+    outcome: q.getAll('outcome'),
+    limit: limitRaw ? Number(limitRaw) : undefined,
+    cursor: q.get('cursor'),
+    omitPayload: q.get('omit_payload') === 'true',
+  });
+  return NextResponse.json({ data: page.deliveries, next_cursor: page.nextCursor });
 });
