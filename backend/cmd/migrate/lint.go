@@ -21,8 +21,6 @@ const ident = `(?:"?\w+"?\.)?"?(\w+)"?`
 const cte = `(?:WITH\b.*?\)\s*)?`
 
 var (
-	lineComment   = regexp.MustCompile(`--[^\n]*`)
-	blockComment  = regexp.MustCompile(`(?s)/\*.*?\*/`)
 	createTable   = regexp.MustCompile(`(?i)^\s*CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?` + ident)
 	dmlStart      = regexp.MustCompile(`(?is)^\s*` + cte + `(INSERT|DELETE|UPDATE|SELECT)\b`)
 	updateTarget  = regexp.MustCompile(`(?is)^\s*` + cte + `UPDATE\s+(?:ONLY\s+)?` + ident)
@@ -36,6 +34,9 @@ var (
 	indexTarget   = regexp.MustCompile(`(?i)^\s*CREATE\s+(?:UNIQUE\s+)?INDEX\s+(?:CONCURRENTLY\s+)?(?:IF\s+NOT\s+EXISTS\s+)?(?:"?\w+"?\s+)?ON\s+(?:ONLY\s+)?` + ident)
 	concurrently  = regexp.MustCompile(`(?i)\bCONCURRENTLY\b`)
 	noTransaction = regexp.MustCompile(`(?i)--\s*\+goose\s+NO\s+TRANSACTION`)
+	// gooseBlock captures the body between a StatementBegin/StatementEnd pair.
+	// goose hands one block to the driver as a single Exec.
+	gooseBlock = regexp.MustCompile(`(?is)--\s*\+goose\s+StatementBegin(.*?)--\s*\+goose\s+StatementEnd`)
 
 	// tableReferences lists every form in which a statement names one table.
 	tableReferences = []*regexp.Regexp{references, insertTarget, deleteTarget, updateTarget, alterTarget, indexTarget}
@@ -48,6 +49,9 @@ type migration struct {
 	up      []string
 	down    []string
 	noTx    bool
+	// blocks is the body of each StatementBegin/StatementEnd pair, kept whole
+	// because the rule below is about what shares one Exec, not one statement.
+	blocks []string
 }
 
 // lintMigrations checks every service's files against the content rule and
@@ -92,6 +96,9 @@ func lintMigrations(sources map[string]fs.FS) error {
 // removed. The NO TRANSACTION directive is read before comments are stripped.
 func parseMigration(service, name, body string) migration {
 	m := migration{service: service, name: name, noTx: noTransaction.MatchString(body)}
+	for _, b := range gooseBlock.FindAllStringSubmatch(body, -1) {
+		m.blocks = append(m.blocks, b[1])
+	}
 
 	upBody, downBody, _ := strings.Cut(body, "-- +goose Down")
 	if _, after, ok := strings.Cut(upBody, "-- +goose Up"); ok {
@@ -102,22 +109,126 @@ func parseMigration(service, name, body string) migration {
 	return m
 }
 
+// statements splits SQL into statements on top-level semicolons.
+//
+// Comments and quoted runs are recognized in the same pass, because either can
+// contain the other: a `--` inside a string literal does not open a comment, and
+// a semicolon inside either is data rather than a terminator. Stripping comments
+// first with a regex gets that backwards, and concurrentBlockViolations counts
+// what this returns, so a miscount accepts a block that cannot run.
 func statements(sql string) []string {
-	sql = blockComment.ReplaceAllString(sql, "")
-	sql = lineComment.ReplaceAllString(sql, "")
 	var out []string
-	for stmt := range strings.SplitSeq(sql, ";") {
-		if s := strings.TrimSpace(stmt); s != "" {
+	var cur strings.Builder
+	flush := func() {
+		if s := strings.TrimSpace(cur.String()); s != "" {
 			out = append(out, s)
 		}
+		cur.Reset()
 	}
+
+	for i := 0; i < len(sql); {
+		switch {
+		case strings.HasPrefix(sql[i:], "--"):
+			if j := strings.IndexByte(sql[i:], '\n'); j >= 0 {
+				i += j // keep the newline, it still separates tokens
+			} else {
+				i = len(sql)
+			}
+		case strings.HasPrefix(sql[i:], "/*"):
+			i = skipBlockComment(sql, i)
+		case sql[i] == '\'' || sql[i] == '"':
+			end := scanQuoted(sql, i, sql[i])
+			cur.WriteString(sql[i:end])
+			i = end
+		case sql[i] == '$':
+			if end := scanDollar(sql, i); end > i {
+				cur.WriteString(sql[i:end])
+				i = end
+				continue
+			}
+			cur.WriteByte(sql[i])
+			i++
+		case sql[i] == ';':
+			flush()
+			i++
+		default:
+			cur.WriteByte(sql[i])
+			i++
+		}
+	}
+	flush()
 	return out
+}
+
+// skipBlockComment returns the index just past the /* */ run starting at i.
+// Postgres block comments nest, so this tracks depth rather than stopping at the
+// first */.
+func skipBlockComment(s string, i int) int {
+	depth := 0
+	for j := i; j < len(s); {
+		switch {
+		case strings.HasPrefix(s[j:], "/*"):
+			depth++
+			j += 2
+		case strings.HasPrefix(s[j:], "*/"):
+			depth--
+			j += 2
+			if depth == 0 {
+				return j
+			}
+		default:
+			j++
+		}
+	}
+	return len(s)
+}
+
+// scanQuoted returns the index just past the '...' or "..." run starting at i,
+// treating a doubled quote as an escape. An unterminated run consumes the rest
+// of the input, so a malformed file cannot split into surprising pieces.
+func scanQuoted(s string, i int, quote byte) int {
+	for j := i + 1; j < len(s); j++ {
+		if s[j] != quote {
+			continue
+		}
+		if j+1 < len(s) && s[j+1] == quote {
+			j++
+			continue
+		}
+		return j + 1
+	}
+	return len(s)
+}
+
+// scanDollar returns the index just past a $tag$...$tag$ body starting at i, or
+// i when this is not a dollar quote at all, such as a bare $1 placeholder.
+func scanDollar(s string, i int) int {
+	tagEnd := strings.IndexByte(s[i+1:], '$')
+	if tagEnd < 0 {
+		return i
+	}
+	tag := s[i : i+tagEnd+2]
+	for k := 1; k < len(tag)-1; k++ {
+		if c := tag[k]; c != '_' && !isAlnum(c) {
+			return i
+		}
+	}
+	rest := s[i+len(tag):]
+	if k := strings.Index(rest, tag); k >= 0 {
+		return i + len(tag) + k + len(tag)
+	}
+	return len(s)
+}
+
+func isAlnum(c byte) bool {
+	return c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
 }
 
 // violations lists every clause of the content rule the file breaks.
 func (m migration) violations(owners map[string]string) []string {
 	out := m.dmlViolations()
 	out = append(out, m.tableViolations(owners)...)
+	out = append(out, m.concurrentBlockViolations()...)
 	if len(m.up) == 0 {
 		out = append(out, "Up has no statements")
 	}
@@ -216,6 +327,29 @@ func referencedTables(stmt string) []string {
 			if name := dropTarget.FindStringSubmatch(strings.TrimSpace(target)); name != nil {
 				add(name[1])
 			}
+		}
+	}
+	return out
+}
+
+// concurrentBlockViolations covers the block-splitting rule. goose sends one
+// StatementBegin/StatementEnd block to the driver as a single Exec, and two
+// statements in one Exec are an implicit transaction, which CREATE INDEX
+// CONCURRENTLY and DROP INDEX CONCURRENTLY both refuse outright with "cannot
+// run inside a transaction block". NO TRANSACTION alone does not save a file
+// that packs them together, so the failure lands at deploy time, in the
+// chart's pre-upgrade hook, where it blocks the release.
+func (m migration) concurrentBlockViolations() []string {
+	var out []string
+	for _, b := range m.blocks {
+		if !concurrently.MatchString(b) {
+			continue
+		}
+		if n := len(statements(b)); n > 1 {
+			out = append(out, fmt.Sprintf(
+				"a CONCURRENTLY statement shares one goose block with %d other statement(s); give each its own StatementBegin/StatementEnd",
+				n-1,
+			))
 		}
 	}
 	return out

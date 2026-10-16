@@ -23,6 +23,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	"github.com/pressly/goose/v3/lock"
 )
 
 // allowDownEnv guards down. The chart never sets it.
@@ -106,9 +107,23 @@ func withProvider(ctx context.Context, logger logging.Logger, fn func(*goose.Pro
 	sqlDB := stdlib.OpenDBFromPool(db.Pool())
 	defer sqlDB.Close()
 
+	// Serializes two migrate Jobs against one database. The Job's fixed name and
+	// backoffLimit 0 stop it racing itself, but not an Argo CD PreSync overlapping
+	// a manual `helm upgrade`, which a NO TRANSACTION migration cannot survive:
+	// goose records the version even when the DDL silently did nothing.
+	//
+	// 120s (24 probes, 5s apart) rather than the 300s default, because the Job's
+	// activeDeadlineSeconds is 240s: on the default a waiting Job is killed
+	// mid-wait and reports nothing useful.
+	sessionLocker, err := lock.NewPostgresSessionLocker(lock.WithLockTimeout(5, 24))
+	if err != nil {
+		return fmt.Errorf("create session locker: %w", err)
+	}
+
 	provider, err := goose.NewProvider(goose.DialectPostgres, sqlDB, merged,
 		goose.WithAllowOutofOrder(true),
 		goose.WithLogger(gooseLogger{ctx: ctx, logger: logger}),
+		goose.WithSessionLocker(sessionLocker),
 	)
 	if err != nil {
 		return fmt.Errorf("create goose provider: %w", err)

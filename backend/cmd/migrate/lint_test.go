@@ -62,6 +62,13 @@ func TestLintMigrations_RejectsEachClause(t *testing.T) {
 			body: "-- +goose Up\nINSERT INTO widgets (id) VALUES ('x');\n-- +goose Down\n",
 			want: "INSERT in Up",
 		},
+		"two concurrently statements in one goose block": {
+			// goose sends a block as one Exec, and two statements in one Exec are
+			// an implicit transaction, which CONCURRENTLY refuses. NO TRANSACTION
+			// does not save this file; it fails in the pre-upgrade hook instead.
+			body: "-- +goose NO TRANSACTION\n-- +goose Up\n-- +goose StatementBegin\nDROP INDEX CONCURRENTLY IF EXISTS idx_widgets_size;\nCREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widgets_size ON widgets (size);\n-- +goose StatementEnd\n-- +goose Down\n",
+			want: "shares one goose block",
+		},
 		"delete in up": {
 			body: "-- +goose Up\nDELETE FROM widgets;\n-- +goose Down\n",
 			want: "DELETE in Up",
@@ -187,5 +194,161 @@ func TestSources_PassLint(t *testing.T) {
 
 	if err := lintMigrations(sources); err != nil {
 		t.Fatalf("embedded migrations violate the content rule: %v", err)
+	}
+}
+
+// A CONCURRENTLY migration that splits its statements correctly must pass. The
+// rule is about what shares one Exec, so one statement per block is the shape
+// the pre-upgrade hook can actually run.
+func TestLintMigrations_AcceptsConcurrentlyInSeparateBlocks(t *testing.T) {
+	t.Parallel()
+
+	err := lintMigrations(map[string]fs.FS{
+		"a": fstest.MapFS{
+			"20260101000000_create_widgets.sql": file(cleanUp),
+			"20260102000000_add_index.sql": file(
+				"-- +goose NO TRANSACTION\n" +
+					"-- +goose Up\n" +
+					"-- +goose StatementBegin\n" +
+					"DROP INDEX CONCURRENTLY IF EXISTS idx_widgets_size;\n" +
+					"-- +goose StatementEnd\n" +
+					"-- +goose StatementBegin\n" +
+					"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widgets_size ON widgets (size);\n" +
+					"-- +goose StatementEnd\n" +
+					"-- +goose Down\n" +
+					"-- +goose StatementBegin\n" +
+					"DROP INDEX CONCURRENTLY IF EXISTS idx_widgets_size;\n" +
+					"-- +goose StatementEnd\n",
+			),
+		},
+	})
+	if err != nil {
+		t.Fatalf("correctly split CONCURRENTLY migration rejected: %v", err)
+	}
+}
+
+// statements counts what the block-splitting rule enforces, so a semicolon that
+// is data rather than a terminator must not inflate the count. Without
+// quote-awareness each of these reads as two statements and the rule rejects a
+// block that is legitimately one.
+func TestStatements_IgnoresSemicolonsInsideQuotes(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"single-quoted literal":   "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || ';'));",
+		"doubled-quote escape":    "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || 'it''s;here'));",
+		"quoted identifier":       `CREATE INDEX CONCURRENTLY idx ON widgets ("od;d");`,
+		"dollar-quoted body":      "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || $tag$a;b$tag$));",
+		"bare dollar placeholder": "SELECT $1;",
+	}
+	for name, sql := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if n := len(statements(sql)); n != 1 {
+				t.Fatalf("statements(%q) = %d statements, want 1", sql, n)
+			}
+		})
+	}
+}
+
+// Real terminators must still split, or the quote handling would hide genuine
+// multi-statement blocks from the rule it exists to feed.
+func TestStatements_StillSplitsOnRealTerminators(t *testing.T) {
+	t.Parallel()
+
+	sql := "DROP INDEX CONCURRENTLY IF EXISTS idx; CREATE INDEX CONCURRENTLY idx ON widgets (kind);"
+	if n := len(statements(sql)); n != 2 {
+		t.Fatalf("statements() = %d, want 2", n)
+	}
+}
+
+// The lint rule itself must not reject a one-statement block whose literal
+// happens to contain a semicolon.
+func TestLintMigrations_AcceptsSemicolonInsideALiteral(t *testing.T) {
+	t.Parallel()
+
+	err := lintMigrations(map[string]fs.FS{
+		"a": fstest.MapFS{
+			"20260101000000_create_widgets.sql": file(cleanUp),
+			"20260102000000_add_index.sql": file(
+				"-- +goose NO TRANSACTION\n" +
+					"-- +goose Up\n" +
+					"-- +goose StatementBegin\n" +
+					"CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_widgets_kind ON widgets ((kind || ';'));\n" +
+					"-- +goose StatementEnd\n" +
+					"-- +goose Down\n",
+			),
+		},
+	})
+	if err != nil {
+		t.Fatalf("one statement with a quoted semicolon rejected: %v", err)
+	}
+}
+
+// A comment delimiter inside a literal must not open a comment. Stripping
+// comments before the quote scan truncated the block here, so the packed form
+// the rule exists to reject was counted as one statement and accepted.
+func TestStatements_CommentDelimitersInsideQuotes(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]struct {
+		sql  string
+		want int
+	}{
+		"line comment inside a literal": {
+			sql:  "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || '--'));\nDROP INDEX CONCURRENTLY idx_old;",
+			want: 2,
+		},
+		"block comment open inside a literal": {
+			sql:  "CREATE INDEX CONCURRENTLY idx ON widgets ((kind || '/*'));\nDROP INDEX CONCURRENTLY idx_old;",
+			want: 2,
+		},
+		"semicolon inside a real line comment": {
+			sql:  "CREATE INDEX idx ON widgets (kind); -- a; b; c\n",
+			want: 1,
+		},
+		"semicolon inside a real block comment": {
+			sql:  "/* a; b */ CREATE INDEX idx ON widgets (kind);",
+			want: 1,
+		},
+		"nested block comment": {
+			sql:  "/* outer /* inner */ still comment; */ CREATE INDEX idx ON widgets (kind);",
+			want: 1,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if n := len(statements(tc.sql)); n != tc.want {
+				t.Fatalf("statements(%q) = %d, want %d", tc.sql, n, tc.want)
+			}
+		})
+	}
+}
+
+// The rule must still reject the packed form when the literal contains a
+// comment delimiter, which is the case the old pre-strip let through.
+func TestLintMigrations_RejectsPackedBlockWithCommentDelimiterInLiteral(t *testing.T) {
+	t.Parallel()
+
+	err := lintMigrations(map[string]fs.FS{
+		"a": fstest.MapFS{
+			"20260101000000_create_widgets.sql": file(cleanUp),
+			"20260102000000_packed.sql": file(
+				"-- +goose NO TRANSACTION\n" +
+					"-- +goose Up\n" +
+					"-- +goose StatementBegin\n" +
+					"CREATE INDEX CONCURRENTLY idx ON widgets ((kind || '--'));\n" +
+					"DROP INDEX CONCURRENTLY idx_old;\n" +
+					"-- +goose StatementEnd\n" +
+					"-- +goose Down\n",
+			),
+		},
+	})
+	if err == nil {
+		t.Fatal("packed block accepted because a literal contained a comment delimiter")
+	}
+	if !strings.Contains(err.Error(), "shares one goose block") {
+		t.Fatalf("err = %v, want it to mention the block-splitting rule", err)
 	}
 }

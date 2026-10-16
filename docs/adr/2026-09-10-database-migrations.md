@@ -150,14 +150,20 @@ Production rollback is `helm rollback orbit <previous revision>` or the GitOps e
 
 ### Decision 7: Migration content rule
 
-The rule is implemented as the `lint` subcommand of `cmd/migrate`, run by `make migrate-lint` inside `make check` and covered by its own unit tests. It reads the goose directives, strips `--` and `/* */` comments, derives table ownership from `CREATE TABLE` statements per directory, and rejects a migration that:
+The rule is implemented as the `lint` subcommand of `cmd/migrate`, run by `make migrate-lint` inside `make check` and covered by its own unit tests. It reads the goose directives, tokenizes `--` and `/* */` comments together with quoted runs in one pass (either can contain the other), derives table ownership from `CREATE TABLE` statements per directory, and rejects a migration that:
 
 1. Contains `INSERT`, `DELETE` or `SELECT` in either direction, or has an empty `Up`. Seeds and reference data are registered idempotently at boot by the owning service.
 2. Contains `UPDATE` in `Up` unless the same file also alters the same table.
 3. Contains any DML in `Down`.
 4. References a table created in another service's directory, or a table no directory creates, in `REFERENCES`, `INSERT INTO`, `DELETE FROM`, `UPDATE`, `ALTER TABLE`, `DROP TABLE` or `CREATE INDEX ... ON`, or renames a table.
 5. Uses `CONCURRENTLY` without `-- +goose NO TRANSACTION`.
-6. Has a filename that does not match `<version>_<slug>.sql`, or a version prefix that another directory also uses.
+6. Puts a `CONCURRENTLY` statement in a `-- +goose StatementBegin` block that holds
+   another statement. goose sends one block to the driver as a single `Exec`, and two
+   statements in one `Exec` are an implicit transaction, which both `CONCURRENTLY` forms
+   refuse with `cannot run inside a transaction block`. `NO TRANSACTION` alone does not
+   save a file that packs them, so the failure would otherwise land in the chart's
+   pre-upgrade hook and block the release. Give each `CONCURRENTLY` statement its own block.
+7. Has a filename that does not match `<version>_<slug>.sql`, or a version prefix that another directory also uses.
 
 Exceptions are not annotated inline.
 
