@@ -465,7 +465,7 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 		// identity modes are separately grantable. agents:types:write
 		// prefix-covers both via the scope_covers hierarchy, so existing
 		// grants and the reserved admin roles keep their current power.
-		{Scope: "agents:types:delegated:write", ResourceType: "agents", PathSegments: []string{"types", "delegated"}, Action: "write", Description: "Create and mutate delegated agent types (safe self-service: the agent's grants are only a ceiling on each runner's own access and can never exceed the person running it)"},
+		{Scope: "agents:types:delegated:write", ResourceType: "agents", PathSegments: []string{"types", "delegated"}, Action: "write", Description: "Create and mutate delegated agent types (safe self-service: every model, tool and connection call is bounded by both the agent's grants and the access of the person running it; network egress follows the agent's own posture)"},
 		{Scope: "agents:types:autonomous:write", ResourceType: "agents", PathSegments: []string{"types", "autonomous"}, Action: "write", Description: "Create and mutate autonomous agent types (higher privilege: confers standing authority the agent holds on its own, whoever starts it)"},
 		{Scope: "agents:runs:read", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "read", Description: "View runs and stream agent events"},
 		{Scope: "agents:runs:write", ResourceType: "agents", PathSegments: []string{"runs"}, Action: "write", Description: "Start, message, and terminate runs"},

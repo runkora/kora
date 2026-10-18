@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	platformtoken "github.com/runkora/kora/backend/internal/platform/token"
 )
@@ -19,9 +20,13 @@ type fakeEval struct {
 	allow    map[string]bool // wire-name → allowed (for Query)
 	checkOK  bool
 	checkErr error
+
+	lastQuery policy.QueryInput
+	lastCheck policy.CheckInput
 }
 
 func (f *fakeEval) Query(_ context.Context, in policy.QueryInput) ([]string, error) {
+	f.lastQuery = in
 	var out []string
 	for _, c := range in.Candidates {
 		if f.allow[c.ID] {
@@ -30,7 +35,8 @@ func (f *fakeEval) Query(_ context.Context, in policy.QueryInput) ([]string, err
 	}
 	return out, nil
 }
-func (f *fakeEval) Check(_ context.Context, _ policy.CheckInput) (policy.Result, error) {
+func (f *fakeEval) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	f.lastCheck = in
 	return policy.Result{Allow: f.checkOK, Reason: "test"}, f.checkErr
 }
 func (f *fakeEval) Scopes(context.Context, policy.ScopesInput) ([]string, error) { return nil, nil }
@@ -195,5 +201,51 @@ func TestNotification_202EmptyBody(t *testing.T) {
 	}
 	if ct := rec.Header().Get("Content-Type"); ct != "" {
 		t.Errorf("expected no Content-Type header for empty-body response, got %q", ct)
+	}
+}
+
+// A delegated run's tool decisions carry the verified delegation, and tools/call
+// carries the run prefix for the engine's run binding check.
+func TestToolDecisions_CarryDelegationAndRun(t *testing.T) {
+	delegation := &policy.DelegationClaims{Sub: "person-1", DelegatorPrincipalType: "HUMAN", RunID: "run-1", ActSub: "agent-1"}
+	cases := []struct {
+		name       string
+		delegation *policy.DelegationClaims
+		body       string
+		wantRunID  string
+	}{
+		{"tools/list delegated", delegation, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`, ""},
+		{"tools/call delegated", delegation, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"agents.list"}}`, "run-1"},
+		{"tools/call autonomous", nil, `{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"agents.list"}}`, "run-1"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			eval := &fakeEval{}
+			cat := &memCatalog{tools: []CatalogTool{{ServerSlug: "orbit", ToolName: "agents.list", Scope: "mcp:orbit:agents:list:use"}}}
+			c := testController(eval, cat)
+
+			claims := &platformtoken.PlatformClaims{}
+			claims.Kora.TenantID = "acme"
+			claims.Kora.PrincipalType = platformtoken.PrincipalTypeAgent
+			claims.Subject = "agent-1"
+			ctx := platformtoken.WithClaims(context.Background(), claims)
+			if tc.delegation != nil {
+				ctx = policy.WithDelegation(ctx, tc.delegation)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/run/run-1/v1/mcp/orbit", strings.NewReader(tc.body)).WithContext(ctx)
+			req.SetPathValue("server", "orbit")
+			mw.StripRunPrefix(http.HandlerFunc(c.handleMCP)).ServeHTTP(httptest.NewRecorder(), req)
+
+			got := eval.lastCheck.Delegation
+			if strings.HasPrefix(tc.name, "tools/list") {
+				got = eval.lastQuery.Delegation
+			}
+			if got != tc.delegation {
+				t.Errorf("delegation = %+v, want %+v", got, tc.delegation)
+			}
+			if eval.lastCheck.RunID != tc.wantRunID {
+				t.Errorf("check run id = %q, want %q", eval.lastCheck.RunID, tc.wantRunID)
+			}
+		})
 	}
 }

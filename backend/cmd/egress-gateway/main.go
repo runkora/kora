@@ -187,8 +187,13 @@ func realMain() error {
 	// CONNECT bypasses the admin server's middleware, because the request body
 	// of a CONNECT is a TLS stream that logging and tracing must not touch. It
 	// still flows through AuthMiddleware so the broker sees verified claims.
+	// DelegationMiddleware adds the run's verified delegator, which every
+	// connection check intersects with.
 	// ConnectHandler itself rejects any non-CONNECT verb with an error response.
-	connectChain := mw.MiddlewareChain(mw.AuthMiddleware(verifier, logger))
+	connectChain := mw.MiddlewareChain(
+		mw.AuthMiddleware(verifier, logger),
+		mw.DelegationMiddleware(logger, verifier),
+	)
 	authedConnect := connectChain(connectHandler)
 
 	connectSrv := &http.Server{

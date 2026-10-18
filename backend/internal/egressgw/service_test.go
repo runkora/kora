@@ -102,3 +102,51 @@ func TestEvaluatePolicy_AlsoRequiredDenialNamesAction(t *testing.T) {
 		t.Errorf("denial = %+v, want contents:read not granted with a required scope", d)
 	}
 }
+
+// delegationRecorder allows every check and records the delegation each one carried.
+type delegationRecorder struct{ seen []*policy.DelegationClaims }
+
+func (d *delegationRecorder) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	d.seen = append(d.seen, in.Delegation)
+	return policy.Result{Allow: true}, nil
+}
+
+func (d *delegationRecorder) Scopes(context.Context, policy.ScopesInput) ([]string, error) {
+	return nil, nil
+}
+
+// Connection checks and the egress posture check carry the run's verified
+// delegation. Policy decides which of them intersect with the delegator.
+func TestBrokerChecks_CarryDelegation(t *testing.T) {
+	delegation := &policy.DelegationClaims{Sub: "person-1", DelegatorPrincipalType: "HUMAN", RunID: "run-1"}
+	cls := credentials.Classification{Action: "issues:read", Alternates: []string{"pulls:read"}, AlsoRequired: []string{"contents:read"}, Qualifier: "orbit"}
+	cases := []struct {
+		name       string
+		delegation *policy.DelegationClaims
+	}{
+		{"delegated", delegation},
+		{"autonomous", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			if tc.delegation != nil {
+				ctx = policy.WithDelegation(ctx, tc.delegation)
+			}
+			rec := &delegationRecorder{}
+			b := NewBroker(rec, nil, nil, nil, logging.NewLoggerWithOutput(io.Discard))
+			if _, err := b.evaluatePolicy(ctx, &token.PlatformClaims{}, &credentials.Connection{Name: "github"}, cls, EgressRequest{Host: "api.github.com", Method: "GET"}); err != nil {
+				t.Fatalf("evaluatePolicy: %v", err)
+			}
+			b.ownEgressAllows(ctx, &token.PlatformClaims{}, "api.github.com")
+			if len(rec.seen) != 4 {
+				t.Fatalf("checks = %d, want 4 (primary, alternate, required, posture)", len(rec.seen))
+			}
+			for i, got := range rec.seen {
+				if got != tc.delegation {
+					t.Errorf("check %d delegation = %+v, want %+v", i, got, tc.delegation)
+				}
+			}
+		})
+	}
+}

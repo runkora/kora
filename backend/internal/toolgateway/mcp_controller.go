@@ -67,15 +67,18 @@ func NewMCPController(verifier *platformtoken.Verifier, eval policy.Evaluator, c
 // under the server base path).
 func (c *MCPController) GroupedBy() string { return "" }
 
-// Middleware enforces platform JWT auth. The coarse mcp:invoke gate is enforced
-// at the Envoy sidecar (the registered route); this app-level PEP does the
-// per-tool Check.
+// Middleware enforces platform JWT auth and verifies the optional delegation
+// token. The coarse mcp:invoke gate is enforced at the Envoy sidecar (the
+// registered route); this app-level PEP does the per-tool Check.
 func (c *MCPController) Middleware() mw.MiddlewareHandler {
 	// challengeMiddleware runs first so its writer wraps AuthMiddleware's 401,
 	// adding the RFC 9728 WWW-Authenticate pointer to the protected-resource metadata.
+	// DelegationMiddleware puts the run's verified delegator into context for
+	// every tool decision below.
 	return mw.MiddlewareChain(
 		challengeMiddleware(c.basePath),
 		mw.AuthMiddleware(c.verifier, c.logger),
+		mw.DelegationMiddleware(c.logger, c.verifier),
 	)
 }
 
@@ -202,6 +205,7 @@ func (c *MCPController) handleToolsList(ctx context.Context, w http.ResponseWrit
 
 	allowed, err := c.eval.Query(ctx, policy.QueryInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "mcp",
 		Action:       scopeAction,
 		Candidates:   candidates,
@@ -256,9 +260,11 @@ func (c *MCPController) handleToolsCall(ctx context.Context, w http.ResponseWrit
 
 	res, err := c.eval.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "mcp",
 		PathSegments: toolScopePath(server, tool),
 		Action:       scopeAction,
+		RunID:        mw.RunIDFromContext(ctx),
 	})
 	if err != nil {
 		span.SetAttributes(attribute.String("mcp.decision", "error"))

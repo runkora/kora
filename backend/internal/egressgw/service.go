@@ -310,6 +310,7 @@ func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressReque
 func (b *Broker) ownEgressAllows(ctx context.Context, claims *token.PlatformClaims, host string) bool {
 	res, err := b.policy.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "egress",
 		PathSegments: []string{hostWithoutPort(host)},
 		Action:       "connect",
@@ -441,6 +442,7 @@ func (b *Broker) checkAction(ctx context.Context, claims *token.PlatformClaims, 
 	segments, verb := scopePath(conn, action, qualifier)
 	return b.policy.Check(ctx, policy.CheckInput{
 		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: resourceType,
 		PathSegments: segments,
 		Action:       verb,

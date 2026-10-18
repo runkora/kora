@@ -653,6 +653,16 @@ allow if {
 	_principal_own_egress_allows
 }
 
+# Layer 2 posture under delegation. Egress is the agent's own posture and is
+# never intersected with the delegator (delegated-agent-identity ADR, Decision 5).
+_l2_delegated_egress if {
+	_is_delegated
+	not _delegation_binding_failed
+	_principal_own_egress_allows
+}
+
+allow if _l2_delegated_egress
+
 # Egress posture allow. Connection-level authorization (connection:<name>:<action>)
 # + JIT mint happen at the gateway after TLS termination — not here.
 # Autonomous-gated: a delegation-required principal is refused here without a
@@ -725,9 +735,12 @@ reason := concat("", ["egress:", _l2_egress_host]) if {
 	_principal_own_egress_allows
 }
 
+reason := concat("", ["egress_delegated:", _l2_egress_host]) if _l2_delegated_egress
+
 reason := concat("", ["delegation:", matched_grant_scope]) if {
 	_is_delegated
 	not _delegation_binding_failed
+	not _l2_delegated_egress
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
@@ -781,6 +794,7 @@ reason := concat("", ["role:", min(matched_roles)]) if {
 reason := "deny:no_delegation_scope" if {
 	_is_delegated
 	not _delegation_binding_failed
+	not _l2_delegated_egress
 	principal_has_required_scope
 	not _delegation_scope_satisfied
 }
@@ -788,6 +802,7 @@ reason := "deny:no_delegation_scope" if {
 reason := "deny:no_delegator_grant" if {
 	_is_delegated
 	not _delegation_binding_failed
+	not _l2_delegated_egress
 	principal_has_required_scope
 	_delegation_scope_satisfied
 	not delegator_covers_required_scope
@@ -796,6 +811,7 @@ reason := "deny:no_delegator_grant" if {
 reason := "deny:no_agent_grant" if {
 	_is_delegated
 	not _delegation_binding_failed
+	not _l2_delegated_egress
 	_delegation_scope_satisfied
 	delegator_covers_required_scope
 	not principal_has_required_scope
