@@ -112,23 +112,6 @@ jobs:
       - name: Smoke build
         run: bash .github/scripts/hades-smoke-build.sh "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz
 
-  # Nothing has been built or published when a Hades job fails, so the tag is
-  # removed and the same release can be re-cut once the cause is fixed.
-  hades-unwind:
-    name: Delete the tag after a failed Hades job
-    needs: [hades-verify, hades-test, hades-pack-and-smoke]
-    if: failure()
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Delete the tag
-        env:
-          TAG: ${{ github.ref_name }}
-        run: git push --delete origin "refs/tags/$TAG"
-
   images:
     name: Build images
     needs: [hades-verify, hades-test, hades-pack-and-smoke]
