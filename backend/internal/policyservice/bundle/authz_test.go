@@ -38,6 +38,8 @@ type bundleOpts struct {
 	vocab  []*vocabulary.ScopeEntry
 	roles  []*roles.RoleEntry
 	routes []routes.RouteScope
+	// tenantRoutes are registered for testTenantID, apart from the global routes.
+	tenantRoutes []routes.RouteScope
 	// principalRoles is the user→role membership snapshot emitted as
 	// principal_roles/data.json (delegator-leg role resolution).
 	principalRoles map[string][]string
@@ -73,6 +75,13 @@ func compileAndPrepare(t *testing.T, opts bundleOpts) rego.PreparedEvalQuery {
 		routeStore.Register(&routes.Registration{
 			Service: "test",
 			Routes:  opts.routes,
+		})
+	}
+	if len(opts.tenantRoutes) > 0 {
+		routeStore.Register(&routes.Registration{
+			Service:  "test-tenant-service",
+			TenantID: testTenantID,
+			Routes:   opts.tenantRoutes,
 		})
 	}
 
@@ -237,6 +246,13 @@ func compileAndPrepareScopesQuery(t *testing.T, opts bundleOpts) rego.PreparedEv
 		routeStore.Register(&routes.Registration{
 			Service: "test",
 			Routes:  opts.routes,
+		})
+	}
+	if len(opts.tenantRoutes) > 0 {
+		routeStore.Register(&routes.Registration{
+			Service:  "test-tenant-service",
+			TenantID: testTenantID,
+			Routes:   opts.tenantRoutes,
 		})
 	}
 

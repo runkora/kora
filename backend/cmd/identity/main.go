@@ -201,6 +201,13 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 		return nil, err
 	}
 
+	// Publish the route table so the edge and sidecar OPA resolve identity's
+	// routes, authenticated-only ones included, instead of denying them unmatched.
+	scopeClient := routescopes.NewClient(policySvcURL, svc.SystemToken, logger)
+	go routescopes.KeepRegistered(ctx, logger, identity.ServiceName, func(ctx context.Context) error {
+		return scopeClient.Register(ctx, identity.ServiceName, identityRoutes(), nil)
+	})
+
 	// Triggers moved to the orbit-triggers binary: inbound webhook ingestion is
 	// the platform's only unauthenticated, internet-reachable surface and must
 	// not share a process with the token authority. identity still mints each
@@ -217,10 +224,11 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 // session, exchange, JWKS, tenant discovery) are registered directly with
 // mux.Handle in handlers.go Boot and never reach ScopeEnforcementMiddleware.
 //
-// Today every entry is RequiredScope: "" — meaning "any authenticated non-PAT
-// caller is allowed". This preserves current behavior. Follow-up PRs can
-// tighten scopes (e.g. platform:users:read for admin-only user listing,
-// platform:pats:write for cross-user PAT management).
+// Today every entry is RequiredScope: "". The route layer admits any
+// authenticated caller and the handler chain holds the check, including
+// rejectPATMiddleware. The table is also
+// registered with the policy service, which marks these routes
+// authenticated-only for the edge and sidecar OPA.
 func identityRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/identity/tokens", Method: "POST", RequiredScope: ""},

@@ -214,8 +214,7 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 	register := func(registerCtx context.Context) error {
 		catalogScopes := router.CatalogScopes()
 		scopeDecls := inferenceScopes(catalogScopes)
-		scopedRoutes := routescopes.FilterScopedRoutes(inferenceRoutes())
-		if err := client.Register(registerCtx, "inference-gateway", scopedRoutes, scopeDecls); err != nil {
+		if err := client.Register(registerCtx, "inference-gateway", inferenceRoutes(), scopeDecls); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
 		return nil
@@ -237,8 +236,8 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 // Used at startup for policy-service route registration (docs/adr/2026-04-14-dynamic-route-scope-registration.md) and at
 // request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Entries with empty
 // RequiredScope require authentication but no specific scope; the middleware
-// passes them through after AuthMiddleware. They are filtered out of the
-// policy registration by routescopes.FilterScopedRoutes.
+// passes them through after AuthMiddleware. The policy service registers them
+// as authenticated-only routes.
 //
 // Order matters: ScopeEnforcementMiddleware iterates this slice and prefers
 // the more-specific (sub-path) entry over the broader prefix for the same

@@ -365,7 +365,7 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 		if err != nil {
 			return fmt.Errorf("list agent type slugs for scope registration: %w", err)
 		}
-		if err := client.Register(registerCtx, "orbit-agents", routescopes.FilterScopedRoutes(agentRoutes()), agentScopes(slugs)); err != nil {
+		if err := client.Register(registerCtx, "orbit-agents", agentRoutes(), agentScopes(slugs)); err != nil {
 			return fmt.Errorf("register routes: %w", err)
 		}
 		return nil
@@ -395,10 +395,8 @@ func agentRoutes() []routescopes.RouteScope {
 		// delegated-agent-identity ADR Decision 1) and the mode comes from the
 		// request body on create and the stored row on update/delete — neither
 		// is visible to a static route map. The authoritative check lives in
-		// AgentTypeService via Authz.checkAgentTypeModeWrite. Empty-scope
-		// routes are excluded from policy-service registration (see
-		// routescopes.FilterScopedRoutes), the established pattern for locally
-		// enforced routes.
+		// AgentTypeService via Authz.checkAgentTypeModeWrite. The policy
+		// service registers empty-scope routes as authenticated-only.
 		{PathPrefix: "/api/v1/agent-types", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/agent-types", Method: "GET", RequiredScope: "agents:types:read"},
 		{PathPrefix: "/api/v1/agent-types/", Method: "GET", RequiredScope: "agents:types:read"},

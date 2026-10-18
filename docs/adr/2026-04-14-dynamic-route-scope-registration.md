@@ -134,13 +134,7 @@ Keyed by `(service_name, tenant_id)`. A global registration (`tenant_id = ""`) i
 
 ### Bundle compilation
 
-The compiler merges routes at compile time:
-
-```
-bundle_routes = global_registrations + tenant_registrations[tenant_id]
-```
-
-Written to `routes/data.json`. The Rego is unchanged — it still reads `data.routes.route_scopes`. Bundle recompilation is triggered immediately on any registration change, consistent with how grant writes trigger recompilation today.
+The compiler writes both route sets to `routes/data.json`: global registrations as `route_scopes` and the tenant's registrations as `tenant_route_scopes`. The Rego matches a global route first, so a tenant registration cannot shadow a platform route. Bundle recompilation is triggered immediately on any registration change, consistent with how grant writes trigger recompilation today.
 
 ### JWKS URL and JWT parameters
 

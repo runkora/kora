@@ -668,7 +668,7 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	if s.routeStore.Register(&routes.Registration{
 		Service:  service,
 		TenantID: tenantID,
-		Routes:   routeScopes,
+		Routes:   markAuthenticatedOnly(routeScopes),
 		Scopes:   scopeDecls,
 	}) {
 		changed = true
@@ -709,6 +709,19 @@ func (s *Service) checkTenantRegistration(ctx context.Context, routeScopes []rou
 		}
 	}
 	return nil
+}
+
+// markAuthenticatedOnly returns a copy of rs with every empty-scope route
+// marked AuthenticatedOnly. An empty RequiredScope is the route-table
+// convention for "authenticated caller, checked in the service", and the
+// marker is what the rego reads.
+func markAuthenticatedOnly(rs []routes.RouteScope) []routes.RouteScope {
+	out := make([]routes.RouteScope, len(rs))
+	for i, r := range rs {
+		r.AuthenticatedOnly = r.RequiredScope == ""
+		out[i] = r
+	}
+	return out
 }
 
 // upsertDeclaredScopes writes the service's declared scopes into the

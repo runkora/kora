@@ -82,16 +82,10 @@ func TestInitScopeRegistrationPublishesScopedRoutes(t *testing.T) {
 		t.Errorf("service = %q, want inference-gateway", reg.Service)
 	}
 
-	// Only scoped routes are registered: an entry with an empty RequiredScope is
-	// authenticated-but-unscoped and is filtered out before publication, so
-	// registering one would make the policy service enforce a scope of "".
-	if want := len(routescopes.FilterScopedRoutes(inferenceRoutes())); len(reg.Routes) != want {
+	// The whole table is published, authenticated-only routes included, so the
+	// edge resolves each request to the same route as the in-process check.
+	if want := len(inferenceRoutes()); len(reg.Routes) != want {
 		t.Errorf("published %d routes, want %d", len(reg.Routes), want)
-	}
-	for _, r := range reg.Routes {
-		if r.RequiredScope == "" {
-			t.Errorf("published unscoped route %s %s", r.Method, r.PathPrefix)
-		}
 	}
 
 	declared := make(map[string]bool, len(reg.Scopes))
