@@ -42,3 +42,31 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+
+  # The backend's Go modules. Minor and patch releases arrive as one grouped
+  # pull request a week. A new major changes the module path and its API, so it
+  # is a decision, not an update.
+  - package-ecosystem: gomod
+    directory: /backend
+    schedule:
+      interval: weekly
+    groups:
+      go-modules:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
+
+  # The frontend's pnpm dependencies, on the same terms as the Go modules.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+    groups:
+      frontend:
+        patterns: ["*"]
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - version-update:semver-major
