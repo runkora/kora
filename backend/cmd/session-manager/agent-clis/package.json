@@ -3,7 +3,7 @@
   "private": true,
   "description": "Agent CLIs installed into the session-manager image with npm ci.",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.299",
-    "opencode-ai": "1.19.0"
+    "@anthropic-ai/claude-code": "2.1.301",
+    "opencode-ai": "1.19.1"
   }
 }
