@@ -6,8 +6,14 @@ In kora, every agent has its own identity and is a first-class citizen of the pl
 
 Every agent uses one of two identity models, which is chosen when creating the agent and fixed for its lifetime.
 
-- `autonomous`: the agent acts as itself, using only the access it has been granted.
-- `delegated`: the agent acts on behalf of the person who started the run. Its access is limited to the intersection of the agent and that person's permission set.
+| | `autonomous` | `delegated` |
+| --- | --- | --- |
+| Acts as | Itself | The person who started the run |
+| Access | What the agent has been granted | The intersection of the agent's access and that person's access |
+| Started by | Triggers, the API, or a person with access to the agent | A person only |
+| Budget | The agent's | The person's, as well as the agent's |
+| Runs attributed to | The agent | The person who started the run |
+| Who can steer a run | Anyone with access to the run | Only the person who started it |
 
 ### Autonomous agents
 
@@ -19,4 +25,7 @@ Delegated agents are for work a person hands down to an agent. The agent works w
 
 Every delegated run is attributed to the person who started it, and consumes the budget of the person who started it. Delegated agents can only be started by a person, and only that person can steer the run. Because a delegated agent can never exceed the access of the person running it, access can be broadly provided by platform admins.
 
-ADRs: [unified-identity-model](../adr/2026-03-05-unified-identity-model.md), [delegated-agent-identity](../adr/2026-07-23-delegated-agent-identity.md).
+## Related decisions
+
+- [Unified identity model](../adr/2026-03-05-unified-identity-model.md)
+- [Delegated agent identity](../adr/2026-07-23-delegated-agent-identity.md)

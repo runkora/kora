@@ -12,8 +12,6 @@ See [creating an agent](../guides/create-an-agent.md) for configuring an agent-t
 
 Agents are run as tenant workloads within kora. A central `kora-agents` service within the `kora-system` owns the lifecycle of `agent-types` and their `session-managers`. It provisions the Kubernetes workloads into the tenant namespace and is responsible for forwarding run events to the appropriate tenant from triggers and conversations and managing the scaling of resources for agents and sandboxes.
 
-ADRs: [run-and-session-lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md), [agent-execution-infrastructure](../adr/2026-05-11-agent-execution-infrastructure.md).
-
 ## Agent runtime pod
 
 Each agent type gets a long-lived StatefulSet. Runs are multiplexed onto the `agent-type` instead of requiring a pod per agent run. This allows kora to scale agent runs at a different rate to the [sandboxes](sandboxes.md) those agents require for heavy workloads, reducing the idle state cost of always running agent infrastructure. 
@@ -22,19 +20,31 @@ This enables agent runs that do not require a sandbox to run barebones inside th
 
 The `session-manager` container hosts each agent run. `kora-session-runner` wraps the agent harness and confines it with Landlock in its own workspace. The session-manager also hosts a local `kora-runtime-mcp` which provides the harness the tools required to provision sandboxes, and manage its environment. When a sandbox is provisioned, the `kora-shell` acts as a tool-exec shim, and ensures all tools are run inside the mounted sandbox.
 
-ADR: [per-session-home-isolation](../adr/2026-06-04-per-session-home-isolation.md).
+| Component | Runs in | Job |
+| --- | --- | --- |
+| `kora-agents` | `kora-system` | Owns agent types, provisions their workloads, starts runs and provisions sandboxes |
+| `session-manager` | Agent runtime pod | Hosts every run on the pod |
+| `kora-session-runner` | Agent runtime pod | Wraps the agent harness and confines it to its workspace with Landlock |
+| `kora-runtime-mcp` | Agent runtime pod | Gives the harness the tools to provision sandboxes and manage its environment |
+| `kora-shell` | Agent runtime pod | Sends the harness's shell commands into the run's sandbox |
+| `istio-proxy`, `identity-proxy`, `opa` | Every agent runtime pod and sandbox | Intercept outbound requests, attach the platform token and evaluate policy |
 
 ## Per-run sandbox
 
 When an agent's task requires compute or tooling, it can provision a [sandbox](sandboxes.md) for its run. Each run can request its own isolated sandbox. The sandbox is ephemeral, and is torn down when the agent run ends, or is no longer using the idle sandbox. This allows us to provision larger compute nodes to give agents resource appropriate environments to complete their tasks effectively.
 
-ADR: [sandbox-provisioning-and-shell-proxy](../adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md).
-
 ## Outbound path
 
 The kora-operator injects the Istio `istio-proxy`, the kora `identity-proxy` and an OPA `ext_authz` sidecar which govern all egress and the chain stamps a [platform credential](platform-tokens.md) on all requests.
 
-No credentials are brokered or stored in an agent's environment, session or sandbox. Agents make bare requests from within the pod, every outbound request leaves the pod through its sidecar chain. `istio-proxy` intercepts it the request and forwards to `identity-proxy` to inject the platform token, the `opa` `ext_authz` sidecar evaluates the platform token against policy before authorizing it and forwarding it on. This means all requests are evaluated in pod before a network hop to the rest of the platform
+No credentials are brokered or stored in an agent's environment, session or sandbox. Every outbound request leaves the pod through its sidecar chain:
+
+1. The agent makes a bare request with no credential.
+2. `istio-proxy` intercepts the request and passes it to `identity-proxy`.
+3. `identity-proxy` attaches the agent's platform token.
+4. The `opa` `ext_authz` sidecar evaluates the token and the request against policy, and denies it in the pod or forwards it.
+
+Every request is evaluated in the pod before it makes a network hop to the rest of the platform.
 
 `identity-proxy` obtains that token by exchanging the pod's SPIFFE SVID for a kora platform JWT with the `identity` service. It caches this token for the lifetime of its SPIFFE identity and automatically refreshes. The node's SPIRE agent delivers the SVID to the sidecars through the SPIFFE CSI socket. Agents that run without a sandbox can only connect to platform services, all other egress is denied.
 
@@ -42,4 +52,12 @@ For any external system, the agent must provision a sandbox. The sandbox's egres
 
 See [connectivity](connectivity.md) for a detailed walkthrough of the outbound path.
 
-ADRs: [envoy-ext-proc-sidecar-token-injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md), [spiffe-spire-workload-attestation](../adr/2026-03-05-spiffe-spire-workload-attestation.md), [jit-credential-brokering-egress-gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md).
+## Related decisions
+
+- [Run and session lifecycle](../adr/2026-05-11-run-and-session-lifecycle.md)
+- [Agent execution infrastructure](../adr/2026-05-11-agent-execution-infrastructure.md)
+- [Per-session home isolation](../adr/2026-06-04-per-session-home-isolation.md)
+- [Sandbox provisioning and shell proxy](../adr/2026-05-11-sandbox-provisioning-and-shell-proxy.md)
+- [Envoy ext_proc sidecar token injection](../adr/2026-03-21-envoy-ext-proc-sidecar-token-injection.md)
+- [SPIFFE and SPIRE workload attestation](../adr/2026-03-05-spiffe-spire-workload-attestation.md)
+- [JIT credential brokering in the egress gateway](../adr/2026-06-06-jit-credential-brokering-egress-gateway.md)
