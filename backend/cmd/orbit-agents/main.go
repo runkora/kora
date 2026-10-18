@@ -20,6 +20,7 @@ import (
 	smclient "github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -75,6 +76,20 @@ func realMain() error {
 		logging.Field{Key: "version", Value: agentsConfig.Current.App.Version},
 	)
 
+	metrics, err := platformmetrics.Setup(ctx, agentsConfig.Current.Metrics, observability.Config{
+		ServiceName:    agentsConfig.Current.Observability.ServiceName,
+		ServiceVersion: agentsConfig.Current.App.Version,
+		Environment:    config.Environment(),
+	}, agentsConfig.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), agentsConfig.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
 	db, err := initStorage(ctx, logger)
 	if err != nil {
 		return fmt.Errorf("initialize storage: %w", err)
@@ -100,7 +115,7 @@ func realMain() error {
 	idClient := identityclient.NewClient(agentsConfig.Current.Platform.IdentityServiceURL, logger)
 	selfToken := idClient.SelfTokenSource()
 
-	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken)
+	server, repo, atSvc, runSvc, draftSvc, err := initServer(ctx, logger, db, eval, idClient, selfToken, metrics)
 	if err != nil {
 		return fmt.Errorf("initialize server: %w", err)
 	}
@@ -112,7 +127,7 @@ func realMain() error {
 	go atSvc.ApplyAll(ctx, repo)
 	runSvc.StartScheduler(ctx)
 	go draftSvc.StartReaper(ctx)
-	run(ctx, logger, server, runSvc)
+	run(ctx, logger, server, runSvc, metrics)
 	return nil
 }
 
@@ -165,7 +180,7 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, error
 	return db, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error)) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval policy.Evaluator, idClient *identityclient.Client, selfToken func(context.Context) (string, error), metrics *platformmetrics.Bootstrap) (*http.Server, *agents.PostgresRepository, *agents.AgentTypeService, *agents.RunService, *agents.DraftService, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := agentsConfig.Current
@@ -229,8 +244,8 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	}, logger)
 
 	sizes := environmentSizes(cfg)
-	if err := sizes.Validate(); err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", err)
+	if validateErr := sizes.Validate(); validateErr != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
 	}
 	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize:  sizes.Default,
@@ -281,6 +296,10 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	broker := agents.NewDelegationBroker(idClient, selfToken, cfg.Platform.TrustDomain, logger)
 	runSvc.SetDelegationBroker(broker)
 	atSvc.SetDelegationBroker(broker)
+
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	server := apiServer.Server(
 		ctx,
@@ -465,13 +484,14 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 	return decls
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc *agents.RunService) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc *agents.RunService, metrics *platformmetrics.Bootstrap) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down orbit-agents...")
@@ -487,6 +507,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, runSvc
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
 	<-scheduled
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "orbit-agents shutdown complete")
 }

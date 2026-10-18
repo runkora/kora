@@ -203,6 +203,11 @@ Kubernetes: `>=1.34.0-0`
 | global.imageRegistry | string | `"ghcr.io/runkora"` |  |
 | global.imageTag | string | `""` |  |
 | global.logFormat | string | `"json"` |  |
+| global.metrics.enabled | bool | `true` |  |
+| global.metrics.port | int | `9464` |  |
+| global.metrics.scraperNamespace | string | `""` |  |
+| global.metrics.serviceMonitor.enabled | bool | `false` |  |
+| global.metrics.serviceMonitor.interval | string | `"30s"` |  |
 | global.nodeSelector | object | `{}` |  |
 | global.observability.collectorNamespace | string | `""` |  |
 | global.observability.otlpEndpoint | string | `""` |  |
@@ -487,6 +492,7 @@ Kubernetes: `>=1.34.0-0`
 | triggers.affinity | object | `{}` |  |
 | triggers.authorizationPolicy.enabled | bool | `true` |  |
 | triggers.authorizationPolicy.meshPrincipals | list | `[]` |  |
+| triggers.authorizationPolicy.metricsScraperPrincipals | list | `[]` | Mesh identities (ns/<namespace>/sa/<serviceaccount>) allowed to reach ONLY the metrics port (global.metrics.port). Separate from meshPrincipals: a scraper needs no triggers-management authority, so it is scoped by port rather than added to the broad caller list above. Empty by default: nothing is allowed through until an operator names their scraper's identity. See docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision. |
 | triggers.authorizationPolicy.systemPrincipals[0] | string | `"frontend"` |  |
 | triggers.authorizationPolicy.systemPrincipals[1] | string | `"orbit-mcp"` |  |
 | triggers.authorizationPolicy.systemPrincipals[2] | string | `"ingress-gateway"` |  |

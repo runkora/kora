@@ -26,3 +26,8 @@ secrets:
 
 observability:
   serviceName: "egress-gateway"
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

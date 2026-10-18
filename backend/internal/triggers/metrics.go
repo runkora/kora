@@ -165,15 +165,16 @@ func (m *Metrics) Close() error {
 
 // recordAutoPause counts a trigger the platform paused itself.
 //
-// The trigger id is an attribute because the question this answers is "which
-// trigger keeps pausing", and an unattributed total cannot answer it. Trigger
-// ids are bounded by a tenant's own configuration, not by traffic, so this does
-// not open the cardinality hole that attributing per delivery would.
-func (m *Metrics) recordAutoPause(ctx context.Context, triggerID string) {
+// Unattributed: the metrics endpoint is unauthenticated, and a trigger ID is
+// tenant-controlled data, not a bounded enum like a status or outcome — see
+// docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision (no tenant,
+// principal, run or trigger ID ever becomes a label). Which trigger keeps
+// pausing is a question for the trigger's own audit log, not this counter.
+func (m *Metrics) recordAutoPause(ctx context.Context) {
 	if m == nil {
 		return
 	}
-	m.autoPauses.Add(ctx, 1, metric.WithAttributes(attribute.String("trigger_id", triggerID)))
+	m.autoPauses.Add(ctx, 1)
 }
 
 // recordPurge records a completed retention purge: how much it removed, and

@@ -33,6 +33,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -59,6 +60,21 @@ func realMain() error {
 	defer shutdownObservability()
 
 	logger := initLogger()
+
+	metrics, err := platformmetrics.Setup(ctx, tgc.Current.Metrics, observability.Config{
+		ServiceName:    tgc.Current.Observability.ServiceName,
+		ServiceVersion: tgc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, tgc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tgc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
 	// Trusted-host allowlist for the host-derived RFC 9728 protected-resource
 	// metadata and 401 challenge (ADR 2026-07-04).
 	platformapi.ConfigureTrustedHosts(tgc.Current.PublicHosts)
@@ -120,11 +136,11 @@ func realMain() error {
 			cycleMu.Lock()
 			defer cycleMu.Unlock()
 			introspector.Sync(ctx, registry.Servers(), force)
-			if err := publisher.Publish(ctx); err != nil {
-				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: err.Error()})
+			if pubErr := publisher.Publish(ctx); pubErr != nil {
+				logger.Error(ctx, "MCP scope publish failed", logging.Field{Key: "error", Value: pubErr.Error()})
 			}
-			if err := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); err != nil {
-				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: err.Error()})
+			if replaceErr := catalogRepo.Replace(ctx, toolgateway.CatalogToolsFromSnapshots(introspector.Snapshot())); replaceErr != nil {
+				logger.Error(ctx, "MCP catalog rebuild failed", logging.Field{Key: "error", Value: replaceErr.Error()})
 			}
 		}
 		registry.OnReload(func(ctx context.Context) { cycle(ctx, true) })
@@ -134,6 +150,9 @@ func realMain() error {
 
 	// ── HTTP server (health + catalog [+ MCP proxy in proxy mode]) ───────────
 	apiServer := platformapi.NewAPI(ctx, logger)
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 	srv := apiServer.Server(
 		ctx,
 		tgc.Current.Server.HTTPPort,
@@ -155,6 +174,7 @@ func realMain() error {
 			logger.Error(ctx, "tool-gateway HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down tool gateway...")
@@ -164,6 +184,7 @@ func realMain() error {
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "tool-gateway HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Tool gateway shutdown complete")
 	return nil

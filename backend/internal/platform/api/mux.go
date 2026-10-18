@@ -28,6 +28,11 @@ type Mux struct {
 	middleware mw.MiddlewareHandler
 	logger     logging.Logger
 	ctx        context.Context
+
+	// metricsMiddleware is applied per-route, inside RoutePattern, so it can
+	// actually read the route the request matched. See HandleWithMiddleware.
+	// Nil when the binary has no meter wired (metrics disabled).
+	metricsMiddleware mw.MiddlewareHandler
 }
 
 func NewMux(ctx context.Context, logger logging.Logger) *Mux {
@@ -44,6 +49,13 @@ func (m *Mux) SetBasePath(basePath string) {
 
 func (m *Mux) SetMiddleware(middleware mw.MiddlewareHandler) {
 	m.middleware = middleware
+}
+
+// SetMetricsMiddleware mirrors api.Server's setter: applied per-route, inside
+// RoutePattern, so it can actually read the route the request matched. See
+// HandleWithMiddleware.
+func (m *Mux) SetMetricsMiddleware(metricsMiddleware mw.MiddlewareHandler) {
+	m.metricsMiddleware = metricsMiddleware
 }
 
 // Handles routes for each controller and adds them to the server.
@@ -117,6 +129,15 @@ func (m *Mux) HandleWithMiddleware(
 	}
 
 	finalHandler = mw.SpanRouteName(finalHandler)
+
+	// Between SpanRouteName and RoutePattern (not in the global chain a
+	// binary builds in main.go), so it executes after RoutePattern has set
+	// the route pattern on the request context. The global chain runs
+	// outside this Mux's own dispatch, so a context value set in here is
+	// local to this call stack and never visible out there.
+	if m.metricsMiddleware != nil {
+		finalHandler = m.metricsMiddleware(finalHandler)
+	}
 
 	// Outermost, so every middleware above reads the route from the context.
 	finalHandler = mw.RoutePattern(fullPath)(finalHandler)

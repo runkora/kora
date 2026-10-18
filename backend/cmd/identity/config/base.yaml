@@ -8,3 +8,8 @@ server:
 
 observability:
   serviceName: orbit-identity
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

@@ -17,6 +17,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -37,23 +38,42 @@ func main() {
 	logger := initLogger()
 	logger.Info(ctx, "Inference gateway starting", logging.Field{Key: "version", Value: igc.Current.App.Version})
 
-	db, redis, err := initStorage(ctx, logger)
-	if err != nil {
-		logger.Error(ctx, "Failed to initialize storage", logging.Field{Key: "error", Value: err})
-		shutdownObservability()
-		os.Exit(1) //nolint:gocritic
-	}
-	defer db.Close()
-	defer redis.Close()
-
-	server, register, err := initServer(ctx, logger, db, redis)
-	if err != nil {
-		logger.Error(ctx, "Failed to initialize server", logging.Field{Key: "error", Value: err})
+	// fatal flushes observability (the deferred shutdown above won't run
+	// after os.Exit) and exits. Used for every startup failure past this
+	// point so each one isn't a repeated three-line block.
+	fatal := func(msg string, err error) {
+		logger.Error(ctx, msg, logging.Field{Key: "error", Value: err})
 		shutdownObservability()
 		os.Exit(1)
 	}
 
-	run(ctx, logger, server, register)
+	metrics, err := platformmetrics.Setup(ctx, igc.Current.Metrics, observability.Config{
+		ServiceName:    igc.Current.Observability.ServiceName,
+		ServiceVersion: igc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, igc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		fatal("Failed to setup metrics", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), igc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
+	db, redis, err := initStorage(ctx, logger)
+	if err != nil {
+		fatal("Failed to initialize storage", err)
+	}
+	defer db.Close()
+	defer redis.Close()
+
+	server, register, err := initServer(ctx, logger, db, redis, metrics)
+	if err != nil {
+		fatal("Failed to initialize server", err)
+	}
+
+	run(ctx, logger, server, metrics, register)
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -295,13 +315,17 @@ func inferenceScopes(catalogScopes []inferencegw.CatalogScope) []routescopes.Sco
 	return decls
 }
 
-func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient) (*http.Server, func(context.Context) error, error) {
+func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redis *storage.RedisClient, metrics *platformmetrics.Bootstrap) (*http.Server, func(context.Context) error, error) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	controllers, register, err := initControllers(ctx, logger, db, redis)
 	if err != nil {
 		return nil, nil, err
 	}
+
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
 
 	server := apiServer.Server(
 		ctx,
@@ -321,7 +345,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, redi
 	return server, register, nil
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, register func(context.Context) error) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap, register func(context.Context) error) {
 	runCtx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -331,6 +355,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+	metrics.Start(runCtx, logger)
 
 	// Register now and keep the registration alive across policy-service
 	// restarts; the shared helper owns the retry and re-registration cadence.
@@ -345,6 +370,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Inference gateway shutdown complete")
 }

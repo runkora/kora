@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 )
 
 // Config holds policy-service configuration values.
@@ -47,6 +48,8 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 }
 
 func (c *Config) ShutdownTimeout() time.Duration {

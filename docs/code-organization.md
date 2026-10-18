@@ -14,16 +14,16 @@ The backend compiles to a set of small binaries under `backend/cmd/`, all sharin
 
 | Binary | Role | Local port | Owns tables |
 |--------|------|------------|-------------|
-| `identity` | **Main control-plane API**: identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`) | ✅ |
-| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`) | ✅ |
-| `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`) | ✅ |
-| `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`) | none |
-| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085` | none |
-| `orbit-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095` | none |
-| `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`) | ✅ |
-| `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster) | ✅ |
-| `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097` | ✅ |
-| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090` | none |
+| `identity` | **Main control-plane API**: identity, sessions, PATs, user profiles, tenant registry, JWKS | `8080` (`/api/v1`); metrics `9464` | ✅ |
+| `inference-gateway` | OpenAI/Anthropic-compatible LLM gateway: chat/completions, embeddings, responses, model catalog, usage logs, analytics | `8081` (`/v1`); metrics `9464` | ✅ |
+| `policy-service` | Authorization data plane (PDP/PAP): grants, roles, vocabulary, route-scope store; compiles & serves OPA bundles | `8083` (`/api/v1`); metrics `9464` | ✅ |
+| `policy-gateway` | In-app authorization API (PEP): `/policy/check`, `/query`, `/scopes`, `/explain`, `/simulate` | `8084` (`/v1`); metrics `9464` | none |
+| `egress-gateway` | JIT credential broker: intercepts agent outbound calls and injects scoped external credentials (GitHub App, Kubernetes bearer); backed by `internal/credentials` | `8085`; metrics `9464` | none |
+| `orbit-mcp` | Platform-management MCP server: exposes kora's own APIs as governed MCP tools | `8095`; metrics `9464` | none |
+| `tool-gateway` | Governed MCP/tool gateway: server catalog, per-tool scope enforcement, OAuth + consent, introspection; backed by `internal/toolgateway` (a `tool-gateway-publisher` deployment runs the same image in `publisher` mode) | `8096` (`/v1`); metrics `9464` | ✅ |
+| `orbit-agents` | Agent control plane: agent-type registry, run/session lifecycle, event streaming, k8s orchestration, BYOC discovery | `8080` (in-cluster); metrics `9464` | ✅ |
+| `orbit-triggers` | Triggers: inbound webhook ingestion, trigger management API, cron scheduler, manual fire | `8097`; metrics `9464` | ✅ |
+| `session-manager` | Per-tenant StatefulSet that runs the Claude Code subprocess per session/run; workspace + idle lifecycle | `8090`; metrics `9464` (Go-side only, no chart wiring: there is no `charts/orbit/templates/session-manager/`, so no Service port, scrape annotation, or NetworkPolicy allowance) | none |
 | `operator` | Kubernetes operator: reconciles Tenant/Platform CRDs, renders Helm/Istio, mutating pod webhook (injects the identity-proxy sidecar) | health `8081`, webhook `9443` | none |
 | `identity-proxy` | Envoy `ext_proc` gRPC sidecar: injects platform Bearer tokens into agent outbound calls (SPIFFE→JWT exchange) | unix socket; health `9090` | none |
 | `sandbox-exec` | gRPC exec server inside a sandbox pod: streams stdout/stderr/exit for commands | gRPC `50051` | none |

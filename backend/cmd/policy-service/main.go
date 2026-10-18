@@ -14,6 +14,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -49,6 +50,20 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "Policy service starting", logging.Field{Key: "version", Value: psc.Current.App.Version})
 
+	metrics, err := platformmetrics.Setup(ctx, psc.Current.Metrics, observability.Config{
+		ServiceName:    psc.Current.Observability.ServiceName,
+		ServiceVersion: psc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, psc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), psc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
 	storageCfg, err := storage.LoadStorageConfig()
 	if err != nil {
 		return fmt.Errorf("load storage config: %w", err)
@@ -79,10 +94,10 @@ func realMain() error {
 
 	// Pre-compile bundles for every known tenant: registered, with grants, or
 	// with routes.
-	if tenantIDs, err := bundleSrv.KnownTenantIDs(ctx); err == nil {
+	if tenantIDs, bootErr := bundleSrv.KnownTenantIDs(ctx); bootErr == nil {
 		bundleSrv.Bootstrap(ctx, tenantIDs)
 	} else {
-		logger.Error(ctx, "bundle bootstrap: failed to list tenants", logging.Field{Key: "error", Value: err.Error()})
+		logger.Error(ctx, "bundle bootstrap: failed to list tenants", logging.Field{Key: "error", Value: bootErr.Error()})
 	}
 
 	// Pre-compile the cross-tenant gateway bundle.
@@ -117,9 +132,9 @@ func realMain() error {
 	policyEval.Start(ctx)
 
 	controller := api.NewController(svc, logger, verifier, policyEval, policyServiceRoutes(), psc.Current.Server.BasePath)
-	server := initServer(ctx, logger, controller)
+	server := initServer(ctx, logger, controller, metrics)
 
-	run(ctx, logger, server)
+	run(ctx, logger, server, metrics)
 	return nil
 }
 
@@ -223,8 +238,13 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger, controller *api.Controller) *http.Server {
+func initServer(ctx context.Context, logger logging.Logger, controller *api.Controller, metrics *platformmetrics.Bootstrap) *http.Server {
 	apiServer := platformapi.NewAPI(ctx, logger)
+
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	return apiServer.Server(
 		ctx,
 		psc.Current.Server.Port,
@@ -237,13 +257,14 @@ func initServer(ctx context.Context, logger logging.Logger, controller *api.Cont
 	)
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down policy service...")
@@ -254,6 +275,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Policy service shutdown complete")
 }

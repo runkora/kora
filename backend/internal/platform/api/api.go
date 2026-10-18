@@ -13,6 +13,10 @@ import (
 type api struct {
 	logger logging.Logger
 	mux    *http.ServeMux
+
+	// metricsMiddleware, when set via SetMetricsMiddleware, is applied
+	// per-route rather than globally — see Mux.HandleWithMiddleware for why.
+	metricsMiddleware mw.MiddlewareHandler
 }
 
 func NewAPI(ctx context.Context, logger logging.Logger) *api {
@@ -21,6 +25,14 @@ func NewAPI(ctx context.Context, logger logging.Logger) *api {
 		logger: logger,
 		mux:    http.NewServeMux(),
 	}
+}
+
+// SetMetricsMiddleware wires per-request HTTP metrics into every route this
+// api registers. Call it before Server. A nil or never-called middleware
+// means no metrics instrumentation, matching every binary that doesn't wire
+// a meter.
+func (a *api) SetMetricsMiddleware(middleware mw.MiddlewareHandler) {
+	a.metricsMiddleware = middleware
 }
 
 func (a *api) Server(
@@ -36,6 +48,7 @@ func (a *api) Server(
 
 	// Register all controllers with their base paths.
 	controllerMux := NewMux(ctx, a.logger)
+	controllerMux.SetMetricsMiddleware(a.metricsMiddleware)
 	for _, controller := range controllers {
 		controllerMux.SetBasePath(controller.GroupedBy())
 		controllerMux.SetMiddleware(controller.Middleware())

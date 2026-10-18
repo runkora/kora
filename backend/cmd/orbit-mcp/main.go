@@ -22,6 +22,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	mcpkit "github.com/clear-route/orbit/internal/platform/mcp"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 )
@@ -46,6 +47,20 @@ func realMain() error {
 	logger := initLogger()
 	logger.Info(ctx, "kora MCP starting", logging.Field{Key: "version", Value: omc.Current.App.Version})
 
+	metrics, err := platformmetrics.Setup(ctx, omc.Current.Metrics, observability.Config{
+		ServiceName:    omc.Current.Observability.ServiceName,
+		ServiceVersion: omc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, omc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), omc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
 	jc := orbitjson.NewClient(logger)
 	srv := orbitmcp.NewServer(orbitmcp.Backends{
 		Agents:      omc.Current.Backends.Agents,
@@ -58,6 +73,11 @@ func realMain() error {
 
 	controller := mcpkit.NewController("/mcp", srv)
 	apiServer := platformapi.NewAPI(ctx, logger)
+
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	httpSrv := apiServer.Server(
 		ctx,
 		omc.Current.Server.HTTPPort,
@@ -75,6 +95,7 @@ func realMain() error {
 			logger.Error(ctx, "HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down orbit-mcp...")
@@ -84,6 +105,7 @@ func realMain() error {
 	if err := httpSrv.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 	logger.Info(ctx, "kora MCP shutdown complete")
 	return nil
 }

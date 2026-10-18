@@ -10,3 +10,8 @@ server:
 
 observability:
   serviceName: "orbit-mcp"
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

@@ -203,6 +203,66 @@ spec:
 ---
 {{- end }}
 {{- end }}
+{{- with .Values.global.metrics }}
+{{- if .scraperNamespace }}
+{{- if $.Values.global.metrics.enabled }}
+# Prometheus /metrics scrape traffic for every internal/platform/metrics
+# service, from the namespace named by global.metrics.scraperNamespace (empty
+# by default: nothing opens until an operator names where their scraper
+# runs). NetworkPolicy ingress alone is not sufficient to complete a scrape on
+# this mesh: Istio enforces mTLS east-west, so a scraper with no Istio sidecar
+# is still rejected at the target's Envoy regardless of this rule. See
+# docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape-ingress
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit.labels" $ | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .scraperNamespace }}
+      ports:
+        - port: {{ .port | default 9464 }}
+          protocol: TCP
+---
+{{- end }}
+# The operator's own controller-runtime metrics (port 8080, fixed,
+# independent of global.metrics.enabled; see operator/deployment.yaml) are
+# scraped the same way, but scoped to the operator's own pods: 8080 is also
+# identity's and orbit-agents' real API port, so a rule on podSelector: {}
+# would open their application traffic to the scraper namespace too.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-prometheus-scrape-ingress-operator
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app: orbit-operator
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ .scraperNamespace }}
+      ports:
+        - port: 8080
+          protocol: TCP
+---
+{{- end }}
+{{- end }}
 # orbit-agents creates, messages and terminates the session-manager process on
 # any agent pod in any tenant; scoped to app=orbit-agents so no other
 # orbit-system pod inherits that reach.

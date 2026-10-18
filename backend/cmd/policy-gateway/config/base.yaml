@@ -12,3 +12,8 @@ policy:
 
 observability:
   serviceName: "policy-gateway"
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

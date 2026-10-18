@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 )
 
 // Config holds the identity service's own configuration values.
@@ -38,6 +39,8 @@ type Config struct {
 	// PolicyServiceURL is the policy service's in-cluster base URL, for PAT
 	// grant management and the policy bundle.
 	PolicyServiceURL string `yaml:"policyServiceURL"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 }
 
 // ShutdownTimeout returns the server shutdown timeout as a time.Duration.

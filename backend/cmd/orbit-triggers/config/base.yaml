@@ -18,3 +18,8 @@ policy:
 
 observability:
   serviceName: orbit-triggers
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

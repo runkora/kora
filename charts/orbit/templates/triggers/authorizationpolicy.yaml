@@ -38,4 +38,20 @@ spec:
               {{- range .Values.triggers.authorizationPolicy.meshPrincipals }}
               - "{{ include "orbit.trustDomain" $ }}/{{ . }}"
               {{- end }}
+    {{- if .Values.triggers.authorizationPolicy.metricsScraperPrincipals }}
+    # Prometheus /metrics scrape traffic, scoped to the metrics port only: the
+    # metrics endpoint carries no trigger-management authority, so a
+    # scraper's principal needs no admission to the rule above. See
+    # docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision.
+    - from:
+        - source:
+            principals:
+              {{- range .Values.triggers.authorizationPolicy.metricsScraperPrincipals }}
+              - "{{ include "orbit.trustDomain" $ }}/{{ . }}"
+              {{- end }}
+      to:
+        - operation:
+            ports:
+              - "{{ .Values.global.metrics.port | default 9464 }}"
+    {{- end }}
 {{- end }}

@@ -15,3 +15,8 @@ bundle:
 
 observability:
   serviceName: "policy-service"
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

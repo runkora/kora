@@ -21,6 +21,9 @@ orbit-agents config files (docs/adr/2026-10-06-rendered-service-config-files.md)
   {{- fail "agents.idleTimeout: manualSecs and triggerSecs must be at least 1" }}
 {{- end }}
 cmd/orbit-agents:
+  metrics:
+    enabled: {{ .Values.global.metrics.enabled }}
+    port: {{ .Values.global.metrics.port | default 9464 }}
   kubernetes:
     systemNamespace: {{ include "orbit.systemNamespace" . | toJson }}
   platform:

@@ -71,7 +71,7 @@ func sumInt64(t *testing.T, m metricdata.Metrics) int64 {
 func TestMetrics_NilIsSafe(t *testing.T) {
 	var m *Metrics
 	ctx := context.Background()
-	m.recordAutoPause(ctx, "trig-1")
+	m.recordAutoPause(ctx)
 	m.recordPurge(ctx, 5, time.Now())
 	m.recordSchedulerTick(ctx, 3, time.Second)
 	if err := m.Close(); err != nil {
@@ -79,15 +79,16 @@ func TestMetrics_NilIsSafe(t *testing.T) {
 	}
 }
 
-// The auto-pause counter carries the trigger id, because "which trigger keeps
-// pausing" is the question it exists to answer.
-func TestMetrics_AutoPauseCounterCarriesTriggerID(t *testing.T) {
+// The auto-pause counter carries no trigger id: the metrics endpoint is
+// unauthenticated, and a trigger id is tenant-controlled data, not a bounded
+// enum (docs/adr/2026-10-06-prometheus-metrics-endpoints.md, Decision).
+func TestMetrics_AutoPauseCounterIsUnattributed(t *testing.T) {
 	m, reader := newTestMetrics(t, newMockRepository())
 	ctx := context.Background()
 
-	m.recordAutoPause(ctx, "trig-a")
-	m.recordAutoPause(ctx, "trig-a")
-	m.recordAutoPause(ctx, "trig-b")
+	m.recordAutoPause(ctx)
+	m.recordAutoPause(ctx)
+	m.recordAutoPause(ctx)
 
 	got, ok := collect(t, reader)["orbit.triggers.auto_pauses"]
 	if !ok {
@@ -97,18 +98,14 @@ func TestMetrics_AutoPauseCounterCarriesTriggerID(t *testing.T) {
 	if !ok {
 		t.Fatalf("auto-pause counter is %T, want a sum", got.Data)
 	}
-	if len(sum.DataPoints) != 2 {
-		t.Fatalf("data points = %d, want one per trigger", len(sum.DataPoints))
+	if len(sum.DataPoints) != 1 {
+		t.Fatalf("data points = %d, want a single unattributed series", len(sum.DataPoints))
 	}
-	for _, dp := range sum.DataPoints {
-		id, present := dp.Attributes.Value("trigger_id")
-		if !present {
-			t.Fatal("auto-pause data point has no trigger_id attribute")
-		}
-		want := map[string]int64{"trig-a": 2, "trig-b": 1}[id.AsString()]
-		if dp.Value != want {
-			t.Errorf("%s = %d, want %d", id.AsString(), dp.Value, want)
-		}
+	if dp := sum.DataPoints[0]; dp.Value != 3 {
+		t.Errorf("auto-pause total = %d, want 3", dp.Value)
+	}
+	if dp := sum.DataPoints[0]; dp.Attributes.Len() != 0 {
+		t.Errorf("auto-pause data point has %d attributes, want 0", dp.Attributes.Len())
 	}
 }
 

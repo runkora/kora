@@ -9,6 +9,11 @@ server:
 observability:
   serviceName: orbit-agents
 
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5
+
 kubernetes:
   inCluster: true
   tenantNamespacePrefix: orbit-tenant-

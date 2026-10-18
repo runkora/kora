@@ -15,6 +15,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -34,8 +35,30 @@ func main() {
 		logging.Field{Key: "version", Value: smConfig.Current.App.Version},
 	)
 
-	server, registry := initServer(ctx, logger)
-	run(ctx, logger, server, registry)
+	// fatal flushes observability (the deferred shutdown above won't run
+	// after os.Exit) and exits.
+	fatal := func(msg string, err error) {
+		logger.Error(ctx, msg, logging.Field{Key: "error", Value: err})
+		shutdownObs()
+		os.Exit(1)
+	}
+
+	metrics, err := platformmetrics.Setup(ctx, smConfig.Current.Metrics, observability.Config{
+		ServiceName:    smConfig.Current.Observability.ServiceName,
+		ServiceVersion: smConfig.Current.App.Version,
+		Environment:    config.Environment(),
+	}, smConfig.Current.Observability.ServiceName, logger)
+	if err != nil {
+		fatal("Failed to setup metrics", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), smConfig.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
+
+	server, registry := initServer(ctx, logger, metrics)
+	run(ctx, logger, server, registry, metrics)
 }
 
 func initObservability(ctx context.Context) (func(), error) {
@@ -64,7 +87,7 @@ func initLogger() logging.Logger {
 	return logging.NewLogger()
 }
 
-func initServer(ctx context.Context, logger logging.Logger) (*http.Server, *sessionmanager.Registry) {
+func initServer(ctx context.Context, logger logging.Logger, metrics *platformmetrics.Bootstrap) (*http.Server, *sessionmanager.Registry) {
 	apiServer := api.NewAPI(ctx, logger)
 
 	cfg := smConfig.Current
@@ -99,6 +122,10 @@ func initServer(ctx context.Context, logger logging.Logger) (*http.Server, *sess
 		NodeMaxOldSpaceMB:   cfg.Runner.NodeMaxOldSpaceMB,
 	}, registry, verifier)
 
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	return apiServer.Server(
 		ctx,
 		cfg.Server.Port,
@@ -111,7 +138,7 @@ func initServer(ctx context.Context, logger logging.Logger) (*http.Server, *sess
 	), registry
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, registry *sessionmanager.Registry, metrics *platformmetrics.Bootstrap) {
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 
@@ -121,6 +148,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-quit
 	// The server keeps serving the runs on this pod while they finish. The kubelet
@@ -141,6 +169,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server, regist
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Session-manager shutdown complete")
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 )
 
 // Config holds orbit-agents configuration values.
@@ -29,6 +30,8 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
+
+	Metrics platformmetrics.Config `yaml:"metrics"`
 
 	Kubernetes struct {
 		// InCluster uses the pod's service account token. Set false for local dev.

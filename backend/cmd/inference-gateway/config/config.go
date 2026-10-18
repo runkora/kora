@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/platform/config"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 )
 
 // Config is the root configuration for the inference-gateway service.
@@ -16,9 +17,10 @@ type Config struct {
 	Observability struct {
 		ServiceName string `yaml:"serviceName"`
 	} `yaml:"observability"`
-	Pricing   PricingConfig   `yaml:"pricing"`
-	Policy    PolicyConfig    `yaml:"policy"`
-	Providers ProvidersConfig `yaml:"providers"`
+	Metrics   platformmetrics.Config `yaml:"metrics"`
+	Pricing   PricingConfig          `yaml:"pricing"`
+	Policy    PolicyConfig           `yaml:"policy"`
+	Providers ProvidersConfig        `yaml:"providers"`
 	Identity  struct {
 		// InternalURL is the in-cluster base URL for identity. The gateway
 		// exchanges its SVID there for the platform token it registers routes with.

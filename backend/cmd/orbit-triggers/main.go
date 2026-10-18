@@ -40,6 +40,7 @@ import (
 	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -65,15 +66,23 @@ func realMain() error {
 	}
 	defer shutdownObservability()
 
-	meter, shutdownMeter, err := initMeter(ctx)
-	if err != nil {
-		return fmt.Errorf("setup metrics: %w", err)
-	}
-	defer shutdownMeter()
-
 	logger := initLogger()
 	logger.Info(ctx, "Triggers service starting",
 		logging.Field{Key: "version", Value: tc.Current.App.Version})
+
+	metricsBootstrap, err := platformmetrics.Setup(ctx, tc.Current.Metrics, observability.Config{
+		ServiceName:    tc.Current.Observability.ServiceName,
+		ServiceVersion: tc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, tc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), tc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metricsBootstrap.Shutdown(shutdownCtx, logger)
+	}()
 
 	db, redis, err := initStorage(ctx, logger)
 	if err != nil {
@@ -82,7 +91,7 @@ func realMain() error {
 	defer db.Close()
 	defer redis.Close()
 
-	controller, scopeClient, err := initController(ctx, logger, db, redis, meter)
+	controller, scopeClient, err := initController(ctx, logger, db, redis, metricsBootstrap.Meter())
 	if err != nil {
 		return fmt.Errorf("init controller: %w", err)
 	}
@@ -95,7 +104,9 @@ func realMain() error {
 			return scopeClient.Register(ctx, "orbit-triggers", routeScopes(), scopeDeclarations())
 		})
 
-	run(ctx, logger, initServer(ctx, logger, controller))
+	server := initServer(ctx, logger, controller, metricsBootstrap)
+
+	run(ctx, logger, server, metricsBootstrap)
 	return nil
 }
 
@@ -294,29 +305,6 @@ func initObservability(ctx context.Context) (func(), error) {
 	}, nil
 }
 
-// initMeter sets up the OpenTelemetry metrics pipeline for this binary and
-// returns the meter the Triggers instruments are built on. The pipeline is
-// the platform's: exporter selection lives in observability.SetupMetrics, so
-// metrics and traces are configured by the same two settings and cannot end
-// up pointing at different collectors.
-func initMeter(ctx context.Context) (metric.Meter, func(), error) {
-	meter, shutdown, err := observability.SetupMetrics(ctx, observability.Config{
-		ServiceName:    tc.Current.Observability.ServiceName,
-		ServiceVersion: tc.Current.App.Version,
-		Environment:    config.Environment(),
-	})
-	if err != nil {
-		return nil, nil, err
-	}
-	return meter, func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), tc.Current.ShutdownTimeout())
-		defer cancel()
-		if err := shutdown(shutdownCtx); err != nil {
-			fmt.Fprintf(os.Stderr, "Error shutting down metrics: %v\n", err)
-		}
-	}, nil
-}
-
 func initLogger() logging.Logger {
 	if observability.DefaultConfig.LogFormat == "console" {
 		return logging.NewDevelopmentLogger()
@@ -346,8 +334,13 @@ func initStorage(ctx context.Context, logger logging.Logger) (*storage.DB, *stor
 	return db, rc, nil
 }
 
-func initServer(ctx context.Context, logger logging.Logger, controller platformapi.Controller) *http.Server {
+func initServer(ctx context.Context, logger logging.Logger, controller platformapi.Controller, metrics *platformmetrics.Bootstrap) *http.Server {
 	apiServer := platformapi.NewAPI(ctx, logger)
+
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	return apiServer.Server(
 		ctx,
 		tc.Current.Server.Port,
@@ -360,13 +353,14 @@ func initServer(ctx context.Context, logger logging.Logger, controller platforma
 	)
 }
 
-func run(ctx context.Context, logger logging.Logger, server *http.Server) {
+func run(ctx context.Context, logger logging.Logger, server *http.Server, metrics *platformmetrics.Bootstrap) {
 	go func() {
 		logger.Info(ctx, "Starting HTTP server", logging.Field{Key: "addr", Value: server.Addr})
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error(ctx, "Failed to start server", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down triggers service...")
@@ -377,6 +371,7 @@ func run(ctx context.Context, logger logging.Logger, server *http.Server) {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "Server forced to shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Triggers service shutdown complete")
 }

@@ -26,3 +26,8 @@ introspection:
 
 observability:
   serviceName: "tool-gateway"
+
+metrics:
+  enabled: true
+  port: 9464
+  shutdownTimeoutSecs: 5

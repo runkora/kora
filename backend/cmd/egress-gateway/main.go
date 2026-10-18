@@ -41,6 +41,7 @@ import (
 	platformapi "github.com/clear-route/orbit/internal/platform/api"
 	"github.com/clear-route/orbit/internal/platform/config"
 	"github.com/clear-route/orbit/internal/platform/logging"
+	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
 	mw "github.com/clear-route/orbit/internal/platform/middleware"
 	"github.com/clear-route/orbit/internal/platform/observability"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -77,6 +78,20 @@ func realMain() error {
 
 	logger := initLogger()
 	logger.Info(ctx, "Egress gateway starting", logging.Field{Key: "version", Value: egc.Current.App.Version})
+
+	metrics, err := platformmetrics.Setup(ctx, egc.Current.Metrics, observability.Config{
+		ServiceName:    egc.Current.Observability.ServiceName,
+		ServiceVersion: egc.Current.App.Version,
+		Environment:    config.Environment(),
+	}, egc.Current.Observability.ServiceName, logger)
+	if err != nil {
+		return fmt.Errorf("setup metrics: %w", err)
+	}
+	defer func() {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), egc.Current.Metrics.ShutdownTimeout())
+		defer cancel()
+		metrics.Shutdown(shutdownCtx, logger)
+	}()
 
 	// ── Policy evaluator ─────────────────────────────────────────────────────
 	eval := policy.NewEvaluator(egc.Current.Policy.BundleEndpoint, egc.Current.BundlePollInterval(), logger)
@@ -146,6 +161,10 @@ func realMain() error {
 	// wired outside the controller mux and stays open.
 	connectionsReadController := egressgw.NewConnectionsReadController(connRegistry, registry, verifier, logger)
 	apiServer := platformapi.NewAPI(ctx, logger)
+	// Per-route, not in the global chain below: it must run after RoutePattern
+	// has set the route on the request context. See Mux.HandleWithMiddleware.
+	apiServer.SetMetricsMiddleware(metrics.Middleware())
+
 	adminHTTP := apiServer.Server(
 		ctx,
 		egc.Current.Server.AdminHTTPPort,
@@ -208,6 +227,7 @@ func realMain() error {
 			logger.Error(ctx, "admin HTTP server error", logging.Field{Key: "error", Value: err.Error()})
 		}
 	}()
+	metrics.Start(ctx, logger)
 
 	<-ctx.Done()
 	logger.Info(ctx, "Shutting down egress gateway...")
@@ -220,6 +240,7 @@ func realMain() error {
 	if err := adminHTTP.Shutdown(shutdownCtx); err != nil {
 		logger.Error(ctx, "admin HTTP server forced shutdown", logging.Field{Key: "error", Value: err.Error()})
 	}
+	metrics.StopServer(shutdownCtx, logger)
 
 	logger.Info(ctx, "Egress gateway shutdown complete")
 	return nil
