@@ -66,7 +66,7 @@ func (c *Controller) handleUpdateEnvironment(w http.ResponseWriter, r *http.Requ
 			api.ValidationError(api.ErrCodeMissingField, "name is required", nil), nil)
 		return
 	}
-	env, err := c.environments.UpdateEnvironment(ctx, req)
+	env, err := c.environments.UpdateEnvironment(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
 		c.writeEnvironmentError(ctx, w, err)
 		return
@@ -95,6 +95,9 @@ func (c *Controller) writeEnvironmentError(ctx context.Context, w http.ResponseW
 	case errors.Is(err, ErrEnvironmentInUse):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ConflictError(api.ErrCodeConflict, "environment is attached to an agent; detach it first", nil), nil)
+	case errors.Is(err, ErrIdentityModeWriteForbidden), errors.Is(err, ErrScopeCeiling):
+		api.ErrorResponse(ctx, w, c.logger,
+			api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil), nil)
 	case errors.Is(err, ErrInvalidEnvironment):
 		api.ErrorResponse(ctx, w, c.logger,
 			api.ValidationError(api.ErrCodeInvalidField, err.Error(), nil), nil)

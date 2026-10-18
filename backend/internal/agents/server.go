@@ -159,6 +159,12 @@ func (c *Controller) handleHealth(w http.ResponseWriter, r *http.Request) {
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"status": "ok"})
 }
 
+// withCallerBearerFrom lifts r's bearer into ctx for calls made on the caller's behalf.
+// AuthMiddleware has already verified the token; this carries the raw string.
+func withCallerBearerFrom(ctx context.Context, r *http.Request) context.Context {
+	return WithCallerBearer(ctx, strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")))
+}
+
 // ── Agent Types ───────────────────────────────────────────────────────────────
 
 func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Request) {
@@ -176,7 +182,7 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	at, err := c.agentTypes.CreateAgentType(ctx, req)
+	at, err := c.agentTypes.CreateAgentType(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
 		if errors.Is(err, ErrSlugTaken) {
 			apiErr := api.ConflictError(api.ErrCodeResourceExists, "slug already taken for this tenant", nil)
@@ -188,9 +194,9 @@ func (c *Controller) handleCreateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+		if errors.Is(err, ErrIdentityModeWriteForbidden) || errors.Is(err, ErrScopeCeiling) {
 			// 403 with the explicit reason: the message names the missing
-			// mode-qualified scope and the identity model's stakes.
+			// scopes and, for a mode refusal, the identity model's stakes.
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -290,7 +296,7 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	at, err := c.agentTypes.UpdateAgentType(ctx, req)
+	at, err := c.agentTypes.UpdateAgentType(withCallerBearerFrom(ctx, r), req)
 	if err != nil {
 		if errors.Is(err, ErrNotFound) {
 			apiErr := api.NotFoundError(api.ErrCodeResourceNotFound, "agent type not found", nil)
@@ -302,7 +308,7 @@ func (c *Controller) handleUpdateAgentType(w http.ResponseWriter, r *http.Reques
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
 		}
-		if errors.Is(err, ErrIdentityModeWriteForbidden) {
+		if errors.Is(err, ErrIdentityModeWriteForbidden) || errors.Is(err, ErrScopeCeiling) {
 			apiErr := api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil)
 			api.ErrorResponse(ctx, w, c.logger, apiErr, nil)
 			return
@@ -354,13 +360,9 @@ func (c *Controller) handleStartRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Lift the caller's raw bearer into context: a delegated agent's run start
-	// forwards it to POST /identity/delegation so identity mints only authority
-	// the caller already holds (delegated-agent-identity ADR, Decision 3). The
-	// token was already verified by AuthMiddleware; this carries the raw string.
-	if bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")); bearer != "" {
-		ctx = WithCallerBearer(ctx, bearer)
-	}
+	// A delegated agent's run start forwards the caller's bearer to POST
+	// /identity/delegation (delegated-agent-identity ADR, Decision 3).
+	ctx = withCallerBearerFrom(ctx, r)
 
 	run, err := c.runs.StartRun(ctx, req)
 	if err != nil {

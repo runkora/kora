@@ -54,6 +54,7 @@ type AgentTypeService struct {
 	hook     func()            // called after agent type create/delete; nil if unset
 	envs     environmentLookup // validates attached environments; nil = skip validation
 	resolver *ScopeResolver    // resolves effective access for the read endpoint; nil = degraded
+	callers  callerScopeSource // caller scopes for the ceiling; nil refuses autonomous writes
 	// delegation revokes run delegations when agent-type deletion force-deletes
 	// runs (the delegation ends with the run); nil = skip (issuer not wired).
 	delegation *DelegationBroker
@@ -97,6 +98,27 @@ func (s *AgentTypeService) SetEnvironmentLookup(envs environmentLookup) { s.envs
 // posture (no environment or connector resolution).
 func (s *AgentTypeService) SetScopeResolver(r *ScopeResolver) { s.resolver = r }
 
+// SetCallerScopes installs the source of the caller's effective scopes, which
+// bound the scopes of an autonomous agent the caller creates or changes.
+func (s *AgentTypeService) SetCallerScopes(c callerScopeSource) { s.callers = c }
+
+// scopeResolver returns the configured resolver, or one that sees only the agent's own scopes.
+func (s *AgentTypeService) scopeResolver() *ScopeResolver {
+	if s.resolver == nil {
+		return &ScopeResolver{}
+	}
+	return s.resolver
+}
+
+// checkEnvironmentEdit authorizes an edit to env as a write to at, an agent it is
+// attached to: the mode-qualified write scope and the ceiling over at's grant with env applied.
+func (s *AgentTypeService) checkEnvironmentEdit(ctx context.Context, at AgentType, env Environment) error {
+	if err := s.authz.checkAgentTypeModeWrite(ctx, at.IdentityMode.OrDefault()); err != nil {
+		return err
+	}
+	return s.checkCeiling(ctx, at, s.scopeResolver().withEnvironment(env))
+}
+
 // GetEffectiveAccess returns an agent type's egress posture, attached environments and connector auto-egress combined.
 // Tenant-scoped and authz-read-checked like GetAgentType.
 func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*EffectiveAccess, error) {
@@ -121,11 +143,7 @@ func (s *AgentTypeService) GetEffectiveAccess(ctx context.Context, id string) (*
 		}
 		return nil, err
 	}
-	resolver := s.resolver
-	if resolver == nil {
-		resolver = &ScopeResolver{}
-	}
-	return resolver.EffectiveAccess(ctx, *at)
+	return s.scopeResolver().EffectiveAccess(ctx, *at)
 }
 
 // PreviewEffectiveAccess resolves the access view for a draft (unsaved) config —
@@ -139,11 +157,7 @@ func (s *AgentTypeService) PreviewEffectiveAccess(ctx context.Context, req Effec
 		Connectors:   req.Connectors,
 		Environments: req.Environments,
 	}
-	resolver := s.resolver
-	if resolver == nil {
-		resolver = &ScopeResolver{}
-	}
-	return resolver.EffectiveAccess(ctx, draft)
+	return s.scopeResolver().EffectiveAccess(ctx, draft)
 }
 
 // validateAgentTypeUpdate runs the partial-update field validations
@@ -362,6 +376,9 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		Budget:                  req.Budget,
 		State:                   AgentTypeStateProvisioning,
 	}
+	if err := s.checkCeiling(ctx, at, s.scopeResolver()); err != nil {
+		return nil, err
+	}
 
 	if err := s.repo.CreateAgentType(ctx, at); err != nil {
 		if errors.Is(err, ErrSlugTaken) {
@@ -574,6 +591,11 @@ func (s *AgentTypeService) UpdateAgentType(ctx context.Context, req UpdateAgentT
 	callerSetInference := req.GrantScopes != nil && hasInferenceScope(req.GrantScopes)
 	if req.ModelID != nil && !callerSetInference {
 		at.GrantScopes = reconcileInferenceScopes(at.GrantScopes, at.ModelID)
+	}
+	// Any edit, a prompt included, steers an autonomous agent's standing authority.
+	// The caller must hold the whole grant.
+	if err := s.checkCeiling(ctx, *at, s.scopeResolver()); err != nil {
+		return nil, err
 	}
 
 	if err := s.repo.UpdateAgentType(ctx, *at); err != nil {

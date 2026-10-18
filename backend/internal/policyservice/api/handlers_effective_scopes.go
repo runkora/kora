@@ -2,16 +2,16 @@ package api
 
 import (
 	"net/http"
-	"strings"
 
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // handleEffectiveScopes handles GET /policy/effective-scopes.
-// Returns the full set of scopes the authenticated HUMAN principal currently
-// holds, derived from their OIDC roles and explicit grants. Used by the PAT
-// creation and update UI to populate the scope selector.
+// Returns the full set of scopes the authenticated principal currently holds,
+// derived from its OIDC roles (HUMAN only) and explicit grants. The PAT UI
+// reads it to populate the scope selector, and orbit-agents reads it with the
+// caller's bearer to keep an agent's grant within its creator's scopes.
 func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
@@ -20,23 +20,14 @@ func (c *Controller) handleEffectiveScopes(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if claims.Kora.PrincipalType != token.PrincipalTypeHuman {
+	if claims.Kora.PrincipalType == token.PrincipalTypeSystem {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
-				"effective scopes are only available for human principals", nil), nil)
+				"effective scopes are not available for system principals", nil), nil)
 		return
 	}
 
-	var roles []string
-	if raw := claims.Kora.Claims["roles"]; raw != "" {
-		for role := range strings.SplitSeq(raw, ",") {
-			if t := strings.TrimSpace(role); t != "" {
-				roles = append(roles, t)
-			}
-		}
-	}
-
-	scopes, err := c.svc.EffectiveScopes(ctx, claims.Kora.TenantID, string(claims.Kora.PrincipalType), claims.Subject, roles)
+	scopes, err := c.callerEffectiveScopes(ctx, claims)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.InternalError(platformapi.ErrCodeInternalError, "failed to resolve effective scopes", nil), err)

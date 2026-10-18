@@ -88,7 +88,7 @@ func (f *fakeEnvStore) UpdateEnvironment(_ context.Context, env Environment) err
 func (f *fakeEnvStore) DeleteEnvironment(context.Context, string, string) error { return f.deleteErr }
 
 func newEnvironmentService(store *fakeEnvStore, k8s *mockK8s) *EnvironmentService {
-	return NewEnvironmentService(store, newMockRepository(), k8s, k8s, EnvironmentServiceConfig{
+	return NewEnvironmentService(store, newMockRepository(), k8s, k8s, fakeWriteChecker{}, EnvironmentServiceConfig{
 		TenantNamespaceFn: func(id string) string { return "orbit-tenant-" + id },
 		EnvironmentSizes:  testSizes,
 	}, logging.NewLoggerWithOutput(io.Discard))

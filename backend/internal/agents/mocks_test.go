@@ -847,6 +847,7 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		t.Fatal(err)
 	}
 	atSvc.SetEnvironmentLookup(repo)
+	atSvc.SetCallerScopes(broadScopes)
 	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
 }
 

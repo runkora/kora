@@ -18,6 +18,9 @@ import (
 // ErrGrantNotFound is returned when the grant to delete does not exist.
 var ErrGrantNotFound = errors.New("grant not found")
 
+// ErrNoCallerBearer is returned when a caller-scoped request has no caller token.
+var ErrNoCallerBearer = errors.New("no caller bearer token")
+
 const (
 	tracerName    = "orbit.policy-client"
 	clientTimeout = 10 * time.Second
@@ -127,6 +130,39 @@ func (c *Client) CreateGrant(ctx context.Context, tenantID, principalType, princ
 		return "", fmt.Errorf("decode grant response: %w", err)
 	}
 	return g.ID, nil
+}
+
+// CallerEffectiveScopes returns the effective scopes of the principal that
+// bearer authenticates. It sends the caller's own token, not the service's,
+// so the policy service resolves the principal from verified claims.
+func (c *Client) CallerEffectiveScopes(ctx context.Context, bearer string) ([]string, error) {
+	if bearer == "" {
+		return nil, ErrNoCallerBearer
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.serviceURL+"/api/v1/policy/effective-scopes", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build effective scopes request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(ctx, "policy.Client.CallerEffectiveScopes", req)
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, c.HandleErrorResponse(span, resp, fmt.Errorf("effective scopes failed: status %d", resp.StatusCode))
+	}
+
+	var result struct {
+		Scopes []string `json:"scopes"`
+	}
+	if err := c.DecodeJSON(span, resp, &result); err != nil {
+		return nil, fmt.Errorf("decode effective scopes response: %w", err)
+	}
+	return result.Scopes, nil
 }
 
 // ListGrants returns all grants for a principal within a tenant.

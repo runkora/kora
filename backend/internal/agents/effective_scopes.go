@@ -118,6 +118,34 @@ func (r *ScopeResolver) EffectiveScopes(ctx context.Context, at AgentType) ([]st
 	return dedupeScopes(scopes), nil
 }
 
+// withEnvironment returns a resolver that sees env in place of its stored version.
+// It resolves an environment edit's effect on an agent before the edit is saved.
+func (r *ScopeResolver) withEnvironment(env Environment) *ScopeResolver {
+	return &ScopeResolver{envs: environmentOverlay{base: r.envs, env: env}, conns: r.conns}
+}
+
+// environmentOverlay serves env for its ID and every other environment from base.
+type environmentOverlay struct {
+	base environmentLookup
+	env  Environment
+}
+
+// ListEnvironmentsByIDs returns base's environments with env substituted when ids names it.
+func (o environmentOverlay) ListEnvironmentsByIDs(ctx context.Context, tenantID string, ids []string) ([]Environment, error) {
+	var stored []Environment
+	if o.base != nil {
+		var err error
+		if stored, err = o.base.ListEnvironmentsByIDs(ctx, tenantID, ids); err != nil {
+			return nil, err
+		}
+	}
+	out := slices.DeleteFunc(stored, func(e Environment) bool { return e.ID == o.env.ID })
+	if slices.Contains(ids, o.env.ID) {
+		out = append(out, o.env)
+	}
+	return out, nil
+}
+
 // attachedEnvironments loads the agent's environments. One the store cannot
 // find contributes nothing and does not fail the grant.
 func (r *ScopeResolver) attachedEnvironments(ctx context.Context, at AgentType) ([]Environment, error) {

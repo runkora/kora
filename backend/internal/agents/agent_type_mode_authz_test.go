@@ -46,6 +46,7 @@ func newModeTestService(t *testing.T, granted ...string) (*AgentTypeService, *mo
 		},
 		logging.NewLoggerWithOutput(io.Discard),
 	)
+	svc.SetCallerScopes(broadScopes)
 	return svc, repo
 }
 
