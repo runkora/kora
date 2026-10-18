@@ -242,8 +242,8 @@ func (c *Controller) handleGetAgentType(w http.ResponseWriter, r *http.Request) 
 }
 
 // handleGetEffectiveAccess returns the resolved access view (egress posture +
-// environment + connector auto-egress, combined) for an agent type. Read-scoped
-// via the /api/v1/agent-types/ GET binding (agents:types:read).
+// environment + connector auto-egress, combined) for an agent type.
+// AgentTypeService.GetEffectiveAccess runs the agent-type read check.
 func (c *Controller) handleGetEffectiveAccess(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	access, err := c.agentTypes.GetEffectiveAccess(ctx, r.PathValue("id"))

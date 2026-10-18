@@ -29,8 +29,8 @@ This table is the registration as it stands today, not as this ADR first propose
 | Method | Path | Required Scope |
 |--------|------|----------------|
 | `POST` | `/api/v1/agent-types` | *(authenticated only)* |
-| `GET` | `/api/v1/agent-types` | `agents:types:read` |
-| `GET` | `/api/v1/agent-types/` | `agents:types:read` |
+| `GET` | `/api/v1/agent-types` | *(authenticated only)* |
+| `GET` | `/api/v1/agent-types/` | *(authenticated only)* |
 | `PATCH` | `/api/v1/agent-types/` | *(authenticated only)* |
 | `DELETE` | `/api/v1/agent-types/` | *(authenticated only)* |
 | `POST` | `/api/v1/agent-type-drafts` | *(authenticated only)* |
@@ -44,12 +44,12 @@ This table is the registration as it stands today, not as this ADR first propose
 | `PUT` | `/api/v1/environments/` | `agents:environments:write` |
 | `DELETE` | `/api/v1/environments/` | `agents:environments:write` |
 | `POST` | `/api/v1/runs` | *(authenticated only)* |
-| `GET` | `/api/v1/runs` | `agents:runs:read` |
-| `GET` | `/api/v1/run-outcomes` | `agents:runs:read` |
-| `GET` | `/api/v1/run-stats/` | `agents:runs:read` |
-| `GET` | `/api/v1/runs/` | `agents:runs:read` |
-| `DELETE` | `/api/v1/runs/` | `agents:runs:write` |
-| `POST` | `/api/v1/runs/` | `agents:runs:write` |
+| `GET` | `/api/v1/runs` | *(authenticated only)* |
+| `GET` | `/api/v1/run-outcomes` | *(authenticated only)* |
+| `GET` | `/api/v1/run-stats/` | *(authenticated only)* |
+| `GET` | `/api/v1/runs/` | *(authenticated only)* |
+| `DELETE` | `/api/v1/runs/` | *(authenticated only)* |
+| `POST` | `/api/v1/runs/` | *(authenticated only)* |
 
 The `/api/v1/runs/` POST prefix covers both `POST /api/v1/runs/{id}/messages` and any future per-run write actions. The `/api/v1/runs/` GET prefix covers `GET /api/v1/runs/{id}`, `GET /api/v1/runs/{id}/events`, `GET /api/v1/runs/stats`, and future per-run read actions.
 
@@ -61,6 +61,8 @@ The scope that governs starting a run is per-agent (`agents:runs:{slug}:write`),
 
 The route has an empty required scope, exactly as the drafts and agent-type-mode routes do. The policy service registers it as authenticated-only: the edge and sidecar OPA admit any valid token and leave the check to the service. The authoritative check is `Authz.checkRun`, evaluated in `RunService.authorizeStart` before the first write, so a refused start leaves nothing behind and returns `403`, not `500`. The parent `agents:runs:write` still satisfies that per-agent check for the admin roles that legitimately hold it, so nothing an administrator could do before is lost.
 
+**Correction: agent-type reads and every run route are authenticated-only.** The governing scopes are per-agent (`agents:types:{slug}:read`, `agents:runs:{slug}:read`, `agents:runs:{slug}:write`). The agent comes from the stored run or agent type. A route-level parent scope refused every per-agent holder before the service check ran. `AgentTypeService` filters lists with `Authz.filterAgentTypes` and checks single reads with `Authz.checkAgentType`. `RunService` checks single runs with `Authz.checkRun` and scopes lists, outcomes and stats with `Authz.readableRunAgentTypes`. An interactive HUMAN session also reads the runs it started. The person who created an agent type (`agent_types.created_by`, HUMAN or PAT) reads the type and reads and acts on its runs while holding `agents:types:{mode}:write` for its mode. `agents:runs:delegated:write` passes `Authz.checkRun` for writes on delegated agents ([delegated-agent-identity](2026-07-23-delegated-agent-identity.md), Decision 1). The inference gateway's `/v1/usage/agent-insights` and `/v1/usage/agent-type/{slug}` are authenticated-only on the same basis. `Service.ReadableAgents` narrows them to the agents the caller holds `agents:usage:{slug}:read` on, or to every agent under `agents:usage:read`.
+
 ### Scope Vocabulary
 
 | Scope | Resource Type | Action | Description |
@@ -69,10 +71,11 @@ The route has an empty required scope, exactly as the drafts and agent-type-mode
 | `agents:types:write` | `agents` | `write` | Create and delete agent type definitions |
 | `agents:runs:read` | `agents` | `read` | View runs and stream agent events |
 | `agents:runs:write` | `agents` | `write` | Start, message, and terminate runs |
+| `agents:runs:delegated:write` | `agents` | `write` | Start, message, and terminate runs of any delegated agent |
 | `agents:usage:read` | `agents` | `read` | View every agent's usage, spend and budgets (prefix-covers the per-agent usage scopes) |
 | `agents:delegated:read` | `agents` | `read` | View the runs of delegated agents that other people started, with their messages, events and outputs |
 
-The `agents:usage:read` scope is required by the inference gateway's `/v1/usage/agent-insights` and `/v1/usage/agent-type/{slug}` routes. The `agents:runs:read` scope is required by `/api/v1/run-outcomes` and `/api/v1/run-stats/{slug}`. The `agents:delegated:read` scope is checked by the service layer, not by a route. Together with the four scopes above they form the permission surface for the agent management API. Platform administrators can compose them into roles (e.g. an `agent-operator` role with all four, or a read-only `agent-viewer` role with only the two read scopes) and grant them to human principals or PATs via the policy portal.
+The service layer checks the read, run, usage and `agents:delegated:read` scopes (see the correction above). Together with the four scopes above they form the permission surface for the agent management API. Platform administrators can compose them into roles (e.g. an `agent-operator` role with all four, or a read-only `agent-viewer` role with only the two read scopes) and grant them to human principals or PATs via the policy portal.
 
 ### Per-Agent-Type Scope Vocabulary
 
@@ -80,6 +83,7 @@ In addition to the four static scopes above, orbit-agents registers per-agent-ty
 
 | Scope | Resource Type | Path Segments | Action | Description |
 |-------|--------------|---------------|--------|-------------|
+| `agents:types:{slug}:read` | `agents` | `["types", "{slug}"]` | `read` | View a specific agent type definition |
 | `agents:runs:{slug}:read` | `agents` | `["runs", "{slug}"]` | `read` | View runs and events for a specific agent type |
 | `agents:runs:{slug}:write` | `agents` | `["runs", "{slug}"]` | `write` | Start, message, and terminate runs for a specific agent type |
 | `agents:usage:{slug}:read` | `agents` | `["usage", "{slug}"]` | `read` | View usage, spend and budget for a specific agent type |
@@ -129,7 +133,7 @@ func initScopeRegistration(ctx context.Context, logger logging.Logger, repo agen
 }
 ```
 
-`agentRoutes()` returns the static route→scope table. `agentScopes(slugs)` returns the four static `ScopeDeclaration` entries plus two per-slug entries (`agents:runs:{slug}:read` and `agents:runs:{slug}:write`) for each slug in the current agent type roster.
+`agentRoutes()` returns the static route→scope table. `agentScopes(slugs)` returns the static `ScopeDeclaration` entries plus four per-slug entries (`agents:types:{slug}:read`, `agents:runs:{slug}:read`, `agents:runs:{slug}:write` and `agents:usage:{slug}:read`) for each slug in the current agent type roster. The slugs `delegated` and `autonomous` are reserved.
 
 Registration runs in a background goroutine so it does not block server startup. The `routescopes.Client` retries with exponential backoff (up to 15 attempts, capped at 30 s) to tolerate the policy-service being temporarily unavailable. The 15-second initial delay allows the identity-proxy sidecar to exchange its SPIFFE certificate for a platform token before the first attempt.
 

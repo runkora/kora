@@ -147,7 +147,7 @@ The field is exposed on the agent-types API and the `agents_create` / `agents_ge
 
 The required scope derives from the requested mode on create and from the STORED mode on update and delete, since widening an autonomous agent's grants is the same act as creating it with them. Because the Layer 1 route map is static per route and cannot read the requested mode from the body, the agent-type write routes register as authenticated-only (the established pattern for locally enforced routes) and the mode-derived check is enforced authoritatively in the orbit-agents service layer.
 
-Run-start scopes stay per-agent (`agents:runs:{slug}:write`) by explicit ruling: a person may start delegated runs only on agents they have been granted access to, never "all delegated agents". Per-slug granularity is finer than per-mode, the grantor knows an agent's mode when granting its slug, and starting a delegated agent is the non-escalating action by construction.
+Run scopes are per-agent (`agents:runs:{slug}:read` and `agents:runs:{slug}:write`) with one mode-qualified addition: `agents:runs:delegated:write` starts, messages and terminates runs of any delegated agent. Starting a delegated agent is non-escalating by construction: each run acts with the starter's own access. Runs of an autonomous agent stay granted per agent. The mode-qualified scope has no autonomous counterpart and is not a prefix cover of the per-agent scopes. The run check `policy.AgentRunAllowed` in `internal/platform/policy/agent_runs.go` accepts it by name when the agent's stored mode is delegated. The parent `agents:runs:write` covers it. The agent slugs `delegated` and `autonomous` are reserved. No per-agent scope can take the path of a mode-qualified scope.
 
 ### Decision 2: Fail-closed via a grant-level marker, not a missing grant
 
@@ -430,7 +430,7 @@ Each phase must pass `make check`; Phases 1–4 carry table-driven unit tests be
 - **Chained delegation.** The `act` claim nests; the policy model and product semantics for multi-hop are deliberately unaddressed.
 - **Per-run scope subsets.** Letting a person lend less than their full access for one run — the issuance API shape admits it (a `scope` request parameter validated against the person's access).
 - **Shared delegated-run visibility.** If starter-only privacy proves too strict, a deliberate sharing model rather than a wider default.
-- **Mode-qualified run-start scopes.** Ruled out for now: access to start a delegated agent is granted per agent, not per mode. Revisit only if a broad "any delegated agent" grant ever becomes a real need; it would be a breaking vocabulary migration (bounded mode dimension before the unbounded slug in `agents:runs:*`).
+- **Autonomous run-start scope.** `agents:runs:autonomous:write` is not defined. The reserved slug `autonomous` keeps its path free.
 
 ---
 

@@ -115,23 +115,40 @@ func TestInitScopeRegistrationPublishesRoutesAndSlugScopes(t *testing.T) {
 			t.Errorf("route %s %s requires undeclared scope %q", r.Method, r.PathPrefix, r.RequiredScope)
 		}
 	}
-	for _, want := range []string{"agents:runs:triage:read", "agents:runs:triage:write", "agents:usage:triage:read"} {
+	for _, want := range []string{"agents:types:triage:read", "agents:runs:triage:read", "agents:runs:triage:write", "agents:usage:triage:read"} {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("per-agent-type scope %q missing from the registration", want)
 		}
 	}
-	for _, want := range []string{"agents:usage:read", "agents:delegated:read"} {
+	for _, want := range []string{"agents:usage:read", "agents:delegated:read", "agents:runs:delegated:write"} {
 		if _, ok := declared[want]; !ok {
 			t.Errorf("scope %q missing from the registration", want)
 		}
 	}
 }
 
-func TestAgentRoutesRunReadScope(t *testing.T) {
-	for _, path := range []string{"/api/v1/run-outcomes", "/api/v1/run-stats/coder"} {
-		got, ok := mw.ResolveRequiredScope(agentRoutes(), "GET", path)
-		if !ok || got != "agents:runs:read" {
-			t.Errorf("%s: scope %q (matched %v), want agents:runs:read", path, got, ok)
+// TestAgentRoutesPerAgentReadsAuthenticatedOnly guards F3: a parent scope at the
+// route layer would refuse every per-agent holder before the service checks run.
+func TestAgentRoutesPerAgentReadsAuthenticatedOnly(t *testing.T) {
+	tests := []struct{ method, path string }{
+		{"GET", "/api/v1/agent-types"},
+		{"GET", "/api/v1/agent-types/abc"},
+		{"GET", "/api/v1/agent-types/abc/effective-access"},
+		{"GET", "/api/v1/runs"},
+		{"GET", "/api/v1/runs/stats"},
+		{"GET", "/api/v1/runs/abc"},
+		{"GET", "/api/v1/runs/abc/events"},
+		{"GET", "/api/v1/run-outcomes"},
+		{"GET", "/api/v1/run-stats/coder"},
+		{"POST", "/api/v1/runs"},
+		{"POST", "/api/v1/runs/abc/messages"},
+		{"POST", "/api/v1/runs/abc/interrupt"},
+		{"DELETE", "/api/v1/runs/abc"},
+	}
+	for _, tt := range tests {
+		got, ok := mw.ResolveRequiredScope(agentRoutes(), tt.method, tt.path)
+		if !ok || got != "" {
+			t.Errorf("%s %s: scope %q (matched %v), want authenticated-only", tt.method, tt.path, got, ok)
 		}
 	}
 }

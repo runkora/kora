@@ -338,7 +338,7 @@ func TestRunOutcomes_UsesTheRunListScope(t *testing.T) {
 			f, repo, _, _ := newTestServiceWithEval(t, auditorEval)
 			seedAgentType(t, repo, AgentType{ID: "at-auto", TenantID: "t1", Slug: "helper"})
 			ctx := withRunCallerCtx(context.Background(), "t1", tc.subject)
-			want := RunScope{AgentTypeIDs: []string{"at-auto"}, Vis: tc.want}
+			want := RunScope{AgentTypeIDs: []string{"at-auto"}, Vis: tc.want, Own: true}
 			if _, err := f.run.RunOutcomes(ctx, time.Time{}, time.Time{}); err != nil || !reflect.DeepEqual(repo.outcomesScope, want) {
 				t.Errorf("scope %+v, %v; want %+v", repo.outcomesScope, err, want)
 			}

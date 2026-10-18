@@ -272,6 +272,15 @@ func (m *mockRepository) RunStats(_ context.Context, _ string, scope RunScope, _
 	return m.statsResult, nil
 }
 
+// scopeMatches mirrors appendScope's agent-type and own-run clauses.
+func scopeMatches(scope RunScope, r *Run) bool {
+	if scope.AgentTypeID != "" && r.AgentTypeID != scope.AgentTypeID {
+		return false
+	}
+	own := scope.Own && scope.Vis.Subject != "" && r.CreatedBy == scope.Vis.Subject
+	return own || slices.Contains(scope.AgentTypeIDs, r.AgentTypeID)
+}
+
 // ListRuns mirrors the SQL: scope (agent types and delegated visibility),
 // states, the keyset cursor, ORDER BY created_at DESC, id DESC, and LIMIT.
 func (m *mockRepository) ListRuns(_ context.Context, tenantID string, q RunListQuery) ([]Run, error) {
@@ -283,7 +292,7 @@ func (m *mockRepository) ListRuns(_ context.Context, tenantID string, q RunListQ
 	vis := q.Scope.Vis
 	var out []Run
 	for _, r := range m.runs {
-		if r.TenantID != tenantID || !slices.Contains(q.Scope.AgentTypeIDs, r.AgentTypeID) {
+		if r.TenantID != tenantID || !scopeMatches(q.Scope, r) {
 			continue
 		}
 		if len(q.States) > 0 && !slices.Contains(q.States, r.State) {

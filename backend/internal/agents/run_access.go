@@ -50,6 +50,14 @@ func callerSubject(ctx context.Context) string {
 	return claims.Subject
 }
 
+// readsOwnRuns reports whether the caller sees the runs they started without a
+// read scope (D3). Only an interactive HUMAN session does. PATs, agents and
+// trigger services are bounded by their own grants.
+func readsOwnRuns(ctx context.Context) bool {
+	claims, ok := token.ClaimsFromContext(ctx)
+	return ok && claims != nil && claims.Kora.PrincipalType == token.PrincipalTypeHuman
+}
+
 // isRunStarter reports whether the caller's verified subject is the run's
 // recorded starter. An empty subject or empty created_by never matches.
 func isRunStarter(ctx context.Context, run *Run) bool {

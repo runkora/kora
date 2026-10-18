@@ -34,8 +34,15 @@ func validateAgentSlug(slug string) error {
 		return fmt.Errorf("%w %q: slug must be lowercase letters, digits and hyphens, start with a letter, end with a letter or digit, and be at most %d characters",
 			ErrInvalidSlug, slug, maxAgentSlugLength)
 	}
+	if slices.Contains(reservedAgentSlugs, slug) {
+		return fmt.Errorf("%w %q: the identity mode names %q are reserved", ErrInvalidSlug, slug, reservedAgentSlugs)
+	}
 	return nil
 }
+
+// reservedAgentSlugs are the identity mode names. Mode-qualified scopes such as
+// agents:runs:delegated:write sit where a per-agent scope's slug would.
+var reservedAgentSlugs = []string{string(IdentityModeDelegated), string(IdentityModeAutonomous)}
 
 // AgentTypeServiceConfig holds the runtime parameters used by AgentTypeService.
 type AgentTypeServiceConfig struct {
@@ -375,6 +382,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
 		State:                   AgentTypeStateProvisioning,
+		CreatedBy:               callerSubject(ctx),
 	}
 	if err := s.checkCeiling(ctx, at, s.scopeResolver()); err != nil {
 		return nil, err

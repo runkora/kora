@@ -103,6 +103,39 @@ func TestPostgres_ListRunsKeyset(t *testing.T) {
 	}
 }
 
+// D3: Own adds the caller's runs of any agent type, AgentTypeID narrows both halves,
+// and the delegated-run rule still applies to other people's delegated runs.
+func TestPostgres_ListRunsOwnRuns(t *testing.T) {
+	r, tenant := testRunRepo(t)
+	readable := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	hidden := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
+	del := seedRunAgentType(t, r, tenant, IdentityModeDelegated)
+	now := time.Now().UTC()
+	readableBob := seedRunAt(t, r, tenant, readable.ID, "bob", RunStateCompleted, now.Add(-4*time.Minute), nil)
+	hiddenAlice := seedRunAt(t, r, tenant, hidden.ID, "alice", RunStateCompleted, now.Add(-3*time.Minute), nil)
+	seedRunAt(t, r, tenant, hidden.ID, "bob", RunStateCompleted, now.Add(-2*time.Minute), nil)
+	seedRunAt(t, r, tenant, del.ID, "bob", RunStateCompleted, now.Add(-time.Minute), nil)
+
+	vis := RunVisibility{Subject: "alice"}
+	tests := []struct {
+		name  string
+		scope RunScope
+		want  []string
+	}{
+		{"readable agents and own runs", RunScope{AgentTypeIDs: []string{readable.ID, del.ID}, Vis: vis, Own: true}, []string{hiddenAlice, readableBob}},
+		{"readable agents only", RunScope{AgentTypeIDs: []string{readable.ID, del.ID}, Vis: vis}, []string{readableBob}},
+		{"narrowed to an unreadable agent", RunScope{AgentTypeIDs: []string{readable.ID}, Vis: vis, Own: true, AgentTypeID: hidden.ID}, []string{hiddenAlice}},
+		{"empty subject owns nothing", RunScope{AgentTypeIDs: []string{readable.ID}, Own: true}, []string{readableBob}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := walkRepo(t, r, tenant, RunListQuery{Scope: tt.scope, Limit: 10}); !slices.Equal(got, tt.want) {
+				t.Errorf("runs = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestPostgres_ListRunsStateFilter(t *testing.T) {
 	r, tenant := testRunRepo(t)
 	at := seedRunAgentType(t, r, tenant, IdentityModeAutonomous)
