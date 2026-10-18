@@ -134,6 +134,9 @@ var (
 	// trigger cannot be borrowed by a narrowly-scoped caller.
 	ErrFireForbidden = errors.New("not authorized to fire this trigger")
 
+	// ErrBindForbidden is returned when the caller cannot start runs of the agent a trigger would bind.
+	ErrBindForbidden = errors.New("not authorized to run the agent this trigger binds")
+
 	// ErrTriggerAtCapacity is returned when a manual fire is refused because
 	// the trigger is already at its concurrency ceiling.
 	ErrTriggerAtCapacity = errors.New("trigger is at its concurrency limit; try again shortly")

@@ -74,7 +74,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //
 //	POST /api/v1/webhooks/{sourceID}          Inbound webhook delivery.
 //
-// Management (platform-admin; triggers:read / triggers:write):
+// Management (platform-admin; triggers:read / triggers:write). Creating a
+// trigger also needs agents:runs:<slug>:write for the agent it binds:
 //
 //	POST   /api/v1/trigger-sources            Register a webhook source.
 //	GET    /api/v1/trigger-sources            List webhook sources.
@@ -128,11 +129,9 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("PATCH /triggers/{id}", auth, c.handleUpdateTrigger)
 	mux.HandleWithMiddleware("DELETE /triggers/{id}", auth, c.handleDeleteTrigger)
 
-	// The fire endpoint shares the management auth chain for authentication,
-	// then checks trigger:{id}:fire in the handler. Route-level enforcement
-	// cannot do it: RouteScope matches static prefixes, so this path is
-	// indistinguishable from POST /api/v1/triggers (creation).
-	mux.HandleWithMiddleware("POST /triggers/{id}/fire", auth, c.handleFireTrigger)
+	// Fire skips in-process scope enforcement: authorizeFire is the authority here. The route table
+	// matches static prefixes, so the triggers:write entry for creation would otherwise apply too.
+	mux.HandleWithMiddleware("POST /triggers/{id}/fire", mw.MiddlewareChain(c.authMW), c.handleFireTrigger)
 
 	// Schedule preview for the creation wizard. Read-only and computed from the
 	// request alone: it touches no stored trigger and writes nothing.
@@ -328,9 +327,8 @@ func (c *Controller) handleDeleteTrigger(w http.ResponseWriter, r *http.Request)
 //
 // Firing is authorized per trigger, here rather than on the route.
 // ScopeEnforcementMiddleware matches static path prefixes, so it cannot express
-// a scope containing the trigger id; the route-level check it does apply
-// (triggers:write, shared with trigger creation) would mean anyone who can
-// manage triggers can fire any trigger.
+// a scope containing the trigger id. The route carries no scope middleware, so
+// in-process triggers:write neither grants nor is needed for a fire.
 //
 // The caller's permission does not narrow what the run can do. The run executes
 // under the trigger's own principal, so a caller with narrow permissions firing
@@ -538,6 +536,8 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		// 400: the delivery exists and the caller may see it, but replaying this
 		// one is not a thing that can be done. The message says which reason.
 		api.ErrorResponse(ctx, w, c.logger, api.ValidationError(api.ErrCodeValidationFailed, err.Error(), nil), nil)
+	case errors.Is(err, ErrBindForbidden):
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(), nil), nil)
 	case errors.Is(err, ErrWrongKind):
 		api.ErrorResponse(ctx, w, c.logger, api.BadRequestError(api.ErrCodeInvalidField, err.Error(), nil), nil)
 	case errors.As(err, &ive):

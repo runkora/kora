@@ -676,6 +676,8 @@ type testDeps struct {
 	agents     *agentsStub
 	minter     *fakeMinter
 	policyClnt *policyclient.Client
+	// bindAuthz answers the caller's run-scope check on trigger creation. It allows by default.
+	bindAuthz *mockEvaluator
 	// The services a test may need alongside the pipeline, sharing this
 	// harness's stubs.
 	sources  *SourceService
@@ -714,9 +716,9 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	// behavior identical. Metrics have their own test.
 	admission := NewAdmission(repo, silentLogger())
 	svc := NewService(repo, mustRegistry(), cipher, pc, ac, minter, admission, silentLogger(), nil)
-	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
+	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc, bindAuthz: &mockEvaluator{allow: true}}
 	deps.sources = newTestSourceService(t, repo, pc)
-	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, minter, admission, silentLogger())
+	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, minter, admission, deps.bindAuthz, silentLogger())
 	return svc, deps
 }
 

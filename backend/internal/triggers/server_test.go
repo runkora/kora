@@ -10,11 +10,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -175,6 +178,69 @@ func TestHandleIngest_UnknownSource(t *testing.T) {
 	// Missing source is reported as 404 (does not leak existence vs. disabled).
 	if w.Code != http.StatusNotFound {
 		t.Fatalf("status = %d, want 404", w.Code)
+	}
+}
+
+// scopeSetEvaluator allows exactly the scopes it holds.
+type scopeSetEvaluator struct {
+	policy.Evaluator
+	held map[string]bool
+}
+
+func (e scopeSetEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	scope := strings.Join(append(append([]string{in.ResourceType}, in.PathSegments...), in.Action), ":")
+	return policy.Result{Allow: e.held[scope]}, nil
+}
+
+// The fire route carries no route scope. triggers:write must neither be needed nor be enough.
+func TestBoot_FireIsAuthorizedByTriggerScopeAlone(t *testing.T) {
+	routes := []routescopes.RouteScope{{PathPrefix: "/api/v1/triggers", Method: http.MethodPost, RequiredScope: "triggers:write"}}
+	tests := []struct {
+		name     string
+		held     []string
+		path     string
+		wantCode int
+	}{
+		{"per-trigger scope fires", []string{"trigger:{id}:fire"}, "/triggers/{id}/fire", http.StatusAccepted},
+		{"triggers:write alone cannot fire", []string{"triggers:write"}, "/triggers/{id}/fire", http.StatusForbidden},
+		{"per-trigger scope cannot create", []string{"trigger:{id}:fire"}, "/triggers", http.StatusForbidden},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, deps := newTestService(t)
+			trig, err := deps.triggers.CreateTrigger(context.Background(), testTenant, validReq(KindManual))
+			if err != nil {
+				t.Fatalf("CreateTrigger: %v", err)
+			}
+			held := map[string]bool{}
+			for _, sc := range tc.held {
+				held[strings.ReplaceAll(sc, "{id}", trig.ID)] = true
+			}
+			passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
+			c := NewController(svc, deps.sources, deps.triggers, passthrough, scopeSetEvaluator{held: held}, routes, "/api/v1", silentLogger())
+			mux := api.NewMux(context.Background(), silentLogger())
+			mux.SetBasePath("")
+			c.Boot(mux)
+
+			req := withTenant(newRequest(t, http.MethodPost, strings.ReplaceAll(tc.path, "{id}", trig.ID), nil, []byte(`{}`)))
+			w := httptest.NewRecorder()
+			mux.ServeHTTP(w, req)
+
+			if w.Code != tc.wantCode {
+				t.Fatalf("status = %d (body %s), want %d", w.Code, w.Body.String(), tc.wantCode)
+			}
+		})
+	}
+}
+
+func TestHandleCreateTrigger_BindForbidden(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.bindAuthz.allow = false
+
+	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, validReq(KindManual))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body: %s)", w.Code, w.Body.String())
 	}
 }
 

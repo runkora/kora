@@ -172,6 +172,62 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 	}
 }
 
+// Binding hands the trigger principal the agent's run scopes. The caller must hold agents:runs:<slug>:write first.
+func TestCreateTrigger_RequiresCallerRunScope(t *testing.T) {
+	errBundle := errors.New("bundle unavailable")
+	tests := []struct {
+		name    string
+		kind    string
+		allow   bool
+		evalErr error
+		wantErr error
+	}{
+		{"webhook allowed", KindWebhook, true, nil, nil},
+		{"webhook refused", KindWebhook, false, nil, ErrBindForbidden},
+		{"scheduled allowed", KindScheduled, true, nil, nil},
+		{"scheduled refused", KindScheduled, false, nil, ErrBindForbidden},
+		{"manual allowed", KindManual, true, nil, nil},
+		{"manual refused", KindManual, false, nil, ErrBindForbidden},
+		{"evaluator error fails closed", KindManual, true, errBundle, errBundle},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, deps := newTestService(t)
+			deps.agents.atSlug = "real-slug"
+			deps.bindAuthz.allow, deps.bindAuthz.err = tc.allow, tc.evalErr
+			req := validReq(tc.kind)
+			if tc.kind == KindWebhook {
+				req.SourceID = mustSource(t, deps.sources).ID
+			}
+			grantsBefore := len(deps.policy.created)
+
+			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+
+			if got := deps.bindAuthz.scopeAsked(); got != "agents:runs:real-slug:write" {
+				t.Errorf("checked scope %q, want agents:runs:real-slug:write", got)
+			}
+			if tc.wantErr == nil {
+				if err != nil {
+					t.Fatalf("CreateTrigger: %v", err)
+				}
+				return
+			}
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("got %v, want %v", err, tc.wantErr)
+			}
+			if slices.Contains(deps.policy.lastScopes, "agents:runs:real-slug:write") {
+				t.Error("the run grant must not be created before the caller is checked")
+			}
+			if len(deps.repo.triggers) != 0 {
+				t.Error("no trigger should be persisted")
+			}
+			if len(deps.policy.created) != grantsBefore {
+				t.Errorf("no grant should outlive a refused bind (grants %d → %d)", grantsBefore, len(deps.policy.created))
+			}
+		})
+	}
+}
+
 // ── Admission settings at create ────────────────────────────────────────────
 
 func TestUpdateTrigger_Admission(t *testing.T) {

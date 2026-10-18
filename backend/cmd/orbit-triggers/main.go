@@ -182,8 +182,9 @@ func initController(
 	)
 
 	// Creating a trigger provisions its principal and grant, then resolves the
-	// agent it binds by asking orbit-agents as that principal. Enabling or
-	// disabling one moves work already in the queue.
+	// agent it binds by asking orbit-agents as that principal. The caller must
+	// hold the run scope for that agent. Enabling or disabling one moves work
+	// already in the queue.
 	lifecycle := triggers.NewTriggerService(
 		repo,
 		registry,
@@ -191,6 +192,7 @@ func initController(
 		agentsClient,
 		identityClient,
 		admission,
+		policyEval,
 		logger,
 	)
 
@@ -245,9 +247,10 @@ func initController(
 
 // routeScopes binds each management route to the scope it requires.
 //
-// The fire endpoint shares the POST /api/v1/triggers prefix with trigger
-// creation because RouteScope matches static prefixes only. Per-trigger fire
-// authorization is enforced in the handler instead — see ADR Decision 6.
+// The fire endpoint has no entry of its own. Its path holds the trigger id, which a
+// static prefix cannot express. The handler is mounted without in-process scope
+// enforcement and checks trigger:<id>:fire itself (ADR Decision 6). The edge still
+// matches the POST /api/v1/triggers prefix, so a north-south fire also needs triggers:write.
 func routeScopes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/trigger-sources", Method: "POST", RequiredScope: "triggers:write"},

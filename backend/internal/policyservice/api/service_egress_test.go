@@ -77,3 +77,32 @@ func TestQualifiedConnectionScopeBase(t *testing.T) {
 		})
 	}
 }
+
+// TestIsTriggerFireScope locks grant-path acceptance of per-trigger fire scopes.
+// Trigger ids are canonical UUIDs, so anything else is refused.
+func TestIsTriggerFireScope(t *testing.T) {
+	cases := []struct {
+		scope string
+		want  bool
+	}{
+		{"trigger:3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43:fire", true},
+
+		{"trigger:fire", false}, // the vocabulary entry, validated by the vocabulary
+		{"trigger:3F1C2A9E-8D4B-4C1A-9F2E-6B7A1D0C5E43:fire", false}, // not canonical
+		{"trigger:3f1c2a9e8d4b4c1a9f2e6b7a1d0c5e43:fire", false},     // no hyphens
+		{"trigger:{3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43}:fire", false},
+		{"trigger:urn:uuid:3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43:fire", false},
+		{"trigger:*:fire", false},
+		{"trigger::fire", false},
+		{"trigger:3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43:write", false},
+		{"triggers:3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43:fire", false},
+		{"trigger:a:3f1c2a9e-8d4b-4c1a-9f2e-6b7a1d0c5e43:fire", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.scope, func(t *testing.T) {
+			if got := isTriggerFireScope(tc.scope); got != tc.want {
+				t.Errorf("isTriggerFireScope(%q) = %v, want %v", tc.scope, got, tc.want)
+			}
+		})
+	}
+}

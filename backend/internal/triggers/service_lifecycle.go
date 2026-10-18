@@ -12,6 +12,7 @@ import (
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -28,6 +29,11 @@ type triggerStore interface {
 	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
 }
 
+// runChecker is the policy check binding a trigger needs.
+type runChecker interface {
+	Check(ctx context.Context, input policy.CheckInput) (policy.Result, error)
+}
+
 // TriggerService owns a trigger's lifecycle: creating it with the identity and
 // grants it runs under, editing it, and deleting it.
 //
@@ -42,6 +48,7 @@ type TriggerService struct {
 	agents    *agentsclient.Client
 	minter    TokenMinter
 	admission *Admission
+	authz     runChecker
 	logger    logging.Logger
 }
 
@@ -53,9 +60,10 @@ func NewTriggerService(
 	agents *agentsclient.Client,
 	minter TokenMinter,
 	admission *Admission,
+	authz runChecker,
 	logger logging.Logger,
 ) *TriggerService {
-	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, minter: minter, admission: admission, logger: logger}
+	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, minter: minter, admission: admission, authz: authz, logger: logger}
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
@@ -106,6 +114,26 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 	return nil
 }
 
+// authorizeBind checks the caller may start runs of the agent a trigger binds.
+// The trigger principal is granted that agent's run scopes, so binding takes the same authority as starting a run.
+func (s *TriggerService) authorizeBind(ctx context.Context, at *agentsclient.AgentType) error {
+	claims, _ := token.ClaimsFromContext(ctx)
+	r, err := s.authz.Check(ctx, policy.CheckInput{
+		Claims:       claims,
+		Delegation:   policy.DelegationFromContext(ctx),
+		ResourceType: "agents",
+		PathSegments: []string{"runs", at.Slug},
+		Action:       "write",
+	})
+	if err != nil {
+		return fmt.Errorf("evaluate run scope for binding: %w", err)
+	}
+	if !r.Allow {
+		return fmt.Errorf("%w: requires agents:runs:%s:write", ErrBindForbidden, at.Slug)
+	}
+	return nil
+}
+
 // rollbackGrants deletes grants created for a trigger that then failed to
 // persist, so a failed create leaves no authority behind.
 func (s *TriggerService) rollbackGrants(ctx context.Context, triggerID string, grantIDs []string) {
@@ -141,6 +169,9 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		return nil, err
 	}
 	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
+		return nil, err
+	}
+	if err = s.authorizeBind(ctx, at); err != nil {
 		return nil, err
 	}
 
@@ -236,6 +267,9 @@ func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string
 		return nil, err
 	}
 	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
+		return nil, err
+	}
+	if err = s.authorizeBind(ctx, at); err != nil {
 		return nil, err
 	}
 

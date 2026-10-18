@@ -15,7 +15,7 @@ import (
 // that fire agent runs off them, and the delivery history. Served by the
 // orbit-triggers binary (these endpoints moved out of identity; pointing them at
 // b.Identity made every trigger tool 404). Reads require triggers:read, writes
-// triggers:write.
+// triggers:write. Creating a trigger also needs the run scope for the bound agent.
 func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Triggers + "/api/v1"
 	sources := base + "/trigger-sources"
@@ -128,6 +128,7 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 
 	addEnumTool(srv, "triggers.create",
 		"Create a trigger that starts a run of the target agent (by agent_type_id or agent_slug) using prompt_template. "+
+			"The caller must be allowed to run that agent. "+
 			"kind picks what fires it; omitted, it is webhook. "+
 			"webhook: fires when source_id delivers an event of event_type matching match_condition; source_id, name and "+
 			"event_type are required. Call triggers.sources.list for source ids and triggers.providers.fields for the field "+

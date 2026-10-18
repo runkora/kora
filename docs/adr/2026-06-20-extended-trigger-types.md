@@ -333,7 +333,7 @@ The fire endpoint requires `triggers:write` today, so trigger-management permiss
 
 #### 6A: Explicit in-handler policy evaluation against a qualified scope (**chosen**)
 
-The route keeps its static registration for authentication; the handler evaluates a per-trigger scope through the policy evaluator it already holds, before the service is called.
+The route carries authentication only, with no in-process route scope enforcement, so `triggers:write` neither grants nor is needed for a fire inside the mesh. The edge gateway matches route prefixes and still applies the `POST /api/v1/triggers` entry to a north-south fire. The handler evaluates a per-trigger scope through the policy evaluator it already holds, before the service is called.
 
 The scope literal follows the platform's qualified-scope convention (`type:path...:action`, hierarchy by prefix `covers`, unbounded dimension deepest):
 
@@ -711,7 +711,7 @@ if err := c.eval.Require(ctx, scope); err != nil {
 }
 ```
 
-Granting it uses the existing grant path with no new vocabulary shape:
+Granting it uses the existing grant path. The vocabulary holds only `trigger:fire`; grant validation accepts `trigger:<trigger-id>:fire` structurally when the identifier is a canonical lowercase UUID. Roles hold vocabulary scopes only:
 
 ```json
 POST /api/v1/policy/grants
