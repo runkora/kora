@@ -42,7 +42,7 @@ const SMALL_SURFACE: SurfaceInput = {
     '--hades-raw-accent-400': 'color',
     '--hades-raw-shadow-sm': 'shadow',
   },
-  slots: [{ name: 'favicon', kind: 'image', formats: ['svg'], maxBytes: 1024, modes: MODES }],
+  slots: [{ name: 'favicon', kind: 'image', formats: ['svg'], modes: MODES }],
   productName: { minLength: 1, maxLength: 40, pattern: '^.+$' },
 };
 
@@ -95,7 +95,6 @@ describe('buildManifest', () => {
         name: 'favicon',
         kind: 'image',
         formats: ['svg'],
-        maxBytes: 1024,
         modes: ['dark', 'light'],
       },
     ]);

@@ -95,26 +95,21 @@ export type SlotKind = 'image' | 'font';
 export interface SlotDeclaration {
   readonly name: string;
   readonly kind: SlotKind;
-  /** File formats accepted, by extension. */
+  /** Extensions the slot's URL path may end in. */
   readonly formats: readonly string[];
-  readonly maxBytes: number;
   /** Modes the slot takes a value for; empty when one value serves both. */
   readonly modes: readonly Mode[];
 }
 
-const KIB = 1024;
-const MIB = 1024 * KIB;
-
 /**
- * Asset slots, with the formats and limits the versioning ADR's SD-3 table
- * decides. Only the identity the product renders today: the combined logo and
+ * Asset slots, with the formats the versioning ADR's SD-3 table decides. Only the identity the product renders today: the combined logo and
  * the favicon. A mark-only slot is added when a surface needs one.
  */
 export const SLOTS: readonly SlotDeclaration[] = [
-  { name: 'logo', kind: 'image', formats: ['svg'], maxBytes: 256 * KIB, modes: MODES },
-  { name: 'favicon', kind: 'image', formats: ['svg'], maxBytes: 64 * KIB, modes: MODES },
-  { name: 'font.sans', kind: 'font', formats: ['woff2'], maxBytes: 2 * MIB, modes: [] },
-  { name: 'font.mono', kind: 'font', formats: ['woff2'], maxBytes: 2 * MIB, modes: [] },
+  { name: 'logo', kind: 'image', formats: ['svg'], modes: MODES },
+  { name: 'favicon', kind: 'image', formats: ['svg'], modes: MODES },
+  { name: 'font.sans', kind: 'font', formats: ['woff2'], modes: [] },
+  { name: 'font.mono', kind: 'font', formats: ['woff2'], modes: [] },
 ];
 
 export interface ProductNameBounds {

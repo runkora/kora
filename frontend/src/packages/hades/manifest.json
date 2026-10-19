@@ -632,7 +632,6 @@
       "formats": [
         "svg"
       ],
-      "maxBytes": 65536,
       "modes": [
         "dark",
         "light"
@@ -644,7 +643,6 @@
       "formats": [
         "woff2"
       ],
-      "maxBytes": 2097152,
       "modes": []
     },
     {
@@ -653,7 +651,6 @@
       "formats": [
         "woff2"
       ],
-      "maxBytes": 2097152,
       "modes": []
     },
     {
@@ -662,7 +659,6 @@
       "formats": [
         "svg"
       ],
-      "maxBytes": 262144,
       "modes": [
         "dark",
         "light"

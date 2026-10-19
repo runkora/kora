@@ -287,7 +287,7 @@ The generator reads token names from the `:root` blocks of `src/tokens/tokens.cs
 | `modes`       | `["dark", "light"]`.                                                                                                                                                                                                       |
 | `tokens`      | One entry per raw token: `name`, `kind` (`color`, `shadow`, `length`, `font`), `format` (`hex-or-oklch`, `css-shadow-list`, `css-length`, `font-family-name`) and `modes`.                                                 |
 | `mapping`     | For each `@theme inline` name, the raw tokens it resolves to, transitively, and whether it is `derived` through an expression such as `color-mix()`. A theme never sets a semantic name, but components read through them. |
-| `slots`       | One entry per asset slot: `name`, `kind`, `formats`, `maxBytes`, `modes` (empty when one file serves both modes).                                                                                                          |
+| `slots`       | One entry per asset slot: `name`, `kind`, `formats` (the extensions its URL path may end in), `modes` (empty when one URL serves both modes).                                                                              |
 | `productName` | `minLength`, `maxLength` and a Unicode `pattern`, applied after trimming.                                                                                                                                                  |
 
 ### No kora identity

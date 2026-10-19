@@ -35,7 +35,6 @@ export interface ManifestSlot {
   readonly name: string;
   readonly kind: SlotKind;
   readonly formats: readonly string[];
-  readonly maxBytes: number;
   readonly modes: readonly Mode[];
 }
 
@@ -123,7 +122,6 @@ export function buildManifest(css: string, surface: SurfaceInput = SURFACE): Man
       name: s.name,
       kind: s.kind,
       formats: [...s.formats],
-      maxBytes: s.maxBytes,
       modes: [...s.modes],
     }));
 
