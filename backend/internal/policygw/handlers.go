@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
-	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
@@ -68,29 +68,13 @@ func (c *Controller) handleQuery(w http.ResponseWriter, r *http.Request) {
 	platformapi.JSON(ctx, w, c.logger, http.StatusOK, QueryResponse{Allowed: allowed})
 }
 
-// parseDelegation verifies the optional delegation token and refuses a revoked
-// one. A blocklist lookup error is logged and the request continues, as the
-// delegation middleware does. It writes the error response when it returns false.
+// parseDelegation verifies the optional delegation token with the shared delegation check.
+// It writes the error response when it returns false.
 func (c *Controller) parseDelegation(ctx context.Context, w http.ResponseWriter, raw string) (*policy.DelegationClaims, bool) {
-	delegation, err := policy.ParseDelegationToken(ctx, raw, c.verifier)
+	delegation, err := mw.VerifyDelegation(ctx, c.logger, c.verifier, c.blocklist, raw)
 	if err != nil {
 		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "invalid delegation token", nil), err)
-		return nil, false
-	}
-	if delegation == nil || delegation.JTI == "" || c.blocklist == nil {
-		return delegation, true
-	}
-	blocked, err := c.blocklist.IsBlocked(ctx, delegation.JTI)
-	if err != nil {
-		c.logger.Error(ctx, "delegation JTI blocklist check failed, allowing request",
-			logging.Field{Key: "jti", Value: delegation.JTI},
-			logging.Field{Key: "error", Value: err.Error()})
-		return delegation, true
-	}
-	if blocked {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, "delegation has been revoked", nil), nil)
+			platformapi.UnauthorizedError(platformapi.ErrCodeUnauthorized, mw.DelegationRefusalMessage(err), nil), err)
 		return nil, false
 	}
 	return delegation, true

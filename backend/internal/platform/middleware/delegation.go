@@ -2,6 +2,8 @@ package middleware
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -17,6 +19,47 @@ const DelegationTokenHeader = "X-Orbit-Delegation-Token"
 // writes revocations to).
 type JTIBlocklist interface {
 	IsBlocked(ctx context.Context, jti string) (bool, error)
+}
+
+// Refusals returned by VerifyDelegation.
+var (
+	ErrDelegationInvalid = errors.New("invalid delegation token")
+	ErrDelegationRevoked = errors.New("delegation has been revoked")
+)
+
+// VerifyDelegation verifies a delegation token and refuses one whose JTI is on the blocklist.
+// An empty token yields nil claims. A blocklist lookup error is logged and the token accepted.
+func VerifyDelegation(ctx context.Context, logger logging.Logger, verifier *token.Verifier, blocklist JTIBlocklist, raw string) (*policy.DelegationClaims, error) {
+	d, err := policy.ParseDelegationToken(ctx, raw, verifier)
+	if err != nil {
+		logger.Error(ctx, "invalid delegation token", logging.Field{Key: "error", Value: err.Error()})
+		return nil, fmt.Errorf("%w: %w", ErrDelegationInvalid, err)
+	}
+	if blocklist == nil || d == nil || d.JTI == "" {
+		return d, nil
+	}
+	blocked, err := blocklist.IsBlocked(ctx, d.JTI)
+	if err != nil {
+		logger.Error(ctx, "delegation JTI blocklist check failed — allowing request",
+			logging.Field{Key: "jti", Value: d.JTI},
+			logging.Field{Key: "error", Value: err.Error()})
+		return d, nil
+	}
+	if blocked {
+		logger.Warn(ctx, "revoked delegation token rejected",
+			logging.Field{Key: "jti", Value: d.JTI},
+			logging.Field{Key: "run_id", Value: d.RunID})
+		return nil, ErrDelegationRevoked
+	}
+	return d, nil
+}
+
+// DelegationRefusalMessage is the client-facing text for a VerifyDelegation error.
+func DelegationRefusalMessage(err error) string {
+	if errors.Is(err, ErrDelegationRevoked) {
+		return ErrDelegationRevoked.Error()
+	}
+	return ErrDelegationInvalid.Error()
 }
 
 // DelegationMiddlewareWithBlocklist extracts the optional X-Orbit-Delegation-Token
@@ -48,29 +91,10 @@ func DelegationMiddlewareWithBlocklist(logger logging.Logger, verifier *token.Ve
 				return
 			}
 
-			d, err := policy.ParseDelegationToken(r.Context(), raw, verifier)
+			d, err := VerifyDelegation(r.Context(), logger, verifier, blocklist, raw)
 			if err != nil {
-				logger.Error(r.Context(), "invalid delegation token",
-					logging.Field{Key: "error", Value: err.Error()},
-				)
-				writeUnauthorized(w, "invalid delegation token")
+				writeUnauthorized(w, DelegationRefusalMessage(err))
 				return
-			}
-
-			if blocklist != nil && d != nil && d.JTI != "" {
-				if blocked, blErr := blocklist.IsBlocked(r.Context(), d.JTI); blErr != nil {
-					logger.Error(r.Context(), "delegation JTI blocklist check failed — allowing request",
-						logging.Field{Key: "jti", Value: d.JTI},
-						logging.Field{Key: "error", Value: blErr.Error()},
-					)
-				} else if blocked {
-					logger.Warn(r.Context(), "revoked delegation token rejected",
-						logging.Field{Key: "jti", Value: d.JTI},
-						logging.Field{Key: "run_id", Value: d.RunID},
-					)
-					writeUnauthorized(w, "delegation has been revoked")
-					return
-				}
 			}
 
 			next.ServeHTTP(w, r.WithContext(policy.WithDelegation(r.Context(), d)))
