@@ -4,7 +4,7 @@ import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-u
 import { PreferencesProvider } from '../app/(dashboard)/_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../app/(dashboard)/_preferences/preferences.schema';
 import { SmartTable, type DataTableColumn } from './smart-table';
-import { StatusBadge, type OrbitStatus } from './status-badge';
+import { StatusBadge, type KoraStatus } from './status-badge';
 
 /**
  * SmartTable
@@ -23,7 +23,7 @@ type Story = StoryObj<typeof SmartTable>;
 
 interface Agent {
   name: string;
-  status: OrbitStatus;
+  status: KoraStatus;
   provider: string;
   runs: number;
 }

@@ -13,7 +13,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { fmtUsd } from '@orbit/utils';
+import { fmtUsd } from '@runkora/utils';
 import { AgentBudgets, Breakdown, TrendChart } from '../../_components/agents-spend-card';
 import { SPEND_ALERT_PCT, changeText, usedShare } from '../../_lib/spend';
 import type { BudgetRow, SpendRow } from '../../_lib/spend';

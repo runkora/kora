@@ -4,7 +4,7 @@
 
 import { Badge, Grid, RadioCard, RadioGroup, Stack, Text, Textarea } from '@runkora/hades';
 import type { IconName } from '@runkora/hades';
-import type { ConnectivityMode } from '@orbit/shared/api';
+import type { ConnectivityMode } from '@runkora/shared/api';
 
 const EGRESS_MODES: { id: ConnectivityMode; name: string; desc: string; icon: IconName }[] = [
   {

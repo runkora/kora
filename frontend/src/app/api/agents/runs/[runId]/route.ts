@@ -1,10 +1,10 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { agentsClient } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
-import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
-import type { Run, RunWithAttribution, AgentType } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { agentsClient } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
+import { resolveUserDisplayNames } from '@runkora/server/services/identity-server';
+import type { Run, RunWithAttribution, AgentType } from '@runkora/shared/api';
 
 type Params = { runId: string };
 

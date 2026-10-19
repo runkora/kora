@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 

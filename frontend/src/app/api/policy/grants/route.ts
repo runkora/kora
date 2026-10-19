@@ -1,6 +1,6 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchGrants, createGrant } from '../../../(dashboard)/policy/_services/policy-server';
 import type { CreateGrantRequest } from '../../../(dashboard)/policy/_types/api';
 

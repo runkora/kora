@@ -22,7 +22,7 @@ import type {
   TriggerOverflow,
   TriggerUpdateRequest,
   WebhookSource,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 export type { InputField, TriggerKind, TriggerOverflow };
 

@@ -11,8 +11,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils';
-import { createSessionUser } from '@orbit/test-utils/factories/session';
+import { server } from '@runkora/test-utils';
+import { createSessionUser } from '@runkora/test-utils/factories/session';
 import { Text } from '@runkora/hades';
 import { PermissionsProvider, useSession } from './permissions-provider';
 

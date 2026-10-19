@@ -15,8 +15,8 @@
  */
 
 export const EXTERNAL_URLS = [
-  'https://github.com/clear-route/orbit',
-  'https://github.com/clear-route/orbit/blob/main/docs/guides/deployment.md#sandbox-images-and-environments',
+  'https://github.com/runkora/kora',
+  'https://github.com/runkora/kora/blob/main/docs/guides/deployment.md#sandbox-images-and-environments',
 ] as const satisfies readonly (`https://${string}` | `http://${string}`)[];
 
 /**

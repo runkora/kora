@@ -1,7 +1,7 @@
 // RSC: fetches the tenant's environments, the connection catalog, the
 // registered sandbox images and the size limits server-side.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchEnvironments } from './_services/environments-server';
 import { EnvironmentsShell } from './_components/environments-shell';
 

@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, waitFor, within } from 'storybook/test';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import ChatPage from './page';
 
 /** The chat assistant page. Replies are canned in the page itself, so no API mocks are needed. */

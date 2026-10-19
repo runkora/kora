@@ -23,19 +23,19 @@ import {
   Textarea,
   ConfirmDialog,
 } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
-import type { AgentFramework } from '@orbit/shared/api';
+import { useBrand } from '@runkora/theme/brand-provider';
+import type { AgentFramework } from '@runkora/shared/api';
 import { FrameworkCards } from '../../_components/motif/framework-cards';
 import { IDENTITY_MODE_SUMMARIES } from '../../_components/motif/identity-mode-cards';
-import { ModelPicker } from '@orbit/components';
+import { ModelPicker } from '@runkora/components';
 import { McpToolTree, countGrantedServers } from '../../_components/motif/mcp-tool-tree';
-import { ConnectionCards } from '@orbit/components';
+import { ConnectionCards } from '@runkora/components';
 import { EgressModeCards } from '../../_components/motif/egress-mode-cards';
 import { EnvironmentsCard } from '../../_components/motif/environments-card';
 import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
 import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
 import { PlannedLimits } from '../../_components/motif/planned-limits';
-import { EffectiveAccessPanel } from '@orbit/components';
+import { EffectiveAccessPanel } from '@runkora/components';
 import { ConfigurationRail } from './configuration-rail';
 import { useAgentConfiguration } from '../_hooks/use-agent-configuration';
 

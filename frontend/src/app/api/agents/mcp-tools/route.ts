@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
+import { withAuth } from '@runkora/server/route-helpers';
+import { listMcpServers, listMcpTools } from '@runkora/server/mcp-client';
 
 // GET /api/agents/mcp-tools — the governed MCP tool catalog (servers + tools with
 // their mcp:<server>:<tool>:use scopes), read from the tool-gateway. Powers the

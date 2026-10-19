@@ -16,9 +16,9 @@ import {
 
 import { DelegatedRunNotice } from '../../_components/motif/delegated-run-notice';
 import type { DataTableColumn } from '@runkora/hades';
-import { StatusBadge } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import type { RunStateCounts } from '@orbit/shared/api';
+import { StatusBadge } from '@runkora/components';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import type { RunStateCounts } from '@runkora/shared/api';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { RUN_FILTER_STATES } from '../_hooks/use-agent-detail';
 import type { RunFilter } from '../_hooks/use-agent-detail';

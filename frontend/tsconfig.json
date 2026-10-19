@@ -19,7 +19,7 @@
       }
     ],
     "paths": {
-      "@orbit/*": ["./src/*"]
+      "@runkora/*": ["./src/*"]
     },
     "allowImportingTsExtensions": true
   },

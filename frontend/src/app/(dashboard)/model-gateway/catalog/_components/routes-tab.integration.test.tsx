@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { RoutesTab } from './routes-tab';
 import type { ProviderModel, RouteTarget, VirtualModel } from '../_types/catalog';
 

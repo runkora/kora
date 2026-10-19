@@ -4,7 +4,7 @@
  */
 
 import { Stack } from '@runkora/hades';
-import { ScopeChip } from '@orbit/components';
+import { ScopeChip } from '@runkora/components';
 
 interface ScopeListProps {
   scopes: string[];

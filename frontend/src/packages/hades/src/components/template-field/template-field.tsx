@@ -31,7 +31,7 @@ import {
 
 export type { TemplateCatalogEntry } from './template-model';
 
-/** @tier 1 — Zero Orbit domain knowledge. A prompt-template editor drawing tokens as pills. */
+/** @tier 1 — Zero kora domain knowledge. A prompt-template editor drawing tokens as pills. */
 
 // ── Props ─────────────────────────────────────────────────────────────────────
 

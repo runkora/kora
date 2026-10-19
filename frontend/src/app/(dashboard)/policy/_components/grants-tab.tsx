@@ -30,8 +30,8 @@ import {
   ConfirmDialog,
 } from '@runkora/hades';
 import type { IconName } from '@runkora/hades';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
+import { SmartTable } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
 import type {
   PATAttributionEntry,
   PATGrantAttribution,
@@ -52,10 +52,10 @@ function budgetSummary(budget: BudgetAssignment): string {
 }
 import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
 import { usePermissions } from '../../_components/permissions-provider';
-import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@orbit/components';
-import { ScopePicker } from '@orbit/components';
+import { hasScope } from '@runkora/lib/permissions';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
+import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@runkora/components';
+import { ScopePicker } from '@runkora/components';
 import { FilterChip } from './filter-chip';
 import { GrantDetailModal } from './grant-detail-modal';
 import { ViewToggle } from './view-toggle';

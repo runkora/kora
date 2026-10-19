@@ -19,7 +19,7 @@ import {
   buildMcpConfig,
   isCommandClient,
   type McpClient,
-} from '@orbit/lib/mcp';
+} from '@runkora/lib/mcp';
 import type { McpServer } from '../_types';
 import { serverRollupScope } from '../_types';
 import { ServerAvatar } from './server-avatar';

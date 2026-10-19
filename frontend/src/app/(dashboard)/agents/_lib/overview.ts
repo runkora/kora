@@ -1,4 +1,4 @@
-import type { AgentOverviewResponse, AgentRunStats } from '@orbit/shared/api';
+import type { AgentOverviewResponse, AgentRunStats } from '@runkora/shared/api';
 import { toBudgetRows, toPeriodData } from './insights';
 import { spendChange } from './spend';
 import type { BudgetRow, Period, SpendRow } from './spend';

@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 1 — Zero Orbit domain knowledge. Multi-step builder modal chrome: rail, step, review card, footer. */
+/** @tier 1 — Zero kora domain knowledge. Multi-step builder modal chrome: rail, step, review card, footer. */
 
 import * as React from 'react';
 import { Alert } from '../alert/alert';

@@ -14,8 +14,8 @@ import {
   Text,
 } from '@runkora/hades';
 import { createToken } from '../_actions/tokens';
-import { ScopePicker } from '@orbit/components';
-import type { CreatePATResponse } from '@orbit/shared/api';
+import { ScopePicker } from '@runkora/components';
+import type { CreatePATResponse } from '@runkora/shared/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

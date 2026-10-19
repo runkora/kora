@@ -17,8 +17,8 @@ import {
   Text,
   EmptyState,
 } from '@runkora/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import { PLATFORM_MCP_SERVER } from '@orbit/lib/mcp';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import { PLATFORM_MCP_SERVER } from '@runkora/lib/mcp';
 import type { McpServer } from '../_types';
 import { relativeTime, serverRollupScope, statusColor } from '../_types';
 import type { IconName } from '@runkora/hades';

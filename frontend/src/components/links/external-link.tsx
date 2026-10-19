@@ -1,5 +1,5 @@
 import { Anchor, type AnchorProps } from '@runkora/hades';
-import { ExternalUrl } from '@orbit/lib/routing';
+import { ExternalUrl } from '@runkora/lib/routing';
 
 type ExternalLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
   children: React.ReactNode;

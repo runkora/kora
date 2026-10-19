@@ -3,10 +3,10 @@
 
 import { useMemo } from 'react';
 import { Alert, CodeBlock, Icon, Stack, Text } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
-import { SmartTable, StatusBadge } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
-import { fmtDate } from '@orbit/utils';
+import { useBrand } from '@runkora/theme/brand-provider';
+import { SmartTable, StatusBadge } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
+import { fmtDate } from '@runkora/utils';
 import type { ProviderStatusWire } from '../../_services/catalog-server';
 import { ProviderBadge } from './provider-badge';
 

@@ -7,19 +7,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitTriggersUrl: 'http://test-triggers-svc' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraTriggersUrl: 'http://test-triggers-svc' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
 
 import { POST } from './route';
-import { getSession } from '@orbit/server/session';
+import { getSession } from '@runkora/server/session';
 
 const TRIGGERS_URL = 'http://test-triggers-svc/triggers';
 

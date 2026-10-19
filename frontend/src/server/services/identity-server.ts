@@ -1,7 +1,7 @@
 import 'server-only';
 
-import { ApiError, orbitClient } from '@orbit/server/client';
-import type { ListPATsResponse, PAT } from '@orbit/shared/api';
+import { ApiError, koraClient } from '@runkora/server/client';
+import type { ListPATsResponse, PAT } from '@runkora/shared/api';
 
 // ── Result types ──────────────────────────────────────────────────────────────
 
@@ -25,7 +25,7 @@ function fromApiError(err: unknown): { ok: false; status: number; message: strin
 
 export async function listPATsFromIdentity(accessToken: string): Promise<ListPATsResult> {
   try {
-    const data = await orbitClient.get<ListPATsResponse>('/identity/tokens', {
+    const data = await koraClient.get<ListPATsResponse>('/identity/tokens', {
       Authorization: `Bearer ${accessToken}`,
     });
     return { ok: true, tokens: data?.tokens ?? [] };
@@ -66,7 +66,7 @@ export async function resolveUserDisplayNames(
   try {
     for (let i = 0; i < ids.length; i += USER_LOOKUP_BATCH) {
       const batch = ids.slice(i, i + USER_LOOKUP_BATCH);
-      const data = await orbitClient.get<IdentityUsersResponse>(
+      const data = await koraClient.get<IdentityUsersResponse>(
         `/identity/users?ids=${encodeURIComponent(batch.join(','))}&limit=${USER_LOOKUP_BATCH}`,
         { Authorization: `Bearer ${accessToken}` },
       );

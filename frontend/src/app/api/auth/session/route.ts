@@ -29,19 +29,19 @@ import 'server-only';
 import { getIronSession } from 'iron-session';
 import { cookies } from 'next/headers';
 
-import { getSessionOptions } from '@orbit/server/auth-config';
+import { getSessionOptions } from '@runkora/server/auth-config';
 import type {
   SessionPayload,
   SessionUser,
   BackendSessionResponse,
-} from '@orbit/server/auth-config';
-import { config } from '@orbit/server/config';
-import { getSession, isSessionValid } from '@orbit/server/session';
+} from '@runkora/server/auth-config';
+import { config } from '@runkora/server/config';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Internal types ────────────────────────────────────────────────────────────
 
 /** Decoded kora JWT payload (unverified — trusted because it comes from our own backend). */
-interface OrbitJwtPayload {
+interface KoraJwtPayload {
   sub: string;
   exp: number;
   orbit?: {
@@ -57,7 +57,7 @@ interface OrbitJwtPayload {
  * Safe because the token is received directly from the Go backend over a
  * trusted internal network — it is not user-supplied input.
  */
-function isOrbitJwtPayload(v: unknown): v is OrbitJwtPayload {
+function isKoraJwtPayload(v: unknown): v is KoraJwtPayload {
   if (
     typeof v !== 'object' ||
     v === null ||
@@ -73,7 +73,7 @@ function isOrbitJwtPayload(v: unknown): v is OrbitJwtPayload {
   return true;
 }
 
-function decodeJwtPayload(token: string): OrbitJwtPayload {
+function decodeJwtPayload(token: string): KoraJwtPayload {
   const parts = token.split('.');
   if (parts.length !== 3) throw new Error('Invalid JWT structure');
   // Normalise base64url → base64: swap alphabet chars then restore padding.
@@ -83,7 +83,7 @@ function decodeJwtPayload(token: string): OrbitJwtPayload {
     .replace(/_/g, '/')
     .padEnd(Math.ceil(parts[1].length / 4) * 4, '=');
   const parsed: unknown = JSON.parse(atob(base64));
-  if (!isOrbitJwtPayload(parsed)) throw new Error('JWT payload missing required claims');
+  if (!isKoraJwtPayload(parsed)) throw new Error('JWT payload missing required claims');
   return parsed;
 }
 
@@ -164,7 +164,7 @@ export async function POST(request: Request): Promise<Response> {
   // Forward to Go identity service.
   let backendRes: Response;
   try {
-    backendRes = await fetch(`${config.orbitApiUrl}/identity/session`, {
+    backendRes = await fetch(`${config.koraApiUrl}/identity/session`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -196,7 +196,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // Decode the kora JWT to extract user identity claims.
-  let claims: OrbitJwtPayload;
+  let claims: KoraJwtPayload;
   try {
     claims = decodeJwtPayload(data.access_token);
   } catch {

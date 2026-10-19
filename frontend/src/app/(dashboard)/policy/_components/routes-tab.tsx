@@ -14,7 +14,7 @@ import {
 } from '@runkora/hades';
 import type { DataTableColumn, TextProps } from '@runkora/hades';
 import type { RouteRegistration } from '../_types';
-import { ScopeChip, scopeColumnFilter } from '@orbit/components';
+import { ScopeChip, scopeColumnFilter } from '@runkora/components';
 
 interface RoutesTabProps {
   initialRegistrations: RouteRegistration[];

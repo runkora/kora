@@ -4,7 +4,7 @@
  * (docs/adr/2026-07-17-agent-detail-configuration.md §1). */
 
 import { useState } from 'react';
-import type { AgentOverviewResponse } from '@orbit/shared/api';
+import type { AgentOverviewResponse } from '@runkora/shared/api';
 import { useRouter } from 'next/navigation';
 import {
   Badge,
@@ -22,8 +22,8 @@ import {
   EmptyState,
 } from '@runkora/hades';
 import Link from 'next/link';
-import { StatusBadge } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { StatusBadge } from '@runkora/components';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
 import { AgentOverviewTab } from './agent-overview-tab';
 import { useAgentOverview } from '../_hooks/use-agent-overview';

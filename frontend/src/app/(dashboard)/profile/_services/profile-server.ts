@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { ApiError, orbitClient } from '@orbit/server/client';
+import { ApiError, koraClient } from '@runkora/server/client';
 
 // ── Result type (matches established convention) ─────────────────────────────
 
@@ -29,7 +29,7 @@ export async function fetchUserProfile(
   userId: string,
 ): Promise<Result<UserProfileResponse>> {
   try {
-    const data = await orbitClient.get<UserProfileResponse>(`/identity/users/${userId}`, {
+    const data = await koraClient.get<UserProfileResponse>(`/identity/users/${userId}`, {
       Authorization: `Bearer ${accessToken}`,
     });
     if (!data) {

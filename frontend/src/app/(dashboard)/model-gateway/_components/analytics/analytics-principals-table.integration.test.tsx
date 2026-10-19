@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import userEvent from '@testing-library/user-event';
 import { screen, waitFor } from '@testing-library/react';
-import { renderWithProviders, server } from '@orbit/test-utils';
+import { renderWithProviders, server } from '@runkora/test-utils';
 import { PreferencesProvider } from '../../../_preferences/preferences-context';
 import { PREFERENCE_DEFAULTS } from '../../../_preferences/preferences.schema';
 import { AnalyticsPrincipalsTable } from './analytics-principals-table';

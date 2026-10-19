@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { Environment } from '@orbit/shared/api';
+import type { Environment } from '@runkora/shared/api';
 import { EnvironmentsCard } from './environments-card';
 
 const env = (id: string, name: string, sandboxImage = 'kora-base'): Environment => ({

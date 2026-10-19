@@ -1,6 +1,6 @@
 'use server';
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import {
   createPATInIdentity,
   revokePATInIdentity,
@@ -11,7 +11,7 @@ import type {
   RevokePATResult,
   UpdatePATScopesResult,
 } from '../_services/tokens-server';
-import type { CreatePATRequest } from '@orbit/shared/api';
+import type { CreatePATRequest } from '@runkora/shared/api';
 
 export async function createToken(req: CreatePATRequest): Promise<CreatePATResult> {
   const session = await getSession();

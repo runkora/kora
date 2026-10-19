@@ -5,7 +5,7 @@
  * load time so relative copy stays realistic whenever a story is opened.
  */
 
-import type { CreatePATResponse, PAT } from '@orbit/shared/api';
+import type { CreatePATResponse, PAT } from '@runkora/shared/api';
 import type { Grant, RoleEntry } from '../../policy/_types/api';
 import type { TokenUsageStat } from '../_services/usage-server';
 import type {

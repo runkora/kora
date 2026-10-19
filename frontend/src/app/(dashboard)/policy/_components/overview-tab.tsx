@@ -25,8 +25,8 @@ import {
   TableCell,
   Icon,
 } from '@runkora/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
-import { fmtDate, fmtDateTime } from '@orbit/utils';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import { fmtDate, fmtDateTime } from '@runkora/utils';
 import Link from 'next/link';
 import type {
   Grant,
@@ -35,7 +35,7 @@ import type {
   ScopeEntryWithUsage,
   StatsResponse,
 } from '../_types';
-import { ScopeChipList } from '@orbit/components';
+import { ScopeChipList } from '@runkora/components';
 import { QuickLinkCard } from './quick-link-card';
 
 const PRINCIPAL_TYPE_LABELS: Record<string, string> = {

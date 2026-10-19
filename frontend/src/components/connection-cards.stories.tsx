@@ -3,7 +3,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { useState } from 'react';
 import { Stack } from '@runkora/hades';
-import type { ConnectionCatalogEntry, Connector } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, Connector } from '@runkora/shared/api';
 import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { ConnectionCards } from './connection-cards';
 
@@ -104,7 +104,7 @@ export const Options: Story = {
               {
                 connection: 'github',
                 actions: ['contents:read', 'issues:write'],
-                resources: ['webapp', 'orbit'],
+                resources: ['webapp', 'kora'],
               },
             ]}
           />

@@ -17,9 +17,9 @@ import 'server-only';
 
 import { type NextRequest } from 'next/server';
 
-import { config } from '@orbit/server/config';
-import { getSession } from '@orbit/server/session';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { config } from '@runkora/server/config';
+import { getSession } from '@runkora/server/session';
+import { APP_ROUTES } from '@runkora/lib/routing';
 
 async function revokeToken(
   revokeUrl: string,
@@ -43,7 +43,7 @@ export async function POST(request: NextRequest): Promise<Response> {
   const session = await getSession();
 
   if (session.user) {
-    const revokeUrl = `${config.orbitApiUrl}/identity/revoke`;
+    const revokeUrl = `${config.koraApiUrl}/identity/revoke`;
 
     // Fire revocation requests concurrently; don't block logout on failures.
     const [refreshResult, accessResult] = await Promise.allSettled([

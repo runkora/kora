@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { Button, Icon, Stack, Text } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 
 // ── Props (all fetched server-side, passed as serialisable data) ──────────────
 

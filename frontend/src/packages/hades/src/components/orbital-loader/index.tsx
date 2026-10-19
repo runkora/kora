@@ -1,4 +1,4 @@
-/** @tier 1 — Zero Orbit domain knowledge. Branded loading animation. */
+/** @tier 1 — Zero kora domain knowledge. Branded loading animation. */
 'use client';
 
 import * as React from 'react';

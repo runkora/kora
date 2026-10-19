@@ -15,8 +15,8 @@ import {
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@orbit/lib/permissions';
-import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { hasScope } from '@runkora/lib/permissions';
+import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { upsertRoleAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
 import { BudgetEditModal } from './budget-edit-modal';

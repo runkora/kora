@@ -4,12 +4,12 @@ import { withAuth } from './route-helpers';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn(),
 }));
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

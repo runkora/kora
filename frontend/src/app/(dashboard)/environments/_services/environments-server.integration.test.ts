@@ -4,13 +4,13 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitAgentsUrl: 'http://test-agents' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraAgentsUrl: 'http://test-agents' },
 }));
 
-vi.mock('@orbit/server/connections-client', () => ({
+vi.mock('@runkora/server/connections-client', () => ({
   listConnections: vi.fn().mockResolvedValue([]),
 }));
 

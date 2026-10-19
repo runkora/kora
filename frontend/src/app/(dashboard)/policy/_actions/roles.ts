@@ -1,6 +1,6 @@
 'use server';
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { upsertRole, deleteRole } from '../_services/policy-server';
 import type { UpsertRoleRequest, RoleEntry } from '../_types/api';
 

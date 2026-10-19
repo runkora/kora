@@ -1,7 +1,7 @@
 // RSC — fetches models server-side so the page renders with real data.
 // The co-located loading.tsx shows a skeleton while this fetch completes.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchModelsFromGateway } from '../_services/models-server';
 import { ModelsTabShell } from '../_components/models-tab-shell';
 

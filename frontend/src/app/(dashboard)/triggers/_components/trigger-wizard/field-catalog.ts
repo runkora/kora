@@ -7,7 +7,7 @@
 
 import { deriveFieldKey } from './wizard-state';
 import { parseTemplate, type TemplateCatalogEntry } from '@runkora/hades';
-import type { TriggerField } from '@orbit/shared/api';
+import type { TriggerField } from '@runkora/shared/api';
 import type { FieldCatalogEntry, WizardField } from './types';
 
 /** The scheduler injects these on every fire. */

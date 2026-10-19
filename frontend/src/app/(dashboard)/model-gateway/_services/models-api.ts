@@ -1,9 +1,9 @@
 // ── Models API service ────────────────────────────────────────────────────────
 //
 // Client-side fetch helper. Calls the BFF route handler at /api/models — never
-// the Go backend directly (which is server-only via orbitClient).
+// the Go backend directly (which is server-only via koraClient).
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type { ModelRow } from '../_types';
 
 export interface FetchModelsResult {

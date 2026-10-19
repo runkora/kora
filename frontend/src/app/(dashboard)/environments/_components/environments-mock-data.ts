@@ -1,4 +1,4 @@
-import type { MockRequest } from '@orbit/storybook/mock-api';
+import type { MockRequest } from '@runkora/storybook/mock-api';
 import type {
   ConnectionCatalogEntry,
   Connector,
@@ -6,7 +6,7 @@ import type {
   EffectiveAccessPreviewRequest,
   EnvironmentSizes,
   SandboxImage,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import { COMMON_PACKAGE_REGISTRIES } from '../_types';
 import type { EnvironmentRow } from '../_types';
 
@@ -79,7 +79,7 @@ export const MOCK_ENVIRONMENTS: EnvironmentRow[] = [
       {
         connection: 'github-orbital',
         actions: ['repo:read', 'pull_request:read', 'pull_request:write'],
-        resources: ['orbital/orbit', 'orbital/kora-docs'],
+        resources: ['runkora/kora', 'runkora/kora-docs'],
       },
       { connection: 'slack-engineering', actions: ['chat:post'] },
     ],

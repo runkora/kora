@@ -6,7 +6,7 @@
 
 import { Grid, RadioCard, RadioGroup } from '@runkora/hades';
 import type { IconName } from '@runkora/hades';
-import type { AgentIdentityMode } from '@orbit/shared/api';
+import type { AgentIdentityMode } from '@runkora/shared/api';
 
 export const IDENTITY_MODE_LABELS: Record<AgentIdentityMode, string> = {
   autonomous: 'Autonomous',

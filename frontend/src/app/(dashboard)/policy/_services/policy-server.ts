@@ -1,7 +1,7 @@
 import 'server-only';
 
-import { config } from '@orbit/server/config';
-import { policyGatewayFetch } from '@orbit/server/services/policy-gateway-server';
+import { config } from '@runkora/server/config';
+import { policyGatewayFetch } from '@runkora/server/services/policy-gateway-server';
 import type {
   StatsResponse,
   GrantsListResponse,
@@ -20,7 +20,7 @@ import type {
 
 // ── Shared (promoted to src/server/services/) ─────────────────────────────────
 
-export { fetchScopesExplain } from '@orbit/server/services/policy-gateway-server';
+export { fetchScopesExplain } from '@runkora/server/services/policy-gateway-server';
 
 // ── Result types ─────────────────────────────────────────────────────────────
 

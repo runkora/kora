@@ -1,7 +1,7 @@
 import 'server-only';
 
-import { config } from '@orbit/server/config';
-import type { ScopesExplainResponse } from '@orbit/shared/api';
+import { config } from '@runkora/server/config';
+import type { ScopesExplainResponse } from '@runkora/shared/api';
 
 // ── Result types ─────────────────────────────────────────────────────────────
 

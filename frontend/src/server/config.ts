@@ -23,7 +23,7 @@ export const config = {
    * Base URL of the Go control plane API.
    * Used exclusively by BFF API routes — never sent to the browser.
    */
-  orbitApiUrl: requireEnv('ORBIT_API_URL').replace(/\/$/, ''),
+  koraApiUrl: requireEnv('ORBIT_API_URL').replace(/\/$/, ''),
 
   /**
    * Base URL of the triggers service (port 8097).
@@ -31,7 +31,7 @@ export const config = {
    * delivery routes address it directly rather than via ORBIT_API_URL.
    * Used exclusively by BFF API routes — never sent to the browser.
    */
-  orbitTriggersUrl: requireEnv('ORBIT_TRIGGERS_URL').replace(/\/$/, ''),
+  koraTriggersUrl: requireEnv('ORBIT_TRIGGERS_URL').replace(/\/$/, ''),
 
   /**
    * Base URL of the Go inference gateway (port 8081).
@@ -58,7 +58,7 @@ export const config = {
    * Used by BFF routes for agent type and run CRUD + SSE proxy.
    * Never sent to the browser.
    */
-  orbitAgentsUrl: requireEnv('ORBIT_AGENTS_URL').replace(/\/$/, ''),
+  koraAgentsUrl: requireEnv('ORBIT_AGENTS_URL').replace(/\/$/, ''),
 
   /**
    * Base URL of the MCP tool-gateway (proxy deployment, port 8096). The BFF

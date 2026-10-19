@@ -1,6 +1,6 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
+import { withAuth } from '@runkora/server/route-helpers';
 import { fetchAllTenantUsers } from '../../../(dashboard)/model-gateway/_services/tokens-server';
 
 export const GET = withAuth(async (_req, session) => {

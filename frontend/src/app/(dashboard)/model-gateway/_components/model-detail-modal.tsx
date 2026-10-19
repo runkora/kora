@@ -15,7 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@runkora/hades';
-import { fmtCost } from '@orbit/utils';
+import { fmtCost } from '@runkora/utils';
 import type { ModelObjectPricing, ModelRow } from '../_types';
 import { AvailabilityDot } from './availability-dot';
 

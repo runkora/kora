@@ -23,7 +23,7 @@ import {
   Text,
   ToggleRow,
 } from '@runkora/hades';
-import type { InputField } from '@orbit/shared/api';
+import type { InputField } from '@runkora/shared/api';
 import type { TriggerRow } from '../_types';
 
 interface RunTriggerModalProps {

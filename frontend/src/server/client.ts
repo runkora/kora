@@ -36,7 +36,7 @@ interface BackendError {
 const UPSTREAM_TIMEOUT_MS = 10_000;
 
 function buildUrl(path: string): string {
-  const base = config.orbitApiUrl;
+  const base = config.koraApiUrl;
   const normalizedPath = path.replace(/^\//, '');
   return `${base}/${normalizedPath}`;
 }
@@ -90,7 +90,7 @@ async function request<T>(
 // Public API surface
 // ---------------------------------------------------------------------------
 
-export const orbitClient = {
+export const koraClient = {
   get: <T>(path: string, headers?: Record<string, string>) => request<T>(path, { headers }),
   post: <T>(path: string, body: unknown, headers?: Record<string, string>) =>
     request<T>(path, { method: 'POST', body, headers }),

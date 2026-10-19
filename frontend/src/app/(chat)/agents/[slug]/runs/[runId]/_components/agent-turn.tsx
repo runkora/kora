@@ -7,7 +7,7 @@
 
 import { memo } from 'react';
 import { Icon, Stack, Text } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import type { AgentTurn, AgentElement, ToolCall } from '../_types';
 import { useRunContext } from '../_context/run-context';
 import { ThinkingBlock } from './thinking-block';

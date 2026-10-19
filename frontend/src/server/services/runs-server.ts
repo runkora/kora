@@ -1,8 +1,8 @@
 import 'server-only';
 
-import { listRuns } from '@orbit/server/agents-client';
-import { resolveUserDisplayNames } from '@orbit/server/services/identity-server';
-import type { RunsPageResponse } from '@orbit/shared/api';
+import { listRuns } from '@runkora/server/agents-client';
+import { resolveUserDisplayNames } from '@runkora/server/services/identity-server';
+import type { RunsPageResponse } from '@runkora/shared/api';
 
 /** The run list params a BFF route passes through to orbit-agents, which validates them. */
 const PAGE_PARAMS = ['agent_type_id', 'state', 'limit', 'cursor'] as const;

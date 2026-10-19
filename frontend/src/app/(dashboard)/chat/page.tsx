@@ -18,7 +18,7 @@ import {
   Textarea,
   TypingIndicator,
 } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { MessageContent } from './_components/message-content';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -174,7 +174,7 @@ import (
     "context"
     "fmt"
 
-    "github.com/orbitapp/orbit/internal/platform/logging"
+    "github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 type Service struct {

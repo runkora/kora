@@ -1,8 +1,8 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { listTriggers, createTrigger } from '@orbit/server/triggers-client';
-import type { TriggerCreateRequest } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { listTriggers, createTrigger } from '@runkora/server/triggers-client';
+import type { TriggerCreateRequest } from '@runkora/shared/api';
 
 function validateCreateRequest(body: TriggerCreateRequest): string | null {
   if (!body.name?.trim()) return 'name is required';

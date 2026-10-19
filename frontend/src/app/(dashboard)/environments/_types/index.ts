@@ -3,7 +3,7 @@
 // EnvironmentRow is the shape consumed by the UI. The raw API shape
 // (Environment) only appears at the service-layer boundary.
 
-import type { Environment, Connector, EnvironmentSize } from '@orbit/shared/api';
+import type { Environment, Connector, EnvironmentSize } from '@runkora/shared/api';
 
 export type { Connector };
 

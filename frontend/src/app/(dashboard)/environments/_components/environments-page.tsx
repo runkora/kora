@@ -17,13 +17,13 @@ import {
   EmptyState,
   TruncatingBadge,
 } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import type { DataTableColumn } from '@runkora/hades';
-import { ClampedList } from '@orbit/components';
-import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
+import { ClampedList } from '@runkora/components';
+import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@runkora/shared/api';
 import { deleteEnvironment } from '../_services/environments-api';
 import { EnvironmentWizard } from './environment-wizard';
-import { imageProblem, sizeLabel } from '@orbit/lib/environments';
+import { imageProblem, sizeLabel } from '@runkora/lib/environments';
 import type { EnvironmentRow } from '../_types';
 
 interface EnvironmentsPageProps {

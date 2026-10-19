@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import type { TriggerEventTypes, TriggerField } from '@orbit/shared/api';
+import type { TriggerEventTypes, TriggerField } from '@runkora/shared/api';
 import {
   fetchEventTypes,
   fetchProviderEventTypes,

@@ -4,7 +4,7 @@ import type {
   AgentOverviewResponse,
   AgentRunStats,
   AgentTypeUsage,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import { SHAPES } from '../../_components/agents-insights-mock-data';
 import { DAY, USAGE, ahead } from '../../_components/agents-mock-data';
 import type { Period } from '../../_lib/spend';

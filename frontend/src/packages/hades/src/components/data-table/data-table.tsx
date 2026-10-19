@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 1 — Zero Orbit domain knowledge. Could be extracted to a standalone library.
+ * @tier 1 — Zero kora domain knowledge. Could be extracted to a standalone library.
  *
  * Hades – DataTable
  *
@@ -19,7 +19,7 @@
  * ├── No  → use DataTable from @runkora/hades
  * └── Yes → Does this table need column visibility persisted per user?
  *           ├── No  → use DataTable from @runkora/hades
- *           └── Yes → use SmartTable from @orbit/components  ← default choice
+ *           └── Yes → use SmartTable from @runkora/components  ← default choice
  * ```
  *
  * `SmartTable` is the default for the dashboard. Reach for `DataTable` directly

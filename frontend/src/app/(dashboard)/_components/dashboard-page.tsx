@@ -26,12 +26,12 @@ import {
   TableRow,
   Text,
 } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
-import { StatusBadge } from '@orbit/components';
+import { useBrand } from '@runkora/theme/brand-provider';
+import { StatusBadge } from '@runkora/components';
 import { EventFeedItem } from './event-feed-item';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@runkora/lib/routing';
 
-import type { RunStateCounts } from '@orbit/shared/api';
+import type { RunStateCounts } from '@runkora/shared/api';
 import type { AgentTypeRow, RunRow } from '../agents/_types';
 import { formatRelativeTime } from '../agents/_types';
 import type { ConnectionRow } from '../connections/_types';

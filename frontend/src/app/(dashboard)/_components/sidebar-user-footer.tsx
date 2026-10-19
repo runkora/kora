@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { useRouter } from 'next/navigation';
 import { BottomSheet, Button, Icon, SectionLabel, Separator, Stack, Text } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
-import { APP_ROUTES } from '@orbit/lib/routing/routes';
-import { useLogout } from '@orbit/lib/use-logout';
+import { useBrand } from '@runkora/theme/brand-provider';
+import { APP_ROUTES } from '@runkora/lib/routing/routes';
+import { useLogout } from '@runkora/lib/use-logout';
 import { useSession } from './permissions-provider';
 import { FitEmailText } from './fit-email-text';
 

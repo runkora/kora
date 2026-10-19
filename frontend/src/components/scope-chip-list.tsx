@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 2 — Orbit-domain-aware: renders Orbit scope strings via `ScopeChip`.
+ * @tier 2 — kora-domain-aware: renders kora scope strings via `ScopeChip`.
  * Used by: policy (grants, roles, overview), connections.
  *
  * A `ClampedList` of scope chips: a bounded number inline (a count, or as many

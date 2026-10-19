@@ -8,7 +8,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { ThemeToggle } from './theme-toggle';
 
 const setTheme = vi.fn();

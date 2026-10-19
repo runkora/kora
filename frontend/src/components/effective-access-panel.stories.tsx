@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Stack } from '@runkora/hades';
-import type { EffectiveAccess } from '@orbit/shared/api';
+import type { EffectiveAccess } from '@runkora/shared/api';
 import { Example, Option, OptionTable } from '../packages/hades/src/docs/story-ui';
 import { EffectiveAccessPanel } from './effective-access-panel';
 

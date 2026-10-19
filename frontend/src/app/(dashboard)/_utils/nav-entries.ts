@@ -1,6 +1,6 @@
 import type { IconName } from '@runkora/hades';
 
-import { APP_ROUTES, AppRoute } from '@orbit/lib/routing';
+import { APP_ROUTES, AppRoute } from '@runkora/lib/routing';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

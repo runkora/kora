@@ -18,7 +18,7 @@ import {
   Text,
   Toggle,
 } from '@runkora/hades';
-import { fmtCost } from '@orbit/utils';
+import { fmtCost } from '@runkora/utils';
 import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import { providerTitle } from '../_utils/catalog-constants';
 

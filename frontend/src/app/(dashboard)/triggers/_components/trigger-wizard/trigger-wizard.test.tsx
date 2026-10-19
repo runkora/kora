@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
-import type { TriggerField } from '@orbit/shared/api';
+import type { TriggerField } from '@runkora/shared/api';
 
 // The wizard reads each provider's schema catalogue from the API.
 const GITHUB_FIELDS: Record<string, TriggerField[]> = {

@@ -3,7 +3,7 @@
 /** @tier 3 — agents-scoped. Builder step 4: enforced ceilings + the planned block. */
 
 import { Eyebrow, SectionHeading, Stack, Text } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { GuardrailsFields, type GuardrailValues } from '../motif/guardrail-rows';
 import { PlannedLimits } from '../motif/planned-limits';

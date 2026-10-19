@@ -2,7 +2,7 @@
  * Integration tests for GET /api/auth/discover?email=...
  *
  * Strategy:
- * - `@orbit/server/config` is vi.mock'd so `config.orbitApiUrl` resolves to
+ * - `@runkora/server/config` is vi.mock'd so `config.koraApiUrl` resolves to
  *   `http://test-orbit-api` without triggering `requireEnv` at import time.
  * - MSW intercepts the upstream fetch to the Go identity service
  *   (`http://test-orbit-api/identity/tenants/discover`).
@@ -12,12 +12,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitApiUrl: 'http://test-orbit-api' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraApiUrl: 'http://test-orbit-api' },
 }));
 
 // ── Import under test ─────────────────────────────────────────────────────────

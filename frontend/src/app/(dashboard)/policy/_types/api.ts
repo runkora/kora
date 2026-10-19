@@ -159,7 +159,7 @@ export interface TenantBundleStatus {
 
 // ── Scopes Explain (policy-gateway) ──────────────────────────────────────────
 
-export type { GrantDetail, RoleDetail, ScopesExplainResponse } from '@orbit/shared/api';
+export type { GrantDetail, RoleDetail, ScopesExplainResponse } from '@runkora/shared/api';
 
 // ── Check Simulate (policy-gateway) ──────────────────────────────────────────
 

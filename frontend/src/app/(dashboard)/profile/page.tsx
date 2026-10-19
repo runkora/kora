@@ -1,7 +1,7 @@
 import { Heading, Stack, Text } from '@runkora/hades';
-import { getSession, isSessionValid } from '@orbit/server/session';
-import { listPATsFromIdentity } from '@orbit/server/services/identity-server';
-import { fetchScopesExplain } from '@orbit/server/services/policy-gateway-server';
+import { getSession, isSessionValid } from '@runkora/server/session';
+import { listPATsFromIdentity } from '@runkora/server/services/identity-server';
+import { fetchScopesExplain } from '@runkora/server/services/policy-gateway-server';
 import { fetchUserProfile } from './_services/profile-server';
 import { UserIdentityCard } from './_components/user-identity-card';
 import { RolesPermissionsCard } from './_components/roles-permissions-card';

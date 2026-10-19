@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 2 — Orbit-domain-aware: per-connection action grants as collapsible tri-state cards, with grant-time resource scoping for qualifier-capable adapters. Used by: agents builder, agents configuration, environments. */
+/** @tier 2 — kora-domain-aware: per-connection action grants as collapsible tri-state cards, with grant-time resource scoping for qualifier-capable adapters. Used by: agents builder, agents configuration, environments. */
 
 import { useState } from 'react';
 import {
@@ -26,7 +26,7 @@ import type {
   ConnectionCatalogEntry,
   ConnectionQualifierEntry,
   Connector,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 /** Pluralizes a qualifier dimension name — deliberately dumb ("y" → "ies", else
  * append "s"), which covers the dimensions in play: repository, namespace. */

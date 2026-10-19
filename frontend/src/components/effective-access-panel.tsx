@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 2 — Orbit-domain-aware: resolved effective access (hosts, connectors, environments). Used by: agents builder, agents configuration, environments.
+/** @tier 2 — kora-domain-aware: resolved effective access (hosts, connectors, environments). Used by: agents builder, agents configuration, environments.
  * Shows the hosts an agent can reach, colour-coded by source; hovering a source highlights its hosts. */
 
 import { useMemo, useState } from 'react';
@@ -17,7 +17,7 @@ import {
   Text,
 } from '@runkora/hades';
 import type { BadgeProps, StatusDotProps } from '@runkora/hades';
-import type { EffectiveAccess } from '@orbit/shared/api';
+import type { EffectiveAccess } from '@runkora/shared/api';
 
 // ── Provenance model ────────────────────────────────────────────────────────────
 // Three sources contribute hosts to the resolved union. Each gets a distinct,

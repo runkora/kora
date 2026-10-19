@@ -3,15 +3,15 @@ import { redirect } from 'next/navigation';
 
 import { Alert, Card, CardContent, CardHeader, Heading, Stack } from '@runkora/hades';
 
-import { getSession, isSessionValid } from '@orbit/server/session';
-import { getBrand } from '@orbit/server/theme';
-import { mcpConsentToken } from '@orbit/server/mcp-consent';
-import { listGrantedTools, listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
+import { getSession, isSessionValid } from '@runkora/server/session';
+import { getBrand } from '@runkora/server/theme';
+import { mcpConsentToken } from '@runkora/server/mcp-consent';
+import { listGrantedTools, listMcpServers, listMcpTools } from '@runkora/server/mcp-client';
 import {
   fetchMcpOAuthClient,
   isLoopbackRedirect,
   isWellFormedRedirect,
-} from '@orbit/server/mcp-redirect';
+} from '@runkora/server/mcp-redirect';
 
 import { ConsentFlow, type ConsentDomain, type ConsentServer } from './_components/consent-flow';
 

@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { screen, fireEvent } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { ProviderCatalogSection } from './provider-catalog-section';
 import type { ProviderModel } from '../_types/catalog';
 import type { PricingEntry } from '../_types/catalog';

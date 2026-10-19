@@ -1,6 +1,6 @@
 /** @tier 3 — budgets-page-scoped. Principal display-name resolution. */
 
-import { agentNameFromPrincipalId } from '@orbit/utils';
+import { agentNameFromPrincipalId } from '@runkora/utils';
 import type { PrincipalIdentity } from '../../_types';
 
 export interface PrincipalDisplay {

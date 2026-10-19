@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import type {
   AgentEnvironment,
   AgentFramework,
@@ -20,7 +20,7 @@ import type {
   McpCatalogTool,
   McpServer,
   ModelObject,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import {
   fetchConnections,
   fetchEnvironments,

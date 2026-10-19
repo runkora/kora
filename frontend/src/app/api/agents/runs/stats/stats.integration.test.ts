@@ -2,19 +2,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitAgentsUrl: 'http://test-agents' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraAgentsUrl: 'http://test-agents' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
 
 import { GET } from './route';
-import { getSession } from '@orbit/server/session';
+import { getSession } from '@runkora/server/session';
 
 const STATS_URL = 'http://test-agents/api/v1/runs/stats';
 const get = (query = '') => GET(new NextRequest(`http://localhost/api/agents/runs/stats${query}`));

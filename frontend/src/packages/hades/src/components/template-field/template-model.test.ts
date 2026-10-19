@@ -240,11 +240,11 @@ describe('replaceSelection', () => {
 describe('renderPreview', () => {
   const examples = new Map([
     ['pr.title', 'Fix login retry'],
-    ['repo.full_name', 'orbital/orbit'],
+    ['repo.full_name', 'runkora/kora'],
   ]);
 
   it('substitutes sample values', () => {
-    expect(renderPreview(TPL, examples)).toBe('Review Fix login retry on orbital/orbit');
+    expect(renderPreview(TPL, examples)).toBe('Review Fix login retry on runkora/kora');
   });
 
   it('renders unknown fields as the empty string', () => {
@@ -421,7 +421,7 @@ describe('modelOffsetToDom', () => {
 const CATALOG: TemplateCatalogEntry[] = [
   { token: 'pr.title', description: 'Title', example: 'Fix login retry', group: 'Pull request' },
   { token: 'pr.number', description: 'Number', example: '412', group: 'Pull request' },
-  { token: 'repo.full_name', description: 'Owner and name', example: 'orbital/orbit' },
+  { token: 'repo.full_name', description: 'Owner and name', example: 'runkora/kora' },
   { token: 'group.labels.<name>', description: 'Any label', pattern: true },
 ];
 

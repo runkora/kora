@@ -1,4 +1,4 @@
-import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
+import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
 
 /** @tier 3 — mcp-gateway-scoped models for the MCP catalog views. */
 

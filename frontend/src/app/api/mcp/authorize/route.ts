@@ -1,12 +1,12 @@
 import 'server-only';
-import { getSession, isSessionValid } from '@orbit/server/session';
-import { config } from '@orbit/server/config';
-import { consentTokenValid } from '@orbit/server/mcp-consent';
+import { getSession, isSessionValid } from '@runkora/server/session';
+import { config } from '@runkora/server/config';
+import { consentTokenValid } from '@runkora/server/mcp-consent';
 import {
   isLoopbackRedirect,
   isRegisteredRedirect,
   isWellFormedRedirect,
-} from '@orbit/server/mcp-redirect';
+} from '@runkora/server/mcp-redirect';
 
 /**
  * POST /api/mcp/authorize — the consent decision endpoint for the MCP OAuth flow.
@@ -90,7 +90,7 @@ export async function POST(req: Request): Promise<Response> {
   // Approved → identity mints the code, authenticated by the session's token.
   let res: Response;
   try {
-    res = await fetch(`${config.orbitApiUrl}/identity/oauth/code`, {
+    res = await fetch(`${config.koraApiUrl}/identity/oauth/code`, {
       method: 'POST',
       cache: 'no-store',
       headers: {

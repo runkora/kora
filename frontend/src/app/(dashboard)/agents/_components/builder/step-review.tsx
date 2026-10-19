@@ -4,7 +4,7 @@
 
 import { useMemo } from 'react';
 import { Alert, SectionHeading, Stack, Wizard } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { FRAMEWORK_LABELS } from '../motif/framework-cards';
 import { IDENTITY_MODE_LABELS } from '../motif/identity-mode-cards';

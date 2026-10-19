@@ -17,7 +17,7 @@ import 'server-only';
  * move the fetch calls into a loader function co-located with the page.
  */
 
-import { config } from '@orbit/server/config';
+import { config } from '@runkora/server/config';
 
 // ── Result types ─────────────────────────────────────────────────────────────
 

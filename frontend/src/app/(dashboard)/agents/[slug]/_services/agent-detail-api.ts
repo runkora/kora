@@ -1,6 +1,6 @@
 // ── Agent detail — client-side BFF calls ──────────────────────────────────────
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   AgentInsightsPeriod,
   AgentOverviewResponse,
@@ -8,7 +8,7 @@ import type {
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   UpdateAgentTypeRequest,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import { toAgentTypeRow } from '../../_types';
 import type { AgentTypeRow } from '../../_types';
 import { fetchPeriodRead, fetchRunPage, runPageSearch } from '../../_services/agents-api';

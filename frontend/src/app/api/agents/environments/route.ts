@@ -1,9 +1,9 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { listEnvironments, createEnvironment } from '@orbit/server/environments-client';
-import { ApiError } from '@orbit/server/client';
-import type { EnvironmentRequest } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { listEnvironments, createEnvironment } from '@runkora/server/environments-client';
+import { ApiError } from '@runkora/server/client';
+import type { EnvironmentRequest } from '@runkora/shared/api';
 
 // GET /api/agents/environments — the tenant's environments, read from
 // orbit-agents over the mesh; session forwarded by withAuth.

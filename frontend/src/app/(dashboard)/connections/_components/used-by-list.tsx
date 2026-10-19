@@ -3,7 +3,7 @@
 /** @tier 3 — connections-scoped. Promote to src/components/ if a second feature needs this. */
 
 import { Text, TruncatingBadge } from '@runkora/hades';
-import { ClampedList } from '@orbit/components';
+import { ClampedList } from '@runkora/components';
 import type { ConnectionUsage } from '../_types';
 
 /**

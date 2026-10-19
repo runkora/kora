@@ -2,7 +2,7 @@ import type {
   PATAttributionEntry,
   PATGrantAttribution,
 } from '../../model-gateway/_services/tokens-server';
-import { agentNameFromPrincipalId } from '@orbit/utils';
+import { agentNameFromPrincipalId } from '@runkora/utils';
 import type { Grant } from '../_types';
 
 export interface GrantIdentity {

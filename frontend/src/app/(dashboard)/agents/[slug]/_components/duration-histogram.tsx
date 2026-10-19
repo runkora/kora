@@ -5,7 +5,7 @@
 import { Bar, BarChart, Cell, ReferenceLine, XAxis, YAxis } from 'recharts';
 import { ChartContainer, Stack, Text, donutSegmentColor } from '@runkora/hades';
 import { formatDuration } from '../../_types';
-import type { AgentRunStats } from '@orbit/shared/api';
+import type { AgentRunStats } from '@runkora/shared/api';
 
 /** Sized so the tile, with its single axis line, is as tall as the tiles beside it. */
 const CHART_HEIGHT = 62;

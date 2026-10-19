@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
-import type { AgentRunStats } from '@orbit/shared/api';
+import { renderWithProviders } from '@runkora/test-utils';
+import type { AgentRunStats } from '@runkora/shared/api';
 import { DurationHistogram } from './duration-histogram';
 
 const NONE: AgentRunStats['durations'] = {

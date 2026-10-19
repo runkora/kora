@@ -2,7 +2,7 @@
 // server-side so the page renders with real data immediately. The insights are
 // optional: when they cannot be had, the page renders without them.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchAgentsFromBFF } from './_services/agents-server';
 import { loadInsights } from './_services/agents-insights-server';
 import { AgentsShell } from './_components/agents-shell';

@@ -6,7 +6,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { KindPicker } from './kind-picker';
 import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';

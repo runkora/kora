@@ -8,7 +8,7 @@
  */
 import type { ReactNode } from 'react';
 import { BrandLogo, Card, CardFooter, Heading, Show, Stack, Text } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 
 const PANEL_GRADIENT =
   'linear-gradient(25deg, color-mix(in oklch, var(--color-border-accent) 55%, var(--color-surface-elevated)) 0%, var(--color-surface-elevated) 55%, var(--color-surface) 100%)';

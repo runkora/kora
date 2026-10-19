@@ -15,7 +15,7 @@ import {
   donutSegmentColor,
 } from '@runkora/hades';
 import type { IconName } from '@runkora/hades';
-import { fmtTokens } from '@orbit/utils';
+import { fmtTokens } from '@runkora/utils';
 import { formatDuration } from '../_types';
 
 interface TileSegment {

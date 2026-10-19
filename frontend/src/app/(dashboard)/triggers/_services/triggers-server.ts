@@ -1,9 +1,9 @@
 import 'server-only';
 
-import { listSources, listTriggers, listDeliveries } from '@orbit/server/triggers-client';
-import { agentsClient } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
-import type { AgentType } from '@orbit/shared/api';
+import { listSources, listTriggers, listDeliveries } from '@runkora/server/triggers-client';
+import { agentsClient } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
+import type { AgentType } from '@runkora/shared/api';
 import { toSourceRow, toTriggerRow, toDeliveryRow } from '../_types';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerRow } from '../_types';
 

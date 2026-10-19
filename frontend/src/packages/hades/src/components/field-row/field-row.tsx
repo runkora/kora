@@ -2,7 +2,7 @@ import * as React from 'react';
 import { cn } from '../../utils';
 import { settingsRowSurfaceVariants } from '../setting-row/settings-row-surface';
 
-/** @tier 1 — Zero Orbit domain knowledge. A recessed row for a value the user reads or copies. */
+/** @tier 1 — Zero kora domain knowledge. A recessed row for a value the user reads or copies. */
 
 export interface FieldRowProps extends React.HTMLAttributes<HTMLDivElement> {
   /** Leading element: an icon, a status marker, or a short key. */

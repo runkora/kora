@@ -24,8 +24,8 @@ import {
   SESSION_COOKIE_NAME,
   type SessionPayload,
   type BackendSessionResponse,
-} from '@orbit/server/auth-config';
-import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing';
+} from '@runkora/server/auth-config';
+import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@runkora/lib/routing';
 
 // ── Inline refresh ────────────────────────────────────────────────────────────
 

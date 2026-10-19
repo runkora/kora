@@ -20,8 +20,8 @@ import {
   TableRow,
   Text,
 } from '@runkora/hades';
-import { RUN_STATE_DISPLAY } from '@orbit/components';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { RUN_STATE_DISPLAY } from '@runkora/components';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { RUNNING_ROWS } from '../_lib/spend';
 import { formatDuration, formatRelativeTime } from '../_types';
 import type { RunRow } from '../_types';

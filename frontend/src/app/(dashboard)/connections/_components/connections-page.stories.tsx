@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, userEvent, within } from 'storybook/test';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { ConnectionsPage } from './connections-page';
 import { MANY_CONNECTIONS, MOCK_CONNECTIONS } from './connections-mock-data';
 

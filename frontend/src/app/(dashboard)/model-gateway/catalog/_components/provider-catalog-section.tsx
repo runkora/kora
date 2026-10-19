@@ -19,11 +19,11 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@runkora/hades';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
+import { SmartTable } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
 import { BadgeList } from '../../_components/badge-list';
-import { fmtCost, fmtDate } from '@orbit/utils';
-import { ApiRoute } from '@orbit/lib/routing';
+import { fmtCost, fmtDate } from '@runkora/utils';
+import { ApiRoute } from '@runkora/lib/routing';
 import type { ProviderModel, PricingEntry } from '../_types/catalog';
 import { ProviderBadge } from './provider-badge';
 import { providerTitle } from '../_utils/catalog-constants';

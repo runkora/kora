@@ -1,7 +1,7 @@
 import type { CSSProperties } from 'react';
 import type { Meta, StoryObj } from '@storybook/react';
 import { BrandLogo, Stack, Text } from '@runkora/hades';
-import { defaultTheme } from '@orbit/theme/default';
+import { defaultTheme } from '@runkora/theme/default';
 
 const meta: Meta = {
   title: 'Kora/Brand',

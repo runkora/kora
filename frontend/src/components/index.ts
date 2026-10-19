@@ -1,9 +1,9 @@
 export { PrincipalBadge } from './principal-badge';
 export type { PrincipalBadgeProps, PrincipalType } from './principal-badge';
 
-/** Maps an OrbitStatus value to a labelled Badge with a status dot. */
+/** Maps an KoraStatus value to a labelled Badge with a status dot. */
 export { StatusBadge } from './status-badge';
-export type { StatusBadgeProps, OrbitStatus } from './status-badge';
+export type { StatusBadgeProps, KoraStatus } from './status-badge';
 
 /** Syntax-highlighted kora scope chip (resource:path:action). */
 export { ScopeChip } from './scope-chip';

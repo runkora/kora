@@ -18,7 +18,7 @@ import {
   StatusDot,
   Text,
 } from '@runkora/hades';
-import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
+import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
 
 // ── Tree derivation (mirrors mcp-tools-fields grouping) ──────────────────────
 

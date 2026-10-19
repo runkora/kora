@@ -21,7 +21,7 @@ export interface SessionUser {
 }
 
 /**
- * Shape of the data sealed into the `orbit_session` HttpOnly cookie.
+ * Shape of the data sealed into the `kora_session` HttpOnly cookie.
  * The access token is kept server-side only — it is never sent to the browser.
  */
 export interface SessionPayload {
@@ -57,7 +57,7 @@ export interface BackendSessionResponse {
 // ── Cookie names ──────────────────────────────────────────────────────────────
 
 /** Name of the sealed iron-session cookie. */
-export const SESSION_COOKIE_NAME = 'orbit_session';
+export const SESSION_COOKIE_NAME = 'kora_session';
 
 // ── Session options factory ───────────────────────────────────────────────────
 

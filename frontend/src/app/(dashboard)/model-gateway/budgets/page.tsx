@@ -2,7 +2,7 @@
 // user list (for principal display names) server-side.
 // Requires platform:budgets:read; budget edits require platform:budgets:write.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchBudgetPrincipalsFromGateway } from '../_services/budgets-server';
 import { fetchAllTenantUsers } from '../_services/tokens-server';
 import { fetchRoles, fetchGrants } from '../../policy/_services/policy-server';
