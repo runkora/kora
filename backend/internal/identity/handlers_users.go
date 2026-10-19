@@ -32,8 +32,13 @@ func (c *Controller) handleGetUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := c.authorizeUserRead(ctx, claims, userID); err != nil {
+		if errors.Is(err, ErrUserReadForbidden) {
+			api.ErrorResponse(ctx, w, c.logger,
+				api.ForbiddenError(api.ErrCodeForbidden, "not authorized to read this user", nil), err)
+			return
+		}
 		api.ErrorResponse(ctx, w, c.logger,
-			api.ForbiddenError(api.ErrCodeForbidden, "not authorized to read this user", nil), err)
+			api.InternalError(api.ErrCodeInternalError, "failed to authorize user read", nil), err)
 		return
 	}
 

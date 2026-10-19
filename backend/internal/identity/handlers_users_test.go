@@ -137,6 +137,20 @@ func TestHandleGetUser_OtherUserWithoutScope_Returns403(t *testing.T) {
 	}
 }
 
+func TestHandleGetUser_EvaluatorFailure_Returns500(t *testing.T) {
+	c, _, profiles := newTestControllerWithProfiles(t)
+	c.eval = &usersReadEvaluator{err: errors.New("bundle not loaded")}
+	seedProfile(profiles, "user-2", "t1", "bob@example.com", "Bob")
+	req := httptest.NewRequest(http.MethodGet, "/users/user-2", nil)
+	req.SetPathValue("id", "user-2")
+	req = req.WithContext(token.WithClaims(req.Context(), humanClaims("t1", "user-1")))
+	w := httptest.NewRecorder()
+	c.handleGetUser(w, req)
+	if w.Code != http.StatusInternalServerError {
+		t.Errorf("status: got %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
 // ── handleListUsers ───────────────────────────────────────────────────────────
 
 func TestHandleListUsers_NoAuth_Returns401(t *testing.T) {
