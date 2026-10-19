@@ -12,6 +12,7 @@ import (
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -37,16 +38,23 @@ type agentTypeReader interface {
 // grants it runs under, editing it, and deleting it.
 //
 // Its collaborators are the ones creation actually needs. A trigger is
-// provisioned with a principal and a grant (policy), reads the agent it binds
-// from orbit-agents as the caller (agents), and enabling or disabling it moves
-// work in the queue (admission).
+// provisioned with a principal and a grant (policy), reads the agent it binds,
+// or each candidate of a routed trigger, from orbit-agents as the caller
+// (agents), checks that the caller holds what a routed trigger's grant confers
+// (eval), and enabling or disabling it moves work in the queue (admission).
 type TriggerService struct {
 	repo      triggerStore
 	registry  *Registry
 	policy    *policyclient.Client
 	agents    *agentsclient.Client
+	eval      scopeChecker
 	admission *Admission
 	logger    logging.Logger
+}
+
+// scopeChecker evaluates one scope against a caller's claims.
+type scopeChecker interface {
+	Check(ctx context.Context, input policy.CheckInput) (policy.Result, error)
 }
 
 // NewTriggerService constructs the trigger lifecycle half of Triggers.
@@ -55,17 +63,20 @@ func NewTriggerService(
 	registry *Registry,
 	policy *policyclient.Client,
 	agents *agentsclient.Client,
+	eval scopeChecker,
 	admission *Admission,
 	logger logging.Logger,
 ) *TriggerService {
-	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, admission: admission, logger: logger}
+	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, eval: eval, admission: admission, logger: logger}
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
 
 // CreateTrigger binds a source event (webhook), a cron schedule (scheduled), or
-// an explicit fire call (manual) to an agent.
-func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (*Trigger, error) {
+// an explicit fire call (manual) to an agent, or a source event to a choice
+// among candidate agents (a routed webhook trigger). claims are the caller's,
+// which a routed trigger's grant is checked against.
+func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, claims *token.PlatformClaims, req CreateTriggerRequest) (*Trigger, error) {
 	kind := req.Kind
 	if kind == "" {
 		kind = KindWebhook // backward-compatible default
@@ -75,7 +86,7 @@ func (s *TriggerService) CreateTrigger(ctx context.Context, tenantID string, req
 		// Webhook triggers keep their own path: they borrow the source's
 		// existing principal and grant instead of provisioning their own, which
 		// is the one structural difference between the kinds.
-		return s.createWebhookTrigger(ctx, tenantID, req)
+		return s.createWebhookTrigger(ctx, tenantID, claims, req)
 	case KindScheduled, KindManual:
 		return s.createOwnedTrigger(ctx, tenantID, req, kind)
 	default:
@@ -174,8 +185,9 @@ func (s *TriggerService) rollbackGrants(ctx context.Context, triggerID string, g
 //
 // It is the one kind that does not provision a principal: the source already has
 // one, granted at source-creation time, and the trigger only adds the scopes for
-// the agent it binds. That is why it does not share createOwnedTrigger.
-func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID string, req CreateTriggerRequest) (_ *Trigger, err error) {
+// the agent it binds, or for every candidate and the decision model when it is
+// routed. That is why it does not share createOwnedTrigger.
+func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID string, claims *token.PlatformClaims, req CreateTriggerRequest) (_ *Trigger, err error) {
 	if err = validateWebhookTriggerCreate(req); err != nil {
 		return nil, err
 	}
@@ -193,46 +205,59 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		return nil, err
 	}
 
-	at, err := requireRunAuthority(ctx, s.agents, req.AgentTypeID)
-	if err != nil {
-		return nil, err
-	}
-	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
-		return nil, err
-	}
-
-	id := uuid.NewString()
-	var grants []string
-	defer func() {
-		if err != nil {
-			s.rollbackGrants(ctx, id, grants)
-		}
-	}()
-
-	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, triggerRunScopes(at.Slug), nil, false)
-	if err != nil {
-		return nil, fmt.Errorf("create trigger grant: %w", err)
-	}
-	grants = append(grants, grantID)
-
 	t := &Trigger{
-		ID:                id,
 		TenantID:          tenantID,
 		Kind:              KindWebhook,
 		TargetKind:        TargetKindAgent,
 		SourceID:          req.SourceID,
 		Name:              strings.TrimSpace(req.Name),
-		AgentTypeID:       at.ID,
-		AgentSlug:         at.Slug,
 		EventType:         strings.TrimSpace(req.EventType),
 		MatchCondition:    req.MatchCondition,
 		MatchContains:     req.MatchContains,
 		PromptTemplate:    req.PromptTemplate,
-		GrantID:           &grantID,
 		Enabled:           true,
 		SenderRestriction: restriction,
 		Coalesce:          coalesce,
 	}
+	var scopes []string
+	if req.TargetKind == TargetKindRouted {
+		t.TargetKind = TargetKindRouted
+		if t.Routing, err = s.resolveRouting(ctx, *src, req.Routing); err != nil {
+			return nil, err
+		}
+		if scopes, err = routedGrantScopes(t.Routing); err != nil {
+			return nil, err
+		}
+		// The routing trigger never holds access its creator lacks (ADR Decision 17).
+		if err = s.authorizeCaller(ctx, claims, scopes); err != nil {
+			return nil, err
+		}
+	} else {
+		var at *agentsclient.AgentType
+		if at, err = requireRunAuthority(ctx, s.agents, req.AgentTypeID); err != nil {
+			return nil, err
+		}
+		if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
+			return nil, err
+		}
+		t.AgentTypeID, t.AgentSlug, scopes = at.ID, at.Slug, triggerRunScopes(at.Slug)
+	}
+
+	t.ID = uuid.NewString()
+	var grants []string
+	defer func() {
+		if err != nil {
+			s.rollbackGrants(ctx, t.ID, grants)
+		}
+	}()
+
+	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, scopes, nil, false)
+	if err != nil {
+		return nil, fmt.Errorf("create trigger grant: %w", err)
+	}
+	grants = append(grants, grantID)
+	t.GrantID = &grantID
+
 	// Already validated by validateWebhookTriggerCreate above, before the grant
 	// existed; the rollback here is belt and braces.
 	if err = applyAdmissionCreate(t, req); err != nil {
@@ -245,8 +270,9 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 	s.logger.Info(ctx, "trigger created",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "kind", Value: KindWebhook},
+		logging.Field{Key: "target_kind", Value: t.TargetKind},
 		logging.Field{Key: "source_id", Value: req.SourceID},
-		logging.Field{Key: "agent_slug", Value: at.Slug},
+		logging.Field{Key: "agent_slug", Value: t.AgentSlug},
 	)
 	return s.readBackTrigger(ctx, t), nil
 }
@@ -391,20 +417,25 @@ func (s *TriggerService) GetTrigger(ctx context.Context, tenantID, id string) (*
 	return s.repo.GetTrigger(ctx, tenantID, id)
 }
 
-// UpdateTrigger edits the mutable fields of a trigger. The agent binding and
-// kind are immutable (recreate to retarget) — which is also why no
-// delegated-agent check is needed here: CreateTrigger refuses delegated
-// bindings, agent identity_mode is immutable, so no existing trigger can ever
-// come to bind a delegated agent through an update. Edits that change the
-// prompt, manual inputs, schedule, event filters, sender restriction or
-// enablement need run authority on the bound agent.
-func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string, req UpdateTriggerRequest) (*Trigger, error) {
+// UpdateTrigger edits the mutable fields of a trigger. The agent binding, the
+// kind and the target kind are immutable (recreate to retarget) — which is also
+// why no delegated-agent check is needed for a single-agent trigger:
+// CreateTrigger refuses delegated bindings, agent identity_mode is immutable,
+// so no existing trigger can ever come to bind a delegated agent through an
+// update. A routed trigger's candidates can change, so they are checked again.
+// Edits to a single-agent trigger that change the prompt, manual inputs,
+// schedule, event filters, sender restriction or enablement need run authority
+// on the bound agent.
+func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string, claims *token.PlatformClaims, req UpdateTriggerRequest) (*Trigger, error) {
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
 	}
 	wasEnabled := t.Enabled
-	if changesRunBehaviour(t, req) {
+	if err = refuseRetarget(t, req); err != nil {
+		return nil, err
+	}
+	if t.TargetKind != TargetKindRouted && changesRunBehaviour(t, req) {
 		if err = requireRunAccess(ctx, s.agents, t.AgentTypeID); err != nil {
 			return nil, err
 		}
@@ -429,10 +460,14 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	} else if err = refuseWebhookOnly(req.SenderRestriction, req.MatchContains, req.Coalesce); err != nil {
 		return nil, err
 	}
+	replaced, oldGrant, err := s.applyRoutingUpdate(ctx, t, claims, req.Routing)
+	if err != nil {
+		return nil, err
+	}
 	if req.Enabled != nil {
 		applyEnabledFields(t, *req.Enabled)
 	}
-	if err = s.repo.UpdateTrigger(ctx, t, req.Enabled != nil); err != nil {
+	if err = s.storeUpdate(ctx, t, req.Enabled != nil, replaced, oldGrant); err != nil {
 		return nil, err
 	}
 	if req.Enabled != nil {
@@ -451,6 +486,34 @@ func changesRunBehaviour(t *Trigger, req UpdateTriggerRequest) bool {
 	return req.PromptTemplate != nil || req.ManualConfig != nil || req.ScheduleConfig != nil ||
 		req.SenderRestriction != nil || req.EventType != nil || req.MatchCondition != nil || req.MatchContains != nil ||
 		(req.Enabled != nil && *req.Enabled != t.Enabled)
+}
+
+// refuseRetarget rejects a change of target kind, and routing on a trigger that is not routed.
+func refuseRetarget(t *Trigger, req UpdateTriggerRequest) error {
+	if req.TargetKind != nil && *req.TargetKind != t.TargetKind {
+		return fmt.Errorf("%w: target_kind cannot be changed after a trigger is created", ErrValidation)
+	}
+	if req.Routing != nil && t.TargetKind != TargetKindRouted {
+		return fmt.Errorf("%w: routing applies only when target_kind is %q", ErrValidation, TargetKindRouted)
+	}
+	return nil
+}
+
+// storeUpdate writes the edited trigger. When a routed trigger's grant was
+// replaced, the new grant is undone if the write fails and the old one is
+// deleted once it succeeds.
+func (s *TriggerService) storeUpdate(ctx context.Context, t *Trigger, writeEnablement, replaced bool, oldGrant *string) error {
+	if err := s.repo.UpdateTrigger(ctx, t, writeEnablement); err != nil {
+		if replaced {
+			s.rollbackGrants(ctx, t.ID, []string{*t.GrantID})
+		}
+		return err
+	}
+	if replaced && oldGrant != nil {
+		deleteGrantsBestEffort(ctx, s.policy, s.logger, "failed to delete a routed trigger's replaced grant",
+			[]string{*oldGrant}, logging.Field{Key: "trigger_id", Value: t.ID})
+	}
+	return nil
 }
 
 // applyTriggerEdits copies the request's plain fields onto the trigger. Omitted

@@ -20,6 +20,18 @@ type Repository interface {
 	PendingQueue
 	SafetyStore
 	RetentionStore
+	RoutingStore
+}
+
+// RoutingStore is the decision record of routed triggers. A routed trigger's
+// settings and candidates are written and read with the trigger itself.
+type RoutingStore interface {
+	// LatestJoinKeyRun returns the run and agent of the newest decision of this
+	// trigger with this join key and a run. found is false when there is none.
+	LatestJoinKeyRun(ctx context.Context, tenantID, triggerID, joinKey string) (runID, agentTypeID string, found bool, err error)
+	// InsertRoutingDecision records one routed delivery's decision. A second
+	// decision for the same delivery and trigger is ignored.
+	InsertRoutingDecision(ctx context.Context, d *RoutingDecision) error
 }
 
 // SourceStore is the webhook sources a tenant registers, and the counters the

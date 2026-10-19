@@ -31,11 +31,11 @@ func decodeBody(body []byte) any {
 	return doc
 }
 
-// referencedKeys lists the field keys a trigger's prompt, coalescing key and match
-// condition name.
+// referencedKeys lists the field keys a trigger's prompt, coalescing key, join
+// key and match condition name.
 func referencedKeys(t Trigger) []string {
 	keys := placeholderKeys(t.PromptTemplate)
-	for _, k := range placeholderKeys(t.Coalesce.keyTemplate()) {
+	for _, k := range slices.Concat(placeholderKeys(t.Coalesce.keyTemplate()), placeholderKeys(t.Routing.joinKeyTemplate())) {
 		if !slices.Contains(keys, k) {
 			keys = append(keys, k)
 		}

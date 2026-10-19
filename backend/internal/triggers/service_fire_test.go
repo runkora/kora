@@ -123,7 +123,7 @@ func TestFireTrigger_ManuallyDisabled_RecordsNothing(t *testing.T) {
 	svc, deps := newTestService(t)
 	trig := mustManualTrigger(t, deps.triggers)
 	enabled := false
-	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, nil, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 
@@ -313,7 +313,7 @@ func TestRedeliver_Refusals(t *testing.T) {
 			t.Fatalf("FireTrigger: %v", err)
 		}
 		enabled := false
-		if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+		if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, trig.ID, nil, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 			t.Fatalf("UpdateTrigger: %v", err)
 		}
 		if _, err := svc.Redeliver(context.Background(), testTenant, fired.DeliveryID, "user:2"); !errors.Is(err, ErrNotRedeliverable) {

@@ -99,6 +99,7 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	GET    /api/v1/trigger-retention          Read this tenant's payload retention window.
 //	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
 //	POST   /api/v1/triggers/schedule-preview  Preview a schedule's upcoming fires.
+//	GET    /api/v1/triggers/routing/candidates  Agent types a routed trigger may name.
 //
 // Fire (authenticated-only route; the handler requires trigger:fire or
 // trigger:{id}:fire because RouteScope cannot express a path-dependent scope):
@@ -148,6 +149,10 @@ func (c *Controller) Boot(mux *api.Mux) {
 	// be a second route to keep in step for no one who cannot already reach
 	// this one.
 	mux.HandleWithMiddleware("POST /triggers/schedule-preview", auth, c.handleSchedulePreview)
+
+	// The routing step of the trigger wizard lists agent types with whether the
+	// caller may make each a candidate (trigger routing ADR, Console).
+	mux.HandleWithMiddleware("GET /triggers/routing/candidates", auth, c.handleRoutingCandidates)
 
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 
@@ -273,7 +278,7 @@ func (c *Controller) handleCreateTrigger(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	t, err := c.triggers.CreateTrigger(ctx, tenantFromCtx(ctx), req)
+	t, err := c.triggers.CreateTrigger(ctx, tenantFromCtx(ctx), claimsFromCtx(ctx), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -319,7 +324,7 @@ func (c *Controller) handleUpdateTrigger(w http.ResponseWriter, r *http.Request)
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {
 		return
 	}
-	t, err := c.triggers.UpdateTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), req)
+	t, err := c.triggers.UpdateTrigger(ctx, tenantFromCtx(ctx), r.PathValue("id"), claimsFromCtx(ctx), req)
 	if err != nil {
 		c.writeServiceError(w, r, err)
 		return
@@ -410,6 +415,20 @@ func (c *Controller) authorizeFire(ctx context.Context, triggerID string) error 
 		return fmt.Errorf("%w: trigger:%s:fire", ErrFireForbidden, triggerID)
 	}
 	return nil
+}
+
+// handleRoutingCandidates lists the agent types the caller may read, with
+// runnable evaluated against the caller's claims. The caller's own token reads
+// them, so the list is what the caller may see.
+func (c *Controller) handleRoutingCandidates(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+	candidates, err := c.triggers.RoutingCandidates(ctx, claimsFromCtx(ctx), bearer)
+	if err != nil {
+		c.writeServiceError(w, r, err)
+		return
+	}
+	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"agent_types": candidates})
 }
 
 // ─── Deliveries ───────────────────────────────────────────────────────────────
@@ -530,7 +549,12 @@ func (c *Controller) handleSetRetention(w http.ResponseWriter, r *http.Request) 
 func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, err error) {
 	ctx := r.Context()
 	var ive *InputValidationError
+	var mse *MissingScopesError
 	switch {
+	case errors.As(err, &mse):
+		// 403 with the scopes, so the caller knows what to ask for.
+		api.ErrorResponse(ctx, w, c.logger, api.ForbiddenError(api.ErrCodeForbidden, err.Error(),
+			map[string]any{"missing_scopes": mse.Scopes}), nil)
 	case errors.Is(err, ErrSourceNotFound), errors.Is(err, ErrTriggerNotFound), errors.Is(err, ErrDeliveryNotFound),
 		errors.Is(err, ErrProviderNotFound):
 		api.ErrorResponse(ctx, w, c.logger, api.NotFoundError(api.ErrCodeResourceNotFound, err.Error(), nil), nil)
@@ -595,6 +619,12 @@ func tenantFromCtx(ctx context.Context) string {
 		return ""
 	}
 	return claims.Kora.TenantID
+}
+
+// claimsFromCtx returns the caller's verified claims, or nil.
+func claimsFromCtx(ctx context.Context) *token.PlatformClaims {
+	claims, _ := token.ClaimsFromContext(ctx)
+	return claims
 }
 
 func principalFromCtx(ctx context.Context) string {

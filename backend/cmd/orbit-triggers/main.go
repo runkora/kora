@@ -184,15 +184,17 @@ func initController(
 		metrics,
 	)
 
-	// Creating a trigger reads the agent it binds from orbit-agents as the
-	// caller, who must be able to run it, then provisions the trigger's
-	// principal and grants. Enabling or disabling one moves work already in
-	// the queue.
+	// Creating a trigger reads the agent it binds, or each candidate of a
+	// routed trigger, from orbit-agents as the caller, who must be able to run
+	// it, then provisions the trigger's principal and grants. A routed
+	// trigger's grant is first checked against the caller's claims with the
+	// evaluator. Enabling or disabling one moves work already in the queue.
 	lifecycle := triggers.NewTriggerService(
 		repo,
 		registry,
 		policyClient,
 		agentsClient,
+		policyEval,
 		admission,
 		logger,
 	)
@@ -258,6 +260,7 @@ func routeScopes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/trigger-providers", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/triggers", Method: "POST", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/triggers", Method: "GET", RequiredScope: "triggers:read"},
+		{PathPrefix: "/api/v1/triggers/routing/candidates", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/triggers", Method: "PATCH", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/triggers", Method: "DELETE", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/trigger-fires", Method: "POST", RequiredScope: ""},

@@ -569,7 +569,7 @@ func TestDispatch_ManuallyDisabledTrigger_RecordsNothing(t *testing.T) {
 	src := mustSource(t, deps.sources)
 	off := mustWebhookTrigger(t, deps.triggers, src.ID, "off", true)
 	enabled := false
-	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, off.ID, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
+	if _, err := deps.triggers.UpdateTrigger(context.Background(), testTenant, off.ID, nil, UpdateTriggerRequest{Enabled: &enabled}); err != nil {
 		t.Fatalf("UpdateTrigger: %v", err)
 	}
 

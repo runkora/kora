@@ -28,7 +28,7 @@ func mustSource(t *testing.T, sources *SourceService) *SourceResponse {
 
 func mustTrigger(t *testing.T, triggers *TriggerService, sourceID string, cond map[string][]string, prompt string) *Trigger {
 	t.Helper()
-	tr, err := triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 		SourceID:       sourceID,
 		Name:           "rev",
 		AgentTypeID:    "at-1",
@@ -122,7 +122,7 @@ func enqueue(t *testing.T, svc *Service, deps *testDeps, trig Trigger, n int) []
 // the setting that decides whether a repeat arrival is suppressed or re-run.
 func mustWebhookTrigger(t *testing.T, triggers *TriggerService, sourceID, name string, dedupe bool) *Trigger {
 	t.Helper()
-	tr, err := triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 		SourceID:       sourceID,
 		Name:           name,
 		AgentTypeID:    "at-1",
@@ -140,7 +140,7 @@ func mustWebhookTrigger(t *testing.T, triggers *TriggerService, sourceID, name s
 // mustManualTrigger stores a manual trigger with one declared input.
 func mustManualTrigger(t *testing.T, triggers *TriggerService) *Trigger {
 	t.Helper()
-	tr, err := triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 		Kind:           KindManual,
 		Name:           "deploy",
 		AgentTypeID:    "at-1",

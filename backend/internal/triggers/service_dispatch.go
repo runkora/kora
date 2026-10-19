@@ -102,40 +102,55 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 	dispatchCtx, cancel := context.WithTimeout(ctx, t.dispatchTimeout())
 	defer cancel()
 
-	runID, err := s.startRunForTriggerWithFields(dispatchCtx, *t, p.DeliveryID, p.Fields)
-	if err != nil {
-		s.logger.Error(ctx, "pending dispatch failed",
-			logging.Field{Key: "trigger_id", Value: t.ID},
-			logging.Field{Key: "delivery_id", Value: p.DeliveryID},
-			logging.Field{Key: "error", Value: err.Error()},
-		)
-		s.outcomes.insert(ctx, &DeliveryRun{
-			TenantID: t.TenantID, DeliveryID: p.DeliveryID,
-			TriggerID: t.ID, TriggerName: t.Name,
-			Status: runStatusForDispatchError(err), Error: new(err.Error()),
-		})
-		// Carry one reason up to the delivery so the feed can say why in a
-		// single line; the per-trigger detail is the fan-out.
-		s.recordFailure(ctx, p.DeliveryID, err.Error())
-		s.noteFailure(ctx, *t, err)
-		s.outcomes.derive(ctx, p.DeliveryID)
+	if t.TargetKind == TargetKindRouted {
+		s.dispatchRouted(ctx, dispatchCtx, *t, p)
 		return
 	}
+	runID, err := s.startRunForTriggerWithFields(dispatchCtx, *t, p.DeliveryID, p.Fields)
+	if err != nil {
+		s.recordDispatchFailure(ctx, *t, p.DeliveryID, err)
+		return
+	}
+	s.recordStarted(ctx, *t, p.DeliveryID, RunStatusDispatched, runID)
+}
 
-	rID := runID
+// recordDispatchFailure records a start or join that failed, and counts it
+// toward auto-pause when the failure is the trigger's own.
+func (s *Service) recordDispatchFailure(ctx context.Context, t Trigger, deliveryID string, err error) {
+	s.logger.Error(ctx, "pending dispatch failed",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "delivery_id", Value: deliveryID},
+		logging.Field{Key: "error", Value: err.Error()},
+	)
 	s.outcomes.insert(ctx, &DeliveryRun{
-		TenantID: t.TenantID, DeliveryID: p.DeliveryID,
+		TenantID: t.TenantID, DeliveryID: deliveryID,
 		TriggerID: t.ID, TriggerName: t.Name,
-		Status: RunStatusDispatched, RunID: &rID,
+		Status: runStatusForDispatchError(err), Error: new(err.Error()),
 	})
-	_ = s.repo.UpdateDeliveryOutcome(ctx, p.DeliveryID, StatusDispatched, &t.ID, &rID, nil)
-	s.noteSuccess(ctx, *t)
-	s.outcomes.derive(ctx, p.DeliveryID)
+	// Carry one reason up to the delivery so the feed can say why in a
+	// single line; the per-trigger detail is the fan-out.
+	s.recordFailure(ctx, deliveryID, err.Error())
+	s.noteFailure(ctx, t, err)
+	s.outcomes.derive(ctx, deliveryID)
+}
 
-	s.logger.Info(ctx, "trigger started run",
+// recordStarted records a delivery that started or joined runID. status is
+// RunStatusDispatched for a new run and RunStatusJoined for a joined one.
+func (s *Service) recordStarted(ctx context.Context, t Trigger, deliveryID, status, runID string) {
+	s.outcomes.insert(ctx, &DeliveryRun{
+		TenantID: t.TenantID, DeliveryID: deliveryID,
+		TriggerID: t.ID, TriggerName: t.Name,
+		Status: status, RunID: &runID,
+	})
+	_ = s.repo.UpdateDeliveryOutcome(ctx, deliveryID, StatusDispatched, &t.ID, &runID, nil)
+	s.noteSuccess(ctx, t)
+	s.outcomes.derive(ctx, deliveryID)
+
+	s.logger.Info(ctx, "trigger dispatched delivery",
 		logging.Field{Key: "trigger_id", Value: t.ID},
 		logging.Field{Key: "run_id", Value: runID},
-		logging.Field{Key: "delivery_id", Value: p.DeliveryID},
+		logging.Field{Key: "delivery_id", Value: deliveryID},
+		logging.Field{Key: "status", Value: status},
 	)
 }
 
@@ -172,7 +187,15 @@ func (s *Service) RecordOrphanedPending(ctx context.Context, o OrphanedPending) 
 // once through no fault of its own: counting that would pause the entire estate
 // during a capacity blip and leave someone re-enabling each one by hand.
 func (s *Service) noteFailure(ctx context.Context, t Trigger, cause error) {
-	if !t.AutopauseEnabled || !countsTowardAutoPause(cause) {
+	if !countsTowardAutoPause(cause) {
+		return
+	}
+	s.countFailure(ctx, t)
+}
+
+// countFailure bumps the failure counter and auto-pauses the trigger at the threshold.
+func (s *Service) countFailure(ctx context.Context, t Trigger) {
+	if !t.AutopauseEnabled {
 		return
 	}
 	n, err := s.repo.BumpConsecutiveFailures(ctx, t.ID)

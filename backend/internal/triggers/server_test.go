@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 	"github.com/runkora/kora/backend/internal/platform/policy"
@@ -212,7 +213,7 @@ func TestBoot_FireIsAuthorizedByTriggerScopeAlone(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			svc, deps := newTestService(t)
-			trig, err := deps.triggers.CreateTrigger(context.Background(), testTenant, validReq(KindManual))
+			trig, err := deps.triggers.CreateTrigger(context.Background(), testTenant, nil, validReq(KindManual))
 			if err != nil {
 				t.Fatalf("CreateTrigger: %v", err)
 			}
@@ -790,5 +791,41 @@ func TestHandleListDeliveries_TimeAndPayload(t *testing.T) {
 		if code, _ := list(q); code != http.StatusBadRequest {
 			t.Errorf("%s: status %d, want 400", q, code)
 		}
+	}
+}
+
+// A routed create the caller lacks authority for is a 403 that lists the scopes.
+func TestHandleCreateTrigger_RoutedMissingScopes(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	deps.eval.deny = map[string]bool{"inference:liquid:d1:use": true}
+	src := mustSource(t, deps.sources)
+
+	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, routedReq(src.ID, nil))
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (body: %s)", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), `"missing_scopes":["inference:liquid:d1:use"]`) {
+		t.Errorf("body = %s, want the missing scope listed", w.Body.String())
+	}
+}
+
+func TestHandleRoutingCandidates(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.agentTypes = []agentsclient.AgentType{{ID: "at-a", Slug: "coder", Name: "Coder"}}
+
+	req := withTenant(newRequest(t, http.MethodGet, "/triggers/routing/candidates", nil, nil))
+	req.Header.Set("Authorization", "Bearer caller-token")
+	w := invoke(c.handleRoutingCandidates, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d (body: %s)", w.Code, w.Body.String())
+	}
+	got := decode[struct {
+		AgentTypes []RoutingCandidate `json:"agent_types"`
+	}](t, w)
+	if len(got.AgentTypes) != 1 || !got.AgentTypes[0].Runnable || got.AgentTypes[0].Name != "Coder" {
+		t.Errorf("candidates = %+v", got.AgentTypes)
 	}
 }

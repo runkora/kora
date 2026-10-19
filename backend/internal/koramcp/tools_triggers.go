@@ -16,14 +16,14 @@ import (
 // orbit-triggers binary (these endpoints moved out of identity; pointing them at
 // b.Identity made every trigger tool 404). Reads require triggers:read, writes
 // triggers:write. Creating a trigger, or editing what it runs or when, also needs the run scope for the bound agent.
-func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
+func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client, product string) {
 	base := b.Triggers + "/api/v1"
 	sources := base + "/trigger-sources"
 	triggers := base + "/triggers"
 
 	registerTriggerSourceTools(srv, sources, jc)
 	registerTriggerProviderTools(srv, base+"/trigger-providers", jc)
-	registerTriggerBindingTools(srv, base, triggers, jc)
+	registerTriggerBindingTools(srv, base, triggers, jc, product)
 }
 
 // registerTriggerProviderTools wires each provider's schema catalog: the event
@@ -111,7 +111,7 @@ func registerTriggerSourceTools(srv *sdk.Server, sources string, jc *korajson.Cl
 
 // registerTriggerBindingTools wires the triggers themselves (source→agent-run
 // bindings) and the delivery history.
-func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *korajson.Client) {
+func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *korajson.Client, product string) {
 	addTool(srv, "triggers.list",
 		"List the triggers in the caller's tenant — each binds a source event to an agent run.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
@@ -138,6 +138,9 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 			"prompt_template, e.g. {{ repository.full_name }}#{{ pull_request.number }}, and window_seconds (1 to 300) is how long the "+
 			"first event waits. Events with the same rendered key inside the window start one run from the newest payload; "+
 			"coalesce needs overflow wait, which is the webhook default. "+
+			"A webhook trigger with target_kind routed has no agent_type_id: routing.candidates lists 2 to 20 agent type ids, "+
+			"routing.model names a decision model (e.g. liquid/d1), and "+product+" picks the agent or an open run for each event; "+
+			"the caller must hold the run scopes of every candidate and the model's use scope. "+
 			"scheduled: fires on a cron schedule; schedule_config (cron_expression, timezone, catch_up) is required and "+
 			"source_id and event_type are not used. Check it with triggers.schedule_preview first. "+
 			"manual: fires when someone runs it; source_id and event_type are not used, and manual_config.inputs declares the "+
@@ -164,7 +167,8 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 	addTool(srv, "triggers.update",
 		"Update a trigger by id. Only the fields you supply are changed. schedule_config replaces a scheduled trigger's "+
 			"schedule and manual_config replaces a manual trigger's inputs; coalesce replaces a webhook trigger's coalescing "+
-			"and an empty object removes it; the trigger's kind cannot be changed. "+
+			"and an empty object removes it; routing replaces a routed trigger's routing object; the trigger's kind and target_kind "+
+			"cannot be changed. "+
 			"Changing the prompt, manual inputs, schedule, event filters, sender restriction or enabled needs permission to run the trigger's agent.",
 		func(ctx context.Context, a updateTriggerArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
@@ -242,6 +246,9 @@ func updateTriggerBody(a updateTriggerArgs) map[string]any {
 	if a.ManualConfig != nil {
 		body["manual_config"] = a.ManualConfig
 	}
+	if a.Routing != nil {
+		body["routing"] = a.Routing
+	}
 	if a.Enabled != nil {
 		body["enabled"] = *a.Enabled
 	}
@@ -309,6 +316,8 @@ type createTriggerArgs struct {
 	PromptTemplate    string              `json:"prompt_template,omitempty" jsonschema:"the prompt the run starts with; {{ path }} placeholders name delivery fields (e.g. {{ comment.body }}), whose values follow in an untrusted data block; a manual trigger's inputs fill {{ var.key }} placeholders"`
 	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"optional: only these senders can fire it; a sender passes when its login or association is listed"`
 	Coalesce          *coalesceConfig     `json:"coalesce,omitempty" jsonschema:"optional: start one run for a burst of events with the same rendered key (webhook triggers only)"`
+	TargetKind        string              `json:"target_kind,omitempty" jsonschema:"agent (default) starts agent_type_id; routed chooses among routing.candidates for each event (webhook triggers only)"`
+	Routing           *routingConfig      `json:"routing,omitempty" jsonschema:"the candidates and settings of a routed trigger; required when target_kind is routed"`
 	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"the cron schedule (scheduled triggers only; required for them)"`
 	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"the inputs the caller supplies when firing (manual triggers only)"`
 }
@@ -322,6 +331,7 @@ type updateTriggerArgs struct {
 	PromptTemplate    *string             `json:"prompt_template,omitempty" jsonschema:"new prompt template"`
 	SenderRestriction *senderRestriction  `json:"sender_restriction,omitempty" jsonschema:"replaces the sender restriction; both lists empty removes it"`
 	Coalesce          *coalesceConfig     `json:"coalesce,omitempty" jsonschema:"replaces the coalescing setting; an empty object removes it"`
+	Routing           *routingConfig      `json:"routing,omitempty" jsonschema:"replaces a routed trigger's routing object"`
 	ScheduleConfig    *scheduleConfig     `json:"schedule_config,omitempty" jsonschema:"replaces a scheduled trigger's schedule (cron_expression, timezone, catch_up)"`
 	ManualConfig      *manualConfig       `json:"manual_config,omitempty" jsonschema:"replaces a manual trigger's inputs"`
 	Enabled           *bool               `json:"enabled,omitempty" jsonschema:"enable or disable the trigger"`
@@ -330,6 +340,15 @@ type updateTriggerArgs struct {
 type coalesceConfig struct {
 	Key           string `json:"key,omitempty" jsonschema:"template over the event in the prompt_template syntax, e.g. {{ repository.full_name }}#{{ pull_request.number }}; a render that is blank after trimming does not coalesce"`
 	WindowSeconds int    `json:"window_seconds,omitempty" jsonschema:"seconds the first event waits for others with the same key, 1 to 300; the window is not extended by later events"`
+}
+
+type routingConfig struct {
+	Candidates          []string `json:"candidates" jsonschema:"2 to 20 agent type ids a routed event may start or join"`
+	Model               string   `json:"model" jsonschema:"the decision model's catalog name, e.g. liquid/d1"`
+	Confidence          string   `json:"confidence,omitempty" jsonschema:"strict, balanced (default) or loose: how sure the decision model must be before routing acts on its answer"`
+	FallbackAgentTypeID *string  `json:"fallback_agent_type_id,omitempty" jsonschema:"the candidate that takes an event routing is unsure about; omitted, such an event starts no run"`
+	JoinRuns            *bool    `json:"join_runs,omitempty" jsonschema:"let an event join an open trigger-started run of a candidate; on by default"`
+	JoinKey             string   `json:"join_key,omitempty" jsonschema:"template naming the subject, e.g. {{ repository.full_name }}#{{ issue.number }}; an event whose key matches an earlier event of this trigger joins that event's run"`
 }
 
 type scheduleConfig struct {

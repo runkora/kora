@@ -60,6 +60,8 @@ const (
 // auto-pause and the console's per-trigger badges act on.
 const (
 	RunStatusDispatched = "dispatched" // this trigger started a run
+	RunStatusJoined     = "joined"     // a routed trigger sent the delivery to a run already working
+	RunStatusUnrouted   = "unrouted"   // a routed trigger started nothing under the no-run fallback
 	RunStatusFailed     = "failed"     // tried and failed, including dispatch timeout
 	RunStatusFiltered   = "filtered"   // listening, but match_condition excluded this event
 	RunStatusDenied     = "denied"     // policy refused this trigger's run
@@ -78,14 +80,17 @@ var TerminalRunStatuses = map[string]bool{
 	RunStatusSuperseded: true,
 	RunStatusDropped:    true,
 	RunStatusPaused:     true,
+	RunStatusUnrouted:   true,
 }
 
 // Target kinds: what a trigger starts. Triggers are the platform's front door
-// for starting work; what gets started is a separate concern. 'agent' is the
-// only kind today, and 'workflow' becomes legal when that pillar lands
-// (ADR Decision 8).
+// for starting work; what gets started is a separate concern. 'agent' starts
+// one agent, 'routed' chooses among candidate agents per delivery
+// (docs/adr/2026-10-19-trigger-routing.md), and 'workflow' becomes legal when
+// that pillar lands (ADR Decision 8).
 const (
-	TargetKindAgent = "agent"
+	TargetKindAgent  = "agent"
+	TargetKindRouted = "routed"
 )
 
 // Sentinel errors. Callers branch on these with errors.Is.
@@ -329,9 +334,9 @@ type Trigger struct {
 	ID       string `json:"id"`
 	TenantID string `json:"tenant_id"`
 	Kind     string `json:"kind"`
-	// TargetKind is what this trigger starts. "agent" is the only kind today;
-	// "workflow" becomes legal when that pillar lands. Triggers are the front
-	// door for starting work, so nothing here assumes the target is an agent.
+	// TargetKind is what this trigger starts: "agent" for one agent, "routed"
+	// for a choice among Routing's candidates. A routed trigger has no
+	// AgentTypeID or AgentSlug.
 	TargetKind     string              `json:"target_kind"`
 	SourceID       string              `json:"source_id,omitempty"`
 	Name           string              `json:"name"`
@@ -351,6 +356,9 @@ type Trigger struct {
 	// Coalesce collapses bursts of fires about one subject into one run; nil
 	// dispatches every fire. Webhook triggers only.
 	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
+	// Routing holds the candidates and settings of a routed trigger; nil on
+	// every other trigger.
+	Routing *RoutingConfig `json:"routing,omitempty"`
 	// PrincipalID is the SERVICE principal for this trigger (scheduled/manual only;
 	// webhook triggers inherit from their WebhookSource).
 	PrincipalID string    `json:"-"`
@@ -497,6 +505,8 @@ type DeliveryRun struct {
 	// SupersededBy is the delivery whose fire replaced this one. Set only on a
 	// superseded outcome.
 	SupersededBy *string `json:"superseded_by,omitempty"`
+	// Routing is the decision a routed trigger made for this delivery.
+	Routing *RoutingDecision `json:"routing,omitempty"`
 }
 
 // ─── API request/response DTOs ────────────────────────────────────────────────
@@ -554,6 +564,10 @@ type CreateTriggerRequest struct {
 	MatchContains map[string][]string `json:"match_contains,omitempty"`
 	// Coalesce applies to webhook triggers only, and needs overflow "wait".
 	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
+	// TargetKind is "agent" (the default) or "routed". A routed trigger is a
+	// webhook trigger that sets Routing instead of AgentTypeID.
+	TargetKind string         `json:"target_kind,omitempty"`
+	Routing    *RoutingConfig `json:"routing,omitempty"`
 
 	// Embedded, not repeated: create and update accept the same settings with
 	// the same bounds, and JSON field promotion keeps them flat on the wire.
@@ -597,6 +611,10 @@ type UpdateTriggerRequest struct {
 	MatchContains map[string][]string `json:"match_contains,omitempty"`
 	// Coalesce replaces the stored setting when present; an empty object removes it.
 	Coalesce *CoalesceConfig `json:"coalesce,omitempty"`
+	// TargetKind is immutable; a request that names a different one is rejected.
+	TargetKind *string `json:"target_kind,omitempty"`
+	// Routing replaces the stored routing object of a routed trigger.
+	Routing *RoutingConfig `json:"routing,omitempty"`
 	// Editable after creation with exactly the create-time bounds. Changes
 	// apply to the next delivery, not to work already in flight.
 	AdmissionSettings

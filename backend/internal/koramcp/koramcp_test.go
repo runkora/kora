@@ -400,6 +400,26 @@ func TestTriggerKindsCreateUpdateAndPreview(t *testing.T) {
 		}
 	})
 
+	t.Run("routed webhook forwards its routing", func(t *testing.T) {
+		result := callTool("triggers.create", map[string]any{
+			"name": "mentions", "source_id": "src-1", "event_type": "issue_comment", "target_kind": "routed",
+			"routing": map[string]any{"candidates": []any{"at-1", "at-2"}, "model": "liquid/d1", "join_key": "{{ issue.number }}"},
+		})
+		if isToolError(result) {
+			t.Fatalf("routed create failed: %v", result)
+		}
+		routing, _ := gotBody["routing"].(map[string]any)
+		if gotBody["target_kind"] != "routed" || routing["model"] != "liquid/d1" || len(routing["candidates"].([]any)) != 2 ||
+			routing["join_key"] != "{{ issue.number }}" {
+			t.Errorf("routed body = %v", gotBody)
+		}
+
+		callTool("triggers.update", map[string]any{"id": "trig-1", "routing": map[string]any{"candidates": []any{"at-1", "at-3"}, "model": "liquid/d1"}})
+		if routing, _ := gotBody["routing"].(map[string]any); gotMethod != http.MethodPatch || len(routing["candidates"].([]any)) != 2 {
+			t.Errorf("update body = %v", gotBody)
+		}
+	})
+
 	t.Run("update maps schedule and manual config", func(t *testing.T) {
 		callTool("triggers.update", map[string]any{"id": "t-1", "schedule_config": map[string]any{
 			"cron_expression": "30 6 * * *", "timezone": "Europe/London",

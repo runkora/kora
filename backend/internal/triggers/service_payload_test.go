@@ -40,7 +40,7 @@ func (f payloadFixture) trigger(t *testing.T, req CreateTriggerRequest) *Trigger
 	if req.EventType == "" {
 		req.EventType = "issue_comment"
 	}
-	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, nil, req)
 	if err != nil {
 		t.Fatalf("CreateTrigger: %v", err)
 	}
@@ -172,7 +172,7 @@ func TestRedeliver_TruncatedPayloadResolvesNoFields(t *testing.T) {
 	}
 	f.deps.repo.mu.Unlock()
 
-	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	tr, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 		SourceID: resp.ID, Name: "late", AgentTypeID: "at-1", EventType: "issue_comment",
 		PromptTemplate: "{{ comment.body }}",
 	})
@@ -220,7 +220,7 @@ func TestCreateTrigger_WebhookValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newPayloadFixture(t)
 			tt.req.SourceID, tt.req.AgentTypeID, tt.req.Name, tt.req.EventType = f.src.ID, "at-1", "t", "issue_comment"
-			if _, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, tt.req); !errors.Is(err, ErrValidation) {
+			if _, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, nil, tt.req); !errors.Is(err, ErrValidation) {
 				t.Errorf("err = %v, want ErrValidation", err)
 			}
 		})
@@ -245,7 +245,7 @@ func TestCreateTrigger_SenderRestrictionNeedsASenderIdentifier(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreateSource: %v", err)
 	}
-	_, err = deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+	_, err = deps.triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 		SourceID: src.ID, Name: "t", AgentTypeID: "at-1", EventType: "alert.firing", PromptTemplate: "p",
 		SenderRestriction: &SenderRestriction{Logins: []string{"x"}},
 	})
@@ -259,7 +259,7 @@ func TestUpdateTrigger_SenderRestriction(t *testing.T) {
 	tr := f.trigger(t, CreateTriggerRequest{PromptTemplate: "p"})
 	ctx := context.Background()
 
-	got, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{
+	got, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{
 		SenderRestriction: &SenderRestriction{Associations: []string{"OWNER"}},
 	})
 	if err != nil || got.SenderRestriction == nil || got.SenderRestriction.Associations[0] != "OWNER" {
@@ -267,17 +267,17 @@ func TestUpdateTrigger_SenderRestriction(t *testing.T) {
 	}
 
 	name := "renamed"
-	got, err = f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{Name: &name})
+	got, err = f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{Name: &name})
 	if err != nil || got.SenderRestriction == nil {
 		t.Fatalf("an update without the field must keep the restriction: %+v, %v", got, err)
 	}
 
-	got, err = f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{SenderRestriction: &SenderRestriction{}})
+	got, err = f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{SenderRestriction: &SenderRestriction{}})
 	if err != nil || got.SenderRestriction != nil {
 		t.Fatalf("an empty restriction must remove it: %+v, %v", got, err)
 	}
 
-	if _, err = f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{
+	if _, err = f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{
 		SenderRestriction: &SenderRestriction{Associations: []string{"NONE"}},
 	}); !errors.Is(err, ErrValidation) {
 		t.Errorf("unknown association on update = %v, want ErrValidation", err)
@@ -293,7 +293,7 @@ func TestUpdateTrigger_WebhookValidation(t *testing.T) {
 		"unknown meta field": {PromptTemplate: &bad},
 		"malformed filter":   {MatchCondition: map[string][]string{"a..b": {"x"}}},
 	} {
-		if _, err := f.deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, req); !errors.Is(err, ErrValidation) {
+		if _, err := f.deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, nil, req); !errors.Is(err, ErrValidation) {
 			t.Errorf("%s: err = %v, want ErrValidation", name, err)
 		}
 	}
@@ -347,12 +347,12 @@ func TestUpdateTrigger_LegacyEmptyEventTypeCanBeDisabled(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	off := false
-	got, err := f.deps.triggers.UpdateTrigger(context.Background(), testTenant, legacy.ID, UpdateTriggerRequest{Enabled: &off})
+	got, err := f.deps.triggers.UpdateTrigger(context.Background(), testTenant, legacy.ID, nil, UpdateTriggerRequest{Enabled: &off})
 	if err != nil || got.Enabled {
 		t.Fatalf("disable = %+v, %v; want it disabled", got, err)
 	}
 	prompt := "{{ comment.body }}"
-	if _, err := f.deps.triggers.UpdateTrigger(context.Background(), testTenant, legacy.ID, UpdateTriggerRequest{PromptTemplate: &prompt}); !errors.Is(err, ErrValidation) {
+	if _, err := f.deps.triggers.UpdateTrigger(context.Background(), testTenant, legacy.ID, nil, UpdateTriggerRequest{PromptTemplate: &prompt}); !errors.Is(err, ErrValidation) {
 		t.Errorf("editing the prompt without an event type = %v, want ErrValidation", err)
 	}
 }
@@ -367,12 +367,12 @@ func TestSenderRestriction_WebhookOnly(t *testing.T) {
 		{Kind: KindScheduled, Name: "s", AgentTypeID: "at-1", PromptTemplate: "p", SenderRestriction: r,
 			ScheduleConfig: &ScheduleConfig{CronExpression: "0 9 * * *", Timezone: "UTC"}},
 	} {
-		if _, err := deps.triggers.CreateTrigger(ctx, testTenant, req); !errors.Is(err, ErrValidation) {
+		if _, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, req); !errors.Is(err, ErrValidation) {
 			t.Errorf("%s create = %v, want ErrValidation", req.Kind, err)
 		}
 	}
 	manual := mustManualTrigger(t, deps.triggers)
-	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, manual.ID, UpdateTriggerRequest{SenderRestriction: r}); !errors.Is(err, ErrValidation) {
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, manual.ID, nil, UpdateTriggerRequest{SenderRestriction: r}); !errors.Is(err, ErrValidation) {
 		t.Errorf("manual update = %v, want ErrValidation", err)
 	}
 }
@@ -392,16 +392,16 @@ func TestWebhookEventType_WhitespaceIsMissing(t *testing.T) {
 	f := newPayloadFixture(t)
 	ctx := context.Background()
 	req := CreateTriggerRequest{Kind: KindWebhook, SourceID: f.src.ID, Name: "w", AgentTypeID: "at-1", EventType: "   ", PromptTemplate: "p"}
-	if _, err := f.deps.triggers.CreateTrigger(ctx, testTenant, req); !errors.Is(err, ErrValidation) {
+	if _, err := f.deps.triggers.CreateTrigger(ctx, testTenant, nil, req); !errors.Is(err, ErrValidation) {
 		t.Errorf("create with a blank event type = %v, want ErrValidation", err)
 	}
 	req.EventType = " issue_comment "
-	created, err := f.deps.triggers.CreateTrigger(ctx, testTenant, req)
+	created, err := f.deps.triggers.CreateTrigger(ctx, testTenant, nil, req)
 	if err != nil || created.EventType != "issue_comment" {
 		t.Fatalf("create = %+v, %v; want event type issue_comment", created, err)
 	}
 	blank := "  "
-	if _, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, created.ID, UpdateTriggerRequest{EventType: &blank}); !errors.Is(err, ErrValidation) {
+	if _, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, created.ID, nil, UpdateTriggerRequest{EventType: &blank}); !errors.Is(err, ErrValidation) {
 		t.Errorf("update to a blank event type = %v, want ErrValidation", err)
 	}
 }
@@ -458,7 +458,7 @@ func TestMatchContains_Validation(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newPayloadFixture(t)
-			_, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, CreateTriggerRequest{
+			_, err := f.deps.triggers.CreateTrigger(context.Background(), testTenant, nil, CreateTriggerRequest{
 				SourceID: f.src.ID, AgentTypeID: "at-1", Name: "t", EventType: "issue_comment", PromptTemplate: "p", MatchContains: contains,
 			})
 			if !errors.Is(err, ErrValidation) {
@@ -477,12 +477,12 @@ func TestMatchContains_WebhookOnly(t *testing.T) {
 		{Kind: KindScheduled, Name: "s", AgentTypeID: "at-1", PromptTemplate: "p", MatchContains: contains,
 			ScheduleConfig: &ScheduleConfig{CronExpression: "0 9 * * *", Timezone: "UTC"}},
 	} {
-		if _, err := deps.triggers.CreateTrigger(ctx, testTenant, req); !errors.Is(err, ErrValidation) {
+		if _, err := deps.triggers.CreateTrigger(ctx, testTenant, nil, req); !errors.Is(err, ErrValidation) {
 			t.Errorf("%s create = %v, want ErrValidation", req.Kind, err)
 		}
 	}
 	manual := mustManualTrigger(t, deps.triggers)
-	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, manual.ID, UpdateTriggerRequest{MatchContains: contains}); !errors.Is(err, ErrValidation) {
+	if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, manual.ID, nil, UpdateTriggerRequest{MatchContains: contains}); !errors.Is(err, ErrValidation) {
 		t.Errorf("manual update = %v, want ErrValidation", err)
 	}
 }
@@ -492,15 +492,15 @@ func TestUpdateTrigger_MatchContainsReplaceAndClear(t *testing.T) {
 	ctx := context.Background()
 	tr := f.trigger(t, CreateTriggerRequest{PromptTemplate: "p", MatchContains: map[string][]string{"comment.body": {"@kora-agent"}}})
 
-	replaced, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{MatchContains: map[string][]string{"comment.body": {"@other"}}})
+	replaced, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{MatchContains: map[string][]string{"comment.body": {"@other"}}})
 	if err != nil || !slices.Equal(replaced.MatchContains["comment.body"], []string{"@other"}) {
 		t.Fatalf("replace = %+v, %v", replaced, err)
 	}
-	cleared, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{MatchContains: map[string][]string{}})
+	cleared, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{MatchContains: map[string][]string{}})
 	if err != nil || len(cleared.MatchContains) != 0 {
 		t.Fatalf("clear = %+v, %v", cleared, err)
 	}
-	if _, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, UpdateTriggerRequest{MatchContains: map[string][]string{"comment.body": {""}}}); !errors.Is(err, ErrValidation) {
+	if _, err := f.deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, nil, UpdateTriggerRequest{MatchContains: map[string][]string{"comment.body": {""}}}); !errors.Is(err, ErrValidation) {
 		t.Errorf("update with an empty substring = %v, want ErrValidation", err)
 	}
 }
