@@ -36,6 +36,7 @@ import (
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 	"github.com/runkora/kora/backend/internal/platform/config"
@@ -147,6 +148,7 @@ func initController(
 
 	repo := triggers.NewPostgresRepository(db.Pool())
 	agentsClient := agentsclient.NewClient(tc.Current.Agents.InternalURL, logger)
+	inferenceClient := inferenceclient.NewClient(tc.Current.Inference.InternalURL, logger)
 
 	// Instruments are built once and injected into everything that records:
 	// the service, the scheduler and the retention job. Failing to build them
@@ -175,6 +177,7 @@ func initController(
 		cipher,
 		policyClient,
 		agentsClient,
+		inferenceClient,
 		identityClient,
 		admission,
 		logger,
