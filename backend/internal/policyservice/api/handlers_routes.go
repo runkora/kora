@@ -72,10 +72,12 @@ func (c *Controller) handleRegisterRoutes(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	if req.Service == "" || len(req.Routes) == 0 {
+	// A registration publishes routes, scopes, or both. Scopes alone suit a
+	// service whose routes stay unpublished.
+	if req.Service == "" || (len(req.Routes) == 0 && len(req.Scopes) == 0) {
 		platformapi.ErrorResponse(ctx, w, c.logger,
 			platformapi.ValidationError(platformapi.ErrCodeMissingField,
-				"service and routes are required", nil), nil)
+				"service and routes or scopes are required", nil), nil)
 		return
 	}
 

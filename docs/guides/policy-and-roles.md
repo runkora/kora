@@ -175,6 +175,17 @@ The operation is a full replace: the `scopes` list provided becomes the complete
 
 All scopes must be registered in the vocabulary, or the request is rejected. A repository-qualified connection scope such as `connection:github:issues:orbit:write` is accepted when its unqualified base is registered, as it is for grants. A role accepts `egress:connect`, which lets a person give agents general internet access. Per-host (`egress:<host>:connect`) and connector egress scopes stay agent grants and are rejected in roles. SYSTEM principals must include `tenant_id` in the body.
 
+A role's budget changes with `platform:budgets:write`. A `PUT` that keeps the stored budget needs only `platform:roles:write`; one that sets, changes or clears it also needs `platform:budgets:write`. To change only the budget:
+
+```
+PATCH /api/v1/policy/roles/engineer/budget
+Authorization: Bearer <platform-token>
+
+{ "budget": { "limit_usd": 50, "reset_cadence": "monthly" } }
+```
+
+A `null` budget clears it. The reserved role carries no budget, and a delegated run cannot change budgets.
+
 **Get a specific role:**
 
 ```
@@ -289,7 +300,7 @@ Grant deletion takes effect within the bundle polling interval (default: ≤ 30 
 
 Services declare which scopes protect their routes by registering at startup with the policy service. This is how Layer 1 (OPA Envoy sidecar) knows which scope a request needs before it reaches the service handler.
 
-Platform services (identity, inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally: their routes are included in every tenant's bundle. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes. They cannot declare scopes, and every `required_scope` must already exist in the vocabulary.
+Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally: their routes are included in every tenant's bundle. Identity registers its scope vocabulary and no routes; its callers reach it east-west. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes. They cannot declare scopes, and every `required_scope` must already exist in the vocabulary.
 
 ### How It Works
 
@@ -383,6 +394,7 @@ All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
 | `GET` | `/policy/roles/{role}` | `platform:roles:read` | Get a single role |
 | `GET` | `/policy/roles` | `platform:roles:read` | List roles |
 | `DELETE` | `/policy/roles/{role}` | `platform:roles:write` | Delete a role |
+| `PATCH` | `/policy/roles/{role}/budget` | `platform:budgets:write` | Set or clear a role's budget |
 
 ### Routes
 

@@ -140,6 +140,18 @@ export async function updateGrantBudget(
   });
 }
 
+export async function updateRoleBudget(
+  accessToken: string,
+  tenantId: string,
+  role: string,
+  budget: BudgetAssignment | null,
+): Promise<Result<RoleEntry>> {
+  return policyServiceFetch(`/roles/${encodeURIComponent(role)}/budget`, accessToken, {
+    method: 'PATCH',
+    body: JSON.stringify({ tenant_id: tenantId, budget }),
+  });
+}
+
 export async function fetchTenantBudget(
   accessToken: string,
   tenantId: string,

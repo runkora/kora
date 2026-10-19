@@ -207,29 +207,17 @@ func initControllers(ctx context.Context, logger logging.Logger, db *storage.DB,
 	// trigger's SERVICE token, now over the mesh via the internal service-token
 	// endpoint. See docs/adr/2026-06-20-extended-trigger-types.md, Decision 1.
 
-	// Publish the identity scope vocabulary and its scoped routes, and keep
-	// them published across policy-service restarts. Authenticated-only routes
-	// stay unpublished: their callers reach identity east-west.
+	// Publish the identity scope vocabulary, and keep it published across
+	// policy-service restarts. No route is published: identity's callers reach
+	// it east-west, and the scope is checked in-process.
 	scopeClient := routescopes.NewClient(policySvcURL, svc.SystemToken, logger)
 	go routescopes.KeepRegistered(ctx, logger, identity.ServiceName, func(ctx context.Context) error {
-		return scopeClient.Register(ctx, identity.ServiceName, publishedIdentityRoutes(), identityScopes())
+		return scopeClient.Register(ctx, identity.ServiceName, nil, identityScopes())
 	})
 
 	return []api.Controller{
 		identity.NewController(svc, policyEval, identityRoutes(), ic.Current.Server.BasePath, logger),
 	}, nil
-}
-
-// publishedIdentityRoutes is the scoped part of identityRoutes, the only part
-// registered with the policy service.
-func publishedIdentityRoutes() []routescopes.RouteScope {
-	var out []routescopes.RouteScope
-	for _, r := range identityRoutes() {
-		if r.RequiredScope != "" {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // identityScopes returns the scope vocabulary identity owns.

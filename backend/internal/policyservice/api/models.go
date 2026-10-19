@@ -60,6 +60,13 @@ type updateGrantBudgetRequest struct {
 	Budget *budgetAssignmentRequest `json:"budget"`
 }
 
+// updateRoleBudgetRequest is the request body for PATCH /policy/roles/{role}/budget.
+// A null budget clears it.
+type updateRoleBudgetRequest struct {
+	TenantID string                   `json:"tenant_id"`
+	Budget   *budgetAssignmentRequest `json:"budget"`
+}
+
 // upsertRoleRequest is the request body for PUT /policy/roles.
 type upsertRoleRequest struct {
 	TenantID string                   `json:"tenant_id"`

@@ -293,12 +293,11 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, bloc
 
 	controller := agents.NewController(atSvc, runSvc, envSvc, draftSvc, verifier, blocklist, eval, agentRoutes(), cfg.Server.BasePath, logger)
 
-	// Read-only connection catalog (GET /api/v1/connections). Auth-only, tenant
-	// scoped from the verified token — a separate controller so it carries no
-	// route→scope enforcement (the agent-types Controller does). Reads the same
+	// Read-only connection catalog (GET /api/v1/connections), tenant scoped from
+	// the verified token and gated on platform:connections:read. Reads the same
 	// orbit-tenant-connections ConfigMap the egress-gateway brokers from.
 	catalog := agents.NewConnectionCatalog(cfg.Agents.ConnectionRegistryPath, logger)
-	catalogController := agents.NewConnectionCatalogController(catalog, verifier, logger)
+	catalogController := agents.NewConnectionCatalogController(catalog, verifier, eval, connectionCatalogRoutes(), cfg.Server.BasePath, logger)
 
 	// The scope resolver adds the attached environments' egress, connectors and connector auto-egress to each agent's grant.
 	// The agent type service validates attachments against the same environment store.
@@ -397,6 +396,14 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 // request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Exact-method
 // routes beat "*" and the longest prefix wins, so a method under a broader
 // prefix (e.g. PATCH on /agent-types/) needs its own explicit entry.
+// connectionCatalogRoutes is the connection catalog's route table. The egress
+// gateway publishes the same route and scope to the policy service.
+func connectionCatalogRoutes() []routescopes.RouteScope {
+	return []routescopes.RouteScope{
+		{PathPrefix: "/api/v1/connections", Method: "GET", RequiredScope: "platform:connections:read"},
+	}
+}
+
 func agentRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		// Agent-type WRITE routes are authenticated-only at the route layer:

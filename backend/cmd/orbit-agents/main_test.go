@@ -152,3 +152,10 @@ func TestAgentRoutesPerAgentReadsAuthenticatedOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectionCatalogRouteNeedsConnectionsRead(t *testing.T) {
+	got, ok := mw.ResolveRequiredScope(connectionCatalogRoutes(), "GET", "/api/v1/connections")
+	if !ok || got != "platform:connections:read" {
+		t.Errorf("GET /api/v1/connections resolves to %q (matched %v), want platform:connections:read", got, ok)
+	}
+}

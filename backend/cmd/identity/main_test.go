@@ -26,15 +26,11 @@ func TestIdentityRoutes_UserDirectory(t *testing.T) {
 	}
 }
 
-// TestIdentityRegistration_PublishesUsersRead locks that the scoped list route
-// and its scope are what identity publishes to the policy service.
-func TestIdentityRegistration_PublishesUsersRead(t *testing.T) {
-	routes := publishedIdentityRoutes()
-	if len(routes) != 1 || routes[0].PathPrefix != "/api/v1/identity/users" || routes[0].RequiredScope != "identity:users:read" {
-		t.Errorf("registered routes = %+v, want only the users list route", routes)
-	}
+// TestIdentityScopes_DeclaresUsersRead locks the scope identity publishes. Its
+// routes stay unpublished, so the directory gate is the in-process route table.
+func TestIdentityScopes_DeclaresUsersRead(t *testing.T) {
 	scopes := identityScopes()
-	if len(scopes) != 1 || scopes[0].Scope != routes[0].RequiredScope {
+	if len(scopes) != 1 || scopes[0].Scope != "identity:users:read" {
 		t.Errorf("declared scopes = %+v, want identity:users:read", scopes)
 	}
 }

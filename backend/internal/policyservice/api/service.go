@@ -581,6 +581,26 @@ func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes 
 	return entry, nil
 }
 
+// UpdateRoleBudget sets or clears a role's budget and leaves its scopes alone.
+// Reserved roles carry no budget.
+func (s *Service) UpdateRoleBudget(ctx context.Context, tenantID, role string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
+	if role == bundle.PlatformAdminRole {
+		return nil, &ReservedRoleError{Role: role}
+	}
+	entry, err := s.roleRepo.GetByRole(ctx, tenantID, role)
+	if err != nil {
+		return nil, err
+	}
+	entry.Budget = budget
+	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
+		return nil, fmt.Errorf("update role budget: %w", err)
+	}
+	s.recordWrite(tenantID)
+	s.scheduleRecompile(ctx, tenantID)
+	s.scheduleGatewayRecompile(ctx)
+	return entry, nil
+}
+
 // GetRole returns the scope mapping for a specific role within a tenant.
 func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.RoleEntry, error) {
 	return s.roleRepo.GetByRole(ctx, tenantID, role)

@@ -152,7 +152,7 @@ GET /api/v1/identity/users/{id}        Single user by ID
 GET /api/v1/identity/users/names?ids=a,b   Display names for specific user IDs
 ```
 
-Listing users requires `identity:users:read`. The identity service lets a caller read their own profile by id without it, and requires the scope for anyone else's profile. Any signed-in caller may resolve display names through `/users/names`, at most 100 IDs per request. It returns only `id` and `display_name`. The edge route for `/api/v1/identity/users` requires the scope on every path beneath it.
+Listing users requires `identity:users:read`. The identity service lets a caller read their own profile by id without it, and requires the scope for anyone else's profile. Any signed-in caller may resolve display names through `/users/names`, at most 100 IDs per request. It returns only `id` and `display_name`. Identity publishes no routes to the edge; callers reach these endpoints east-west.
 
 `GET /identity/users` accepts optional query parameters:
 

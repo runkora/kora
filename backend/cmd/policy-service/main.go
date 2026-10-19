@@ -162,6 +162,7 @@ func selfRegisteredRoutes() []routes.RouteScope {
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "PATCH", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
 	}
 }
@@ -203,6 +204,7 @@ func policyServiceRoutes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/policy/vocabulary", Method: "GET", RequiredScope: "platform:grants:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "GET", RequiredScope: "platform:roles:read"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "PUT", RequiredScope: "platform:roles:write"},
+		{PathPrefix: "/api/v1/policy/roles", Method: "PATCH", RequiredScope: "platform:budgets:write"},
 		{PathPrefix: "/api/v1/policy/roles", Method: "DELETE", RequiredScope: "platform:roles:write"},
 		// /effective-scopes returns the caller's own effective scopes — open to
 		// any authenticated principal so they can inspect what they hold.
