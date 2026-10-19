@@ -131,6 +131,17 @@ func TestGetAgentType_ForwardsDelegation(t *testing.T) {
 	}
 }
 
+// An empty bearer sends no Authorization header rather than a bare "Bearer ".
+func TestGetAgentType_EmptyBearerSendsNoAuthorization(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusOK, `{"id":"at-1"}`)
+	if _, err := c.GetAgentType(context.Background(), Caller{}, "at-1"); err != nil {
+		t.Fatalf("GetAgentType: %v", err)
+	}
+	if cap.auth != "" {
+		t.Errorf("auth header = %q, want none", cap.auth)
+	}
+}
+
 func TestGetAgentType_StatusMapping(t *testing.T) {
 	tests := []struct {
 		status int

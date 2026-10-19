@@ -98,7 +98,9 @@ func (c *Client) GetAgentType(ctx context.Context, caller Caller, id string) (Ag
 	if err != nil {
 		return AgentType{}, fmt.Errorf("build get agent type request: %w", err)
 	}
-	httpReq.Header.Set("Authorization", "Bearer "+caller.Bearer)
+	if caller.Bearer != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+caller.Bearer)
+	}
 	if caller.Delegation != "" {
 		httpReq.Header.Set(mw.DelegationTokenHeader, caller.Delegation)
 	}
