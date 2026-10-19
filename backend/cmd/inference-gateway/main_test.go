@@ -82,10 +82,15 @@ func TestInitScopeRegistrationPublishesScopedRoutes(t *testing.T) {
 		t.Errorf("service = %q, want inference-gateway", reg.Service)
 	}
 
-	// The whole table is published, authenticated-only routes included, so the
-	// edge resolves each request to the same route as the in-process check.
+	// The table is published with its authenticated-only routes. The
+	// tenant-wide run usage read carries the analytics scope at the OPA layers.
 	if want := len(inferenceRoutes()); len(reg.Routes) != want {
 		t.Errorf("published %d routes, want %d", len(reg.Routes), want)
+	}
+	for _, r := range reg.Routes {
+		if r.PathPrefix == "/v1/usage/run" && r.RequiredScope != "platform:analytics:read" {
+			t.Errorf("published %s %s with scope %q, want platform:analytics:read", r.Method, r.PathPrefix, r.RequiredScope)
+		}
 	}
 
 	declared := make(map[string]bool, len(reg.Scopes))

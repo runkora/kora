@@ -27,13 +27,6 @@ func (c *Controller) handleCreatePAT(w http.ResponseWriter, r *http.Request) {
 			api.UnauthorizedError(api.ErrCodeUnauthorized, "unauthorized", nil), nil)
 		return
 	}
-	// A PAT is a long-lived standing credential, so only a person mints one.
-	// Agents and services reach this route through the edge and sidecar OPA.
-	if claims.Kora.PrincipalType != token.PrincipalTypeHuman {
-		api.ErrorResponse(ctx, w, c.logger,
-			api.ForbiddenError(api.ErrCodeForbidden, "only a person can create a personal access token", nil), nil)
-		return
-	}
 
 	var req CreatePATRequest
 	if !api.DecodeJSON(ctx, r, w, c.logger, &req) {

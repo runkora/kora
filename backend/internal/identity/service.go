@@ -994,20 +994,13 @@ func (s *Service) signToken(p *Principal, jti, sessionID, patID string, now time
 	return token.SignedString(s.signingKey)
 }
 
-// ServiceName is the identity service's SPIFFE component name, under which it
-// registers its routes with the policy service.
-const ServiceName = "identity"
-
 // SystemToken mints a short-lived RS256 JWT for identity-service internal calls
 // to other platform services (e.g. policy service grant management).
 // The SYSTEM principal type allows cross-tenant operations in the policy service.
 func (s *Service) SystemToken(ctx context.Context) (string, error) {
 	principal := &Principal{
-		ID:   "orbit-identity-service",
-		Type: token.PrincipalTypeSystem,
-		// The policy service accepts a SYSTEM route registration only under
-		// the caller's display name, the SPIFFE component of every other service.
-		DisplayName:    ServiceName,
+		ID:             "orbit-identity-service",
+		Type:           token.PrincipalTypeSystem,
 		TenantID:       "",
 		IdentitySource: IdentitySourcePlatform,
 	}

@@ -384,10 +384,9 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 // agentRoutes returns the static route→scope bindings for orbit-agents.
 //
 // Registered with policy-service at startup (docs/adr/2026-05-11-orbit-agents-route-scope-registration.md) and also consumed at
-// request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Order matters:
-// resolveRequiredScope iterates this slice and prefers exact-method matches,
-// so methods that are subsets of broader prefixes (e.g. PATCH on /agent-types/)
-// must have their own explicit entry.
+// request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Exact-method
+// routes beat "*" and the longest prefix wins, so a method under a broader
+// prefix (e.g. PATCH on /agent-types/) needs its own explicit entry.
 func agentRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		// Agent-type WRITE routes are authenticated-only at the route layer:

@@ -28,6 +28,11 @@ var ErrInvalidPrincipalType = errors.New("principal_type must be AGENT, HUMAN, P
 // declares scopes. The vocabulary is global and only SYSTEM services write it.
 var ErrTenantScopeDeclaration = errors.New("tenant route registrations cannot declare scopes")
 
+// ErrInvalidRegistration is returned for a registration the policy service
+// refuses outright: an empty scope declaration, or a tenant route with no
+// scope or no path prefix.
+var ErrInvalidRegistration = errors.New("invalid route registration")
+
 // ScopeVocabularyError is returned when a grant includes a scope that is not
 // registered in the scope vocabulary.
 type ScopeVocabularyError struct {
@@ -633,6 +638,9 @@ func (s *Service) RegisterRoutes(ctx context.Context, service, tenantID string, 
 // live mcp scopes from grants and roles. Tenant registrations never prune, so
 // prune is a no-op for them.
 func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID string, routeScopes []routes.RouteScope, scopeDecls []routes.ScopeDeclaration, prune bool) error {
+	if err := validateRegistration(tenantID, routeScopes, scopeDecls); err != nil {
+		return err
+	}
 	if tenantID != "" {
 		if err := s.checkTenantRegistration(ctx, routeScopes, scopeDecls); err != nil {
 			return err
@@ -668,7 +676,7 @@ func (s *Service) RegisterRoutesWithPrune(ctx context.Context, service, tenantID
 	if s.routeStore.Register(&routes.Registration{
 		Service:  service,
 		TenantID: tenantID,
-		Routes:   markAuthenticatedOnly(routeScopes),
+		Routes:   markAuthenticatedOnly(tenantID, routeScopes),
 		Scopes:   scopeDecls,
 	}) {
 		changed = true
@@ -711,14 +719,35 @@ func (s *Service) checkTenantRegistration(ctx context.Context, routeScopes []rou
 	return nil
 }
 
-// markAuthenticatedOnly returns a copy of rs with every empty-scope route
-// marked AuthenticatedOnly. An empty RequiredScope is the route-table
+// validateRegistration refuses an empty scope declaration, which would let an
+// empty route scope pass the vocabulary check. A tenant route always needs a
+// scope and a path prefix: only platform (global) registrations carry
+// authenticated-only routes.
+func validateRegistration(tenantID string, rs []routes.RouteScope, decls []routes.ScopeDeclaration) error {
+	for _, d := range decls {
+		if d.Scope == "" {
+			return fmt.Errorf("%w: empty scope declaration", ErrInvalidRegistration)
+		}
+	}
+	if tenantID == "" {
+		return nil
+	}
+	for _, r := range rs {
+		if r.RequiredScope == "" || r.PathPrefix == "" {
+			return fmt.Errorf("%w: tenant route %s %q needs a scope and a path prefix", ErrInvalidRegistration, r.Method, r.PathPrefix)
+		}
+	}
+	return nil
+}
+
+// markAuthenticatedOnly returns a copy of rs with every empty-scope global
+// route marked AuthenticatedOnly. An empty RequiredScope is the route-table
 // convention for "authenticated caller, checked in the service", and the
-// marker is what the rego reads.
-func markAuthenticatedOnly(rs []routes.RouteScope) []routes.RouteScope {
+// marker is what the rego reads. Tenant routes are never marked.
+func markAuthenticatedOnly(tenantID string, rs []routes.RouteScope) []routes.RouteScope {
 	out := make([]routes.RouteScope, len(rs))
 	for i, r := range rs {
-		r.AuthenticatedOnly = r.RequiredScope == ""
+		r.AuthenticatedOnly = tenantID == "" && r.RequiredScope == ""
 		out[i] = r
 	}
 	return out
