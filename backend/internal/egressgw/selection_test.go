@@ -1,6 +1,7 @@
 package egressgw
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -192,5 +193,36 @@ func TestAuthorize_PolicyCheckedOnSelectedConnection(t *testing.T) {
 	}
 	if len(pol.checked) == 0 || slices.ContainsFunc(pol.checked, func(c string) bool { return c != "fabrikam-github" }) {
 		t.Errorf("policy checked %v, want only fabrikam-github", pol.checked)
+	}
+}
+
+// The sandbox egress canary sends GET / with no owner on every start. Its
+// unresolved denial logs at debug, and any other unresolved denial at info.
+func TestAuthorize_UnresolvedRootReadLogsAtDebug(t *testing.T) {
+	both := candidateConns{githubConn(t, "contoso-github", "contoso"), githubConn(t, "fabrikam-github", "fabrikam")}
+	tests := []struct {
+		name, method, url, wantLevel string
+	}{
+		{"canary root read", http.MethodGet, "https://github.com/", "debug"},
+		{"other path", http.MethodGet, "https://api.github.com/user", "info"},
+		{"root write", http.MethodPost, "https://github.com/", "info"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var logs bytes.Buffer
+			logger := logging.NewLoggerWithOutput(&logs)
+			adapters := NewAdapterRegistry()
+			adapters.Register(githubapp.New(nil, nil, logger))
+			b := NewBroker(&selectionPolicy{}, both, adapters, passthrough.New(), logger)
+
+			_, err := b.Authorize(context.Background(), acmeClaims, egressRequest(tc.method, tc.url))
+			var d *Denial
+			if !errors.As(err, &d) || d.Reason != DenialConnectionUnresolved {
+				t.Fatalf("err = %v, want a connection_unresolved denial", err)
+			}
+			if out := logs.String(); !strings.Contains(out, `"level":"`+tc.wantLevel+`"`) || !strings.Contains(out, "connection unresolved") {
+				t.Errorf("log = %s, want a %s-level unresolved line", out, tc.wantLevel)
+			}
+		})
 	}
 }

@@ -269,13 +269,20 @@ func (b *Broker) anonymousReadOrDeny(ctx context.Context, span trace.Span, claim
 // The query string and headers stay out of the log: either can carry tokens.
 func (b *Broker) logDenial(ctx context.Context, tenantID string, req EgressRequest, d *Denial) {
 	if d.Reason == DenialConnectionUnresolved {
-		b.logger.Info(ctx, "egress denied: connection unresolved",
-			logging.Field{Key: "host", Value: req.Host},
-			logging.Field{Key: "method", Value: req.Method},
-			logging.Field{Key: "path", Value: requestPath(req)},
-			logging.Field{Key: "candidates", Value: strings.Join(d.Candidates, ",")},
-			logging.Field{Key: "tenant_id", Value: tenantID},
-		)
+		fields := []logging.Field{
+			{Key: "host", Value: req.Host},
+			{Key: "method", Value: req.Method},
+			{Key: "path", Value: requestPath(req)},
+			{Key: "candidates", Value: strings.Join(d.Candidates, ",")},
+			{Key: "tenant_id", Value: tenantID},
+		}
+		// The sandbox egress canary sends GET / with no owner on every start.
+		// The denial still reaches the caller, and it passes the canary.
+		if isRootRead(req) {
+			b.logger.Debug(ctx, "egress denied: connection unresolved", fields...)
+			return
+		}
+		b.logger.Info(ctx, "egress denied: connection unresolved", fields...)
 		return
 	}
 	if d.Reason == DenialUnclassified {
@@ -459,6 +466,11 @@ func scopePath(conn *credentials.Connection, action, qualifier string) (segments
 		segments = append(segments, qualifier)
 	}
 	return segments, verb
+}
+
+// isRootRead reports whether req is a GET of the host root.
+func isRootRead(req EgressRequest) bool {
+	return req.Method == http.MethodGet && requestPath(req) == "/"
 }
 
 // requestPath is the request path for deny logs. The query string and headers
