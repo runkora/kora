@@ -46,7 +46,6 @@ func TestUncoveredAgentScopes(t *testing.T) {
 		{"held exactly", []string{"inference:invoke"}, []string{"inference:invoke"}, nil},
 		{"held via parent", []string{"connection:github:read"}, []string{"connection:github:contents:read"}, nil},
 		{"not held", []string{"inference:invoke"}, []string{"platform:grants:write"}, []string{"platform:grants:write"}},
-		{"connector egress skipped", nil, []string{"egress:api.github.com:connector"}, nil},
 		{"own egress needs egress:connect", nil, []string{"egress:connect", "egress:github.com:connect"}, []string{"egress:connect", "egress:github.com:connect"}},
 		{"egress:connect covers a host", []string{"egress:connect"}, []string{"egress:connect", "egress:github.com:connect"}, nil},
 		{"only uncovered listed", []string{"inference:invoke"}, []string{"inference:invoke", "connection:github:contents:write"}, []string{"connection:github:contents:write"}},
@@ -56,6 +55,28 @@ func TestUncoveredAgentScopes(t *testing.T) {
 			got := uncoveredAgentScopes(tt.held, tt.agent)
 			if fmt.Sprint(got) != fmt.Sprint(tt.want) {
 				t.Errorf("uncoveredAgentScopes = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestCeilingScopes(t *testing.T) {
+	resolved := []string{"inference:invoke", "egress:connect", "egress:github.com:connect", "egress:api.github.com:connector", "egress:evil.example:connector"}
+	typed := []string{"egress:evil.example:connector"}
+	tests := []struct {
+		name string
+		at   AgentType
+		want []string
+	}{
+		{"autonomous keeps all but derived connector egress", AgentType{GrantScopes: typed},
+			[]string{"inference:invoke", "egress:connect", "egress:github.com:connect", "egress:evil.example:connector"}},
+		{"delegated keeps only its own and typed egress", AgentType{IdentityMode: IdentityModeDelegated, GrantScopes: typed},
+			[]string{"egress:connect", "egress:github.com:connect", "egress:evil.example:connector"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := ceilingScopes(tt.at, resolved); fmt.Sprint(got) != fmt.Sprint(tt.want) {
+				t.Errorf("ceilingScopes = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -105,7 +126,24 @@ func TestCreateAgentType_ScopeCeiling(t *testing.T) {
 			wantErr: ErrScopeCeiling,
 		},
 		{
-			name:    "delegated agent is not ceilinged",
+			name:    "delegated agent with open egress the caller lacks is refused",
+			callers: heldScopes{},
+			req:     CreateAgentTypeRequest{IdentityMode: IdentityModeDelegated, Connectivity: &Connectivity{Mode: ConnectivityOpen}},
+			wantErr: ErrScopeCeiling,
+		},
+		{
+			name:    "delegated agent with host egress the caller lacks is refused",
+			callers: heldScopes{},
+			req:     CreateAgentTypeRequest{IdentityMode: IdentityModeDelegated, Connectivity: &Connectivity{Mode: ConnectivityWhitelist, Hosts: []string{"github.com"}}},
+			wantErr: ErrScopeCeiling,
+		},
+		{
+			name:    "delegated agent with egress the caller holds is created",
+			callers: heldScopes{"egress:connect"},
+			req:     CreateAgentTypeRequest{IdentityMode: IdentityModeDelegated, Connectivity: &Connectivity{Mode: ConnectivityOpen}},
+		},
+		{
+			name:    "delegated agent's non-egress scopes are not ceilinged",
 			callers: heldScopes{},
 			req:     CreateAgentTypeRequest{IdentityMode: IdentityModeDelegated, GrantScopes: []string{"platform:grants:write"}},
 		},
@@ -193,7 +231,7 @@ func TestCheckEnvironmentEdit(t *testing.T) {
 		{"caller lacks the added connector action", []string{"agents:types:write"}, IdentityModeAutonomous, heldScopes{"connection:github:contents:read"}, ErrScopeCeiling},
 		{"caller holds the added connector action", []string{"agents:types:write"}, IdentityModeAutonomous, heldScopes{"connection:github:contents:write"}, nil},
 		{"caller lacks the agent's mode write scope", []string{"agents:types:delegated:write"}, IdentityModeAutonomous, heldScopes{"connection:github:contents:write"}, ErrIdentityModeWriteForbidden},
-		{"delegated agent needs only its mode write scope", []string{"agents:types:delegated:write"}, IdentityModeDelegated, heldScopes{}, nil},
+		{"delegated agent's connectors are not ceilinged", []string{"agents:types:delegated:write"}, IdentityModeDelegated, heldScopes{}, nil},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -274,5 +312,31 @@ func TestHandleUpdateAgentType_ScopeCeilingIs403(t *testing.T) {
 	c.handleUpdateAgentType(w, req)
 	if w.Code != http.StatusForbidden || !strings.Contains(w.Body.String(), "platform:grants:write") {
 		t.Errorf("status %d body %s, want 403 naming the scope", w.Code, w.Body.String())
+	}
+}
+
+// An environment edit adding an egress host is ceilinged for an attached delegated agent.
+func TestCheckEnvironmentEdit_DelegatedEgress(t *testing.T) {
+	stored := Environment{ID: "e1", TenantID: "t-1", Slug: "e1"}
+	edited := stored
+	edited.EgressHosts = []string{"pypi.org"}
+	for _, tc := range []struct {
+		name    string
+		held    heldScopes
+		wantErr error
+	}{
+		{"caller lacks the host", heldScopes{}, ErrScopeCeiling},
+		{"caller holds egress:connect", heldScopes{"egress:connect"}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, repo := newModeTestService(t, "agents:types:delegated:write")
+			svc.SetCallerScopes(tc.held)
+			svc.SetScopeResolver(NewScopeResolver(repo, nil))
+			repo.envs["e1"] = &stored
+			at := AgentType{TenantID: "t-1", IdentityMode: IdentityModeDelegated, Environments: []AgentEnvironment{{EnvironmentID: "e1", IsDefault: true}}}
+			if err := svc.checkEnvironmentEdit(withTenantCtx(context.Background(), "t-1"), at, edited); !errors.Is(err, tc.wantErr) {
+				t.Fatalf("err = %v, want %v", err, tc.wantErr)
+			}
+		})
 	}
 }

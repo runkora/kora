@@ -23,7 +23,7 @@ Autonomous agents run fully dark, without a person attached. They are started by
 
 Delegated agents are for work a person hands down to an agent. The agent works with that person's access and can never do more than they can. If an agent has full access to the Slack MCP server but the person running it can only read messages, the delegated agent can only read messages.
 
-Every delegated run is attributed to the person who started it, and consumes the budget of the person who started it. Delegated agents can only be started by a person, and only that person can steer the run. Because a delegated agent can never exceed the access of the person running it, access can be broadly provided by platform admins.
+Every delegated run is attributed to the person who started it, and consumes the budget of the person who started it. Delegated agents can only be started by a person, and only that person can steer the run. Because a delegated agent can never exceed the access of the person running it, access can be broadly provided by platform admins. Egress is the exception: it is evaluated on the agent alone. Giving a delegated agent its own egress, directly or through an environment, requires holding that egress.
 
 ## Related decisions
 
