@@ -681,8 +681,9 @@ type agentsStub struct {
 	// agentTypes is what GET /api/v1/agent-types lists.
 	agentTypes []agentsclient.AgentType
 	// runs is what GET /api/v1/runs lists, and runsQuery the last query it got.
-	runs      []agentsclient.Run
-	runsQuery string
+	runs       []agentsclient.Run
+	runsQuery  string
+	runsStatus int // non-zero fails the listing with this status
 	// messages records POST /api/v1/runs/{id}/messages; messageStatus answers
 	// it per run id (0 → 202).
 	messages      []messageCall
@@ -750,8 +751,13 @@ func newAgentsStub() *agentsStub {
 		as.mu.Lock()
 		as.runsQuery = r.URL.RawQuery
 		body, _ := json.Marshal(map[string]any{"runs": as.runs})
+		status := as.runsStatus
 		as.mu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
+		if status != 0 {
+			w.WriteHeader(status)
+			return
+		}
 		_, _ = w.Write(body)
 	})
 	mux.HandleFunc("POST /api/v1/runs/{id}/messages", func(w http.ResponseWriter, r *http.Request) {

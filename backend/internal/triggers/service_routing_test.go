@@ -448,15 +448,69 @@ func TestDispatchRouted_AsksAboutCandidatesAndJoinableRuns(t *testing.T) {
 	}
 }
 
+// With no joinable run, for whatever reason, only the agent question is asked
+// and a confident answer starts a new run of that candidate, never the fallback.
+func TestDispatchRouted_NoJoinableRunStillRoutes(t *testing.T) {
+	tests := []struct {
+		name   string
+		setup  func(*testDeps)
+		mutate func(*CreateTriggerRequest)
+	}{
+		{name: "no open runs", setup: func(*testDeps) {}},
+		{name: "join key set but no match", setup: func(*testDeps) {}, mutate: func(r *CreateTriggerRequest) {
+			r.Routing.JoinKey = "{{ repository.full_name }}#{{ issue.number }}"
+		}},
+		{name: "run listing fails", setup: func(d *testDeps) {
+			d.agents.runs = []agentsclient.Run{{ID: "run-1", AgentTypeID: "at-b", State: "active", StartedBy: &agentsclient.StartedByTrigger{}}}
+			d.agents.runsStatus = http.StatusServiceUnavailable
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, deps, decisions, src := routedHarness(t)
+			decisions.resp = decisionAnswers(0.9, "", 0)
+			tt.setup(deps)
+			tr := mustRouted(t, deps, src.ID, func(r *CreateTriggerRequest) {
+				r.Routing.FallbackAgentTypeID = new("at-c")
+				if tt.mutate != nil {
+					tt.mutate(r)
+				}
+			})
+
+			id := fireRouted(t, svc, deps, tr, "d-1", routedFields)
+
+			if decisions.callCount() != 1 {
+				t.Fatalf("decision calls = %d, want 1", decisions.callCount())
+			}
+			if _, asked := decisions.calls[0].Questions[questionRun]; asked {
+				t.Error("with no joinable run the run question must be omitted")
+			}
+			d := deps.repo.decisionFor(id)
+			if d.Outcome != RouteOutcomeNewRun || deref(d.AgentTypeID) != "at-a" || d.FallbackReason != nil || d.Error != nil {
+				t.Errorf("decision = %+v, want a new run of at-a without the fallback", d)
+			}
+			if call, ok := deps.agents.lastCall(); !ok || call.agentTypeID != "at-a" {
+				t.Errorf("start = %+v, want at-a", call)
+			}
+			if run := onlyRun(t, deps, id); run.Status != RunStatusDispatched {
+				t.Errorf("delivery run = %+v", run)
+			}
+		})
+	}
+}
+
 func TestDispatchRouted_JoinOffAsksNoRunQuestion(t *testing.T) {
 	svc, deps, decisions, src := routedHarness(t)
 	decisions.resp = decisionAnswers(0.9, "", 0)
 	deps.agents.runs = []agentsclient.Run{{ID: "run-1", AgentTypeID: "at-b", State: "active", StartedBy: &agentsclient.StartedByTrigger{}}}
 	off := false
 	tr := mustRouted(t, deps, src.ID, func(r *CreateTriggerRequest) { r.Routing.JoinRuns = &off })
-	fireRouted(t, svc, deps, tr, "d-1", routedFields)
+	id := fireRouted(t, svc, deps, tr, "d-1", routedFields)
 	if _, asked := decisions.calls[0].Questions[questionRun]; asked {
 		t.Error("joining is off, so the run question must be omitted")
+	}
+	if d := deps.repo.decisionFor(id); d.Outcome != RouteOutcomeNewRun || deref(d.AgentTypeID) != "at-a" {
+		t.Errorf("decision = %+v, want a new run of at-a", d)
 	}
 }
 

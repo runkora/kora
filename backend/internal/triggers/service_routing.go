@@ -199,11 +199,15 @@ func (s *Service) decide(ctx context.Context, t Trigger, tok, prompt string) (ro
 		return routeChoice{}, errNoCandidateAgents
 	}
 
+	// No joinable run, for any reason, leaves the agent question to decide.
 	var runs []agentsclient.Run
 	if r.joins() {
-		runs, err = s.joinableRuns(ctx, r, tok)
-		if err != nil {
-			return routeChoice{}, err
+		if runs, err = s.joinableRuns(ctx, r, tok); err != nil {
+			s.logger.Warn(ctx, "listing joinable runs failed; routing among the candidate agents only",
+				logging.Field{Key: "trigger_id", Value: t.ID},
+				logging.Field{Key: "error", Value: err.Error()},
+			)
+			runs = nil
 		}
 	}
 
