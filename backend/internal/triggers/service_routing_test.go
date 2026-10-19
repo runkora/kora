@@ -3,6 +3,7 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -204,6 +205,48 @@ func TestUpdateRoutedTrigger(t *testing.T) {
 		}
 		if !slices.Contains(deps.policy.deleted, oldGrant) {
 			t.Errorf("old grant %s not deleted: %v", oldGrant, deps.policy.deleted)
+		}
+	})
+
+	t.Run("a concurrent replacement wins and this one undoes its grant", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		oldGrant := *deps.repo.triggers[tr.ID].GrantID
+		deps.repo.beforeGrantUpdate = func() {
+			deps.repo.mu.Lock()
+			deps.repo.triggers[tr.ID].GrantID = new("grant-from-the-other-update")
+			deps.repo.mu.Unlock()
+		}
+
+		_, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{
+			Routing: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", "at-b"} }),
+		})
+		if !errors.Is(err, ErrTriggerConflict) {
+			t.Fatalf("err = %v, want ErrTriggerConflict", err)
+		}
+		newGrant := fmt.Sprintf("grant-%d", deps.policy.counter)
+		if !slices.Contains(deps.policy.deleted, newGrant) || slices.Contains(deps.policy.deleted, oldGrant) {
+			t.Errorf("deleted = %v, want only the new grant %s", deps.policy.deleted, newGrant)
+		}
+		if got := deref(deps.repo.triggers[tr.ID].GrantID); got != "grant-from-the-other-update" {
+			t.Errorf("stored grant = %s, want the winner's", got)
+		}
+	})
+
+	t.Run("a failed revocation of the old grant is an error", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		oldGrant := *deps.repo.triggers[tr.ID].GrantID
+		deps.policy.failDelete = true
+
+		_, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{
+			Routing: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", "at-b"} }),
+		})
+		if !errors.Is(err, ErrGrantRevokeFailed) || !strings.Contains(err.Error(), oldGrant) || !strings.Contains(err.Error(), "is stored with grant") {
+			t.Fatalf("err = %v, want ErrGrantRevokeFailed naming %s", err, oldGrant)
+		}
+		if deref(deps.repo.triggers[tr.ID].GrantID) == oldGrant {
+			t.Error("the update must be stored with the new grant")
 		}
 	})
 

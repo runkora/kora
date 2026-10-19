@@ -102,6 +102,10 @@ type TriggerStore interface {
 	// back the stale enabled/auto_paused_at it read at the start of the request
 	// and silently revert a concurrent auto-pause.
 	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error
+	// UpdateTriggerGrant is UpdateTrigger for an edit that replaced the
+	// trigger's grant: it writes only while the stored grant is still
+	// oldGrantID, and returns ErrTriggerConflict otherwise.
+	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 }
 

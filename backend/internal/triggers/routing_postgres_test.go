@@ -2,6 +2,7 @@ package triggers
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 
@@ -197,5 +198,30 @@ func TestPostgres_RoutingDecisionWrite(t *testing.T) {
 	_ = r.DeriveDeliveryStatus(ctx, unrouted)
 	if del, _ := r.GetDelivery(ctx, tenant, unrouted); del.Status != StatusSkipped {
 		t.Errorf("unrouted delivery status = %s, want skipped", del.Status)
+	}
+}
+
+// The grant-guarded update lands only while the stored grant is the one the
+// caller replaced.
+func TestPostgres_UpdateTriggerGrantIsConditional(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	src := seedSource(t, r, tenant)
+	tr := seedRoutedTrigger(t, r, tenant, src.ID)
+	original := deref(tr.GrantID)
+
+	winner, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	loser, _ := r.GetTrigger(ctx, tenant, tr.ID)
+
+	winner.GrantID = new("grant-winner")
+	if err := r.UpdateTriggerGrant(ctx, winner, false, &original); err != nil {
+		t.Fatalf("first replacement: %v", err)
+	}
+	loser.GrantID = new("grant-loser")
+	if err := r.UpdateTriggerGrant(ctx, loser, false, &original); !errors.Is(err, ErrTriggerConflict) {
+		t.Fatalf("second replacement = %v, want ErrTriggerConflict", err)
+	}
+	if got, _ := r.GetTrigger(ctx, tenant, tr.ID); deref(got.GrantID) != "grant-winner" {
+		t.Errorf("stored grant = %s, want grant-winner", deref(got.GrantID))
 	}
 }

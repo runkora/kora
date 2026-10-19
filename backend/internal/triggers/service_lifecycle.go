@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -24,6 +25,7 @@ type triggerStore interface {
 	GetTrigger(ctx context.Context, tenantID, id string) (*Trigger, error)
 	ListTriggers(ctx context.Context, tenantID, agentTypeID string) ([]Trigger, error)
 	UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error
+	UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error
 	DeleteTrigger(ctx context.Context, tenantID, id string) error
 	GetSource(ctx context.Context, tenantID, id string) (*WebhookSource, error)
 	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
@@ -500,20 +502,59 @@ func refuseRetarget(t *Trigger, req UpdateTriggerRequest) error {
 }
 
 // storeUpdate writes the edited trigger. When a routed trigger's grant was
-// replaced, the new grant is undone if the write fails and the old one is
-// deleted once it succeeds.
+// replaced, the write only lands while the stored grant is still the old one,
+// so of two concurrent replacements one wins and the other undoes its new grant
+// and returns ErrTriggerConflict. The old grant is then revoked, and a
+// revocation that keeps failing is returned rather than reported as success.
 func (s *TriggerService) storeUpdate(ctx context.Context, t *Trigger, writeEnablement, replaced bool, oldGrant *string) error {
-	if err := s.repo.UpdateTrigger(ctx, t, writeEnablement); err != nil {
-		if replaced {
-			s.rollbackGrants(ctx, t.ID, []string{*t.GrantID})
-		}
+	if !replaced {
+		return s.repo.UpdateTrigger(ctx, t, writeEnablement)
+	}
+	if err := s.repo.UpdateTriggerGrant(ctx, t, writeEnablement, oldGrant); err != nil {
+		s.rollbackGrants(ctx, t.ID, []string{*t.GrantID})
 		return err
 	}
-	if replaced && oldGrant != nil {
-		deleteGrantsBestEffort(ctx, s.policy, s.logger, "failed to delete a routed trigger's replaced grant",
-			[]string{*oldGrant}, logging.Field{Key: "trigger_id", Value: t.ID})
+	if oldGrant == nil {
+		return nil
+	}
+	if err := revokeGrant(ctx, s.policy, *oldGrant); err != nil {
+		s.logger.Error(ctx, "a routed trigger's replaced grant could not be revoked",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "grant_id", Value: *oldGrant},
+			logging.Field{Key: "error", Value: err.Error()},
+		)
+		return fmt.Errorf("%w: trigger %s is stored with grant %s, but its previous grant %s is still live: %w",
+			ErrGrantRevokeFailed, t.ID, *t.GrantID, *oldGrant, err)
 	}
 	return nil
+}
+
+// Revoking a replaced grant is retried this many times, backing off from revokeBackoff.
+const (
+	revokeAttempts = 3
+	revokeBackoff  = 100 * time.Millisecond
+)
+
+// revokeGrant deletes a grant, retrying a bounded number of times. A grant that
+// is already gone is revoked.
+func revokeGrant(ctx context.Context, policy *policyclient.Client, grantID string) error {
+	backoff := revokeBackoff
+	var err error
+	for attempt := range revokeAttempts {
+		if err = policy.DeleteGrant(ctx, grantID); err == nil || errors.Is(err, policyclient.ErrGrantNotFound) {
+			return nil
+		}
+		if attempt == revokeAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+		backoff *= 2
+	}
+	return fmt.Errorf("revoke grant %s: %w", grantID, err)
 }
 
 // applyTriggerEdits copies the request's plain fields onto the trigger. Omitted

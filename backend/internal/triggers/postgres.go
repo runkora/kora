@@ -447,6 +447,17 @@ func (r *postgresRepository) ListMatchableScheduledTriggers(ctx context.Context)
 }
 
 func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger, writeEnablement bool) error {
+	return r.updateTrigger(ctx, t, writeEnablement, false, nil)
+}
+
+// UpdateTriggerGrant writes the trigger only while its stored grant is still
+// oldGrantID. A concurrent update that replaced the grant first wins, and this
+// one returns ErrTriggerConflict.
+func (r *postgresRepository) UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error {
+	return r.updateTrigger(ctx, t, writeEnablement, true, oldGrantID)
+}
+
+func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writeEnablement, guardGrant bool, oldGrantID *string) error {
 	condJSON, err := json.Marshal(t.MatchCondition)
 	if err != nil {
 		return fmt.Errorf("marshal match condition: %w", err)
@@ -480,14 +491,18 @@ func (r *postgresRepository) UpdateTrigger(ctx context.Context, t *Trigger, writ
 			       grant_id = $17,
 			       updated_at = now()
 			WHERE  id = $14 AND tenant_id = $15
+			  AND  (NOT $18 OR grant_id IS NOT DISTINCT FROM $19::text)
 		`, t.Name, t.EventType, condJSON, t.PromptTemplate, kindConfigJSON, t.Enabled,
 			t.DedupeEnabled, t.AutopauseEnabled,
 			t.MaxParallel, t.Overflow, t.MaxQueueDepth,
-			t.TimeoutSeconds, t.AutoPausedAt, t.ID, t.TenantID, writeEnablement, t.GrantID)
+			t.TimeoutSeconds, t.AutoPausedAt, t.ID, t.TenantID, writeEnablement, t.GrantID, guardGrant, oldGrantID)
 		if err != nil {
 			return fmt.Errorf("update trigger: %w", err)
 		}
 		if tag.RowsAffected() == 0 {
+			if guardGrant {
+				return ErrTriggerConflict
+			}
 			return ErrTriggerNotFound
 		}
 		return writeRoute(ctx, tx, t)

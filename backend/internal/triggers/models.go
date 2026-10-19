@@ -130,6 +130,12 @@ var (
 	// ErrNotRedeliverable is returned when a delivery exists but cannot be
 	// replayed. The message names which of the reasons applies.
 	ErrNotRedeliverable = errors.New("delivery cannot be redelivered")
+	// ErrTriggerConflict is returned when a concurrent update replaced a routed
+	// trigger's grant first. The caller retries against the stored trigger.
+	ErrTriggerConflict = errors.New("the trigger was changed by another request; retry the update")
+	// ErrGrantRevokeFailed is returned when an update stored a routed trigger's
+	// new grant but could not revoke the grant it replaced.
+	ErrGrantRevokeFailed = errors.New("the replaced trigger grant could not be revoked")
 	// ErrWrongKind is returned when an operation is not valid for the trigger's kind.
 	ErrWrongKind = errors.New("operation not valid for trigger kind")
 

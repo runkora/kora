@@ -65,6 +65,8 @@ type mockRepository struct {
 	listTriggersErr   error
 
 	decisions []*RoutingDecision
+	// beforeGrantUpdate runs at the start of UpdateTriggerGrant.
+	beforeGrantUpdate func()
 }
 
 // LatestJoinKeyRun mirrors the SQL: the newest decision of the trigger with the
@@ -283,6 +285,23 @@ func (m *mockRepository) ListMatchableScheduledTriggers(_ context.Context) ([]Tr
 
 // matchable mirrors the SQL predicate `enabled = true OR auto_paused_at IS NOT NULL`.
 func matchable(t *Trigger) bool { return t.Enabled || t.AutoPausedAt != nil }
+
+// UpdateTriggerGrant mirrors the conditional UPDATE: it writes only while the
+// stored grant is still oldGrantID. beforeGrantUpdate runs first, so a test can
+// land a concurrent update in between.
+func (m *mockRepository) UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error {
+	if m.beforeGrantUpdate != nil {
+		m.beforeGrantUpdate()
+	}
+	m.mu.Lock()
+	stored, ok := m.triggers[t.ID]
+	if ok && deref(stored.GrantID) != deref(oldGrantID) {
+		m.mu.Unlock()
+		return ErrTriggerConflict
+	}
+	m.mu.Unlock()
+	return m.UpdateTrigger(ctx, t, writeEnablement)
+}
 
 func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger, writeEnablement bool) error {
 	m.mu.Lock()
@@ -542,6 +561,8 @@ type policyStub struct {
 	deleted    []string
 	counter    int
 	failCreate bool
+	// failDelete makes every grant delete answer 500.
+	failDelete bool
 }
 
 func newPolicyStub() *policyStub {
@@ -583,6 +604,11 @@ func newPolicyStub() *policyStub {
 	})
 	mux.HandleFunc("DELETE /api/v1/policy/grants/{id}", func(w http.ResponseWriter, r *http.Request) {
 		ps.mu.Lock()
+		if ps.failDelete {
+			ps.mu.Unlock()
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		ps.deleted = append(ps.deleted, r.PathValue("id"))
 		delete(ps.created, r.PathValue("id"))
 		ps.mu.Unlock()
