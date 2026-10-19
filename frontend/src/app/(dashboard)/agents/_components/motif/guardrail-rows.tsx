@@ -38,6 +38,7 @@ export function GuardrailRow({
   title,
   desc,
   error,
+  disabled = false,
   children,
 }: {
   on: boolean;
@@ -46,13 +47,15 @@ export function GuardrailRow({
   title: string;
   desc: string;
   error?: string;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
   children?: React.ReactNode;
 }) {
   return (
     <Card>
       <CardContent padded compact>
         <Stack direction="horizontal" align="center" gap="cozy">
-          <Toggle checked={on} onChange={onToggle} aria-label={title} />
+          <Toggle checked={on} onChange={onToggle} aria-label={title} disabled={disabled} />
           <Stack grow gap="snug" disabled={!on}>
             <Stack direction="horizontal" align="center" gap="cozy">
               <Icon
@@ -89,14 +92,18 @@ export function GuardrailRow({
 export function GuardrailsFields({
   values,
   onChange,
+  disabled = false,
 }: {
   values: GuardrailValues;
   onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
 }) {
   const loopErrors = loopGuardrailErrors(values);
   return (
     <Stack gap="cozy">
       <GuardrailRow
+        disabled={disabled}
         on={values.agentBudgetOn}
         onToggle={(on) => onChange('agentBudgetOn', on)}
         icon="dollar-sign"
@@ -106,6 +113,7 @@ export function GuardrailsFields({
         <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
           <Stack maxWidth="form-field-sm">
             <Input
+              disabled={disabled}
               mono
               compact
               inputMode="decimal"
@@ -117,6 +125,7 @@ export function GuardrailsFields({
           </Stack>
           <ButtonGroup>
             <Button
+              disabled={disabled}
               variant="outline-muted"
               size="sm"
               selected={values.agentBudgetCadence === 'weekly'}
@@ -125,6 +134,7 @@ export function GuardrailsFields({
               Weekly
             </Button>
             <Button
+              disabled={disabled}
               variant="outline-muted"
               size="sm"
               selected={values.agentBudgetCadence === 'monthly'}
@@ -137,6 +147,7 @@ export function GuardrailsFields({
       </GuardrailRow>
 
       <GuardrailRow
+        disabled={disabled}
         on={values.runBudgetOn}
         onToggle={(on) => onChange('runBudgetOn', on)}
         icon="dollar-sign"
@@ -146,6 +157,7 @@ export function GuardrailsFields({
         <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
           <Stack maxWidth="form-field-sm">
             <Input
+              disabled={disabled}
               mono
               compact
               inputMode="decimal"
@@ -159,6 +171,7 @@ export function GuardrailsFields({
       </GuardrailRow>
 
       <GuardrailRow
+        disabled={disabled}
         on={values.capacityOn}
         onToggle={(on) => onChange('capacityOn', on)}
         icon="layers"
@@ -168,6 +181,7 @@ export function GuardrailsFields({
         <Stack direction="horizontal" align="center" gap="snug" shrink={false}>
           <Stack maxWidth="form-field-sm">
             <Input
+              disabled={disabled}
               mono
               compact
               inputMode="numeric"
@@ -183,6 +197,7 @@ export function GuardrailsFields({
       </GuardrailRow>
 
       <LoopThresholdRow
+        disabled={disabled}
         icon="refresh-cw"
         title="Repeated calls"
         desc="Same tool call, same input and result, in a row (platform default when off)"
@@ -194,6 +209,7 @@ export function GuardrailsFields({
         onChange={onChange}
       />
       <LoopThresholdRow
+        disabled={disabled}
         icon="clock"
         title="Wait loops"
         desc="Waits re-armed with no progress in between (platform default when off)"
@@ -223,6 +239,7 @@ function LoopThresholdRow({
   error,
   values,
   onChange,
+  disabled,
 }: {
   icon: IconName;
   title: string;
@@ -233,6 +250,7 @@ function LoopThresholdRow({
   error?: string;
   values: GuardrailValues;
   onChange: <K extends keyof GuardrailValues>(key: K, value: GuardrailValues[K]) => void;
+  disabled: boolean;
 }) {
   const setOn = (on: boolean) => {
     onChange(toggle, on);
@@ -248,6 +266,7 @@ function LoopThresholdRow({
       </Text>
       <Stack maxWidth="form-field-sm">
         <Input
+          disabled={disabled}
           mono
           compact
           inputMode="numeric"
@@ -261,6 +280,7 @@ function LoopThresholdRow({
   );
   return (
     <GuardrailRow
+      disabled={disabled}
       on={values[toggle]}
       onToggle={setOn}
       icon={icon}

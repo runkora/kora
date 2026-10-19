@@ -221,9 +221,12 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
               {cfg.modelsError && (
                 <Alert variant="error">Models failed to load: {cfg.modelsError}</Alert>
               )}
-              <Stack disabled={readOnly}>
-                <ModelPicker models={cfg.models} value={cfg.modelId} onChange={cfg.setModelId} />
-              </Stack>
+              <ModelPicker
+                disabled={readOnly}
+                models={cfg.models}
+                value={cfg.modelId}
+                onChange={cfg.setModelId}
+              />
             </Stack>
           </Stack>
         )}
@@ -262,13 +265,12 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                 title="Connections"
                 desc="Credentialed connections the agent may call. Credentials are injected just-in-time. The agent never sees them."
               />
-              <Stack disabled={readOnly}>
-                <ConnectionCards
-                  available={cfg.availableConnections}
-                  value={cfg.connectors}
-                  onChange={cfg.setConnectors}
-                />
-              </Stack>
+              <ConnectionCards
+                disabled={readOnly}
+                available={cfg.availableConnections}
+                value={cfg.connectors}
+                onChange={cfg.setConnectors}
+              />
             </Stack>
           </Stack>
         )}
@@ -327,9 +329,11 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                 Every limit is optional. Switch on the ones you want {productName} to enforce.
               </Text>
             </Stack>
-            <Stack disabled={readOnly}>
-              <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />
-            </Stack>
+            <GuardrailsFields
+              disabled={readOnly}
+              values={guardrailValues}
+              onChange={onGuardrailChange}
+            />
             <PlannedLimits />
           </Stack>
         )}
