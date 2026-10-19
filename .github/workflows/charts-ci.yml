@@ -50,8 +50,8 @@ jobs:
             echo '---'
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml --kube-version "${K8S_VERSION}"
             echo '---'
-            # The same release with a theme configured: the init container and
-            # the theme ConfigMap on the frontend pod.
+            # The same release with a theme set. This adds the init container
+            # and the theme ConfigMap to the frontend pod.
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/theme-values.yaml --kube-version "${K8S_VERSION}"
           } > rendered.yaml
           # Schema coverage:

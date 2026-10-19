@@ -1,6 +1,5 @@
-# A configured theme, for the render matrix: the document alone, with slots
-# that hold URLs. helm template fetches nothing; the init container validates
-# the document (docs/adr/2026-10-12-white-labelling-theme.md).
+# A configured theme for the render matrix.
+# The slots hold URLs, so helm template fetches nothing.
 theme:
   document: |
     koraVersion: "1.0.0"

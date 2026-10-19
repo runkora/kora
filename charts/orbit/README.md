@@ -465,7 +465,7 @@ Kubernetes: `>=1.34.0-0`
 | sandboxMount.resources.requests.memory | string | `"32Mi"` |  |
 | sandboxMount.tolerations | list | `[]` | Added to the tolerations of agents.workloads.sandbox and agents.workloads.sessionManager, which the agent always carries. |
 | spire.className | string | `"spire-system-spire"` |  |
-| theme.document | string | `""` | The theme document: the full theme.yaml as one string. Supply it with `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. The chart renders it into the frontend's ConfigMap for the init container and the frontend, and reads productName from it for the backend services, failing the render when the name is outside the Hades product-name bounds. Slot URLs must be https; a font host must send Access-Control-Allow-Origin. |
+| theme.document | string | `""` | The full theme.yaml as one string. Pass it with `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. Slot URLs must be https. A font host must send Access-Control-Allow-Origin. The chart also reads productName from it for the backend services. The render fails if the name is outside the Hades product-name bounds. |
 | toolGateway.affinity | object | `{}` |  |
 | toolGateway.configOverrides | object | `{}` | Raw config merged last over the rendered config files, keyed by config module (docs/adr/2026-10-06-rendered-service-config-files.md). Keys follow the Go config structs; an unknown key fails startup. |
 | toolGateway.extraEnv | list | `[]` |  |

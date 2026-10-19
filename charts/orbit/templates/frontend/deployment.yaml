@@ -35,17 +35,16 @@ spec:
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- if $theme }}
-        # The theme document (docs/adr/2026-10-12-white-labelling-theme.md).
         - name: theme-document
           configMap:
             name: orbit-frontend-theme
         {{- end }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "frontend") | nindent 8 }}
       {{- if $theme }}
-      # Validates the document against the kora release this image is. It
-      # checks each slot URL's form and fetches none. A fault keeps the pod
-      # from starting, the rollout stalls and the previous pods keep serving;
-      # the reason is in this container's log.
+      # Validates the document against the kora release this image is.
+      # It checks the form of each slot URL and fetches none.
+      # A fault keeps the pod from starting. The rollout stalls and the
+      # previous pods keep serving. The reason is in this container's log.
       initContainers:
         - name: validate-theme
           image: {{ include "orbit.image" (dict "root" $ "name" "frontend") | quote }}

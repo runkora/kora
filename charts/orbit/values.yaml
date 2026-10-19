@@ -84,19 +84,17 @@ frontendHost: ""
 # Canonical (api.) host first. Empty disables validation.
 publicHosts: []
 
-# The white-labelling theme (docs/adr/2026-10-12-white-labelling-theme.md).
-# Empty means the kora default. The document is the whole theme: its slots hold
-# the https URLs the browser loads the logo, favicon and fonts from, so a theme
-# needs nothing from the cluster beyond this value. The frontend's init
-# container validates the document before any page serves and never fetches a
-# URL.
+# The white-labelling theme. Empty means the kora default.
+# The document is the whole theme. Its slots hold the https URLs that the
+# browser loads the logo, favicon and fonts from.
+# The frontend's init container validates the document before any page serves.
+# It never fetches a URL.
 theme:
-  # -- The theme document: the full theme.yaml as one string. Supply it with
-  # `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. The chart
-  # renders it into the frontend's ConfigMap for the init container and the
-  # frontend, and reads productName from it for the backend services, failing the
-  # render when the name is outside the Hades product-name bounds. Slot URLs
-  # must be https; a font host must send Access-Control-Allow-Origin.
+  # -- The full theme.yaml as one string. Pass it with
+  # `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`.
+  # Slot URLs must be https. A font host must send Access-Control-Allow-Origin.
+  # The chart also reads productName from it for the backend services. The
+  # render fails if the name is outside the Hades product-name bounds.
   document: ""
 
 # Postgres and Redis endpoints rendered into each service's storage config

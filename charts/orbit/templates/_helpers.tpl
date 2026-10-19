@@ -432,10 +432,9 @@ internal/platform/token:
 {{- end }}
 
 {{/*
-Brand config module, read by every service that produces text a client's
-people or agents read: orbit-agents, orbit-mcp, the egress gateway and the
-operator (docs/adr/2026-10-12-white-labelling-theme.md, decision 5). Take the
-root context.
+Brand config module: the product name, for each service that produces text
+a client's people or agents read. Used by orbit-agents, orbit-mcp, the egress
+gateway and the operator. Take the root context.
 */}}
 {{- define "orbit.brandConfigModule" -}}
 internal/platform/brand:
@@ -443,26 +442,28 @@ internal/platform/brand:
 {{- end }}
 
 {{/*
-The white-labelling theme (docs/adr/2026-10-12-white-labelling-theme.md).
-"true" when a theme is configured: theme.document is the whole theme, and its
-slots hold the https URLs the browser loads the logo, favicon and fonts from.
-Nothing else is rendered or required of the cluster. Take the root context.
+"true" when theme.document is set, empty otherwise. The document is the whole
+theme. The chart needs nothing else from the cluster. Take the root context.
 */}}
 {{- define "orbit.themeEnabled" -}}
 {{- if .Values.theme.document }}true{{ end -}}
 {{- end }}
 
 {{/*
-The product name the backend services render: the document's productName,
-trimmed as the frontend's validator trims it, or kora when no theme is
-configured or the document omits the key. A key set to null fails, as it does in
-the frontend's validator. The render fails when the document
-is not a YAML map (fromYaml reports a parse error as an Error key) and when the
-name is outside the Hades product-name bounds, which files/hades-product-name.json
-carries, copied from the Hades manifest by `make hades-chart-rules` so the chart
-and the frontend apply one rule. This is the one theme value the backend reads,
-so it is checked here, before any workload rolls, not left to the frontend's
-init container. Take the root context.
+The product name the backend services render. Take the root context.
+
+It is the document's productName, trimmed as the frontend trims it. It is kora
+when no theme is set or the document omits the key.
+
+The render fails when:
+- the document is not a YAML map (fromYaml reports a parse error as an Error key)
+- productName is null, as in the frontend's validator
+- productName is not a string, or is outside the Hades product-name bounds
+
+files/hades-product-name.json holds the bounds. `make hades-chart-rules` copies
+it from the Hades manifest, so the chart and the frontend apply one rule.
+The backend reads only this value from the theme. The chart checks it here, so
+a bad name fails before any workload rolls.
 */}}
 {{- define "orbit.themeProductName" -}}
 {{- $name := "kora" -}}
@@ -495,9 +496,9 @@ init container. Take the root context.
 {{- end }}
 
 {{/*
-The theme mount: the document, from the frontend's ConfigMap, as
-/etc/orbit/theme/theme.yaml. The init container and the frontend container
-mount it. Take the root context.
+Mounts the theme document from the frontend's ConfigMap at
+/etc/orbit/theme/theme.yaml. Used by the init container and the frontend
+container. Take the root context.
 */}}
 {{- define "orbit.themeVolumeMounts" -}}
 - name: theme-document

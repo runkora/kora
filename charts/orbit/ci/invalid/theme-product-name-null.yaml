@@ -1,4 +1,4 @@
-# A product name set to null: the frontend's validator refuses it, so the chart does too.
+# A product name set to null. The frontend's validator refuses it, so the chart does too.
 theme:
   document: |
     koraVersion: "1.0.0"
