@@ -811,6 +811,30 @@ func TestHandleCreateTrigger_RoutedMissingScopes(t *testing.T) {
 	}
 }
 
+// A decision model outside the catalog is a 400 naming the model, on create and update.
+func TestHandleRoutedTrigger_UnknownModel(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	src := mustSource(t, deps.sources)
+	tr := mustRouted(t, deps, src.ID, nil)
+	deps.policy.unknownScopes = map[string]bool{"inference:liquid:missing:use": true}
+
+	create := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil,
+		routedReq(src.ID, func(r *CreateTriggerRequest) { r.Routing.Model = "liquid/missing" }))
+	update := call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID, map[string]string{"id": tr.ID}, UpdateTriggerRequest{
+		Routing: routingReq(func(r *RoutingConfig) { r.Model = "liquid/missing" }),
+	})
+
+	for name, w := range map[string]*httptest.ResponseRecorder{"create": create, "update": update} {
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("%s status = %d, want 400 (body: %s)", name, w.Code, w.Body.String())
+		}
+		if !strings.Contains(w.Body.String(), `routing.model \"liquid/missing\" is not a model in this tenant's catalog`) {
+			t.Errorf("%s body = %s, want the model named", name, w.Body.String())
+		}
+	}
+}
+
 func TestHandleRoutingCandidates(t *testing.T) {
 	c, deps, _ := newTestController(t)
 	deps.agents.agentTypes = []agentsclient.AgentType{{ID: "at-a", Slug: "coder", Name: "Coder"}}

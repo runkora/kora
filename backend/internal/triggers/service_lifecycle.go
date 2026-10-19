@@ -255,7 +255,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 
 	grantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), src.PrincipalID, scopes, nil, false)
 	if err != nil {
-		return nil, fmt.Errorf("create trigger grant: %w", err)
+		return nil, grantCreateError(err, t.Routing)
 	}
 	grants = append(grants, grantID)
 	t.GrantID = &grantID

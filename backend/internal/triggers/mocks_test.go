@@ -578,6 +578,9 @@ type policyStub struct {
 	deleted    []string
 	counter    int
 	failCreate bool
+	// unknownScopes answers a create naming any of them with the policy
+	// service's 400 for a scope outside the vocabulary.
+	unknownScopes map[string]bool
 	// failDelete makes every grant delete answer 500.
 	failDelete bool
 }
@@ -598,6 +601,14 @@ func newPolicyStub() *policyStub {
 			Scopes      []string `json:"scopes"`
 		}
 		_ = json.Unmarshal(body, &req)
+		for _, sc := range req.Scopes {
+			if ps.unknownScopes[sc] {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = fmt.Fprintf(w, `{"code":"invalid_field","message":"scope '%s' is not in the scope vocabulary","details":{"scope":%q}}`, sc, sc)
+				return
+			}
+		}
 		ps.counter++
 		id := fmt.Sprintf("grant-%d", ps.counter)
 		ps.created[id] = req.PrincipalID
