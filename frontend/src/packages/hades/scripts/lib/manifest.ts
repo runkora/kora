@@ -137,13 +137,3 @@ export function buildManifest(css: string, surface: SurfaceInput = SURFACE): Man
 export function serializeManifest(manifest: Manifest): string {
   return `${JSON.stringify(manifest, null, 2)}\n`;
 }
-
-export function parseManifest(text: string): Manifest {
-  const parsed: unknown = JSON.parse(text);
-  if (typeof parsed !== 'object' || parsed === null) throw new Error('manifest is not an object');
-  const m = parsed as Partial<Manifest>;
-  for (const key of ['modes', 'tokens', 'mapping', 'slots', 'productName'] as const) {
-    if (!(key in m)) throw new Error(`manifest is missing "${key}"`);
-  }
-  return m as Manifest;
-}

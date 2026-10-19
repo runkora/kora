@@ -69,14 +69,13 @@ describe('parseDeclarations', () => {
 });
 
 describe('readTokenSheet', () => {
-  it('collects raw tokens from every :root block, light overrides and the semantic mapping', () => {
+  it('collects raw tokens from every :root block and the semantic mapping', () => {
     const sheet = readTokenSheet(SHEET);
     expect(sheet.rawTokens).toEqual([
       '--hades-raw-black',
       '--hades-raw-border-subtle',
       '--hades-raw-shadow-elevated',
     ]);
-    expect(sheet.lightOverrides).toEqual(['--hades-raw-black']);
     expect(sheet.semantic.map((d) => d.name)).toEqual([
       '--color-background',
       '--color-accent-subtle',

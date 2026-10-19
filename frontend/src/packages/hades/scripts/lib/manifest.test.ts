@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 import { MODES } from '../../src/tokens/surface.ts';
 import {
   buildManifest,
-  parseManifest,
   serializeManifest,
   SURFACE,
   SurfaceMismatchError,
@@ -130,16 +129,11 @@ describe('buildManifest', () => {
   });
 });
 
-describe('serializeManifest and parseManifest', () => {
+describe('serializeManifest', () => {
   it('round-trips with a trailing newline', () => {
     const m = buildManifest(SMALL_CSS, SMALL_SURFACE);
     const text = serializeManifest(m);
     expect(text.endsWith('}\n')).toBe(true);
-    expect(parseManifest(text)).toEqual(m);
-  });
-
-  it('rejects a manifest missing a top-level field', () => {
-    expect(() => parseManifest('{}')).toThrow(/missing "modes"/);
-    expect(() => parseManifest('{"modes":["dark","light"]}')).toThrow(/missing "tokens"/);
+    expect(JSON.parse(text)).toEqual(m);
   });
 });

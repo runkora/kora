@@ -1,6 +1,6 @@
 /**
- * Reads the custom properties declared in the `:root`, `[data-theme='light']`
- * and `@theme inline` blocks of `tokens.css`. It is not a general CSS parser.
+ * Reads the custom properties declared in the `:root` and `@theme inline`
+ * blocks of `tokens.css`. It is not a general CSS parser.
  */
 
 export interface Declaration {
@@ -16,7 +16,7 @@ export interface Block {
 
 export const RAW_PREFIX = '--hades-raw-';
 
-export function stripComments(css: string): string {
+function stripComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
@@ -73,8 +73,6 @@ export function parseDeclarations(body: string): Declaration[] {
 export interface TokenSheet {
   /** Raw token names declared in any `:root` block, in declaration order. */
   readonly rawTokens: readonly string[];
-  /** Raw tokens given a light value in the `[data-theme='light']` block. */
-  readonly lightOverrides: readonly string[];
   /** `@theme inline` declarations, in declaration order. */
   readonly semantic: readonly Declaration[];
 }
@@ -82,19 +80,15 @@ export interface TokenSheet {
 export function readTokenSheet(css: string): TokenSheet {
   const blocks = parseBlocks(css);
   const rawTokens: string[] = [];
-  const lightOverrides: string[] = [];
   const semantic: Declaration[] = [];
   for (const block of blocks) {
     if (block.selector === ':root') {
       for (const d of block.declarations) if (d.name.startsWith(RAW_PREFIX)) rawTokens.push(d.name);
-    } else if (block.selector === "[data-theme='light']") {
-      for (const d of block.declarations)
-        if (d.name.startsWith(RAW_PREFIX)) lightOverrides.push(d.name);
     } else if (block.selector === '@theme inline') {
       semantic.push(...block.declarations);
     }
   }
-  return { rawTokens, lightOverrides, semantic };
+  return { rawTokens, semantic };
 }
 
 /** Every `var(--name` reference in a value, in order, with duplicates kept. */
