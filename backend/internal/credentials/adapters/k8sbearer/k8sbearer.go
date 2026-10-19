@@ -86,6 +86,9 @@ var resourceCategories = map[string]string{
 	// VerticalPodAutoscalers are deliberately absent: they are a CRD
 	// (autoscaling.k8s.io), and this map covers built-in resources only.
 	"horizontalpodautoscalers": "workloads",
+	// ControllerRevisions hold the rollout history of DaemonSets and
+	// StatefulSets, which kubectl rollout history reads.
+	"controllerrevisions": "workloads",
 
 	// config
 	"configmaps": "config",
