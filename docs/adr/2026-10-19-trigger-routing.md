@@ -147,7 +147,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
     - Its state is `active` or `idle`.
     - Its agent type is a candidate of the routing trigger.
 13. **Join access:** `SendRunMessage` calls `RunService.SendMessage` with the routing trigger's SERVICE token, and `checkRun` requires `agents:runs:<slug>:write` for that token. A joined run's agent acts with its own agent type's grant. Joining a run of a candidate agent reaches no access beyond starting a new run of that agent.
-14. **Trigger messages:** A message from a SERVICE principal keeps the run's trigger idle timeout and is sent to the session-manager with `fromPerson` false. The event stream records it as a trigger message with the trigger's name. `ForPersonMessage` and the human message event apply only to a USER principal.
+14. **Trigger messages:** A message is a trigger message only when the caller is a SERVICE principal whose subject is a trigger (`trigger:<id>`) or a trigger source (`trigger-source:<name>`). `POST /api/v1/runs/{id}/messages` accepts optional `trigger_id`, `trigger_name` and `delivery_id`, checked as on a run start. A trigger's own principal that names no trigger is attributed to its own trigger. A trigger message keeps the run's trigger idle timeout and is sent to the session-manager with `fromPerson` false. The event stream records it as a trigger message with the trigger's name. Any other caller, including any other SERVICE principal, takes `ForPersonMessage` and the human message event, and a request from it that sets any of the three attribution fields is rejected with 403.
 15. **Lost race:** If the chosen run leaves `active` or `idle` before the message arrives (`ErrRunStarting` or `ErrRunNotAcceptingMessages`), the delivery starts a new run of that run's agent and records the change.
 16. **Grants:** A routed trigger's principal holds one grant with the following scopes:
     - `triggerRunScopes(slug)` for every candidate.
@@ -326,7 +326,7 @@ The target step and the delivery detail follow the stories under `Pages/Triggers
 1.  `backend/internal/platform/clients/inference/client.go`: the typed client with `SystemOne`.
 2.  `backend/internal/platform/clients/agents/client.go`: `SendRunMessage` and `ListRuns` with the new filters.
 3.  `backend/internal/agents/server.go` and `backend/internal/agents/postgres.go`: the `started_by=trigger` and repeated `agent_type_id` filters on `GET /api/v1/runs`.
-4.  `backend/internal/agents/idle_timeout.go` and `backend/internal/agents/run_service.go`: the idle timeout and the event for SERVICE-principal messages.
+4.  `backend/internal/agents/idle_timeout.go` and `backend/internal/agents/run_service.go`: the attribution fields, the idle timeout and the event for trigger messages.
 5.  `backend/cmd/orbit-triggers/migrations/`: the `add_trigger_routing` migration.
 6.  `backend/internal/triggers/`: the `routing` model and validation, `routing_questions.go`, the routing step in `DispatchPending`, the repository methods for routes, candidates, decisions and the key lookup, and the caller-claims check on create and update.
 7.  `backend/cmd/orbit-triggers/config/base.yaml`, `backend/cmd/orbit-triggers/main.go` and `charts/orbit/`: the inference gateway URL, the client and the mesh wiring.
