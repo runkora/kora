@@ -31,6 +31,8 @@ const config: StorybookConfig = {
     '../src/app/**/*.stories.@(ts|tsx)',
     './stories/**/*.stories.@(ts|tsx)',
   ],
+  // Stories that render the default theme's logo need public/brand/.
+  staticDirs: ['../public'],
   addons: ['@storybook/addon-docs', '@storybook/addon-a11y'],
   framework: {
     name: '@storybook/nextjs',
