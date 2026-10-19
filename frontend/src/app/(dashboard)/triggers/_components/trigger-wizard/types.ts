@@ -34,6 +34,8 @@ export interface TriggerWizardAgent {
    * than hiding them, so the list matches the agents page.
    */
   identityMode?: 'autonomous' | 'delegated';
+  /** False when the caller may not run the agent, which binding a trigger needs. Absent reads as allowed. */
+  canRun?: boolean;
 }
 
 export interface TriggerWizardSource {

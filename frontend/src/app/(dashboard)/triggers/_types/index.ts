@@ -190,6 +190,8 @@ export interface AgentOption {
    * (they only run on behalf of a person), so the picker disables them.
    */
   identityMode: 'autonomous' | 'delegated';
+  /** Whether the caller may run this agent; binding and run-shaping edits need it. */
+  canRun: boolean;
 }
 
 // ── Transformers ──────────────────────────────────────────────────────────────

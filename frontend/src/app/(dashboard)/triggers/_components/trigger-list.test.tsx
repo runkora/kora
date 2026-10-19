@@ -22,6 +22,7 @@ function list(overrides: Partial<ComponentProps<typeof TriggerList>> = {}) {
       sourceName={(id) => id}
       onOpen={vi.fn()}
       onToggle={vi.fn()}
+      canRunAgent={() => true}
       emptyMessage="No triggers yet."
       resetKey="all|"
       {...overrides}

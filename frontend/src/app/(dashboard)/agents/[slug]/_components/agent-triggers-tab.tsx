@@ -213,6 +213,7 @@ export function AgentTriggersTab() {
           sourceName={sourceName}
           onOpen={setDrawerTrigger}
           onToggle={(t) => void toggleTrigger(t)}
+          canRunAgent={() => agent.canRun}
           emptyMessage="No triggers for this agent."
         />
       )}
@@ -233,6 +234,7 @@ export function AgentTriggersTab() {
           same surface, byte for byte, as configuring it there. */}
       <TriggerDrawer
         trigger={drawerRow}
+        canRunAgent={agent.canRun}
         sources={sources}
         deliveries={agentDeliveries}
         ingestHost={ingestHost}
@@ -259,7 +261,7 @@ export function AgentTriggersTab() {
         <DeliveryDetailPanel
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
-          onRedeliver={redeliver}
+          onRedeliver={agent.canRun ? redeliver : undefined}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
@@ -271,7 +273,13 @@ export function AgentTriggersTab() {
       {wizardOpen && (
         <TriggerWizard
           agents={[
-            { id: agent.id, slug: agent.slug, name: agent.name, identityMode: agent.identityMode },
+            {
+              id: agent.id,
+              slug: agent.slug,
+              name: agent.name,
+              identityMode: agent.identityMode,
+              canRun: agent.canRun,
+            },
           ]}
           sources={sources.map((src) => ({ id: src.id, name: src.name, provider: src.provider }))}
           ingestHost={ingestHost}

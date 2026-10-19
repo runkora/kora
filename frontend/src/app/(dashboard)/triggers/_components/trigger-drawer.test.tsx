@@ -59,6 +59,7 @@ const SOURCES: SourceRow[] = [
 function renderDrawer(row: TriggerRow, onEdit?: () => Promise<string | null>) {
   return renderWithProviders(
     <TriggerDrawer
+      canRunAgent
       trigger={row}
       sources={SOURCES}
       deliveries={[]}
@@ -340,6 +341,7 @@ describe('read-only callers', () => {
   it('offers no edit affordances without onEdit', () => {
     renderWithProviders(
       <TriggerDrawer
+        canRunAgent
         trigger={trigger({
           kind: 'scheduled',
           scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
@@ -362,6 +364,7 @@ describe('ephemeral state is scoped to the open trigger', () => {
     const onRotateSecret = vi.fn().mockResolvedValue('secret-for-A');
     const { rerender } = renderWithProviders(
       <TriggerDrawer
+        canRunAgent
         trigger={trigger({ id: 'trg-A', name: 'trigger-a' })}
         sources={SOURCES}
         deliveries={[]}
@@ -383,6 +386,7 @@ describe('ephemeral state is scoped to the open trigger', () => {
     // shows the placeholder and the Rotate button, never A's live secret.
     rerender(
       <TriggerDrawer
+        canRunAgent
         trigger={trigger({ id: 'trg-B', name: 'trigger-b' })}
         sources={SOURCES}
         deliveries={[]}
@@ -402,9 +406,10 @@ describe('ephemeral state is scoped to the open trigger', () => {
 });
 
 describe('permissions', () => {
-  function renderWith(scopes: string[], row: TriggerRow) {
+  function renderWith(scopes: string[], row: TriggerRow, canRunAgent = true) {
     return renderWithProviders(
       <TriggerDrawer
+        canRunAgent={canRunAgent}
         trigger={row}
         sources={SOURCES}
         deliveries={[]}
@@ -447,5 +452,14 @@ describe('permissions', () => {
     expect(screen.getByRole('switch')).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Edit' })).toBeEnabled();
     expect(screen.queryByText("You don't have permission to edit triggers.")).toBeNull();
+  });
+
+  it('keeps run-shaping edits read only without run authority on the agent', () => {
+    renderWith(['triggers:read', 'triggers:write'], scheduled, false);
+    expect(
+      screen.getByText(/You don't have permission to run this trigger's agent\./),
+    ).toBeTruthy();
+    expect(screen.getByRole('switch')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
   });
 });

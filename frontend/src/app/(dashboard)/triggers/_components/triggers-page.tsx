@@ -69,6 +69,13 @@ export function TriggersPage({
   const canWrite = useHasScope('triggers:write');
   const ingestHost = ingestHostFromWindow();
 
+  const canRunAgent = useCallback(
+    (agentTypeId: string) => agents.some((a) => a.id === agentTypeId && a.canRun),
+    [agents],
+  );
+  const canRunOwner = (triggerId: string | null) =>
+    canRunAgent(triggers.find((t) => t.id === triggerId)?.agentTypeId ?? '');
+
   const sourceName = useMemo(() => {
     const map = new Map<string, string>();
     for (const s of sources) map.set(s.id, s.name);
@@ -231,6 +238,7 @@ export function TriggersPage({
               sourceName={sourceName}
               onOpen={setDrawerTrigger}
               onToggle={(t) => void toggleTrigger(t)}
+              canRunAgent={canRunAgent}
               emptyMessage={
                 triggers.length === 0
                   ? 'No triggers yet.'
@@ -276,7 +284,7 @@ export function TriggersPage({
         <DeliveryDetailPanel
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
-          onRedeliver={redeliver}
+          onRedeliver={canRunOwner(detailDelivery.triggerId) ? redeliver : undefined}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);
@@ -288,6 +296,7 @@ export function TriggersPage({
       {/* Modals */}
       <TriggerDrawer
         trigger={drawerRow}
+        canRunAgent={drawerRow !== null && canRunAgent(drawerRow.agentTypeId)}
         sources={sources}
         deliveries={deliveries}
         ingestHost={ingestHost}

@@ -142,6 +142,12 @@ interface TriggerDrawerProps {
   /** Fire a manual trigger now. Absent for kinds that fire on their own. */
   onFire?: (t: TriggerRow) => void;
   firing?: boolean;
+  /**
+   * Whether the caller may run the bound agent. Changing what a trigger runs
+   * or when (prompt, filters, senders, schedule, on or off, redeliver, secret
+   * rotation) needs it on top of triggers:write.
+   */
+  canRunAgent: boolean;
 }
 
 /** How many deliveries the tab shows before it stops. */
@@ -311,14 +317,17 @@ export function TriggerDrawer({
   onRotateSecret: rotateSecretAction,
   onFire: fireAction,
   firing = false,
+  canRunAgent,
 }: TriggerDrawerProps) {
   // Without triggers:write every write handler is dropped, which disables its
-  // control. Firing has its own per-trigger answer from the API.
+  // control. Run-shaping edits also need run authority on the bound agent.
+  // Firing has its own per-trigger answer from the API.
   const canWrite = useHasScope('triggers:write');
+  const canShapeRuns = canWrite && canRunAgent;
   const onUpdateSafety = canWrite ? updateSafetyAction : undefined;
   const onEdit = canWrite ? editAction : undefined;
-  const onRedeliver = canWrite ? redeliverAction : undefined;
-  const onRotateSecret = canWrite ? rotateSecretAction : undefined;
+  const onRedeliver = canShapeRuns ? redeliverAction : undefined;
+  const onRotateSecret = canShapeRuns ? rotateSecretAction : undefined;
   const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
   // Rotation is destructive (the provider's configured secret stops working the
@@ -342,6 +351,7 @@ export function TriggerDrawer({
   // trigger cannot inherit half-typed edits from the last one.
   const editKey = trigger?.id ?? '';
   const editable = onEdit !== undefined && trigger !== null;
+  const runEditable = editable && canRunAgent;
 
   const savePatch = useCallback(
     async (patch: TriggerEditPatch): Promise<string | null> => {
@@ -525,7 +535,7 @@ export function TriggerDrawer({
           <Toggle
             checked={trigger.enabled}
             onChange={(next) => onToggleEnabled(trigger, next)}
-            disabled={!canWrite}
+            disabled={!canShapeRuns}
             aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
           />
         }
@@ -542,7 +552,16 @@ export function TriggerDrawer({
 
         <SidePanelBody padding="compact">
           {/* One notice covers every disabled edit control in the drawer. */}
-          {!canWrite && <Alert variant="info">{permissionHintText('edit triggers')}</Alert>}
+          {!canWrite ? (
+            <Alert variant="info">{permissionHintText('edit triggers')}</Alert>
+          ) : (
+            !canRunAgent && (
+              <Alert variant="info">
+                {permissionHintText("run this trigger's agent")} Its prompt, filters, schedule and
+                on or off state are read only.
+              </Alert>
+            )
+          )}
           {/* ── Overview: what this is and how it fires ─────────────────── */}
           <TabsContent value="overview">
             <Stack gap="comfortable">
@@ -702,7 +721,7 @@ export function TriggerDrawer({
                             <Button
                               variant="ghost"
                               size="xs"
-                              disabled={!editable}
+                              disabled={!runEditable}
                               onClick={() => setScheduleOpen(true)}
                             >
                               Edit
@@ -791,7 +810,7 @@ export function TriggerDrawer({
                     placeholder="Choose an event"
                     catalog={eventTypeCatalog(sourceCatalog.declared, sourceCatalog.observed)}
                     searchPlaceholder="Search events…"
-                    disabled={!editable}
+                    disabled={!runEditable}
                     onSelect={(eventType) => filters.setValue({ ...filters.value, eventType })}
                   />
 
@@ -799,7 +818,7 @@ export function TriggerDrawer({
                     rows={filters.value.filters}
                     fields={webhookFields}
                     onChange={setFilterRows}
-                    canAdd={editable}
+                    canAdd={runEditable}
                   />
 
                   <Text size="caption" color="subtle">
@@ -825,7 +844,7 @@ export function TriggerDrawer({
                   available={sourceCatalog.associations}
                   value={senders.value}
                   onChange={senders.setValue}
-                  disabled={!editable}
+                  disabled={!runEditable}
                   actions={
                     <EditActions
                       dirty={senders.dirty}
@@ -868,7 +887,7 @@ export function TriggerDrawer({
                   value={prompt.value}
                   onChange={prompt.setValue}
                   catalog={promptCatalog}
-                  disabled={!editable}
+                  disabled={!runEditable}
                   placeholder="What this trigger asks the agent to do."
                   catalogLabel={
                     trigger.kind === 'webhook' && filters.value.eventType

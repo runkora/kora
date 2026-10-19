@@ -58,6 +58,7 @@ function makeColumns(
   sourceName: (id: string) => string,
   onToggle: (t: TriggerRow) => void,
   canWrite: boolean,
+  canRunAgent: (agentTypeId: string) => boolean,
 ): DataTableColumn<TriggerDisplayRow>[] {
   return [
     {
@@ -165,23 +166,30 @@ function makeColumns(
       minWidth: '4.5rem',
       align: 'right',
       locked: true,
-      cell: (row) => (
-        <Stack
-          direction="horizontal"
-          justify="end"
-          onClick={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          <PermissionHint allowed={canWrite} action="turn triggers on or off">
-            <Toggle
-              checked={row.enabled}
-              onChange={() => onToggle(row)}
-              disabled={!canWrite}
-              aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
-            />
-          </PermissionHint>
-        </Stack>
-      ),
+      cell: (row) => {
+        // Turning a trigger on or off also needs run authority on its agent.
+        const runs = canRunAgent(row.agentTypeId);
+        return (
+          <Stack
+            direction="horizontal"
+            justify="end"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <PermissionHint
+              allowed={canWrite && runs}
+              action={canWrite ? "run this trigger's agent" : 'turn triggers on or off'}
+            >
+              <Toggle
+                checked={row.enabled}
+                onChange={() => onToggle(row)}
+                disabled={!canWrite || !runs}
+                aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
+              />
+            </PermissionHint>
+          </Stack>
+        );
+      },
     },
   ];
 }
@@ -205,6 +213,8 @@ interface TriggerListProps {
   sourceName: (id: string) => string;
   onOpen: (t: TriggerRow) => void;
   onToggle: (t: TriggerRow) => void;
+  /** Whether the caller may run an agent; the on or off switch needs it. */
+  canRunAgent: (agentTypeId: string) => boolean;
   /** Shown inside the frame when there are no rows. */
   emptyMessage: string;
   /** Segmented filter or similar, rendered in the toolbar's right slot. */
@@ -224,6 +234,7 @@ export function TriggerList({
   sourceName,
   onOpen,
   onToggle,
+  canRunAgent,
   emptyMessage,
   quickFilters,
   toolbarActions,
@@ -252,8 +263,8 @@ export function TriggerList({
 
   const canWrite = useHasScope('triggers:write');
   const columns = useMemo(
-    () => makeColumns(sourceName, onToggle, canWrite),
-    [sourceName, onToggle, canWrite],
+    () => makeColumns(sourceName, onToggle, canWrite, canRunAgent),
+    [sourceName, onToggle, canWrite, canRunAgent],
   );
 
   return (

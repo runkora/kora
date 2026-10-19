@@ -15,21 +15,41 @@ function ago(ms: number): string {
 // ── Agents and sources ───────────────────────────────────────────────────────
 
 export const AGENTS: AgentOption[] = [
-  { id: 'at_8f3a1c92', slug: 'code-reviewer', name: 'Code Reviewer', identityMode: 'autonomous' },
-  { id: 'at_21b7d4e0', slug: 'coder', name: 'Coder', identityMode: 'autonomous' },
+  {
+    id: 'at_8f3a1c92',
+    slug: 'code-reviewer',
+    name: 'Code Reviewer',
+    identityMode: 'autonomous',
+    canRun: true,
+  },
+  { id: 'at_21b7d4e0', slug: 'coder', name: 'Coder', identityMode: 'autonomous', canRun: true },
   {
     id: 'at_5c90aa17',
     slug: 'security-reviewer',
     name: 'Security Reviewer',
     identityMode: 'autonomous',
+    canRun: true,
   },
-  { id: 'at_77e2f0b3', slug: 'docs-writer', name: 'Docs Writer', identityMode: 'autonomous' },
-  { id: 'at_09d6c5a8', slug: 'triage-bot', name: 'Triage Bot', identityMode: 'autonomous' },
+  {
+    id: 'at_77e2f0b3',
+    slug: 'docs-writer',
+    name: 'Docs Writer',
+    identityMode: 'autonomous',
+    canRun: true,
+  },
+  {
+    id: 'at_09d6c5a8',
+    slug: 'triage-bot',
+    name: 'Triage Bot',
+    identityMode: 'autonomous',
+    canRun: true,
+  },
   {
     id: 'at_c41e8b6d',
     slug: 'personal-assistant',
     name: 'Personal Assistant',
     identityMode: 'delegated',
+    canRun: true,
   },
 ];
 

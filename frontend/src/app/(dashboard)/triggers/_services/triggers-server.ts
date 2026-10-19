@@ -81,6 +81,7 @@ async function loadAgents(
         slug: a.slug,
         name: a.name,
         identityMode: a.identity_mode ?? 'autonomous',
+        canRun: a.can_run ?? false,
       })),
     };
   } catch (err) {
