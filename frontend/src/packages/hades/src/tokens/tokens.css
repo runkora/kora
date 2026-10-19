@@ -16,8 +16,7 @@
  * reference the raw values, so a brand changes by redefining them under its own
  * selector, for example [data-brand='other'].
  *
- * Corner radii are five literal steps (--hades-raw-radius-sm to -2xl). Each is
- * a settable token, like a colour.
+ * Corner radii are five settable raw steps, --hades-raw-radius-sm to -2xl.
  *
  * Surfaces step lighter with elevation in both themes. Foreground
  * and status colours are chosen to clear WCAG AA 4.5:1 as text on their own
@@ -27,8 +26,7 @@
 @import 'tailwindcss';
 
 /* ─── Radius scale ────────────────────────────────────────────────────────── */
-/* Five literal steps. The defaults are 1x, 2x, 3x, 3x and 4x of 6px, so      */
-/* nested radii stay concentric. A theme sets each step.                      */
+/* Steps are 1x, 2x, 3x, 3x and 4x of 6px, so nested radii stay concentric. */
 :root {
   color-scheme: dark;
   --hades-raw-radius-sm: 0.375rem; /* 6px  */

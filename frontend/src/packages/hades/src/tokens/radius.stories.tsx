@@ -4,8 +4,7 @@ import { Group, Page, Tile, readRadius } from './foundation-ui';
 /**
  * Radius
  *
- * Corner radii are five literal steps, each a settable theme token
- * (`--hades-raw-radius-sm` to `--hades-raw-radius-2xl`).
+ * Corner radii are five literal steps, each a settable theme token.
  */
 const meta: Meta = {
   title: 'Hades/Foundation/Radius',
