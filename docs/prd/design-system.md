@@ -2,7 +2,7 @@
 
 **Status:** Implemented
 **Created:** 2025-07-11
-**Last Updated:** 2025-07-11
+**Last Updated:** 2026-10-19
 **Owner:** Frontend
 **Stakeholders:** Product, Engineering
 
@@ -121,6 +121,59 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 **Acceptance Criteria:**
 - [ ] The root layout (`layout.tsx`) applies base theme classes globally
 - [ ] New pages automatically inherit the correct background, font, and text color
+
+---
+
+### Version the design system so a theme contract can be defined against it
+
+> Required by [white-labelling](white-labelling.md). Not yet built.
+
+**As a** maintainer of the white-labelling theme contract,  
+**I want** Hades versioned with kora, with the theme surface declared in a manifest,  
+**So that** a theme records the kora release it was written against and an instance of the same major can validate it.
+
+**Rules:**
+
+- A major defines the theme surface and the theme format. A theme is accepted by an instance of the same major. Which release gets a major is decided by whoever cuts it; nothing checks it.
+- Hades has no version of its own. It is released with kora, under the kora version, and that is the version an instance validates themes against. The pin is implicit in the monorepo: the frontend consumes Hades by workspace link, so the Hades in a release is the one in the tree at that release. How the version is exposed to the instance is subsection 2 of the Hades versioning ADR.
+
+**Acceptance Criteria:**
+- [ ] The design system package is versioned by the kora release it ships in. There is no separate contract version. The version is the release tag, stamped into the package when the release is built, and the manifest carries none. Nothing is promised below `1.0.0`.
+- [ ] The surface is settled before any release carries the contract, with the radius steps as literal tokens, the font slot tokens and the identity slots in place.
+- [ ] Each Hades release carries a machine-readable manifest of its theme surface: token and slot names, modes, value formats, and the product-name bounds. The validation rules the white-labelling PRD publishes per version are generated from it.
+- [ ] Hades can be obtained outside the kora frontend as a buildable package, per release, so that consumers kora assumes will exist can render the product's own components. Which majors continue to receive releases is not decided until it matters.
+
+**Scope:**
+
+- Versioning of the design system under the kora release version, and each kora release carrying one design system.
+- The theme surface manifest, carried by every release.
+- Four Hades changes made before the first release that carries the contract: radius steps as literal tokens rather than derived from one unit; agnostic identity slot components; font slot tokens the font families resolve through; the kora logo and mark moved out of Hades into the kora default theme at app level.
+- Delivery of Hades per release to external consumers.
+
+**Consumers:**
+
+- The kora frontend pins one version by workspace link. That is the release's version, which an instance validates themes against.
+- The kora backend reads the product name, a contract-shaped value, from the theme. It does not depend on Hades.
+- External consumers that render the product's components against a theme are specified in their own documents, against this story. This PRD does not name them, so that Hades and kora never depend on anything that depends on them.
+
+**Constraint:** Hades stays in this repository. It is not extracted to serve external consumers. How each major is delivered from here is an ADR decision. Hades contains no kora identity: the kora default is a theme like any other, owned by the app, and the kora logo is an asset of that theme. Hades provides the agnostic components that render whatever a theme supplies for a slot.
+
+**ADR hand-off:** How the design system is versioned is decided separately from white-labelling, because it affects more than white-labelling. Two ADRs follow from this story:
+
+- Hades versioning and theme surface manifest, with numbered subsections: (1) the version source of truth and the release process; (2) how kora pins and exposes the version, which the white-labelling PRD cites; (3) the manifest.
+- Hades delivery to external consumers. The deliverable is the tokens, the manifest and the components, buildable without the Next.js app. Storybook is not part of it.
+
+The [Hades Frontend Design System ADR](../adr/2026-03-25-terra-frontend-design-system.md) gains a pointer to both.
+
+**Risks:**
+
+| Risk | Impact | Probability | Mitigation |
+|------|--------|-------------|------------|
+| A design system change breaks existing themes without a major bump | High | Medium | The instance validates a theme against its own manifest, so a theme a release no longer fits fails at validation with the fault named. Nothing checks that a break is released as a major; review catches it. Below `1.0.0` nothing is promised. |
+| Delivering Hades to external consumers adds release friction | Medium | Medium | The ADR decides the delivery mechanism. A theme records the kora release it was written against, and the release carries the manifest, so what a consumer's release implements is always identifiable. |
+
+**Milestone:**
+- [ ] Design system versioning decided in its own ADR
 
 ---
 
@@ -422,6 +475,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 
 - [ADR to be created](../adr/) — Architecture decision for package structure, Storybook setup, token conventions, and Tailwind cross-package config
 - [Inference Gateway PRD](inference-gateway.md) — Example of a feature PRD; design system must support the UI this feature will require
+- [White-labelling PRD](white-labelling.md) — Defines the theme contract against the kora release version, which Hades is released under, per the versioning story above
 
 ### References
 
@@ -434,7 +488,7 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 ### Glossary
 
 - **Design Token**: A named, semantic CSS custom property that represents a single visual decision (e.g., `--color-accent` rather than `#3b82f6`).
-- **Monorepo workspace package**: A package that lives inside the same repository as its consumers. The workspace protocol (`workspace:*`) allows the frontend to depend on `frontend/src/packages/hades/` directly — changes are reflected immediately without publishing or versioning.
+- **Monorepo workspace package**: A package that lives inside the same repository as its consumers. The workspace protocol (`workspace:*`) allows the frontend to depend on `frontend/src/packages/hades/` directly — changes are reflected immediately without publishing. The package carries a semantic version per the versioning story above; the frontend consumes whichever version is in the tree, which is the version that kora release pins.
 - **shadcn/ui**: A CLI tool and component collection used as a one-time scaffolding aid to generate Radix-based component boilerplate. Shadcn is not a runtime dependency of Hades — all shadcn-specific code is stripped after generation, and the resulting components are Hades-native.
 - **Atomic Design**: A methodology for reasoning about UI component complexity in a hierarchy from smallest (atoms) to largest (organisms). Hades uses it as a mental model — not a directory structure. It helps categorize components by how much they compose other components, without prescribing where files must live.
 - **Radix UI**: A low-level, accessibility-first React component library providing unstyled UI primitives (dialogs, dropdowns, tooltips, etc.).
@@ -443,6 +497,8 @@ kora's visual identity should feel like infrastructure — not a consumer app. T
 - **`cn()`**: A utility function combining `clsx` (conditional class joining) and `tailwind-merge` (conflicting Tailwind class resolution) used universally in shadcn components.
 - **Surface elevation**: Hades' approach to depth — UI layers are distinguished by progressively lighter background token shades (`background` → `surface` → `surface-elevated`), paired with subtle borders. No drop shadows are used; the aesthetic is intentionally flat.
 - **Storybook**: An open-source tool for developing and documenting UI components in isolation. Version 8.x supports Tailwind v4 via the Vite builder.
+- **Design system version:** the kora release version. Hades has no version of its own; each kora release carries one design system, and the package is published under that version.
+- **Theme surface manifest:** the machine-readable description of every value a theme can set, carried by each Hades release: token and slot names, modes, value formats and the product-name bounds. The white-labelling validation rules are generated from it.
 
 ---
 
