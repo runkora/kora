@@ -1,13 +1,13 @@
 /**
- * Builds `theme.schema.json`, the JSON Schema (draft 2020-12) of the theme
- * document, from the manifest. The patterns are the ones the validator
- * compiles, imported from `src/theme/formats.ts`, so the schema and the
- * validator cannot disagree on a value syntax. Pure. See the white-labelling
- * theme ADR, Decision 1.
+ * Builds `theme.schema.json` (JSON Schema draft 2020-12) from the manifest.
+ * Pure.
  *
- * The schema is the shape a producer can check a document against before a
- * deploy; the validator remains the authority: it also trims the product
- * name and applies the font-slot rule, and neither fetches an asset.
+ * The value patterns come from `src/theme/formats.ts`, the same ones the
+ * validator compiles, so the two cannot disagree on a value syntax.
+ *
+ * A producer can check a document against the schema before a deploy. The
+ * validator stays the authority: it also trims the product name and applies
+ * the font-slot rule. Neither one fetches an asset.
  */
 import {
   ASSET_URL_PATTERN,
@@ -32,7 +32,7 @@ export interface ThemeSchema {
   readonly additionalProperties: false;
   readonly required: readonly string[];
   readonly properties: Readonly<Record<string, SchemaProperty>>;
-  /** One string schema per value format and one for asset URLs, referenced from every token and slot. */
+  /** One string schema per value format, plus one for asset URLs. Tokens and slots refer to them. */
   readonly $defs: Readonly<Record<string, SchemaProperty>>;
 }
 
@@ -61,7 +61,7 @@ export function buildThemeSchema(manifest: Manifest): ThemeSchema {
 
   const slots: Record<string, SchemaProperty> = {};
   for (const slot of manifest.slots) {
-    // The URL's form, and the extensions this slot's path may end in.
+    // The URL form, plus the extensions this slot's path may end in.
     const url: SchemaProperty = {
       allOf: [ref(ASSET_URL_DEF), { type: 'string', pattern: assetExtensionPattern(slot.formats) }],
     };

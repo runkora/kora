@@ -1,11 +1,10 @@
 /**
- * The theme validator and loader: one function that takes the document text,
- * the manifest and the instance's kora version, and returns either the
- * validated theme or every fault it found. Pure: it never touches the
- * filesystem or the network, and it checks the form of a slot's URL, never what
- * the URL serves, so the same code runs in the init container,
- * the frontend's server module and a browser preview. See the white-labelling
- * theme ADR, Decisions 1 and 3.
+ * Validates a theme document. Takes the document text, the manifest and the
+ * instance's kora version. Returns the validated theme, or every fault found.
+ *
+ * It is pure: no filesystem, no network. It checks the form of a slot's URL
+ * and never fetches it. That lets the init container, the server module and a
+ * browser preview run the same code.
  */
 import { parse as parseYaml } from 'yaml';
 
@@ -35,10 +34,11 @@ import type {
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
   /**
-   * The instance's own kora version, its release tag without the `v`; the
-   * document's major must equal its major. Null for a build that is not from a
-   * release: the shape is still checked and the comparison is skipped, which
-   * the report says.
+   * The instance's own kora version (its release tag, without the `v`). The
+   * document's major must equal its major.
+   *
+   * Null for a build that is not from a release. The shape is still checked,
+   * the comparison is skipped, and the report says so.
    */
   readonly koraVersion: string | null;
 }
@@ -126,8 +126,7 @@ function checkKoraVersion(
     });
     return null;
   }
-  // YAML reads an unquoted 1.10 as the number 1.1, so a number can never be
-  // trusted to be the version its author wrote.
+  // YAML reads an unquoted 1.10 as the number 1.1, so a number is never accepted.
   if (typeof value !== 'string' || !isKoraVersion(value)) {
     errors.push({
       path: 'koraVersion',
@@ -138,7 +137,7 @@ function checkKoraVersion(
     });
     return null;
   }
-  // A build that is not from a release has no major to compare with.
+  // A development build has no major to compare with.
   if (running === null) return value;
   const runningMajor = koraMajor(running);
   if (runningMajor === null) {
@@ -349,11 +348,12 @@ function checkUrl(
 // ─── Report ──────────────────────────────────────────────────────────────────
 
 /**
- * Identity values the theme leaves to the kora default: the product name and
- * every mode of every image slot. The PRD's identity goal is met only when
- * this list is empty. `mixedIdentity` repeats the list when the theme sets some
- * identity values but not all, so a visitor would see two brands at once; a
- * theme that sets none keeps kora's identity on purpose and is not mixed.
+ * Lists the identity values the theme leaves to the kora default: the product
+ * name and every mode of every image slot.
+ *
+ * `mixedIdentity` repeats that list when the theme sets some identity values
+ * but not all, because a visitor would see two brands at once. A theme that
+ * sets none keeps kora's identity on purpose and is not mixed.
  */
 function identityReport(
   manifest: ThemeManifest,

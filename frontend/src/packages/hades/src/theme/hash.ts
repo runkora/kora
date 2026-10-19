@@ -1,7 +1,6 @@
 /**
- * The theme hash: SHA-256 over the document text, hex, so the same document
- * always hashes the same and any change to it changes the hash. The instance
- * logs it at startup, which tells a pod's theme from another's at a glance.
+ * The theme hash: SHA-256 over the document text, as hex. The instance logs it
+ * at startup, so two pods' themes can be told apart at a glance.
  */
 
 const encoder = new TextEncoder();

@@ -1,7 +1,4 @@
-/**
- * The validated theme and the validation result. See the white-labelling
- * theme ADR, Decisions 1 and 3.
- */
+/** The validated theme and the validation result. */
 import type { Mode } from '../tokens/surface';
 
 /** A token's values per mode; a mode the theme leaves unset is absent. */
@@ -40,14 +37,14 @@ export interface ThemeReport {
   /** Identity values the theme leaves to the kora default: `productName`, `logo.dark`, ... */
   readonly fallThrough: readonly string[];
   /**
-   * `fallThrough` again when the theme sets some identity values but not all
-   * (two brands on screen); empty when it sets none or all. Advisory: never
-   * affects `ok`.
+   * The `fallThrough` list again, when the theme sets some identity values but
+   * not all (two brands on screen). Empty when it sets none or all.
+   * Advisory: it never affects `ok`.
    */
   readonly mixedIdentity: readonly string[];
   /**
-   * True when the instance is not from a release (a development build), so the
-   * theme's `koraVersion` was checked for shape but not compared with a major.
+   * True for a development build. The theme's `koraVersion` was checked for
+   * shape but not compared with a major.
    */
   readonly versionCheckSkipped: boolean;
 }

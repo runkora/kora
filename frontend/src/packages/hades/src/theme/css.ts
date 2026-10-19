@@ -1,12 +1,13 @@
 /**
- * The CSS generator: turns a validated theme into the one string the root
- * layout inlines in the document head. A dark block under
- * `html:root:not([data-theme='light'])`, a light block under
- * `html[data-theme='light']`, each carrying only what the theme sets, and an
- * `@font-face` per theme font with the family token pointed at it. Both
- * selectors out-rank the token sheet's `:root` and `[data-theme='light']`, so
- * stylesheet order does not matter. See the white-labelling theme ADR,
- * Decision 4.
+ * Turns a validated theme into the one CSS string the root layout inlines in
+ * the document head. The string holds:
+ * - a dark block under `html:root:not([data-theme='light'])`;
+ * - a light block under `html[data-theme='light']`;
+ * - an `@font-face` per theme font, with the family token pointed at it.
+ *
+ * Each block carries only what the theme sets. Both selectors out-rank the
+ * token sheet's `:root` and `[data-theme='light']`, so stylesheet order does
+ * not matter.
  */
 import type { Mode } from '../tokens/surface';
 import { fontFamilyList } from './formats';
@@ -16,7 +17,7 @@ import type { Theme } from './types';
 export const DARK_SELECTOR = "html:root:not([data-theme='light'])";
 export const LIGHT_SELECTOR = "html[data-theme='light']";
 
-/** The family tokens a font slot sets: `font.<name>` sets `--hades-raw-font-<name>`. */
+/** Family tokens start with this prefix: slot `font.<name>` sets `--hades-raw-font-<name>`. */
 const FONT_TOKEN_PREFIX = '--hades-raw-font-';
 
 /** The generic stack appended after a theme font's family, by slot. */
@@ -57,8 +58,8 @@ function modeDeclarations(theme: Theme, mode: Mode): [string, string][] {
 }
 
 /**
- * Escapes a value for use inside a double-quoted CSS string. `<` is escaped
- * because the CSS lands in an inline `<style>`, which the HTML parser closes at
+ * Escapes a value for a double-quoted CSS string. It also escapes `<`, because
+ * the CSS is inlined in a `<style>` element and the HTML parser ends that at
  * `</style>` whatever the CSS quoting says.
  */
 function cssString(value: string): string {

@@ -1,10 +1,9 @@
 /**
- * The value syntaxes a theme may supply, as regular-expression sources. Each
- * is the one definition of its format: the validator compiles it with the `u`
- * flag, and `scripts/lib/schema.ts` writes the same source into
- * `theme.schema.json`, whose patterns are ECMA-262 with Unicode semantics. A
- * rule therefore never exists twice. See the white-labelling theme ADR,
- * Decision 1.
+ * The value syntaxes a theme may supply, as regular-expression sources.
+ *
+ * Each source is the only definition of its format. The validator compiles it
+ * with the `u` flag. `scripts/lib/schema.ts` writes the same source into
+ * `theme.schema.json`, so the schema and the validator cannot disagree.
  */
 import type { TokenFormat } from '../tokens/surface';
 
@@ -33,9 +32,9 @@ const SHADOW_LENGTHS = `${SHADOW_LENGTH}(?:\\s+${SHADOW_LENGTH}){1,3}`;
 const SHADOW = `(?:inset\\s+)?(?:${SHADOW_COLOR}\\s+${SHADOW_LENGTHS}|${SHADOW_LENGTHS}(?:\\s+${SHADOW_COLOR})?)`;
 
 /**
- * Regular-expression source per token format. Anchored, so a value is either
- * entirely one of the accepted syntaxes or malformed; nothing a browser would
- * interpret as a second declaration, a block or a function call can pass.
+ * Regular-expression source per token format. Each is anchored, so a value
+ * matches in full or is rejected. Nothing a browser would read as a second
+ * declaration, a block or a function call can pass.
  */
 export const FORMAT_PATTERNS: Readonly<Record<TokenFormat, string>> = {
   'hex-or-oklch': `^(?:${HEX}|${OKLCH})$`,
@@ -100,19 +99,22 @@ export function fontFamilyList(value: string, quote: (name: string) => string): 
 export const KORA_VERSION_PATTERN = '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$';
 
 /**
- * An asset URL: `https://`, a host of letters, digits, dots and hyphens (an
- * internationalised name in its punycode form) with an optional port, no
- * credentials, an optional path and query, no fragment, and nothing a CSS
- * `url()` or an HTML attribute would have to escape. At most 2048 characters.
- * Whether the path ends in an extension the slot accepts is the validator's,
- * because it depends on the slot.
+ * An asset URL. It must be `https://` with:
+ * - a host of letters, digits, dots and hyphens (punycode for international
+ *   names), and an optional port;
+ * - no credentials and no fragment;
+ * - an optional path and query;
+ * - nothing a CSS `url()` or an HTML attribute would have to escape;
+ * - at most 2048 characters.
+ *
+ * The extension check depends on the slot, so `hasAssetExtension` does it.
  */
 export const ASSET_URL_PATTERN =
   '^(?=.{1,2048}$)https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\\d{1,5})?(?:/[^\\s?#\\\\"\'<>()\\u0000-\\u001f]*)?(?:\\?[^\\s#\\\\"\'<>()\\u0000-\\u001f]*)?$';
 
 /**
- * Characters no token value may carry whatever its format, checked before the
- * format so the message names the injection attempt rather than the syntax.
+ * Characters no token value may carry, whatever its format. Checked before the
+ * format so the error names the injection attempt, not the syntax.
  */
 export const FORBIDDEN_IN_VALUES = /[;{}\\<]|url\(|var\(/;
 
@@ -137,9 +139,8 @@ export function isKoraVersion(value: string): boolean {
 }
 
 /**
- * The major of a kora version. Tolerates a leading `v` and a pre-release
- * suffix, because the instance's own version is its release tag: `0.8.0-rc.2`
- * is major 0.
+ * The major of a kora version. Accepts a leading `v` and a pre-release suffix,
+ * because the instance's version is its release tag: `0.8.0-rc.2` is major 0.
  */
 export function koraMajor(value: string): number | null {
   const m = /^v?(\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.exec(value);
@@ -151,9 +152,9 @@ export function isAssetUrl(value: string): boolean {
 }
 
 /**
- * The source of a pattern an asset URL must match to end, before any query, in
- * one of a slot's extensions, whatever the case. Anchored from `https://`, so
- * a `/name.ext` inside the query does not count.
+ * The source of a pattern that matches a URL whose path ends in one of the
+ * slot's extensions, in any case. A `/name.ext` inside the query does not
+ * count, because the pattern is anchored from `https://`.
  */
 export function assetExtensionPattern(formats: readonly string[]): string {
   const folded = formats.map((f) =>
