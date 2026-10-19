@@ -37,7 +37,7 @@ func TestRedisTLSConfig(t *testing.T) {
 	}
 }
 
-func TestNewRedisTLSAgainstPlaintextFails(t *testing.T) {
+func TestNewRedisTLSAgainstPlaintextUnavailable(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -57,12 +57,17 @@ func TestNewRedisTLSAgainstPlaintextFails(t *testing.T) {
 		DialTimeoutSeconds: 1, ReadTimeoutSeconds: 1, WriteTimeoutSeconds: 1}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	_, err = NewRedis(ctx, cfg, logging.NewLogger())
-	if err == nil {
-		t.Fatal("TLS to a plaintext Redis must fail at startup")
+	rc, err := NewRedis(ctx, cfg, logging.NewLogger())
+	if err != nil {
+		t.Fatalf("NewRedis must start without a reachable Redis: %v", err)
 	}
+	defer func() { _ = rc.Close() }()
+	if rc.Available() {
+		t.Fatal("TLS to a plaintext Redis must leave the client unavailable")
+	}
+	err = rc.Health(ctx)
 	var rh tls.RecordHeaderError
 	if !errors.As(err, &rh) {
-		t.Errorf("error %q is not a TLS handshake failure", err)
+		t.Errorf("health error %q is not a TLS handshake failure", err)
 	}
 }

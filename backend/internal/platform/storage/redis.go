@@ -2,20 +2,40 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/metric"
 )
 
+// ErrRedisUnavailable is returned without a network call while the last probe
+// found Redis unreachable.
+var ErrRedisUnavailable = errors.New("redis unavailable")
+
+// redisProbeInterval is how often the client re-checks Redis reachability.
+var redisProbeInterval = 10 * time.Second
+
 // RedisClient wraps redis.Client and provides cache/blocklist infrastructure.
+// It never fails on an unreachable Redis: a background probe tracks
+// reachability, so services start and recover when Redis comes back.
 type RedisClient struct {
-	client *redis.Client
-	logger logging.Logger
+	client    *redis.Client
+	logger    logging.Logger
+	addr      string
+	available atomic.Bool
+	probed    atomic.Bool
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
-// NewRedis creates and initializes a Redis client with connectivity verification.
+// NewRedis creates a Redis client and starts its reachability probe. It returns
+// an error only for invalid configuration, never because Redis is unreachable.
 func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*RedisClient, error) {
 	logger.Info(ctx, "Initializing Redis client",
 		logging.Field{Key: "host", Value: cfg.Host},
@@ -42,27 +62,68 @@ func NewRedis(ctx context.Context, cfg *RedisConfig, logger logging.Logger) (*Re
 		ConnMaxIdleTime: time.Duration(cfg.ConnMaxIdleTimeMinutes) * time.Minute,
 	}
 
-	client := redis.NewClient(opts)
+	r := &RedisClient{client: redis.NewClient(opts), logger: logger, addr: opts.Addr, done: make(chan struct{})}
+	r.probe(ctx)
+	go r.watch(ctx, redisProbeInterval)
+	r.registerAvailabilityGauge(ctx)
+	return r, nil
+}
 
-	// Verify connectivity on initialisation.
+// probe pings Redis and records reachability, logging each change.
+func (r *RedisClient) probe(ctx context.Context) {
 	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-
-	if err := client.Ping(pingCtx).Err(); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("ping redis at %s (tlsEnabled=%t): %w", opts.Addr, cfg.TLSEnabled, err)
+	err := r.client.Ping(pingCtx).Err()
+	up := err == nil
+	prev := r.available.Swap(up)
+	if r.probed.Swap(true) && prev == up {
+		return
 	}
-
-	logger.Info(ctx, "Redis client ready",
-		logging.Field{Key: "pool_size", Value: cfg.PoolSize},
-		logging.Field{Key: "min_idle_conns", Value: cfg.MinIdleConns},
-	)
-
-	return &RedisClient{
-		client: client,
-		logger: logger,
-	}, nil
+	if up {
+		r.logger.Info(ctx, "Redis available", logging.Field{Key: "addr", Value: r.addr}, logging.Field{Key: "redis_available", Value: true})
+		return
+	}
+	r.logger.Error(ctx, "Redis unavailable, retrying in the background",
+		logging.Field{Key: "addr", Value: r.addr},
+		logging.Field{Key: "redis_available", Value: false},
+		logging.Field{Key: "error", Value: err.Error()})
 }
+
+// watch re-probes Redis until ctx ends or the client closes.
+func (r *RedisClient) watch(ctx context.Context, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-r.done:
+			return
+		case <-t.C:
+			r.probe(ctx)
+		}
+	}
+}
+
+// registerAvailabilityGauge publishes orbit.redis.available (1 up, 0 down).
+func (r *RedisClient) registerAvailabilityGauge(ctx context.Context) {
+	_, err := otel.Meter("orbit.storage").Int64ObservableGauge("orbit.redis.available",
+		metric.WithDescription("1 while Redis answers the reachability probe, 0 otherwise"),
+		metric.WithInt64Callback(func(_ context.Context, o metric.Int64Observer) error {
+			if r.Available() {
+				o.Observe(1)
+			} else {
+				o.Observe(0)
+			}
+			return nil
+		}))
+	if err != nil {
+		r.logger.Error(ctx, "register redis availability gauge", logging.Field{Key: "error", Value: err.Error()})
+	}
+}
+
+// Available reports whether the last probe reached Redis.
+func (r *RedisClient) Available() bool { return r.available.Load() }
 
 // Client returns the underlying redis.Client for feature repositories.
 func (r *RedisClient) Client() *redis.Client {
@@ -72,6 +133,7 @@ func (r *RedisClient) Client() *redis.Client {
 // Close gracefully shuts down the Redis client.
 func (r *RedisClient) Close() error {
 	r.logger.Info(context.Background(), "Closing Redis client")
+	r.closeOnce.Do(func() { close(r.done) })
 	return r.client.Close()
 }
 
