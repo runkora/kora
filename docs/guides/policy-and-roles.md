@@ -184,7 +184,7 @@ Authorization: Bearer <platform-token>
 { "budget": { "limit_usd": 50, "reset_cadence": "monthly" } }
 ```
 
-A `null` budget clears it. The reserved role carries no budget, and a delegated run cannot change budgets.
+A `null` budget clears it. The reserved role carries no budget. A delegated run cannot make any policy write: grants, roles and budgets all refuse it.
 
 **Get a specific role:**
 

@@ -115,14 +115,14 @@ func uncoveredScopes(held, requested []string) []string {
 	return out
 }
 
-// refuseDelegated writes 403 for a delegated run, which cannot change grants or
-// roles. Returns true when it refused.
+// refuseDelegated writes 403 for a delegated run, which cannot make any policy
+// write: grants, roles or budgets. Returns true when it refused.
 func (c *Controller) refuseDelegated(ctx context.Context, w http.ResponseWriter) bool {
 	if policy.DelegationFromContext(ctx) == nil {
 		return false
 	}
 	platformapi.ErrorResponse(ctx, w, c.logger,
 		platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
-			"a delegated run cannot change grants or roles", nil), nil)
+			"a delegated run cannot change policy", nil), nil)
 	return true
 }

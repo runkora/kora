@@ -15,6 +15,9 @@ func (c *Controller) handleCreateGrant(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if c.refuseDelegated(ctx, w) {
+		return
+	}
 
 	var req createGrantRequest
 	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
@@ -128,6 +131,9 @@ func (c *Controller) handleUpdateGrantBudget(w http.ResponseWriter, r *http.Requ
 	if !ok {
 		return
 	}
+	if c.refuseDelegated(ctx, w) {
+		return
+	}
 
 	var req updateGrantBudgetRequest
 	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
@@ -167,6 +173,9 @@ func (c *Controller) handleDeleteGrant(w http.ResponseWriter, r *http.Request) {
 
 	claims, ok := c.claimsFromContext(w, r)
 	if !ok {
+		return
+	}
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 

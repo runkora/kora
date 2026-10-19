@@ -19,6 +19,9 @@ func (c *Controller) handleUpsertRole(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if c.refuseDelegated(ctx, w) {
+		return
+	}
 
 	var req upsertRoleRequest
 	if !platformapi.DecodeJSON(ctx, r, w, c.logger, &req) {
