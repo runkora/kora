@@ -310,7 +310,5 @@ This option does not depend on the `Connection` CRD or the egress gateway's cred
 
 - [PR #351](https://github.com/clear-route/orbit/pull/351) - `skills-service`: binary skeleton, models, registry, GitHub client
 - [Agent Marketplace PRD](../prd/agent-marketplace.md)
-- [2026-10-10-skill-marketplace-source-registration.md](2026-10-10-skill-marketplace-source-registration.md) - the Option B variant of this decision
-- [option-a-vs-b-credential-model.md](option-a-vs-b-credential-model.md) - the detailed comparison this choice is drawn from
 
 **Last Updated:** 2026-10-13

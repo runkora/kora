@@ -270,8 +270,8 @@ func TestSkillMarketplaceSourceCRD_ConditionsCoverMetav1Condition(t *testing.T) 
 	props := crdChild(crdChild(crdProp(status, "conditions"), "items"), "properties")
 	typ := reflect.TypeFor[metav1.Condition]()
 	checked := 0
-	for i := range typ.NumField() {
-		name, _, _ := strings.Cut(typ.Field(i).Tag.Get("json"), ",")
+	for field := range typ.Fields() {
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
 		if name == "" || name == "-" {
 			continue
 		}

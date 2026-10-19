@@ -638,7 +638,7 @@ func TestSkillMarketplaceAggregator_LogsEveryExcludedSource(t *testing.T) {
 	}
 
 	var excluded []map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(logs.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(logs.String()), "\n") {
 		var entry map[string]any
 		if err := json.Unmarshal([]byte(line), &entry); err != nil {
 			t.Fatalf("log line %q: %v", line, err)
