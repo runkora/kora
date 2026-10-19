@@ -390,12 +390,6 @@ func initScopeRegistration(logger logging.Logger, selfToken routescopes.TokenSou
 	return register
 }
 
-// agentRoutes returns the static route→scope bindings for orbit-agents.
-//
-// Registered with policy-service at startup (docs/adr/2026-05-11-orbit-agents-route-scope-registration.md) and also consumed at
-// request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Exact-method
-// routes beat "*" and the longest prefix wins, so a method under a broader
-// prefix (e.g. PATCH on /agent-types/) needs its own explicit entry.
 // connectionCatalogRoutes is the connection catalog's route table. The egress
 // gateway publishes the same route and scope to the policy service.
 func connectionCatalogRoutes() []routescopes.RouteScope {
@@ -404,6 +398,12 @@ func connectionCatalogRoutes() []routescopes.RouteScope {
 	}
 }
 
+// agentRoutes returns the static route→scope bindings for orbit-agents.
+//
+// Registered with policy-service at startup (docs/adr/2026-05-11-orbit-agents-route-scope-registration.md) and also consumed at
+// request time by ScopeEnforcementMiddleware (docs/adr/2026-06-04-platform-scope-enforcement-middleware.md). Exact-method
+// routes beat "*" and the longest prefix wins, so a method under a broader
+// prefix (e.g. PATCH on /agent-types/) needs its own explicit entry.
 func agentRoutes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		// Agent-type WRITE routes are authenticated-only at the route layer:

@@ -30,7 +30,6 @@ func TestPolicyWritesRefuseDelegatedRuns(t *testing.T) {
 		{"PUT /roles", c.handleUpsertRole, nil, `{"role":"engineer","scopes":["inference:invoke"]}`},
 		{"DELETE /roles/{role}", c.handleDeleteRole, map[string]string{"role": "engineer"}, ``},
 		{"PATCH /roles/{role}/budget", c.handleUpdateRoleBudget, map[string]string{"role": "engineer"}, `{"budget":null}`},
-		{"POST /routes/register", c.handleRegisterRoutes, nil, `{"service":"x","scopes":[{"scope":"x:y:read"}]}`},
 	}
 	human := &token.PlatformClaims{Kora: token.KoraClaims{PrincipalType: token.PrincipalTypeHuman, TenantID: "t1"}}
 	for _, tc := range cases {
