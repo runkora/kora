@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ErrEnvironmentNotAttached rejects an environment the run's agent does not have.

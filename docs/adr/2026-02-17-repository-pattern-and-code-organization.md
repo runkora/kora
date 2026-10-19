@@ -313,7 +313,7 @@ type Repository interface {
 // internal/identity/postgres.go
 package identity
 
-import "github.com/clear-route/orbit/internal/platform/storage"
+import "github.com/runkora/kora/backend/internal/platform/storage"
 
 type postgresRepository struct {
     db *storage.DB

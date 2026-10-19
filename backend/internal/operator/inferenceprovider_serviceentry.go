@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
 )
 
 // serviceEntryGVK is Istio's, which is not in the operator's scheme.

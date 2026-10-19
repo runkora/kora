@@ -30,12 +30,12 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 
-	identityProxyConfig "github.com/clear-route/orbit/cmd/identity-proxy/config"
-	"github.com/clear-route/orbit/internal/identityproxy"
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/observability"
+	identityProxyConfig "github.com/runkora/kora/backend/cmd/identity-proxy/config"
+	"github.com/runkora/kora/backend/internal/identityproxy"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
 )
 
 func main() {

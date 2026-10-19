@@ -16,10 +16,10 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // interceptIdleTimeout tears down a TLS-intercepted tunnel after this much

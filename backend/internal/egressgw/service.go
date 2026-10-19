@@ -13,10 +13,10 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Span status descriptions are package-level sentinels: raw error text can

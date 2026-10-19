@@ -17,10 +17,10 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
-	mcpkit "github.com/clear-route/orbit/internal/platform/mcp"
 	"github.com/google/jsonschema-go/jsonschema"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	mcpkit "github.com/runkora/kora/backend/internal/platform/mcp"
 )
 
 // Backends holds the in-cluster base URLs of the kora services the tools call.

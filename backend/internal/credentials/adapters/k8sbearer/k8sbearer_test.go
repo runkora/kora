@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/k8sbearer"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/k8sbearer"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 type stubSecrets struct {

@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/execauth"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/execauth"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"

@@ -1,6 +1,6 @@
 package api
 
-import mw "github.com/clear-route/orbit/internal/platform/middleware"
+import mw "github.com/runkora/kora/backend/internal/platform/middleware"
 
 type Controller interface {
 	GroupedBy() string

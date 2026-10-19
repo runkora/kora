@@ -3,8 +3,8 @@ package policygw
 import (
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/policy"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 func (c *Controller) handleCheck(w http.ResponseWriter, r *http.Request) {

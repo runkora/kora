@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // handleGetUser handles GET /identity/users/{id}.

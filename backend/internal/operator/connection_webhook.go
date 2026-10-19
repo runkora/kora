@@ -10,7 +10,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/webhook/admission"
 
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // ConnectionValidator rejects a Connection the egress gateway could not tell

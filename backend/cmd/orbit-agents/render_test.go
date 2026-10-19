@@ -9,9 +9,9 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 
-	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
-	"github.com/clear-route/orbit/internal/agents"
-	"github.com/clear-route/orbit/internal/platform/brand"
+	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	"github.com/runkora/kora/backend/internal/agents"
+	"github.com/runkora/kora/backend/internal/platform/brand"
 )
 
 func writePatch(t *testing.T, name, body string) string {

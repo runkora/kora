@@ -15,8 +15,8 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/folder"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
 // export is one sandbox folder this node serves.

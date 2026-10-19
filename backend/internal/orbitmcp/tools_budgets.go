@@ -4,8 +4,8 @@ import (
 	"context"
 	"net/url"
 
-	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
 )
 
 // registerBudgetTools wires the budgets domain: the tenant-level rollup cap (on the

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/vocabulary"
+	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
 func entry(scope string) *vocabulary.ScopeEntry { return &vocabulary.ScopeEntry{Scope: scope} }

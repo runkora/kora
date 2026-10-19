@@ -12,9 +12,9 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // seedEnvironments gives the agent "bot" the environments go (default) and node

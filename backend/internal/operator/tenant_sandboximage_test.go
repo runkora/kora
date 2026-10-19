@@ -14,8 +14,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 const bundledTestNS = "orbit-tenant-example"

@@ -30,10 +30,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
 	jwt "github.com/golang-jwt/jwt/v5"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 const (

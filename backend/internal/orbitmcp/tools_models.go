@@ -5,8 +5,8 @@ import (
 	"errors"
 	"net/url"
 
-	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
 )
 
 // registerModelTools wires the models domain: the inference catalog exposed by

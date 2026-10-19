@@ -9,8 +9,8 @@ import (
 
 	"github.com/spiffe/go-spiffe/v2/workloadapi"
 
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Per-run delegation token attachment (docs/adr/2026-07-23-delegated-agent-identity.md,

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // ─── validateVirtualModelRequest ─────────────────────────────────────────────

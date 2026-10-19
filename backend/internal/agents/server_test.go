@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // flushRecorder wraps httptest.ResponseRecorder and implements http.Flusher,

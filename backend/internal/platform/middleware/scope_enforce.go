@@ -5,10 +5,10 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ScopeEnforcementMiddleware enforces route → required-scope bindings declared

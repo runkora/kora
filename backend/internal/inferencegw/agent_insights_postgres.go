@@ -8,7 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // agentTraffic is the one predicate behind every agent rollup: the tenant's

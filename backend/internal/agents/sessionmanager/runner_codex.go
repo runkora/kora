@@ -18,8 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // CodexRunnerConfig holds settings for the Codex app-server subprocess.

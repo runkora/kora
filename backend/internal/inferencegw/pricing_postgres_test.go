@@ -6,9 +6,9 @@ import (
 	"os"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // testPricingRepo connects to ORBIT_TEST_DB_URL and removes the rows a test

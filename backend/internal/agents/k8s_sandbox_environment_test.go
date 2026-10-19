@@ -13,7 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
 // testSandboxSpec is the built-in default environment on the base image.

@@ -10,13 +10,13 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/azure"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/bedrock"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/compatible"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/vertexai"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/azure"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/bedrock"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/compatible"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/vertexai"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Reasons on the status condition of a resource.

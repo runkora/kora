@@ -10,8 +10,8 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/token"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ── helpers ───────────────────────────────────────────────────────────────────

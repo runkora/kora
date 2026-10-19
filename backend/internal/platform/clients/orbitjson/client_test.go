@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // TestEmptyTwoxxBodyIsSuccessAck covers endpoints that return a 2xx with no body

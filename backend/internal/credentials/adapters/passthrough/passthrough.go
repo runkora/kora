@@ -13,7 +13,7 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/clear-route/orbit/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials"
 )
 
 // actionUse is the single action a passthrough call maps to. There is no

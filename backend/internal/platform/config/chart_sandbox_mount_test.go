@@ -12,9 +12,9 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"sigs.k8s.io/yaml"
 
-	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
-	sandboxMountConfig "github.com/clear-route/orbit/cmd/sandbox-mount/config"
-	"github.com/clear-route/orbit/internal/platform/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	sandboxMountConfig "github.com/runkora/kora/backend/cmd/sandbox-mount/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // loadRendered loads a service's config with the file the rendered chart mounts for it.

@@ -1,4 +1,4 @@
-module github.com/clear-route/orbit
+module github.com/runkora/kora/backend
 
 go 1.26.9
 

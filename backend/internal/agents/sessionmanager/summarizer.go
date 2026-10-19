@@ -8,8 +8,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 const (

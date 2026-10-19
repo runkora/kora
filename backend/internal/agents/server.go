@@ -12,14 +12,14 @@ import (
 	"strings"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // Controller implements the orbit-agents HTTP API.

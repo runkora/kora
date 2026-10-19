@@ -14,9 +14,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/validation"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // ── Environments ────────────────────────────────────────────────────────────

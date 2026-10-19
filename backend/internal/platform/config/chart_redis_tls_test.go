@@ -9,7 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // redisCAUsers returns the path where each rendered Deployment mounts the

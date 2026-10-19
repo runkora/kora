@@ -9,7 +9,7 @@ import (
 
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 // fakeStream replays events, then reports err.

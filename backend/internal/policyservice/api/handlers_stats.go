@@ -3,8 +3,8 @@ package api
 import (
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
 )
 
 // statsResponse is the body for GET /policy/stats.

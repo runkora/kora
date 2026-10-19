@@ -10,7 +10,7 @@ variable "REGISTRY" {
 }
 
 variable "IMAGE_NAMESPACE" {
-  default = "clear-route"
+  default = "runkora"
 }
 
 variable "IMAGE_TAG" {
@@ -18,7 +18,7 @@ variable "IMAGE_TAG" {
 }
 
 variable "REPOSITORY_URL" {
-  default = "https://github.com/clear-route/orbit"
+  default = "https://github.com/runkora/kora"
 }
 
 variable "NEXT_PUBLIC_APP_URL" {

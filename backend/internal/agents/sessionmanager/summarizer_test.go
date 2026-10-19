@@ -10,7 +10,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func TestSummarizer_CallsMessagesEndpointWithModel(t *testing.T) {

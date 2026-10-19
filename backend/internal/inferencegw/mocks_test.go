@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // errTestInternal is a sentinel used in tests to simulate unexpected repository errors.

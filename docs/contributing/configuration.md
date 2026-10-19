@@ -24,7 +24,7 @@ Each service binary under `backend/cmd/` (for example the main API binary `cmd/i
 // cmd/identity/config/config.go
 package identityConfig
 
-import "github.com/clear-route/orbit/internal/platform/config"
+import "github.com/runkora/kora/backend/internal/platform/config"
 
 // Config holds the identity service's own configuration values.
 type Config struct {

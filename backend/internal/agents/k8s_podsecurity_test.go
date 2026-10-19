@@ -3,7 +3,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"github.com/clear-route/orbit/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // podSecurityProvisioner builds a provisioner with the config a hardened

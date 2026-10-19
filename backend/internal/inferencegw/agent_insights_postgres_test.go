@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // Agent rollup tests; gated on ORBIT_TEST_DB_URL (see testUsageRepo).

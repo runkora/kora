@@ -10,8 +10,8 @@ import (
 
 	"go.opentelemetry.io/otel/trace/noop"
 
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // countingBody wraps an io.ReadCloser and counts how many times Close is called.

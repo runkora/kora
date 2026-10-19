@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // captureAuth stands in for a session-manager pod, recording the Authorization

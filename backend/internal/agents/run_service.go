@@ -17,13 +17,13 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/google/uuid"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
 )
 
 // RunServiceConfig holds runtime parameters for RunService.

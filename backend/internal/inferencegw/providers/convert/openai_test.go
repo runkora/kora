@@ -11,8 +11,8 @@ import (
 	anthropic "github.com/anthropics/anthropic-sdk-go"
 	openai "github.com/openai/openai-go/v3"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
 )
 
 // newAnthropicAPIError constructs a valid *anthropic.Error with the given HTTP

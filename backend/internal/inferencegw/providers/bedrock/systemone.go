@@ -3,7 +3,7 @@ package bedrock
 import (
 	"context"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw"
 )
 
 // SystemOne refuses: bedrock serves no decision models, and a chat model is never

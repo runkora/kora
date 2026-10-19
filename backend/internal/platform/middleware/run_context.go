@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"regexp"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Run identity travels as a base-URL path prefix: the session-manager runner

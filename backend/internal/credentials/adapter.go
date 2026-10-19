@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // Credential is the minted or resolved secret plus how the egress gateway

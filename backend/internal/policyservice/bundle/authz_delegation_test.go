@@ -8,10 +8,10 @@ import (
 
 	jwt "github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
 )
 
 // ═══════════════════════════════════════════════════════════════════════════

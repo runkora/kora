@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func TestConnector_Owner(t *testing.T) {

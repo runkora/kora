@@ -8,9 +8,9 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	ip "github.com/clear-route/orbit/internal/platform/inferenceproviders/v1alpha1"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	ip "github.com/runkora/kora/backend/internal/platform/inferenceproviders/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func TestSystemOneDiscovery(t *testing.T) {

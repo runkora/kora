@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // The canary probes a host the agent may reach, so an agent without

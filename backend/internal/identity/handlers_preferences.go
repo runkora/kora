@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // maxPreferencesBodyBytes caps the request body read during PUT /identity/preferences.

@@ -10,10 +10,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/platform/brand"
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ── fakes ─────────────────────────────────────────────────────────────────────

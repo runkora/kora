@@ -12,17 +12,17 @@ import (
 	"path/filepath"
 	"text/template"
 
-	identityMigrations "github.com/clear-route/orbit/cmd/identity/migrations"
-	inferenceMigrations "github.com/clear-route/orbit/cmd/inference-gateway/migrations"
-	agentsMigrations "github.com/clear-route/orbit/cmd/orbit-agents/migrations"
-	triggersMigrations "github.com/clear-route/orbit/cmd/orbit-triggers/migrations"
-	policyMigrations "github.com/clear-route/orbit/cmd/policy-service/migrations"
-	toolGatewayMigrations "github.com/clear-route/orbit/cmd/tool-gateway/migrations"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/storage"
 	"github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
+	identityMigrations "github.com/runkora/kora/backend/cmd/identity/migrations"
+	inferenceMigrations "github.com/runkora/kora/backend/cmd/inference-gateway/migrations"
+	agentsMigrations "github.com/runkora/kora/backend/cmd/orbit-agents/migrations"
+	triggersMigrations "github.com/runkora/kora/backend/cmd/orbit-triggers/migrations"
+	policyMigrations "github.com/runkora/kora/backend/cmd/policy-service/migrations"
+	toolGatewayMigrations "github.com/runkora/kora/backend/cmd/tool-gateway/migrations"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 )
 
 // allowDownEnv guards down. The chart never sets it.

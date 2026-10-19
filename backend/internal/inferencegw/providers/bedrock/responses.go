@@ -6,9 +6,9 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/convert"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/convert"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // stripMantleUnsupportedInputItems removes input item types that Mantle's

@@ -10,9 +10,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // badConfigAdapter refuses every connection, standing in for an adapter whose

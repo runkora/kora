@@ -1,8 +1,8 @@
 package orbitmcp
 
 import (
-	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
 )
 
 // registerTools wires every domain's tools onto the server. Each domain lives in

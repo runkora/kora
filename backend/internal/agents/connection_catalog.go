@@ -7,8 +7,8 @@ import (
 	"os"
 	"strings"
 
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ConnectionCatalogEntry is one tenant-scoped connection in the read-only

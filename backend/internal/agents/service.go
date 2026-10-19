@@ -6,7 +6,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
 )
 
 // agentsTracer is the package-level OpenTelemetry tracer used by both services.

@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/redis/go-redis/v9"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // RedisClient wraps redis.Client and provides cache/blocklist infrastructure.

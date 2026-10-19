@@ -8,9 +8,9 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Delegated-run transport support (docs/adr/2026-07-23-delegated-agent-identity.md,

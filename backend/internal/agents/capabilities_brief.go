@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 )
 
 // renderCapabilitiesBrief renders the "Runtime environment" section appended to

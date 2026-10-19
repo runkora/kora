@@ -33,7 +33,7 @@ tester.run('no-product-name-literal', rule, {
     { code: "const a = 'ORBIT_API_KEY';" },
     { code: "const a = '@runkora/hades';" },
     { code: "const a = 'orbit/authz/allow';" },
-    { code: "const a = 'github.com/clear-route/orbit/docs';" },
+    { code: "const a = 'github.com/runkora/kora/backend/docs';" },
     { code: "const a = 'orbit.io/inference-provider=true';" },
     { code: 'const a = `${x}/v1/mcp/orbit`;' },
     // Whole words only.

@@ -23,9 +23,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/egressgw"
-	"github.com/clear-route/orbit/internal/egressgw/tlsca"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/egressgw"
+	"github.com/runkora/kora/backend/internal/egressgw/tlsca"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ErrTenantNotFound is returned by For when the bundle has no CA for the

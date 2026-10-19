@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
 	"github.com/redis/go-redis/v9"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // ── stubRedisOps ──────────────────────────────────────────────────────────────

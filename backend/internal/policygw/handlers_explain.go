@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // inspectOthersScope gates reading a principal other than the caller.

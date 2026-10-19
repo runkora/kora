@@ -16,7 +16,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 func TestValidateImageConfig(t *testing.T) {

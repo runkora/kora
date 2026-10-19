@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // A 409 from orbit-agents is a refused environment choice that carries its message.

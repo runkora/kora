@@ -25,7 +25,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // ErrInvalidRef is returned when a SecretRef is empty, contains "..", or is

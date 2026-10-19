@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/folder"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 )
 
 const nfsdFS = "/proc/fs/nfsd"

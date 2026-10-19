@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Trigger attribution: the run half of the trigger↔run backlink

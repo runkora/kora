@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials/adapters/k8sbearer"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/k8sbearer"
 )
 
 // TestClassify_DotSegmentsResolvedBeforeCategorizing locks the resource

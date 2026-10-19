@@ -12,8 +12,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	"sigs.k8s.io/yaml"
 
-	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
-	"github.com/clear-route/orbit/internal/platform/config"
+	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // renderChart renders the orbit chart over the CI values plus values, passing

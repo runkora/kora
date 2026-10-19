@@ -13,7 +13,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Delegation issuer (docs/adr/2026-07-23-delegated-agent-identity.md, Decision 3).

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/kubeconfig"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
 )
 
 // stubConns is a connectionResolver whose registry can be empty (nothing

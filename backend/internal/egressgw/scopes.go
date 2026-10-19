@@ -7,10 +7,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // ServiceName is the service identity the egress gateway uses when registering

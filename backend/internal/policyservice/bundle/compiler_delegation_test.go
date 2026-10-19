@@ -8,8 +8,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/policyservice/grants"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
+	"github.com/runkora/kora/backend/internal/policyservice/grants"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
 )
 
 // extractBundleFile un-tars a compiled bundle and returns the named entry.

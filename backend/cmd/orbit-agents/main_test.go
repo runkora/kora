@@ -9,11 +9,11 @@ import (
 	"testing"
 	"time"
 
-	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
-	"github.com/clear-route/orbit/internal/agents"
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	"github.com/runkora/kora/backend/internal/agents"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // stubSlugLister is the whole repository surface scope registration uses.

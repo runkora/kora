@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 )
 
 // errTriggerSideFailure stands for a dispatch failure that says something about

@@ -12,7 +12,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	"github.com/clear-route/orbit/internal/agents/manifestpatch"
+	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
 )
 
 // loadTestPatches writes the given patch files to a temp dir and loads them

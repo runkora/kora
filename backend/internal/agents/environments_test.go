@@ -13,8 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 func TestEnvironmentValidate_Size(t *testing.T) {

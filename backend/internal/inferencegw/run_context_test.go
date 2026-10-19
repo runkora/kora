@@ -5,9 +5,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/golang-jwt/jwt/v5"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func agentClaims(tenantID string) *token.PlatformClaims {

@@ -9,9 +9,9 @@ FROM --platform=$BUILDPLATFORM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bc
 
 WORKDIR /app
 
-ENV GOPRIVATE=github.com/clear-route/*
-ENV GONOSUMDB=github.com/clear-route/*
-ENV GONOPROXY=github.com/clear-route/*
+ENV GOPRIVATE=github.com/runkora/*
+ENV GONOSUMDB=github.com/runkora/*
+ENV GONOPROXY=github.com/runkora/*
 
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \

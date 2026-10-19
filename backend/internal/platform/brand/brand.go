@@ -9,7 +9,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/clear-route/orbit/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/config"
 )
 
 // Module is the config module path; the chart renders the per-install file for it.

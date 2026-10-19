@@ -8,10 +8,10 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/credentials"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ProxyHandler is the gateway's inbound HTTP handler. AuthMiddleware has

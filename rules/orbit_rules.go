@@ -312,7 +312,7 @@ func noDirectWriteHeader(m dsl.Matcher) {
 
 // speakingPackages and productNameWord feed both noProductNameLiteral matchers.
 const (
-	speakingPackages = `^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`
+	speakingPackages = `^github\.com/runkora/kora/backend/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`
 	productNameWord  = `(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`
 )
 
@@ -322,7 +322,7 @@ func noProductNameLiteral(m dsl.Matcher) {
 		Where(m.File().PkgPath.Matches(speakingPackages) &&
 			m["s"].Node.Is("BasicLit") &&
 			m["s"].Text.Matches(productNameWord) &&
-			!m["recv"].Type.Implements(`github.com/clear-route/orbit/internal/platform/logging.Logger`)).
+			!m["recv"].Type.Implements(`github.com/runkora/kora/backend/internal/platform/logging.Logger`)).
 		At(m["s"]).
 		Report(`docs/adr/2026-10-12-white-labelling-theme.md: the product name must come from internal/platform/brand, not a literal — ` +
 			`a white-labelled install must never show the kora name in text its people or agents read. ` +

@@ -8,7 +8,7 @@ import (
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func TestNew_Disabled(t *testing.T) {

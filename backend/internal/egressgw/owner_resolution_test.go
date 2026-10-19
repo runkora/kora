@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/githubapp"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/githubapp"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // lookupAdapter opens real github_app connectors whose node id lookup is served

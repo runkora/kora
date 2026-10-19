@@ -12,11 +12,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
 	"github.com/open-policy-agent/opa/v1/bundle"
 	"github.com/open-policy-agent/opa/v1/rego"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // ErrBundleUnexpectedStatus is returned when the bundle endpoint responds

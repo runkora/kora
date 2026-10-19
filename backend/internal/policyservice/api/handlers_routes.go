@@ -3,9 +3,9 @@ package api
 import (
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/token"
-	"github.com/clear-route/orbit/internal/policyservice/routes"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/policyservice/routes"
 )
 
 // registerRoutesRequest is the body for POST /policy/routes/register.

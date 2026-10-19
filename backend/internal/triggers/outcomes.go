@@ -3,7 +3,7 @@ package triggers
 import (
 	"context"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // outcomeStore is the two writes recording an outcome takes.

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func schedulerService(t *testing.T) (*testServiceFacade, *mockRepository, *mockK8s, *mockSMClient) {

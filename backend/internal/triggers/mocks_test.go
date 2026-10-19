@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
-	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // Compile-time interface checks.

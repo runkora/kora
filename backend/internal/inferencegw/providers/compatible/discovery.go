@@ -9,8 +9,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Timeouts of the connector's own HTTP clients. Each covers one request,

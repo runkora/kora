@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 var testIdleTimeouts = IdleTimeouts{Manual: 1200, Trigger: 300}

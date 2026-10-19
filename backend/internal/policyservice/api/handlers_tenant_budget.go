@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
-	platformapi "github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/policyservice/tenantbudget"
+	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/policyservice/tenantbudget"
 )
 
 // handleUpsertTenantBudget handles PUT /policy/tenant-budget.

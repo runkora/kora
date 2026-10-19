@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // DB wraps pgxpool.Pool and provides database infrastructure

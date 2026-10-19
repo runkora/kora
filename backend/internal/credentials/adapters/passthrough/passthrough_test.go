@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	"github.com/clear-route/orbit/internal/credentials/adapters/passthrough"
+	"github.com/runkora/kora/backend/internal/credentials"
+	"github.com/runkora/kora/backend/internal/credentials/adapters/passthrough"
 )
 
 func open(t *testing.T) credentials.Connector {

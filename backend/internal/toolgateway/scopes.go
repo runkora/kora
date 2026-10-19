@@ -23,7 +23,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/clients/routescopes"
+	"github.com/runkora/kora/backend/internal/platform/clients/routescopes"
 )
 
 // ServiceName is the service identity the tool-gateway registers scopes under

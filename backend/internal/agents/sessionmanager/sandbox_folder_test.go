@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // folderRegistry returns a registry over a temporary workspaces root whose

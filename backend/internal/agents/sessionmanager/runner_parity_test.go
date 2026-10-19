@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Every framework goes through orbit-session-runner, so Codex and OpenCode runs

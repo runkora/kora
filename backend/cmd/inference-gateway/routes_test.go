@@ -9,12 +9,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // TestInferenceRoutesUsageScopes pins the personal-vs-privileged split across the

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // requestWithHost builds a request as the ingress would present it: the client

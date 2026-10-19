@@ -16,7 +16,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // TestBuildSessionManagerStatefulSet_WorkspaceClaimIsDeletedWithTheSet asserts

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // testRoutes and testScopes are the minimal valid payload; no test here is

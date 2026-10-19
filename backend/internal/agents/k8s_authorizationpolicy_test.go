@@ -11,7 +11,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 func authPolicyProvisioner(t *testing.T, cfg K8sProvisionerConfig) (*K8sProvisioner, *dynamicfake.FakeDynamicClient) {

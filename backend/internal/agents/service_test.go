@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/clients/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // waitFor polls check every 5 ms until it returns true or the timeout elapses.

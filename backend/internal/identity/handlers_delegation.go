@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // Delegation issuer endpoints (docs/adr/2026-07-23-delegated-agent-identity.md,

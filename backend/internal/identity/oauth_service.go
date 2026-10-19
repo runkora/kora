@@ -11,7 +11,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/token"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // OAuth 2.1 authorization-code + PKCE for the MCP profile. The BFF /authorize

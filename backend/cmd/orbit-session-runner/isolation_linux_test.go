@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/agents/sandbox/runfs"
 	llsyscall "github.com/landlock-lsm/go-landlock/landlock/syscall"
+	"github.com/runkora/kora/backend/internal/agents/sandbox/runfs"
 )
 
 // Integration tests: they run the orbit-session-runner binary with a /bin/sh

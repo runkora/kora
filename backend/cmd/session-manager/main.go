@@ -10,16 +10,16 @@ import (
 
 	"time"
 
-	smConfig "github.com/clear-route/orbit/cmd/session-manager/config"
-	"github.com/clear-route/orbit/internal/agents/sessionmanager"
-	"github.com/clear-route/orbit/internal/platform/api"
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/config"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	platformmetrics "github.com/clear-route/orbit/internal/platform/metrics"
-	mw "github.com/clear-route/orbit/internal/platform/middleware"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/token"
+	smConfig "github.com/runkora/kora/backend/cmd/session-manager/config"
+	"github.com/runkora/kora/backend/internal/agents/sessionmanager"
+	"github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/config"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	platformmetrics "github.com/runkora/kora/backend/internal/platform/metrics"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func main() {

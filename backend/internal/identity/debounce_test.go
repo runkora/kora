@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // writeRegistryFile writes a minimal valid tenant registry YAML to path.

@@ -21,10 +21,10 @@ import (
 	openai "github.com/openai/openai-go/v3"
 	openaiopt "github.com/openai/openai-go/v3/option"
 
-	"github.com/clear-route/orbit/internal/inferencegw"
-	"github.com/clear-route/orbit/internal/inferencegw/providers/bridge"
-	"github.com/clear-route/orbit/internal/platform/clients/httpclient"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/inferencegw"
+	"github.com/runkora/kora/backend/internal/inferencegw/providers/bridge"
+	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // Config holds one Bedrock account and region. Empty keys use the AWS default

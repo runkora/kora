@@ -5,9 +5,9 @@ import (
 	"errors"
 	"net/url"
 
-	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
-	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/runkora/kora/backend/internal/platform/clients/orbitjson"
+	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
 )
 
 // registerEnvironmentTools wires the sandbox environment tools. The agents service enforces

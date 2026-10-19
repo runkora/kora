@@ -7,12 +7,12 @@ import (
 
 	"sigs.k8s.io/yaml"
 
-	agentsConfig "github.com/clear-route/orbit/cmd/orbit-agents/config"
-	"github.com/clear-route/orbit/internal/agents"
-	"github.com/clear-route/orbit/internal/agents/manifestpatch"
-	"github.com/clear-route/orbit/internal/platform/brand"
-	"github.com/clear-route/orbit/internal/platform/observability"
-	"github.com/clear-route/orbit/internal/platform/ports"
+	agentsConfig "github.com/runkora/kora/backend/cmd/orbit-agents/config"
+	"github.com/runkora/kora/backend/internal/agents"
+	"github.com/runkora/kora/backend/internal/agents/manifestpatch"
+	"github.com/runkora/kora/backend/internal/platform/brand"
+	"github.com/runkora/kora/backend/internal/platform/observability"
+	"github.com/runkora/kora/backend/internal/platform/ports"
 )
 
 // workloadsFile is the shape of the ConfigMap the chart renders from

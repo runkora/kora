@@ -11,8 +11,8 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/clear-route/orbit/internal/platform/storage"
-	"github.com/clear-route/orbit/internal/platform/usagewindow"
+	"github.com/runkora/kora/backend/internal/platform/storage"
+	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
 // InferenceUsageRepository defines the storage contract for inference usage records.

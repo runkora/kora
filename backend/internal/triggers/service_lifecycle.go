@@ -9,10 +9,10 @@ import (
 
 	"github.com/google/uuid"
 
-	agentsclient "github.com/clear-route/orbit/internal/platform/clients/agents"
-	policyclient "github.com/clear-route/orbit/internal/platform/clients/policy"
-	"github.com/clear-route/orbit/internal/platform/logging"
-	"github.com/clear-route/orbit/internal/platform/token"
+	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 // triggerStore is what managing triggers touches: the triggers themselves, the

@@ -9,7 +9,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes/fake"
 
-	sandboxfolder "github.com/clear-route/orbit/internal/agents/sandbox/folder"
+	sandboxfolder "github.com/runkora/kora/backend/internal/agents/sandbox/folder"
 )
 
 func sandboxMountProvisioner(enabled bool) *K8sProvisioner {

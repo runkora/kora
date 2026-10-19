@@ -36,10 +36,10 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"github.com/clear-route/orbit/internal/credentials"
-	ghclient "github.com/clear-route/orbit/internal/platform/clients/github"
-	platformconns "github.com/clear-route/orbit/internal/platform/connections"
-	"github.com/clear-route/orbit/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/credentials"
+	ghclient "github.com/runkora/kora/backend/internal/platform/clients/github"
+	platformconns "github.com/runkora/kora/backend/internal/platform/connections"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // appJWTTTL is the lifetime of the App JWT used to mint installation tokens.
