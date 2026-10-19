@@ -46,7 +46,9 @@ func TestUncoveredAgentScopes(t *testing.T) {
 		{"held exactly", []string{"inference:invoke"}, []string{"inference:invoke"}, nil},
 		{"held via parent", []string{"connection:github:read"}, []string{"connection:github:contents:read"}, nil},
 		{"not held", []string{"inference:invoke"}, []string{"platform:grants:write"}, []string{"platform:grants:write"}},
-		{"egress skipped", nil, []string{"egress:connect", "egress:github.com:connect", "egress:api.github.com:connector"}, nil},
+		{"connector egress skipped", nil, []string{"egress:api.github.com:connector"}, nil},
+		{"own egress needs egress:connect", nil, []string{"egress:connect", "egress:github.com:connect"}, []string{"egress:connect", "egress:github.com:connect"}},
+		{"egress:connect covers a host", []string{"egress:connect"}, []string{"egress:connect", "egress:github.com:connect"}, nil},
 		{"only uncovered listed", []string{"inference:invoke"}, []string{"inference:invoke", "connection:github:contents:write"}, []string{"connection:github:contents:write"}},
 	}
 	for _, tt := range tests {
@@ -86,9 +88,21 @@ func TestCreateAgentType_ScopeCeiling(t *testing.T) {
 			wantErr: ErrScopeCeiling,
 		},
 		{
-			name:    "egress posture is not ceilinged",
+			name:    "open egress the caller lacks is refused",
 			callers: heldScopes{"inference:invoke"},
 			req:     CreateAgentTypeRequest{Connectivity: &Connectivity{Mode: ConnectivityOpen}},
+			wantErr: ErrScopeCeiling,
+		},
+		{
+			name:    "host egress is covered by egress:connect",
+			callers: heldScopes{"inference:invoke", "egress:connect"},
+			req:     CreateAgentTypeRequest{Connectivity: &Connectivity{Mode: ConnectivityWhitelist, Hosts: []string{"github.com"}}},
+		},
+		{
+			name:    "connector egress typed into grant scopes is checked",
+			callers: heldScopes{"inference:invoke"},
+			req:     CreateAgentTypeRequest{GrantScopes: []string{"egress:evil.example:connector"}},
+			wantErr: ErrScopeCeiling,
 		},
 		{
 			name:    "delegated agent is not ceilinged",

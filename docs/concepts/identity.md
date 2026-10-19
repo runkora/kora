@@ -17,7 +17,7 @@ Every agent uses one of two identity models, which is chosen when creating the a
 
 ### Autonomous agents
 
-Autonomous agents run fully dark, without a person attached. They are started by triggers from webhooks, queues, schedules or the API, and are governed only by their own identity, budget and the access granted to it. A person can also start an autonomous agent, but only when they have been granted access to that agent, because the run uses the agent's access rather than their own. Autonomous agents hold standing access, so they should be restricted and managed by platform admins. Creating or changing an autonomous agent requires holding every scope the agent would hold, apart from egress. Editing an environment attached to one requires the same.
+Autonomous agents run fully dark, without a person attached. They are started by triggers from webhooks, queues, schedules or the API, and are governed only by their own identity, budget and the access granted to it. A person can also start an autonomous agent, but only when they have been granted access to that agent, because the run uses the agent's access rather than their own. Autonomous agents hold standing access, so they should be restricted and managed by platform admins. Creating or changing an autonomous agent requires holding every scope the agent would hold. Egress a connector brings with it is the one exception. Editing an environment attached to an autonomous agent requires the same.
 
 ### Delegated agents
 

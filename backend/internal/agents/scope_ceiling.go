@@ -52,7 +52,14 @@ func (s *AgentTypeService) checkCeiling(ctx context.Context, at AgentType, r *Sc
 	if err != nil {
 		return fmt.Errorf("resolve caller scopes: %w", err)
 	}
-	if missing := uncoveredAgentScopes(held, agentScopes); len(missing) > 0 {
+	missing := uncoveredAgentScopes(held, agentScopes)
+	// Connector egress typed into grant_scopes follows no connector. It is checked like any scope.
+	for _, g := range at.GrantScopes {
+		if isConnectorEgress(g) && !policy.AnyScopeCovers(held, g) {
+			missing = append(missing, g)
+		}
+	}
+	if len(missing) > 0 {
 		return fmt.Errorf("%w: this autonomous agent would hold scopes you do not hold: %s",
 			ErrScopeCeiling, strings.Join(missing, ", "))
 	}
@@ -61,14 +68,19 @@ func (s *AgentTypeService) checkCeiling(ctx context.Context, at AgentType, r *Sc
 
 // uncoveredAgentScopes returns the agent scopes no held scope covers. held is
 // requires-expanded by the policy service, so the agent scopes need no expansion.
-// Egress scopes are skipped: they are not in the vocabulary and no person holds them.
+// Connector egress is skipped: it follows from connection scopes checked here.
 func uncoveredAgentScopes(held, agentScopes []string) []string {
 	var missing []string
 	for _, s := range agentScopes {
-		if strings.HasPrefix(s, "egress:") || policy.AnyScopeCovers(held, s) {
+		if isConnectorEgress(s) || policy.AnyScopeCovers(held, s) {
 			continue
 		}
 		missing = append(missing, s)
 	}
 	return missing
+}
+
+// isConnectorEgress reports whether s is an egress:<host>:connector scope.
+func isConnectorEgress(s string) bool {
+	return strings.HasPrefix(s, "egress:") && strings.HasSuffix(s, ":connector")
 }
