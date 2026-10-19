@@ -321,7 +321,7 @@ For the default maximum:
 *   The deployment guide will state the sizing rule for `maxSize`: the size plus the sandbox sidecars and 1Gi of disk must fit a sandbox node's allocatable capacity after its DaemonSet requests.
 *   The headroom placeholder will request and limit `defaultSize` plus the sandbox sidecars, with ephemeral storage of `defaultSize.disk` plus 1Gi. A value in `agents.sandboxWarming.resources` will replace the derived value.
 *   orbit-agents will end each wait for a sandbox pod 5s before one attempt's share of the provision budget left after the backoffs between attempts. A wait that ends before the pod is ready will return 503 with the message of the pod's `PodScheduled` condition. The session-manager will carry that message into the run's failure event and into the message the agent reads when the sandbox is lost.
-*   The provision budget and its 300s default stay as they are.
+*   The provision budget and its default is raised to 600s so a cold node scale-up fits.
 *   Existing environments keep their stored sizes.
 
 **Consequences.**

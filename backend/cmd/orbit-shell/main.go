@@ -91,9 +91,9 @@ func readSandbox() sandbox {
 const runTokenHeader = "X-Orbit-Run-Token"
 
 // provisionTimeout sits above the session-manager's worst case for a provision
-// (its retry budget, at most 320s, plus the 90s egress canary), so its verdict
+// (its retry budget, at most 600s, plus the 90s egress canary), so its verdict
 // arrives. orbit-runtime-mcp uses the same bound.
-const provisionTimeout = 420 * time.Second
+const provisionTimeout = 720 * time.Second
 
 // readTrimmed returns the file's trimmed contents, or empty if it cannot be read.
 func readTrimmed(path string) string {
