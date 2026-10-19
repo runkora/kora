@@ -1,7 +1,4 @@
-/**
- * A file read may return fewer bytes than requested. The bounded read must
- * still see the whole file, and still see an oversize one.
- */
+/** A read may return fewer bytes than asked; the bounded read must still see the whole file. */
 import { describe, expect, it } from 'vitest';
 import { readUpTo, type ReadableHandle } from './theme-document';
 

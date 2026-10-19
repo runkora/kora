@@ -1,6 +1,4 @@
-/**
- * The bounded read of a theme document: the theme.yaml size cap.
- */
+/** The theme.yaml size cap. */
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';

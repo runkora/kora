@@ -1,22 +1,6 @@
 /**
- * The loaded theme.
- *
- * The theme is one document, `theme.yaml` in `/etc/orbit/theme` by default,
- * mounted from the frontend's ConfigMap. Its slots hold `https://` URLs for the
- * logo, favicon and fonts. The browser loads them directly. The instance serves
- * no asset.
- *
- * The first call reads and validates the document, then derives the inline CSS,
- * the font preloads and the effective brand. The result is held for the life of
- * the process, because the theme changes only on redeploy.
- *
- * An invalid document throws with every fault listed, so no page serves. The
- * init container normally catches that first, by running
- * `scripts/validate-theme.ts` on the same document. An absent directory means
- * the kora default. A directory without `theme.yaml` is an error.
- *
- * `ORBIT_THEME_DIR` overrides the directory. Tests point it at the fixtures
- * beside this module.
+ * The loaded theme, read once from `theme.yaml` in the mounted theme directory and held per process.
+ * An invalid document throws, so no page serves. `ORBIT_THEME_DIR` overrides the directory for tests.
  */
 import 'server-only';
 
@@ -38,17 +22,12 @@ import { ThemeYamlTooLargeError, isMissing, readThemeDocument } from '@orbit/lib
 
 export const DEFAULT_THEME_DIR = '/etc/orbit/theme';
 
-// The JSON import widens the manifest's mode and kind unions to string; the
-// file is generated from the same types, so the cast only restores them.
+// The JSON import widens the manifest's unions to string; the cast restores them.
 const hadesManifest = manifest as ThemeManifest;
 
 /** What the process holds after loading: the theme, or the default when there is none. */
 export interface LoadedTheme {
-  /**
-   * The kora release this instance is, whose major a theme's `koraVersion` must
-   * equal; null for a build that is not from a release tag, where the
-   * comparison is skipped.
-   */
+  /** The kora release of this instance, or null for a non-release build, which skips the version check. */
   readonly koraVersion: string | null;
   /** The validated theme, or null when no theme is mounted. */
   readonly theme: Theme | null;
@@ -124,8 +103,7 @@ function describeVersion(koraVersion: string | null): string {
 }
 
 function logLoaded(dir: string, loaded: LoadedTheme): void {
-  // The frontend has no server-side logger. One line at startup is the
-  // monitoring.
+  // There is no server-side logger here, so log one line at startup.
   if (!loaded.theme) {
     console.info(
       `[theme] no theme at ${dir}; serving the default (${describeVersion(loaded.koraVersion)})`,
@@ -147,10 +125,7 @@ function logLoaded(dir: string, loaded: LoadedTheme): void {
   }
 }
 
-/**
- * Loads the theme document in `dir`. Exported for tests; the app goes through
- * `getTheme()`, which loads once.
- */
+/** Loads the theme document in `dir`. Exported for tests; the app uses `getTheme()`. */
 export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
   const koraVersion = instanceKoraVersion();
   let text: string;
@@ -165,9 +140,8 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
       throw error;
     }
     if (!isMissing(err)) throw err;
-    // Only an absent directory means "no theme". A directory with no
-    // theme.yaml is a mis-mounted ConfigMap, and serving the default would
-    // hide that.
+    // Only an absent directory means no theme. A directory without theme.yaml is a
+    // mis-mounted ConfigMap, which the default would hide.
     if (await directoryExists(dir)) {
       const error = new ThemeLoadError(dir, [
         { path: 'theme.yaml', message: 'the theme directory exists but has no theme.yaml' },

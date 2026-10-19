@@ -1,5 +1,4 @@
-# A theme with a sans font and a favicon for both modes. It exercises the
-# preload links, the `@font-face` rule and the two favicon entries.
+# A theme with a sans font and a favicon for both modes.
 koraVersion: "1.0.0"
 productName: Fontic
 slots:

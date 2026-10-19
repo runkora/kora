@@ -1,7 +1,4 @@
-/**
- * Unit tests for the init container's validator entry point, against the
- * fixture documents the server theme module uses.
- */
+/** Unit tests for the init container's validator entry point. */
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { main, validateDocument } from './validate-theme';

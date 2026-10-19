@@ -1,32 +1,13 @@
 /**
- * no-product-name-literal
- *
- * Reports the whole word `kora` or `orbit`, case-insensitively, in a string
- * literal, a template literal chunk or JSX text. A theme can rename the
- * product, so user-facing copy must read the name from the brand.
- *
- * A match passes when `-`, `_` or `/` sits right beside it, or a `.` with a
- * word character on its far side (`orbit.io`, `kora-base`, `@runkora/hades`,
- * `ORBIT_API_KEY`). A `.` that ends a sentence does not join, so
- * "provisioned in kora." fails.
- *
- * Literals that are never copy are skipped: import and export sources, object
- * property keys, computed member keys (`claims['orbit']`) and literal types.
- *
- * There is no inline escape hatch. Keep an identifier joined to one of those
- * characters, move it out of the app tree, or add a path-scoped `ignores` entry
- * in eslint.config.mjs.
+ * Reports the whole word `kora` or `orbit` in strings, template chunks and JSX text, so copy
+ * reads the name from the brand. There is no inline escape hatch.
  */
 
 // The whole word; the adjacency check below tells an identifier from prose.
 const CANDIDATE = /\b(?:kora|orbit)\b/gi;
 const JOINER = /[\w\-/]/;
 
-/**
- * Whether the character beside the word joins it into an identifier: `-`, `_`,
- * `/`, or a `.` with a word character on its far side (`orbit.io`,
- * `claims.orbit`). A full stop that ends a sentence does not join.
- */
+/** Whether the neighbour makes the word an identifier: `-`, `_`, `/`, or `.` before a word char. */
 function joinedThrough(text, index, direction) {
   const c = text[index];
   if (c === undefined) return false;

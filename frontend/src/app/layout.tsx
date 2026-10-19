@@ -25,15 +25,11 @@ const geistMono = Geist_Mono({
 /** Next serves `app/icon.svg` here. */
 const DEFAULT_FAVICON = '/icon.svg';
 
-/**
- * The favicon entries for the theme, or none when the theme has no favicon, which
- * leaves `app/icon.svg` in place. Browsers pick a favicon by the system colour
- * scheme, not the page's `data-theme`, so each mode gets a `media` query.
- */
+/** The theme's favicon entries by colour scheme, or none so `app/icon.svg` stands. */
 function themeIcons(brand: IdentityTheme): Pick<Metadata, 'icons'> {
   const { favicon } = brand;
   if (!favicon?.dark && !favicon?.light) return {};
-  // A mode the theme omits falls back to the kora icon.
+  // Browsers follow the system colour scheme, not `data-theme`. A missing mode gets the kora icon.
   return {
     icons: {
       icon: [
@@ -73,8 +69,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // The theme is a document mounted at runtime. Opt out of prerendering, or the
-  // build would ship the default. An invalid theme throws here, so no page serves.
+  // Opt out of prerendering: the theme is mounted at runtime, and a build would ship the default.
   await connection();
   const { brand, css, fontPreloads } = await getTheme();
 

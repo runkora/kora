@@ -1,9 +1,4 @@
-/**
- * Integration tests for GET /api/health.
- *
- * `@orbit/server/theme` is vi.mock'd so the route reports a controlled theme
- * state; the module's own tests cover the loading.
- */
+/** Integration tests for GET /api/health, with `@orbit/server/theme` mocked. */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 vi.mock('@orbit/server/theme', () => ({

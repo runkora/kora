@@ -1,9 +1,4 @@
-/**
- * Unit tests for the server theme module, against the fixture documents beside
- * it. `loadThemeFrom` is exercised directly; the process-wide accessors are
- * exercised through a fresh module instance per test, with ORBIT_THEME_DIR
- * pointing at a fixture, because they cache for the life of the module.
- */
+/** Unit tests for the server theme module, against the fixtures beside it. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -51,8 +46,7 @@ describe('loadThemeFrom', () => {
     // Favicon set for dark only: one entry, light falls through.
     expect(brand.favicon).toEqual({ dark: 'https://assets.acme.example/brand/favicon.svg' });
 
-    // Regex assertions: the colour values are the fixture's, and the
-    // hardcoded-colour rule reads string literals, not patterns.
+    // Regex assertions: the hardcoded-colour rule reads string literals, not patterns.
     expect(css).toMatch(
       /html:root:not\(\[data-theme='light'\]\)\{--hades-raw-100:#0a0a0a;--hades-raw-accent-500:oklch\(70% 0\.15 250\)\}/,
     );

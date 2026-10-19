@@ -1,7 +1,6 @@
 /**
- * RuleTester cases for local/no-product-name-literal. The TypeScript parser is
- * resolved through eslint-config-next, which depends on typescript-eslint, so
- * TSX and literal types are covered without a direct dependency.
+ * RuleTester cases for local/no-product-name-literal. The TypeScript parser comes through
+ * eslint-config-next, so no direct dependency is needed.
  */
 import { createRequire } from 'node:module';
 import { describe, it } from 'vitest';

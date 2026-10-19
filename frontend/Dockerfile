@@ -87,9 +87,7 @@ ENV NEXT_OUTPUT=standalone
 
 RUN pnpm build
 
-# Bundle the theme validator into the standalone directory. The runner stage
-# copies it to /app/validate-theme.mjs, and the chart's init container runs:
-#   node /app/validate-theme.mjs /etc/orbit/theme/theme.yaml
+# Bundle the theme validator the chart's init container runs from /app/validate-theme.mjs.
 RUN node scripts/bundle-validate-theme.mjs
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────

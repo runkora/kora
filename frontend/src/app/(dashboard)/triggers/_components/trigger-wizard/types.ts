@@ -190,9 +190,8 @@ export interface StepComponentProps {
 }
 
 /**
- * Copy that may name the product: a plain string, or a function of the product
- * name for the registry entries that mention it. The registry is module-level,
- * so it cannot read the brand itself; the component that renders it does.
+ * Copy that may name the product: a string, or a function of the product name.
+ * The registry is module-level, so the rendering component supplies the name.
  */
 export type BrandedCopy = string | ((productName: string) => string);
 

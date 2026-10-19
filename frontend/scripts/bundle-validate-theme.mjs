@@ -1,10 +1,6 @@
 /**
- * Bundles scripts/validate-theme.ts into one self-contained ESM file,
- * .next/standalone/validate-theme.mjs. The Dockerfile's runner stage copies it
- * with the rest of the standalone output, and the chart's init container runs it.
- *
- * esbuild is not a direct dependency. It is resolved through vitest and then
- * vite, because pnpm's strict layout keeps it off PATH.
+ * Bundles scripts/validate-theme.ts into .next/standalone/validate-theme.mjs for the init container.
+ * esbuild is resolved through vitest and vite, because pnpm keeps it off PATH.
  */
 import { createRequire } from 'node:module';
 import path from 'node:path';
@@ -26,8 +22,7 @@ await esbuild.build({
   target: 'node24',
   outfile,
   logLevel: 'info',
-  // `yaml` is CommonJS and calls `require` for Node built-ins. An ESM bundle
-  // needs a `require` in scope for those calls.
+  // `yaml` is CommonJS and calls `require`; an ESM bundle needs one in scope.
   banner: {
     js: "import { createRequire } from 'node:module';\nconst require = createRequire(import.meta.url);",
   },

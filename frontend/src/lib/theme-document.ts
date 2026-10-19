@@ -1,8 +1,6 @@
 /**
- * The bounded read of a theme document. The server module and the init
- * container's `scripts/validate-theme.ts` share it, so both enforce the same
- * limit. It uses Node built-ins only, because the init container bundles it
- * without Next or `server-only`.
+ * The bounded read of a theme document, shared by the server module and the init container script.
+ * It uses Node built-ins only, because the init container bundles it without Next.
  */
 import { open } from 'node:fs/promises';
 
@@ -33,9 +31,8 @@ export interface ReadableHandle {
 }
 
 /**
- * Reads at most `maxBytes + 1` bytes from the start of a file, so an oversize
- * file is seen without being loaded. A read may return fewer bytes than asked
- * for, so it loops to end of file or the bound.
+ * Reads at most `maxBytes + 1` bytes, so an oversize file is seen without loading it.
+ * Loops because a read can return fewer bytes than asked.
  */
 export async function readUpTo(handle: ReadableHandle, maxBytes: number): Promise<Uint8Array> {
   const buffer = Buffer.alloc(maxBytes + 1);
@@ -48,11 +45,7 @@ export async function readUpTo(handle: ReadableHandle, maxBytes: number): Promis
   return new Uint8Array(buffer.subarray(0, total));
 }
 
-/**
- * Reads a theme document as UTF-8, refusing one larger than
- * {@link MAX_THEME_YAML_BYTES} before it is parsed. Throws the underlying error
- * when the file is absent.
- */
+/** Reads a theme document as UTF-8. Throws if it exceeds {@link MAX_THEME_YAML_BYTES} or is absent. */
 export async function readThemeDocument(file: string): Promise<string> {
   const handle = await open(file, 'r');
   try {

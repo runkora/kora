@@ -41,8 +41,7 @@ export default defineConfig({
       'server-only': path.resolve(__dirname, './src/test-utils/server-only-shim.js'),
       // Workspace package — must come before the generic @orbit alias so that
       // Vite's first-match resolution picks the package src, not ./src/hades.
-      // The subpath exports go first for the same reason: the bare alias would
-      // otherwise swallow them.
+      // Subpath exports go first, or the bare alias swallows them.
       '@runkora/hades/theme': path.resolve(__dirname, './src/packages/hades/src/theme/index.ts'),
       '@runkora/hades/manifest.json': path.resolve(__dirname, './src/packages/hades/manifest.json'),
       '@runkora/hades': path.resolve(__dirname, './src/packages/hades/src/index.ts'),

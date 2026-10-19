@@ -1,5 +1,4 @@
-# Several faults at once: an unknown top-level key, an invalid colour and a
-# slot URL that is not https.
+# Several faults at once: unknown key, invalid colour, non-https slot URL.
 koraVersion: "1.0.0"
 productName: Broken Co
 brand: nope

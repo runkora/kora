@@ -1,9 +1,8 @@
 'use client';
 
 /**
- * The effective brand for client components: the kora default overlaid by the
- * deployment's theme. The root layout provides it from `getBrand()`. A tree
- * rendered without the provider, such as a test or a story, sees the default.
+ * The effective brand for client components: the kora default overlaid by the theme.
+ * Without a provider, as in a test or a story, it is the default.
  */
 import { createContext, useContext, type ReactNode } from 'react';
 import { defaultTheme, type IdentityTheme } from './default';
