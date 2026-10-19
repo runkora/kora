@@ -187,7 +187,7 @@ export function routedDelivery(c: RoutingCase): {
     scores: CONFIDENT_SCORES,
     agent: { slug: 'code-reviewer', name: 'Code Reviewer' },
     run: runId === null ? null : { kind: 'new', runId },
-    coalesceKey: KEY,
+    joinKey: KEY,
     keyMatched: false,
     fallbackFired: false,
     threshold: BALANCED,

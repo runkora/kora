@@ -42,6 +42,7 @@ const choose = (agents: typeof three, n: number) => ({
   candidateIds: firstIds(agents, n),
   modelId: 'liquid/d1',
   fallbackId: firstIds(agents, 1)[0] ?? '',
+  joinKey: '{{ repository.full_name }}#{{ issue.number }}',
 });
 
 /** Route to one agent: today's step, unchanged, under the new mode choice. */
@@ -118,7 +119,7 @@ function deliveryStory(c: RoutingCase): Story {
 /** kora was sure: a new run of the chosen agent. */
 export const DeliveryConfidentNewRun = deliveryStory('confident');
 
-/** The coalesce key matched an open run, so no model call was made. */
+/** The join key matched an open run, so no model call was made. */
 export const DeliveryJoinedByKey = deliveryStory('joined-by-key');
 
 /** Below the confidence bar: the fallback agent took it. */

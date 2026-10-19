@@ -40,7 +40,7 @@ export interface RoutingDecision {
   /** The agent that received the delivery; null when no run started. */
   agent: { slug: string; name: string } | null;
   run: { kind: 'new' | 'joined'; runId: string } | null;
-  coalesceKey: string | null;
+  joinKey: string | null;
   keyMatched: boolean;
   fallbackFired: boolean;
   threshold: { preset: ConfidencePresetName; value: number };
@@ -151,8 +151,8 @@ export function DeliveryRouting({ decision: d }: { decision: RoutingDecision }) 
           )}
         </Row>
         <Row label="Key match">
-          <Text size="caption" color={d.coalesceKey === null ? 'subtle' : undefined}>
-            {d.coalesceKey === null
+          <Text size="caption" color={d.joinKey === null ? 'subtle' : undefined}>
+            {d.joinKey === null
               ? 'Not set on this trigger'
               : d.keyMatched
                 ? 'Matched an open run'

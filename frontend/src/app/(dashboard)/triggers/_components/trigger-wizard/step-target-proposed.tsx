@@ -49,6 +49,8 @@ export interface RoutingDraft {
   unsure: UnsureAction;
   fallbackId: string;
   joinOpenRuns: boolean;
+  /** Template rendered per delivery; a match joins that open run with no model call. */
+  joinKey: string;
 }
 
 export const DEFAULT_ROUTING: RoutingDraft = {
@@ -59,6 +61,7 @@ export const DEFAULT_ROUTING: RoutingDraft = {
   unsure: 'fallback',
   fallbackId: '',
   joinOpenRuns: true,
+  joinKey: '',
 };
 
 /** A model the picker can offer: display name plus the family/name id. */
@@ -274,12 +277,33 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
         )}
       </Stack>
 
-      <ToggleRow
-        label="Join open runs"
-        description="Deliveries with the same coalesce key always join that run. Otherwise kora may send the delivery to an open run started by a trigger. Runs people started are never joined."
-        checked={routing.joinOpenRuns}
-        onChange={(next) => onRouting({ joinOpenRuns: next })}
-      />
+      <Stack gap="cozy">
+        <ToggleRow
+          label="Join open runs"
+          description="kora may send a delivery to an open run of a candidate agent started by a trigger. Runs people started are never joined."
+          checked={routing.joinOpenRuns}
+          onChange={(next) => onRouting({ joinOpenRuns: next })}
+        />
+        {routing.joinOpenRuns && (
+          <Card inset>
+            <CardContent padded compact>
+              <FormField
+                label="Join key"
+                id="routing-join-key"
+                hint="Optional. Template, same syntax as the prompt. A delivery whose key matches an open run of this trigger joins it without asking kora."
+              >
+                <Input
+                  id="routing-join-key"
+                  mono
+                  value={routing.joinKey}
+                  onChange={(e) => onRouting({ joinKey: e.target.value })}
+                  placeholder="{{ repository.full_name }}#{{ issue.number }}"
+                />
+              </FormField>
+            </CardContent>
+          </Card>
+        )}
+      </Stack>
 
       <Callout variant="info">
         <Stack direction="horizontal" gap="cozy" align="center">

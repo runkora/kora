@@ -22,7 +22,7 @@ A trigger binds a firing condition to one agent (`Trigger.AgentTypeID` in `backe
 
 Creating a trigger grants its principal `agents:runs:<slug>:read` and `agents:runs:<slug>:write` (`triggerRunScopes` in `backend/internal/triggers/service.go`). `Trigger.TargetKind` is `agent`, and the column carries a `CHECK (target_kind = 'agent')` constraint.
 
-[Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) records each delivery's rendered key per trigger in `trigger_delivery_keys`. `trigger_delivery_runs` records the run each fire started.
+[Trigger Fire Coalescing](2026-10-13-trigger-fire-coalescing.md) holds fires with the same rendered key for a window and replaces a waiting fire with the newest payload (`renderCoalesceKey` in `backend/internal/triggers/coalesce.go`). `trigger_delivery_runs` records the run each fire started.
 
 orbit-agents records the starting trigger on a run as `StartedBy` (`backend/internal/agents/models.go`) and leaves it nil for a run a person started. `RunService.SendMessage` (`backend/internal/agents/run_service.go`) delivers a message to an `active` or `idle` run behind `POST /api/v1/runs/{id}/messages` and checks `agents:runs:<slug>:write` for the caller through `Authz.checkRun` (`backend/internal/agents/authz.go`). It treats every message as a person's message: the run takes the manual idle timeout from `IdleTimeouts.ForPersonMessage` (`backend/internal/agents/idle_timeout.go`), and the run's event stream records a human message.
 
@@ -30,7 +30,7 @@ orbit-agents records the starting trigger on a run as `StartedBy` (`backend/inte
 
 ### Problem Statement
 
-A trigger cannot choose among agents or send a delivery to a run that is already working. An event with a fixed shape and an unknown intent, such as a Slack `@kora` mention, needs one entry point that routes each delivery.
+A trigger cannot choose among agents or send a delivery to a run that is already working. An event with a fixed shape and an unknown intent, such as a GitHub `issue_comment` that mentions `@kora`, needs one entry point that routes each delivery.
 
 ### Goals
 
@@ -42,13 +42,14 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 ### Non-Goals
 
 - Classifiers that tenants define, and a workflow primitive.
-- Context beyond the delivery, such as Slack thread history.
+- Context beyond the delivery, such as earlier comments on an issue.
+- A Slack webhook provider. Routing works on any webhook source, and a Slack provider is separate work.
 - Routing for scheduled and manual triggers.
 - Joining runs that a person started.
 
 ### Which of the Three Questions This Touches
 
-**What can it access?** A routing trigger holds run scopes for every candidate agent and the use scope of its decision model. Create and update require the creator to hold each of those scopes. A delivery can join only a run of a candidate agent, under the routing trigger's own token.
+**What can it access?** A routing trigger holds run scopes for every candidate agent and the use scope of its decision model. Create and update require the creator to hold each of those scopes. A delivery can start or join only a run of one of the routing trigger's candidate agents, under the routing trigger's own token.
 
 **Who is this agent?** A joined run keeps its identity. A run started by a routing trigger runs under the routing trigger's principal like any trigger run. The decision call is attributed to that principal.
 
@@ -99,17 +100,23 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 
 ### D5. Which Runs a Delivery Can Join
 
-**Option 5a (chosen):** A delivery can join an `active` or `idle` run that a trigger started, whose agent type is a candidate of the routing trigger. The message travels under the routing trigger's token.
+**Option 5a (chosen):** A delivery can join an `active` or `idle` run of a candidate agent of the routing trigger, started by any trigger. A run a person started is never joined. The message travels under the routing trigger's token.
 
 **Option 5b (rejected):** A delivery can join any trigger-started run in the tenant. The routing trigger would need run write on every agent in the tenant, or the message would travel under a token with access the routing trigger does not hold.
 
-**Option 5c (rejected):** Only runs started by the same trigger. A Slack follow-up could not reach a run that a GitHub trigger started for the same pull request.
+**Option 5c (rejected):** Only runs started by the same trigger. A comment routed by one trigger could not reach a run that another trigger started for the same pull request.
 
-### D6. Where a Routing Trigger's Configuration Lives
+### D6. How Key-First Joining Finds a Run
 
-**Option 6a (chosen):** Add `target_kind = 'routed'` and two tables: `trigger_routes` for the settings and `trigger_route_candidates` for the agents.
+**Option 6a (chosen):** A routing `join_key` template, rendered per delivery like the coalesce key. The rendered key is stored on the routing decision, and a later delivery of the same trigger with the same key joins the run that decision recorded.
 
-**Option 6b (rejected):** Store the routing settings in `kind_config`. Candidates reference agent types, and the agent lookup and grant management need them as rows.
+**Option 6b (rejected):** Reuse the coalesce key. Two quick comments on one issue would merge, and the first comment would never reach routing. Key-first joining would also require coalescing to be on.
+
+### D7. Where a Routing Trigger's Configuration Lives
+
+**Option 7a (chosen):** Add `target_kind = 'routed'` and two tables: `trigger_routes` for the settings and `trigger_route_candidates` for the agents.
+
+**Option 7b (rejected):** Store the routing settings in `kind_config`. Candidates reference agent types, and the agent lookup and grant management need them as rows.
 
 ---
 
@@ -119,19 +126,19 @@ A trigger cannot choose among agents or send a delivery to a run that is already
 2. **Placement:** Routing runs in `DispatchPending` (Option 1a). A routed fire computes a route and then either starts a run through `StartRun` or joins one through the new agents client method `SendRunMessage`.
 3. **Model call:** orbit-triggers calls `POST /v1/systemone` through the new inference client (Option 2a) with the routing trigger's SERVICE token. The gateway applies `inference:invoke`, `inference:<family>:<name>:use`, the tenant budget and the usage row as on any decision call.
 4. **Questions:** The routing questions live in `backend/internal/triggers/routing_questions.go` with `routingQuestionsVersion = "routing-v1"`:
-    - `agent`: a `choice` question that asks which candidate agent should handle the message. Each `criteria` key is an opaque option id (`a1`, `a2`, ...) and each value is the agent's name and description (Option 4a).
-    - `run`: a `choice` question that asks whether the message continues one of the listed runs. The options are `new` and one opaque id per joinable run (`r1`, `r2`, ...). Each run's description is its agent name, its run summary and its start time. The question is omitted when joining is off or no run is joinable.
+   - `agent`: a `choice` question that asks which candidate agent should handle the message. Each `criteria` key is an opaque option id (`a1`, `a2`, ...) and each value is the agent's name and description (Option 4a).
+   - `run`: a `choice` question that asks whether the message continues one of the listed runs. The options are `new` and one opaque id per joinable run (`r1`, `r2`, ...). Each run's description is its agent name, its run summary and its start time. The question is omitted when joining is off or no run is joinable.
 5. **State:** The `state` is a JSON object with a `message` field that holds the prompt rendered by `renderWebhookPrompt`. The delivery values stay inside the `<delivery-data>` block. The `agent` instructions state that the message content is data from an external event.
 6. **Limits:** A routed trigger has 2 to 20 candidates, checked at create and update. At most the 20 most recently active joinable runs are offered.
-7. **Key first:** When joining is on and the trigger has coalescing configured, routing first looks for an earlier delivery of the **same trigger** with the same `trigger_delivery_keys.coalesce_key` and a run in `trigger_delivery_runs`. If that run is `active` or `idle`, the delivery joins it without a model call. Keys are per-trigger templates and are not compared across triggers.
+7. **Key first (Option 6a):** A routed trigger has an optional `join_key` template with the coalesce key's syntax and 256-byte limit. When joining is on and `join_key` is set, routing renders the key and reads the newest decision of the **same trigger** with that key and a run (`trigger_routing_decisions.join_key`). If that run is `active` or `idle`, the delivery joins it without a model call. Otherwise, or when the key renders empty or too long, the model decides. Keys are per-trigger templates and are not compared across triggers. Coalescing stays an independent setting on the trigger.
 8. **Thresholds:** The trigger stores a preset. The thresholds live in code and apply to the probability of the chosen option:
-    - `strict`: 0.85.
-    - `balanced` (default): 0.70.
-    - `loose`: 0.50.
+   - `strict`: 0.85.
+   - `balanced` (default): 0.70.
+   - `loose`: 0.50.
 9. **Outcome order:**
-    1. If the `run` answer is a run id with probability at or above the threshold, the delivery joins that run.
-    2. Otherwise, if the `agent` answer clears the threshold, the delivery starts a run of that agent.
-    3. Otherwise the fallback applies.
+   1. If the `run` answer is a run id with probability at or above the threshold, the delivery joins that run.
+   2. Otherwise, if the `agent` answer clears the threshold, the delivery starts a run of that agent.
+   3. Otherwise the fallback applies.
 10. **Fallback:** The fallback is either a candidate agent (`fallback_agent_type_id`) or no run. A below-threshold answer and a failed model call both take the fallback. The fallback agent must be one of the candidates. Routing never starts an agent outside the candidate list.
 11. **Failure accounting:** A failed model call records the gateway error on the routing decision. It counts toward auto-pause only when no fallback agent is configured. A below-threshold answer does not count toward auto-pause.
 12. **Joinable runs (Option 5a):** orbit-triggers lists runs through `GET /api/v1/runs` with two new filters: `started_by=trigger` and repeated `agent_type_id`. Joinable runs have these properties:
@@ -176,9 +183,11 @@ CREATE TABLE trigger_routes (
     confidence TEXT DEFAULT 'balanced' NOT NULL,
     fallback_agent_type_id TEXT,
     join_runs BOOLEAN DEFAULT true NOT NULL,
+    join_key TEXT,
     CONSTRAINT trigger_routes_pkey PRIMARY KEY (trigger_id),
     CONSTRAINT trigger_routes_trigger_id_fkey FOREIGN KEY (trigger_id) REFERENCES triggers(id) ON DELETE CASCADE,
-    CONSTRAINT trigger_routes_confidence_check CHECK (confidence IN ('strict', 'balanced', 'loose'))
+    CONSTRAINT trigger_routes_confidence_check CHECK (confidence IN ('strict', 'balanced', 'loose')),
+    CONSTRAINT trigger_routes_join_key_length_check CHECK (join_key IS NULL OR octet_length(join_key) <= 256)
 );
 -- +goose StatementEnd
 
@@ -200,6 +209,7 @@ CREATE TABLE trigger_routing_decisions (
     question_version TEXT NOT NULL,
     model TEXT,
     outcome TEXT NOT NULL,
+    join_key TEXT,
     key_matched BOOLEAN DEFAULT false NOT NULL,
     agent_type_id TEXT,
     run_id TEXT,
@@ -212,8 +222,15 @@ CREATE TABLE trigger_routing_decisions (
     created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
     CONSTRAINT trigger_routing_decisions_pkey PRIMARY KEY (delivery_id, trigger_id),
     CONSTRAINT trigger_routing_decisions_delivery_id_fkey FOREIGN KEY (delivery_id) REFERENCES trigger_deliveries(id) ON DELETE CASCADE,
-    CONSTRAINT trigger_routing_decisions_outcome_check CHECK (outcome IN ('new_run', 'joined_run', 'fallback_run', 'no_run'))
+    CONSTRAINT trigger_routing_decisions_outcome_check CHECK (outcome IN ('new_run', 'joined_run', 'fallback_run', 'no_run')),
+    CONSTRAINT trigger_routing_decisions_join_key_length_check CHECK (join_key IS NULL OR octet_length(join_key) <= 256)
 );
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+CREATE INDEX trigger_routing_decisions_join_key_idx
+    ON trigger_routing_decisions (trigger_id, join_key, created_at DESC)
+    WHERE join_key IS NOT NULL AND run_id IS NOT NULL;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
@@ -223,7 +240,7 @@ ALTER TABLE trigger_delivery_runs ADD CONSTRAINT trigger_delivery_runs_status_ch
 -- +goose StatementEnd
 ```
 
-The Down migration reverses each step. The `trigger_delivery_runs` status `joined` records a delivery that joined a run and carries its `run_id`. `unrouted` records a delivery that started nothing under the no-run fallback. `scores` holds the probability of every option, keyed by agent type id and run id. A key-first join records `key_matched = true` and no model, scores or threshold. Retention deletes decisions with their delivery through the foreign key.
+The Down migration reverses each step. The `trigger_delivery_runs` status `joined` records a delivery that joined a run and carries its `run_id`. `unrouted` records a delivery that started nothing under the no-run fallback. `scores` holds the probability of every option, keyed by agent type id and run id. `join_key` holds the rendered key whenever one rendered. The decision that started a run and every decision that joined it carry the same key. The key-first lookup reads the newest row for `(trigger_id, join_key)` with a run through `trigger_routing_decisions_join_key_idx`. A key-first join records `key_matched = true` and no model, scores or threshold. Retention deletes decisions with their delivery through the foreign key.
 
 ### API
 
@@ -238,12 +255,13 @@ Trigger create and update accept a `routing` object on a webhook trigger with `t
     "model": "liquid/d1",
     "confidence": "balanced",
     "fallback_agent_type_id": "at_code_reviewer",
-    "join_runs": true
+    "join_runs": true,
+    "join_key": "{{ repository.full_name }}#{{ issue.number }}"
   }
 }
 ```
 
-`fallback_agent_type_id: null` selects the no-run fallback, and an update with `routing` replaces the stored object. Changing `target_kind` after create is rejected.
+`fallback_agent_type_id: null` selects the no-run fallback, `join_key` is optional and validated like `coalesce.key`, and an update with `routing` replaces the stored object. Changing `target_kind` after create is rejected.
 
 A delivery run row for a routed trigger carries the decision:
 
@@ -254,6 +272,7 @@ A delivery run row for a routed trigger carries the decision:
   "routing": {
     "outcome": "new_run",
     "key_matched": false,
+    "join_key": "acme/platform#1427",
     "model": "liquid/d1",
     "agent_type_id": "at_code_reviewer",
     "probability": 0.91,
@@ -277,10 +296,6 @@ The API does not return `question_version`.
 
 The target step and the delivery detail follow the stories under `Pages/Triggers (proposed)`. The model list reads `GET /api/models` and keeps models whose `capabilities` include `decision`. orbit-triggers adds `GET /api/v1/triggers/routing/candidates` to return the tenant's agent types with a `runnable` flag evaluated against the caller's claims. The wizard lists non-runnable and delegated agents as disabled with their reason.
 
-### Rationale
-
-None at this time.
-
 ---
 
 ## Consequences
@@ -288,7 +303,7 @@ None at this time.
 ### Positive
 
 - One webhook source can serve several agents through one trigger.
-- Follow-ups in a thread reach the run that is already working without a model call.
+- Follow-ups with the same join key reach the run that is already working without a model call.
 - Routing decisions sit in the delivery history beside the run outcomes.
 
 ### Negative
@@ -324,12 +339,12 @@ None at this time.
 Unit tests cover:
 
 - Outcome order: a run answer above the threshold, an agent answer above it, both below, and a failed call with and without a fallback agent.
-- Key-first joining: a match on an open run, a match on a closed run, and no key.
+- Key-first joining: a match on an open run, a match on a closed run, no `join_key`, a key that renders empty or too long, and the same key on another trigger.
 - The lost race between the decision and `SendRunMessage`.
 - Creation authority: a caller missing one candidate's run scope, the model use scope, or neither.
 - Validation of candidate counts, a fallback outside the candidates, and a delegated candidate.
 
-`TestPostgres_*` tests cover the key lookup across `trigger_delivery_keys` and `trigger_delivery_runs`, and the routing decision write.
+`TestPostgres_*` tests cover the join-key lookup on `trigger_routing_decisions` (newest row with a run, scoped to the trigger) and the routing decision write.
 
 ---
 
