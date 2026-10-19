@@ -75,7 +75,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	POST /api/v1/webhooks/{sourceID}          Inbound webhook delivery.
 //
 // Management (platform-admin; triggers:read / triggers:write). Creating a
-// trigger also needs agents:runs:<slug>:write for the agent it binds:
+// trigger, editing what it runs or when, and replaying a delivery also need
+// agents:runs:<slug>:write for the bound agent:
 //
 //	POST   /api/v1/trigger-sources            Register a webhook source.
 //	GET    /api/v1/trigger-sources            List webhook sources.
@@ -96,10 +97,10 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	PUT    /api/v1/trigger-retention          Shorten this tenant's payload retention window.
 //	POST   /api/v1/triggers/schedule-preview  Preview a schedule's upcoming fires.
 //
-// Fire (requires the per-trigger trigger:{id}:fire scope, checked in the
-// handler because RouteScope cannot express a path-dependent scope):
+// Fire (authenticated-only route; the handler requires trigger:fire or
+// trigger:{id}:fire because RouteScope cannot express a path-dependent scope):
 //
-//	POST   /api/v1/triggers/{id}/fire         Fire a manual trigger.
+//	POST   /api/v1/trigger-fires/{id}         Fire a manual trigger.
 func (c *Controller) Boot(mux *api.Mux) {
 	// Public inbound webhook — authenticated by the per-source adapter (HMAC
 	// signature for GitHub, bearer token for Alertmanager), not a platform
@@ -129,9 +130,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("PATCH /triggers/{id}", auth, c.handleUpdateTrigger)
 	mux.HandleWithMiddleware("DELETE /triggers/{id}", auth, c.handleDeleteTrigger)
 
-	// Fire skips in-process scope enforcement: authorizeFire is the authority here. The route table
-	// matches static prefixes, so the triggers:write entry for creation would otherwise apply too.
-	mux.HandleWithMiddleware("POST /triggers/{id}/fire", mw.MiddlewareChain(c.authMW), c.handleFireTrigger)
+	// Fire has its own prefix with an authenticated-only route entry. authorizeFire is the authority.
+	mux.HandleWithMiddleware("POST /trigger-fires/{id}", auth, c.handleFireTrigger)
 
 	// Schedule preview for the creation wizard. Read-only and computed from the
 	// request alone: it touches no stored trigger and writes nothing.
@@ -148,9 +148,8 @@ func (c *Controller) Boot(mux *api.Mux) {
 	mux.HandleWithMiddleware("GET /trigger-deliveries", auth, c.handleListDeliveries)
 
 	// Replaying a delivery starts real work, so it takes triggers:write like
-	// every other route that changes something. It is not per-trigger authorized
-	// the way firing is: a webhook replay has no single trigger to name, and it
-	// starts exactly what the original arrival would start today.
+	// every other route that changes something. The service also requires run
+	// authority on every agent the replay would start.
 	mux.HandleWithMiddleware("POST /trigger-deliveries/{id}/redeliver", auth, c.handleRedeliver)
 
 	// Payload retention is a tenant-level setting, so it has no id in its path:
@@ -323,12 +322,12 @@ func (c *Controller) handleDeleteTrigger(w http.ResponseWriter, r *http.Request)
 	api.JSON(ctx, w, c.logger, http.StatusNoContent, nil)
 }
 
-// handleFireTrigger handles POST /api/v1/triggers/{id}/fire.
+// handleFireTrigger handles POST /api/v1/trigger-fires/{id}.
 //
 // Firing is authorized per trigger, here rather than on the route.
 // ScopeEnforcementMiddleware matches static path prefixes, so it cannot express
-// a scope containing the trigger id. The route carries no scope middleware, so
-// in-process triggers:write neither grants nor is needed for a fire.
+// a scope containing the trigger id. The route entry is authenticated-only, so
+// triggers:write neither grants nor is needed for a fire.
 //
 // The caller's permission does not narrow what the run can do. The run executes
 // under the trigger's own principal, so a caller with narrow permissions firing

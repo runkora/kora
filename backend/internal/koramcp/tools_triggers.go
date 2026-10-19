@@ -15,7 +15,7 @@ import (
 // that fire agent runs off them, and the delivery history. Served by the
 // orbit-triggers binary (these endpoints moved out of identity; pointing them at
 // b.Identity made every trigger tool 404). Reads require triggers:read, writes
-// triggers:write. Creating a trigger also needs the run scope for the bound agent.
+// triggers:write. Creating a trigger, or editing what it runs or when, also needs the run scope for the bound agent.
 func registerTriggerTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	base := b.Triggers + "/api/v1"
 	sources := base + "/trigger-sources"
@@ -163,7 +163,8 @@ func registerTriggerBindingTools(srv *sdk.Server, base, triggers string, jc *kor
 	addTool(srv, "triggers.update",
 		"Update a trigger by id. Only the fields you supply are changed. schedule_config replaces a scheduled trigger's "+
 			"schedule and manual_config replaces a manual trigger's inputs; coalesce replaces a webhook trigger's coalescing "+
-			"and an empty object removes it; the trigger's kind cannot be changed.",
+			"and an empty object removes it; the trigger's kind cannot be changed. "+
+			"Changing the prompt, manual inputs, schedule, event filters, sender restriction or enabled needs permission to run the trigger's agent.",
 		func(ctx context.Context, a updateTriggerArgs) (*sdk.CallToolResult, error) {
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil

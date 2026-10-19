@@ -336,6 +336,16 @@ func (s *Service) redeliverWebhook(ctx context.Context, tenantID string, origina
 	if !ok {
 		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, src.Provider)
 	}
+	// The replay runs against every trigger the source has now, so the caller needs run authority on each bound agent.
+	matchable, err := s.repo.ListMatchableTriggersForSource(ctx, src.ID)
+	if err != nil {
+		return nil, fmt.Errorf("list triggers for replay: %w", err)
+	}
+	for _, t := range matchable {
+		if err := requireRunAuthority(ctx, s.authz, t.AgentSlug); err != nil {
+			return nil, err
+		}
+	}
 
 	// No signature check. The body was verified when it first arrived and has
 	// been stored under the platform's control since; re-verifying would fail
@@ -398,6 +408,9 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	// OFF is not worked around with a replay (Trigger.DisabledByPerson).
 	if t.DisabledByPerson() {
 		return nil, fmt.Errorf("%w: the trigger this delivery fired is disabled", ErrNotRedeliverable)
+	}
+	if err := requireRunAuthority(ctx, s.authz, t.AgentSlug); err != nil {
+		return nil, err
 	}
 
 	values := t.ManualConfig.ApplyDefaults(storedVariables(ctx, s.logger, original.Payload))

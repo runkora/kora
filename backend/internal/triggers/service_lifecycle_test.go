@@ -3,10 +3,14 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // validReq is the minimal valid CreateTriggerRequest for a kind; tests take a
@@ -736,5 +740,65 @@ func TestUpdateTrigger_RenameDoesNotClobberConcurrentAutoPause(t *testing.T) {
 	}
 	if stored.Name != "renamed" {
 		t.Errorf("the rename itself should still apply, got %q", stored.Name)
+	}
+}
+
+// Edits that change what the bound agent is told or when it runs need run authority on it. Other edits do not.
+func TestUpdateTrigger_RunBehaviourNeedsRunScope(t *testing.T) {
+	newPrompt, newName, off, on := "rewritten", "renamed", false, true
+	tests := []struct {
+		name      string
+		kind      string
+		req       UpdateTriggerRequest
+		wantCheck bool
+	}{
+		{"prompt", KindManual, UpdateTriggerRequest{PromptTemplate: &newPrompt}, true},
+		{"schedule", KindScheduled, UpdateTriggerRequest{ScheduleConfig: &ScheduleConfig{CronExpression: "* * * * *", Timezone: "UTC"}}, true},
+		{"sender restriction", KindWebhook, UpdateTriggerRequest{SenderRestriction: &SenderRestriction{}}, true},
+		{"manual inputs", KindManual, UpdateTriggerRequest{ManualConfig: &ManualConfig{}}, true},
+		{"event type", KindWebhook, UpdateTriggerRequest{EventType: &newName}, true},
+		{"match condition", KindWebhook, UpdateTriggerRequest{MatchCondition: map[string][]string{}}, true},
+		{"disable", KindManual, UpdateTriggerRequest{Enabled: &off}, true},
+		{"enabled unchanged", KindManual, UpdateTriggerRequest{Enabled: &on}, false},
+		{"rename", KindManual, UpdateTriggerRequest{Name: &newName}, false},
+	}
+	for _, tc := range tests {
+		for _, allow := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/allow=%v", tc.name, allow), func(t *testing.T) {
+				_, deps := newTestService(t)
+				deps.agents.atSlug = "real-slug"
+				req := validReq(tc.kind)
+				if tc.kind == KindWebhook {
+					req.SourceID = mustSource(t, deps.sources).ID
+				}
+				tr, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
+				if err != nil {
+					t.Fatalf("CreateTrigger: %v", err)
+				}
+				deps.bindAuthz.allow = allow
+				deps.bindAuthz.lastArgs = policy.CheckInput{}
+				before, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID)
+				snapshot := *before
+
+				_, err = deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, tc.req)
+
+				asked := deps.bindAuthz.scopeAsked()
+				if tc.wantCheck != (asked == "agents:runs:real-slug:write") {
+					t.Fatalf("checked scope %q, want check=%v", asked, tc.wantCheck)
+				}
+				if tc.wantCheck && !allow {
+					if !errors.Is(err, ErrBindForbidden) {
+						t.Fatalf("got %v, want ErrBindForbidden", err)
+					}
+					if stored, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID); !reflect.DeepEqual(*stored, snapshot) {
+						t.Error("a refused edit must leave the trigger unchanged")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("UpdateTrigger: %v", err)
+				}
+			})
+		}
 	}
 }

@@ -177,6 +177,7 @@ func initController(
 		agentsClient,
 		identityClient,
 		admission,
+		policyEval,
 		logger,
 		metrics,
 	)
@@ -247,10 +248,9 @@ func initController(
 
 // routeScopes binds each management route to the scope it requires.
 //
-// The fire endpoint has no entry of its own. Its path holds the trigger id, which a
-// static prefix cannot express. The handler is mounted without in-process scope
-// enforcement and checks trigger:<id>:fire itself (ADR Decision 6). The edge still
-// matches the POST /api/v1/triggers prefix, so a north-south fire also needs triggers:write.
+// Fire lives under its own prefix with an authenticated-only entry. The handler
+// checks trigger:fire or trigger:<id>:fire itself, since a static prefix cannot
+// name the trigger (ADR Decision 6).
 func routeScopes() []routescopes.RouteScope {
 	return []routescopes.RouteScope{
 		{PathPrefix: "/api/v1/trigger-sources", Method: "POST", RequiredScope: "triggers:write"},
@@ -262,6 +262,7 @@ func routeScopes() []routescopes.RouteScope {
 		{PathPrefix: "/api/v1/triggers", Method: "GET", RequiredScope: "triggers:read"},
 		{PathPrefix: "/api/v1/triggers", Method: "PATCH", RequiredScope: "triggers:write"},
 		{PathPrefix: "/api/v1/triggers", Method: "DELETE", RequiredScope: "triggers:write"},
+		{PathPrefix: "/api/v1/trigger-fires", Method: "POST", RequiredScope: ""},
 		{PathPrefix: "/api/v1/trigger-deliveries", Method: "GET", RequiredScope: "triggers:read"},
 		// Replaying a delivery starts real work, so it sits with the write
 		// scope rather than with reading history.

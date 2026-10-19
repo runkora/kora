@@ -3,9 +3,12 @@ package triggers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // A fire that was due while the platform was down previously left nothing at
@@ -766,5 +769,56 @@ func TestListDeliveries_ReturnsCoalesceKeysAndSupersededBy(t *testing.T) {
 	}
 	if got := byID[ids[1]].CoalesceKeys; len(got) != 0 {
 		t.Errorf("the replacing delivery has keys %+v, want none recorded", got)
+	}
+}
+
+// A replay starts runs under the trigger's principal, so the caller needs run authority on every agent it would start.
+func TestRedeliver_NeedsRunScope(t *testing.T) {
+	for _, kind := range []string{KindManual, KindWebhook} {
+		for _, allow := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/allow=%v", kind, allow), func(t *testing.T) {
+				svc, deps := newTestService(t)
+				var originalID string
+				if kind == KindManual {
+					trig := mustManualTrigger(t, deps.triggers)
+					fired, err := svc.FireTrigger(context.Background(), testTenant, trig.ID, "user:1",
+						FireTriggerRequest{Variables: map[string]string{"env": "prod"}})
+					if err != nil {
+						t.Fatalf("FireTrigger: %v", err)
+					}
+					originalID = fired.DeliveryID
+				} else {
+					src := mustSource(t, deps.sources)
+					body := prBody("opened", "main")
+					if _, err := svc.Ingest(context.Background(), src.ID, sign(src.Secret, body), body); err != nil {
+						t.Fatalf("Ingest: %v", err)
+					}
+					waitFor(t, deps.repo.anyDerived)
+					originalID = deps.repo.lastDelivery().ID
+					mustWebhookTrigger(t, deps.triggers, src.ID, "added-later", true)
+				}
+				deps.bindAuthz.allow = allow
+				deps.bindAuthz.lastArgs = policy.CheckInput{}
+				before := len(deps.repo.allDeliveries())
+
+				_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2")
+
+				if got := deps.bindAuthz.scopeAsked(); got != "agents:runs:code-reviewer:write" {
+					t.Errorf("checked scope %q, want agents:runs:code-reviewer:write", got)
+				}
+				if allow {
+					if err != nil {
+						t.Fatalf("Redeliver: %v", err)
+					}
+					return
+				}
+				if !errors.Is(err, ErrBindForbidden) {
+					t.Fatalf("got %v, want ErrBindForbidden", err)
+				}
+				if after := len(deps.repo.allDeliveries()); after != before {
+					t.Errorf("a refused replay must record nothing (deliveries %d → %d)", before, after)
+				}
+			})
+		}
 	}
 }

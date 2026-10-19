@@ -114,22 +114,22 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 	return nil
 }
 
-// authorizeBind checks the caller may start runs of the agent a trigger binds.
-// The trigger principal is granted that agent's run scopes, so binding takes the same authority as starting a run.
-func (s *TriggerService) authorizeBind(ctx context.Context, at *agentsclient.AgentType) error {
+// requireRunAuthority checks the caller holds agents:runs:<slug>:write.
+// A trigger runs its agent under its own principal, so binding, steering and replaying it take the same authority as starting a run.
+func requireRunAuthority(ctx context.Context, authz runChecker, slug string) error {
 	claims, _ := token.ClaimsFromContext(ctx)
-	r, err := s.authz.Check(ctx, policy.CheckInput{
+	r, err := authz.Check(ctx, policy.CheckInput{
 		Claims:       claims,
 		Delegation:   policy.DelegationFromContext(ctx),
 		ResourceType: "agents",
-		PathSegments: []string{"runs", at.Slug},
+		PathSegments: []string{"runs", slug},
 		Action:       "write",
 	})
 	if err != nil {
-		return fmt.Errorf("evaluate run scope for binding: %w", err)
+		return fmt.Errorf("evaluate run scope: %w", err)
 	}
 	if !r.Allow {
-		return fmt.Errorf("%w: requires agents:runs:%s:write", ErrBindForbidden, at.Slug)
+		return fmt.Errorf("%w: requires agents:runs:%s:write", ErrBindForbidden, slug)
 	}
 	return nil
 }
@@ -171,7 +171,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
 		return nil, err
 	}
-	if err = s.authorizeBind(ctx, at); err != nil {
+	if err = requireRunAuthority(ctx, s.authz, at.Slug); err != nil {
 		return nil, err
 	}
 
@@ -269,7 +269,7 @@ func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string
 	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
 		return nil, err
 	}
-	if err = s.authorizeBind(ctx, at); err != nil {
+	if err = requireRunAuthority(ctx, s.authz, at.Slug); err != nil {
 		return nil, err
 	}
 
@@ -374,13 +374,20 @@ func (s *TriggerService) GetTrigger(ctx context.Context, tenantID, id string) (*
 // kind are immutable (recreate to retarget) — which is also why no
 // delegated-agent check is needed here: CreateTrigger refuses delegated
 // bindings, agent identity_mode is immutable, so no existing trigger can ever
-// come to bind a delegated agent through an update.
+// come to bind a delegated agent through an update. Edits that change the
+// prompt, manual inputs, schedule, event filters, sender restriction or
+// enablement need run authority on the bound agent.
 func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string, req UpdateTriggerRequest) (*Trigger, error) {
 	t, err := s.repo.GetTrigger(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
 	}
 	wasEnabled := t.Enabled
+	if changesRunBehaviour(t, req) {
+		if err = requireRunAuthority(ctx, s.authz, t.AgentSlug); err != nil {
+			return nil, err
+		}
+	}
 
 	// Everything that can be rejected happens first, and every side effect
 	// happens after the row is stored. Draining a backlog is destructive and
@@ -415,6 +422,14 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	// write was built from — same reasoning as after create, and the same
 	// helper, so the update path cannot drift from it.
 	return s.readBackTrigger(ctx, t), nil
+}
+
+// changesRunBehaviour reports whether a PATCH changes what the bound agent is told or when it runs.
+// Those edits need run authority on the agent; renames, coalescing and admission tuning do not.
+func changesRunBehaviour(t *Trigger, req UpdateTriggerRequest) bool {
+	return req.PromptTemplate != nil || req.ManualConfig != nil || req.ScheduleConfig != nil ||
+		req.SenderRestriction != nil || req.EventType != nil || req.MatchCondition != nil || req.MatchContains != nil ||
+		(req.Enabled != nil && *req.Enabled != t.Enabled)
 }
 
 // applyTriggerEdits copies the request's plain fields onto the trigger. Omitted
