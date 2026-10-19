@@ -20,6 +20,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { StatusBadge } from '@runkora/components';
 import { DeliveryDetail } from './delivery-detail';
 import { deliveryStatusTone, formatTimestampUtc } from '../_types';
@@ -79,6 +80,7 @@ function fallbackText(d: RoutingDecision): string {
 }
 
 export function DeliveryRouting({ decision: d }: { decision: RoutingDecision }) {
+  const { productName } = useBrand();
   const top = d.scores[0];
   const confident = !d.fallbackFired && d.agent !== null && top !== undefined;
   return (
@@ -107,7 +109,7 @@ export function DeliveryRouting({ decision: d }: { decision: RoutingDecision }) 
                 )}
               </Stack>
               <Text as="span" size="micro" mono color="subtle">
-                {d.agent === null ? 'kora was not sure enough to route' : d.agent.slug}
+                {d.agent === null ? `${productName} was not sure enough to route` : d.agent.slug}
               </Text>
             </Stack>
             {confident && (

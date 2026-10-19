@@ -25,6 +25,7 @@ import {
   Text,
   ToggleRow,
 } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 import type { DataTableColumn } from '@runkora/hades';
 import type { ModelObject } from '@runkora/shared/api';
 import { StepTarget } from './step-target';
@@ -96,28 +97,32 @@ function selectable(agent: RoutingAgent): boolean {
 const AGENT_SEARCH_THRESHOLD = 6;
 const AGENT_PAGE_SIZE = 5;
 
-const CONFIDENCE_OPTIONS: { id: ConfidencePreset; title: string; description: string }[] = [
-  {
-    id: 'strict',
-    title: 'Strict',
-    description: 'Only routes when kora is sure. More deliveries go to the fallback.',
-  },
-  {
-    id: 'balanced',
-    title: 'Balanced',
-    description: 'Routes when kora is fairly sure. Suits most triggers.',
-  },
-  {
-    id: 'loose',
-    title: 'Loose',
-    description: 'Routes on kora’s best guess. Fewer fallbacks, more wrong picks.',
-  },
-];
+function confidenceOptions(
+  productName: string,
+): { id: ConfidencePreset; title: string; description: string }[] {
+  return [
+    {
+      id: 'strict',
+      title: 'Strict',
+      description: `Only routes when ${productName} is sure. More deliveries go to the fallback.`,
+    },
+    {
+      id: 'balanced',
+      title: 'Balanced',
+      description: `Routes when ${productName} is fairly sure. Suits most triggers.`,
+    },
+    {
+      id: 'loose',
+      title: 'Loose',
+      description: `Routes on ${productName}’s best guess. Fewer fallbacks, more wrong picks.`,
+    },
+  ];
+}
 
 export function validateRouting(draft: RoutingDraft, catalog: DecisionCatalog): StepValidation {
   if (draft.mode === 'one') return { valid: true };
   if (draft.candidateIds.length < 2)
-    return { valid: false, hint: 'Pick at least two agents for kora to choose between.' };
+    return { valid: false, hint: 'Pick at least two candidate agents.' };
   if (catalog.status === 'ready' && catalog.models.length === 0)
     // The step shows the reason inline, so no banner repeats it.
     return { valid: false };
@@ -135,6 +140,7 @@ export interface StepTargetProposedProps extends StepComponentProps {
 }
 
 export function StepTargetProposed(props: StepTargetProposedProps) {
+  const { productName } = useBrand();
   const { routing, onRouting } = props;
   return (
     <Stack gap="relaxed">
@@ -157,8 +163,8 @@ export function StepTargetProposed(props: StepTargetProposedProps) {
             selected={routing.mode === 'choose'}
             onSelect={() => onRouting({ mode: 'choose' })}
             icon="route"
-            title="Let kora choose"
-            description="kora picks the agent for each delivery, and whether it starts a run or joins an open one."
+            title={`Let ${productName} choose`}
+            description={`${productName} picks the agent for each delivery, and whether it starts a run or joins an open one.`}
           />
         </Grid>
       </RadioGroup>
@@ -168,6 +174,7 @@ export function StepTargetProposed(props: StepTargetProposedProps) {
 }
 
 function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetProposedProps) {
+  const { productName } = useBrand();
   const candidates = agents.filter((a) => routing.candidateIds.includes(a.id));
   // With no decision model the mode cannot work, so nothing else is offered.
   if (catalog.status === 'ready' && catalog.models.length === 0) {
@@ -178,8 +185,8 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
             No decision model is enabled for this workspace.
           </Text>
           <Text size="caption" color="muted">
-            Let kora choose needs one. Ask your platform team to enable a decision model in the
-            model catalog. Until then, route this trigger to one agent.
+            Let {productName} choose needs one. Ask your platform team to enable a decision model in
+            the model catalog. Until then, route this trigger to one agent.
           </Text>
         </Stack>
       </Callout>
@@ -193,7 +200,7 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
       <Stack gap="snug">
         <SectionLabel>Confidence</SectionLabel>
         <Text size="caption" color="subtle">
-          How sure kora must be before it routes a delivery.
+          How sure {productName} must be before it routes a delivery.
         </Text>
         <RadioGroup
           value={routing.confidence}
@@ -201,7 +208,7 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
           aria-label="Confidence"
         >
           <Grid cols={3} gap="cozy">
-            {CONFIDENCE_OPTIONS.map((o) => (
+            {confidenceOptions(productName).map((o) => (
               <RadioCard
                 key={o.id}
                 value={o.id}
@@ -216,11 +223,11 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
       </Stack>
 
       <Stack gap="cozy">
-        <SectionLabel>When kora is unsure</SectionLabel>
+        <SectionLabel>When {productName} is unsure</SectionLabel>
         <RadioGroup
           value={routing.unsure}
           onValueChange={(v) => onRouting({ unsure: v as UnsureAction })}
-          aria-label="When kora is unsure"
+          aria-label={`When ${productName} is unsure`}
         >
           <Grid cols={3} gap="cozy">
             <RadioCard
@@ -229,7 +236,7 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
               onSelect={() => onRouting({ unsure: 'fallback' })}
               icon="user-check"
               title="Send to a fallback agent"
-              description="One of the candidates takes every delivery kora is unsure about."
+              description={`One of the candidates takes every delivery ${productName} is unsure about.`}
             />
             <RadioCard
               value="none"
@@ -237,7 +244,7 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
               onSelect={() => onRouting({ unsure: 'none' })}
               icon="x-circle"
               title="Don't start a run"
-              description="The delivery is recorded with kora’s scores and nothing runs."
+              description={`The delivery is recorded with ${productName}’s scores and nothing runs.`}
             />
             <RadioCard
               value="ask"
@@ -280,7 +287,7 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
       <Stack gap="cozy">
         <ToggleRow
           label="Join open runs"
-          description="kora may send a delivery to an open run of a candidate agent started by a trigger. Runs people started are never joined."
+          description={`${productName} may send a delivery to an open run of a candidate agent started by a trigger. Runs people started are never joined.`}
           checked={routing.joinOpenRuns}
           onChange={(next) => onRouting({ joinOpenRuns: next })}
         />
@@ -290,7 +297,7 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
               <FormField
                 label="Join key"
                 id="routing-join-key"
-                hint="Optional. Template, same syntax as the prompt. A delivery whose key matches an open run of this trigger joins it without asking kora."
+                hint={`Optional. Template, same syntax as the prompt. A delivery whose key matches an open run of this trigger joins it without asking ${productName}.`}
               >
                 <Input
                   id="routing-join-key"
@@ -309,7 +316,8 @@ function ChooseSettings({ routing, onRouting, agents, catalog }: StepTargetPropo
         <Stack direction="horizontal" gap="cozy" align="center">
           <Icon name="file-text" size="sm" color="accent" label="" shrink />
           <Text size="caption" color="muted">
-            The trigger keeps one prompt. Whichever agent kora picks receives the same prompt.
+            The trigger keeps one prompt. Whichever agent {productName} picks receives the same
+            prompt.
           </Text>
         </Stack>
       </Callout>
@@ -327,6 +335,7 @@ function CandidatePicker({
   onRouting,
   agents,
 }: Pick<StepTargetProposedProps, 'routing' | 'onRouting' | 'agents'>) {
+  const { productName } = useBrand();
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(0);
   const q = query.trim().toLowerCase();
@@ -359,8 +368,8 @@ function CandidatePicker({
         </Text>
       </Stack>
       <Text size="caption" color="subtle">
-        kora routes on each agent’s description, so a clear description routes better. Only agents
-        this trigger may run can be picked.
+        {productName} routes on each agent’s description, so a clear description routes better. Only
+        agents this trigger may run can be picked.
       </Text>
       {agents.length > AGENT_SEARCH_THRESHOLD && (
         <Stack direction="horizontal" align="center" gap="cozy">
@@ -429,7 +438,7 @@ function CandidatePicker({
                       <Stack direction="horizontal" align="center" gap="tight">
                         <Icon name="triangle-alert" size="2xs" color="status-degraded" label="" />
                         <Text as="span" size="caption" color="status-degraded">
-                          Add a description so kora can route to this agent.
+                          Add a description so {productName} can route to this agent.
                         </Text>
                       </Stack>
                     )}
@@ -523,6 +532,7 @@ function ModelPicker({
   onRouting,
   catalog,
 }: Pick<StepTargetProposedProps, 'routing' | 'onRouting' | 'catalog'>) {
+  const { productName } = useBrand();
   // The selected model always matches, so filtering never hides the current choice.
   const searchModels = (m: DecisionModel, query: string) =>
     m.id === routing.modelId ||
@@ -531,8 +541,8 @@ function ModelPicker({
     <Stack gap="cozy">
       <SectionLabel>Decision model</SectionLabel>
       <Text size="caption" color="subtle">
-        The model kora asks which agent fits. Only decision models from your model catalog are
-        listed.
+        The model {productName} asks which agent fits. Only decision models from your model catalog
+        are listed.
       </Text>
       {catalog.status === 'loading' && (
         <Text size="caption" color="subtle">

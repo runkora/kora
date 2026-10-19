@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Heading, Stack, Text, Wizard } from '@runkora/hades';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type { ModelObject } from '@runkora/shared/api';
 import { TRIGGER_KINDS } from './kinds';
@@ -61,6 +62,7 @@ export function TargetStepWizardProposed({
   routing: initialRouting,
   agentTypeId = '',
 }: TargetStepWizardProposedProps) {
+  const { productName } = useBrand();
   const definition = TRIGGER_KINDS[kind];
   const steps = useMemo(() => stepsFor(definition, SHARED_STEPS), [definition]);
   const targetIndex = steps.findIndex((s) => s.id === 'target');
@@ -112,7 +114,7 @@ export function TargetStepWizardProposed({
         <Stack gap="snug">
           <Heading variant="subsection">Target</Heading>
           <Text size="supporting" color="muted">
-            The agent this trigger runs, or the agents kora chooses between.
+            The agent this trigger runs, or the agents {productName} chooses between.
           </Text>
         </Stack>
         <StepTargetProposed

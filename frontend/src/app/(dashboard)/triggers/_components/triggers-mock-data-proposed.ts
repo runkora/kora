@@ -180,7 +180,10 @@ export function routedDelivery(c: RoutingCase): {
     ...BASE,
     status,
     runId,
-    reason: runId === null ? 'kora was not sure which agent fits, and no fallback is set.' : null,
+    reason:
+      runId === null
+        ? 'The decision model was not sure which agent fits, and no fallback is set.'
+        : null,
     runs: BASE.runs.map((r) => ({ ...r, runId, status })),
   };
   const common: RoutingDecision = {
