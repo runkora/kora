@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
@@ -107,6 +108,7 @@ type Service struct {
 	decisions decisionModel
 	minter    TokenMinter
 	admission *Admission
+	brand     brand.Brand
 	outcomes  outcomeRecorder
 	logger    logging.Logger
 	metrics   *Metrics // nil records nothing
@@ -133,6 +135,7 @@ func NewService(
 	decisions decisionModel,
 	minter TokenMinter,
 	admission *Admission,
+	b brand.Brand,
 	logger logging.Logger,
 	metrics *Metrics,
 ) *Service {
@@ -146,6 +149,7 @@ func NewService(
 		decisions: decisions,
 		minter:    minter,
 		admission: admission,
+		brand:     b,
 		outcomes:  outcomeRecorder{repo: repo, logger: logger},
 		logger:    logger,
 	}

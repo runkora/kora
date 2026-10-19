@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
@@ -894,7 +895,7 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	// nil metrics: instrumentation is injected, and its absence must leave
 	// behavior identical. Metrics have their own test.
 	admission := NewAdmission(repo, silentLogger())
-	svc := NewService(repo, mustRegistry(), cipher, pc, ac, nil, minter, admission, silentLogger(), nil)
+	svc := NewService(repo, mustRegistry(), cipher, pc, ac, nil, minter, admission, brand.MustNew("kora"), silentLogger(), nil)
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
 	deps.sources = newTestSourceService(t, repo, pc, ac)
 	deps.eval = &mockEvaluator{allow: true}

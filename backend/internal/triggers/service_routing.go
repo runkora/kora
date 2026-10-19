@@ -95,7 +95,7 @@ func (s *Service) clearHoldReason(ctx context.Context, t Trigger, deliveryID str
 // fallback agent nothing else handles the deliveries it drops, and only when
 // the failure is a configuration error (ADR Decision 11).
 func (s *Service) recordUnrouted(ctx context.Context, t Trigger, deliveryID string, d *RoutingDecision) {
-	reason := "kora was not sure which agent fits, and the trigger has no fallback agent"
+	reason := s.brand.ProductName() + " was not sure which agent fits, and the trigger has no fallback agent"
 	if d.Error != nil {
 		reason = "the routing decision failed, and the trigger has no fallback agent"
 	}

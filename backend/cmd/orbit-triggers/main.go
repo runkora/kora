@@ -34,6 +34,7 @@ import (
 
 	tc "github.com/runkora/kora/backend/cmd/orbit-triggers/config"
 	platformapi "github.com/runkora/kora/backend/internal/platform/api"
+	"github.com/runkora/kora/backend/internal/platform/brand"
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	identityclient "github.com/runkora/kora/backend/internal/platform/clients/identity"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
@@ -128,6 +129,11 @@ func initController(
 	if err != nil {
 		return nil, nil, fmt.Errorf("init triggers cipher: %w", err)
 	}
+	// The product name goes into the reasons recorded on routed deliveries.
+	b, err := brand.Load()
+	if err != nil {
+		return nil, nil, fmt.Errorf("load brand: %w", err)
+	}
 
 	// identity is the sole token authority. This binary holds no signing key:
 	// it asks identity for each trigger's SERVICE token, authenticated by the
@@ -180,6 +186,7 @@ func initController(
 		inferenceClient,
 		identityClient,
 		admission,
+		b,
 		logger,
 		metrics,
 	)
