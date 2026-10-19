@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
+	"github.com/runkora/kora/backend/internal/platform/logging"
 )
 
 // errTriggerSideFailure stands for a dispatch failure that says something about
@@ -420,5 +422,50 @@ func TestWorker_ReStampsTheRemainingBatchBeforeEachDispatch(t *testing.T) {
 	if len(batches[0]) != 3 || len(batches[1]) != 2 || len(batches[2]) != 1 {
 		t.Errorf("re-stamp batch sizes = %d/%d/%d, want 3/2/1 (the shrinking remainder)",
 			len(batches[0]), len(batches[1]), len(batches[2]))
+	}
+}
+
+type warnCapture struct {
+	logging.Logger
+	mu    sync.Mutex
+	warns []map[string]any
+}
+
+func (l *warnCapture) Warn(_ context.Context, _ string, fields ...logging.Field) {
+	m := map[string]any{}
+	for _, f := range fields {
+		m[f.Key] = f.Value
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.warns = append(l.warns, m)
+}
+
+// Every eviction is logged with the trigger and delivery, so a dropped fire is
+// visible outside the outcome table.
+func TestAdmission_Wait_LogsEviction(t *testing.T) {
+	svc, deps := newTestService(t)
+	trig := newAdmissionTrigger(t, deps, OverflowWait, 1, 2)
+	lg := &warnCapture{Logger: silentLogger()}
+	svc.admission = NewAdmission(deps.repo, lg)
+
+	ids := enqueue(t, svc, deps, trig, 4)
+
+	evicted := map[any]bool{}
+	for _, w := range lg.warns {
+		if w["trigger_id"] != trig.ID {
+			t.Errorf("warn missing trigger_id: %v", w)
+		}
+		evicted[w["delivery_id"]] = true
+	}
+	for _, id := range ids {
+		for _, r := range deps.repo.deliveryRunsFor(id) {
+			if r.Status == RunStatusDropped && !evicted[id] {
+				t.Errorf("delivery %s was dropped without a warning", id)
+			}
+		}
+	}
+	if len(evicted) == 0 {
+		t.Fatal("no eviction was logged")
 	}
 }

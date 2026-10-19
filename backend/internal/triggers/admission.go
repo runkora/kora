@@ -232,7 +232,7 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 			return AdmitDropped, fmt.Errorf("trim pending: %w", err)
 		}
 		for _, e := range evicted {
-			a.recordOutcome(ctx, t, e.DeliveryID, RunStatusDropped, "evicted: the trigger's backlog is full")
+			a.recordEviction(ctx, t, e.DeliveryID)
 		}
 	}
 
@@ -240,6 +240,17 @@ func (a *Admission) Admit(ctx context.Context, t Trigger, deliveryID string, fie
 		return AdmitDropped, fmt.Errorf("enqueue pending: %w", err)
 	}
 	return AdmitEnqueued, nil
+}
+
+// recordEviction records a waiting fire pushed out of a full backlog and logs a
+// warning, so an eviction is visible outside the outcome table.
+func (a *Admission) recordEviction(ctx context.Context, t Trigger, deliveryID string) {
+	a.logger.Warn(ctx, "evicted a waiting fire: the trigger's backlog is full",
+		logging.Field{Key: "trigger_id", Value: t.ID},
+		logging.Field{Key: "delivery_id", Value: deliveryID},
+		logging.Field{Key: "max_queue_depth", Value: t.MaxQueueDepth},
+	)
+	a.recordOutcome(ctx, t, deliveryID, RunStatusDropped, "evicted: the trigger's backlog is full")
 }
 
 // coalesceKey renders the fire's coalescing key and records it against the
@@ -291,7 +302,7 @@ func (a *Admission) admitCoalescing(ctx context.Context, t Trigger, pending *Pen
 		return AdmitEnqueued, nil
 	}
 	for _, e := range evicted {
-		a.recordOutcome(ctx, t, e.DeliveryID, RunStatusDropped, "evicted: the trigger's backlog is full")
+		a.recordEviction(ctx, t, e.DeliveryID)
 	}
 	return AdmitEnqueued, nil
 }
