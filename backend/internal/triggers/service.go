@@ -102,7 +102,6 @@ type Service struct {
 	agents    *agentsclient.Client
 	minter    TokenMinter
 	admission *Admission
-	authz     runChecker
 	outcomes  outcomeRecorder
 	logger    logging.Logger
 	metrics   *Metrics // nil records nothing
@@ -122,7 +121,6 @@ func NewService(
 	agents *agentsclient.Client,
 	minter TokenMinter,
 	admission *Admission,
-	authz runChecker,
 	logger logging.Logger,
 	metrics *Metrics,
 ) *Service {
@@ -135,7 +133,6 @@ func NewService(
 		agents:    agents,
 		minter:    minter,
 		admission: admission,
-		authz:     authz,
 		outcomes:  outcomeRecorder{repo: repo, logger: logger},
 		logger:    logger,
 	}

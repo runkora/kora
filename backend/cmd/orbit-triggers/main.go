@@ -177,7 +177,6 @@ func initController(
 		agentsClient,
 		identityClient,
 		admission,
-		policyEval,
 		logger,
 		metrics,
 	)
@@ -193,7 +192,6 @@ func initController(
 		agentsClient,
 		identityClient,
 		admission,
-		policyEval,
 		logger,
 	)
 
@@ -204,6 +202,7 @@ func initController(
 		registry,
 		cipher,
 		policyClient,
+		agentsClient,
 		tc.Current.Server.BasePath+"/webhooks/",
 		logger,
 	)

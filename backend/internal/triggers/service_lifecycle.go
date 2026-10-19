@@ -12,7 +12,6 @@ import (
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
-	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -29,9 +28,9 @@ type triggerStore interface {
 	ResetConsecutiveFailures(ctx context.Context, triggerID string) error
 }
 
-// runChecker is the policy check binding a trigger needs.
-type runChecker interface {
-	Check(ctx context.Context, input policy.CheckInput) (policy.Result, error)
+// agentTypeReader reads an agent type as a given bearer. Asked with the caller's bearer, it answers can_run for the caller.
+type agentTypeReader interface {
+	GetAgentType(ctx context.Context, bearer, id string) (agentsclient.AgentType, error)
 }
 
 // TriggerService owns a trigger's lifecycle: creating it with the identity and
@@ -48,7 +47,6 @@ type TriggerService struct {
 	agents    *agentsclient.Client
 	minter    TokenMinter
 	admission *Admission
-	authz     runChecker
 	logger    logging.Logger
 }
 
@@ -60,10 +58,9 @@ func NewTriggerService(
 	agents *agentsclient.Client,
 	minter TokenMinter,
 	admission *Admission,
-	authz runChecker,
 	logger logging.Logger,
 ) *TriggerService {
-	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, minter: minter, admission: admission, authz: authz, logger: logger}
+	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, minter: minter, admission: admission, logger: logger}
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
@@ -114,22 +111,43 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 	return nil
 }
 
-// requireRunAuthority checks the caller holds agents:runs:<slug>:write.
-// A trigger runs its agent under its own principal, so binding, steering and replaying it take the same authority as starting a run.
-func requireRunAuthority(ctx context.Context, authz runChecker, slug string) error {
-	claims, _ := token.ClaimsFromContext(ctx)
-	r, err := authz.Check(ctx, policy.CheckInput{
-		Claims:       claims,
-		Delegation:   policy.DelegationFromContext(ctx),
-		ResourceType: "agents",
-		PathSegments: []string{"runs", slug},
-		Action:       "write",
-	})
-	if err != nil {
-		return fmt.Errorf("evaluate run scope: %w", err)
+// requireRunAuthority asks orbit-agents whether the caller may start runs of the agent type.
+// orbit-agents answers with its run-start check, so the creator, a per-agent run scope and a covering scope all count.
+// A trigger runs its agent under its own principal, so binding, steering and replaying it take that same authority.
+func requireRunAuthority(ctx context.Context, agents agentTypeReader, agentTypeID string) error {
+	at, err := agents.GetAgentType(ctx, callerBearer(ctx), agentTypeID)
+	switch {
+	case errors.Is(err, agentsclient.ErrForbidden), errors.Is(err, agentsclient.ErrAgentTypeNotFound):
+		return fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
+	case err != nil:
+		return fmt.Errorf("check run access: %w", err)
+	case !at.CanRun:
+		return fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
 	}
-	if !r.Allow {
-		return fmt.Errorf("%w: requires agents:runs:%s:write", ErrBindForbidden, slug)
+	return nil
+}
+
+// matchableLister lists the triggers a delivery on a source could start.
+type matchableLister interface {
+	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
+}
+
+// requireRunAccessForSource checks run access on every agent a delivery on the source could start.
+// A replay, a rotated secret and a re-enabled source each let deliveries reach all of them.
+func requireRunAccessForSource(ctx context.Context, repo matchableLister, agents agentTypeReader, sourceID string) error {
+	matchable, err := repo.ListMatchableTriggersForSource(ctx, sourceID)
+	if err != nil {
+		return fmt.Errorf("list triggers on source: %w", err)
+	}
+	checked := map[string]bool{}
+	for _, t := range matchable {
+		if checked[t.AgentTypeID] {
+			continue
+		}
+		checked[t.AgentTypeID] = true
+		if err := requireRunAuthority(ctx, agents, t.AgentTypeID); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -171,7 +189,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
 		return nil, err
 	}
-	if err = requireRunAuthority(ctx, s.authz, at.Slug); err != nil {
+	if err = requireRunAuthority(ctx, s.agents, at.ID); err != nil {
 		return nil, err
 	}
 
@@ -269,7 +287,7 @@ func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string
 	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
 		return nil, err
 	}
-	if err = requireRunAuthority(ctx, s.authz, at.Slug); err != nil {
+	if err = requireRunAuthority(ctx, s.agents, at.ID); err != nil {
 		return nil, err
 	}
 
@@ -384,7 +402,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	}
 	wasEnabled := t.Enabled
 	if changesRunBehaviour(t, req) {
-		if err = requireRunAuthority(ctx, s.authz, t.AgentSlug); err != nil {
+		if err = requireRunAuthority(ctx, s.agents, t.AgentTypeID); err != nil {
 			return nil, err
 		}
 	}

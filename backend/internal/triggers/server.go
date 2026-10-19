@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/runkora/kora/backend/internal/platform/api"
@@ -75,8 +76,9 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	POST /api/v1/webhooks/{sourceID}          Inbound webhook delivery.
 //
 // Management (platform-admin; triggers:read / triggers:write). Creating a
-// trigger, editing what it runs or when, and replaying a delivery also need
-// agents:runs:<slug>:write for the bound agent:
+// trigger, editing what it runs or when, replaying a delivery, and rotating or
+// re-enabling a source also need orbit-agents to report can_run for the caller
+// on each agent involved:
 //
 //	POST   /api/v1/trigger-sources            Register a webhook source.
 //	GET    /api/v1/trigger-sources            List webhook sources.
@@ -110,6 +112,7 @@ func (c *Controller) Boot(mux *api.Mux) {
 	auth := mw.MiddlewareChain(
 		c.authMW,
 		mw.ScopeEnforcementMiddleware(c.eval, c.routes, c.basePath, c.logger),
+		keepBearer,
 	)
 
 	mux.HandleWithMiddleware("POST /trigger-sources", auth, c.handleCreateSource)
@@ -553,6 +556,22 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	default:
 		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, "request failed", nil), err)
 	}
+}
+
+type bearerKey struct{}
+
+// keepBearer stores the caller's bearer so the service can ask orbit-agents about the caller's own access.
+var keepBearer = mw.NewMiddleware(func(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		bearer := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), bearerKey{}, bearer)))
+	})
+})
+
+// callerBearer returns the bearer keepBearer stored, or "" outside a management request.
+func callerBearer(ctx context.Context) string {
+	b, _ := ctx.Value(bearerKey{}).(string)
+	return b
 }
 
 func tenantFromCtx(ctx context.Context) string {

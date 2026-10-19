@@ -550,6 +550,12 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 		}
 		return nil, err
 	}
+	runErr := s.authz.checkRun(ctx, *at, "write")
+	if runErr != nil && !errors.Is(runErr, ErrForbidden) {
+		return nil, runErr
+	}
+	canRun := runErr == nil
+	at.CanRun = &canRun
 
 	// Enrich with the budget carried by the agent's grant — the grant is the
 	// source of truth for budget configuration. Best-effort: a policy-service

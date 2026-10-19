@@ -237,9 +237,34 @@ func TestBoot_FireIsAuthorizedByTriggerScopeAlone(t *testing.T) {
 	}
 }
 
+// The run-access question goes to orbit-agents with the caller's own bearer, never the trigger principal's.
+func TestBoot_CreateAsksWithCallerBearer(t *testing.T) {
+	svc, deps := newTestService(t)
+	routes := []routescopes.RouteScope{{PathPrefix: "/api/v1/triggers", Method: http.MethodPost, RequiredScope: "triggers:write"}}
+	passthrough := mw.NewMiddleware(func(next http.Handler) http.Handler { return next })
+	c := NewController(svc, deps.sources, deps.triggers, passthrough, scopeSetEvaluator{held: map[string]bool{"triggers:write": true}}, routes, "/api/v1", silentLogger())
+	mux := api.NewMux(context.Background(), silentLogger())
+	mux.SetBasePath("")
+	c.Boot(mux)
+
+	req := withTenant(newRequest(t, http.MethodPost, "/triggers", nil, validReq(KindManual)))
+	req.Header.Set("Authorization", "Bearer caller-tok")
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d (body %s), want 201", w.Code, w.Body.String())
+	}
+	deps.agents.mu.Lock()
+	defer deps.agents.mu.Unlock()
+	if !slices.Equal(deps.agents.callerBearers, []string{"Bearer caller-tok"}) {
+		t.Errorf("caller bearers = %v, want the caller's own", deps.agents.callerBearers)
+	}
+}
+
 func TestHandleCreateTrigger_BindForbidden(t *testing.T) {
 	c, deps, _ := newTestController(t)
-	deps.bindAuthz.allow = false
+	deps.agents.atNoRun = true
 
 	w := call(t, c.handleCreateTrigger, http.MethodPost, "/triggers", nil, validReq(KindManual))
 

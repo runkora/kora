@@ -9,8 +9,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-
-	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // validReq is the minimal valid CreateTriggerRequest for a kind; tests take a
@@ -176,29 +174,30 @@ func TestCreateTrigger_IdentityModeBinding(t *testing.T) {
 	}
 }
 
-// Binding hands the trigger principal the agent's run scopes. The caller must hold agents:runs:<slug>:write first.
-func TestCreateTrigger_RequiresCallerRunScope(t *testing.T) {
-	errBundle := errors.New("bundle unavailable")
+// Binding hands the trigger principal the agent's run scopes. orbit-agents must say the caller can run the agent first.
+func TestCreateTrigger_RequiresCallerRunAccess(t *testing.T) {
 	tests := []struct {
-		name    string
-		kind    string
-		allow   bool
-		evalErr error
-		wantErr error
+		name         string
+		kind         string
+		noRun        bool
+		callerStatus int
+		wantErr      bool
 	}{
-		{"webhook allowed", KindWebhook, true, nil, nil},
-		{"webhook refused", KindWebhook, false, nil, ErrBindForbidden},
-		{"scheduled allowed", KindScheduled, true, nil, nil},
-		{"scheduled refused", KindScheduled, false, nil, ErrBindForbidden},
-		{"manual allowed", KindManual, true, nil, nil},
-		{"manual refused", KindManual, false, nil, ErrBindForbidden},
-		{"evaluator error fails closed", KindManual, true, errBundle, errBundle},
+		{"webhook allowed", KindWebhook, false, 0, false},
+		{"webhook refused", KindWebhook, true, 0, true},
+		{"scheduled allowed", KindScheduled, false, 0, false},
+		{"scheduled refused", KindScheduled, true, 0, true},
+		{"manual allowed", KindManual, false, 0, false},
+		{"manual refused", KindManual, true, 0, true},
+		{"caller cannot read the type", KindManual, false, http.StatusNotFound, true},
+		{"caller forbidden", KindManual, false, http.StatusForbidden, true},
+		{"orbit-agents failure fails closed", KindManual, false, http.StatusInternalServerError, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			_, deps := newTestService(t)
 			deps.agents.atSlug = "real-slug"
-			deps.bindAuthz.allow, deps.bindAuthz.err = tc.allow, tc.evalErr
+			deps.agents.atNoRun, deps.agents.callerStatus = tc.noRun, tc.callerStatus
 			req := validReq(tc.kind)
 			if tc.kind == KindWebhook {
 				req.SourceID = mustSource(t, deps.sources).ID
@@ -207,17 +206,20 @@ func TestCreateTrigger_RequiresCallerRunScope(t *testing.T) {
 
 			_, err := deps.triggers.CreateTrigger(context.Background(), testTenant, req)
 
-			if got := deps.bindAuthz.scopeAsked(); got != "agents:runs:real-slug:write" {
-				t.Errorf("checked scope %q, want agents:runs:real-slug:write", got)
+			if got := deps.agents.callerReadIDs(); !slices.Equal(got, []string{req.AgentTypeID}) {
+				t.Errorf("caller reads = %v, want one read of %s", got, req.AgentTypeID)
 			}
-			if tc.wantErr == nil {
+			if !tc.wantErr {
 				if err != nil {
 					t.Fatalf("CreateTrigger: %v", err)
 				}
 				return
 			}
-			if !errors.Is(err, tc.wantErr) {
-				t.Fatalf("got %v, want %v", err, tc.wantErr)
+			if err == nil {
+				t.Fatal("CreateTrigger succeeded, want a refusal")
+			}
+			if tc.callerStatus != http.StatusInternalServerError && !errors.Is(err, ErrBindForbidden) {
+				t.Fatalf("got %v, want ErrBindForbidden", err)
 			}
 			if slices.Contains(deps.policy.lastScopes, "agents:runs:real-slug:write") {
 				t.Error("the run grant must not be created before the caller is checked")
@@ -744,7 +746,7 @@ func TestUpdateTrigger_RenameDoesNotClobberConcurrentAutoPause(t *testing.T) {
 }
 
 // Edits that change what the bound agent is told or when it runs need run authority on it. Other edits do not.
-func TestUpdateTrigger_RunBehaviourNeedsRunScope(t *testing.T) {
+func TestUpdateTrigger_RunBehaviourNeedsRunAccess(t *testing.T) {
 	newPrompt, newName, off, on := "rewritten", "renamed", false, true
 	tests := []struct {
 		name      string
@@ -775,16 +777,15 @@ func TestUpdateTrigger_RunBehaviourNeedsRunScope(t *testing.T) {
 				if err != nil {
 					t.Fatalf("CreateTrigger: %v", err)
 				}
-				deps.bindAuthz.allow = allow
-				deps.bindAuthz.lastArgs = policy.CheckInput{}
+				deps.agents.atNoRun = !allow
+				deps.agents.callerReadIDs()
 				before, _ := deps.repo.GetTrigger(context.Background(), testTenant, tr.ID)
 				snapshot := *before
 
 				_, err = deps.triggers.UpdateTrigger(context.Background(), testTenant, tr.ID, tc.req)
 
-				asked := deps.bindAuthz.scopeAsked()
-				if tc.wantCheck != (asked == "agents:runs:real-slug:write") {
-					t.Fatalf("checked scope %q, want check=%v", asked, tc.wantCheck)
+				if reads := deps.agents.callerReadIDs(); tc.wantCheck != slices.Equal(reads, []string{tr.AgentTypeID}) {
+					t.Fatalf("caller reads %v, want check=%v", reads, tc.wantCheck)
 				}
 				if tc.wantCheck && !allow {
 					if !errors.Is(err, ErrBindForbidden) {

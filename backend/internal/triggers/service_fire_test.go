@@ -4,11 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/runkora/kora/backend/internal/platform/policy"
 )
 
 // A fire that was due while the platform was down previously left nothing at
@@ -773,7 +772,7 @@ func TestListDeliveries_ReturnsCoalesceKeysAndSupersededBy(t *testing.T) {
 }
 
 // A replay starts runs under the trigger's principal, so the caller needs run authority on every agent it would start.
-func TestRedeliver_NeedsRunScope(t *testing.T) {
+func TestRedeliver_NeedsRunAccess(t *testing.T) {
 	for _, kind := range []string{KindManual, KindWebhook} {
 		for _, allow := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/allow=%v", kind, allow), func(t *testing.T) {
@@ -797,14 +796,14 @@ func TestRedeliver_NeedsRunScope(t *testing.T) {
 					originalID = deps.repo.lastDelivery().ID
 					mustWebhookTrigger(t, deps.triggers, src.ID, "added-later", true)
 				}
-				deps.bindAuthz.allow = allow
-				deps.bindAuthz.lastArgs = policy.CheckInput{}
+				deps.agents.atNoRun = !allow
+				deps.agents.callerReadIDs()
 				before := len(deps.repo.allDeliveries())
 
 				_, err := svc.Redeliver(context.Background(), testTenant, originalID, "user:2")
 
-				if got := deps.bindAuthz.scopeAsked(); got != "agents:runs:code-reviewer:write" {
-					t.Errorf("checked scope %q, want agents:runs:code-reviewer:write", got)
+				if got := deps.agents.callerReadIDs(); !slices.Equal(got, []string{"at-1"}) {
+					t.Errorf("caller reads = %v, want one read of at-1", got)
 				}
 				if allow {
 					if err != nil {

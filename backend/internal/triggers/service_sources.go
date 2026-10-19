@@ -22,6 +22,7 @@ type sourceStore interface {
 	UpdateSource(ctx context.Context, s *WebhookSource) error
 	DeleteSource(ctx context.Context, tenantID, id string) error
 	ObservedEventTypes(ctx context.Context, sourceID string) ([]string, error)
+	ListMatchableTriggersForSource(ctx context.Context, sourceID string) ([]Trigger, error)
 }
 
 // SourceService owns webhook sources: the registration a tenant makes, the
@@ -35,6 +36,7 @@ type SourceService struct {
 	registry    *Registry
 	cipher      *secretCipher
 	policy      *policyclient.Client
+	agents      agentTypeReader
 	logger      logging.Logger
 	webhookBase string
 }
@@ -46,6 +48,7 @@ func NewSourceService(
 	registry *Registry,
 	cipher *secretCipher,
 	policy *policyclient.Client,
+	agents agentTypeReader,
 	webhookBase string,
 	logger logging.Logger,
 ) *SourceService {
@@ -54,6 +57,7 @@ func NewSourceService(
 		registry:    registry,
 		cipher:      cipher,
 		policy:      policy,
+		agents:      agents,
 		logger:      logger,
 		webhookBase: webhookBase,
 	}
@@ -170,6 +174,12 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	src, err := s.repo.GetSource(ctx, tenantID, id)
 	if err != nil {
 		return nil, err
+	}
+	// A new secret signs deliveries for every trigger on the source, and so does re-enabling it.
+	if req.RotateSecret || (req.Enabled != nil && *req.Enabled && !src.Enabled) {
+		if err := requireRunAccessForSource(ctx, s.repo, s.agents, src.ID); err != nil {
+			return nil, err
+		}
 	}
 	if req.Enabled != nil {
 		src.Enabled = *req.Enabled

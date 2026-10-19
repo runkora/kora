@@ -191,3 +191,62 @@ func TestSourceEventTypes_TenantScoped(t *testing.T) {
 }
 
 // ─── Editable input declaration ──────────────────────────────────────────────
+
+// A rotated secret or a re-enabled source lets deliveries start every trigger on it, so both need run access on each bound agent.
+func TestUpdateSource_RunAccess(t *testing.T) {
+	off, on := false, true
+	tests := []struct {
+		name       string
+		disabled   bool
+		req        UpdateSourceRequest
+		wantCheck  bool
+		noTriggers bool
+	}{
+		{"rotate secret", false, UpdateSourceRequest{RotateSecret: true}, true, false},
+		{"re-enable", true, UpdateSourceRequest{Enabled: &on}, true, false},
+		{"disable", false, UpdateSourceRequest{Enabled: &off}, false, false},
+		{"enable an enabled source", false, UpdateSourceRequest{Enabled: &on}, false, false},
+		{"rotate with no triggers", false, UpdateSourceRequest{RotateSecret: true}, false, true},
+	}
+	for _, tc := range tests {
+		for _, allow := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/allow=%v", tc.name, allow), func(t *testing.T) {
+				_, deps := newTestService(t)
+				src := mustSource(t, deps.sources)
+				if !tc.noTriggers {
+					mustWebhookTrigger(t, deps.triggers, src.ID, "on-source", true)
+				}
+				if tc.disabled {
+					if _, err := deps.sources.UpdateSource(context.Background(), testTenant, src.ID, UpdateSourceRequest{Enabled: &off}); err != nil {
+						t.Fatalf("disable: %v", err)
+					}
+				}
+				deps.agents.atNoRun = !allow
+				deps.agents.callerReadIDs()
+				before, _ := deps.repo.GetSource(context.Background(), testTenant, src.ID)
+				snapshot := *before
+
+				resp, err := deps.sources.UpdateSource(context.Background(), testTenant, src.ID, tc.req)
+
+				if reads := deps.agents.callerReadIDs(); tc.wantCheck != slices.Equal(reads, []string{"at-1"}) {
+					t.Fatalf("caller reads %v, want check=%v", reads, tc.wantCheck)
+				}
+				if tc.wantCheck && !allow {
+					if !errors.Is(err, ErrBindForbidden) {
+						t.Fatalf("got %v, want ErrBindForbidden", err)
+					}
+					if resp != nil {
+						t.Error("a refused update must not return a secret")
+					}
+					if stored, _ := deps.repo.GetSource(context.Background(), testTenant, src.ID); stored.Enabled != snapshot.Enabled || stored.SecretCiphertext != snapshot.SecretCiphertext {
+						t.Error("a refused update must leave the source unchanged")
+					}
+					return
+				}
+				if err != nil {
+					t.Fatalf("UpdateSource: %v", err)
+				}
+			})
+		}
+	}
+}
