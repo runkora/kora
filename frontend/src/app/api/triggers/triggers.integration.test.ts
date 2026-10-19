@@ -171,7 +171,7 @@ describe('POST /api/triggers', () => {
           {
             code: 'forbidden',
             message: 'caller does not hold the scopes this routed trigger would be granted',
-            details: { missing_scopes: ['agent:coder:run'] },
+            details: { missing_scopes: ['agent:coder:run'], grant_id: 'grant-internal' },
           },
           { status: 403 },
         ),
@@ -192,7 +192,7 @@ describe('POST /api/triggers', () => {
     );
 
     expect(res.status).toBe(403);
-    expect(await res.json()).toMatchObject({ details: { missing_scopes: ['agent:coder:run'] } });
+    expect((await res.json()).details).toEqual({ missing_scopes: ['agent:coder:run'] });
   });
 
   it('rejects a webhook trigger without an event type', async () => {

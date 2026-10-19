@@ -47,6 +47,8 @@ export type AuthedHandler<TParams = Record<string, string>> = (
  * - An `ApiError` thrown by the handler (an upstream refusal surfaced by the
  *   typed server clients) becomes its own JSON response, code and status
  *   preserved. Handlers pass upstream verdicts through by not catching them.
+ *   Of the upstream `details`, only a `missing_scopes` string list reaches the
+ *   browser.
  *
  * The proxy (src/proxy.ts) already redirects unauthenticated *page* requests
  * to /login. This guard covers the case where a BFF API route is called
@@ -69,11 +71,12 @@ export function withAuth<TParams = Record<string, string>>(
       return await handler(req, session, context);
     } catch (err) {
       if (err instanceof ApiError) {
+        const missing = missingScopes(err.details);
         return NextResponse.json(
           {
             code: err.code,
             message: err.message,
-            ...(err.details !== undefined && { details: err.details }),
+            ...(missing && { details: { missing_scopes: missing } }),
           },
           { status: err.status },
         );
@@ -81,4 +84,11 @@ export function withAuth<TParams = Record<string, string>>(
       throw err;
     }
   };
+}
+
+/** The upstream's missing scopes when they are a list of strings, the one detail the browser needs. */
+function missingScopes(details: Record<string, unknown> | undefined): string[] | undefined {
+  const scopes = details?.missing_scopes;
+  if (!Array.isArray(scopes) || !scopes.every((s) => typeof s === 'string')) return undefined;
+  return scopes;
 }
