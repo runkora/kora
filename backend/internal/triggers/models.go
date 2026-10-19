@@ -395,8 +395,8 @@ type Trigger struct {
 	// "unknown" rather than "none". Derived per read, not a stored column.
 	PendingCount int `json:"pending_count"`
 	// CanFire reports whether the caller may fire this trigger, set per read so
-	// the UI can hide Run now. Never stored.
-	CanFire bool `json:"can_fire"`
+	// the UI can hide Run now. Absent means no or not computed. Never stored.
+	CanFire bool `json:"can_fire,omitempty"`
 }
 
 // DisabledByPerson reports whether a person turned this trigger off, as

@@ -551,9 +551,7 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 		return nil, err
 	}
 	withAccess := []AgentType{*at}
-	if err := s.setCallerAccess(ctx, withAccess); err != nil {
-		return nil, err
-	}
+	s.setCallerAccess(ctx, withAccess)
 	at = &withAccess[0]
 
 	// Enrich with the budget carried by the agent's grant — the grant is the
@@ -590,16 +588,15 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 	if err != nil {
 		return nil, err
 	}
-	if err = s.setCallerAccess(ctx, types); err != nil {
-		return nil, err
-	}
+	s.setCallerAccess(ctx, types)
 	return types, nil
 }
 
 // setCallerAccess fills CanRun and CanEdit on each agent type for the caller in
 // ctx. Run uses checkRun, the run-start check. Edit uses the mode-qualified check
-// update and delete use, once per mode.
-func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType) error {
+// update and delete use, once per mode. The flags only hide controls, so an
+// evaluator error leaves them false and the read succeeds.
+func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType) {
 	canEdit := map[IdentityMode]bool{}
 	for i := range ats {
 		mode := ats[i].IdentityMode.OrDefault()
@@ -607,19 +604,20 @@ func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType)
 		if !seen {
 			err := s.authz.checkAgentTypeModeWrite(ctx, mode)
 			if err != nil && !errors.Is(err, ErrIdentityModeWriteForbidden) {
-				return err
+				s.logger.Warn(ctx, "agent type edit access check failed", logging.Field{Key: "error", Value: err.Error()})
 			}
 			edit = err == nil
 			canEdit[mode] = edit
 		}
 		runErr := s.authz.checkRun(ctx, ats[i], "write")
 		if runErr != nil && !errors.Is(runErr, ErrForbidden) {
-			return runErr
+			s.logger.Warn(ctx, "agent type run access check failed",
+				logging.Field{Key: "agent_type_id", Value: ats[i].ID},
+				logging.Field{Key: "error", Value: runErr.Error()})
 		}
 		run := runErr == nil
 		ats[i].CanEdit, ats[i].CanRun = &edit, &run
 	}
-	return nil
 }
 
 // UpdateAgentType applies partial updates to an existing agent type. Enforces

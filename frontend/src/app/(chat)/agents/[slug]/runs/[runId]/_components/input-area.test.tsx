@@ -59,6 +59,14 @@ describe('InputArea', () => {
     },
   );
 
+  it('leaves the composer to the API until access is known', () => {
+    ctx = { ...ctx, canSteer: null };
+    render(<InputArea />);
+    expect(
+      screen.getByPlaceholderText('Message Reviewer. It reads this at its next step.'),
+    ).toBeEnabled();
+  });
+
   it('shows why a Stop was refused', () => {
     ctx = { ...ctx, stopError: 'You cannot stop this run.' };
     render(<InputArea />);

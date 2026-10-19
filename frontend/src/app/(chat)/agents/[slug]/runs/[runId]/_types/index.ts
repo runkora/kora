@@ -171,8 +171,8 @@ export interface RunChatState {
   startedBy: string | null;
   /** True when the agent is delegated: the run acts on the starter's behalf and is private to them. */
   delegated: boolean;
-  /** Whether the caller may message or stop this run. False until the run loads. */
-  canSteer: boolean;
+  /** Whether the caller may message or stop this run. Null until known, which leaves it to the API. */
+  canSteer: boolean | null;
   /** Why the run could not be loaded; the page shows this instead of an empty thread. */
   loadError: string | null;
   /** Why the last Stop was refused; null when it was not. */

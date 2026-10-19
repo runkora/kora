@@ -155,7 +155,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
   // True when the agent is delegated: the run acts on the starter's behalf and
   // is private to them + tenant admins.
   const [delegated, setDelegated] = useState(false);
-  const [canSteer, setCanSteer] = useState(false);
+  const [canSteer, setCanSteer] = useState<boolean | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [stopError, setStopError] = useState<string | null>(null);
   const [committedTurns, setCommittedTurns] = useState<Turn[]>([]);
@@ -291,7 +291,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
       })
       .then(
         (body: {
-          can_steer?: boolean;
+          can_steer?: boolean | null;
           data?: {
             state: RunState;
             summary?: string | null;
@@ -305,7 +305,7 @@ export function useRun(runId: string, slug: string): UseRunReturn {
             budget?: { per_run_limit_usd?: number };
           };
         }) => {
-          setCanSteer(body.can_steer === true);
+          setCanSteer(typeof body.can_steer === 'boolean' ? body.can_steer : null);
           if (body.data?.state) {
             runStateRef.current = body.data.state;
             setRunState(body.data.state);

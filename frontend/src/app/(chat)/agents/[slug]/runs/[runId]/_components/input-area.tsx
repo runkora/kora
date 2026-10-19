@@ -139,12 +139,12 @@ export function InputArea() {
   // A starting run takes no messages. The API would answer "run is starting".
   // Typing is never blocked while the agent works: a message sent mid-turn is
   // read at the agent's next tool boundary.
-  const isDisabled = isEnded || isStarting || !canSteer;
+  const isDisabled = isEnded || isStarting || canSteer === false;
   const canSend = !!value.trim() && !isDisabled;
   // Only show Stop when the run is actually interruptible. The backend rejects an
   // interrupt unless the run is 'active' (and interruptRun swallows that error), so
   // showing Stop during 'starting'/pending made the button a silent no-op.
-  const showStop = runState === 'active' && canSteer;
+  const showStop = runState === 'active' && canSteer !== false;
 
   function toggle(id: ContextToolId) {
     if (isDisabled) return;
@@ -195,7 +195,7 @@ export function InputArea() {
                 ? `${agentName} run stopped: budget exhausted`
                 : isEnded
                   ? `${agentName} run has ended`
-                  : !canSteer
+                  : canSteer === false
                     ? delegated
                       ? 'Only the person who started this run can message it.'
                       : 'You can watch this run but not message it.'

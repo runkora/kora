@@ -2,8 +2,10 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"testing"
 
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
@@ -49,5 +51,30 @@ func TestAgentTypeCallerAccess(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// erroringRunEvaluator grants agent-type reads and fails every other check.
+type erroringRunEvaluator struct{ allowAllEvaluator }
+
+func (erroringRunEvaluator) Check(_ context.Context, in policy.CheckInput) (policy.Result, error) {
+	if in.PathSegments[0] == "types" && in.Action == "read" {
+		return policy.Result{Allow: true}, nil
+	}
+	return policy.Result{}, errors.New("bundle unavailable")
+}
+
+func TestAgentTypeCallerAccess_EvaluatorErrorLeavesFlagsFalse(t *testing.T) {
+	svc, repo := newModeTestService(t)
+	svc.authz = NewAuthz(erroringRunEvaluator{})
+	at := seedModeAgentType(t, repo, IdentityModeAutonomous)
+	ctx := withPrincipalCtx(context.Background(), "t-1", token.PrincipalTypeHuman, "user-1")
+
+	got, err := svc.GetAgentType(ctx, at.ID)
+	if err != nil {
+		t.Fatalf("get should succeed when the access check fails: %v", err)
+	}
+	if got.CanRun == nil || got.CanEdit == nil || *got.CanRun || *got.CanEdit {
+		t.Errorf("can_run=%v can_edit=%v, want both false", got.CanRun, got.CanEdit)
 	}
 }

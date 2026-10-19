@@ -68,6 +68,8 @@ export function useAgents(
       setLiveRuns(runsResult.data);
       setRunStats(statsResult.data);
     }
+    // A refused refresh must not leave the previous runs on screen as if current.
+    if (runsResult.error) setLiveRuns([]);
     setRunsError(runsResult.error);
 
     setStatus('success');
