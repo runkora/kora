@@ -339,6 +339,7 @@ func TestDispatch_DelegatedStartRefusal_RecordsReason(t *testing.T) {
 	deps.repo.mu.Lock()
 	for _, tr := range deps.repo.triggers {
 		tr.CreatedAt = time.Now().Add(-2 * time.Hour)
+		tr.UpdatedAt = tr.CreatedAt
 	}
 	deps.repo.mu.Unlock()
 	deps.agents.status = http.StatusForbidden
@@ -697,6 +698,29 @@ func TestStartRun_RetriesWhileAYoungGrantPropagates(t *testing.T) {
 	}
 }
 
+// A routing update can replace an old trigger's grant, so the window runs from
+// the update as well as the creation.
+func TestStartRun_RetriesAGrantReplacedByAnUpdate(t *testing.T) {
+	svc, deps, src, delID := dispatchSetup(t, map[string][]string{"action": {"opened"}}, "p")
+	deps.repo.mu.Lock()
+	for _, tr := range deps.repo.triggers {
+		tr.CreatedAt, tr.UpdatedAt = time.Now().Add(-2*time.Hour), time.Now()
+	}
+	deps.repo.mu.Unlock()
+	deps.agents.statusOnce = http.StatusForbidden
+	adapter, _ := mustRegistry().Get(ProviderGitHub)
+
+	svc.dispatch(context.Background(), src, adapter, arrival{deliveryID: delID, eventType: "pull_request", body: prBody("opened", "main")})
+	drainPending(t, svc, deps.repo)
+
+	if got := deps.agents.callCount(); got < 2 {
+		t.Fatalf("call count = %d, want a retry after the refusal", got)
+	}
+	if got := deps.repo.deliveryByID(delID).Status; got != StatusDispatched {
+		t.Errorf("status = %q, want dispatched once the grant landed", got)
+	}
+}
+
 // A refusal on a trigger old enough to have propagated is a real denial: it
 // must fail at once rather than hold a queue slot for the whole budget.
 func TestStartRun_DoesNotRetryAnEstablishedTrigger(t *testing.T) {
@@ -705,6 +729,7 @@ func TestStartRun_DoesNotRetryAnEstablishedTrigger(t *testing.T) {
 	deps.repo.mu.Lock()
 	for _, tr := range deps.repo.triggers {
 		tr.CreatedAt = time.Now().Add(-2 * time.Hour)
+		tr.UpdatedAt = tr.CreatedAt
 	}
 	deps.repo.mu.Unlock()
 	deps.agents.status = http.StatusForbidden

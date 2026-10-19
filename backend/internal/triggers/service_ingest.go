@@ -500,7 +500,12 @@ func (s *Service) startRunAs(ctx context.Context, t Trigger, tok, agentTypeID, p
 // delegated agent type) and retrying would delay an honest failure and hold a
 // queue slot for the whole budget.
 func (s *Service) retryYoungGrant(ctx context.Context, t Trigger, refusal error, call func() error) error {
-	young := time.Since(t.CreatedAt) < grantPropagationWindow
+	// A routing update can replace the grant, so its age runs from the later write.
+	minted := t.CreatedAt
+	if t.UpdatedAt.After(minted) {
+		minted = t.UpdatedAt
+	}
+	young := time.Since(minted) < grantPropagationWindow
 	return retryWhileGrantPropagates(ctx,
 		func(err error) bool { return young && errors.Is(err, refusal) },
 		func(backoff time.Duration) {
