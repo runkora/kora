@@ -13,10 +13,11 @@ const (
 	UserRole     = "kora-user"
 	BuilderRole  = "kora-builder"
 	OperatorRole = "kora-operator"
+	FinOpsRole   = "kora-finops"
 )
 
 // ReservedRoleNames lists every reserved role in the order the roles API shows them.
-var ReservedRoleNames = []string{PlatformAdminRole, ViewerRole, UserRole, BuilderRole, OperatorRole}
+var ReservedRoleNames = []string{PlatformAdminRole, ViewerRole, UserRole, BuilderRole, OperatorRole, FinOpsRole}
 
 // Each tier holds the tier below it. Model, connection and MCP tool scopes
 // stay out: tenants add those as their own roles. egress:connect lets an
@@ -49,11 +50,25 @@ var (
 	)
 )
 
+// finOpsScopes is a standalone role for spend oversight. It is not a tier.
+var finOpsScopes = []string{
+	"platform:analytics:read",
+	"agents:usage:read",
+	"platform:budgets:read",
+	"platform:budgets:write",
+	"platform:roles:read",
+	"platform:grants:read",
+	"identity:users:read",
+	"agents:types:read",
+	"inference:list",
+}
+
 var builtinRoles = map[string][]string{
 	ViewerRole:   viewerScopes,
 	UserRole:     userScopes,
 	BuilderRole:  builderScopes,
 	OperatorRole: operatorScopes,
+	FinOpsRole:   finOpsScopes,
 }
 
 // IsBuiltinRole reports whether role is one of the fixed kora-* roles. Their

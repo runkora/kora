@@ -38,6 +38,10 @@ func TestBuiltinRoleScopes(t *testing.T) {
 	}{
 		{ViewerRole, viewerScopes, nil},
 		{UserRole, append(slices.Clone(viewerScopes), "inference:invoke"), []string{"agents:runs:delegated:write", "mcp:invoke"}},
+		{FinOpsRole, []string{"agents:types:read", "inference:list"}, []string{
+			"platform:analytics:read", "agents:usage:read", "platform:budgets:read", "platform:budgets:write",
+			"platform:roles:read", "platform:grants:read", "identity:users:read",
+		}},
 		{"engineer", []string{}, nil},
 	}
 	for _, tc := range cases {
@@ -114,6 +118,7 @@ func TestCompile_BuiltinRoles(t *testing.T) {
 				UserRole:     viewerScopes,
 				BuilderRole:  viewerScopes,
 				OperatorRole: viewerScopes,
+				FinOpsRole:   {"agents:types:read", "inference:list"},
 				"engineer":   {"inference:list"},
 				"reader":     {"agents:types:read", "platform:grants:write"},
 			}
@@ -152,9 +157,15 @@ func TestBuiltinRoles_Tiers(t *testing.T) {
 	for role, scopes := range builtinRoles {
 		for _, sc := range scopes {
 			for _, a := range adminOnly {
+				if role == FinOpsRole && a == "platform:budgets:write" {
+					continue // kora-finops sets budgets by design
+				}
 				if policy.ScopeCovers(sc, a) {
 					t.Errorf("%s holds %q, which covers admin-only %q", role, sc, a)
 				}
+			}
+			if sc == "platform:budgets:write" && role != FinOpsRole {
+				t.Errorf("%s holds platform:budgets:write, which only kora-finops holds", role)
 			}
 			if sc == "egress:connect" && role != OperatorRole {
 				t.Errorf("%s holds egress:connect, which only kora-operator holds", role)

@@ -20,7 +20,9 @@ A scope covers another scope when both have the same resource type and action an
 
 The vocabulary is the global set of valid scopes, and every tenant validates against it. Services declare their scopes when they register their routes (see [Route Registration](#route-registration)), and the policy service self-registers the `platform:*` scopes. Grant and role writes are validated against the vocabulary. Read it with `GET /api/v1/policy/vocabulary`.
 
-A vocabulary entry can declare `requires`: the scopes the holder also needs for the scope to work. The bundle compiler adds every required scope to each grant and tenant role that covers the entry. The built-in roles take no `requires` expansion. An MCP tool scope on the orbit server requires the platform scope its upstream call needs.
+A vocabulary entry can declare `requires`: the scopes the holder also needs for the scope to work. The bundle compiler adds every required scope to each grant and tenant role that covers the entry. The built-in roles take no `requires` expansion.
+
+An MCP tool scope only allows calling the tool. The platform API behind an orbit tool checks its own scope against the caller, and orbit tools declare no `requires`.
 
 A grant or role write returns `warnings` for scopes that do nothing without a companion scope the write does not include. Examples are a model scope without `inference:invoke`, an MCP tool scope without `mcp:invoke`, a GitHub category scope without the connection's `metadata:read`, a per-agent run scope without read on that agent, an agent-type write without `agents:types:read`, and `triggers:write` without `triggers:read`. A warning never blocks the write. The principal may hold the companion through another grant or role.
 
@@ -41,9 +43,9 @@ Locally, Dex reads groups from glauth over LDAP. Group membership is set in `con
 
 ## Built-in Roles
 
-kora ships five reserved roles. Built-in roles cannot be created, edited, or deleted by a tenant. `PUT` and `DELETE` on a reserved role return `400` with `role "<name>" is reserved and cannot be modified`. Tenants add their own roles alongside them, and a person holds the union of every role and grant they have.
+kora ships six reserved roles. Built-in roles cannot be created, edited, or deleted by a tenant. `PUT` and `DELETE` on a reserved role return `400` with `role "<name>" is reserved and cannot be modified`. Tenants add their own roles alongside them, and a person holds the union of every role and grant they have.
 
-`platform-admin` holds the covering set of the whole vocabulary. The four `kora-*` roles hold a fixed scope list defined in `internal/policyservice/bundle/builtin_roles.go`. Each tier holds every scope of the tier above it in the table.
+`platform-admin` holds the covering set of the whole vocabulary. The `kora-*` roles hold fixed scope lists defined in `internal/policyservice/bundle/builtin_roles.go`. `kora-viewer`, `kora-user`, `kora-builder`, and `kora-operator` are tiers, and each holds every scope of the tier above it in the table. `kora-finops` stands alone.
 
 | Role | Adds | What a person with the role can see and do |
 |---|---|---|
@@ -51,9 +53,10 @@ kora ships five reserved roles. Built-in roles cannot be created, edited, or del
 | `kora-user` | `inference:invoke`, `agents:runs:delegated:write`, `mcp:invoke` | Start runs of any delegated agent, and message and stop their own. Each run acts with the person's own access and can reach the MCP tool gateway. |
 | `kora-builder` | `agents:types:delegated:write` | Create and change delegated agents. |
 | `kora-operator` | `agents:types:autonomous:write`, `egress:connect`, `triggers:write`, `trigger:fire`, `agents:usage:read`, `platform:analytics:read`, `platform:budgets:read`, `identity:users:read` | Create autonomous agents within their own access, run them, and put triggers on them. Give those agents general internet access. Fire triggers. Read every agent's usage, tenant analytics, budgets, and the user directory. |
+| `kora-finops` | `platform:analytics:read`, `agents:usage:read`, `platform:budgets:read`, `platform:budgets:write`, `platform:roles:read`, `platform:grants:read`, `identity:users:read`, `agents:types:read`, `inference:list` | See tenant spend and every agent's usage, and set role, grant and tenant budgets. |
 | `platform-admin` | Every scope in the vocabulary | Administer the tenant: grants, roles, budgets, the model catalog, every agent and run. |
 
-The built-in roles carry no model, connection, or MCP tool scopes. Add a tenant role for each model family a group may use (e.g. `inference:anthropic:use`) and for the connections and tools they may act through. A `kora-user` with no model scope cannot run a model.
+Listing connections needs `platform:connections:read`. The built-in roles carry no model, connection, or MCP tool scopes. Add a tenant role for each model family a group may use (e.g. `inference:anthropic:use`) and for the connections and tools they may act through. A `kora-user` with no model scope cannot run a model.
 
 The bundle compiles only the declared scopes that the vocabulary holds. `GET /api/v1/policy/roles` marks each reserved role with `"reserved": true` and lists a built-in role's declared scopes that no service has registered under `unregistered_scopes`.
 
@@ -90,6 +93,8 @@ The caller must also hold the agent's grant:
 *   Egress that a connector derives is exempt in both modes.
 *   Editing an environment is checked the same way for every attached agent and needs each agent's mode write scope.
 
+A delegated run cannot create grants, write or delete roles, change a role's budget, or create, change, or delete an autonomous agent, even when the person could.
+
 `agents:runs:delegated:write` starts runs of any delegated agent and does not reach autonomous agents. Messaging and interrupting a delegated run stay with its starter, and terminating another person's delegated run also needs `agents:delegated:read`. `agents:runs:write` reaches every agent in both modes. The slugs `delegated` and `autonomous` are reserved to keep per-agent scopes from colliding with the mode scopes.
 
 ### How Delegated Runs Use the Person's Access
@@ -100,7 +105,7 @@ A delegated run needs the person to hold these scopes:
 
 *   A model scope for each model the run calls.
 *   A connection scope for each connection action the run takes.
-*   `mcp:invoke` to reach the tool gateway, and each MCP tool's scope or every scope in that tool's `requires`.
+*   `mcp:invoke` to reach the tool gateway, and each MCP tool's scope.
 
 Egress is the agent's own connectivity posture. At run time a delegated run's egress is checked against the agent's grant and environment alone. The person's control over it comes from the creation check above.
 
@@ -121,11 +126,10 @@ Firing a manual trigger (`POST /api/v1/trigger-fires/{id}`) needs `trigger:<trig
 
 These scopes administer the tenant or confer authority beyond the holder. Keep them in `platform-admin` and in narrow, reviewed grants:
 
-*   `platform:grants:write`, `platform:roles:write`, `platform:budgets:write`, and `platform:catalog:write`.
+*   `platform:grants:write`, `platform:roles:write`, and `platform:catalog:write`.
 *   `agents:types:write`, `agents:runs:write`, and `agents:environments:write`.
 *   Any `connection:<name>:write` parent, GitHub `admin:write` and `repo:write`, and Kubernetes `secrets` and `rbac:write`.
 *   `mcp:<server>:use` on a server with write tools.
-*   `mcp:orbit:use` and the orbit rollups for policy, agents, runs, triggers, and budgets. They confer platform scopes through `requires`.
 
 ## Managing Roles
 
@@ -154,7 +158,7 @@ PATCH /api/v1/policy/roles/engineer/budget
 { "budget": { "limit_usd": 50, "reset_cadence": "monthly" } }
 ```
 
-A `null` budget clears it. Reserved roles carry no budget. A delegated run cannot make any policy write: grants, roles and budgets all refuse it.
+A `null` budget clears it, and reserved roles carry no budget.
 
 **Read and Delete Roles:**
 
@@ -164,7 +168,7 @@ GET    /api/v1/policy/roles/{role}
 DELETE /api/v1/policy/roles/{role}
 ```
 
-The list starts with the five reserved roles on the first page.
+The list starts with the six reserved roles on the first page.
 
 The `tenant_id` comes from your platform token. SYSTEM principals supply `tenant_id` in the body or the query string.
 
