@@ -587,12 +587,8 @@ func (s *Service) UpdateRoleBudget(ctx context.Context, tenantID, role string, b
 	if role == bundle.PlatformAdminRole {
 		return nil, &ReservedRoleError{Role: role}
 	}
-	entry, err := s.roleRepo.GetByRole(ctx, tenantID, role)
+	entry, err := s.roleRepo.UpdateBudget(ctx, tenantID, role, budget)
 	if err != nil {
-		return nil, err
-	}
-	entry.Budget = budget
-	if err := s.roleRepo.Upsert(ctx, entry); err != nil {
 		return nil, fmt.Errorf("update role budget: %w", err)
 	}
 	s.recordWrite(tenantID)

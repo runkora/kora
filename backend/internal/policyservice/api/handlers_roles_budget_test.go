@@ -28,6 +28,15 @@ func (r oneRoleRepo) GetByRole(_ context.Context, _, role string) (*roles.RoleEn
 	return &copied, nil
 }
 
+func (r oneRoleRepo) UpdateBudget(_ context.Context, _, role string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
+	if r.entry == nil || r.entry.Role != role {
+		return nil, roles.ErrRoleNotFound
+	}
+	copied := *r.entry
+	copied.Budget = budget
+	return &copied, nil
+}
+
 // budgetsEval answers every Check with a fixed decision.
 type budgetsEval struct {
 	policy.Evaluator

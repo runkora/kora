@@ -49,6 +49,10 @@ type Repository interface {
 	// If the role already exists, its scopes are replaced in full.
 	Upsert(ctx context.Context, entry *RoleEntry) error
 
+	// UpdateBudget sets or clears a role's budget and leaves its scopes alone.
+	// It returns the updated entry, or ErrRoleNotFound.
+	UpdateBudget(ctx context.Context, tenantID, role string, budget *BudgetAssignment) (*RoleEntry, error)
+
 	// GetByRole retrieves the scope mapping for a specific role within a tenant.
 	GetByRole(ctx context.Context, tenantID, role string) (*RoleEntry, error)
 
@@ -111,6 +115,22 @@ func (r *postgresRepository) Upsert(ctx context.Context, entry *RoleEntry) error
 		return fmt.Errorf("upsert role: %w", err)
 	}
 	return nil
+}
+
+func (r *postgresRepository) UpdateBudget(ctx context.Context, tenantID, role string, budget *BudgetAssignment) (*RoleEntry, error) {
+	var budgetJSON []byte
+	if budget != nil {
+		var err error
+		budgetJSON, err = json.Marshal(budget)
+		if err != nil {
+			return nil, fmt.Errorf("marshal budget: %w", err)
+		}
+	}
+	row := r.pool.QueryRow(ctx, `
+		UPDATE policy_role_scopes SET budget = $3 WHERE tenant_id = $1 AND role = $2
+		RETURNING id, tenant_id, role, scopes, budget, created_at
+	`, tenantID, role, budgetJSON)
+	return r.scanEntry(row)
 }
 
 func (r *postgresRepository) GetByRole(ctx context.Context, tenantID, role string) (*RoleEntry, error) {

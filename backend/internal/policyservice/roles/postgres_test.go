@@ -2,6 +2,7 @@ package roles
 
 import (
 	"context"
+	"errors"
 	"os"
 	"slices"
 	"testing"
@@ -83,5 +84,37 @@ func TestPostgres_PurgeScopeFromAll_Roles(t *testing.T) {
 	}
 	if slices.Contains(roleB.Scopes, purge) {
 		t.Errorf("role-b (unaffected row) now contains purged scope")
+	}
+}
+
+func TestPostgres_UpdateBudget_Roles(t *testing.T) {
+	repo, tenant := testRolesRepo(t)
+	ctx := context.Background()
+
+	if err := repo.Upsert(ctx, &RoleEntry{TenantID: tenant, Role: "role-a", Scopes: []string{"keep:scope"}}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+	budget := &BudgetAssignment{LimitUSD: 50, ResetCadence: "monthly"}
+	got, err := repo.UpdateBudget(ctx, tenant, "role-a", budget)
+	if err != nil {
+		t.Fatalf("UpdateBudget set: %v", err)
+	}
+	if got.Budget == nil || got.Budget.LimitUSD != 50 || !slices.Equal(got.Scopes, []string{"keep:scope"}) {
+		t.Fatalf("after set: budget %+v scopes %v", got.Budget, got.Scopes)
+	}
+
+	if _, err := repo.UpdateBudget(ctx, tenant, "role-a", nil); err != nil {
+		t.Fatalf("UpdateBudget clear: %v", err)
+	}
+	stored, err := repo.GetByRole(ctx, tenant, "role-a")
+	if err != nil {
+		t.Fatalf("GetByRole: %v", err)
+	}
+	if stored.Budget != nil || !slices.Equal(stored.Scopes, []string{"keep:scope"}) {
+		t.Errorf("after clear: budget %+v scopes %v, want no budget and scopes kept", stored.Budget, stored.Scopes)
+	}
+
+	if _, err := repo.UpdateBudget(ctx, tenant, "missing", budget); !errors.Is(err, ErrRoleNotFound) {
+		t.Errorf("UpdateBudget on a missing role = %v, want ErrRoleNotFound", err)
 	}
 }
