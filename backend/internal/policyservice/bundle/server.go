@@ -138,7 +138,7 @@ func (s *Server) RecompileGateway(ctx context.Context) error {
 		}
 		allGrants[tid] = tGrants
 
-		tRoles, tErr := s.roleRepo.ListByTenant(ctx, tid, 0, 0)
+		tRoles, tErr := s.roleRepo.ListByTenant(ctx, tid, nil, 0, 0)
 		if tErr != nil {
 			return fmt.Errorf("list roles for tenant %s: %w", tid, tErr)
 		}
@@ -211,7 +211,7 @@ func (s *Server) Recompile(ctx context.Context, tenantID string, vocabEntries []
 		}
 	}
 
-	roleEntries, err := s.roleRepo.ListByTenant(ctx, tenantID, 0, 0)
+	roleEntries, err := s.roleRepo.ListByTenant(ctx, tenantID, nil, 0, 0)
 	if err != nil {
 		return fmt.Errorf("list role scopes for tenant %s: %w", tenantID, err)
 	}

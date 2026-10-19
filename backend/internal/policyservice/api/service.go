@@ -369,7 +369,7 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 		return nil, fmt.Errorf("count grants: %w", err)
 	}
 
-	customRoleCount, err := s.roleRepo.CountByTenant(ctx, tenantID)
+	customRoleCount, err := s.roleRepo.CountByTenant(ctx, tenantID, bundle.ReservedRoleNames)
 	if err != nil {
 		return nil, fmt.Errorf("count roles: %w", err)
 	}
@@ -631,12 +631,11 @@ func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.Ro
 // ListRoles returns all role→scope mappings for a tenant, with the derived
 // reserved roles prepended on the first page so the dashboard can display them.
 func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset int) ([]*roles.RoleEntry, error) {
-	stored, err := s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
+	// A stored row under a reserved name is never compiled, so it is not listed.
+	custom, err := s.roleRepo.ListByTenant(ctx, tenantID, bundle.ReservedRoleNames, limit, offset)
 	if err != nil {
 		return nil, err
 	}
-	// A stored row under a reserved name is never compiled, so it is not listed.
-	custom := slices.DeleteFunc(stored, func(e *roles.RoleEntry) bool { return bundle.IsReservedRole(e.Role) })
 
 	// Only prepend reserved roles on the first page.
 	if offset > 0 {

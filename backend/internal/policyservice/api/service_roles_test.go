@@ -26,8 +26,8 @@ type storedRoles struct {
 	entries []*roles.RoleEntry
 }
 
-func (r storedRoles) ListByTenant(context.Context, string, int, int) ([]*roles.RoleEntry, error) {
-	return slices.Clone(r.entries), nil
+func (r storedRoles) ListByTenant(_ context.Context, _ string, exclude []string, _, _ int) ([]*roles.RoleEntry, error) {
+	return slices.DeleteFunc(slices.Clone(r.entries), func(e *roles.RoleEntry) bool { return slices.Contains(exclude, e.Role) }), nil
 }
 
 func (r storedRoles) GetByRole(_ context.Context, _, role string) (*roles.RoleEntry, error) {

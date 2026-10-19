@@ -62,15 +62,15 @@ type Repository interface {
 	// GetByRole retrieves the scope mapping for a specific role within a tenant.
 	GetByRole(ctx context.Context, tenantID, role string) (*RoleEntry, error)
 
-	// ListByTenant returns role→scope mappings for a tenant, paginated by limit
-	// and offset. Use limit=0 for unbounded (e.g. bundle compilation).
-	ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*RoleEntry, error)
+	// ListByTenant returns role→scope mappings for a tenant, without the roles named in exclude,
+	// paginated by limit and offset. Use limit=0 for unbounded (e.g. bundle compilation).
+	ListByTenant(ctx context.Context, tenantID string, exclude []string, limit, offset int) ([]*RoleEntry, error)
 
 	// Delete removes the scope mapping for a role within a tenant.
 	Delete(ctx context.Context, tenantID, role string) error
 
-	// CountByTenant returns the number of custom (non-reserved) roles for a tenant.
-	CountByTenant(ctx context.Context, tenantID string) (int, error)
+	// CountByTenant returns the number of stored roles for a tenant, without the roles named in exclude.
+	CountByTenant(ctx context.Context, tenantID string, exclude []string) (int, error)
 
 	// PurgeScopeFromAll removes a scope string from every role's scopes array
 	// across all tenants. Called when a vocabulary scope is deleted.
@@ -147,13 +147,13 @@ func (r *postgresRepository) GetByRole(ctx context.Context, tenantID, role strin
 	return r.scanEntry(row)
 }
 
-func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, limit, offset int) ([]*RoleEntry, error) {
+func (r *postgresRepository) ListByTenant(ctx context.Context, tenantID string, exclude []string, limit, offset int) ([]*RoleEntry, error) {
 	query := `SELECT id, tenant_id, role, scopes, budget, created_at
-		FROM policy_role_scopes WHERE tenant_id = $1 ORDER BY role`
+		FROM policy_role_scopes WHERE tenant_id = $1 AND role <> ALL($2::text[]) ORDER BY role`
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d OFFSET %d", limit, offset)
 	}
-	rows, err := r.pool.Query(ctx, query, tenantID)
+	rows, err := r.pool.Query(ctx, query, tenantID, nonNil(exclude))
 	if err != nil {
 		return nil, fmt.Errorf("list role scopes: %w", err)
 	}
@@ -199,13 +199,22 @@ func (r *postgresRepository) PurgeScopeFromAll(ctx context.Context, scope string
 	return nil
 }
 
-func (r *postgresRepository) CountByTenant(ctx context.Context, tenantID string) (int, error) {
+func (r *postgresRepository) CountByTenant(ctx context.Context, tenantID string, exclude []string) (int, error) {
 	var count int
-	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM policy_role_scopes WHERE tenant_id = $1`, tenantID).Scan(&count)
+	err := r.pool.QueryRow(ctx, `SELECT COUNT(*) FROM policy_role_scopes WHERE tenant_id = $1 AND role <> ALL($2::text[])`,
+		tenantID, nonNil(exclude)).Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("count roles by tenant: %w", err)
 	}
 	return count, nil
+}
+
+// nonNil turns a nil slice into an empty one. pgx sends nil as NULL, and <> ALL(NULL) matches no row.
+func nonNil(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
 }
 
 type scanner interface {

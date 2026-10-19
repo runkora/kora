@@ -118,3 +118,51 @@ func TestPostgres_UpdateBudget_Roles(t *testing.T) {
 		t.Errorf("UpdateBudget on a missing role = %v, want ErrRoleNotFound", err)
 	}
 }
+
+// Excluded names are filtered in SQL, so pages stay full and the count matches the list.
+func TestPostgres_ListAndCountByTenant_Exclude(t *testing.T) {
+	repo, tenant := testRolesRepo(t)
+	ctx := context.Background()
+	for _, role := range []string{"a-role", "b-reserved", "c-role", "d-role"} {
+		if err := repo.Upsert(ctx, &RoleEntry{TenantID: tenant, Role: role, Scopes: []string{"x:read"}}); err != nil {
+			t.Fatalf("Upsert %s: %v", role, err)
+		}
+	}
+	names := func(entries []*RoleEntry) []string {
+		var out []string
+		for _, e := range entries {
+			out = append(out, e.Role)
+		}
+		return out
+	}
+
+	tests := []struct {
+		name          string
+		exclude       []string
+		limit, offset int
+		wantList      []string
+		wantCount     int
+	}{
+		{"nil exclude lists every row", nil, 0, 0, []string{"a-role", "b-reserved", "c-role", "d-role"}, 4},
+		{"first page skips the excluded row", []string{"b-reserved"}, 2, 0, []string{"a-role", "c-role"}, 3},
+		{"second page", []string{"b-reserved"}, 2, 2, []string{"d-role"}, 3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := repo.ListByTenant(ctx, tenant, tt.exclude, tt.limit, tt.offset)
+			if err != nil {
+				t.Fatalf("ListByTenant: %v", err)
+			}
+			if !slices.Equal(names(got), tt.wantList) {
+				t.Errorf("list = %v, want %v", names(got), tt.wantList)
+			}
+			count, err := repo.CountByTenant(ctx, tenant, tt.exclude)
+			if err != nil {
+				t.Fatalf("CountByTenant: %v", err)
+			}
+			if count != tt.wantCount {
+				t.Errorf("count = %d, want %d", count, tt.wantCount)
+			}
+		})
+	}
+}
