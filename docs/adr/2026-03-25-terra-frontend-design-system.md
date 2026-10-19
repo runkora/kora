@@ -397,6 +397,6 @@ The key discipline this ADR enforces is the **token boundary**: no component sho
 
 ## Amendment 1 (2026-10-11): Versioning and delivery
 
-Hades gains semantic versioning and delivery to consumers outside the kora frontend, so that the white-labelling theme contract can be defined against the kora release Hades ships in. The decisions are in [design-system-semantic-versioning](2026-10-11-design-system-semantic-versioning.md) (version source of truth, pinning and exposure, and the theme surface manifest) and [hades-delivery-to-external-consumers](2026-10-11-hades-delivery-to-external-consumers.md) (what a release ships and how). Nothing in this ADR's decisions changes; the workspace-link consumption in the Implementation section remains how the frontend consumes the package.
+Hades is versioned with kora and delivered to consumers outside the kora frontend, so that the white-labelling theme contract can be defined against the kora release Hades ships in. The decisions are in [design-system-semantic-versioning](2026-10-11-design-system-semantic-versioning.md) (version source of truth, pinning and exposure, and the theme surface manifest) and [hades-delivery-to-external-consumers](2026-10-11-hades-delivery-to-external-consumers.md) (what a release ships and how). Nothing in this ADR's decisions changes; the workspace-link consumption in the Implementation section remains how the frontend consumes the package.
 
 **Last Updated:** 2026-10-11 (Amendment 1: versioning and delivery)

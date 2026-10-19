@@ -149,7 +149,7 @@ The manifest is the hinge. Once the surface a theme can set is a checked-in JSON
 
 One version is chosen because kora releases frequently and Hades is not consumed independently of it: the only consumers of a Hades version are kora instances, theme authors targeting an instance, and package consumers who follow kora releases. Two numbers served an independence that nobody has asked for, and cost a hand-written bump, a release process and a conceptual model in every Hades pull request.
 
-No enforcement of the version is the choice because the only readers of a Hades version are kora instances, theme authors targeting one and package consumers following kora releases, and the validator already checks a theme against the instance's own manifest, so a theme a release no longer fits fails at validation with the fault named. A guard that decides what each release must be called costs a classifier, its rules and a release gate, for a failure the validator reports anyway.
+No enforcement of the version is the choice because the validator already checks a theme against the instance's own manifest, so a theme a release no longer fits fails at validation with the fault named. A guard that decides what each release must be called costs a classifier, its rules and a release gate, for a failure the validator reports anyway.
 
 ---
 

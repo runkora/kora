@@ -2,7 +2,7 @@
 
 **Status:** Approved  
 **Created:** 2026-10-06  
-**Last Updated:** 2026-10-12  
+**Last Updated:** 2026-10-19  
 **Owner:** Qj Stout-Spykers  
 **Stakeholders:** Frontend Engineering, Platform Engineering, Identity/Backend Engineering
 
@@ -43,7 +43,7 @@ The product identity is fixed in code. The colour palette, corner radii, fonts, 
 2. The theme is deployment configuration. It is in place from the instance's first deployment and reaches every environment the instance is deployed to the same way the rest of its configuration does.
 3. For every value a theme sets and the instance recognises, the instance renders that value unchanged. There is no translation step between a theme and a deployment.
 4. Branding a new client requires no code change in this repository.
-5. A client on an older kora release keeps a working theme contract. The contract has its own version, carried by the design system and not by kora, so a kora release never invalidates a theme on its own.
+5. A client on an older kora release keeps a working theme contract. The contract is versioned with kora, and a theme stays valid across every release of its major.
 
 **User-visible** means any text or asset the dashboard renders, including run transcripts and tool output it displays. Text sent only to the model, such as the agent system prompt and tool descriptions, is also in scope, because the model echoes it into transcripts the dashboard renders. Machine-readable fields such as error codes, identifiers and API field names are not user-visible.
 
@@ -194,7 +194,7 @@ The last column is not a contract change, because kora defaults are outside the 
 ### Key Components
 
 - **Theme** - the deployment-supplied configuration: colour tokens for both modes, product name, radius scale, and the brand assets (logos, favicon, fonts). Partial allowed. Records the kora release it was written against.
-- **Theme contract** - the schema, recorded version, validation rules and packaging modes a theme must conform to, versioned with kora and published per release so a theme can be validated before it is applied.
+- **Theme contract** - the schema, recorded version, validation rules a theme must conform to, versioned with kora and published per release so a theme can be validated before it is applied.
 - **Theme loading and validation** - the instance reads the theme at startup, validates it, and fails the deploy on an invalid theme.
 - **Theme rendering** - the running instance renders the effective theme on every page it serves, including unauthenticated ones, with no flash of default styling.
 - **Identity slots** - agnostic Hades components that render the product name, the logo and the favicon from the effective theme. The slots are the identity surfaces the product renders today and no more; a surface that needs a mark alone adds that slot when it exists. They replace the single combined logo drawing, static favicon file and hardcoded title kora uses today; the kora logo becomes an asset of the kora default theme at app level.
@@ -208,7 +208,7 @@ The last column is not a contract change, because kora defaults are outside the 
 
 - The full theme surface above, in dark and light mode, with identity assets addressed per mode.
 - A theme supplied as part of instance deployment configuration, partial allowed, validated at load, failing the deploy when invalid.
-- The theme contract, published per design system version in a form that lets a theme be validated before it is applied.
+- The theme contract, published per kora release in a form that lets a theme be validated before it is applied.
 - Agnostic Hades identity slots replacing the identity surfaces kora renders today: the sidebar brand header and the login card, which share one combined logo drawing; the static favicon file; and the page title. The kora logo moves out of Hades into the kora default theme at app level. The asset contract is derived from these surfaces, not defined in a vacuum.
 - Replacement of every hardcoded product-name occurrence in the frontend, in model-facing text, and in agent runtime messages shown in the product with the configured name.
 
@@ -265,7 +265,7 @@ The last column is not a contract change, because kora defaults are outside the 
 - The theme contract is versioned with kora. A theme recording a kora version in major N is accepted by every kora release in major N, including releases earlier than the one the theme records. Any other major is a validation failure. No promise is made across a major. A kora change that does not change Hades does not affect the contract, and kora default values are outside it.
 - Within a major, an instance ignores and logs a token it does not recognise. It cannot tell a token from a later release of its major from a mistake, so it never fails the deploy on one. A recognised token with a malformed value fails the deploy. A missing value never does.
 - The validation rules are published per kora release. A theme that passes the rules of release V passes on any instance in the same major at or below V; a later release may recognise a token those rules ignored.
-- The rules that decide what a design system change requires of a kora release are in the [Hades Design System PRD](design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it). They are decided on the Hades theme surface manifest and scoped to the values a theme sets, so a change to a kora default alone never requires a major.
+- How Hades is versioned with kora is in the [Hades Design System PRD](design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it). A change to a kora default alone never requires a major, because defaults are outside the contract.
 
 ---
 
@@ -273,8 +273,8 @@ The last column is not a contract change, because kora defaults are outside the 
 
 ### Internal Dependencies
 
-- **Hades design system versioning** - a hard dependency. No theme contract exists until Hades carries a version to define it against, so the versioning story in the [Hades Design System PRD](design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it) is a precondition for this PRD's ADR contract subsection, not only for implementation. Each kora release pins one Hades version, which is the version an instance validates against.
-- **Hades token structure** - the token structure already anticipates brand substitution. Four Hades changes are needed by this PRD and are made for the first Hades major: the corner radius steps, derived from a single unit today, become literal tokens; agnostic identity slot components are added; font slot tokens are added for the font families to resolve through; and the kora logo and mark move out of Hades into the kora default theme. Each Hades release then carries the theme surface manifest the validation rules are generated from.
+- **Hades design system versioning** - a hard dependency. No theme contract exists until Hades carries a version to define it against, so the versioning story in the [Hades Design System PRD](design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it) is a precondition for this PRD's ADR contract subsection, not only for implementation. Each kora release carries one Hades, and the release version is the version an instance validates against.
+- **Hades token structure** - the token structure already anticipates brand substitution. Four Hades changes are needed by this PRD and are made before the first release that carries the contract: the corner radius steps, derived from a single unit today, become literal tokens; agnostic identity slot components are added; font slot tokens are added for the font families to resolve through; and the kora logo and mark move out of Hades into the kora default theme. Each Hades release then carries the theme surface manifest the validation rules are generated from.
 - **Identity surfaces in kora today** - the asset contract is derived from these, and they are replaced by the Hades identity slots: one combined logo drawing in Hades (mark and wordmark as a single SVG) used by the sidebar brand header and the login card, which becomes an asset of the kora default theme at app level; the static favicon file under the app directory; and the page title in the root layout.
 - **Instance configuration** - the theme enters through whatever carries instance configuration today; the ADR decides the vehicle.
 - **Deploy pipeline** - an invalid theme must fail the deploy, which depends on where validation runs and how the pipeline surfaces it.
@@ -346,10 +346,10 @@ None.
 
 ### Key Milestones
 
-- [ ] PRD Approved
-- [ ] Hades Design System PRD versioning story approved
-- [ ] Design system semantic versioning ADR created. A precondition for the contract subsection below.
-- [ ] White-labelling theme ADR created, with the contract subsection agreed first so that anything producing a theme can be specified against it
+- [x] PRD Approved
+- [x] Hades Design System PRD versioning story approved
+- [x] Design system semantic versioning ADR created. A precondition for the contract subsection below.
+- [x] White-labelling theme ADR created, with the contract subsection agreed first so that anything producing a theme can be specified against it
 - [ ] Implementation complete and verified on the local instance and the `dev` deployment
 
 ---
@@ -366,7 +366,7 @@ None.
 This glossary is canonical for white-labelling terms. Documents that specify a producer of themes use these terms with these meanings.
 
 - **Theme:** the whole configuration artefact a deployment consumes and the instance loads: colour tokens, product name, radius scale, fonts, logos and favicon. Changes only on redeploy. May be partial. Records the kora release it was written against, its only mandatory field.
-- **Theme contract:** the schema, recorded version, validation rules and packaging modes a theme must conform to. Versioned with kora and published per release, generated from the Hades theme surface manifest, so a theme can be validated before it is applied.
+- **Theme contract:** the schema, recorded version, validation rules a theme must conform to. Versioned with kora and published per release, generated from the Hades theme surface manifest, so a theme can be validated before it is applied.
 - **Brand assets:** the binary files inside a theme: logos, favicon and fonts. The subset that must never be forced into a git repository.
 - **Brand:** used only in prose for the client's own identity. Never a layer, a file or a field.
 - **Design system version:** the kora release version, defined in the [Hades Design System PRD](design-system.md#glossary). It is what a theme targets.

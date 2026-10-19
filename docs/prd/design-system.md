@@ -2,7 +2,7 @@
 
 **Status:** Implemented
 **Created:** 2025-07-11
-**Last Updated:** 2026-10-08
+**Last Updated:** 2026-10-19
 **Owner:** Frontend
 **Stakeholders:** Product, Engineering
 
@@ -141,14 +141,14 @@ The kora frontend is a bare Next.js scaffold. The only styling in `globals.css` 
 - [ ] The design system package is versioned by the kora release it ships in. There is no separate contract version. The version is the release tag, stamped into the package when the release is built, and the manifest carries none. Nothing is promised below `1.0.0`.
 - [ ] The surface is settled before any release carries the contract, with the radius steps as literal tokens, the font slot tokens and the identity slots in place.
 - [ ] Each Hades release carries a machine-readable manifest of its theme surface: token and slot names, modes, value formats, and the product-name bounds. The validation rules the white-labelling PRD publishes per version are generated from it.
-- [ ] Hades can be obtained outside the kora frontend as a buildable package, per major, so that consumers kora assumes will exist can render the product's own components. Which majors continue to receive releases is not decided until it matters.
+- [ ] Hades can be obtained outside the kora frontend as a buildable package, per release, so that consumers kora assumes will exist can render the product's own components. Which majors continue to receive releases is not decided until it matters.
 
 **Scope:**
 
 - Versioning of the design system under the kora release version, and each kora release carrying one design system.
 - The theme surface manifest, carried by every release.
-- Four Hades changes made for the first major: radius steps as literal tokens rather than derived from one unit; agnostic identity slot components; font slot tokens the font families resolve through; the kora logo and mark moved out of Hades into the kora default theme at app level.
-- Delivery of Hades per major to external consumers.
+- Four Hades changes made before the first release that carries the contract: radius steps as literal tokens rather than derived from one unit; agnostic identity slot components; font slot tokens the font families resolve through; the kora logo and mark moved out of Hades into the kora default theme at app level.
+- Delivery of Hades per release to external consumers.
 
 **Consumers:**
 

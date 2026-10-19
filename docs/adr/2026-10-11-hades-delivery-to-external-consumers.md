@@ -71,7 +71,7 @@ Decide what a Hades release delivers, in what form, through what channel, and ho
 
 ### Option 2: Consume by git reference to a subdirectory of this repository
 
-**Description:** The consumer depends on `github:clear-route/orbit#v1.2.0` and points at the package subdirectory.
+**Description:** The consumer depends on `github:runkora/kora#v1.2.0` and points at the package subdirectory.
 
 **Pros:**
 - No registry, no publish step.
@@ -163,7 +163,7 @@ Option 1 is the only option that gives consumers semver resolution, and it is th
 ### Positive
 
 - A consumer installs Hades by version and upgrades by range, like any dependency.
-- Each release is proven to build outside kora before it is published, and cannot be published under a version that understates a Hades break.
+- Each release is proven to build outside kora before it is published.
 - The deliverable is exactly the contract surface plus the components, which is what the white-labelling PRDs need and nothing a client should not see.
 - No second repository.
 
@@ -185,9 +185,9 @@ Option 1 is the only option that gives consumers semver resolution, and it is th
 ## Implementation
 
 - Rename `@orbit/hades` to `@runkora/hades` everywhere: the package name, the frontend's dependency, every import under `frontend/src`, the ESLint rules under `frontend/eslint`, `next.config.ts`, the Vitest configs, the Makefile's `--filter` arguments, the Dockerfile, and the docs. The ESLint rule names, Storybook titles and make target names keep the word Hades and do not change.
-- `frontend/src/packages/hades/package.json`: remove `private`; add `files`, `publishConfig` (`registry` only), the `repository` field with `directory`, and the three new `exports` entries. `version` stays `0.0.0` in the tree.
+- `frontend/src/packages/hades/package.json`: remove `private`; add `files`, `publishConfig` (`registry` only), the `repository` field with `directory`, and the two new `exports` entries. `version` stays `0.0.0` in the tree.
 - `frontend/src/packages/hades/README.md`: consumer requirements, how a theme's `koraVersion` is checked, and the two `.npmrc` lines a consumer needs.
-- `.github/workflows/release.yml`: the six jobs above, with the permissions and pinning stated under Workflow requirements.
+- `.github/workflows/release.yml`: the jobs above, with the permissions and pinning stated under Workflow requirements.
 - `.github/workflows/hades-release.yml`: removed.
 - `.github/scripts/hades-smoke-build.sh`: the Vite scaffold, install and build, taking the tarball path as its argument.
 - `Makefile`: no `hades-release` target.
@@ -207,7 +207,7 @@ With the first final kora release after this ADR lands.
 
 ### Success Metrics
 
-- A final kora release `vX.Y.Z` results in `@runkora/hades@X.Y.Z` at `npm.pkg.github.com` and the four assets on kora's GitHub Release, with no manual step; a release candidate attaches the assets and publishes no package.
+- A final kora release `vX.Y.Z` results in `@runkora/hades@X.Y.Z` at `npm.pkg.github.com` and the three assets on kora's GitHub Release, with no manual step; a release candidate attaches the assets and publishes no package.
 - The smoke build passes on every release, and fails the release if the package cannot build outside kora.
 - A consumer in another repository installs `@runkora/hades` at a released version with only an `.npmrc` entry and a read token.
 - The kora frontend builds and its tests pass after the rename, with no change to how it consumes the package.
