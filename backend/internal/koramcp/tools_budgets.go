@@ -19,7 +19,7 @@ func registerBudgetTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 		"Get the tenant's rollup spending cap (the ceiling across all grants and roles). "+
 			"Defaults to the caller's tenant.",
 		func(ctx context.Context, a tenantBudgetIDArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), policy+"/tenant-budget", tenantQuery(a.TenantID)))
+			return jsonResult(jc.Get(ctx, caller(ctx), policy+"/tenant-budget", tenantQuery(a.TenantID)))
 		})
 
 	addTool(srv, "budgets.tenant.set",
@@ -33,20 +33,20 @@ func registerBudgetTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.ResetCadence != "" {
 				body["reset_cadence"] = a.ResetCadence
 			}
-			return jsonResult(jc.Put(ctx, callerToken(ctx), policy+"/tenant-budget", body))
+			return jsonResult(jc.Put(ctx, caller(ctx), policy+"/tenant-budget", body))
 		})
 
 	addTool(srv, "budgets.tenant.delete",
 		"Remove the tenant's rollup spending cap. Defaults to the caller's tenant.",
 		func(ctx context.Context, a tenantBudgetIDArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Delete(ctx, callerToken(ctx), withQuery(policy+"/tenant-budget", tenantQuery(a.TenantID))))
+			return jsonResult(jc.Delete(ctx, caller(ctx), withQuery(policy+"/tenant-budget", tenantQuery(a.TenantID))))
 		})
 
 	addTool(srv, "budgets.principals.status",
 		"Read per-principal budget status across the tenant — each principal's spend against its budget. "+
 			"Use this to find who is near or over budget.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), b.Inference+"/v1/budgets/principals", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), b.Inference+"/v1/budgets/principals", nil))
 		})
 }
 

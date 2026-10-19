@@ -17,6 +17,8 @@ import (
 	"strings"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 // NewServer creates an MCP server. Register tools onto it with the SDK's typed
@@ -29,7 +31,10 @@ func NewServer(name, version string) *sdk.Server {
 
 type ctxKey int
 
-const callerTokenKey ctxKey = iota
+const (
+	callerTokenKey ctxKey = iota
+	callerDelegationKey
+)
 
 // WithCallerToken stores the caller's bearer token in the context.
 func WithCallerToken(ctx context.Context, token string) context.Context {
@@ -45,16 +50,33 @@ func CallerToken(ctx context.Context) string {
 	return t
 }
 
-// callerTokenMiddleware lifts the inbound Authorization bearer into the request
-// context so it propagates (via the SDK's request context) to tool handlers.
-// It does NOT verify the token — authorisation is the gateway's and the
-// downstream service's job.
+// WithCallerDelegation stores the caller's raw delegation token in the context.
+func WithCallerDelegation(ctx context.Context, token string) context.Context {
+	return context.WithValue(ctx, callerDelegationKey, token)
+}
+
+// CallerDelegation returns the caller's raw delegation token, or "" for an
+// autonomous caller. Tool handlers pass it downstream with the bearer so the
+// downstream service evaluates the delegated run. The kit verifies nothing.
+func CallerDelegation(ctx context.Context) string {
+	t, _ := ctx.Value(callerDelegationKey).(string)
+	return t
+}
+
+// callerTokenMiddleware lifts the inbound Authorization bearer and delegation
+// token into the request context so they propagate (via the SDK's request
+// context) to tool handlers. It does NOT verify either token — authorisation is
+// the gateway's and the downstream service's job.
 func callerTokenMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
 		if raw := strings.TrimSpace(r.Header.Get("Authorization")); raw != "" {
-			r = r.WithContext(WithCallerToken(r.Context(), strings.TrimPrefix(raw, "Bearer ")))
+			ctx = WithCallerToken(ctx, strings.TrimPrefix(raw, "Bearer "))
 		}
-		next.ServeHTTP(w, r)
+		if raw := strings.TrimSpace(r.Header.Get(mw.DelegationTokenHeader)); raw != "" {
+			ctx = WithCallerDelegation(ctx, raw)
+		}
+		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
 

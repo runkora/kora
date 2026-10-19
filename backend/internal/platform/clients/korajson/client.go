@@ -1,6 +1,6 @@
 // Package korajson is a generic authenticated JSON client over httpclient.Base.
 //
-// It GET/POST/PATCH/DELETEs a kora API endpoint with the caller's bearer token
+// It GET/POST/PATCH/DELETEs a kora API endpoint as the caller (bearer and any delegation token)
 // and returns the raw JSON body. It is the forwarding primitive for services that proxy
 // authenticated JSON without re-modeling every backend field — notably the
 // kora MCP, whose tools return backend JSON to an agent verbatim. It uses
@@ -21,6 +21,7 @@ import (
 
 	"github.com/runkora/kora/backend/internal/platform/clients/httpclient"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	mw "github.com/runkora/kora/backend/internal/platform/middleware"
 )
 
 const (
@@ -35,6 +36,13 @@ var (
 	ErrUpstream = errors.New("unexpected status from upstream")
 )
 
+// Caller is the identity a request is sent as: the caller's platform bearer and,
+// for a delegated run, its delegation token.
+type Caller struct {
+	Bearer     string
+	Delegation string
+}
+
 // Client forwards authenticated JSON requests to kora APIs.
 type Client struct {
 	*httpclient.Base
@@ -46,7 +54,7 @@ func NewClient(logger logging.Logger) *Client {
 }
 
 // Get performs an authenticated GET and returns the raw JSON body.
-func (c *Client) Get(ctx context.Context, bearer, rawURL string, query url.Values) (json.RawMessage, error) {
+func (c *Client) Get(ctx context.Context, caller Caller, rawURL string, query url.Values) (json.RawMessage, error) {
 	if len(query) > 0 {
 		rawURL += "?" + query.Encode()
 	}
@@ -54,11 +62,11 @@ func (c *Client) Get(ctx context.Context, bearer, rawURL string, query url.Value
 	if err != nil {
 		return nil, fmt.Errorf("build GET request: %w", err)
 	}
-	return c.send(ctx, "orbitjson.Get", bearer, req)
+	return c.send(ctx, "orbitjson.Get", caller, req)
 }
 
 // Post performs an authenticated POST of a JSON body and returns the raw JSON body.
-func (c *Client) Post(ctx context.Context, bearer, rawURL string, body any) (json.RawMessage, error) {
+func (c *Client) Post(ctx context.Context, caller Caller, rawURL string, body any) (json.RawMessage, error) {
 	r, err := c.EncodeJSON(body)
 	if err != nil {
 		return nil, err
@@ -68,11 +76,11 @@ func (c *Client) Post(ctx context.Context, bearer, rawURL string, body any) (jso
 		return nil, fmt.Errorf("build POST request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "orbitjson.Post", bearer, req)
+	return c.send(ctx, "orbitjson.Post", caller, req)
 }
 
 // Put performs an authenticated PUT of a JSON body and returns the raw JSON body.
-func (c *Client) Put(ctx context.Context, bearer, rawURL string, body any) (json.RawMessage, error) {
+func (c *Client) Put(ctx context.Context, caller Caller, rawURL string, body any) (json.RawMessage, error) {
 	r, err := c.EncodeJSON(body)
 	if err != nil {
 		return nil, err
@@ -82,11 +90,11 @@ func (c *Client) Put(ctx context.Context, bearer, rawURL string, body any) (json
 		return nil, fmt.Errorf("build PUT request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "orbitjson.Put", bearer, req)
+	return c.send(ctx, "orbitjson.Put", caller, req)
 }
 
 // Patch performs an authenticated PATCH of a JSON body and returns the raw JSON body.
-func (c *Client) Patch(ctx context.Context, bearer, rawURL string, body any) (json.RawMessage, error) {
+func (c *Client) Patch(ctx context.Context, caller Caller, rawURL string, body any) (json.RawMessage, error) {
 	r, err := c.EncodeJSON(body)
 	if err != nil {
 		return nil, err
@@ -96,22 +104,25 @@ func (c *Client) Patch(ctx context.Context, bearer, rawURL string, body any) (js
 		return nil, fmt.Errorf("build PATCH request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
-	return c.send(ctx, "orbitjson.Patch", bearer, req)
+	return c.send(ctx, "orbitjson.Patch", caller, req)
 }
 
 // Delete performs an authenticated DELETE and returns the raw JSON body (or a
 // synthetic {"status":"ok"} for a 204 No Content).
-func (c *Client) Delete(ctx context.Context, bearer, rawURL string) (json.RawMessage, error) {
+func (c *Client) Delete(ctx context.Context, caller Caller, rawURL string) (json.RawMessage, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, rawURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build DELETE request: %w", err)
 	}
-	return c.send(ctx, "orbitjson.Delete", bearer, req)
+	return c.send(ctx, "orbitjson.Delete", caller, req)
 }
 
-func (c *Client) send(ctx context.Context, spanName, bearer string, req *http.Request) (json.RawMessage, error) {
-	if bearer != "" {
-		req.Header.Set("Authorization", "Bearer "+bearer)
+func (c *Client) send(ctx context.Context, spanName string, caller Caller, req *http.Request) (json.RawMessage, error) {
+	if caller.Bearer != "" {
+		req.Header.Set("Authorization", "Bearer "+caller.Bearer)
+	}
+	if caller.Delegation != "" {
+		req.Header.Set(mw.DelegationTokenHeader, caller.Delegation)
 	}
 	// This is a JSON client: always ask for JSON. Lets content-negotiated routes
 	// (e.g. the agents run-events endpoint, which is SSE by default) serve us JSON.

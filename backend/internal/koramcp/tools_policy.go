@@ -21,7 +21,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 		"List the calling principal's full effective scope set (grants + roles). These are also the scopes "+
 			"you are allowed to assign in policy.grants.create / policy.roles.upsert — you cannot grant what you do not hold.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/effective-scopes", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/effective-scopes", nil))
 		})
 
 	// ── grants ──────────────────────────────────────────────────────────────────
@@ -36,7 +36,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.PrincipalID != "" {
 				q.Set("principal_id", a.PrincipalID)
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/grants", q))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/grants", q))
 		})
 
 	addTool(srv, "policy.grants.get",
@@ -45,7 +45,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.GrantID == "" {
 				return toolError(errors.New("grant_id is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/grants/"+url.PathEscape(a.GrantID), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/grants/"+url.PathEscape(a.GrantID), nil))
 		})
 
 	addEnumTool(srv, "policy.grants.create",
@@ -56,7 +56,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.PrincipalType == "" || a.PrincipalID == "" || len(a.Scopes) == 0 {
 				return toolError(errors.New("principal_type, principal_id, and scopes are required")), nil
 			}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), base+"/grants", a))
+			return jsonResult(jc.Post(ctx, caller(ctx), base+"/grants", a))
 		})
 
 	addTool(srv, "policy.grants.set_budget",
@@ -67,7 +67,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 				return toolError(errors.New("grant_id is required")), nil
 			}
 			body := map[string]any{"budget": a.Budget}
-			return jsonResult(jc.Patch(ctx, callerToken(ctx), base+"/grants/"+url.PathEscape(a.GrantID), body))
+			return jsonResult(jc.Patch(ctx, caller(ctx), base+"/grants/"+url.PathEscape(a.GrantID), body))
 		})
 
 	addTool(srv, "policy.grants.delete",
@@ -76,7 +76,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.GrantID == "" {
 				return toolError(errors.New("grant_id is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/grants/"+url.PathEscape(a.GrantID)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), base+"/grants/"+url.PathEscape(a.GrantID)))
 		})
 
 	// ── roles ───────────────────────────────────────────────────────────────────
@@ -84,7 +84,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 	addTool(srv, "policy.roles.list",
 		"List the roles defined in the caller's tenant (a role bundles a set of scopes).",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/roles", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/roles", nil))
 		})
 
 	addTool(srv, "policy.roles.get",
@@ -93,7 +93,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.Role == "" {
 				return toolError(errors.New("role is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/roles/"+url.PathEscape(a.Role), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/roles/"+url.PathEscape(a.Role), nil))
 		})
 
 	addTool(srv, "policy.roles.upsert",
@@ -103,7 +103,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.Role == "" || len(a.Scopes) == 0 {
 				return toolError(errors.New("role and scopes are required")), nil
 			}
-			return jsonResult(jc.Put(ctx, callerToken(ctx), base+"/roles", a))
+			return jsonResult(jc.Put(ctx, caller(ctx), base+"/roles", a))
 		})
 
 	addTool(srv, "policy.roles.delete",
@@ -112,7 +112,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.Role == "" {
 				return toolError(errors.New("role is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, callerToken(ctx), base+"/roles/"+url.PathEscape(a.Role)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), base+"/roles/"+url.PathEscape(a.Role)))
 		})
 
 	// ── vocabulary + routes (read the authorization model itself) ────────────────
@@ -121,7 +121,7 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 		"List the scope vocabulary — every scope the platform knows about, its resource type, action, and "+
 			"description. This is the catalog of what can be granted.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/vocabulary", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/vocabulary", nil))
 		})
 
 	addTool(srv, "policy.vocabulary.get",
@@ -131,14 +131,14 @@ func registerPolicyTools(srv *sdk.Server, b Backends, jc *korajson.Client) {
 			if a.Scope == "" {
 				return toolError(errors.New("scope is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/vocabulary/"+url.PathEscape(a.Scope), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/vocabulary/"+url.PathEscape(a.Scope), nil))
 		})
 
 	addTool(srv, "policy.routes.list",
 		"List every registered route→scope mapping — which API route requires which scope. Use this to "+
 			"understand what a scope actually authorizes across the platform.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/routes", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/routes", nil))
 		})
 }
 

@@ -20,7 +20,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 	addTool(srv, "models.list",
 		"List the inference models available through "+product+" at runtime, with provider and capability metadata.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), base+"/models", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), base+"/models", nil))
 		})
 
 	// ── virtual models (tenant-facing model aliases with routing) ────────────────
@@ -28,7 +28,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 	addTool(srv, "models.virtual.list",
 		"List the virtual models (tenant-facing model aliases with routing + pricing) in the catalog.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), catalog+"/virtual-models", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), catalog+"/virtual-models", nil))
 		})
 
 	addTool(srv, "models.virtual.get",
@@ -37,7 +37,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Get(ctx, callerToken(ctx), catalog+"/virtual-models/"+url.PathEscape(a.ID), nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), catalog+"/virtual-models/"+url.PathEscape(a.ID), nil))
 		})
 
 	addTool(srv, "models.virtual.create",
@@ -47,7 +47,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 			if a.Name == "" {
 				return toolError(errors.New("name is required")), nil
 			}
-			return jsonResult(jc.Post(ctx, callerToken(ctx), catalog+"/virtual-models", a))
+			return jsonResult(jc.Post(ctx, caller(ctx), catalog+"/virtual-models", a))
 		})
 
 	addTool(srv, "models.virtual.update",
@@ -60,7 +60,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 				Family: a.Family, Name: a.Name, DisplayName: a.DisplayName, Description: a.Description,
 				Strategy: a.Strategy, Enabled: a.Enabled, Routes: a.Routes,
 			}
-			return jsonResult(jc.Put(ctx, callerToken(ctx), catalog+"/virtual-models/"+url.PathEscape(a.ID), body))
+			return jsonResult(jc.Put(ctx, caller(ctx), catalog+"/virtual-models/"+url.PathEscape(a.ID), body))
 		})
 
 	addTool(srv, "models.virtual.delete",
@@ -69,7 +69,7 @@ func registerModelTools(srv *sdk.Server, b Backends, jc *korajson.Client, produc
 			if a.ID == "" {
 				return toolError(errors.New("id is required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, callerToken(ctx), catalog+"/virtual-models/"+url.PathEscape(a.ID)))
+			return jsonResult(jc.Delete(ctx, caller(ctx), catalog+"/virtual-models/"+url.PathEscape(a.ID)))
 		})
 
 	registerProviderModelTools(srv, catalog, jc)
@@ -84,20 +84,20 @@ func registerProviderModelTools(srv *sdk.Server, catalog string, jc *korajson.Cl
 			"InferenceProvider resource, status, model count and last error. "+
 			"Providers are registered by applying an InferenceProvider resource; there is no create tool.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), catalog+"/providers", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), catalog+"/providers", nil))
 		})
 
 	addTool(srv, "models.providers.list",
 		"List the provider models (the upstream models each registered provider serves, which virtual models route to), "+
 			"with capabilities and pricing.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), catalog+"/provider-models", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), catalog+"/provider-models", nil))
 		})
 
 	addTool(srv, "models.providers.refresh",
 		"Refresh the provider-model catalog from the upstream providers (re-syncs the available models).",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Post(ctx, callerToken(ctx), catalog+"/provider-models/refresh", nil))
+			return jsonResult(jc.Post(ctx, caller(ctx), catalog+"/provider-models/refresh", nil))
 		})
 
 	addTool(srv, "models.providers.set_enabled",
@@ -107,7 +107,7 @@ func registerProviderModelTools(srv *sdk.Server, catalog string, jc *korajson.Cl
 				return toolError(errors.New("provider and model_id are required")), nil
 			}
 			body := map[string]any{"enabled": a.Enabled}
-			return jsonResult(jc.Put(ctx, callerToken(ctx),
+			return jsonResult(jc.Put(ctx, caller(ctx),
 				catalog+"/provider-models/"+url.PathEscape(a.Provider)+"/"+url.PathEscape(a.ModelID), body))
 		})
 }
@@ -117,7 +117,7 @@ func registerPricingTools(srv *sdk.Server, catalog string, jc *korajson.Client) 
 	addTool(srv, "models.pricing.list",
 		"List per-provider-model pricing (default rates plus any tenant overrides).",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
-			return jsonResult(jc.Get(ctx, callerToken(ctx), catalog+"/pricing", nil))
+			return jsonResult(jc.Get(ctx, caller(ctx), catalog+"/pricing", nil))
 		})
 
 	addTool(srv, "models.pricing.set_override",
@@ -143,7 +143,7 @@ func registerPricingTools(srv *sdk.Server, catalog string, jc *korajson.Client) 
 			if len(body) == 0 {
 				return toolError(errors.New("at least one cost field is required")), nil
 			}
-			return jsonResult(jc.Put(ctx, callerToken(ctx),
+			return jsonResult(jc.Put(ctx, caller(ctx),
 				catalog+"/pricing/"+url.PathEscape(a.Provider)+"/"+url.PathEscape(a.ModelID)+"/override", body))
 		})
 
@@ -153,7 +153,7 @@ func registerPricingTools(srv *sdk.Server, catalog string, jc *korajson.Client) 
 			if a.Provider == "" || a.ModelID == "" {
 				return toolError(errors.New("provider and model_id are required")), nil
 			}
-			return jsonResult(jc.Delete(ctx, callerToken(ctx),
+			return jsonResult(jc.Delete(ctx, caller(ctx),
 				catalog+"/pricing/"+url.PathEscape(a.Provider)+"/"+url.PathEscape(a.ModelID)+"/override"))
 		})
 }

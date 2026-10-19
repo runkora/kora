@@ -9,7 +9,8 @@ import (
 	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
-const delegationTokenHeader = "X-Orbit-Delegation-Token"
+// DelegationTokenHeader carries a run's delegation token alongside the platform token.
+const DelegationTokenHeader = "X-Orbit-Delegation-Token"
 
 // JTIBlocklist reports whether a token's JTI has been revoked. Implemented by
 // internal/platform/storage.JTIBlocklist (the Redis set the identity service
@@ -49,7 +50,7 @@ func DelegationMiddleware(logger logging.Logger, verifier *token.Verifier) Middl
 func DelegationMiddlewareWithBlocklist(logger logging.Logger, verifier *token.Verifier, blocklist JTIBlocklist) Middleware {
 	return NewMiddleware(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			raw := r.Header.Get(delegationTokenHeader)
+			raw := r.Header.Get(DelegationTokenHeader)
 			if raw == "" {
 				next.ServeHTTP(w, r)
 				return
