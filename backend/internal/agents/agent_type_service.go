@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/policy"
 	"k8s.io/apimachinery/pkg/util/validation"
 )
 
@@ -38,6 +39,15 @@ func validateAgentSlug(slug string) error {
 		return fmt.Errorf("%w %q: the identity mode names %q are reserved", ErrInvalidSlug, slug, reservedAgentSlugs)
 	}
 	return nil
+}
+
+// creatorSubject is the person behind the create (D37). Under delegation it is
+// the delegator, so owner access goes to the person and never to the acting agent.
+func creatorSubject(ctx context.Context) string {
+	if d := policy.DelegationFromContext(ctx); d != nil && d.Sub != "" {
+		return d.Sub
+	}
+	return callerSubject(ctx)
 }
 
 // reservedAgentSlugs are the identity mode names. Mode-qualified scopes such as
@@ -382,7 +392,7 @@ func (s *AgentTypeService) CreateAgentType(ctx context.Context, req CreateAgentT
 		ModelID:                 req.ModelID,
 		Budget:                  req.Budget,
 		State:                   AgentTypeStateProvisioning,
-		CreatedBy:               callerSubject(ctx),
+		CreatedBy:               creatorSubject(ctx),
 	}
 	if err := s.checkCeiling(ctx, at, s.scopeResolver()); err != nil {
 		return nil, err

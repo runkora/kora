@@ -255,3 +255,36 @@ func TestOwnerAllowed_PeopleOnly(t *testing.T) {
 		}
 	}
 }
+
+// D37: an agent type created under delegation records the person behind the
+// delegation as created_by. Without delegation it records the caller.
+func TestCreateAgentType_CreatorIsThePerson(t *testing.T) {
+	tests := []struct {
+		name       string
+		delegation *policy.DelegationClaims
+		want       string
+	}{
+		{"direct caller", nil, "agent-subject"},
+		{"under delegation", &policy.DelegationClaims{Sub: "alice", ActSub: "agent-subject"}, "alice"},
+		{"delegation without a subject", &policy.DelegationClaims{ActSub: "agent-subject"}, "agent-subject"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc, repo := newModeTestService(t, "agents:types:delegated:write")
+			ctx := token.WithClaims(context.Background(), &token.PlatformClaims{
+				RegisteredClaims: jwt.RegisteredClaims{Subject: "agent-subject"},
+				Kora:             token.KoraClaims{TenantID: "t-1", PrincipalType: token.PrincipalTypeHuman},
+			})
+			if tt.delegation != nil {
+				ctx = policy.WithDelegation(ctx, tt.delegation)
+			}
+			at, err := svc.CreateAgentType(ctx, CreateAgentTypeRequest{Name: "Bot", Slug: "bot", IdentityMode: IdentityModeDelegated})
+			if err != nil {
+				t.Fatalf("CreateAgentType: %v", err)
+			}
+			if got := repo.agentTypes[at.ID].CreatedBy; got != tt.want {
+				t.Errorf("created_by = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

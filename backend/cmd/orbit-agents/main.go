@@ -472,7 +472,7 @@ func agentScopes(slugs []string) []routescopes.ScopeDeclaration {
 		// Not a prefix cover of the per-agent run scopes. Authz.checkRun accepts it
 		// by name for delegated agents only. The slugs delegated and autonomous are
 		// reserved so no agent's scope can take this path.
-		{Scope: "agents:runs:delegated:write", ResourceType: "agents", PathSegments: []string{"runs", "delegated"}, Action: "write", Description: "Start, message, and terminate runs of any delegated agent (each run acts with the starter's own access; autonomous agents are not included)"},
+		{Scope: "agents:runs:delegated:write", ResourceType: "agents", PathSegments: []string{"runs", "delegated"}, Action: "write", Description: "Start runs of any delegated agent and message, interrupt and terminate the runs you started (each run acts with the starter's own access; autonomous agents are not included)"},
 		{Scope: "agents:usage:read", ResourceType: "agents", PathSegments: []string{"usage"}, Action: "read", Description: "View every agent's usage, spend and budgets (prefix-covers the per-agent usage scopes)"},
 		{Scope: "agents:delegated:read", ResourceType: "agents", PathSegments: []string{"delegated"}, Action: "read", Description: "View the runs of delegated agents that other people started, with their messages, events and outputs"},
 		{Scope: "agents:environments:read", ResourceType: "agents", PathSegments: []string{"environments"}, Action: "read", Description: "View and list sandbox environments and the registered sandbox images"},
