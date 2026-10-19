@@ -618,8 +618,8 @@ func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType)
 		}
 		run := runErr == nil
 		editThis := edit && s.withinCeiling(ctx, ats[i])
-		// An agent acting for a person may not delete an autonomous agent (D36).
-		deleteThis := edit && (ats[i].IsDelegated() || policy.DelegationFromContext(ctx) == nil)
+		// Delete runs the same refusal of delegated callers on autonomous agents (D36).
+		deleteThis := edit && refuseDelegatedAutonomousWrite(ctx, ats[i]) == nil
 		ats[i].CanEdit, ats[i].CanRun, ats[i].CanDelete = &editThis, &run, &deleteThis
 	}
 }
