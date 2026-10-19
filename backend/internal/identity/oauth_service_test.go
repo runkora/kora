@@ -5,9 +5,16 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/runkora/kora/backend/internal/platform/logging"
+	"github.com/runkora/kora/backend/internal/platform/token"
 )
 
 func TestPKCES256_RFC7636Vector(t *testing.T) {
@@ -351,5 +358,40 @@ func TestIsValidDCRRedirectURI(t *testing.T) {
 		if isValidDCRRedirectURI(u) {
 			t.Errorf("expected DCR redirect rejected: %s", u)
 		}
+	}
+}
+
+// Only a human session may create an authorization code. Any other caller would
+// be minted a HUMAN token for its own subject.
+func TestHandleCreateOAuthCode_HumanOnly(t *testing.T) {
+	svc := newOAuthTestService(t)
+	c := NewController(svc, nil, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	clientID := registerTestClient(t, svc)
+	p := mkParams(clientID)
+	body := fmt.Sprintf(`{"client_id":%q,"redirect_uri":%q,"code_challenge":%q,"code_challenge_method":"S256"}`, p.ClientID, p.RedirectURI, p.CodeChallenge)
+
+	cases := []struct {
+		principal  token.PrincipalType
+		wantStatus int
+	}{
+		{token.PrincipalTypeHuman, http.StatusOK},
+		{token.PrincipalTypeAgent, http.StatusForbidden},
+		{token.PrincipalTypeService, http.StatusForbidden},
+		{token.PrincipalTypePAT, http.StatusForbidden},
+	}
+	for _, tc := range cases {
+		t.Run(string(tc.principal), func(t *testing.T) {
+			claims := &token.PlatformClaims{}
+			claims.Subject = "sub-1"
+			claims.Kora.TenantID = "acme"
+			claims.Kora.PrincipalType = tc.principal
+			req := httptest.NewRequest(http.MethodPost, "/oauth/code", strings.NewReader(body))
+			req = req.WithContext(token.WithClaims(req.Context(), claims))
+			w := httptest.NewRecorder()
+			c.handleCreateOAuthCode(w, req)
+			if w.Code != tc.wantStatus {
+				t.Errorf("status = %d, want %d (body: %s)", w.Code, tc.wantStatus, w.Body)
+			}
+		})
 	}
 }
