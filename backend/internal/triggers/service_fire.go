@@ -402,7 +402,7 @@ func (s *Service) redeliverManual(ctx context.Context, tenantID string, original
 	if t.DisabledByPerson() {
 		return nil, fmt.Errorf("%w: the trigger this delivery fired is disabled", ErrNotRedeliverable)
 	}
-	if err := requireRunAuthority(ctx, s.agents, t.AgentTypeID); err != nil {
+	if _, err := requireRunAuthority(ctx, s.agents, t.AgentTypeID); err != nil {
 		return nil, err
 	}
 

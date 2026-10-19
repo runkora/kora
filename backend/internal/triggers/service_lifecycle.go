@@ -37,15 +37,14 @@ type agentTypeReader interface {
 // grants it runs under, editing it, and deleting it.
 //
 // Its collaborators are the ones creation actually needs. A trigger is
-// provisioned with a principal and a grant (policy), resolves the agent it binds
-// by asking orbit-agents as that principal (minter, agents), and enabling or
-// disabling it moves work in the queue (admission).
+// provisioned with a principal and a grant (policy), reads the agent it binds
+// from orbit-agents as the caller (agents), and enabling or disabling it moves
+// work in the queue (admission).
 type TriggerService struct {
 	repo      triggerStore
 	registry  *Registry
 	policy    *policyclient.Client
 	agents    *agentsclient.Client
-	minter    TokenMinter
 	admission *Admission
 	logger    logging.Logger
 }
@@ -56,11 +55,10 @@ func NewTriggerService(
 	registry *Registry,
 	policy *policyclient.Client,
 	agents *agentsclient.Client,
-	minter TokenMinter,
 	admission *Admission,
 	logger logging.Logger,
 ) *TriggerService {
-	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, minter: minter, admission: admission, logger: logger}
+	return &TriggerService{repo: repo, registry: registry, policy: policy, agents: agents, admission: admission, logger: logger}
 }
 
 // ─── Triggers ─────────────────────────────────────────────────────────────────
@@ -111,20 +109,23 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 	return nil
 }
 
-// requireRunAuthority asks orbit-agents whether the caller may start runs of the agent type.
+// requireRunAuthority reads the agent type as the caller and requires orbit-agents to report can_run.
 // orbit-agents answers with its run-start check, so the creator, a per-agent run scope and a covering scope all count.
 // A trigger runs its agent under its own principal, so binding, steering and replaying it take that same authority.
-func requireRunAuthority(ctx context.Context, agents agentTypeReader, agentTypeID string) error {
+// The read also gives create the canonical slug, resolved server-side rather than taken from the request.
+func requireRunAuthority(ctx context.Context, agents agentTypeReader, agentTypeID string) (*agentsclient.AgentType, error) {
 	at, err := agents.GetAgentType(ctx, callerBearer(ctx), agentTypeID)
 	switch {
-	case errors.Is(err, agentsclient.ErrForbidden), errors.Is(err, agentsclient.ErrAgentTypeNotFound):
-		return fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
+	case errors.Is(err, agentsclient.ErrAgentTypeNotFound):
+		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
+	case errors.Is(err, agentsclient.ErrForbidden):
+		return nil, fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
 	case err != nil:
-		return fmt.Errorf("check run access: %w", err)
+		return nil, fmt.Errorf("check run access: %w", err)
 	case !at.CanRun:
-		return fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
+		return nil, fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
 	}
-	return nil
+	return &at, nil
 }
 
 // matchableLister lists the triggers a delivery on a source could start.
@@ -145,7 +146,7 @@ func requireRunAccessForSource(ctx context.Context, repo matchableLister, agents
 			continue
 		}
 		checked[t.AgentTypeID] = true
-		if err := requireRunAuthority(ctx, agents, t.AgentTypeID); err != nil {
+		if _, err := requireRunAuthority(ctx, agents, t.AgentTypeID); err != nil {
 			return err
 		}
 	}
@@ -182,14 +183,11 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		return nil, err
 	}
 
-	at, err := s.resolveAgentType(ctx, src.TenantID, src.PrincipalID, "trigger-source:"+src.Name, req.AgentTypeID)
+	at, err := requireRunAuthority(ctx, s.agents, req.AgentTypeID)
 	if err != nil {
 		return nil, err
 	}
 	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
-		return nil, err
-	}
-	if err = requireRunAuthority(ctx, s.agents, at.ID); err != nil {
 		return nil, err
 	}
 
@@ -245,8 +243,8 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 
 // createOwnedTrigger creates a trigger that owns its principal: scheduled and
 // manual triggers have no source to borrow one from, so they provision a
-// SERVICE principal, grant it the generic run scopes to resolve the agent type
-// with, and then grant it the scopes for that specific agent.
+// SERVICE principal with the provisioning grant, and then grant it the scopes
+// for that specific agent.
 //
 // The two kinds differ only in which config field they carry, so they share one
 // function rather than one per kind. A per-kind strategy object would be
@@ -272,22 +270,17 @@ func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string
 		}
 	}()
 
-	// The principal is provisioned before the agent type is resolved, because
-	// the lookup runs as that principal.
 	svcGrantID, err := s.policy.CreateGrant(ctx, tenantID, string(token.PrincipalTypeService), principalID, sourceRunScopes, nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("create trigger service grant: %w", err)
 	}
 	grants = append(grants, svcGrantID)
 
-	at, err := s.resolveAgentType(ctx, tenantID, principalID, principalID, req.AgentTypeID)
+	at, err := requireRunAuthority(ctx, s.agents, req.AgentTypeID)
 	if err != nil {
 		return nil, err
 	}
 	if err = refuseDelegatedBinding(at, tenantID, req.AgentTypeID); err != nil {
-		return nil, err
-	}
-	if err = requireRunAuthority(ctx, s.agents, at.ID); err != nil {
 		return nil, err
 	}
 
@@ -402,7 +395,7 @@ func (s *TriggerService) UpdateTrigger(ctx context.Context, tenantID, id string,
 	}
 	wasEnabled := t.Enabled
 	if changesRunBehaviour(t, req) {
-		if err = requireRunAuthority(ctx, s.agents, t.AgentTypeID); err != nil {
+		if _, err = requireRunAuthority(ctx, s.agents, t.AgentTypeID); err != nil {
 			return nil, err
 		}
 	}
@@ -634,45 +627,5 @@ func (s *TriggerService) afterEnabledChange(ctx context.Context, t Trigger, wasE
 	// off. Drop it visibly rather than silently.
 	if wasEnabled && s.admission != nil {
 		_, _ = s.admission.Drain(ctx, t, "the trigger was disabled while this fire was waiting")
-	}
-}
-
-// resolveAgentType looks up an agent type under a given SERVICE principal and
-// validates it belongs to the tenant. This prevents the caller from shaping an
-// arbitrary run-grant scope via a client-supplied slug.
-func (s *TriggerService) resolveAgentType(ctx context.Context, tenantID, principalID, displayName, agentTypeID string) (*agentsclient.AgentType, error) {
-	tok, err := s.minter.MintServiceToken(ctx, tenantID, principalID, displayName, sourceTokenTTL)
-	if err != nil {
-		return nil, fmt.Errorf("mint token for agent-type resolution: %w", err)
-	}
-
-	// A policy grant just created for principalID (createScheduledTrigger,
-	// createManualTrigger) isn't visible to orbit-agents until its next OPA
-	// bundle poll (policy.bundlePollIntervalSecs, config/base.yaml) —
-	// self-signed and immediately used in the same request, it 403s until
-	// that poll runs. A pre-existing principal (createWebhookTrigger's own
-	// source, granted at source-creation time) has always had a propagated
-	// grant by the time it's used here, so this loop resolves on the first
-	// attempt for that path. ErrForbidden means "not visible yet" and is
-	// retried; ErrAgentTypeNotFound means "genuinely absent" and fails fast.
-	var at agentsclient.AgentType
-	err = retryWhileGrantPropagates(ctx,
-		func(err error) bool { return errors.Is(err, agentsclient.ErrForbidden) },
-		nil,
-		func() error {
-			var getErr error
-			at, getErr = s.agents.GetAgentType(ctx, tok, agentTypeID)
-			return getErr
-		})
-	switch {
-	case err == nil:
-		return &at, nil
-	// Cross-tenant and still-forbidden both answer "not found in this tenant":
-	// a caller who names an agent type belonging to someone else learns nothing
-	// about whether it exists.
-	case errors.Is(err, agentsclient.ErrAgentTypeNotFound), errors.Is(err, agentsclient.ErrForbidden):
-		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
-	default:
-		return nil, fmt.Errorf("resolve agent type: %w", err)
 	}
 }

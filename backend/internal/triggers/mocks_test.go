@@ -738,7 +738,7 @@ func newTestService(t *testing.T) (*Service, *testDeps) {
 	svc := NewService(repo, mustRegistry(), cipher, pc, ac, minter, admission, silentLogger(), nil)
 	deps := &testDeps{repo: repo, policy: ps, agents: as, minter: minter, policyClnt: pc}
 	deps.sources = newTestSourceService(t, repo, pc, ac)
-	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, minter, admission, silentLogger())
+	deps.triggers = NewTriggerService(repo, mustRegistry(), pc, ac, admission, silentLogger())
 	return svc, deps
 }
 

@@ -218,8 +218,12 @@ func TestCreateTrigger_RequiresCallerRunAccess(t *testing.T) {
 			if err == nil {
 				t.Fatal("CreateTrigger succeeded, want a refusal")
 			}
-			if tc.callerStatus != http.StatusInternalServerError && !errors.Is(err, ErrBindForbidden) {
-				t.Fatalf("got %v, want ErrBindForbidden", err)
+			want := ErrBindForbidden
+			if tc.callerStatus == http.StatusNotFound {
+				want = ErrValidation
+			}
+			if tc.callerStatus != http.StatusInternalServerError && !errors.Is(err, want) {
+				t.Fatalf("got %v, want %v", err, want)
 			}
 			if slices.Contains(deps.policy.lastScopes, "agents:runs:real-slug:write") {
 				t.Error("the run grant must not be created before the caller is checked")

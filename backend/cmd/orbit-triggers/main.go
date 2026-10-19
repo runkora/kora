@@ -181,16 +181,15 @@ func initController(
 		metrics,
 	)
 
-	// Creating a trigger provisions its principal and grant, then resolves the
-	// agent it binds by asking orbit-agents as that principal. The caller must
-	// hold the run scope for that agent. Enabling or disabling one moves work
-	// already in the queue.
+	// Creating a trigger reads the agent it binds from orbit-agents as the
+	// caller, who must be able to run it, then provisions the trigger's
+	// principal and grants. Enabling or disabling one moves work already in
+	// the queue.
 	lifecycle := triggers.NewTriggerService(
 		repo,
 		registry,
 		policyClient,
 		agentsClient,
-		identityClient,
 		admission,
 		logger,
 	)
