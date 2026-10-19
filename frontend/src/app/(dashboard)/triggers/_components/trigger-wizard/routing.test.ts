@@ -68,6 +68,16 @@ describe('decisionModelsOf', () => {
       { id: 'mixed/m1', name: 'mixed/m1' },
     ]);
   });
+
+  it('skips a model the gateway lists without capabilities', () => {
+    const bare = {
+      ...model('openai/gpt-5-5', []),
+      capabilities: undefined,
+    } as unknown as ModelObject;
+    expect(decisionModelsOf([bare, model('liquid/d1', ['decision'])])).toEqual([
+      { id: 'liquid/d1', name: 'Liquid d1' },
+    ]);
+  });
 });
 
 describe('validateRouting', () => {

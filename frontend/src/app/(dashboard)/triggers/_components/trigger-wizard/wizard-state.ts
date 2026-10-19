@@ -213,8 +213,9 @@ export const DEFAULT_ROUTING: RoutingDraft = {
 
 /** The tenant catalog narrowed to the models that can answer a routing question. */
 export function decisionModelsOf(models: ModelObject[]): DecisionModel[] {
+  // The gateway omits capabilities for a model it has no discovered route data for.
   return models
-    .filter((m) => m.status === 'available' && m.capabilities.includes('decision'))
+    .filter((m) => m.status === 'available' && (m.capabilities ?? []).includes('decision'))
     .map((m) => ({ id: m.id, name: m.display_name || m.id }));
 }
 
