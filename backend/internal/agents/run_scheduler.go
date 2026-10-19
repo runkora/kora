@@ -16,7 +16,9 @@ import (
 )
 
 const (
-	defaultStartBudget       = 3 * time.Minute
+	defaultStartBudget = 3 * time.Minute
+	// defaultProvisionBudget is how long a run may wait for its agent to finish provisioning.
+	defaultProvisionBudget   = 10 * time.Minute
 	defaultStartPollInterval = time.Second
 	// startAttemptTimeout bounds one attempt to start a claimed run.
 	startAttemptTimeout = 30 * time.Second
@@ -120,6 +122,13 @@ func (s *RunService) startBudget() time.Duration {
 	return defaultStartBudget
 }
 
+func (s *RunService) provisionBudget() time.Duration {
+	if s.cfg.ProvisionBudget > 0 {
+		return s.cfg.ProvisionBudget
+	}
+	return defaultProvisionBudget
+}
+
 // pollInterval is how often the scheduler claims runs and how long a released run waits.
 func (s *RunService) pollInterval() time.Duration {
 	if s.cfg.StartPollInterval > 0 {
@@ -129,17 +138,13 @@ func (s *RunService) pollInterval() time.Duration {
 }
 
 // startClaimed makes one attempt to start a run claimed at claimedAt. It never waits for a pod.
-// A transient failure returns the run to the queue, and a run past its start budget fails.
+// A transient failure returns the run to the queue, and a run past its start or provisioning budget fails.
 func (s *RunService) startClaimed(ctx context.Context, run Run, claimedAt time.Time) {
 	ctx, span := agentsTracer.Start(ctx, "agents.startClaimed",
 		trace.WithAttributes(attribute.String("run_id", run.ID), attribute.String("agent_type_id", run.AgentTypeID)),
 	)
 	defer span.End()
 
-	if time.Since(run.CreatedAt) > s.startBudget() {
-		s.failStart(ctx, span, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))
-		return
-	}
 	at, namespace, pod, ok := s.placeRun(ctx, span, run, claimedAt)
 	if !ok {
 		return
@@ -200,7 +205,20 @@ func (s *RunService) placeRun(ctx context.Context, span trace.Span, run Run, cla
 		s.failStart(ctx, span, run.ID, RunStatePending, "The agent is being deleted.")
 		return nil, "", 0, false
 	case AgentTypeStateProvisioning:
+		if time.Since(run.CreatedAt) > s.provisionBudget() {
+			s.failStart(ctx, span, run.ID, RunStatePending, fmt.Sprintf("The agent did not finish provisioning within %s.", s.provisionBudget()))
+			return nil, "", 0, false
+		}
 		s.releaseStart(ctx, span, run.ID, claimedAt, errAgentProvisioning)
+		return nil, "", 0, false
+	}
+	// Provisioning time is not part of the start budget. The agent's last update is when it became active.
+	budgetStart := run.CreatedAt
+	if at.UpdatedAt.After(budgetStart) {
+		budgetStart = at.UpdatedAt
+	}
+	if time.Since(budgetStart) > s.startBudget() {
+		s.failStart(ctx, span, run.ID, RunStatePending, fmt.Sprintf("No agent pod could take the run within %s.", s.startBudget()))
 		return nil, "", 0, false
 	}
 	namespace := s.cfg.TenantNamespaceFn(at.TenantID)

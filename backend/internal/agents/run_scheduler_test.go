@@ -147,8 +147,23 @@ func TestStartClaimed(t *testing.T) {
 			setup: func(e *startClaimedEnv) {
 				e.f.run.cfg.StartBudget = time.Minute
 				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-2 * time.Minute)
+				e.repo.agentTypes["at-1"].UpdatedAt = time.Now().Add(-3 * time.Minute)
 			},
 			wantState: RunStateFailed, wantErr: "No agent pod could take the run within 1m0s."},
+		{name: "provisioning time does not count against the start budget",
+			setup: func(e *startClaimedEnv) {
+				e.f.run.cfg.StartBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-5 * time.Minute)
+				e.repo.agentTypes["at-1"].UpdatedAt = time.Now()
+			},
+			wantState: RunStateActive, wantSessions: 1, wantMessages: 1},
+		{name: "an agent provisioning past its budget fails the run",
+			setup: func(e *startClaimedEnv) {
+				e.f.run.cfg.ProvisionBudget = time.Minute
+				e.repo.runs[e.run.ID].CreatedAt = time.Now().Add(-2 * time.Minute)
+				e.repo.agentTypes["at-1"].State = AgentTypeStateProvisioning
+			},
+			wantState: RunStateFailed, wantErr: "The agent did not finish provisioning within 1m0s."},
 		{name: "a deleted agent fails the run",
 			setup:     func(e *startClaimedEnv) { delete(e.repo.agentTypes, "at-1") },
 			wantState: RunStateFailed, wantErr: "The agent no longer exists."},
