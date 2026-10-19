@@ -175,8 +175,8 @@ func (s *SourceService) UpdateSource(ctx context.Context, tenantID, id string, r
 	if err != nil {
 		return nil, err
 	}
-	// A new secret signs deliveries for every trigger on the source, and so does re-enabling it.
-	if req.RotateSecret || (req.Enabled != nil && *req.Enabled && !src.Enabled) {
+	// A new secret signs deliveries for every trigger on the source. Enabling or disabling it starts or pauses all of them.
+	if req.RotateSecret || (req.Enabled != nil && *req.Enabled != src.Enabled) {
 		if err := requireRunAccessForSource(ctx, s.repo, s.agents, src.ID); err != nil {
 			return nil, err
 		}

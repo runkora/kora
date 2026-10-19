@@ -205,7 +205,8 @@ func TestUpdateSource_RunAccess(t *testing.T) {
 	}{
 		{"rotate secret", false, UpdateSourceRequest{RotateSecret: true}, true, false},
 		{"re-enable", true, UpdateSourceRequest{Enabled: &on}, true, false},
-		{"disable", false, UpdateSourceRequest{Enabled: &off}, false, false},
+		{"disable", false, UpdateSourceRequest{Enabled: &off}, true, false},
+		{"disable a disabled source", true, UpdateSourceRequest{Enabled: &off}, false, false},
 		{"enable an enabled source", false, UpdateSourceRequest{Enabled: &on}, false, false},
 		{"rotate with no triggers", false, UpdateSourceRequest{RotateSecret: true}, false, true},
 	}

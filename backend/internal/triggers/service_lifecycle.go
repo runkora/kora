@@ -144,7 +144,7 @@ type matchableLister interface {
 }
 
 // requireRunAccessForSource checks run access on every agent a delivery on the source could start.
-// A replay, a rotated secret and a re-enabled source each let deliveries reach all of them.
+// A replay, a rotated secret and a source enabled or disabled each start or pause all of them.
 func requireRunAccessForSource(ctx context.Context, repo matchableLister, agents agentTypeReader, sourceID string) error {
 	matchable, err := repo.ListMatchableTriggersForSource(ctx, sourceID)
 	if err != nil {

@@ -76,8 +76,8 @@ func (c *Controller) Middleware() mw.MiddlewareHandler { return nil }
 //	POST /api/v1/webhooks/{sourceID}          Inbound webhook delivery.
 //
 // Management (platform-admin; triggers:read / triggers:write). Creating a
-// trigger, editing what it runs or when, replaying a delivery, and rotating or
-// re-enabling a source also need orbit-agents to report can_run for the caller
+// trigger, editing what it runs or when, replaying a delivery, and rotating, enabling
+// or disabling a source also need orbit-agents to report can_run for the caller
 // on each agent involved:
 //
 //	POST   /api/v1/trigger-sources            Register a webhook source.
