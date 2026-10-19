@@ -3,7 +3,15 @@
 /** @tier 3 — connections-scoped. Read-only UI for the /connections list page. */
 
 import { useMemo, useState } from 'react';
-import { DataTable, EmptyState, Heading, Stack, Text, TruncatingBadge } from '@runkora/hades';
+import {
+  Alert,
+  DataTable,
+  EmptyState,
+  Heading,
+  Stack,
+  Text,
+  TruncatingBadge,
+} from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { adapterLabel } from '../_types';
@@ -18,6 +26,8 @@ const MAX_ACTION_ROWS = 2;
 interface ConnectionsPageProps {
   rows: ConnectionRow[];
   error: string | null;
+  /** Why the "used by" column is empty, when the agents could not be read. */
+  usedByError?: string | null;
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -35,7 +45,7 @@ function connectionMatchesSearch(row: ConnectionRow, q: string): boolean {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
+export function ConnectionsPage({ rows, error, usedByError = null }: ConnectionsPageProps) {
   const [selectedConnection, setSelectedConnection] = useState<ConnectionRow | null>(null);
 
   const columns = useMemo<DataTableColumn<ConnectionRow>[]>(
@@ -123,6 +133,12 @@ export function ConnectionsPage({ rows, error }: ConnectionsPageProps) {
           operator. This view is read-only.
         </Text>
       </Stack>
+
+      {!error && usedByError && (
+        <Alert variant="info">
+          <Text size="caption">Agent usage is not shown. {usedByError}</Text>
+        </Alert>
+      )}
 
       {error ? (
         <Stack align="center" gap="snug" paddingBlock="comfortable">

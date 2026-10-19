@@ -19,7 +19,12 @@ export type NavGroup = { label: string; items: NavEntry[] };
 
 const MAIN_NAV: NavEntry[] = [
   { label: 'Dashboard', href: APP_ROUTES.home, icon: 'layout-dashboard' },
-  { label: 'Agents', href: APP_ROUTES.agents.list, icon: 'bot' },
+  {
+    label: 'Agents',
+    href: APP_ROUTES.agents.list,
+    icon: 'bot',
+    requiredScope: 'agents:types:read',
+  },
   { label: 'Connections', href: APP_ROUTES.connections, icon: 'network' },
   { label: 'MCP Servers', href: APP_ROUTES.mcpGateway.servers, icon: 'server' },
   {
@@ -75,7 +80,7 @@ const POLICY_NAV: NavEntry[] = [
   },
 ];
 
-const MODEL_GATEWAY_NAV: NavEntry[] = [
+export const MODEL_GATEWAY_NAV: NavEntry[] = [
   {
     label: 'Overview',
     href: APP_ROUTES.modelGateway.overview,
@@ -92,7 +97,7 @@ const MODEL_GATEWAY_NAV: NavEntry[] = [
     label: 'Catalog',
     href: APP_ROUTES.modelGateway.catalog,
     icon: 'layers',
-    requiredScope: 'platform:catalog:write',
+    requiredScope: 'platform:catalog:read',
   },
   { label: 'My Usage', href: APP_ROUTES.modelGateway.myUsage, icon: 'line-chart' },
   {

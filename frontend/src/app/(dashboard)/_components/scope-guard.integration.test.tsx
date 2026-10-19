@@ -5,7 +5,7 @@
  * - `./permissions-provider` is vi.mock'd so `useSession` returns controllable
  *   session state without needing a live PermissionsProvider or MSW.
  * - Tests verify: optimistic children render while loading, children when
- *   scope is held, forbidden message when scope is absent, and exact-match
+ *   scope is held, forbidden message when scope is absent, and covers
  *   semantics.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -16,7 +16,8 @@ import { ScopeGuard } from './scope-guard';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-vi.mock('./permissions-provider', () => ({
+vi.mock('./permissions-provider', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./permissions-provider')>()),
   useSession: vi.fn().mockReturnValue({ scopes: [], user: null, loaded: false }),
 }));
 
@@ -64,7 +65,7 @@ describe('ScopeGuard', () => {
     expect(screen.queryByText('Protected content')).not.toBeInTheDocument();
   });
 
-  it('scope check is exact-match: platform:grants:read does not satisfy platform:grants:write', () => {
+  it('a different action does not satisfy the guard: platform:grants:read does not satisfy platform:grants:write', () => {
     vi.mocked(useSession).mockReturnValue({
       scopes: ['platform:grants:read'],
       user: null,
@@ -73,5 +74,15 @@ describe('ScopeGuard', () => {
     renderGuard('platform:grants:write');
     expect(screen.getByText('Forbidden')).toBeInTheDocument();
     expect(screen.queryByText('Protected content')).not.toBeInTheDocument();
+  });
+
+  it('a broader scope covers the guard scope', () => {
+    vi.mocked(useSession).mockReturnValue({
+      scopes: ['platform:read'],
+      user: null,
+      loaded: true,
+    });
+    renderGuard('platform:grants:read');
+    expect(screen.getByText('Protected content')).toBeInTheDocument();
   });
 });

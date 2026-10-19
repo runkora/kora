@@ -91,6 +91,8 @@ export interface TriggerWizardProps {
    */
   initialKind?: TriggerKind;
   agents: TriggerWizardAgent[];
+  /** Why the agents could not be read; the target step says so instead of offering none. */
+  agentsError?: string | null;
   sources: TriggerWizardSource[];
   /** Public base for webhook endpoints, e.g. "api.orbit.local.clearroute.io:8443". */
   ingestHost: string;
@@ -163,6 +165,7 @@ export interface WizardState {
 /** The tenant-scoped data a step needs but does not own. */
 export interface WizardContext {
   agents: TriggerWizardAgent[];
+  agentsError?: string | null;
   sources: TriggerWizardSource[];
   ingestHost: string;
 }

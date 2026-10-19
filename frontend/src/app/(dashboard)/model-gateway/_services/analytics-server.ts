@@ -2,6 +2,7 @@ import 'server-only';
 
 import { config } from '@runkora/server/config';
 import type { AnalyticsResponse, PrincipalUsageSummary } from '../_types';
+import { loadErrorMessage } from '@runkora/lib/load-error';
 
 // ── Shared params ─────────────────────────────────────────────────────────────
 
@@ -63,9 +64,8 @@ async function fetchAnalytics(
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
     console.error(`[fetchAnalytics] ${path} responded ${res.status} ${res.statusText}`);
-    return { ok: false, status: res.status, message: body || res.statusText };
+    return { ok: false, status: res.status, message: loadErrorMessage(res.status, 'analytics') };
   }
 
   try {
@@ -142,9 +142,8 @@ export async function fetchAnalyticsPrincipalsFromGateway(
   }
 
   if (!res.ok) {
-    const body = await res.text().catch(() => '');
     console.error(`[fetchAnalyticsPrincipals] responded ${res.status} ${res.statusText}`);
-    return { ok: false, status: res.status, message: body || res.statusText };
+    return { ok: false, status: res.status, message: loadErrorMessage(res.status, 'analytics') };
   }
 
   try {

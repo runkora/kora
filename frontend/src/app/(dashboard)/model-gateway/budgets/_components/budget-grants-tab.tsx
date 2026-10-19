@@ -6,8 +6,7 @@ import { useRouter } from 'next/navigation';
 import { Button, Callout, DataTable, Icon, PageSectionHeader, Stack, Text } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import { PrincipalBadge } from '@runkora/components';
-import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { updateGrantBudgetAction } from '../../../policy/_actions/grants';
 import type { Grant } from '../../../policy/_types/api';
@@ -22,8 +21,7 @@ interface BudgetGrantsTabProps {
 
 export function BudgetGrantsTab({ grants, identities }: BudgetGrantsTabProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
+  const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState<Grant | null>(null);
 
   const columns = useMemo<DataTableColumn<Grant>[]>(

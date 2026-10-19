@@ -550,12 +550,11 @@ func (s *AgentTypeService) GetAgentType(ctx context.Context, id string) (*AgentT
 		}
 		return nil, err
 	}
-	runErr := s.authz.checkRun(ctx, *at, "write")
-	if runErr != nil && !errors.Is(runErr, ErrForbidden) {
-		return nil, runErr
+	withAccess := []AgentType{*at}
+	if err := s.setCallerAccess(ctx, withAccess); err != nil {
+		return nil, err
 	}
-	canRun := runErr == nil
-	at.CanRun = &canRun
+	at = &withAccess[0]
 
 	// Enrich with the budget carried by the agent's grant — the grant is the
 	// source of truth for budget configuration. Best-effort: a policy-service
@@ -587,7 +586,40 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 		span.SetStatus(codes.Error, "list agent types")
 		return nil, err
 	}
-	return s.authz.filterAgentTypes(ctx, types)
+	types, err = s.authz.filterAgentTypes(ctx, types)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.setCallerAccess(ctx, types); err != nil {
+		return nil, err
+	}
+	return types, nil
+}
+
+// setCallerAccess fills CanRun and CanEdit on each agent type for the caller in
+// ctx. Run uses checkRun, the run-start check. Edit uses the mode-qualified check
+// update and delete use, once per mode.
+func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType) error {
+	canEdit := map[IdentityMode]bool{}
+	for i := range ats {
+		mode := ats[i].IdentityMode.OrDefault()
+		edit, seen := canEdit[mode]
+		if !seen {
+			err := s.authz.checkAgentTypeModeWrite(ctx, mode)
+			if err != nil && !errors.Is(err, ErrIdentityModeWriteForbidden) {
+				return err
+			}
+			edit = err == nil
+			canEdit[mode] = edit
+		}
+		runErr := s.authz.checkRun(ctx, ats[i], "write")
+		if runErr != nil && !errors.Is(runErr, ErrForbidden) {
+			return runErr
+		}
+		run := runErr == nil
+		ats[i].CanEdit, ats[i].CanRun = &edit, &run
+	}
+	return nil
 }
 
 // UpdateAgentType applies partial updates to an existing agent type. Enforces

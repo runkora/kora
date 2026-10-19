@@ -58,7 +58,8 @@ export function StepTarget({ state, patch, context }: StepComponentProps) {
         <SectionLabel>Agent to run</SectionLabel>
         {agents.length === 0 && (
           <Callout variant="warning">
-            No agents are available to bind. Create an autonomous agent first.
+            {context.agentsError ??
+              'No agents are available to bind. Create an autonomous agent first.'}
           </Callout>
         )}
         {agents.length > AGENT_SEARCH_THRESHOLD && (

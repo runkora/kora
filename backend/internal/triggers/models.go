@@ -394,6 +394,9 @@ type Trigger struct {
 	// answer an operator most needs to trust, and an absent field reads as
 	// "unknown" rather than "none". Derived per read, not a stored column.
 	PendingCount int `json:"pending_count"`
+	// CanFire reports whether the caller may fire this trigger, set per read so
+	// the UI can hide Run now. Never stored.
+	CanFire bool `json:"can_fire"`
 }
 
 // DisabledByPerson reports whether a person turned this trigger off, as

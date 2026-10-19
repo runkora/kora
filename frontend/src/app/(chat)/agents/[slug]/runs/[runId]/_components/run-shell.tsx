@@ -5,8 +5,10 @@
  * renders the four layout regions (topbar, context strip, body, input).
  */
 
-import { Stack } from '@runkora/hades';
-import { RunProvider } from '../_context/run-context';
+import Link from 'next/link';
+import { Button, EmptyState, Stack } from '@runkora/hades';
+import { APP_ROUTES } from '@runkora/lib/routing';
+import { RunProvider, useRunContext } from '../_context/run-context';
 import { RunTopbar } from './run-topbar';
 import { ContextStrip } from './context-strip';
 import { ChatThread } from './chat-thread';
@@ -56,6 +58,23 @@ button[data-context-pill][data-active]:hover {
 `;
 
 function RunPageLayout() {
+  const { loadError } = useRunContext();
+  if (loadError) {
+    return (
+      <Stack grow align="center" justify="center" padding="relaxed">
+        <EmptyState
+          icon="lock"
+          title="Run unavailable"
+          description={loadError}
+          action={
+            <Button variant="outline" size="sm" asChild>
+              <Link href={APP_ROUTES.agents.list}>Back to agents</Link>
+            </Button>
+          }
+        />
+      </Stack>
+    );
+  }
   return (
     <>
       <style>{RUN_CSS}</style>

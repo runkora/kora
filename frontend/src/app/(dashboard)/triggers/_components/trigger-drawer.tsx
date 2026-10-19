@@ -78,6 +78,7 @@ import {
 } from './trigger-wizard/cron';
 import { filtersFromMatchCondition, manualInputsCatalog, sameFilters } from './trigger-edit';
 import { useEditableSection } from './use-editable-section';
+import { useHasScope } from '../../_components/permissions-provider';
 
 /**
  * A correction to a stored trigger. Every field is optional: a section saves
@@ -303,13 +304,21 @@ export function TriggerDrawer({
   onClose,
   onToggleEnabled,
   onDelete,
-  onUpdateSafety,
-  onEdit,
-  onRedeliver,
-  onRotateSecret,
-  onFire,
+  onUpdateSafety: updateSafetyAction,
+  onEdit: editAction,
+  onRedeliver: redeliverAction,
+  onRotateSecret: rotateSecretAction,
+  onFire: fireAction,
   firing = false,
 }: TriggerDrawerProps) {
+  // Without triggers:write every write handler is dropped, which disables or
+  // hides its control. Firing has its own per-trigger answer from the API.
+  const canWrite = useHasScope('triggers:write');
+  const onUpdateSafety = canWrite ? updateSafetyAction : undefined;
+  const onEdit = canWrite ? editAction : undefined;
+  const onRedeliver = canWrite ? redeliverAction : undefined;
+  const onRotateSecret = canWrite ? rotateSecretAction : undefined;
+  const onFire = trigger?.canFire ? fireAction : undefined;
   const [expanded, setExpanded] = useState<string | null>(null);
   // Rotation is destructive (the provider's configured secret stops working the
   // moment it lands), so the button asks once before doing it.
@@ -515,6 +524,7 @@ export function TriggerDrawer({
           <Toggle
             checked={trigger.enabled}
             onChange={(next) => onToggleEnabled(trigger, next)}
+            disabled={!canWrite}
             aria-label={`${trigger.enabled ? 'Disable' : 'Enable'} ${trigger.name}`}
           />
         }
@@ -1086,15 +1096,17 @@ export function TriggerDrawer({
                 </Stack>
               </Stack>
 
-              <DangerZone
-                title="Delete trigger"
-                description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
-                action={
-                  <Button variant="destructive" size="sm" onClick={() => onDelete(trigger)}>
-                    Delete
-                  </Button>
-                }
-              />
+              {canWrite && (
+                <DangerZone
+                  title="Delete trigger"
+                  description="Stops all future deliveries. Anything still waiting is recorded as dropped, and history is retained."
+                  action={
+                    <Button variant="destructive" size="sm" onClick={() => onDelete(trigger)}>
+                      Delete
+                    </Button>
+                  }
+                />
+              )}
             </Stack>
           </TabsContent>
         </SidePanelBody>

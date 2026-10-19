@@ -14,8 +14,7 @@ import {
   Text,
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
-import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../../_components/permissions-provider';
 import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { updateRoleBudgetAction } from '../../../policy/_actions/roles';
 import type { RoleEntry } from '../../../policy/_types/api';
@@ -27,8 +26,8 @@ interface BudgetRolesTabProps {
 
 export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
+  // Role budgets save through the role upsert, which the backend binds to platform:roles:write.
+  const canWrite = useHasScope('platform:roles:write');
   const [editing, setEditing] = useState<RoleEntry | null>(null);
 
   const columns = useMemo<DataTableColumn<RoleEntry>[]>(

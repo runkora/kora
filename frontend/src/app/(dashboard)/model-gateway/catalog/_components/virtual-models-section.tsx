@@ -19,6 +19,7 @@ import { fmtCost } from '@runkora/utils';
 import type { VirtualModel } from '../_types/catalog';
 import { providerTitle } from '../_utils/catalog-constants';
 import { StrategyBadge } from './strategy-badge';
+import { useHasScope } from '../../../_components/permissions-provider';
 
 interface VirtualModelsSectionProps {
   models: VirtualModel[];
@@ -88,6 +89,7 @@ const NEW_VIRTUAL_MODEL: VirtualModel = {
 };
 
 export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionProps) {
+  const canWrite = useHasScope('platform:catalog:write');
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('all');
 
   const statusCounts = useMemo(
@@ -223,10 +225,12 @@ export function VirtualModelsSection({ models, onSelect }: VirtualModelsSectionP
         />
       }
       toolbarActions={
-        <Button size="sm" onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
-          <Icon name="plus" size="2xs" />
-          New Virtual Model
-        </Button>
+        canWrite && (
+          <Button size="sm" onClick={() => onSelect(NEW_VIRTUAL_MODEL)}>
+            <Icon name="plus" size="2xs" />
+            New Virtual Model
+          </Button>
+        )
       }
     />
   );

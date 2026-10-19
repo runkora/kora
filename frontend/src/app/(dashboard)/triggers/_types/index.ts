@@ -124,6 +124,8 @@ export interface TriggerRow {
    * rather than a wrong number.
    */
   pendingCount: number;
+  /** Whether the caller may fire this trigger. */
+  canFire: boolean;
 }
 
 export interface DeliveryRow {
@@ -243,6 +245,7 @@ export function toTriggerRow(t: Trigger): TriggerRow {
     // Zero until the backend reports it, so a console deployed ahead of the
     // API shows nothing rather than a wrong number.
     pendingCount: t.pending_count ?? 0,
+    canFire: t.can_fire ?? false,
   };
 }
 

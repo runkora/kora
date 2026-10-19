@@ -51,8 +51,7 @@ function budgetSummary(budget: BudgetAssignment): string {
   return parts.join(' · ');
 }
 import { createGrantAction, deleteGrantAction, searchUsersAction } from '../_actions/grants';
-import { usePermissions } from '../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { PrincipalBadge, ScopeChip, ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
@@ -86,8 +85,7 @@ export function GrantsTab({
   total,
 }: GrantsTabProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:grants:write');
+  const canWrite = useHasScope('platform:grants:write');
   const [grants, setGrants] = useState(initialGrants);
   const [error, setError] = useState(initialError);
 

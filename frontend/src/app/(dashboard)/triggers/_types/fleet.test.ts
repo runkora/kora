@@ -31,6 +31,7 @@ function trigger(overrides: Partial<TriggerRow> = {}): TriggerRow {
     consecutiveFailures: 0,
     autoPausedAt: null,
     pendingCount: 0,
+    canFire: true,
     ...overrides,
   };
 }

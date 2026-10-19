@@ -217,17 +217,19 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
             >
               Open
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={(e) => {
-                e.stopPropagation();
-                setDeleteError(null);
-                setDeleteTarget(row);
-              }}
-            >
-              Delete
-            </Button>
+            {agent?.canRun && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setDeleteError(null);
+                  setDeleteTarget(row);
+                }}
+              >
+                Delete
+              </Button>
+            )}
           </Stack>
         ),
       },
@@ -250,11 +252,17 @@ export function AgentRunsTab({ onStartRun }: AgentRunsTabProps) {
         <EmptyState
           icon="play-circle"
           title="No runs yet"
-          description="Start your first run to execute tasks with this agent."
+          description={
+            agent?.canRun
+              ? 'Start your first run to execute tasks with this agent.'
+              : 'Runs of this agent show here.'
+          }
           action={
-            <Button onClick={onStartRun} disabled={agent?.state !== 'active'}>
-              Start your first run
-            </Button>
+            agent?.canRun ? (
+              <Button onClick={onStartRun} disabled={agent.state !== 'active'}>
+                Start your first run
+              </Button>
+            ) : undefined
           }
         />
       ) : (

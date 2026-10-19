@@ -33,8 +33,7 @@ import { SmartTable } from '@runkora/components';
 import type { DataTableColumn } from '@runkora/components';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
-import { usePermissions } from '../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../_components/permissions-provider';
 import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
 import { ScopePicker } from '@runkora/components';
@@ -53,8 +52,7 @@ interface RolesTabProps {
 export function RolesTab({ initialRoles, availableScopes, initialError }: RolesTabProps) {
   const router = useRouter();
   const { productName } = useBrand();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:roles:write');
+  const canWrite = useHasScope('platform:roles:write');
   const [roles, setRoles] = useState(initialRoles);
   const [error, setError] = useState(initialError);
 

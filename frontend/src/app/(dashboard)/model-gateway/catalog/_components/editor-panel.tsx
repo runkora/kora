@@ -26,6 +26,7 @@ import type { VirtualModel, ProviderModel, Provider } from '../_types/catalog';
 import type { VirtualModel as ApiVirtualModel } from '../../_services/catalog-server';
 import { vmFullId, vmPolicyScope, vmToApiPayload, toVirtualModel } from '../_utils/catalog-api';
 import { RoutesTab } from './routes-tab';
+import { useHasScope } from '../../../_components/permissions-provider';
 
 interface EditorPanelProps {
   model: VirtualModel | null;
@@ -44,6 +45,7 @@ export function EditorPanel({
   providerModels,
   providers,
 }: EditorPanelProps) {
+  const canWrite = useHasScope('platform:catalog:write');
   const [draft, setDraft] = useState<VirtualModel | null>(model);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -243,7 +245,7 @@ export function EditorPanel({
 
       <SidePanelFooter justify="between">
         <Stack direction="horizontal" align="center" gap="snug">
-          {!isNew && (
+          {!isNew && canWrite && (
             <Button
               variant="ghost"
               size="sm"
@@ -254,7 +256,11 @@ export function EditorPanel({
               Delete
             </Button>
           )}
-          <Toggle checked={draft.enabled} onChange={(v) => setDraft({ ...draft, enabled: v })} />
+          <Toggle
+            checked={draft.enabled}
+            onChange={(v) => setDraft({ ...draft, enabled: v })}
+            disabled={!canWrite}
+          />
           <Text size="supporting" color={draft.enabled ? 'foreground' : 'muted'}>
             {draft.enabled ? 'Enabled' : 'Disabled'}
           </Text>
@@ -263,9 +269,11 @@ export function EditorPanel({
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={() => void handleSave()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save Changes'}
-          </Button>
+          {canWrite && (
+            <Button onClick={() => void handleSave()} disabled={saving}>
+              {saving ? 'Saving…' : 'Save Changes'}
+            </Button>
+          )}
         </Stack>
       </SidePanelFooter>
 

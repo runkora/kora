@@ -122,7 +122,16 @@ function StopIcon() {
 }
 
 export function InputArea() {
-  const { agentName, runState, isStarting, addHumanMessage, interruptRun } = useRunContext();
+  const {
+    agentName,
+    runState,
+    isStarting,
+    addHumanMessage,
+    interruptRun,
+    canSteer,
+    delegated,
+    stopError,
+  } = useRunContext();
   const [value, setValue] = useState('');
   const [active, setActive] = useState<Set<ContextToolId>>(new Set());
   const isEnded =
@@ -130,12 +139,12 @@ export function InputArea() {
   // A starting run takes no messages. The API would answer "run is starting".
   // Typing is never blocked while the agent works: a message sent mid-turn is
   // read at the agent's next tool boundary.
-  const isDisabled = isEnded || isStarting;
+  const isDisabled = isEnded || isStarting || !canSteer;
   const canSend = !!value.trim() && !isDisabled;
   // Only show Stop when the run is actually interruptible. The backend rejects an
   // interrupt unless the run is 'active' (and interruptRun swallows that error), so
   // showing Stop during 'starting'/pending made the button a silent no-op.
-  const showStop = runState === 'active';
+  const showStop = runState === 'active' && canSteer;
 
   function toggle(id: ContextToolId) {
     if (isDisabled) return;
@@ -186,11 +195,15 @@ export function InputArea() {
                 ? `${agentName} run stopped: budget exhausted`
                 : isEnded
                   ? `${agentName} run has ended`
-                  : isStarting
-                    ? `${agentName} is ${runState === 'pending' ? 'queued' : 'starting'}…`
-                    : showStop
-                      ? `Message ${agentName}. It reads this at its next step.`
-                      : `Reply to ${agentName}…`
+                  : !canSteer
+                    ? delegated
+                      ? 'Only the person who started this run can message it.'
+                      : 'You can watch this run but not message it.'
+                    : isStarting
+                      ? `${agentName} is ${runState === 'pending' ? 'queued' : 'starting'}…`
+                      : showStop
+                        ? `Message ${agentName}. It reads this at its next step.`
+                        : `Reply to ${agentName}…`
             }
             disabled={isDisabled}
             rows={2}
@@ -299,6 +312,11 @@ export function InputArea() {
             newline
           </Text>
         </Stack>
+        {stopError && (
+          <Text as="span" size="caption" color="status-error" role="alert">
+            {stopError}
+          </Text>
+        )}
       </Stack>
     </Stack>
   );

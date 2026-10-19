@@ -23,6 +23,7 @@ import { StatusBadge } from '@runkora/components';
 import { DeliveryDetail } from './delivery-detail';
 import { deliveryStatusTone, formatTimestampUtc } from '../_types';
 import type { DeliveryRow } from '../_types';
+import { useHasScope } from '../../_components/permissions-provider';
 
 export interface DeliveryDetailPanelProps {
   delivery: DeliveryRow;
@@ -50,6 +51,7 @@ export function DeliveryDetailPanel({
   onRedeliver,
   onOpenTrigger,
 }: DeliveryDetailPanelProps) {
+  const canWrite = useHasScope('triggers:write');
   // Read once into a const so the narrowing survives into the click handler.
   const triggerId = delivery.triggerId;
   return (
@@ -67,7 +69,7 @@ export function DeliveryDetailPanel({
               {formatTimestampUtc(delivery.receivedAt)}
             </Text>
           </Stack>
-          <DeliveryDetail delivery={delivery} onRedeliver={onRedeliver} />
+          <DeliveryDetail delivery={delivery} onRedeliver={canWrite ? onRedeliver : undefined} />
           {triggerId !== null && onOpenTrigger !== undefined && (
             <Stack direction="horizontal" justify="end">
               <Button variant="ghost" size="xs" onClick={() => onOpenTrigger(triggerId)}>

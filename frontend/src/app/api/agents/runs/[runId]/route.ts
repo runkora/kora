@@ -27,7 +27,11 @@ export const GET = withAuth(
         ...run,
         created_by_name: names.get(run.created_by) ?? null,
       };
-      return NextResponse.json({ data, agent_type: agentType });
+      // Steering needs run access to the agent. A delegated run is also its starter's alone.
+      const canSteer =
+        !!agentType?.can_run &&
+        (agentType.identity_mode !== 'delegated' || run.created_by === session.user.sub);
+      return NextResponse.json({ data, agent_type: agentType, can_steer: canSteer });
     } catch (err) {
       if (err instanceof ApiError) {
         return NextResponse.json({ code: err.code, message: err.message }, { status: err.status });

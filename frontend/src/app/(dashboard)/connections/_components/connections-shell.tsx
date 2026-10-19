@@ -8,8 +8,13 @@ import type { ConnectionRow } from '../_types';
 interface ConnectionsShellProps {
   initialRows: ConnectionRow[];
   initialError: string | null;
+  usedByError?: string | null;
 }
 
-export function ConnectionsShell({ initialRows, initialError }: ConnectionsShellProps) {
-  return <ConnectionsPage rows={initialRows} error={initialError} />;
+export function ConnectionsShell({
+  initialRows,
+  initialError,
+  usedByError = null,
+}: ConnectionsShellProps) {
+  return <ConnectionsPage rows={initialRows} error={initialError} usedByError={usedByError} />;
 }

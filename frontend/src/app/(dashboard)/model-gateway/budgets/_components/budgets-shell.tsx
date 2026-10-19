@@ -1,7 +1,17 @@
 /** @tier 3 — budgets-page-scoped. Promote to src/components/ if a second feature needs this. */
 'use client';
 
-import { Alert, Icon, Stack, Tabs, TabsContent, TabsList, TabsTrigger, Text } from '@runkora/hades';
+import {
+  Alert,
+  EmptyState,
+  Icon,
+  Stack,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+  Text,
+} from '@runkora/hades';
 import type { Grant, RoleEntry } from '../../../policy/_types/api';
 import type { BudgetPrincipalsView, PrincipalIdentity } from '../../_types';
 import { BudgetPrincipalsTab } from './budget-principals-tab';
@@ -14,6 +24,9 @@ interface BudgetsShellProps {
   grants: Grant[];
   identities: Record<string, PrincipalIdentity>;
   initialError: string | null;
+  /** Why the roles or grants could not be read; shown in that tab instead of an empty table. */
+  rolesError?: string | null;
+  grantsError?: string | null;
 }
 
 export function BudgetsShell({
@@ -22,6 +35,8 @@ export function BudgetsShell({
   grants,
   identities,
   initialError,
+  rolesError = null,
+  grantsError = null,
 }: BudgetsShellProps) {
   return (
     <Stack gap="comfortable">
@@ -46,11 +61,19 @@ export function BudgetsShell({
         </TabsContent>
 
         <TabsContent value="roles">
-          <BudgetRolesTab roles={roles} />
+          {rolesError ? (
+            <EmptyState icon="lock" title="Role budgets unavailable" description={rolesError} />
+          ) : (
+            <BudgetRolesTab roles={roles} />
+          )}
         </TabsContent>
 
         <TabsContent value="grants">
-          <BudgetGrantsTab grants={grants} identities={identities} />
+          {grantsError ? (
+            <EmptyState icon="lock" title="Grant budgets unavailable" description={grantsError} />
+          ) : (
+            <BudgetGrantsTab grants={grants} identities={identities} />
+          )}
         </TabsContent>
       </Tabs>
     </Stack>

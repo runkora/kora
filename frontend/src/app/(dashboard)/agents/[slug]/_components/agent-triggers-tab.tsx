@@ -42,6 +42,7 @@ import { toDeliveryRow, toSourceRow, toTriggerRow } from '../../../triggers/_typ
 import type { DeliveryRow, SourceRow, TriggerRow } from '../../../triggers/_types';
 import { ingestHostFromWindow } from '../../../triggers/_lib/endpoints';
 import { useAgentDetailContext } from '../_context/agent-detail-context';
+import { useHasScope } from '../../../_components/permissions-provider';
 
 export function AgentTriggersTab() {
   const { agent } = useAgentDetailContext();
@@ -54,6 +55,7 @@ export function AgentTriggersTab() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [wizardOpen, setWizardOpen] = useState(false);
+  const canWrite = useHasScope('triggers:write');
   const [notice, setNotice] = useState<TriggerNotice | null>(null);
   const [drawerTrigger, setDrawerTrigger] = useState<TriggerRow | null>(null);
   const [detailDelivery, setDetailDelivery] = useState<DeliveryRow | null>(null);
@@ -176,10 +178,12 @@ export function AgentTriggersTab() {
             Managed by platform admins.
           </Text>
         </Stack>
-        <Button size="sm" onClick={() => setWizardOpen(true)}>
-          <Icon name="plus" size="xs" />
-          New trigger
-        </Button>
+        {canWrite && (
+          <Button size="sm" onClick={() => setWizardOpen(true)}>
+            <Icon name="plus" size="xs" />
+            New trigger
+          </Button>
+        )}
       </Stack>
 
       {loadError && <Alert variant="error">{loadError}</Alert>}
@@ -187,16 +191,18 @@ export function AgentTriggersTab() {
 
       {loading ? (
         <TriggerListSkeleton />
-      ) : triggers.length === 0 ? (
+      ) : loadError ? null : triggers.length === 0 ? (
         <EmptyState
           icon="zap"
           title="No triggers for this agent"
           description="Create a trigger to run this agent automatically from a webhook event, a schedule, or a manual fire."
           action={
-            <Button size="sm" onClick={() => setWizardOpen(true)}>
-              <Icon name="plus" size="xs" />
-              New trigger
-            </Button>
+            canWrite ? (
+              <Button size="sm" onClick={() => setWizardOpen(true)}>
+                <Icon name="plus" size="xs" />
+                New trigger
+              </Button>
+            ) : undefined
           }
         />
       ) : (

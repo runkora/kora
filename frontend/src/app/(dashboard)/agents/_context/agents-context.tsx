@@ -19,6 +19,7 @@ interface AgentsProviderProps {
   initialLiveRuns: RunRow[];
   initialRunStats: AgentRunStats | null;
   initialError: string | null;
+  initialRunsError?: string | null;
   children: React.ReactNode;
 }
 
@@ -27,9 +28,16 @@ export function AgentsProvider({
   initialLiveRuns,
   initialRunStats,
   initialError,
+  initialRunsError = null,
   children,
 }: AgentsProviderProps) {
-  const state = useAgents(initialAgentTypes, initialLiveRuns, initialRunStats, initialError);
+  const state = useAgents(
+    initialAgentTypes,
+    initialLiveRuns,
+    initialRunStats,
+    initialError,
+    initialRunsError,
+  );
   return <AgentsContext.Provider value={state}>{children}</AgentsContext.Provider>;
 }
 

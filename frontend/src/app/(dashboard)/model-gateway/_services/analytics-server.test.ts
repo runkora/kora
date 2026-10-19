@@ -132,7 +132,7 @@ describe('fetchAnalyticsPrincipalByIdFromGateway', () => {
     expect(capturedPathname).toBe('/analytics/principals/user%40example.com');
   });
 
-  it('returns ok:false with the response body as the message on a non-OK response', async () => {
+  it('returns ok:false with a no-access sentence, not the response body, on a 403', async () => {
     server.use(
       http.get(
         `${GATEWAY_URL}/analytics/principals/:id`,
@@ -145,7 +145,7 @@ describe('fetchAnalyticsPrincipalByIdFromGateway', () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.status).toBe(403);
-      expect(result.message).toBe('forbidden — missing platform:analytics:read');
+      expect(result.message).toBe('You do not have access to analytics.');
     }
   });
 

@@ -94,3 +94,56 @@ describe('Agents page without run stats', () => {
     expect(screen.queryByText('Nothing running')).not.toBeInTheDocument();
   });
 });
+
+describe('Agents page permissions', () => {
+  const VIEWER_SCOPES = ['agents:types:read', 'agents:environments:read', 'triggers:read'];
+
+  function renderAgents(
+    scopes: string[],
+    agentTypes = AGENT_ROWS,
+    runsError: string | null = null,
+  ) {
+    server.use(http.get('/api/agents/types/drafts', () => HttpResponse.json({ data: [] })));
+    return renderWithProviders(
+      <AgentsShell
+        initialAgentTypes={agentTypes}
+        {...(runsError ? { initialLiveRuns: [], initialRunStats: null } : mockRunArgs(RUN_ROWS))}
+        initialError={null}
+        initialRunsError={runsError}
+        initialInsights={mockInsightsResponse('7d')}
+      />,
+      { scopes },
+    );
+  }
+
+  it('shows a viewer the agents with no create or run controls', () => {
+    renderAgents(
+      VIEWER_SCOPES,
+      AGENT_ROWS.map((a) => ({ ...a, canRun: false, canEdit: false })),
+    );
+    expect(screen.getAllByText(AGENT_ROWS[0].name).length).toBeGreaterThan(0);
+    expect(screen.queryByRole('button', { name: /new agent/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /new run/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^run$/i })).not.toBeInTheDocument();
+  });
+
+  it('offers Run only on the agents the caller may run', () => {
+    renderAgents(
+      VIEWER_SCOPES,
+      AGENT_ROWS.map((a, i) => ({ ...a, canRun: i === 0 })),
+    );
+    expect(screen.getAllByRole('button', { name: /^run$/i })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: /new run/i })).toBeInTheDocument();
+  });
+
+  it('offers New Agent to a delegated-only creator', () => {
+    renderAgents([...VIEWER_SCOPES, 'agents:types:delegated:write']);
+    expect(screen.getByRole('button', { name: /new agent/i })).toBeInTheDocument();
+  });
+
+  it('keeps the agents on screen when the runs are refused', () => {
+    renderAgents(VIEWER_SCOPES, AGENT_ROWS, 'You do not have access to runs.');
+    expect(screen.getAllByText(AGENT_ROWS[0].name).length).toBeGreaterThan(0);
+    expect(screen.getByText('You do not have access to runs.')).toBeInTheDocument();
+  });
+});

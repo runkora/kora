@@ -25,6 +25,8 @@ export interface AgentsStateShape {
   runStats: AgentRunStats | null;
   status: LoadStatus;
   error: string | null;
+  /** Why the runs could not be read. The agents still show. */
+  runsError: string | null;
   refresh: () => Promise<void>;
 }
 
@@ -33,6 +35,7 @@ export function useAgents(
   initialLiveRuns: RunRow[],
   initialRunStats: AgentRunStats | null,
   initialError: string | null,
+  initialRunsError: string | null = null,
 ): AgentsStateShape {
   const [agentTypes, setAgentTypes] = useState<AgentTypeRow[]>(initialAgentTypes);
   const [liveRuns, setLiveRuns] = useState<RunRow[]>(initialLiveRuns);
@@ -41,6 +44,7 @@ export function useAgents(
     initialError ? 'error' : initialAgentTypes.length > 0 ? 'success' : 'idle',
   );
   const [error, setError] = useState<string | null>(initialError);
+  const [runsError, setRunsError] = useState<string | null>(initialRunsError);
 
   const refresh = useCallback(async () => {
     setStatus('loading');
@@ -64,9 +68,10 @@ export function useAgents(
       setLiveRuns(runsResult.data);
       setRunStats(statsResult.data);
     }
+    setRunsError(runsResult.error);
 
     setStatus('success');
   }, []);
 
-  return { agentTypes, liveRuns, runStats, status, error, refresh };
+  return { agentTypes, liveRuns, runStats, status, error, runsError, refresh };
 }

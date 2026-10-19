@@ -20,8 +20,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@runkora/lib/permissions';
+import { useHasScope } from '../../../_components/permissions-provider';
 import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import {
   upsertTenantBudgetAction,
@@ -35,8 +34,7 @@ interface TenantCapCardProps {
 
 export function TenantCapCard({ cap }: TenantCapCardProps) {
   const router = useRouter();
-  const { scopes: sessionScopes } = usePermissions();
-  const canWrite = hasScope(sessionScopes, 'platform:budgets:write');
+  const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState(false);
 
   const pct = cap && cap.limit_usd > 0 ? (cap.spend_usd / cap.limit_usd) * 100 : 0;

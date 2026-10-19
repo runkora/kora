@@ -401,6 +401,10 @@ export interface AgentType {
   budget?: AgentBudget;
   /** Attached environments. None means the agent runs on the kora base image. */
   environments?: AgentEnvironment[];
+  /** Whether the caller may start a run of this agent. Set on reads. */
+  can_run?: boolean;
+  /** Whether the caller may change or delete this agent. Set on reads. */
+  can_edit?: boolean;
 }
 
 /**
@@ -898,6 +902,8 @@ export interface Trigger {
   enabled: boolean;
   created_at: string;
   updated_at: string;
+  /** Whether the caller may fire this trigger. Set on reads. */
+  can_fire?: boolean;
 
   /** Admission control: concurrency ceiling and what happens beyond it. */
   max_parallel?: number;

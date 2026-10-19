@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { renderWithProviders } from '@runkora/test-utils';
 
 // The drawer reads the source's schema catalogue from the API.
 const api = vi.hoisted(() => ({
@@ -56,7 +57,7 @@ const SOURCES: SourceRow[] = [
 ];
 
 function renderDrawer(row: TriggerRow, onEdit?: () => Promise<string | null>) {
-  return render(
+  return renderWithProviders(
     <TriggerDrawer
       trigger={row}
       sources={SOURCES}
@@ -337,7 +338,7 @@ describe('schedule editing', () => {
 
 describe('read-only callers', () => {
   it('offers no edit affordances without onEdit', () => {
-    render(
+    renderWithProviders(
       <TriggerDrawer
         trigger={trigger({
           kind: 'scheduled',
@@ -359,7 +360,7 @@ describe('read-only callers', () => {
 describe('ephemeral state is scoped to the open trigger', () => {
   it('does not carry a rotated secret from one trigger into the next', async () => {
     const onRotateSecret = vi.fn().mockResolvedValue('secret-for-A');
-    const { rerender } = render(
+    const { rerender } = renderWithProviders(
       <TriggerDrawer
         trigger={trigger({ id: 'trg-A', name: 'trigger-a' })}
         sources={SOURCES}
@@ -397,5 +398,51 @@ describe('ephemeral state is scoped to the open trigger', () => {
     expect(screen.queryByText('secret-for-A')).toBeNull();
     expect(screen.getByText('shown once at creation')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Rotate' })).toBeTruthy();
+  });
+});
+
+describe('permissions', () => {
+  function renderWith(scopes: string[], row: TriggerRow) {
+    return renderWithProviders(
+      <TriggerDrawer
+        trigger={row}
+        sources={SOURCES}
+        deliveries={[]}
+        ingestHost="orbit.local.clearroute.io:8443"
+        onClose={vi.fn()}
+        onToggleEnabled={vi.fn()}
+        onDelete={vi.fn()}
+        onEdit={vi.fn().mockResolvedValue(null)}
+        onFire={vi.fn()}
+      />,
+      { scopes },
+    );
+  }
+  const manual = (canFire: boolean) => trigger({ kind: 'manual', canFire });
+  const scheduled = trigger({
+    kind: 'scheduled',
+    scheduleConfig: { cronExpression: '0 2 * * *', timezone: 'UTC', catchUp: false },
+  });
+
+  it('offers Run now only when the API says the caller may fire', () => {
+    renderWith(['triggers:read'], manual(true));
+    expect(screen.getByRole('button', { name: 'Run now' })).toBeTruthy();
+  });
+
+  it('hides Run now without fire access, even with triggers:write', () => {
+    renderWith(['triggers:read', 'triggers:write'], manual(false));
+    expect(screen.queryByRole('button', { name: 'Run now' })).toBeNull();
+  });
+
+  it('disables the enable switch and drops edits for a read-only caller', () => {
+    renderWith(['triggers:read'], scheduled);
+    expect(screen.getByRole('switch')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull();
+  });
+
+  it('keeps the switch and edits for a caller with triggers:write', () => {
+    renderWith(['triggers:read', 'triggers:write'], scheduled);
+    expect(screen.getByRole('switch')).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy();
   });
 });

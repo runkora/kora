@@ -120,9 +120,22 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
 
   return (
     <Stack direction="horizontal" gap="relaxed" align="start">
-      <ConfigurationRail active={active} onSelect={setActive} updatedAt={agent.updatedAt} />
+      <ConfigurationRail
+        active={active}
+        onSelect={setActive}
+        updatedAt={agent.updatedAt}
+        canEdit={agent.canEdit}
+      />
 
       <Stack grow gap="relaxed">
+        {!agent.canEdit && (
+          <Alert variant="info">
+            <Text size="caption">
+              You can view this agent but not change it. Changes need the agents:types:
+              {agent.identityMode}:write scope.
+            </Text>
+          </Alert>
+        )}
         {/* ── Identity ─────────────────────────────────────────────────────── */}
         {active === 'identity' && (
           <Stack gap="relaxed">
@@ -311,7 +324,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
         )}
 
         {/* ── Danger zone ──────────────────────────────────────────────────── */}
-        {active === 'danger' && (
+        {active === 'danger' && agent.canEdit && (
           <Stack gap="relaxed">
             <SectionHeading
               icon="triangle-alert"
@@ -341,7 +354,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
       </Stack>
 
       <SaveBar
-        visible={cfg.isDirty}
+        visible={agent.canEdit && cfg.isDirty}
         saving={cfg.saving}
         success={cfg.saveSuccess}
         error={cfg.saveError}

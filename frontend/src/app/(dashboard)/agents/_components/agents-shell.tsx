@@ -12,6 +12,8 @@ interface AgentsShellProps {
   initialLiveRuns: RunRow[];
   initialRunStats: AgentRunStats | null;
   initialError: string | null;
+  /** Why the runs could not be read, when the agents could. */
+  initialRunsError?: string | null;
   /** The 7-day insights the server render fetched. */
   initialInsights?: AgentInsightsResponse | null;
 }
@@ -21,6 +23,7 @@ export function AgentsShell({
   initialLiveRuns,
   initialRunStats,
   initialError,
+  initialRunsError = null,
   initialInsights,
 }: AgentsShellProps) {
   return (
@@ -29,6 +32,7 @@ export function AgentsShell({
       initialLiveRuns={initialLiveRuns}
       initialRunStats={initialRunStats}
       initialError={initialError}
+      initialRunsError={initialRunsError}
     >
       <AgentsPage {...(initialInsights ? { initialInsights } : {})} />
     </AgentsProvider>

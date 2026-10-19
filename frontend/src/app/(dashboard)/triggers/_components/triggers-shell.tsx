@@ -10,6 +10,7 @@ interface TriggersShellProps {
   triggers: TriggerRow[];
   deliveries: DeliveryRow[];
   agents: AgentOption[];
+  agentsError?: string | null;
   initialError: string | null;
 }
 
@@ -18,6 +19,7 @@ export function TriggersShell({
   triggers,
   deliveries,
   agents,
+  agentsError = null,
   initialError,
 }: TriggersShellProps) {
   return (
@@ -26,6 +28,7 @@ export function TriggersShell({
       triggers={triggers}
       deliveries={deliveries}
       agents={agents}
+      agentsError={agentsError}
       error={initialError}
     />
   );

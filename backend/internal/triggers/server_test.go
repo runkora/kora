@@ -643,6 +643,39 @@ func TestHandleFireTrigger_AllowedWithPerTriggerScope(t *testing.T) {
 	}
 }
 
+func TestTriggerReads_CanFire(t *testing.T) {
+	tests := []struct {
+		name    string
+		allow   bool
+		evalErr error
+		want    bool
+	}{
+		{"fire scope held", true, nil, true},
+		{"fire scope missing", false, nil, false},
+		{"evaluator error reads as no", true, errors.New("bundle unavailable"), false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _, deps, _ := newFireController(t, tc.allow, tc.evalErr)
+			src := mustSource(t, deps.sources)
+			trig := mustTrigger(t, deps.triggers, src.ID, nil, "p")
+
+			w := call(t, c.handleListTriggers, http.MethodGet, "/triggers", nil, nil)
+			list := decode[struct {
+				Triggers []Trigger `json:"triggers"`
+			}](t, w)
+			if len(list.Triggers) != 1 || list.Triggers[0].CanFire != tc.want {
+				t.Errorf("list can_fire = %+v, want %v", list.Triggers, tc.want)
+			}
+
+			w = call(t, c.handleGetTrigger, http.MethodGet, "/triggers/"+trig.ID, map[string]string{"id": trig.ID}, nil)
+			if got := decode[Trigger](t, w); got.CanFire != tc.want {
+				t.Errorf("get can_fire = %v, want %v", got.CanFire, tc.want)
+			}
+		})
+	}
+}
+
 func TestHandleProviderEventTypes(t *testing.T) {
 	c, _, _ := newTestController(t)
 

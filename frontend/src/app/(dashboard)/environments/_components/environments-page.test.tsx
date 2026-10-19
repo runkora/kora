@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, screen, within } from '@testing-library/react';
+import { renderWithProviders } from '@runkora/test-utils';
 import { EnvironmentsPage } from './environments-page';
 import type { EnvironmentRow } from '../_types';
 
@@ -47,7 +48,7 @@ const IMAGES = [
 
 describe('EnvironmentsPage', () => {
   it('shows each image, its validity and the size', () => {
-    render(
+    renderWithProviders(
       <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
     );
     expect(screen.getByText('acme-go')).toBeInTheDocument();
@@ -56,8 +57,20 @@ describe('EnvironmentsPage', () => {
     expect(screen.getAllByText('2 CPU · 4Gi memory · 10Gi disk')).toHaveLength(3);
   });
 
+  it.each([
+    [['agents:environments:read'], false],
+    [['agents:environments:read', 'agents:environments:write'], true],
+  ])('with %j shows write controls: %s', (scopes, shown) => {
+    renderWithProviders(
+      <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
+      { scopes },
+    );
+    expect(!!screen.queryByRole('button', { name: /new environment/i })).toBe(shown);
+    expect(!!screen.queryByRole('button', { name: `Delete ${ROWS[0]!.name}` })).toBe(shown);
+  });
+
   it('shows each slug under its name', () => {
-    render(
+    renderWithProviders(
       <EnvironmentsPage
         rows={[{ ...ROWS[0]!, slug: 'go-services' }]}
         connections={[]}
@@ -72,7 +85,7 @@ describe('EnvironmentsPage', () => {
 
   it('refreshes after deleting an unattached environment', async () => {
     deleteEnvironment.mockResolvedValue({ error: null });
-    render(
+    renderWithProviders(
       <EnvironmentsPage rows={ROWS} connections={[]} images={IMAGES} sizes={null} error={null} />,
     );
     fireEvent.click(screen.getByLabelText('Delete Plain'));

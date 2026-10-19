@@ -3,6 +3,7 @@
 // All functions call the BFF routes added in Plan 2. Never throws — callers
 // pattern-match on the returned `error` field.
 
+import { loadErrorMessage } from '@runkora/lib/load-error';
 import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   AgentInsightsPeriod,
@@ -34,11 +35,8 @@ export async function fetchAgentTypes(): Promise<{ data: AgentTypeRow[]; error: 
     return { data: [], error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      data: [],
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    return { data: [], error: loadErrorMessage(res.status, 'agents', body.message) };
   }
   const body = (await res.json()) as { data: AgentType[] };
   return { data: (body.data ?? []).map(toAgentTypeRow), error: null };
@@ -108,11 +106,11 @@ export async function fetchRunPage(
     return { data: [], nextCursor: null, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
     return {
       data: [],
       nextCursor: null,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
+      error: loadErrorMessage(res.status, 'runs', body.message),
     };
   }
   const body = (await res.json()) as RunsPageResponse;
@@ -329,6 +327,7 @@ async function fetchCatalogue<T>(
   url: string,
   extract: (body: unknown) => T,
   empty: T,
+  subject: string,
 ): Promise<{ data: T; error: string | null }> {
   let res: Response;
   try {
@@ -337,11 +336,8 @@ async function fetchCatalogue<T>(
     return { data: empty, error: 'Network error: could not reach the server.' };
   }
   if (!res.ok) {
-    const body = await res.json().catch(() => ({}) as { message?: string });
-    return {
-      data: empty,
-      error: (body as { message?: string }).message ?? `Request failed (${res.status})`,
-    };
+    const body = (await res.json().catch(() => ({}))) as { message?: string };
+    return { data: empty, error: loadErrorMessage(res.status, subject, body.message) };
   }
   const body = (await res.json()) as unknown;
   return { data: extract(body), error: null };
@@ -357,6 +353,7 @@ export function fetchModels(): Promise<{ data: ModelObject[]; error: string | nu
         (m) => m.status === 'available' && m.capabilities.includes('chat'),
       ),
     [],
+    'models',
   );
 }
 
@@ -368,6 +365,7 @@ export function fetchConnections(): Promise<{
     ApiRoute.agentTypes.connectors(),
     (b) => (b as { data?: ConnectionCatalogEntry[] }).data ?? [],
     [],
+    'connections',
   );
 }
 
@@ -382,6 +380,7 @@ export function fetchMcpCatalogue(): Promise<{
       return { servers: body.servers ?? [], catalog: body.catalog ?? [] };
     },
     { servers: [], catalog: [] },
+    'MCP tools',
   );
 }
 
@@ -390,5 +389,6 @@ export function fetchEnvironments(): Promise<{ data: Environment[]; error: strin
     ApiRoute.environments.list(),
     (b) => (b as { data?: Environment[] }).data ?? [],
     [],
+    'environments',
   );
 }

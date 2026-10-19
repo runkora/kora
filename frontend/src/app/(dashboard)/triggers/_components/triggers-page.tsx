@@ -34,12 +34,14 @@ import { DeliveryGrid } from './delivery-grid';
 import { matchesStatusFilter } from '../_types';
 import { ingestHostFromWindow } from '../_lib/endpoints';
 import type { AgentOption, DeliveryRow, SourceRow, TriggerKind, TriggerRow } from '../_types';
+import { useHasScope } from '../../_components/permissions-provider';
 
 interface TriggersPageProps {
   sources: SourceRow[];
   triggers: TriggerRow[];
   deliveries: DeliveryRow[];
   agents: AgentOption[];
+  agentsError?: string | null;
   error: string | null;
 }
 
@@ -54,8 +56,16 @@ const DELIVERY_STATUS_OPTIONS = [
   { value: 'missed', label: 'Missed' },
 ];
 
-export function TriggersPage({ sources, triggers, deliveries, agents, error }: TriggersPageProps) {
+export function TriggersPage({
+  sources,
+  triggers,
+  deliveries,
+  agents,
+  agentsError = null,
+  error,
+}: TriggersPageProps) {
   const router = useRouter();
+  const canWrite = useHasScope('triggers:write');
   const ingestHost = ingestHostFromWindow();
 
   const sourceName = useMemo(() => {
@@ -207,10 +217,12 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
                 />
               }
               toolbarActions={
-                <Button size="sm" onClick={() => setWizardOpen(true)}>
-                  <Icon name="plus" size="xs" />
-                  New trigger
-                </Button>
+                canWrite && (
+                  <Button size="sm" onClick={() => setWizardOpen(true)}>
+                    <Icon name="plus" size="xs" />
+                    New trigger
+                  </Button>
+                )
               }
               resetKey={kindFilter}
               triggers={visibleTriggers}
@@ -302,6 +314,7 @@ export function TriggersPage({ sources, triggers, deliveries, agents, error }: T
       {wizardOpen && (
         <TriggerWizard
           agents={agents}
+          agentsError={agentsError}
           sources={formSources.map((f) => ({
             ...f,
             provider: sources.find((x) => x.id === f.id)?.provider ?? 'github',

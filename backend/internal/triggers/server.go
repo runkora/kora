@@ -289,7 +289,16 @@ func (c *Controller) handleListTriggers(w http.ResponseWriter, r *http.Request) 
 		c.writeServiceError(w, r, err)
 		return
 	}
+	for i := range triggers {
+		c.setCanFire(ctx, &triggers[i])
+	}
 	api.JSON(ctx, w, c.logger, http.StatusOK, map[string]any{"triggers": triggers})
+}
+
+// setCanFire records whether the caller passes authorizeFire for t. Any refusal
+// or evaluator error reads as false.
+func (c *Controller) setCanFire(ctx context.Context, t *Trigger) {
+	t.CanFire = c.authorizeFire(ctx, t.ID) == nil
 }
 
 func (c *Controller) handleGetTrigger(w http.ResponseWriter, r *http.Request) {
@@ -299,6 +308,7 @@ func (c *Controller) handleGetTrigger(w http.ResponseWriter, r *http.Request) {
 		c.writeServiceError(w, r, err)
 		return
 	}
+	c.setCanFire(ctx, t)
 	api.JSON(ctx, w, c.logger, http.StatusOK, t)
 }
 

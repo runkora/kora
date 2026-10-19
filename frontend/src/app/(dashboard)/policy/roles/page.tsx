@@ -1,4 +1,5 @@
 import { getSession, isSessionValid } from '@runkora/server/session';
+import { loadErrorMessage } from '@runkora/lib/load-error';
 import { fetchRoles, fetchVocabulary } from '../_services/policy-server';
 import { RolesTab } from '../_components/roles-tab';
 
@@ -15,7 +16,12 @@ export default async function RolesPage() {
 
   const roles = rolesResult.ok ? (rolesResult.data.roles ?? []) : [];
   const scopes = vocabResult.ok ? (vocabResult.data.scopes ?? []).map((s) => s.scope) : [];
-  const error = !rolesResult.ok ? rolesResult.message : null;
+  // The vocabulary needs platform:grants:read, which a roles-only admin may lack.
+  const error = !rolesResult.ok
+    ? loadErrorMessage(rolesResult.status, 'roles')
+    : !vocabResult.ok
+      ? loadErrorMessage(vocabResult.status, 'the scope vocabulary')
+      : null;
 
   return <RolesTab initialRoles={roles} availableScopes={scopes} initialError={error} />;
 }

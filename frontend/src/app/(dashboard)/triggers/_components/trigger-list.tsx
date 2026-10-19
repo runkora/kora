@@ -17,6 +17,7 @@ import { KIND_ICON, relativeTime } from '../_types';
 import type { DeliveryRow, TriggerRow } from '../_types';
 import { lastFired, recentFailures, sparkline } from '../_types/fleet';
 import { DEFAULT_PAGE_SIZE, PAGE_SIZES } from '../_types/pagination';
+import { useHasScope } from '../../_components/permissions-provider';
 
 // ── View-model type ───────────────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ function firesOn(t: TriggerRow): string {
 function makeColumns(
   sourceName: (id: string) => string,
   onToggle: (t: TriggerRow) => void,
+  canWrite: boolean,
 ): DataTableColumn<TriggerDisplayRow>[] {
   return [
     {
@@ -172,6 +174,7 @@ function makeColumns(
           <Toggle
             checked={row.enabled}
             onChange={() => onToggle(row)}
+            disabled={!canWrite}
             aria-label={`${row.enabled ? 'Disable' : 'Enable'} ${row.name}`}
           />
         </Stack>
@@ -244,7 +247,11 @@ export function TriggerList({
     [triggers, deliveries],
   );
 
-  const columns = useMemo(() => makeColumns(sourceName, onToggle), [sourceName, onToggle]);
+  const canWrite = useHasScope('triggers:write');
+  const columns = useMemo(
+    () => makeColumns(sourceName, onToggle, canWrite),
+    [sourceName, onToggle, canWrite],
+  );
 
   return (
     <DataTable
