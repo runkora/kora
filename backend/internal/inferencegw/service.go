@@ -893,7 +893,7 @@ func (s *Service) checkBudget(ctx context.Context, p principal) (context.Context
 
 	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {
-		s.logger.Warn(ctx, "budget.fail_open",
+		s.logger.Error(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: p.PrincipalID},
@@ -991,7 +991,7 @@ func (s *Service) GetPersonalBudget(ctx context.Context, tenantID, principalID s
 
 	spends, err := s.budgetCounter.GetSpends(ctx, scopes)
 	if err != nil {
-		s.logger.Warn(ctx, "budget.fail_open",
+		s.logger.Error(ctx, "budget.fail_open",
 			logging.Field{Key: "reason", Value: "spend counter get failed"},
 			logging.Field{Key: "error", Value: err.Error()},
 			logging.Field{Key: "principal_id", Value: principalID},

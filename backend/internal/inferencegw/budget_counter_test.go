@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
+	"github.com/runkora/kora/backend/internal/platform/storage"
 	"github.com/runkora/kora/backend/internal/platform/usagewindow"
 )
 
@@ -439,5 +440,15 @@ func TestIncrementSpends_ExpireError_NonFatal(t *testing.T) {
 
 	if err := c.IncrementSpends(context.Background(), SpendScopes{TenantID: "t1", PrincipalID: "pid-1"}, nil, 0.5); err != nil {
 		t.Errorf("Expire error should not propagate, got: %v", err)
+	}
+}
+
+// While Redis is unreachable GetSpends fails fast without touching Redis.
+func TestGetSpends_RedisUnavailable(t *testing.T) {
+	c := newBudgetCounter(nil, &stubUsageRepo{})
+	c.available = func() bool { return false }
+	_, err := c.GetSpends(context.Background(), SpendScopes{PrincipalID: "p-1", TenantID: "t-1", PrincipalWindows: []string{"monthly"}})
+	if !errors.Is(err, storage.ErrRedisUnavailable) {
+		t.Fatalf("err = %v, want ErrRedisUnavailable", err)
 	}
 }

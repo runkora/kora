@@ -111,10 +111,9 @@ func TestHandleCreateDelegation_SubjectTokenRefusals(t *testing.T) {
 	}
 }
 
-// A blocklist backend error on the subject-token path fails closed: the mint
-// refuses rather than accept a token it cannot confirm is unrevoked (ADR
-// Decision 3, fail-closed).
-func TestHandleCreateDelegation_SubjectTokenFailsClosedOnBlocklistError(t *testing.T) {
+// A blocklist backend error on the subject-token path fails open: the mint goes
+// ahead, as every other blocklist lookup does while Redis is unavailable.
+func TestHandleCreateDelegation_SubjectTokenFailsOpenOnBlocklistError(t *testing.T) {
 	c, svc, delegations, blocklist := newDelegationTestController(t)
 
 	subject := signSubjectToken(t, svc, &Principal{
@@ -131,11 +130,11 @@ func TestHandleCreateDelegation_SubjectTokenFailsClosedOnBlocklistError(t *testi
 		SubjectToken:     subject,
 	})
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status = %d, want 401; body: %s", w.Code, w.Body.String())
+	if w.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body: %s", w.Code, w.Body.String())
 	}
-	if len(delegations.byJTI) != 0 {
-		t.Errorf("no issuance should be persisted when the blocklist check fails, found %d", len(delegations.byJTI))
+	if len(delegations.byJTI) != 1 {
+		t.Errorf("one issuance should be persisted when the blocklist is unavailable, found %d", len(delegations.byJTI))
 	}
 }
 
