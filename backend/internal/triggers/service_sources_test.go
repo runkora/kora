@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"testing"
 )
@@ -248,5 +249,19 @@ func TestUpdateSource_RunAccess(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// An agent the caller cannot see refuses a rotation as forbidden; the caller named a source, not the agent.
+func TestUpdateSource_UnreadableAgentIsForbidden(t *testing.T) {
+	_, deps := newTestService(t)
+	src := mustSource(t, deps.sources)
+	mustWebhookTrigger(t, deps.triggers, src.ID, "on-source", true)
+	deps.agents.callerStatus = http.StatusNotFound
+
+	_, err := deps.sources.UpdateSource(context.Background(), testTenant, src.ID, UpdateSourceRequest{RotateSecret: true})
+
+	if !errors.Is(err, ErrBindForbidden) {
+		t.Fatalf("got %v, want ErrBindForbidden", err)
 	}
 }

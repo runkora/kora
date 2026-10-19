@@ -116,16 +116,23 @@ func refuseDelegatedBinding(at *agentsclient.AgentType, tenantID, agentTypeID st
 func requireRunAuthority(ctx context.Context, agents agentTypeReader, agentTypeID string) (*agentsclient.AgentType, error) {
 	at, err := agents.GetAgentType(ctx, callerBearer(ctx), agentTypeID)
 	switch {
-	case errors.Is(err, agentsclient.ErrAgentTypeNotFound):
-		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
-	case errors.Is(err, agentsclient.ErrForbidden):
-		return nil, fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
+	case errors.Is(err, agentsclient.ErrAgentTypeNotFound), errors.Is(err, agentsclient.ErrForbidden):
+		return nil, fmt.Errorf("%w: agent type %q: %w", ErrBindForbidden, agentTypeID, err)
 	case err != nil:
 		return nil, fmt.Errorf("check run access: %w", err)
 	case !at.CanRun:
 		return nil, fmt.Errorf("%w: agent type %q", ErrBindForbidden, agentTypeID)
 	}
 	return &at, nil
+}
+
+// bindTarget reads the agent a new trigger binds. An agent the caller cannot see reads as not found, as orbit-agents answers.
+func bindTarget(ctx context.Context, agents agentTypeReader, agentTypeID string) (*agentsclient.AgentType, error) {
+	at, err := requireRunAuthority(ctx, agents, agentTypeID)
+	if errors.Is(err, agentsclient.ErrAgentTypeNotFound) {
+		return nil, fmt.Errorf("%w: agent type %q not found in this tenant", ErrValidation, agentTypeID)
+	}
+	return at, err
 }
 
 // matchableLister lists the triggers a delivery on a source could start.
@@ -183,7 +190,7 @@ func (s *TriggerService) createWebhookTrigger(ctx context.Context, tenantID stri
 		return nil, err
 	}
 
-	at, err := requireRunAuthority(ctx, s.agents, req.AgentTypeID)
+	at, err := bindTarget(ctx, s.agents, req.AgentTypeID)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +283,7 @@ func (s *TriggerService) createOwnedTrigger(ctx context.Context, tenantID string
 	}
 	grants = append(grants, svcGrantID)
 
-	at, err := requireRunAuthority(ctx, s.agents, req.AgentTypeID)
+	at, err := bindTarget(ctx, s.agents, req.AgentTypeID)
 	if err != nil {
 		return nil, err
 	}
