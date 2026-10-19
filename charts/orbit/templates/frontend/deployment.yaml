@@ -1,3 +1,4 @@
+{{- $theme := include "orbit.themeEnabled" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -20,6 +21,10 @@ spec:
       annotations:
         {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/frontend/configmap.yaml") . | sha256sum }}
+        {{- if $theme }}
+        # Roll the pod when the theme document changes.
+        checksum/theme: {{ include (print $.Template.BasePath "/frontend/theme-configmap.yaml") . | sha256sum }}
+        {{- end }}
         {{- include "orbit.podAnnotations" (dict "root" $ "name" "frontend") | nindent 8 }}
     spec:
       serviceAccountName: orbit-frontend
@@ -29,7 +34,27 @@ spec:
         {{- include "orbit.podSecurityContext" (dict "uid" 65532) | nindent 8 }}
       volumes:
         {{- include "orbit.spireVolumes" . | nindent 8 }}
+        {{- if $theme }}
+        - name: theme-document
+          configMap:
+            name: orbit-frontend-theme
+        {{- end }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "frontend") | nindent 8 }}
+      {{- if $theme }}
+      # Validates the document against this image's kora release. It fetches no URL.
+      # A fault stalls the rollout, the old pods keep serving, and the reason is in this log.
+      initContainers:
+        - name: validate-theme
+          image: {{ include "orbit.image" (dict "root" $ "name" "frontend") | quote }}
+          imagePullPolicy: {{ include "orbit.imagePullPolicy" (dict "root" $ "name" "frontend") }}
+          command: ["node", "/app/validate-theme.mjs", "/etc/orbit/theme/theme.yaml"]
+          securityContext:
+            {{- include "orbit.containerSecurityContext" (dict "readOnlyRootFilesystem" true) | nindent 12 }}
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            {{- include "orbit.themeVolumeMounts" . | nindent 12 }}
+      {{- end }}
       containers:
         - name: orbit-frontend
           image: {{ include "orbit.image" (dict "root" $ "name" "frontend") | quote }}
@@ -67,4 +92,7 @@ spec:
             {{- toYaml .Values.frontend.resources | nindent 12 }}
           volumeMounts:
             {{- include "orbit.spireVolumeMount" . | nindent 12 }}
+            {{- if $theme }}
+            {{- include "orbit.themeVolumeMounts" . | nindent 12 }}
+            {{- end }}
             {{- include "orbit.extraVolumeMounts" (dict "root" $ "name" "frontend") | nindent 12 }}

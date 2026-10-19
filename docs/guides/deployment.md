@@ -395,6 +395,73 @@ An external collector is the one external address an agent can reach. On a share
 
 Point your service mesh's own telemetry at the same collector to get the mesh hop and the application span in one trace.
 
+## White-labelling theme
+
+A deployment can carry one theme: the product name, the colours and the identity assets a client's people see in place of kora's ([white-labelling theme](../adr/2026-10-12-white-labelling-theme.md)). A theme is one document, `theme.yaml`, written against a kora release, whose manifest and `theme.schema.json` are attached to that release on GitHub. The document's `koraVersion` must be a quoted `MAJOR.MINOR.PATCH` string such as `"1.4.0"`, and the instance accepts a theme written against its own major, so a theme is reissued on each major; the chart also fails the render when `productName` is outside the Hades product-name bounds, before any workload rolls. The frontend validates the document before any page serves. Without a theme the chart renders exactly as before, and a theme needs nothing from the cluster beyond the chart value below.
+
+### Assets
+
+The logo, the favicon and the fonts are not part of the chart. The document's `slots` hold their `https://` URLs, and the visitor's browser loads them from there:
+
+```yaml
+koraVersion: "1.4.0"
+productName: Acme Agents
+slots:
+  logo:
+    dark: https://assets.acme.example/brand/2026-10/logo-dark.svg
+    light: https://assets.acme.example/brand/2026-10/logo-light.svg
+  favicon:
+    dark: https://assets.acme.example/brand/2026-10/favicon.svg
+  font.sans: https://assets.acme.example/brand/2026-10/inter.woff2
+```
+
+Host them anywhere the browsers of your users can reach over HTTPS, such as an object store behind a CDN. The instance serves none of them, and a theme never forces an asset into a git repository. What the validator checks is the form of each URL: `https`, a plain host, no credentials, no fragment, at most 2048 characters, and a path that ends in the slot's extension (`.svg` for the logo and favicon, `.woff2` for a font). It never fetches a URL and never looks at the file, so:
+
+- A file that is missing, the wrong type or too large shows as a broken image or the fallback font, and nothing at deploy catches it. Check the pages after a rollout.
+- A font host must send `Access-Control-Allow-Origin` for your frontend's origin, because browsers fetch fonts with CORS. Without it the font does not load and the kora font stays.
+- A file replaced at an unchanged URL is served stale from browser and CDN caches. Give a replaced file a new URL, as the dated path above does.
+- An air-gapped installation must host the assets on a host its users' browsers can reach.
+- Every visitor's browser, including an unauthenticated one on the login page, contacts the asset host.
+
+### Configure the chart
+
+The chart takes the document itself, passed as a file, so the committed `theme.yaml` is the one thing you edit:
+
+```bash
+helm upgrade --install orbit oci://ghcr.io/clear-route/charts/orbit \
+  --namespace orbit-system \
+  --values orbit.yaml \
+  --set-file theme.document=theme.yaml
+```
+
+Under Argo CD, `fileParameters` is the `--set-file` equivalent. With the reference app-of-apps, where the chart and the values are separate sources, the path starts with the values source's `ref`, as `valueFiles` does:
+
+```yaml
+helm:
+  valueFiles:
+    - $values/orbit.yaml
+  fileParameters:
+    - name: theme.document
+      path: $values/theme.yaml
+```
+
+The chart renders the document into a ConfigMap for the frontend and reads `productName` from it into the config of the services that produce text a client's people or agents read. A document that is not YAML fails the render with a message that names the fault.
+
+### Roll out a theme
+
+A theme change is a values change: a changed document, rolled out by the standard rolling update and rolled back by a revert. The frontend pod mounts the document read-only at `/etc/orbit/theme/theme.yaml` and runs a `validate-theme` init container before the application starts. It validates the document against the kora release the image is (a theme of the same major passes). A fault stops the pod there: the rollout stalls, the previous pods keep serving, and under Argo CD the Application goes Degraded once the Deployment's progress deadline passes.
+
+When a rollout stalls, read the init container's log on the new pod:
+
+```bash
+kubectl get pods -n orbit-system -l app=orbit-frontend
+kubectl logs -n orbit-system <pod> -c validate-theme
+```
+
+It prints every fault, or, on success, every entry this version ignores and every identity value left at the kora default.
+
+A theme that sets some identity values and leaves others at the kora default shows visitors a mix of two brands, such as your product name beside the kora logo. The init container and the frontend's startup log say so with a `warning:` line that names the values still showing kora. A theme that sets none of them, such as colours or fonts only, is not warned about, and neither is one that sets all of them. The warning does not fail the rollout.
+
 ## Run behind an existing gateway
 
 By default kora creates its own ingress gateway. Set `gateway.create: false` to front kora with an Istio gateway you already operate. kora then renders no `Gateway` resource, and binds its `VirtualService`s to the provided gateway.
@@ -513,3 +580,4 @@ A failed migration fails the upgrade before any workload changes. Under Helm the
 - [Enforcement sidecar injection and preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md): how kora injects its sidecars and runs preflight on the mesh before install.
 - [Service mesh and network enforcement](../adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md): the mesh and NetworkPolicy enforcement the platform runs on.
 - [Manifest patches](../adr/2026-09-15-manifest-patches-configmap.md): how operators patch the resources orbit-agents provisions in tenant namespaces.
+- [White-labelling theme](../adr/2026-10-12-white-labelling-theme.md): how a theme reaches a deployment, and where it is validated.

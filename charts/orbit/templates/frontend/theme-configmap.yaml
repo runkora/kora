@@ -1,0 +1,13 @@
+{{- if include "orbit.themeEnabled" . }}
+# The theme document the frontend pod mounts and its init container validates.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: orbit-frontend-theme
+  namespace: {{ include "orbit.systemNamespace" . }}
+  labels:
+    {{- include "orbit.frontend.labels" . | nindent 4 }}
+data:
+  theme.yaml: |
+    {{- .Values.theme.document | nindent 4 }}
+{{- end }}

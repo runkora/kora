@@ -84,6 +84,12 @@ frontendHost: ""
 # Canonical (api.) host first. Empty disables validation.
 publicHosts: []
 
+# The white-labelling theme. Empty means the kora default.
+# Slots hold https URLs the browser loads. The init container validates them but never fetches.
+theme:
+  # -- The full theme.yaml as one string, passed with `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. Slot URLs must be https and a font host must send Access-Control-Allow-Origin. The chart also reads productName for the backend and fails the render if it is outside the Hades product-name bounds.
+  document: ""
+
 # Postgres and Redis endpoints rendered into each service's storage config
 # file, and the name of the Secret every service reads.
 config:

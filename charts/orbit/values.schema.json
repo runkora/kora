@@ -92,6 +92,14 @@
         "type": "string"
       }
     },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "document": {
+          "type": "string"
+        }
+      }
+    },
     "config": {
       "type": "object",
       "required": [

@@ -1,0 +1,5 @@
+# A product name carrying markup, outside the Hades product-name bounds.
+theme:
+  document: |
+    koraVersion: "1.0.0"
+    productName: "<b>Acme</b>"

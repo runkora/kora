@@ -87,7 +87,7 @@ ENV NEXT_OUTPUT=standalone
 
 RUN pnpm build
 
-# Bundle the theme validator the chart's init container runs from /app/validate-theme.mjs.
+# Bundle the theme validator the chart's init container runs as /app/validate-theme.mjs.
 RUN node scripts/bundle-validate-theme.mjs
 
 # ── Stage 3: runner ───────────────────────────────────────────────────────────

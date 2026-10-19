@@ -70,5 +70,6 @@ cmd/orbit-agents:
 {{ include "orbit.observabilityConfigModule" . }}
 {{ include "orbit.storageConfigModule" . }}
 {{ include "orbit.tokenConfigModule" . }}
+{{ include "orbit.brandConfigModule" . }}
 {{- end }}
 {{- include "orbit.configMap" (dict "root" $ "name" "agents" "configMap" "orbit-agents-config" "modules" (include "orbit.agents.configModules" . | fromYaml)) }}

@@ -1,0 +1,4 @@
+# A document that is not YAML: an unclosed flow sequence.
+theme:
+  document: |
+    koraVersion: ["1.0.0"

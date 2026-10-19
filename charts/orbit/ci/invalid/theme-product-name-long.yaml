@@ -1,0 +1,5 @@
+# A product name longer than the Hades bound of 40 characters.
+theme:
+  document: |
+    koraVersion: "1.0.0"
+    productName: AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA

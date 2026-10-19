@@ -432,6 +432,64 @@ internal/platform/token:
 {{- end }}
 
 {{/*
+Brand config module: the product name, for services that write text clients read. Take the root context.
+*/}}
+{{- define "orbit.brandConfigModule" -}}
+internal/platform/brand:
+  productName: {{ include "orbit.themeProductName" . | toJson }}
+{{- end }}
+
+{{/*
+"true" when theme.document is set, empty otherwise. Take the root context.
+*/}}
+{{- define "orbit.themeEnabled" -}}
+{{- if .Values.theme.document }}true{{ end -}}
+{{- end }}
+
+{{/*
+The backend product name: productName from theme.document, trimmed, or kora if unset. Take the root context.
+Fails the render on a bad name, using the bounds in files/hades-product-name.json (`make hades-chart-rules`).
+*/}}
+{{- define "orbit.themeProductName" -}}
+{{- $name := "kora" -}}
+{{- if include "orbit.themeEnabled" . -}}
+{{- $doc := fromYaml .Values.theme.document -}}
+{{- if hasKey $doc "Error" -}}
+{{- fail (printf "theme.document does not parse as a YAML map: %s" (get $doc "Error")) -}}
+{{- end -}}
+{{- if hasKey $doc "productName" -}}
+{{- $p := get $doc "productName" -}}
+{{- if kindIs "invalid" $p -}}
+{{- fail "theme.document productName cannot be set to nothing; omit it to keep the default" -}}
+{{- end -}}
+{{- if not (kindIs "string" $p) -}}
+{{- fail (printf "theme.document productName must be a string, got %s" (kindOf $p)) -}}
+{{- end -}}
+{{- $rule := .Files.Get "files/hades-product-name.json" | fromJson -}}
+{{- $trimmed := trim $p -}}
+{{- $length := len (regexFindAll "(?s)." $trimmed -1) -}}
+{{- if or (lt $length (int $rule.minLength)) (gt $length (int $rule.maxLength)) -}}
+{{- fail (printf "theme.document productName must be %d to %d characters after trimming, got %d" (int $rule.minLength) (int $rule.maxLength) $length) -}}
+{{- end -}}
+{{- if not (regexMatch $rule.pattern $trimmed) -}}
+{{- fail (printf "theme.document productName is outside the Hades product-name bounds: it must match %s" $rule.pattern) -}}
+{{- end -}}
+{{- $name = $trimmed -}}
+{{- end -}}
+{{- end -}}
+{{- $name -}}
+{{- end }}
+
+{{/*
+Mounts the theme ConfigMap at /etc/orbit/theme. Take the root context.
+*/}}
+{{- define "orbit.themeVolumeMounts" -}}
+- name: theme-document
+  mountPath: /etc/orbit/theme
+  readOnly: true
+{{- end }}
+
+{{/*
 The policy-service bundle endpoint the in-process evaluators poll.
 */}}
 {{- define "orbit.bundleEndpoint" -}}

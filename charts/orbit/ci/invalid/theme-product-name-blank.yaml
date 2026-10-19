@@ -1,0 +1,5 @@
+# A product name that is only whitespace, empty after trimming.
+theme:
+  document: |
+    koraVersion: "1.0.0"
+    productName: "   "
