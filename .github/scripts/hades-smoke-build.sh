@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Smoke build for a packed Hades tarball: the proof that the package builds
-# outside the kora frontend. Scaffolds a minimal Vite + React + Tailwind v4
-# application in a temporary directory, installs the tarball and the peer
-# dependencies it declares, renders a page that imports tokens.css, the Button
-# component, type-checks it and runs the production build.
+# Smoke build for a packed Hades tarball. It checks that the package builds
+# outside the kora frontend.
+#
+# It scaffolds a minimal Vite, React and Tailwind v4 app in a temporary
+# directory and installs the tarball and its declared peer dependencies. The
+# page imports tokens.css and Button. The script type-checks it and runs the
+# production build.
 #
 # Usage: .github/scripts/hades-smoke-build.sh <path/to/runkora-hades-X.Y.Z.tgz>
 #
-# The release workflow runs this on every kora release tag (see the Hades
-# delivery ADR); `make hades-smoke` packs and runs it locally. It needs network access to
-# the public npm registry for Vite, React and Tailwind. The temporary directory
-# is removed on success and kept, with its path printed, on failure.
+# The release workflow runs this on every release tag. `make hades-smoke` packs
+# and runs it locally. It needs the public npm registry. The temporary
+# directory is removed on success. On failure it is kept and its path printed.
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
@@ -35,8 +36,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# The package's own manifest decides what a consumer must install: every peer
-# dependency at its declared range, nothing hard-coded here.
+# Install every peer dependency at the range the package declares.
 pkg=$(tar -xzOf "$tarball" package/package.json)
 version=$(printf '%s' "$pkg" | node -pe 'JSON.parse(require("fs").readFileSync(0, "utf8")).version')
 peers=()
@@ -104,9 +104,8 @@ cat > index.html <<'EOF'
 </html>
 EOF
 
-# tokens.css is the single Tailwind entry: it imports tailwindcss itself, so the
-# application never adds a second `@import 'tailwindcss'`. The @source makes
-# Tailwind scan the installed package for the utilities its components use.
+# tokens.css imports tailwindcss itself, so do not add a second import.
+# Tailwind skips node_modules, so @source points it at the installed package.
 cat > src/index.css <<'EOF'
 @import '@runkora/hades/src/tokens/tokens.css';
 @source '../node_modules/@runkora/hades/src';
@@ -154,8 +153,8 @@ fi
 echo "type-checking and building"
 npm run build --silent
 
-# The build only proves something if the page actually carried Hades through
-# it: the page text in the bundle and a token from tokens.css in the CSS.
+# Check that Hades reached the output: the page text in the JS and a token in
+# the CSS.
 js=$(find dist/assets -name '*.js' | head -1)
 css=$(find dist/assets -name '*.css' | head -1)
 if [ -z "$js" ] || [ -z "$css" ]; then
