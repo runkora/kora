@@ -1297,7 +1297,7 @@ check: check-versions tidy fmt vet fix lint brand-tags-check deadcode secrets do
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: brand-tags-check
-brand-tags-check: ## Fail when a struct tag in a package whose text people or agents read names the product (the part of the product-name rule ruleguard cannot match)
+brand-tags-check: ## Fail when a struct tag in a speaking package names the product (ruleguard cannot match tags)
 	@go run scripts/check-brand-tags.go && echo "$(COLOR_GREEN)✓ No product name in struct tags$(COLOR_RESET)"
 
 .PHONY: all

@@ -1046,9 +1046,9 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 // on the OS environment being scoped to the subprocess, which is the standard
 // safe approach for secrets in child processes.
 //
-// codexProvider is the Codex-internal key of the one model provider, the
-// inference gateway. It names a config table, not the product: the provider's
-// display name is the brand's.
+// codexProvider is the key Codex uses for its one model provider, the inference
+// gateway. It is a config-table key, not the product name. The provider's
+// display name comes from the brand.
 const codexProvider = "orbit"
 
 func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {

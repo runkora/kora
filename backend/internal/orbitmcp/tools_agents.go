@@ -117,10 +117,11 @@ type createAgentArgs struct {
 }
 
 // guardrailsArg is an agent type's loop-guard thresholds. Each warn is at least
-// 1 and each pause is greater than its warn; there is no off switch. The field
-// descriptions are struct tags and so cannot read the product name; they name
-// the platform's actions in the passive voice, and the tool description that
-// carries them (guardrailsDescription) names the product.
+// 1 and each pause is greater than its warn; there is no off switch.
+//
+// The field descriptions are struct tags, which cannot read the product name,
+// so they use the passive voice ("the run is paused"). guardrailsDescription
+// names the product on the tool.
 type guardrailsArg struct {
 	RepeatedCallWarn  *int `json:"repeated_call_warn,omitempty" jsonschema:"identical consecutive tool calls before the agent is warned (default 4)"`
 	RepeatedCallPause *int `json:"repeated_call_pause,omitempty" jsonschema:"identical consecutive tool calls before the run is paused; greater than repeated_call_warn (default 8)"`
@@ -128,8 +129,8 @@ type guardrailsArg struct {
 	WaitRearmPause    *int `json:"wait_rearm_pause,omitempty" jsonschema:"waits re-armed with no progress before the run is paused; greater than wait_rearm_warn (default 12)"`
 }
 
-// guardrailsDescription is the sentence on the tools that take guardrailsArg,
-// built at registration so it reads the product name.
+// guardrailsDescription is the sentence on each tool that takes guardrailsArg.
+// It is built at registration so it can name the product.
 func guardrailsDescription(product string) string {
 	return "Guardrails are the loop-guard thresholds: " + product + " warns the agent at each warn count and pauses the run at each pause count."
 }

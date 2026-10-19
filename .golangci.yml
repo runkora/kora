@@ -122,13 +122,13 @@ linters:
     #
     #   See docs/adr/0005-controller-based-http-routing.md
     #
-    # White-labelling theme (docs/adr/2026-10-12-white-labelling-theme.md)
-    #   - a prose "kora" / "orbit" string literal in a speaking package
-    #     (internal/agents, internal/orbitmcp, internal/egressgw,
-    #     internal/platform/sandboximages) — the name must come from
-    #     internal/platform/brand. Identifier-shaped literals (orbit.io,
-    #     kora-base) and arguments to logging.Logger methods are not matched.
-    #     The residual exceptions are path-scoped exclusions in this file.
+    # Product name in text people or agents read
+    #   - a prose "kora" / "orbit" string literal in internal/agents,
+    #     internal/orbitmcp, internal/egressgw or internal/platform/sandboximages.
+    #     The name must come from internal/platform/brand.
+    #     Identifier-shaped literals (orbit.io, kora-base) and arguments to
+    #     logging.Logger methods are not matched.
+    #     The remaining exceptions are path-scoped exclusions in this file.
     #
     #   See docs/adr/2026-10-12-white-labelling-theme.md
     gocritic:
@@ -361,10 +361,10 @@ linters:
         linters:
           - errcheck
           - unparam
-      # No exclusion for ruleguard's "used Run() with an empty rule set": that
-      # message appears on every file when rules/orbit_rules.go fails to load
-      # (a DSL construct the bundled ruleguard rejects), and nowhere when it
-      # loads. Excluding it would silently switch off every Tier 1 rule.
+      # Do not exclude ruleguard's "used Run() with an empty rule set".
+      # It means rules/orbit_rules.go failed to load (the bundled ruleguard
+      # rejected a DSL construct), and it shows on every file. Excluding it
+      # would switch off every Tier 1 rule without a signal.
 
       # The sandbox-mount node agent's export directories are walked by NFS
       # clients as the squashed user, so they must be world-searchable (0755).
@@ -471,20 +471,18 @@ linters:
           - gocritic
         text: "calling WriteHeader directly"
 
-      # The egress gateway's per-tenant CA signs leaf certificates whose X.509
-      # subject names the issuer. A certificate subject is an identifier, not
-      # prose a client's people or agents read, so it keeps the kora name
-      # (docs/adr/2026-10-12-white-labelling-theme.md, Decision 5).
+      # The per-tenant CA of the egress gateway puts the kora name in the X.509
+      # subject of its leaf certificates. A subject is an identifier, not prose
+      # that people or agents read, so it keeps the name.
       - path: "internal/egressgw/tlsca/"
         linters:
           - gocritic
         text: "product name must come from internal/platform/brand"
 
-      # codexProvider and openCodeProvider are the config-table keys of the one
-      # model provider each runner writes, and the OpenCode key prefixes the
-      # model id. They are identifiers the runtimes key on, not prose; the
-      # provider's display name beside them reads the brand. Scoped to the
-      # declaration line so prose elsewhere in these files is still checked.
+      # codexProvider and openCodeProvider are config-table keys that the
+      # runtimes look up. They are identifiers, not prose. The provider's display
+      # name beside them reads the brand. Each rule matches the declaration line
+      # only, so prose elsewhere in these files is still checked.
       - path: "internal/agents/sessionmanager/runner_codex.go"
         linters:
           - gocritic

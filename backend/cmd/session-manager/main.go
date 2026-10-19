@@ -25,9 +25,10 @@ import (
 func main() {
 	ctx := context.Background()
 
-	// Session pods are not chart-rendered: orbit-agents sets ORBIT_PRODUCT_NAME
-	// on this pod and brand.Load reads it over the image's default. Loaded
-	// before observability so a bad name exits with nothing to flush.
+	// The chart does not render session pods. orbit-agents sets
+	// ORBIT_PRODUCT_NAME on this pod, and brand.Load reads it over the image
+	// default. Load it before observability so a bad name exits with nothing
+	// to flush.
 	b, err := brand.Load()
 	if err != nil {
 		log.Fatalf("Failed to load brand: %v", err)

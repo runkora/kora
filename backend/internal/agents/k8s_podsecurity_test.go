@@ -208,8 +208,7 @@ func TestSessionManagerStatefulSet_UsesConfiguredSystemNamespace(t *testing.T) {
 	if got, want := env["ORBIT_SAMPLING_RATE"], "1.0"; got != want {
 		t.Errorf("ORBIT_SAMPLING_RATE = %q, want %q", got, want)
 	}
-	// Session pods are not chart-rendered, so this variable is the only way the
-	// product name reaches the session-manager's guardrail text.
+	// The env var is the only way the product name reaches a session pod.
 	if got, want := env[brand.EnvProductName], "Acme"; got != want {
 		t.Errorf("%s = %q, want %q", brand.EnvProductName, got, want)
 	}

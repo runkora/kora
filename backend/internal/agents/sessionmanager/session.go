@@ -161,8 +161,8 @@ type Registry struct {
 	logger     logging.Logger
 	workspaces string // base path for workspace directories
 	notifier   Notifier
-	// brand names the product in the text this registry sends the agent: the
-	// loop-guard warnings and pauses, and the note after a user stop.
+	// brand supplies the product name for text sent to the agent: loop-guard
+	// warnings and pauses, and the note after a user stop.
 	brand       productNamer
 	summarizer  *summarizer
 	idleTimeout time.Duration

@@ -1,14 +1,13 @@
 //go:build ignore
 
-// check-brand-tags fails when a struct tag in a package whose text people or
-// agents read names the product. It completes the noProductNameLiteral
-// ruleguard rule (rules/orbit_rules.go), which cannot match an ast.Field tag:
-// a jsonschema description is a tag, becomes an MCP tool's input description,
-// and must stay neutral. See docs/adr/2026-10-12-white-labelling-theme.md,
-// Decision 5.
+// check-brand-tags fails when a struct tag in a speaking package names the
+// product. It covers what the noProductNameLiteral ruleguard rule
+// (rules/orbit_rules.go) cannot match. A jsonschema description is a struct
+// tag, it becomes an MCP tool's input description, and it must stay neutral.
+// See docs/adr/2026-10-12-white-labelling-theme.md, Decision 5.
 //
-// The scope and the word pattern are the rule's speakingPackages and
-// productNameWord; keep them in step. Run from the repository root:
+// roots and productNameWord copy the rule's speakingPackages and
+// productNameWord. Keep them in step. Run from the repository root:
 //
 //	go run scripts/check-brand-tags.go
 package main

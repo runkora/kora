@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// The name must be carriable by every string that embeds it; the theme
-// contract's bounds are not this package's to check.
+// New accepts any name a string can carry. The theme contract owns the length
+// and character bounds.
 func TestNew(t *testing.T) {
 	cases := map[string]struct {
 		name    string
@@ -35,8 +35,8 @@ func TestNew(t *testing.T) {
 	}
 }
 
-// Without the chart-rendered file the base layer's default is the name; the
-// session-pod environment variable replaces it; a bad value from either fails.
+// Load returns the base.yaml default, lets the env var replace it, and rejects
+// a bad value from either.
 func TestLoad(t *testing.T) {
 	env := func(vars map[string]string) func(string) string {
 		return func(k string) string { return vars[k] }

@@ -415,8 +415,8 @@ func lockOpenCodeGlobalConfig(workDir string) error {
 }
 
 // openCodeProvider is the only provider OpenCode may load: the inference
-// gateway. It is the OpenCode-internal key of the provider table and the prefix
-// of the model id, not the product: the provider's display name is the brand's.
+// gateway. It is the provider's table key and the model id prefix, not the
+// product name. The provider's display name comes from the brand.
 const openCodeProvider = "orbit"
 
 // openCodeConfig is the run's OpenCode config. The agent type's model is the

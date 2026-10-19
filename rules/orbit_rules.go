@@ -62,9 +62,9 @@
 //
 // # docs/adr/2026-10-12-white-labelling-theme.md: White-labelling theme
 //
-// Every string a client's people or agents read takes the product name from
-// internal/platform/brand. A literal "kora" or "orbit" in prose inside the
-// speaking packages is the leak the theme exists to prevent.
+// Text that people or agents read takes the product name from
+// internal/platform/brand. A literal "kora" or "orbit" in prose in the speaking
+// packages is a leak.
 //
 // See docs/adr/2026-10-12-white-labelling-theme.md
 package gorules
@@ -316,42 +316,40 @@ func noDirectWriteHeader(m dsl.Matcher) {
 			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
 }
 
-// speakingPackages and productNameWord are shared by both noProductNameLiteral
-// matchers, so the scope and the match cannot drift apart.
+// speakingPackages and productNameWord feed both noProductNameLiteral matchers,
+// so the scope and the match cannot drift apart.
 const (
 	speakingPackages = `^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`
 	productNameWord  = `(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`
 )
 
 // noProductNameLiteral flags a string literal that names the product in prose
-// inside a speaking package, where the name must come from
-// internal/platform/brand so a white-labelled install never shows it.
+// inside a speaking package. The name must come from internal/platform/brand,
+// so a white-labelled install never shows it.
 //
-// Enforces: docs/adr/2026-10-12-white-labelling-theme.md — white-labelling theme, Decision 5.
+// Enforces: docs/adr/2026-10-12-white-labelling-theme.md, Decision 5.
 //
-// The match is the whole word "kora" or "orbit", case-insensitively, not
-// adjacent to '-', '_' or '/', nor to a '.' followed by a letter or digit, so
-// identifier-shaped literals such as "orbit.io", "kora-base", "orbit-system"
-// and "ORBIT_RUN_ID" pass and prose fails, including a sentence ending
-// "kora.". Raw strings are covered. Struct tags are not: gogrep has no pattern
-// for an ast.Field tag, so a jsonschema description must be neutral or move
-// to code (see internal/orbitmcp/tools_agents.go), and
-// scripts/check-brand-tags.go checks the tags with the same patterns as part
-// of make check.
+// A match is the whole word "kora" or "orbit" in any case. It must not touch
+// '-', '_' or '/', or a '.' followed by a letter or digit. So "orbit.io",
+// "kora-base", "orbit-system" and "ORBIT_RUN_ID" pass. Prose fails, including
+// a sentence ending "kora.". Raw strings are covered.
 //
-// ruleguard refuses a bare `$s` pattern, so the rule names each position a
-// literal can occupy: an argument of a method call whose receiver is not a
-// logging.Logger (log lines keep the kora name, as the ADR's identifier list
-// says), an argument of a plain function call, a composite-literal element,
-// a const or var initialiser, a return value or assignment, and an operand
-// of +. The positions are one rule because ruleguard tries a group's rules in
-// order on each node and stops at the first report.
+// Struct tags are not covered, because gogrep has no pattern for an ast.Field
+// tag. A jsonschema description must be neutral or move to code (see
+// internal/orbitmcp/tools_agents.go). scripts/check-brand-tags.go checks tags
+// with the same patterns in make check.
 //
-// The rule is scoped to the packages whose strings people or agents read:
-// internal/agents, internal/orbitmcp, internal/egressgw and
-// internal/platform/sandboximages. Residual exceptions (an X.509 subject, a
-// config-table key that is not prose) are path-scoped exclusions in
-// .golangci.yml, never inline //nolint directives.
+// ruleguard refuses a bare `$s` pattern, so the rule lists each position a
+// literal can occupy. The first matcher takes an argument of a method call
+// whose receiver is not a logging.Logger, because log lines keep the kora
+// name. The second takes plain call arguments, composite-literal elements,
+// const and var initialisers, returns, assignments and operands of +. They
+// share one rule because ruleguard stops at the first report in a group.
+//
+// Scope: internal/agents, internal/orbitmcp, internal/egressgw and
+// internal/platform/sandboximages, the packages whose strings people or agents
+// read. The remaining exceptions (an X.509 subject, a config-table key) are
+// path-scoped exclusions in .golangci.yml, never inline //nolint.
 //
 // Bad:
 //

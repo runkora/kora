@@ -48,8 +48,8 @@ func loadWorkloads(path string) (workloadsFile, error) {
 }
 
 // provisionerConfig builds the provisioner config from the service config, so
-// the server and -render produce the same manifests. b is the brand whose
-// product name each session pod receives.
+// the server and -render produce the same manifests. b supplies the product
+// name each session pod receives.
 func provisionerConfig(cfg *agentsConfig.Config, patches []manifestpatch.Patch, workloads workloadsFile, b brand.Brand) agents.K8sProvisionerConfig {
 	return agents.K8sProvisionerConfig{
 		Workloads:              workloads.Workloads,

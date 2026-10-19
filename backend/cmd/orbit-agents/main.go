@@ -116,8 +116,8 @@ func realMain() error {
 	idClient := identityclient.NewClient(agentsConfig.Current.Platform.IdentityServiceURL, logger)
 	selfToken := idClient.SelfTokenSource()
 
-	// The product name reaches the capabilities brief, the default environment
-	// and, through the session pods' environment, the session-manager.
+	// The product name goes into the capabilities brief and the default
+	// environment. Session pods receive it as an environment variable.
 	b, err := brand.Load()
 	if err != nil {
 		return fmt.Errorf("load brand: %w", err)
