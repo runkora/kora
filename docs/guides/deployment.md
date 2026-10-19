@@ -580,4 +580,4 @@ A failed migration fails the upgrade before any workload changes. Under Helm the
 - [Enforcement sidecar injection and preflight](../adr/2026-09-04-enforcement-sidecar-injection-and-preflight.md): how kora injects its sidecars and runs preflight on the mesh before install.
 - [Service mesh and network enforcement](../adr/2026-03-05-service-mesh-and-network-enforcement-infrastructure.md): the mesh and NetworkPolicy enforcement the platform runs on.
 - [Manifest patches](../adr/2026-09-15-manifest-patches-configmap.md): how operators patch the resources orbit-agents provisions in tenant namespaces.
-- [White-labelling theme](../adr/2026-10-12-white-labelling-theme.md): how a theme reaches a deployment, where it is validated, and the node requirement it adds.
+- [White-labelling theme](../adr/2026-10-12-white-labelling-theme.md): how a theme reaches a deployment, and where it is validated.
