@@ -45,7 +45,7 @@ func (f *handlerRegistry) ListSources(tenantID string) []MarketplaceSource {
 }
 
 type handlerCache struct {
-	marketplace map[string][]SkillEntry // key = marketplaceSlug
+	marketplace map[string][]SkillEntry // key = sourceKey
 	skills      map[string]Skill        // key = skillSlug
 	getCalls    []string
 	setCalls    []string
@@ -53,29 +53,29 @@ type handlerCache struct {
 	setErr      error
 }
 
-func (f *handlerCache) GetMarketplace(_ context.Context, tenantID, slug string) ([]SkillEntry, bool, error) {
-	f.getCalls = append(f.getCalls, MarketplaceCacheKey(tenantID, slug))
+func (f *handlerCache) GetMarketplace(_ context.Context, tenantID, sourceKey string) ([]SkillEntry, bool, error) {
+	f.getCalls = append(f.getCalls, MarketplaceCacheKey(tenantID, sourceKey))
 	if f.getError != nil {
 		return nil, false, f.getError
 	}
-	entries, hit := f.marketplace[slug]
+	entries, hit := f.marketplace[sourceKey]
 	return entries, hit, nil
 }
 
-func (f *handlerCache) SetMarketplace(_ context.Context, tenantID, slug string, entries []SkillEntry) error {
-	f.setCalls = append(f.setCalls, MarketplaceCacheKey(tenantID, slug))
+func (f *handlerCache) SetMarketplace(_ context.Context, tenantID, sourceKey string, entries []SkillEntry) error {
+	f.setCalls = append(f.setCalls, MarketplaceCacheKey(tenantID, sourceKey))
 	if f.setErr != nil {
 		return f.setErr
 	}
 	if f.marketplace == nil {
 		f.marketplace = make(map[string][]SkillEntry)
 	}
-	f.marketplace[slug] = entries
+	f.marketplace[sourceKey] = entries
 	return nil
 }
 
-func (f *handlerCache) GetSkill(_ context.Context, slug string) (Skill, bool, error) {
-	f.getCalls = append(f.getCalls, SkillCacheKey(slug))
+func (f *handlerCache) GetSkill(_ context.Context, tenantID, sourceKey, slug string) (Skill, bool, error) {
+	f.getCalls = append(f.getCalls, SkillCacheKey(tenantID, sourceKey, slug))
 	if f.getError != nil {
 		return Skill{}, false, f.getError
 	}
@@ -83,8 +83,8 @@ func (f *handlerCache) GetSkill(_ context.Context, slug string) (Skill, bool, er
 	return skill, hit, nil
 }
 
-func (f *handlerCache) SetSkill(_ context.Context, slug string, skill Skill) error {
-	f.setCalls = append(f.setCalls, SkillCacheKey(slug))
+func (f *handlerCache) SetSkill(_ context.Context, tenantID, sourceKey, slug string, skill Skill) error {
+	f.setCalls = append(f.setCalls, SkillCacheKey(tenantID, sourceKey, slug))
 	if f.setErr != nil {
 		return f.setErr
 	}
@@ -148,7 +148,7 @@ func newHandlerController(cached bool) *handlerFixture {
 	cache := &handlerCache{}
 	if cached {
 		cache.marketplace = map[string][]SkillEntry{
-			handlerSource.MarketplaceSlug: handlerSkillEntries(),
+			handlerSource.CacheKey(): handlerSkillEntries(),
 		}
 	}
 	entries := handlerSkillEntries()
@@ -540,5 +540,34 @@ func TestControllerAuthorization(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestServiceCachesBySourceNotSlug(t *testing.T) {
+	fix := newHandlerController(false)
+	if _, err := fix.service.ListSkills(context.Background(), "tenant-a", handlerSource.MarketplaceSlug, "", ""); err != nil {
+		t.Fatalf("ListSkills: %v", err)
+	}
+	want := MarketplaceCacheKey("tenant-a", handlerSource.CacheKey())
+	if len(fix.cache.getCalls) != 1 || fix.cache.getCalls[0] != want {
+		t.Errorf("cache reads = %v, want [%q]", fix.cache.getCalls, want)
+	}
+	if len(fix.cache.setCalls) != 1 || fix.cache.setCalls[0] != want {
+		t.Errorf("cache writes = %v, want [%q]", fix.cache.setCalls, want)
+	}
+}
+
+func TestServiceCachesSkillBySourceNotSlug(t *testing.T) {
+	fix := newHandlerController(true)
+	skillSlug := handlerSource.MarketplaceSlug + "__react-expert"
+	if _, err := fix.service.GetSkill(context.Background(), "tenant-a", handlerSource.MarketplaceSlug, skillSlug); err != nil {
+		t.Fatalf("GetSkill: %v", err)
+	}
+	want := SkillCacheKey("tenant-a", handlerSource.CacheKey(), skillSlug)
+	if len(fix.cache.getCalls) == 0 || fix.cache.getCalls[0] != want {
+		t.Errorf("cache reads = %v, want first %q", fix.cache.getCalls, want)
+	}
+	if len(fix.cache.setCalls) != 1 || fix.cache.setCalls[0] != want {
+		t.Errorf("cache writes = %v, want [%q]", fix.cache.setCalls, want)
 	}
 }

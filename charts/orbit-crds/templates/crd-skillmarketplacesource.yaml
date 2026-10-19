@@ -1,0 +1,147 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: skillmarketplacesources.orbit.io
+  labels:
+    {{- include "orbit-crds.labels" . | nindent 4 }}
+  annotations:
+    # Never deleted by helm uninstall: tenant definitions outlive the product install.
+    helm.sh/resource-policy: keep
+spec:
+  group: orbit.io
+  names:
+    kind: SkillMarketplaceSource
+    listKind: SkillMarketplaceSourceList
+    plural: skillmarketplacesources
+    singular: skillmarketplacesource
+    shortNames:
+      - osms
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+      additionalPrinterColumns:
+        - name: Owner
+          type: string
+          jsonPath: .spec.github.owner
+        - name: Repo
+          type: string
+          jsonPath: .spec.github.repo
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Reason
+          type: string
+          jsonPath: .status.conditions[?(@.type=="Aggregated")].reason
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      schema:
+        openAPIV3Schema:
+          description: >
+            SkillMarketplaceSource registers one GitHub repository as a skill
+            marketplace for the tenant that owns this namespace; the tenant
+            comes from the namespace, never the spec. The operator renders it
+            into the orbit-skill-marketplace-sources ConfigMap skills-service
+            reads, but only once a platform admin lists github.owner/repo in the
+            tenant's OrbitTenant spec.allowedMarketplaceRepos. Until then it is
+            Pending with reason NotAllowlisted.
+          type: object
+          required:
+            - spec
+          properties:
+            apiVersion:
+              type: string
+            kind:
+              type: string
+            metadata:
+              type: object
+            spec:
+              type: object
+              required:
+                - displayName
+                - github
+              properties:
+                displayName:
+                  description: >
+                    Marketplace name shown in the dashboard. Its slug (lowercase,
+                    other characters collapsed to "-") is the marketplace's URL
+                    segment, so it must contain an ASCII letter or digit and be
+                    unique within the tenant.
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  x-kubernetes-validations:
+                    - rule: "self.matches('[A-Za-z0-9]')"
+                      message: displayName must contain an ASCII letter or digit; its slug is the marketplace's URL segment.
+                github:
+                  description: The GitHub repository to read skills from.
+                  type: object
+                  required:
+                    - owner
+                    - repo
+                  properties:
+                    owner:
+                      description: Organization or user account that owns the repository.
+                      type: string
+                      maxLength: 39
+                      pattern: '^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$'
+                    repo:
+                      description: Repository name.
+                      type: string
+                      maxLength: 100
+                      pattern: '^[A-Za-z0-9._-]+$'
+                      x-kubernetes-validations:
+                        - rule: "self != '.' && self != '..'"
+                          message: repo must not be "." or "..".
+                    branch:
+                      description: Branch to read skills from. Defaults to main.
+                      type: string
+                      default: main
+                      maxLength: 255
+                      pattern: '^[A-Za-z0-9._/-]+$'
+                      x-kubernetes-validations:
+                        - rule: >-
+                            !self.startsWith('/') && !self.endsWith('/') &&
+                            !self.startsWith('-') && !self.startsWith('.') &&
+                            !self.endsWith('.') && !self.endsWith('.lock') &&
+                            !self.contains('..') && !self.contains('//') &&
+                            !self.contains('/.') && !self.contains('.lock/')
+                          message: branch must be a valid git branch name.
+            status:
+              type: object
+              properties:
+                phase:
+                  description: "Pending, Aggregated, or Invalid. The Aggregated condition's reason explains it."
+                  type: string
+                lastReconciledAt:
+                  type: string
+                  format: date-time
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                      - message

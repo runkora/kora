@@ -18,7 +18,12 @@ spec:
     metadata:
       labels:
         app: orbit-skills-service
+        # Names this pod's SPIFFE ID, spiffe://<trust domain>/system/skills-service.
+        # Route registration authenticates with it, and policy-service lets a
+        # caller register routes only under its own component name.
+        spiffe.io/component: skills-service
       annotations:
+        {{- include "orbit.spireProxyAnnotations" (dict "root" $) | nindent 8 }}
         checksum/config: {{ include (print $.Template.BasePath "/skills-service/config.yaml") . | sha256sum }}
 
     spec:
@@ -44,10 +49,12 @@ spec:
 
           ports:
             - name: http
-              containerPort: 8085
+              containerPort: 8098
               protocol: TCP
 
           env:
+            - name: SPIFFE_ENDPOINT_SOCKET
+              value: "unix:///run/secrets/workload-spiffe-uds/socket"
             {{- include "orbit.platformEnv" (dict "root" $ "name" "skillsService" "keys" (list "REDIS_PASSWORD")) | nindent 12 }}
 
             - name: GITHUB_APP_ID
@@ -63,6 +70,7 @@ spec:
               value: "/etc/orbit/marketplace"
 
           volumeMounts:
+            {{- include "orbit.spireVolumeMount" . | nindent 12 }}
             {{- include "orbit.configVolumeMount" . | nindent 12 }}
             {{- include "orbit.redisCAVolumeMount" . | nindent 12 }}
             - name: marketplace-sources
@@ -77,6 +85,7 @@ spec:
             {{- toYaml .Values.skillsService.resources | nindent 12 }}
 
       volumes:
+        {{- include "orbit.spireVolumes" . | nindent 8 }}
         {{- include "orbit.configVolume" (dict "root" $ "name" "skillsService" "configMap" "orbit-skills-service-config" "modules" (include "orbit.skillsService.configModules" . | fromYaml)) | nindent 8 }}
         {{- include "orbit.redisCAVolume" . | nindent 8 }}
         - name: marketplace-sources

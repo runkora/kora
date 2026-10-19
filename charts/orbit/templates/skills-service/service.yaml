@@ -8,5 +8,5 @@ spec:
     app: orbit-skills-service
   ports:
     - name: http
-      port: 8085
-      targetPort: 8085
+      port: 80
+      targetPort: 8098

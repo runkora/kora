@@ -484,6 +484,7 @@ frontend:
     policyServiceUrl: ""
     orbitAgentsUrl: ""
     toolGatewayUrl: ""
+    skillsServiceUrl: ""
     nextPublicAppUrl: ""
   # Holds BFF_SESSION_SECRET.
   existingSecret: orbit-frontend-secrets

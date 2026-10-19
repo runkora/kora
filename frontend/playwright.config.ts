@@ -70,6 +70,7 @@ export default defineConfig({
       ORBIT_AGENTS_URL: process.env.ORBIT_AGENTS_URL ?? 'http://localhost:8080',
       ORBIT_TRIGGERS_URL: process.env.ORBIT_TRIGGERS_URL ?? 'http://localhost:8097',
       TOOL_GATEWAY_URL: process.env.TOOL_GATEWAY_URL ?? 'http://localhost:8096',
+      SKILLS_SERVICE_URL: process.env.SKILLS_SERVICE_URL ?? 'http://localhost:8098',
     },
   },
 });

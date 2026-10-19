@@ -67,7 +67,7 @@ export const config = {
   toolGatewayUrl: requireEnv('TOOL_GATEWAY_URL').replace(/\/$/, ''),
 
   /**
-   * Base URL of the skills-service (port 8085).
+   * Base URL of the skills-service (port 8098).
    * Serves the marketplace catalogue and skill detail endpoints.
    * Never sent to the browser.
    */

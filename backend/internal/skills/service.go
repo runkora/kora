@@ -54,10 +54,10 @@ func sortedBySlug(entries []SkillEntry) []SkillEntry {
 }
 
 type skillCache interface {
-	GetMarketplace(ctx context.Context, tenantID, marketplaceSlug string) ([]SkillEntry, bool, error)
-	SetMarketplace(ctx context.Context, tenantID, marketplaceSlug string, skills []SkillEntry) error
-	GetSkill(ctx context.Context, skillSlug string) (Skill, bool, error)
-	SetSkill(ctx context.Context, skillSlug string, skill Skill) error
+	GetMarketplace(ctx context.Context, tenantID, sourceKey string) ([]SkillEntry, bool, error)
+	SetMarketplace(ctx context.Context, tenantID, sourceKey string, skills []SkillEntry) error
+	GetSkill(ctx context.Context, tenantID, sourceKey, skillSlug string) (Skill, bool, error)
+	SetSkill(ctx context.Context, tenantID, sourceKey, skillSlug string, skill Skill) error
 }
 
 type skillCrawler interface {
@@ -115,9 +115,9 @@ func (s *Service) findSource(tenantID, marketplaceSlug string) (MarketplaceSourc
 }
 
 // resolveMarketplace returns the cached or freshly-crawled []SkillEntry for a
-// marketplace, sorted by SkillSlug. The cache is keyed by tenantID + marketplaceSlug.
+// marketplace, sorted by SkillSlug. The cache is keyed by tenantID and the source's repository (CacheKey).
 func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, source MarketplaceSource) ([]SkillEntry, error) {
-	entries, hit, err := s.cache.GetMarketplace(ctx, tenantID, source.MarketplaceSlug)
+	entries, hit, err := s.cache.GetMarketplace(ctx, tenantID, source.CacheKey())
 	if err != nil {
 		return nil, fmt.Errorf("read marketplace cache: %w", err)
 	}
@@ -139,7 +139,7 @@ func (s *Service) resolveMarketplace(ctx context.Context, tenantID string, sourc
 	// FetchTree returns a map, so crawl order is not stable. Sort before caching.
 	entries = sortedBySlug(entries)
 
-	if err := s.cache.SetMarketplace(ctx, tenantID, source.MarketplaceSlug, entries); err != nil {
+	if err := s.cache.SetMarketplace(ctx, tenantID, source.CacheKey(), entries); err != nil {
 		return nil, fmt.Errorf("write marketplace cache: %w", err)
 	}
 
@@ -211,7 +211,7 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skill
 	}
 
 	// Check the individual skill cache first.
-	skill, hit, err := s.cache.GetSkill(ctx, skillSlug)
+	skill, hit, err := s.cache.GetSkill(ctx, tenantID, source.CacheKey(), skillSlug)
 	if err != nil {
 		return Skill{}, fmt.Errorf("read skill cache: %w", err)
 	}
@@ -243,7 +243,7 @@ func (s *Service) GetSkill(ctx context.Context, tenantID, marketplaceSlug, skill
 		return Skill{}, fmt.Errorf("fetch skill content: %w", err)
 	}
 
-	if err := s.cache.SetSkill(ctx, skillSlug, skill); err != nil {
+	if err := s.cache.SetSkill(ctx, tenantID, source.CacheKey(), skillSlug, skill); err != nil {
 		return Skill{}, fmt.Errorf("write skill cache: %w", err)
 	}
 

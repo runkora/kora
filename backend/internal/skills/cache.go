@@ -14,13 +14,13 @@ import (
 
 // Cache is the Redis-backed skill cache. Keys are:
 //
-//	marketplace:{tenantID}:{marketplaceSlug}  →  JSON []SkillEntry  (TTL: configured)
-//	{skillSlug}                               →  JSON Skill          (TTL: configured)
+//	marketplace:{tenantID}:{sourceKey}            →  JSON []SkillEntry  (TTL: configured)
+//	skill:{tenantID}:{sourceKey}:{skillSlug}      →  JSON Skill          (TTL: configured)
 //
-// Marketplace keys are tenant-scoped so two tenants with access to the same
-// repository get independent cache entries. Skill keys use the skillSlug
-// directly (which already encodes the marketplace) and are shared across
-// tenants; tenant access is enforced at the service layer before Redis is read.
+// sourceKey is MarketplaceSource.CacheKey, owner/repo@ref. Both keys are scoped
+// to the tenant and the repository rather than the marketplace slug: the slug
+// comes from the display name, so two tenants (or one tenant over time) can
+// give the same slug to different repositories.
 type Cache struct {
 	redis *storage.RedisClient
 	ttl   time.Duration
@@ -31,23 +31,20 @@ func NewCache(redis *storage.RedisClient, ttl time.Duration) *Cache {
 	return &Cache{redis: redis, ttl: ttl}
 }
 
-// MarketplaceCacheKey returns the Redis key for a marketplace's skill array,
-// scoped to the tenant so two tenants with access to the same repo get
-// independent cache entries.
-func MarketplaceCacheKey(tenantID, marketplaceSlug string) string {
-	return fmt.Sprintf("marketplace:%s:%s", tenantID, marketplaceSlug)
+// MarketplaceCacheKey returns the Redis key for one source's skill array.
+func MarketplaceCacheKey(tenantID, sourceKey string) string {
+	return fmt.Sprintf("marketplace:%s:%s", tenantID, sourceKey)
 }
 
 // SkillCacheKey returns the Redis key for one skill's full content.
-// The skillSlug already encodes the marketplace, so no additional prefix is needed.
-func SkillCacheKey(skillSlug string) string {
-	return skillSlug
+func SkillCacheKey(tenantID, sourceKey, skillSlug string) string {
+	return fmt.Sprintf("skill:%s:%s:%s", tenantID, sourceKey, skillSlug)
 }
 
 // GetMarketplace returns the cached []SkillEntry for a marketplace.
 // The second return value is false on a miss. Redis failures wrap ErrRedisUnavailable.
-func (c *Cache) GetMarketplace(ctx context.Context, tenantID, marketplaceSlug string) ([]SkillEntry, bool, error) {
-	key := MarketplaceCacheKey(tenantID, marketplaceSlug)
+func (c *Cache) GetMarketplace(ctx context.Context, tenantID, sourceKey string) ([]SkillEntry, bool, error) {
+	key := MarketplaceCacheKey(tenantID, sourceKey)
 	data, err := c.redis.Client().Get(ctx, key).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -64,8 +61,8 @@ func (c *Cache) GetMarketplace(ctx context.Context, tenantID, marketplaceSlug st
 }
 
 // SetMarketplace writes the skill array to Redis with the configured TTL.
-func (c *Cache) SetMarketplace(ctx context.Context, tenantID, marketplaceSlug string, skills []SkillEntry) error {
-	key := MarketplaceCacheKey(tenantID, marketplaceSlug)
+func (c *Cache) SetMarketplace(ctx context.Context, tenantID, sourceKey string, skills []SkillEntry) error {
+	key := MarketplaceCacheKey(tenantID, sourceKey)
 	data, err := json.Marshal(skills)
 	if err != nil {
 		return fmt.Errorf("cache marshal %q: %w", key, err)
@@ -76,10 +73,10 @@ func (c *Cache) SetMarketplace(ctx context.Context, tenantID, marketplaceSlug st
 	return nil
 }
 
-// GetSkill returns the cached full Skill record for a skillSlug.
+// GetSkill returns the cached full Skill record for skillSlug in one source.
 // The second return value is false on a miss. Redis failures wrap ErrRedisUnavailable.
-func (c *Cache) GetSkill(ctx context.Context, skillSlug string) (Skill, bool, error) {
-	key := SkillCacheKey(skillSlug)
+func (c *Cache) GetSkill(ctx context.Context, tenantID, sourceKey, skillSlug string) (Skill, bool, error) {
+	key := SkillCacheKey(tenantID, sourceKey, skillSlug)
 	data, err := c.redis.Client().Get(ctx, key).Bytes()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -96,8 +93,8 @@ func (c *Cache) GetSkill(ctx context.Context, skillSlug string) (Skill, bool, er
 }
 
 // SetSkill writes a full Skill record to Redis with the configured TTL.
-func (c *Cache) SetSkill(ctx context.Context, skillSlug string, skill Skill) error {
-	key := SkillCacheKey(skillSlug)
+func (c *Cache) SetSkill(ctx context.Context, tenantID, sourceKey, skillSlug string, skill Skill) error {
+	key := SkillCacheKey(tenantID, sourceKey, skillSlug)
 	data, err := json.Marshal(skill)
 	if err != nil {
 		return fmt.Errorf("cache marshal %q: %w", key, err)

@@ -43,4 +43,22 @@ spec:
       name: tcp-redis
       protocol: TCP
 {{- end }}
+---
+# skills-service crawls marketplace repositories through the GitHub API.
+apiVersion: networking.istio.io/v1beta1
+kind: ServiceEntry
+metadata:
+  name: orbit-github-api
+  namespace: {{ $ns }}
+  labels:
+    {{- include "orbit.labels" . | nindent 4 }}
+spec:
+  hosts:
+    - api.github.com
+  location: MESH_EXTERNAL
+  resolution: DNS
+  ports:
+    - number: 443
+      name: tls
+      protocol: TLS
 {{- end }}

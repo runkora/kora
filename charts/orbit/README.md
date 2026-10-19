@@ -156,6 +156,7 @@ Kubernetes: `>=1.34.0-0`
 | frontend.config.orbitTriggersUrl | string | `""` |  |
 | frontend.config.policyGatewayUrl | string | `""` |  |
 | frontend.config.policyServiceUrl | string | `""` |  |
+| frontend.config.skillsServiceUrl | string | `""` |  |
 | frontend.config.toolGatewayUrl | string | `""` |  |
 | frontend.existingSecret | string | `"orbit-frontend-secrets"` |  |
 | frontend.extraEnv | list | `[]` |  |
