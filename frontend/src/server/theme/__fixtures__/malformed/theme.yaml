@@ -1,5 +1,5 @@
 # Every kind of fault at once: an unknown top-level key, a colour that is not a
-# colour, a referenced asset that is not in the bundle.
+# colour, a slot URL that is not https.
 koraVersion: "1.0.0"
 productName: Broken Co
 brand: nope
@@ -8,5 +8,5 @@ tokens:
     dark: red
 slots:
   logo:
-    dark: missing.svg
-    light: logo-light.svg
+    dark: http://assets.acme.example/logo-dark.svg
+    light: https://assets.acme.example/logo-light.svg

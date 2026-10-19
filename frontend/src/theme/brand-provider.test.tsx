@@ -17,8 +17,11 @@ function Probe() {
 
 const ACME: IdentityTheme = {
   productName: 'Acme Agents',
-  logo: { dark: '/theme/h/assets/logo-dark.svg', light: '/theme/h/assets/logo-light.svg' },
-  favicon: { dark: '/theme/h/assets/favicon.svg' },
+  logo: {
+    dark: 'https://assets.acme.example/logo-dark.svg',
+    light: 'https://assets.acme.example/logo-light.svg',
+  },
+  favicon: { dark: 'https://assets.acme.example/favicon.svg' },
 };
 
 describe('BrandProvider and useBrand', () => {

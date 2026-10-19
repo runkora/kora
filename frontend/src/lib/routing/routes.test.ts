@@ -1,11 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import {
-  APP_ROUTES,
-  PUBLIC_PATHS,
-  THEME_ASSET_PREFIX,
-  isSafeRedirectPath,
-  isThemeAssetPath,
-} from './routes';
+import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from './routes';
 import { ApiRoute } from './api-routes';
 
 /**
@@ -150,34 +144,4 @@ describe('isSafeRedirectPath', () => {
   // any string input — malformed paths are normalised, not thrown. If this
   // function is ever security-reviewed, consider removing the try/catch or
   // documenting a concrete input that would exercise the catch branch.
-});
-
-describe('THEME_ASSET_PREFIX', () => {
-  it('is a root-relative directory prefix the middleware can match on', () => {
-    expect(THEME_ASSET_PREFIX).toMatch(/^\/.+\/$/);
-    expect('/theme/abc/assets/logo.svg'.startsWith(THEME_ASSET_PREFIX)).toBe(true);
-    expect('/themes'.startsWith(THEME_ASSET_PREFIX)).toBe(false);
-  });
-});
-
-describe('isThemeAssetPath', () => {
-  const hash = 'a'.repeat(64);
-
-  it('accepts the asset route and nothing else under /theme/', () => {
-    expect(isThemeAssetPath(`/theme/${hash}/assets/logo-dark.svg`)).toBe(true);
-    expect(isThemeAssetPath(`/theme/${hash}/assets/fonts/sans.woff2`)).toBe(true);
-    expect(isThemeAssetPath('/theme/preview')).toBe(false);
-    expect(isThemeAssetPath('/theme/')).toBe(false);
-    expect(isThemeAssetPath(`/theme/${hash}`)).toBe(false);
-    expect(isThemeAssetPath(`/theme/${hash}/export`)).toBe(false);
-    expect(isThemeAssetPath(`/theme/${hash}/assets/`)).toBe(false);
-  });
-
-  it('requires the loader hash: 64 lower-case hex characters', () => {
-    expect(isThemeAssetPath('/theme/abc/assets/logo.svg')).toBe(false);
-    expect(isThemeAssetPath(`/theme/${'A'.repeat(64)}/assets/logo.svg`)).toBe(false);
-    expect(isThemeAssetPath(`/theme/${'g'.repeat(64)}/assets/logo.svg`)).toBe(false);
-    expect(isThemeAssetPath(`/theme/${hash}a/assets/logo.svg`)).toBe(false);
-    expect(isThemeAssetPath(`/other/theme/${hash}/assets/logo.svg`)).toBe(false);
-  });
 });

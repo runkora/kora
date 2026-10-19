@@ -2,16 +2,12 @@
  * validate-theme: the init container's entry point (white-labelling theme ADR,
  * decision 3).
  *
- *   node validate-theme.mjs <bundleDir> <documentFile>
+ *   node validate-theme.mjs <documentFile>
  *
- * Reads `<bundleDir>/theme.yaml` and `<bundleDir>/assets/`, runs the Hades
- * validator at the version this image carries, and checks that the chart's
- * copy of the document at `<documentFile>` parses to the same document as the
- * bundle's. Parsed, not byte-equal: the chart copy has been through templating
- * and a ConfigMap, which can change line endings, quoting and key order, none
- * of which is a difference. A document that differs in substance means a
- * bundle that was not rebuilt, or a document that was not committed, and the
- * deploy fails with a message that says so.
+ * Reads the theme document the chart rendered into the frontend's ConfigMap
+ * and runs the Hades validator at the version this image carries. It checks
+ * the form of every slot URL and never fetches one, so a deploy does not
+ * depend on the asset host being reachable.
  *
  * On success it prints the report: every ignored entry and every identity
  * value that falls through to the default, then a warning when the theme mixes its own identity with kora's. On failure it prints every fault.
@@ -20,15 +16,9 @@
  */
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { parse as parseYaml } from 'yaml';
 import manifest from '@runkora/hades/manifest.json';
 import { instanceKoraVersion } from '../src/lib/kora-version';
-import {
-  ThemeYamlTooLargeError,
-  isMissing,
-  readBundleAsset,
-  readThemeDocument,
-} from '../src/lib/theme-bundle';
+import { ThemeYamlTooLargeError, isMissing, readThemeDocument } from '../src/lib/theme-document';
 import { validateTheme, type ThemeManifest, type ThemeReport } from '@runkora/hades/theme';
 
 // The JSON import widens the manifest's unions to string; the cast restores them.
@@ -43,32 +33,6 @@ export interface ValidationRun {
   readonly ok: boolean;
   /** What to print, one entry per line. */
   readonly lines: readonly string[];
-}
-
-/** Structural equality over what YAML produces: maps, sequences and scalars. */
-export function deepEqual(a: unknown, b: unknown): boolean {
-  if (Object.is(a, b)) return true;
-  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
-  if (Array.isArray(a) !== Array.isArray(b)) return false;
-  if (Array.isArray(a) && Array.isArray(b)) {
-    return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
-  }
-  if (a instanceof Date || b instanceof Date) {
-    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime();
-  }
-  const ka = Object.keys(a as object);
-  const kb = Object.keys(b as object);
-  if (ka.length !== kb.length) return false;
-  return ka.every(
-    (k) =>
-      Object.prototype.hasOwnProperty.call(b, k) &&
-      deepEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
-  );
-}
-
-/** Whether two YAML texts parse to the same document. */
-export function documentsEqual(bundleText: string, documentText: string): boolean {
-  return deepEqual(parseYaml(bundleText), parseYaml(documentText));
 }
 
 function reportLines(report: ThemeReport): string[] {
@@ -92,70 +56,29 @@ function reportLines(report: ThemeReport): string[] {
   return lines;
 }
 
-export async function validateBundle(
-  bundleDir: string,
-  documentFile: string,
-): Promise<ValidationRun> {
-  const lines: string[] = [];
-  const bundlePath = path.join(bundleDir, 'theme.yaml');
-
-  let bundleText: string;
+export async function validateDocument(documentFile: string): Promise<ValidationRun> {
+  let text: string;
   try {
-    bundleText = await readThemeDocument(bundlePath);
+    text = await readThemeDocument(documentFile);
   } catch (err) {
     if (err instanceof ThemeYamlTooLargeError) {
-      return { ok: false, lines: [`${bundlePath} ${err.message}`] };
+      return { ok: false, lines: [`the theme document at ${documentFile} ${err.message}`] };
     }
     if (!isMissing(err)) throw err;
-    return { ok: false, lines: [`no theme.yaml in the bundle at ${bundleDir}`] };
+    return { ok: false, lines: [`no theme document at ${documentFile}`] };
   }
 
-  let documentText: string;
-  try {
-    documentText = await readThemeDocument(documentFile);
-  } catch (err) {
-    if (err instanceof ThemeYamlTooLargeError) {
-      return {
-        ok: false,
-        lines: [`the chart-supplied document at ${documentFile} ${err.message}`],
-      };
-    }
-    if (!isMissing(err)) throw err;
-    return { ok: false, lines: [`no chart-supplied document at ${documentFile}`] };
-  }
-
-  const result = await validateTheme(bundleText, {
+  const result = await validateTheme(text, {
     manifest: hadesManifest,
     koraVersion: instanceKoraVersion(),
-    readAsset: (assetPath, maxBytes) => readBundleAsset(bundleDir, assetPath, maxBytes),
   });
 
+  const lines: string[] = [];
   if (!result.ok) {
-    lines.push(`theme at ${bundlePath} is invalid against ${describeInstance()}:`);
+    lines.push(`theme at ${documentFile} is invalid against ${describeInstance()}:`);
     for (const e of result.errors) lines.push(`  ${e.path || '(document)'}: ${e.message}`);
     lines.push(...reportLines(result.report));
     return { ok: false, lines };
-  }
-
-  let same: boolean;
-  try {
-    same = documentsEqual(bundleText, documentText);
-  } catch (err) {
-    return {
-      ok: false,
-      lines: [
-        `the chart-supplied document at ${documentFile} is not valid YAML: ${(err as Error).message}`,
-      ],
-    };
-  }
-  if (!same) {
-    return {
-      ok: false,
-      lines: [
-        `the chart-supplied document at ${documentFile} does not match the bundle's theme.yaml at ${bundlePath}.`,
-        'They parse to different documents: either the bundle image was not rebuilt after the document changed, or the document was not updated after the bundle. Rebuild the bundle from the committed document, or revert the document.',
-      ],
-    };
   }
 
   lines.push(
@@ -166,12 +89,12 @@ export async function validateBundle(
 }
 
 export async function main(argv: readonly string[]): Promise<number> {
-  const [bundleDir, documentFile] = argv;
-  if (!bundleDir || !documentFile) {
-    console.error('usage: validate-theme <bundleDir> <documentFile>');
+  const [documentFile] = argv;
+  if (!documentFile || argv.length > 1) {
+    console.error('usage: validate-theme <documentFile>');
     return 2;
   }
-  const run = await validateBundle(path.resolve(bundleDir), path.resolve(documentFile));
+  const run = await validateDocument(path.resolve(documentFile));
   for (const line of run.lines) (run.ok ? console.log : console.error)(line);
   return run.ok ? 0 : 1;
 }

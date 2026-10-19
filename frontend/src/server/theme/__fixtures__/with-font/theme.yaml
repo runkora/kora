@@ -1,10 +1,10 @@
 # A theme with a sans font slot and a favicon for both modes, for the preload
-# links, the `@font-face` rule, the two-entry favicon metadata and the woff2
-# content type.
+# links, the `@font-face` rule and the two-entry favicon metadata, with the
+# URLs.
 koraVersion: "1.0.0"
 productName: Fontic
 slots:
-  font.sans: fonts/sans.woff2
+  font.sans: https://fonts.acme.example/sans.woff2
   favicon:
-    dark: favicon-dark.svg
-    light: favicon-light.svg
+    dark: https://assets.acme.example/favicon-dark.svg
+    light: https://assets.acme.example/favicon-light.svg

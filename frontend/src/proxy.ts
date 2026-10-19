@@ -25,7 +25,7 @@ import {
   type SessionPayload,
   type BackendSessionResponse,
 } from '@orbit/server/auth-config';
-import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath, isThemeAssetPath } from '@orbit/lib/routing';
+import { APP_ROUTES, PUBLIC_PATHS, isSafeRedirectPath } from '@orbit/lib/routing';
 
 // ── Inline refresh ────────────────────────────────────────────────────────────
 
@@ -68,11 +68,8 @@ async function tryRefresh(
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl;
 
-  // 1. Skip public paths — no session check required. Theme assets vary by hash
-  //    and the login page needs them before any session exists, so exactly the
-  //    `/theme/<hash>/assets/<path>` shape is public; any other path under
-  //    `/theme/` is authenticated like the rest of the app.
-  if (PUBLIC_PATHS.has(pathname) || isThemeAssetPath(pathname)) {
+  // 1. Skip public paths — no session check required.
+  if (PUBLIC_PATHS.has(pathname)) {
     return NextResponse.next();
   }
 

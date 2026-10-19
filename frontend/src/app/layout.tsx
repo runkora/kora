@@ -77,8 +77,8 @@ export default async function RootLayout({
 }>) {
   // Loaded once per process; a theme that fails validation throws here, so no
   // page serves (white-labelling theme ADR, decision 4).
-  // The theme is read from a bundle mounted at runtime, so no page may be
-  // prerendered at build, where there is no bundle and the default would ship.
+  // The theme is read from a document mounted at runtime, so no page may be
+  // prerendered at build, where there is no document and the default would ship.
   await connection();
   const { brand, css, fontPreloads } = await getTheme();
 

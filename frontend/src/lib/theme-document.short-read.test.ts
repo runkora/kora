@@ -3,7 +3,7 @@
  * still see the whole file, and still see an oversize one.
  */
 import { describe, expect, it } from 'vitest';
-import { readUpTo, type ReadableHandle } from './theme-bundle';
+import { readUpTo, type ReadableHandle } from './theme-document';
 
 /** A handle over `contents` that returns at most `chunk` bytes per read. */
 function trickle(contents: Buffer, chunk: number): ReadableHandle & { reads: number } {

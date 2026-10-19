@@ -13,8 +13,8 @@ tokens:
     dark: '#123456'
 slots:
   logo:
-    dark: logo-dark.svg
-    light: logo-light.svg
+    dark: https://assets.acme.example/brand/logo-dark.svg
+    light: https://assets.acme.example/brand/logo-light.svg
   favicon:
-    dark: favicon.svg
-  not-a-slot: nothing.svg
+    dark: https://assets.acme.example/brand/favicon.svg
+  not-a-slot: https://assets.acme.example/brand/nothing.svg

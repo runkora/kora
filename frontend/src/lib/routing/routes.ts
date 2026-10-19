@@ -134,25 +134,6 @@ export const PUBLIC_PATHS: ReadonlySet<string> = new Set([
   '/api/mcp/authorize',
 ]);
 
-// ── Theme assets ──────────────────────────────────────────────────────────────
-
-/**
- * The prefix the theme asset route serves under: `/theme/<hash>/assets/<path>`.
- * Public, because the login page needs the theme's fonts and logo before any
- * session exists. The Edge middleware exempts only paths of that shape, through
- * {@link isThemeAssetPath}, so a route added elsewhere under `/theme/` is
- * authenticated like any other.
- */
-export const THEME_ASSET_PREFIX = '/theme/';
-
-// The loader's hash is a SHA-256 in lower-case hex.
-const THEME_ASSET_PATH = /^\/theme\/[0-9a-f]{64}\/assets\/.+/;
-
-/** True for `/theme/<64 hex>/assets/<path>`, the one route the middleware leaves public. */
-export function isThemeAssetPath(pathname: string): boolean {
-  return THEME_ASSET_PATH.test(pathname);
-}
-
 // ── Redirect safety ───────────────────────────────────────────────────────────
 
 /**

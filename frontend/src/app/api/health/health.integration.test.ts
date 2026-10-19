@@ -36,7 +36,7 @@ describe('GET /api/health', () => {
     });
   });
 
-  it('reports theme null, and a null version for a build that is not from a release, when no bundle is mounted', async () => {
+  it('reports theme null, and a null version for a build that is not from a release, when no theme is mounted', async () => {
     vi.mocked(getTheme).mockResolvedValue({
       koraVersion: null,
       theme: null,
@@ -52,7 +52,7 @@ describe('GET /api/health', () => {
   });
 
   it('fails when the theme failed to load, so the pod never becomes ready', async () => {
-    vi.mocked(getTheme).mockRejectedValue(new Error('theme bundle at /etc/orbit/theme is invalid'));
+    vi.mocked(getTheme).mockRejectedValue(new Error('theme at /etc/orbit/theme is invalid'));
 
     await expect(GET()).rejects.toThrow('is invalid');
   });

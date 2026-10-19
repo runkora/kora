@@ -1,15 +1,15 @@
 /**
- * Unit tests for the server theme module, against the fixture bundles beside
+ * Unit tests for the server theme module, against the fixture documents beside
  * it. `loadThemeFrom` is exercised directly; the process-wide accessors are
  * exercised through a fresh module instance per test, with ORBIT_THEME_DIR
  * pointing at a fixture, because they cache for the life of the module.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { defaultTheme } from '@orbit/theme/default';
-import { ThemeLoadError, loadThemeFrom, themeAssetUrl } from './index';
+import { ThemeLoadError, loadThemeFrom } from './index';
 
 const FIXTURES = path.join(__dirname, '__fixtures__');
 const VALID = path.join(FIXTURES, 'valid');
@@ -35,7 +35,7 @@ describe('loadThemeFrom', () => {
     vi.restoreAllMocks();
   });
 
-  it('loads a valid bundle and derives the brand, the CSS and the report', async () => {
+  it('loads a valid document and derives the brand, the CSS and the report', async () => {
     const loaded = await loadThemeFrom(VALID);
     expect(loaded.koraVersion).toBeNull();
     expect(loaded.theme).not.toBeNull();
@@ -45,11 +45,11 @@ describe('loadThemeFrom', () => {
 
     expect(brand.productName).toBe('Acme Agents');
     expect(brand.logo).toEqual({
-      dark: `/theme/${hash}/assets/logo-dark.svg`,
-      light: `/theme/${hash}/assets/logo-light.svg`,
+      dark: 'https://assets.acme.example/brand/logo-dark.svg',
+      light: 'https://assets.acme.example/brand/logo-light.svg',
     });
     // Favicon set for dark only: one entry, light falls through.
-    expect(brand.favicon).toEqual({ dark: `/theme/${hash}/assets/favicon.svg` });
+    expect(brand.favicon).toEqual({ dark: 'https://assets.acme.example/brand/favicon.svg' });
 
     // Regex assertions: the colour values are the fixture's, and the
     // hardcoded-colour rule reads string literals, not patterns.
@@ -113,22 +113,22 @@ describe('loadThemeFrom', () => {
   });
 
   it('emits an @font-face and a preload per theme font, and a favicon per mode', async () => {
-    const { theme, brand, css, fontPreloads } = await loadThemeFrom(WITH_FONT);
-    const url = `/theme/${theme!.hash}/assets/fonts/sans.woff2`;
+    const { brand, css, fontPreloads } = await loadThemeFrom(WITH_FONT);
+    const url = 'https://fonts.acme.example/sans.woff2';
     expect(fontPreloads).toEqual([url]);
     expect(css).toContain(`@font-face{font-family:"hades-theme-sans";src:url("${url}")`);
     expect(css).toContain('font-display:swap');
     expect(css).toContain('--hades-raw-font-sans:"hades-theme-sans"');
     expect(brand.favicon).toEqual({
-      dark: `/theme/${theme!.hash}/assets/favicon-dark.svg`,
-      light: `/theme/${theme!.hash}/assets/favicon-light.svg`,
+      dark: 'https://assets.acme.example/favicon-dark.svg',
+      light: 'https://assets.acme.example/favicon-light.svg',
     });
     // No logo slot: the kora logo stays.
     expect(brand.logo).toEqual(defaultTheme.logo);
     expect(brand.productName).toBe('Fontic');
   });
 
-  it('throws with every fault listed when the bundle is malformed', async () => {
+  it('throws with every fault listed when the document is malformed', async () => {
     const attempt = loadThemeFrom(MALFORMED);
     await expect(attempt).rejects.toBeInstanceOf(ThemeLoadError);
     const err = (await attempt.catch((e) => e)) as ThemeLoadError;
@@ -137,21 +137,21 @@ describe('loadThemeFrom', () => {
     expect(err.message).toContain(
       'tokens.--hades-raw-100.dark: "red" is not a valid hex-or-oklch value',
     );
-    expect(err.message).toContain('slots.logo.dark: "missing.svg" is not in the bundle');
+    expect(err.message).toContain(
+      'slots.logo.dark: "http://assets.acme.example/logo-dark.svg" is not an https:// URL',
+    );
     expect(error).toHaveBeenCalledTimes(1);
   });
 
-  it('fails when the bundle directory exists but has no theme.yaml', async () => {
+  it('fails when the theme directory exists but has no theme.yaml', async () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const err = await loadThemeFrom(path.join(FIXTURES, 'valid', 'assets')).catch(
-      (e: unknown) => e,
-    );
+    const err = await loadThemeFrom(FIXTURES).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ThemeLoadError);
     expect((err as ThemeLoadError).message).toContain('has no theme.yaml');
     error.mockRestore();
   });
 
-  it('serves the kora default when there is no bundle', async () => {
+  it('serves the kora default when there is no theme', async () => {
     const loaded = await loadThemeFrom(ABSENT);
     expect(loaded.theme).toBeNull();
     expect(loaded.brand).toBe(defaultTheme);
@@ -164,18 +164,11 @@ describe('loadThemeFrom', () => {
       versionCheckSkipped: false,
     });
     expect(loaded.koraVersion).toBeNull();
-    expect(String(info.mock.calls[0]![0])).toContain('no bundle');
+    expect(String(info.mock.calls[0]![0])).toContain('no theme');
   });
 });
 
-describe('themeAssetUrl', () => {
-  it('builds the versioned asset URL and encodes each segment', () => {
-    expect(themeAssetUrl('abc', 'fonts/sans.woff2')).toBe('/theme/abc/assets/fonts/sans.woff2');
-    expect(themeAssetUrl('abc', 'odd name.svg')).toBe('/theme/abc/assets/odd%20name.svg');
-  });
-});
-
-describe('getTheme, getBrand and getThemeAsset', () => {
+describe('getTheme and getBrand', () => {
   const originalDir = process.env.ORBIT_THEME_DIR;
 
   beforeEach(() => {
@@ -200,7 +193,7 @@ describe('getTheme, getBrand and getThemeAsset', () => {
     expect(console.info).toHaveBeenCalledTimes(1);
   });
 
-  it('rejects every call when the bundle is malformed', async () => {
+  it('rejects every call when the document is malformed', async () => {
     const mod = await freshModule(MALFORMED);
     await expect(mod.getTheme()).rejects.toBeInstanceOf(mod.ThemeLoadError);
     await expect(mod.getBrand()).rejects.toBeInstanceOf(mod.ThemeLoadError);
@@ -212,91 +205,37 @@ describe('getTheme, getBrand and getThemeAsset', () => {
     const mod = await import('./index');
     expect(mod.themeDir()).toBe(mod.DEFAULT_THEME_DIR);
   });
-
-  it('serves only referenced assets under the loaded hash', async () => {
-    const mod = await freshModule(VALID);
-    const { theme } = await mod.getTheme();
-    const hash = theme!.hash;
-
-    const logo = await mod.getThemeAsset(hash, 'logo-dark.svg');
-    expect(logo).not.toBeNull();
-    expect(logo!.contentType).toBe('image/svg+xml');
-    expect(new TextDecoder().decode(logo!.bytes)).toContain('<svg');
-
-    expect(await mod.getThemeAsset('0'.repeat(64), 'logo-dark.svg')).toBeNull();
-    // In the bundle directory, but not referenced by the document.
-    expect(await mod.getThemeAsset(hash, 'nothing.svg')).toBeNull();
-    expect(await mod.getThemeAsset(hash, '../theme.yaml')).toBeNull();
-    expect(await mod.getThemeAsset(hash, 'theme.yaml')).toBeNull();
-  });
-
-  it('types a font asset as woff2', async () => {
-    const mod = await freshModule(WITH_FONT);
-    const { theme } = await mod.getTheme();
-    const font = await mod.getThemeAsset(theme!.hash, 'fonts/sans.woff2');
-    expect(font?.contentType).toBe('font/woff2');
-  });
-
-  it('serves no asset without a theme', async () => {
-    const mod = await freshModule(ABSENT);
-    expect(await mod.getThemeAsset('any', 'logo-dark.svg')).toBeNull();
-  });
 });
 
-describe('loadThemeFrom: hostile bundles', () => {
+describe('loadThemeFrom: oversize and unusual documents', () => {
   let tmp: string;
-  let bundle: string;
 
   beforeEach(async () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
     tmp = await mkdtemp(path.join(os.tmpdir(), 'theme-load-'));
-    bundle = path.join(tmp, 'bundle');
-    await mkdir(path.join(bundle, 'assets', 'adir.svg'), { recursive: true });
-    await mkdir(path.join(tmp, 'outside'));
-    await writeFile(path.join(tmp, 'outside', 'out.svg'), '<svg/>');
   });
   afterEach(async () => {
     vi.restoreAllMocks();
     await rm(tmp, { recursive: true, force: true });
   });
 
-  const logoDocument = (file: string) =>
-    `koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: ${file}\n`;
-
   it('refuses a theme.yaml over the size cap before parsing it', async () => {
-    await writeFile(path.join(bundle, 'theme.yaml'), '#'.repeat(70 * 1024));
-    const err = await loadThemeFrom(bundle).catch((e: unknown) => e);
+    await writeFile(path.join(tmp, 'theme.yaml'), '#'.repeat(70 * 1024));
+    const err = await loadThemeFrom(tmp).catch((e: unknown) => e);
     expect(err).toBeInstanceOf(ThemeLoadError);
     expect((err as ThemeLoadError).errors).toEqual([
       expect.objectContaining({ path: 'theme.yaml', message: expect.stringContaining('65536') }),
     ]);
   });
 
-  it('reports an asset path that names a directory as not in the bundle', async () => {
-    await writeFile(path.join(bundle, 'theme.yaml'), logoDocument('adir.svg'));
-    const err = await loadThemeFrom(bundle).catch((e: unknown) => e);
-    expect(err).toBeInstanceOf(ThemeLoadError);
-    expect((err as ThemeLoadError).errors).toEqual([
-      { path: 'slots.logo.dark', message: '"adir.svg" is not in the bundle' },
-    ]);
-  });
-
-  it('does not follow an asset symlink out of the bundle', async () => {
-    await symlink(path.join(tmp, 'outside', 'out.svg'), path.join(bundle, 'assets', 'leak.svg'));
-    await writeFile(path.join(bundle, 'theme.yaml'), logoDocument('leak.svg'));
-    const err = await loadThemeFrom(bundle).catch((e: unknown) => e);
-    expect((err as ThemeLoadError).errors).toEqual([
-      { path: 'slots.logo.dark', message: '"leak.svg" is not in the bundle' },
-    ]);
-  });
-
-  it('does not follow a directory symlink out of the bundle', async () => {
-    await symlink(path.join(tmp, 'outside'), path.join(bundle, 'assets', 'dirlink'));
-    await writeFile(path.join(bundle, 'theme.yaml'), logoDocument('dirlink/out.svg'));
-    const err = await loadThemeFrom(bundle).catch((e: unknown) => e);
-    expect((err as ThemeLoadError).errors).toEqual([
-      { path: 'slots.logo.dark', message: '"dirlink/out.svg" is not in the bundle' },
-    ]);
+  it('uses the slot URLs exactly as the document gives them, query included', async () => {
+    await writeFile(
+      path.join(tmp, 'theme.yaml'),
+      'koraVersion: "1.0.0"\nslots:\n  logo:\n    dark: "https://cdn.acme.example/logo.svg?v=3&sig=a"\n',
+    );
+    const { brand } = await loadThemeFrom(tmp);
+    expect(brand.logo.dark).toBe('https://cdn.acme.example/logo.svg?v=3&sig=a');
+    expect(brand.logo.light).toBe(defaultTheme.logo.light);
   });
 });
