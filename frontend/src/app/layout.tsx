@@ -22,20 +22,18 @@ const geistMono = Geist_Mono({
   subsets: ['latin'],
 });
 
-/**
- * The favicon entries for the theme. Browsers pick a favicon by the system
- * colour scheme, not the page's `data-theme`, so both modes go out with a
- * `media` query, the kora default standing in for a mode the theme omits. Without a theme favicon the key is left out and Next's
- * `app/icon.svg` file convention supplies the kora default, as before.
- */
 /** Next serves `app/icon.svg` here. */
 const DEFAULT_FAVICON = '/icon.svg';
 
+/**
+ * The favicon entries for the theme, or none when the theme has no favicon, which
+ * leaves `app/icon.svg` in place. Browsers pick a favicon by the system colour
+ * scheme, not the page's `data-theme`, so each mode gets a `media` query.
+ */
 function themeIcons(brand: IdentityTheme): Pick<Metadata, 'icons'> {
   const { favicon } = brand;
   if (!favicon?.dark && !favicon?.light) return {};
-  // A mode the theme leaves out gets the kora default icon, as any missing
-  // identity value does.
+  // A mode the theme omits falls back to the kora icon.
   return {
     icons: {
       icon: [
@@ -75,10 +73,8 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  // Loaded once per process; a theme that fails validation throws here, so no
-  // page serves (white-labelling theme ADR, decision 4).
-  // The theme is read from a document mounted at runtime, so no page may be
-  // prerendered at build, where there is no document and the default would ship.
+  // The theme is a document mounted at runtime. Opt out of prerendering, or the
+  // build would ship the default. An invalid theme throws here, so no page serves.
   await connection();
   const { brand, css, fontPreloads } = await getTheme();
 
@@ -87,9 +83,9 @@ export default async function RootLayout({
     // The font variables are on <html> so the :root rule in globals.css can read them.
     <html lang="en" className={`${inter.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <head>
-        {/* The theme's token overrides and @font-face rules, inline so the first
-            paint carries the brand. The selectors out-rank the token sheet's, so
-            where Next places its stylesheet links does not matter. */}
+        {/* Theme tokens and @font-face rules, inline so the first paint has the
+            brand. Their selectors out-rank the token sheet, so stylesheet order
+            does not matter. */}
         {css && <style data-theme-css="" dangerouslySetInnerHTML={{ __html: css }} />}
         {[...new Set(fontPreloads)].map((href) => (
           <link

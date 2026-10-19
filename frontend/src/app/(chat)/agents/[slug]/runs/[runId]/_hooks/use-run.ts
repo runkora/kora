@@ -967,7 +967,7 @@ function stopRunningTools(turn: AgentTurn): AgentTurn {
 
 const TURN_CONTINUES = new Set(['sandbox_lost']);
 
-/** The friendly text for a run error code, when there is one; the product is named by the brand. */
+/** The friendly text for a run error code, if it has one. */
 function runErrorMessage(code: string, productName: string): string | undefined {
   switch (code) {
     case 'sandbox_lost':

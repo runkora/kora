@@ -2,11 +2,11 @@
  * BFF route: GET /api/health
  *
  * Liveness/readiness probe for Kubernetes. Calls no upstream service, so the
- * pod is ready as soon as Next.js serves requests. It reports the instance's
- * kora version (null for a build that is not from a release tag) and the loaded
- * theme's hash (null without a theme), per the white-labelling theme ADR,
- * decision 3; a document that fails to load makes
- * this throw, which is the point: the pod must not become ready.
+ * pod is ready as soon as Next.js serves requests.
+ *
+ * It reports the instance's kora version (null for a build that is not from a
+ * release tag) and the loaded theme's hash (null without a theme). A theme
+ * document that fails to load makes it throw, so the pod does not become ready.
  */
 import 'server-only';
 import { NextResponse } from 'next/server';

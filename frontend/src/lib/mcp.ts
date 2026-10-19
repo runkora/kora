@@ -11,9 +11,9 @@
 import type { IconName } from '@runkora/hades';
 
 /**
- * The slug the platform's own MCP server is registered under. An identifier,
- * not the product name: it is the mount path `/v1/mcp/orbit` and the name the
- * backend registers, which a theme does not change.
+ * The slug the platform's own MCP server is registered under. It is an
+ * identifier, not the product name: the mount path is `/v1/mcp/orbit`, and a
+ * theme does not change it.
  */
 export const PLATFORM_MCP_SERVER = 'orbit';
 

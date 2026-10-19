@@ -245,16 +245,15 @@ const eslintConfig = defineConfig([
   },
 
   // ---- Product-name literal ban --------------------------------------------
-  // The product name is a deployment value (white-labelling theme ADR, decision
-  // 5): a theme can rename it, so copy that spells `kora` or `orbit` as a word
-  // is a leak. Read it from the brand instead: useBrand().productName in client
+  // A theme can rename the product, so copy must not spell `kora` or `orbit` as
+  // a word. Read the name from the brand: useBrand().productName in client
   // components, getBrand() from @orbit/server/theme in server code.
   // Identifier-shaped literals pass (orbit.io, kora-base, ORBIT_API_KEY), as do
   // import sources, object keys, computed member keys and literal types.
   //
-  // Mock data is excluded until it goes: the *-mock-data.ts modules beside the
-  // dashboard pages and model-gateway/_data/mock.ts. Tests and stories are
-  // excluded because they assert on the default brand.
+  // Mock data is excluded until it is removed: the *-mock-data.ts modules beside
+  // the dashboard pages and model-gateway/_data/mock.ts.
+  // Tests and stories are excluded because they assert on the default brand.
   {
     files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
     ignores: [

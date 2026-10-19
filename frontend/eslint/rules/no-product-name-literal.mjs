@@ -1,35 +1,31 @@
 /**
  * no-product-name-literal
  *
- * The product name is a deployment value (white-labelling theme ADR, decision
- * 5): a theme can rename the product, so user-facing copy must read it from the
- * brand rather than spell it. This rule reports a string literal, a template
- * literal chunk or JSX text containing the whole word `kora` or `orbit`,
- * case-insensitively, when the match is not immediately adjacent to `-`, `_`,
- * `.` or `/` on either side. Identifier-shaped uses therefore pass (`orbit.io`,
- * `kora-base`, `orbit-system`, `@runkora/hades`, `ORBIT_API_KEY`) and prose
- * fails ("Log out of kora?", `"orbit"` inside a config snippet). One
- * refinement to the ADR's wording: a `.` only joins when a word character sits
- * on its far side, so a sentence that ends in the product name is prose too.
+ * Reports the whole word `kora` or `orbit`, case-insensitively, in a string
+ * literal, a template literal chunk or JSX text. A theme can rename the
+ * product, so user-facing copy must read the name from the brand.
+ *
+ * A match passes when `-`, `_` or `/` sits right beside it, or a `.` with a
+ * word character on its far side (`orbit.io`, `kora-base`, `@runkora/hades`,
+ * `ORBIT_API_KEY`). A `.` that ends a sentence does not join, so
+ * "provisioned in kora." fails.
  *
  * Literals that are never copy are skipped: import and export sources, object
  * property keys, computed member keys (`claims['orbit']`) and literal types.
- * There is no inline escape hatch; a hit that is not user-facing is either an
- * identifier (keep it adjacent to one of the four characters, or move it out of
- * the app tree) or a path-scoped `ignores` entry in eslint.config.mjs.
+ *
+ * There is no inline escape hatch. Keep an identifier joined to one of those
+ * characters, move it out of the app tree, or add a path-scoped `ignores` entry
+ * in eslint.config.mjs.
  */
 
-// A candidate is the whole word `kora` or `orbit`; the adjacency check below
-// decides whether it is an identifier or prose.
+// The whole word; the adjacency check below tells an identifier from prose.
 const CANDIDATE = /\b(?:kora|orbit)\b/gi;
 const JOINER = /[\w\-/]/;
 
 /**
- * Whether the character beside the word makes it part of an identifier: a
- * letter, digit, `_`, `-` or `/` always does (`kora-base`, `orbit/authz`,
- * `ORBIT_API_KEY`); a `.` does only when a word character sits on its other
- * side (`orbit.io`, `claims.orbit`), so the full stop that ends a sentence
- * ("provisioned in kora.") is still prose.
+ * Whether the character beside the word joins it into an identifier: `-`, `_`,
+ * `/`, or a `.` with a word character on its far side (`orbit.io`,
+ * `claims.orbit`). A full stop that ends a sentence does not join.
  */
 function joinedThrough(text, index, direction) {
   const c = text[index];

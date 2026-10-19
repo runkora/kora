@@ -1,18 +1,19 @@
 /**
- * validate-theme: the init container's entry point (white-labelling theme ADR,
- * decision 3).
+ * validate-theme: the init container's entry point.
  *
  *   node validate-theme.mjs <documentFile>
  *
- * Reads the theme document the chart rendered into the frontend's ConfigMap
- * and runs the Hades validator at the version this image carries. It checks
- * the form of every slot URL and never fetches one, so a deploy does not
- * depend on the asset host being reachable.
+ * Reads the theme document the chart rendered into the frontend's ConfigMap and
+ * validates it with the Hades version this image carries. It checks the form of
+ * each slot URL and never fetches one, so a deploy does not depend on the asset
+ * host being up.
  *
- * On success it prints the report: every ignored entry and every identity
- * value that falls through to the default, then a warning when the theme mixes its own identity with kora's. On failure it prints every fault.
- * Exit 0 or 1. Bundled by `scripts/bundle-validate-theme.mjs` into the image's
- * standalone directory. No React, no DOM, no Next.
+ * On success it prints the report: ignored entries, identity values that fall
+ * through to the default, and a warning when the theme mixes its own identity
+ * with kora's. On failure it prints every fault. Exits 0 or 1.
+ *
+ * Bundled by `scripts/bundle-validate-theme.mjs` into the image's standalone
+ * directory. No React, no DOM, no Next.
  */
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

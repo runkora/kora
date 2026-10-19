@@ -1,7 +1,7 @@
 /**
- * The bounded read of a theme document, shared by the server module and the
- * init container's `scripts/validate-theme.ts` so both hold a document to the
- * same limit. Node built-ins only: the init container bundles this file
+ * The bounded read of a theme document. The server module and the init
+ * container's `scripts/validate-theme.ts` share it, so both enforce the same
+ * limit. It uses Node built-ins only, because the init container bundles it
  * without Next or `server-only`.
  */
 import { open } from 'node:fs/promises';

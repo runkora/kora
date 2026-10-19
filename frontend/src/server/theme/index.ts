@@ -1,22 +1,22 @@
 /**
- * The loaded theme: the frontend's side of the white-labelling theme ADR,
- * decision 4.
+ * The loaded theme.
  *
  * The theme is one document, `theme.yaml` in `/etc/orbit/theme` by default,
- * which the chart mounts from the frontend's ConfigMap. Its slots hold the
- * `https://` URLs of the logo, the favicon and the fonts, which the browser
- * loads directly; the instance serves no asset. The first call reads the
- * document, runs the Hades validator, derives everything a page needs (the
- * inline CSS, the font preloads, the effective brand) and holds the result for
- * the life of the process: the theme changes only on redeploy, so nothing
- * re-reads it. A document that fails validation throws with every fault
- * listed, so no page serves; the init container running
- * `scripts/validate-theme.ts` on the same document is what normally keeps that
- * from happening. An absent directory means the kora default; a directory
- * without `theme.yaml` is an error.
+ * mounted from the frontend's ConfigMap. Its slots hold `https://` URLs for the
+ * logo, favicon and fonts. The browser loads them directly. The instance serves
+ * no asset.
  *
- * `ORBIT_THEME_DIR` overrides the directory. It exists for tests, which point it
- * at the fixtures beside this module.
+ * The first call reads and validates the document, then derives the inline CSS,
+ * the font preloads and the effective brand. The result is held for the life of
+ * the process, because the theme changes only on redeploy.
+ *
+ * An invalid document throws with every fault listed, so no page serves. The
+ * init container normally catches that first, by running
+ * `scripts/validate-theme.ts` on the same document. An absent directory means
+ * the kora default. A directory without `theme.yaml` is an error.
+ *
+ * `ORBIT_THEME_DIR` overrides the directory. Tests point it at the fixtures
+ * beside this module.
  */
 import 'server-only';
 
@@ -124,8 +124,8 @@ function describeVersion(koraVersion: string | null): string {
 }
 
 function logLoaded(dir: string, loaded: LoadedTheme): void {
-  // The frontend has no server-side logger; one line at startup is the
-  // monitoring the ADR asks for (Validation, Monitoring).
+  // The frontend has no server-side logger. One line at startup is the
+  // monitoring.
   if (!loaded.theme) {
     console.info(
       `[theme] no theme at ${dir}; serving the default (${describeVersion(loaded.koraVersion)})`,

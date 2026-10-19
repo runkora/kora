@@ -37,7 +37,7 @@ interface Message {
 
 const MODELS = ['kora-3 Opus', 'kora-3 Sonnet', 'kora-3 Haiku'] as const;
 
-/** The suggestion chips; the product is named by the brand. */
+/** The suggestion chips. */
 function suggestionsFor(productName: string) {
   return [
     {
@@ -69,7 +69,7 @@ function suggestionsFor(productName: string) {
 
 // ─── Mock AI responses ────────────────────────────────────────────────────────
 
-/** Canned replies for the demo; the product is named by the brand. */
+/** Canned replies for the demo. */
 function responsesFor(productName: string) {
   return {
     policy: `${productName}'s policy engine is built on Open Policy Agent (OPA), which evaluates structured Rego policies before any agent action executes — never after.

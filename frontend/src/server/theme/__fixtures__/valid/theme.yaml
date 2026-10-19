@@ -1,6 +1,6 @@
-# A small valid theme: a product name, two colour tokens, a logo for both modes,
-# a favicon for dark only (so `favicon.light` falls through), one token and one
-# slot the manifest does not know (so both are ignored and logged), no fonts.
+# A small valid theme: a product name, two colour tokens, a logo for both modes
+# and a favicon for dark only, so `favicon.light` falls through. One token and
+# one slot are unknown to the manifest, so both are ignored and logged. No fonts.
 koraVersion: "1.0.0"
 productName: Acme Agents
 tokens:
