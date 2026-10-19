@@ -38,8 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     // suppressHydrationWarning: next-themes sets data-theme pre-hydration.
-    // The font variables live on <html> so the :root font slot defaults in
-    // globals.css can reference them.
+    // The font variables are on <html> so the :root rule in globals.css can read them.
     <html lang="en" className={`${inter.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <body className="antialiased bg-background text-foreground">
         <ThemeProvider attribute="data-theme" defaultTheme="system" enableSystem>

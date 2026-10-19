@@ -37,9 +37,9 @@
 }
 
 /* ─── Font slots ──────────────────────────────────────────────────────────── */
-/* The two families, settable like any token. Hades defaults to the generic   */
-/* stacks; the app's default theme sets them to its own fonts, and a loaded   */
-/* theme to the families it declares with @font-face.                          */
+/* The UI and code font families. The defaults are full fallback stacks, not */
+/* single family names.                                                       */
+/* The app sets its own fonts. A loaded theme sets the families it declares.  */
 :root {
   --hades-raw-font-sans: ui-sans-serif, system-ui, sans-serif;
   --hades-raw-font-mono: ui-monospace, 'Cascadia Code', monospace;
