@@ -126,6 +126,7 @@ func (p *ProxyHandler) forward(w http.ResponseWriter, r *http.Request, upstream 
 				pr.Out.Header.Set(d.Credential.Header, d.Credential.Value)
 			}
 		},
+		ModifyResponse: p.explainWorkflowRefusal,
 		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, err error) {
 			p.logger.Error(req.Context(), "egress forward failed",
 				logging.Field{Key: "connection", Value: d.Connection.Name},
