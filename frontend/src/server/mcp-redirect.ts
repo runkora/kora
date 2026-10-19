@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { config } from '@orbit/server/config';
+import { config } from '@runkora/server/config';
 
 /**
  * MCP OAuth redirect_uri validation, shared between the /mcp/authorize consent
@@ -53,7 +53,7 @@ export async function fetchMcpOAuthClient(
 ): Promise<McpOAuthClientLookup> {
   try {
     const res = await fetch(
-      `${config.orbitApiUrl}/identity/oauth/clients/${encodeURIComponent(clientId)}`,
+      `${config.koraApiUrl}/identity/oauth/clients/${encodeURIComponent(clientId)}`,
       { cache: 'no-store', headers: { Authorization: `Bearer ${accessToken}` } },
     );
     if (res.status === 404) {

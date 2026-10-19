@@ -1,7 +1,7 @@
 import 'server-only';
 
-import { config } from '@orbit/server/config';
-import type { ModelsListResponse } from '@orbit/shared/api';
+import { config } from '@runkora/server/config';
+import type { ModelsListResponse } from '@runkora/shared/api';
 import { toModelRow } from '../_types';
 import type { ModelRow } from '../_types';
 

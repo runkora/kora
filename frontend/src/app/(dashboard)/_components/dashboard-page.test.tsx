@@ -6,7 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { SpendBudgetCard } from './dashboard-page';
 import type { TenantCapStatus } from '../model-gateway/_types';
 

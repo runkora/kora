@@ -3,15 +3,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Badge, Stack, Text, Button } from '@runkora/hades';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
-import { ApiRoute, APP_ROUTES } from '@orbit/lib/routing';
+import { SmartTable } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
+import { ApiRoute, APP_ROUTES } from '@runkora/lib/routing';
 import type {
   AnalyticsDays,
   AnalyticsPrincipalsPageResponse,
   PrincipalUsageRow,
 } from '../../_types';
-import { agentNameFromPrincipalId, fmtCost, fmtDate, fmtNum } from '@orbit/utils';
+import { agentNameFromPrincipalId, fmtCost, fmtDate, fmtNum } from '@runkora/utils';
 
 // principalUsageHref builds the admin drill-down destination for a
 // Principals table row. Only principal_id is carried — display_name/email

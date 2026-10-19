@@ -1,7 +1,7 @@
 // RSC — fetches agents, runs, connections, environments, inference analytics, and
 // the tenant budget in parallel so the dashboard renders with real data on first load.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import {
   fetchDashboardData,
   ANALYTICS_WINDOW_DAYS,

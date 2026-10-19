@@ -1,7 +1,7 @@
 import 'server-only';
 
-import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
-import { listMcpServers, listMcpTools } from '@orbit/server/mcp-client';
+import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
+import { listMcpServers, listMcpTools } from '@runkora/server/mcp-client';
 
 export type McpServersResult = { ok: true; servers: McpServer[] } | { ok: false; message: string };
 

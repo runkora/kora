@@ -1,6 +1,6 @@
 // RSC — one MCP server's detail. Fetches the server's metadata + tool catalog.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchServerDetail } from '../_services/mcp-server';
 import { McpServerDetailShell } from '../_components/mcp-server-detail-shell';
 

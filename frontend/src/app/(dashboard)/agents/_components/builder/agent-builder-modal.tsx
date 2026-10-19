@@ -17,7 +17,7 @@ import {
   Wizard,
 } from '@runkora/hades';
 import type { IconName } from '@runkora/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { fetchAgentType } from '../../_services/agents-api';
 import { useAgentBuilderContext } from '../../_context/agent-builder-context';
 import { BUILDER_STEPS } from '../../_hooks/use-agent-builder';

@@ -18,7 +18,7 @@ const meta: Meta<typeof ExternalLink> = {
 export default meta;
 type Story = StoryObj<typeof ExternalLink>;
 
-const URL = 'https://github.com/clear-route/orbit';
+const URL = 'https://github.com/runkora/kora';
 
 export const Overview: Story = {
   render: () => (

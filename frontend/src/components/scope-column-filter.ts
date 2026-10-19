@@ -1,5 +1,5 @@
 /**
- * @tier 2 — Orbit-domain-aware: scope strings.
+ * @tier 2 — kora-domain-aware: scope strings.
  *
  * Builds the `DataTable` column filter used on every scope column: a
  * searchable, multi-select list of the distinct scopes present in the data.

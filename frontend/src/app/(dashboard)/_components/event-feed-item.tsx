@@ -1,9 +1,9 @@
 /** @tier 3 — dashboard-scoped. One row in the home page's activity feed: status dot, identifier, optional meta, message and timestamp. */
 import { ListItem, Stack, StatusDot, Text } from '@runkora/hades';
-import type { OrbitStatus } from '@orbit/components';
+import type { KoraStatus } from '@runkora/components';
 
 export interface EventFeedItemProps {
-  status: OrbitStatus;
+  status: KoraStatus;
   /** Primary identifier string, rendered in monospace (e.g. event type, model name). */
   label: string;
   /** Supporting identifier rendered next to the label (e.g. agent name, key id). */

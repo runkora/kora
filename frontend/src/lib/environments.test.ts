@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { SandboxImage } from '@orbit/shared/api';
+import type { SandboxImage } from '@runkora/shared/api';
 import { imageProblem, sizeLabel, slugProblem } from './environments';
 
 const image = (name: string, valid: boolean, problem?: string): SandboxImage => ({

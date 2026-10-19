@@ -2,7 +2,7 @@
 
 /** @tier 3 — environments-scoped. Client boundary holding the server-fetched rows. */
 
-import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
+import type { ConnectionCatalogEntry, EnvironmentSizes, SandboxImage } from '@runkora/shared/api';
 import { EnvironmentsPage } from './environments-page';
 import type { EnvironmentRow } from '../_types';
 

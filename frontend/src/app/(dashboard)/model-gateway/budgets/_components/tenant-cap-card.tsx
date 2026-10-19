@@ -21,8 +21,8 @@ import {
   Text,
 } from '@runkora/hades';
 import { usePermissions } from '../../../_components/permissions-provider';
-import { hasScope } from '@orbit/lib/permissions';
-import { fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { hasScope } from '@runkora/lib/permissions';
+import { fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import {
   upsertTenantBudgetAction,
   deleteTenantBudgetAction,

@@ -19,9 +19,9 @@ import {
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
 import Link from 'next/link';
-import { StatusBadge } from '@orbit/components';
-import type { AgentInsightsResponse, AgentTypeUsage } from '@orbit/shared/api';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { StatusBadge } from '@runkora/components';
+import type { AgentInsightsResponse, AgentTypeUsage } from '@runkora/shared/api';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { useAgentsContext } from '../_context/agents-context';
 import { useAgentsInsights } from '../_hooks/use-agents-insights';
 import { StartRunModal } from './start-run-modal';

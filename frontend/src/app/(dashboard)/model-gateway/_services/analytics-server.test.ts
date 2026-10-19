@@ -1,13 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils/msw/server';
+import { server } from '@runkora/test-utils/msw/server';
 
 /**
  * Unit tests for fetchAnalyticsPrincipalByIdFromGateway — the server-side
  * gateway call added for the admin drill-down view (GET
  * /v1/analytics/principals/{id} via the inference gateway).
  *
- * `@orbit/server/config` evaluates every required env var eagerly at module
+ * `@runkora/server/config` evaluates every required env var eagerly at module
  * load time (see src/server/config.ts — each property calls requireEnv()
  * directly in the object literal). That means the env vars it needs must be
  * stubbed *before* analytics-server.ts is first imported anywhere in this

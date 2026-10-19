@@ -4,9 +4,9 @@
  */
 
 import type { IronSession } from 'iron-session';
-import type { SessionPayload } from '@orbit/server/auth-config';
-import type { ListPATsResult } from '@orbit/server/services/identity-server';
-import type { PAT, ScopesExplainResponse } from '@orbit/shared/api';
+import type { SessionPayload } from '@runkora/server/auth-config';
+import type { ListPATsResult } from '@runkora/server/services/identity-server';
+import type { PAT, ScopesExplainResponse } from '@runkora/shared/api';
 
 const DAY = 24 * 60 * 60 * 1000;
 const iso = (offsetMs: number): string => new Date(Date.now() + offsetMs).toISOString();

@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation';
 import { Badge, Button, Icon, Show, Stack, Text } from '@runkora/hades';
 import { ThemeToggle } from './theme-toggle';
 import { useSidebarState } from './sidebar-state';
-import { mcpGatewayHost } from '@orbit/lib/mcp';
+import { mcpGatewayHost } from '@runkora/lib/mcp';
 
 /**
  * Per-section header content. `title` + `tag` render on the left of the top bar;

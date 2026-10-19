@@ -46,7 +46,7 @@ export const Overview: Story = {
             models:read
           </Badge>
           <Badge variant="dim" size="sm">
-            orbit-3-turbo
+            kora-3-turbo
           </Badge>
           <Badge variant="reserved" shape="pill" size="lg" mono>
             platform-admin
@@ -101,7 +101,7 @@ export const Options: Story = {
           <Badge variant="elevated">models:read</Badge>
         </Option>
         <Option name='variant="dim"' use="A quiet label that should not compete with the page.">
-          <Badge variant="dim">orbit-3-turbo</Badge>
+          <Badge variant="dim">kora-3-turbo</Badge>
         </Option>
         <Option name='variant="reserved"' use="A privileged role such as platform-admin.">
           <Badge variant="reserved">platform-admin</Badge>

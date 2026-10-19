@@ -3,11 +3,11 @@
 import { useCallback, useMemo, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Badge, Button, Callout, SegmentedControl, Stack, Text } from '@runkora/hades';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
+import { SmartTable } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
 import { useLogsContext } from '../_context/logs-context';
 import type { InferenceUsageRecord } from '../_types';
-import { fmtCost, fmtDate, fmtTime, fmtNum, isExpired } from '@orbit/utils';
+import { fmtCost, fmtDate, fmtTime, fmtNum, isExpired } from '@runkora/utils';
 import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';
 import { InferenceLogDetailModal } from './inference-log-detail-modal';
 

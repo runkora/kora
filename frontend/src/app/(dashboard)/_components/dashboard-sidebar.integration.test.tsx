@@ -20,8 +20,8 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { renderWithProviders } from '@runkora/test-utils';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { DashboardSidebar } from './dashboard-sidebar';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import 'server-only';
 import { cache } from 'react';
-import { config } from '@orbit/server/config';
+import { config } from '@runkora/server/config';
 import { mergeWithDefaults } from './preferences.schema';
 import type { UserPreferences } from './preferences.schema';
 
@@ -13,7 +13,7 @@ export const getPreferences = cache(async (accessToken: string): Promise<UserPre
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 500);
-    const res = await fetch(`${config.orbitApiUrl}/identity/preferences`, {
+    const res = await fetch(`${config.koraApiUrl}/identity/preferences`, {
       headers: { Authorization: `Bearer ${accessToken}` },
       cache: 'no-store',
       signal: controller.signal,

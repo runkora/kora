@@ -2,24 +2,24 @@
  * Integration tests for GET /api/policy/grants and POST /api/policy/grants
  *
  * Strategy:
- * - `@orbit/server/config` is vi.mock'd to set `policyServiceUrl` without
+ * - `@runkora/server/config` is vi.mock'd to set `policyServiceUrl` without
  *   triggering `requireEnv` at import time.
- * - `@orbit/server/session` is vi.mock'd so `getSession` and `isSessionValid`
+ * - `@runkora/server/session` is vi.mock'd so `getSession` and `isSessionValid`
  *   return controllable state without a real iron-session cookie.
  * - MSW intercepts calls to `http://test-policy-svc/policy/grants`.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
-vi.mock('@orbit/server/config', () => ({
+vi.mock('@runkora/server/config', () => ({
   config: { policyServiceUrl: 'http://test-policy-svc' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
@@ -27,7 +27,7 @@ vi.mock('@orbit/server/session', () => ({
 // ── Import under test ─────────────────────────────────────────────────────────
 
 import { GET, POST } from './route';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

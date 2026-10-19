@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Environment } from '@orbit/shared/api';
+import type { Environment } from '@runkora/shared/api';
 import { toEnvironmentRow } from '.';
 
 const env: Environment = {

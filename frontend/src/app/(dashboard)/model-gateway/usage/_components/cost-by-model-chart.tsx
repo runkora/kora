@@ -11,7 +11,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@runkora/hades';
-import { fmtUsd } from '@orbit/utils';
+import { fmtUsd } from '@runkora/utils';
 import { MODEL_COSTS } from '../../_data/mock';
 
 // ── Chart Colors (Hades tokens) ───────────────────────────────────────────────

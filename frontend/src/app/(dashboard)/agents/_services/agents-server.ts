@@ -1,8 +1,8 @@
 import 'server-only';
 
-import type { AgentRunStats, AgentType } from '@orbit/shared/api';
-import { agentsClient, fetchTenantRunStats, listRuns } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
+import type { AgentRunStats, AgentType } from '@runkora/shared/api';
+import { agentsClient, fetchTenantRunStats, listRuns } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
 import { DEFAULT_PERIOD } from '../_lib/spend';
 import { indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';

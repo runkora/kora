@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 2 — Orbit-domain-aware: scope selection grouped by resource. Used by: policy grants, policy roles, model-gateway token modals. */
+/** @tier 2 — kora-domain-aware: scope selection grouped by resource. Used by: policy grants, policy roles, model-gateway token modals. */
 
 import { useMemo, useState } from 'react';
 import {

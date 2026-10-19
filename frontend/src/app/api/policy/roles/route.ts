@@ -1,6 +1,6 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchRoles, upsertRole } from '../../../(dashboard)/policy/_services/policy-server';
 import type { UpsertRoleRequest } from '../../../(dashboard)/policy/_types/api';
 

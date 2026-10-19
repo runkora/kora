@@ -7,7 +7,7 @@ import { SectionLabel } from '../section-label';
 import { Text } from '../typography';
 import { filterCatalog, groupCatalog, type TemplateCatalogEntry } from './template-model';
 
-/** @tier 1 — Zero Orbit domain knowledge. The searchable, grouped field picker for TemplateField. */
+/** @tier 1 — Zero kora domain knowledge. The searchable, grouped field picker for TemplateField. */
 
 export interface TemplateCatalogListProps {
   /** Every field the template may reference. */

@@ -1,8 +1,8 @@
 import 'server-only';
 
-import { config } from '@orbit/server/config';
-import { agentsClient } from '@orbit/server/agents-client';
-import type { AgentInsightsResponse } from '@orbit/shared/api';
+import { config } from '@runkora/server/config';
+import { agentsClient } from '@runkora/server/agents-client';
+import type { AgentInsightsResponse } from '@runkora/shared/api';
 import type { Period } from '../_lib/spend';
 
 // The BFF composes gateway usage and budgets with orbit-agents run outcomes, each under the caller's token.

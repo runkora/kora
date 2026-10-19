@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { listConnections } from '@orbit/server/connections-client';
+import { withAuth } from '@runkora/server/route-helpers';
+import { listConnections } from '@runkora/server/connections-client';
 
 // GET /api/agents/connectors — the catalog of the tenant's registered
 // connections (name + grantable actions), read from orbit-agents (the service

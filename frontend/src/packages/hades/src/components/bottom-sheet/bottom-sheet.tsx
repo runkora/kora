@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 1 — Zero Orbit domain knowledge. A modal, bottom-anchored sheet for mobile viewports. */
+/** @tier 1 — Zero kora domain knowledge. A modal, bottom-anchored sheet for mobile viewports. */
 
 import * as React from 'react';
 import * as DialogPrimitive from '@radix-ui/react-dialog';

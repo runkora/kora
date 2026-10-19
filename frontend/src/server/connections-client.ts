@@ -1,6 +1,6 @@
 import 'server-only';
-import { config } from '@orbit/server/config';
-import type { ConnectionCatalogEntry, ConnectionQualifierEntry } from '@orbit/shared/api';
+import { config } from '@runkora/server/config';
+import type { ConnectionCatalogEntry, ConnectionQualifierEntry } from '@runkora/shared/api';
 
 /** The slice of the gateway's connection record the catalog picker needs. */
 interface GatewayConnection {
@@ -26,7 +26,7 @@ interface GatewayConnection {
  * action vocabulary: the set of actions an agent may be granted through it.
  */
 export async function listConnections(accessToken: string): Promise<ConnectionCatalogEntry[]> {
-  const res = await fetch(`${config.orbitAgentsUrl}/api/v1/connections`, {
+  const res = await fetch(`${config.koraAgentsUrl}/api/v1/connections`, {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       'Content-Type': 'application/json',

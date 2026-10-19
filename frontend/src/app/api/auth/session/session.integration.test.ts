@@ -4,26 +4,26 @@
  * Strategy:
  * - `next/headers` and `iron-session` are vi.mock'd — they have no Node
  *   equivalent and would throw in Vitest's jsdom environment.
- * - `@orbit/server/config` is vi.mock'd so we control `orbitApiUrl` and
+ * - `@runkora/server/config` is vi.mock'd so we control `koraApiUrl` and
  *   avoid the `requireEnv` throw at import time.
- * - `@orbit/server/session` is vi.mock'd so GET tests control session state
+ * - `@runkora/server/session` is vi.mock'd so GET tests control session state
  *   without a real iron-session cookie.
  * - MSW intercepts the upstream fetch the POST handler makes to the Go
  *   identity service (`http://test-orbit-api/identity/session`).
- * - `getSessionOptions` from `@orbit/server/auth-config` runs for real —
+ * - `getSessionOptions` from `@runkora/server/auth-config` runs for real —
  *   it reads `BFF_SESSION_SECRET` at call time, so we stub that env var
  *   in beforeAll.
  */
 import { describe, it, expect, vi, beforeAll, afterAll, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import type { IronSession } from 'iron-session';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 import {
   createBackendSessionResponse,
   createSessionUser,
   createSessionPayload,
-} from '@orbit/test-utils/factories/session';
-import type { SessionPayload } from '@orbit/server/auth-config';
+} from '@runkora/test-utils/factories/session';
+import type { SessionPayload } from '@runkora/server/auth-config';
 
 // ── Module mocks (hoisted before imports) ─────────────────────────────────────
 
@@ -35,11 +35,11 @@ vi.mock('iron-session', () => ({
   getIronSession: vi.fn(),
 }));
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitApiUrl: 'http://test-orbit-api', policyGatewayUrl: 'http://test-policy-gateway' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraApiUrl: 'http://test-orbit-api', policyGatewayUrl: 'http://test-policy-gateway' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn(),
 }));
@@ -48,7 +48,7 @@ vi.mock('@orbit/server/session', () => ({
 
 import { POST, GET } from './route';
 import { getIronSession } from 'iron-session';
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 
 // ── Environment setup ─────────────────────────────────────────────────────────
 

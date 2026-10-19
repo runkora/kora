@@ -13,9 +13,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@runkora/hades';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
-import { fmtCost } from '@orbit/utils';
+import { SmartTable } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
+import { fmtCost } from '@runkora/utils';
 import type { VirtualModel } from '../_types/catalog';
 import { providerTitle } from '../_utils/catalog-constants';
 import { StrategyBadge } from './strategy-badge';

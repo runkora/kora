@@ -1,4 +1,4 @@
-import type { SandboxImage } from '@orbit/shared/api';
+import type { SandboxImage } from '@runkora/shared/api';
 
 /** A digest-like string derived from the name, so every mock image has a stable digest. */
 function fakeDigest(seed: string): string {

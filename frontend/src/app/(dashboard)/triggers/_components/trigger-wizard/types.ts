@@ -10,7 +10,7 @@
 
 import type * as React from 'react';
 import type { IconName } from '@runkora/hades';
-import type { TriggerKind, TriggerOverflow } from '@orbit/shared/api';
+import type { TriggerKind, TriggerOverflow } from '@runkora/shared/api';
 import type { Frequency } from './cron';
 import type { FilterRow } from '../filter-rows-editor';
 import type { SenderRestrictionDraft } from '../sender-restriction-editor';

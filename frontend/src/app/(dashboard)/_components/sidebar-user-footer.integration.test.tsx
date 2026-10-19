@@ -15,8 +15,8 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
-import { APP_ROUTES } from '@orbit/lib/routing/routes';
+import { renderWithProviders } from '@runkora/test-utils';
+import { APP_ROUTES } from '@runkora/lib/routing/routes';
 import { SidebarUserFooter } from './sidebar-user-footer';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────

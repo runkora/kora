@@ -1,8 +1,8 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { listSources, createSource } from '@orbit/server/triggers-client';
-import type { WebhookSourceCreateRequest } from '@orbit/shared/api';
+import { withAuth } from '@runkora/server/route-helpers';
+import { listSources, createSource } from '@runkora/server/triggers-client';
+import type { WebhookSourceCreateRequest } from '@runkora/shared/api';
 
 // GET /api/trigger-sources — the tenant's webhook sources.
 export const GET = withAuth(async (_req, session) => {

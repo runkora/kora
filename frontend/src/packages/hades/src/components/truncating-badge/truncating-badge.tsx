@@ -3,7 +3,7 @@ import { Badge } from '../badge';
 import { Stack } from '../layout/stack';
 import { Text } from '../typography';
 
-/** @tier 1 — Zero Orbit domain knowledge. A badge whose label shrinks to its container. */
+/** @tier 1 — Zero kora domain knowledge. A badge whose label shrinks to its container. */
 
 export interface TruncatingBadgeProps {
   label: string;

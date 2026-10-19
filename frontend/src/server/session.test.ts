@@ -10,7 +10,7 @@ vi.mock('iron-session', () => ({
   getIronSession: vi.fn(),
 }));
 
-vi.mock('@orbit/server/auth-config', () => ({
+vi.mock('@runkora/server/auth-config', () => ({
   getSessionOptions: vi.fn().mockReturnValue({}),
 }));
 

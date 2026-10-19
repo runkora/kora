@@ -208,7 +208,7 @@ const eslintConfig = defineConfig([
 
   // ---- Inline clipboard.writeText ban (hades and shared components exempted) -
   // Direct navigator.clipboard.writeText() calls in product code are forbidden.
-  // Use <CopyButton> from @orbit/components or a Tier 2 src/components/ wrapper.
+  // Use <CopyButton> from @runkora/components or a Tier 2 src/components/ wrapper.
   {
     files: ['src/**/*.{ts,tsx}'],
     ignores: ['src/packages/hades/**', 'src/components/**'],

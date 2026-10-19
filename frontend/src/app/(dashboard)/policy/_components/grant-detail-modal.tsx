@@ -7,11 +7,11 @@
 'use client';
 
 import { CopyButton, Modal, ModalBody, ModalHeader, Separator, Stack, Text } from '@runkora/hades';
-import { ScopeChip } from '@orbit/components';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { ScopeChip } from '@runkora/components';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import type { BudgetAssignment, Grant } from '../_types';
 import type { GrantIdentity } from '../_utils/grant-identity';
-import { PrincipalBadge } from '@orbit/components';
+import { PrincipalBadge } from '@runkora/components';
 
 function budgetLines(budget: BudgetAssignment | null | undefined): string[] {
   if (!budget) return [];

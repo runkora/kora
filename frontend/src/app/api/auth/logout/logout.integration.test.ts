@@ -2,9 +2,9 @@
  * Integration tests for POST /api/auth/logout
  *
  * Strategy:
- * - `@orbit/server/config` is vi.mock'd so `config.orbitApiUrl` resolves to
+ * - `@runkora/server/config` is vi.mock'd so `config.koraApiUrl` resolves to
  *   `http://test-orbit-api` without triggering `requireEnv` at import time.
- * - `@orbit/server/session` is vi.mock'd so tests control the session state
+ * - `@runkora/server/session` is vi.mock'd so tests control the session state
  *   (logged-in or logged-out) without a real iron-session cookie.
  * - MSW intercepts calls to `http://test-orbit-api/identity/revoke` so
  *   revocation behaviour (success, failure, network error) can be exercised.
@@ -18,8 +18,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
-import { createSessionPayload } from '@orbit/test-utils/factories/session';
+import { server } from '@runkora/test-utils';
+import { createSessionPayload } from '@runkora/test-utils/factories/session';
 
 // ── Module mocks ──────────────────────────────────────────────────────────────
 
@@ -27,18 +27,18 @@ vi.mock('next/headers', () => ({
   cookies: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitApiUrl: 'http://test-orbit-api' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraApiUrl: 'http://test-orbit-api' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
 }));
 
 // ── Import under test ─────────────────────────────────────────────────────────
 
 import { POST } from './route';
-import { getSession } from '@orbit/server/session';
+import { getSession } from '@runkora/server/session';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

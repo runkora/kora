@@ -1,5 +1,5 @@
-import { dashboardPage, sessionRoutes } from '@orbit/storybook/dashboard-frame';
-import type { MockRoutes } from '@orbit/storybook/mock-api';
+import { dashboardPage, sessionRoutes } from '@runkora/storybook/dashboard-frame';
+import type { MockRoutes } from '@runkora/storybook/mock-api';
 import PolicyLayout from '../layout';
 import { POLICY_WRITE_SCOPES } from './policy-mock-data';
 

@@ -1,7 +1,7 @@
 // RSC — the MCP servers list. Fetches the tenant-visible servers from the
 // tool-gateway so the page renders with real data immediately.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchMcpServers } from './_services/mcp-server';
 import { McpServersShell } from './_components/mcp-servers-shell';
 

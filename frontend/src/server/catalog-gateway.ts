@@ -1,5 +1,5 @@
 import 'server-only';
-import { config } from '@orbit/server/config';
+import { config } from '@runkora/server/config';
 
 /**
  * Forwards a request to the inference gateway catalog API.

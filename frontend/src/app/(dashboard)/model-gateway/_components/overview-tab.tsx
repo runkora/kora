@@ -26,9 +26,9 @@ import {
   StatusDot,
   Text,
 } from '@runkora/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import Link from 'next/link';
-import { fmtCost, fmtNumCompact, fmtTime, fmtDateAxis } from '@orbit/utils';
+import { fmtCost, fmtNumCompact, fmtTime, fmtDateAxis } from '@runkora/utils';
 import { ChartLegend } from './chart-legend';
 import type {
   AnalyticsBucket,

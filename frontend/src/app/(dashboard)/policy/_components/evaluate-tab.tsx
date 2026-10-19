@@ -25,7 +25,7 @@ import type {
   ScopesExplainResponse,
 } from '../_types';
 import { fetchPolicyScopesExplain, simulatePolicyCheck } from '../_services/policy-client';
-import { PrincipalBadge, ScopeChip } from '@orbit/components';
+import { PrincipalBadge, ScopeChip } from '@runkora/components';
 
 interface EvaluateTabProps {
   initialExplain: ScopesExplainResponse | null;

@@ -1,12 +1,12 @@
-/** Integration tests for GET /api/health, with `@orbit/server/theme` mocked. */
+/** Integration tests for GET /api/health, with `@runkora/server/theme` mocked. */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
-vi.mock('@orbit/server/theme', () => ({
+vi.mock('@runkora/server/theme', () => ({
   getTheme: vi.fn(),
 }));
 
 import { GET } from './route';
-import { getTheme } from '@orbit/server/theme';
+import { getTheme } from '@runkora/server/theme';
 
 type Loaded = Awaited<ReturnType<typeof getTheme>>;
 

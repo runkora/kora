@@ -1,6 +1,6 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
+import { withAuth } from '@runkora/server/route-helpers';
 import { fetchAnalyticsFromGateway } from '../../(dashboard)/model-gateway/_services/analytics-server';
 
 export const GET = withAuth(async (req: NextRequest, session) => {

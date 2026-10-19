@@ -209,7 +209,7 @@ export function GuardrailsFields({
 }
 
 /**
- * One loop-guard threshold pair: Orbit warns the agent at the first number and
+ * One loop-guard threshold pair: kora warns the agent at the first number and
  * pauses the run at the second. The guard always runs; switched off, the agent
  * type takes the platform defaults, which the disabled inputs show.
  */

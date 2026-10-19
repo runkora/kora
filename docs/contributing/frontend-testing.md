@@ -78,7 +78,7 @@ Component and BFF route tests that exercise real fetch/state machines via MSW. R
 
 ```ts
 // Override the default handler for one test
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 import { http, HttpResponse } from 'msw';
 
 it('returns 503 when upstream is unreachable', async () => {
@@ -99,7 +99,7 @@ Playwright tests against the running Next.js dev server. All BFF calls are inter
 ### BFF route handler
 
 1. Create `route.integration.test.ts` colocated with `route.ts`
-2. `vi.mock('@orbit/server/config', ...)` to set `config.orbitApiUrl` without triggering `requireEnv`
+2. `vi.mock('@runkora/server/config', ...)` to set `config.koraApiUrl` without triggering `requireEnv`
 3. Use `server.use(...)` to control upstream HTTP responses
 4. Import and call the handler directly (`import { GET } from './route'`)
 
@@ -107,10 +107,10 @@ Playwright tests against the running Next.js dev server. All BFF calls are inter
 import { describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitApiUrl: 'http://test-orbit-api' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraApiUrl: 'http://test-orbit-api' },
 }));
 
 import { GET } from './route';
@@ -129,13 +129,13 @@ it('returns 200 on success', async () => {
 ### Component with HTTP state
 
 1. Create `component.integration.test.tsx` colocated with `component.tsx`
-2. Use `renderWithProviders` from `@orbit/test-utils`
+2. Use `renderWithProviders` from `@runkora/test-utils`
 3. Default MSW handlers provide happy-path responses; override per-test as needed
 4. Use `screen.findByText(...)` (async) for post-fetch assertions
 
 ```tsx
 import { screen } from '@testing-library/react';
-import { renderWithProviders, server } from '@orbit/test-utils';
+import { renderWithProviders, server } from '@runkora/test-utils';
 import { http, HttpResponse } from 'msw';
 import { MyComponent } from './my-component';
 
@@ -152,7 +152,7 @@ it('renders data after fetch resolves', async () => {
 
 ## Test Utilities Reference
 
-All helpers live in `src/test-utils/` and are importable from `@orbit/test-utils`.
+All helpers live in `src/test-utils/` and are importable from `@runkora/test-utils`.
 
 | Export | Description |
 |--------|-------------|
@@ -169,7 +169,7 @@ Default MSW handlers in `src/test-utils/msw/handlers/` provide happy-path respon
 
 ## The `server-only` Shim
 
-`server-only` is an npm package that throws at import time if it's ever bundled into a client-side context. It's used at the top of BFF route files and `@orbit/server/*` modules to enforce the server boundary.
+`server-only` is an npm package that throws at import time if it's ever bundled into a client-side context. It's used at the top of BFF route files and `@runkora/server/*` modules to enforce the server boundary.
 
 Vitest runs in Node, not in a browser, so importing any module that contains `import 'server-only'` would throw, even though there is no real security boundary in a test environment.
 

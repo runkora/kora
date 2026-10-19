@@ -31,9 +31,9 @@ import {
   Text,
   Callout,
 } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
-import { deriveSlug } from '@orbit/lib/slug';
-import { ScopeChip } from '@orbit/components';
+import { useBrand } from '@runkora/theme/brand-provider';
+import { deriveSlug } from '@runkora/lib/slug';
+import { ScopeChip } from '@runkora/components';
 import { GATEWAY_BASE_URL_FALLBACK, gatewayBaseUrlFromWindow } from '../_utils';
 
 // ── Step ─────────────────────────────────────────────────────────────────────

@@ -76,7 +76,7 @@ When the container is too narrow for every column at its minimum width (the Rule
 ## Rule 7: Anything that can grow must truncate and show its full value
 
 - **Plain text** truncates and shows the tooltip automatically.
-- **Badges and chips** need a definite width to truncate against. Use `TruncatingBadge` (`@runkora/hades`) or `ScopeChip` (`@orbit/components`). They give the badge a stretched, shrinkable wrapper and a truncating text span, with the full label as the tooltip.
+- **Badges and chips** need a definite width to truncate against. Use `TruncatingBadge` (`@runkora/hades`) or `ScopeChip` (`@runkora/components`). They give the badge a stretched, shrinkable wrapper and a truncating text span, with the full label as the tooltip.
 - **Never put a raw badge directly in a block-level cell.** It stretches to the cell's full width. Put it in a horizontal `Stack` (which `TruncatingBadge` assumes).
 - **Do not add truncation to a Hades primitive** such as `Badge`. The concern belongs in the component that composes it.
 
@@ -138,7 +138,7 @@ Do this at two widths, with numbers, not by eye alone.
 
 | Piece                                                                                                | Location                                                                                    |
 | ---------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `ScopeChip`, `ScopeChipList`, `ClampedList`, `scopeColumnFilter`, `PrincipalBadge`, `useClampedRows` | `src/components/` (import from `@orbit/components`)                                         |
+| `ScopeChip`, `ScopeChipList`, `ClampedList`, `scopeColumnFilter`, `PrincipalBadge`, `useClampedRows` | `src/components/` (import from `@runkora/components`)                                       |
 | `TruncatingBadge`                                                                                    | Hades: `src/packages/hades/src/components/truncating-badge/` (import from `@runkora/hades`) |
 | Cell clipping, minimum widths, searchable filter                                                     | `DataTable` in `src/packages/hades/src/components/data-table/`                              |
 | Reference table                                                                                      | `src/app/(dashboard)/connections/_components/connections-page.tsx`                          |

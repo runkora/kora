@@ -3,7 +3,7 @@
  * are Kubernetes quantities on the wire and plain cores and GiB in the wizard.
  */
 
-import type { EnvironmentSize, EnvironmentSizes } from '@orbit/shared/api';
+import type { EnvironmentSize, EnvironmentSizes } from '@runkora/shared/api';
 
 export type SizeKey = keyof EnvironmentSize;
 

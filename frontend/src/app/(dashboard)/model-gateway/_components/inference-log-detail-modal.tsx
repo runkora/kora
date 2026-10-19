@@ -11,7 +11,7 @@ import {
   Text,
 } from '@runkora/hades';
 import type { InferenceUsageRecord } from '../_types';
-import { fmtCost, fmtDate, fmtNum, fmtTime } from '@orbit/utils';
+import { fmtCost, fmtDate, fmtNum, fmtTime } from '@runkora/utils';
 import { getInferenceStatusVariant, fmtInferenceStatus } from '../_utils';
 
 // ── DetailRow ─────────────────────────────────────────────────────────────────

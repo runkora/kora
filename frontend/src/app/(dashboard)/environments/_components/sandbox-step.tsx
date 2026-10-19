@@ -23,9 +23,9 @@ import {
   TooltipTrigger,
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
-import type { EnvironmentSizes, SandboxImage } from '@orbit/shared/api';
-import { ExternalLink } from '@orbit/components/links';
-import { BASE_IMAGE_NAME, imageProblem } from '@orbit/lib/environments';
+import type { EnvironmentSizes, SandboxImage } from '@runkora/shared/api';
+import { ExternalLink } from '@runkora/components/links';
+import { BASE_IMAGE_NAME, imageProblem } from '@runkora/lib/environments';
 import {
   PRESET_OPTIONS,
   SIZE_FIELDS,
@@ -220,7 +220,7 @@ export function ImageChoice({
       {onlyBase ? (
         <Text size="caption" color="muted">
           Only the base image is available. Platform teams can register more.{' '}
-          <ExternalLink url="https://github.com/clear-route/orbit/blob/main/docs/guides/deployment.md#sandbox-images-and-environments">
+          <ExternalLink url="https://github.com/runkora/kora/blob/main/docs/guides/deployment.md#sandbox-images-and-environments">
             Read the sandbox image guide
           </ExternalLink>
         </Text>

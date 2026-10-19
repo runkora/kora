@@ -1,7 +1,7 @@
 import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
-import { withAuth } from '@orbit/server/route-helpers';
-import { redeliverDelivery } from '@orbit/server/triggers-client';
+import { withAuth } from '@runkora/server/route-helpers';
+import { redeliverDelivery } from '@runkora/server/triggers-client';
 
 type Params = { id: string };
 

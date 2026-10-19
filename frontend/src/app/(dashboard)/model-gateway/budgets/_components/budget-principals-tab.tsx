@@ -16,8 +16,8 @@ import {
   EmptyState,
 } from '@runkora/hades';
 import type { DataTableColumn } from '@runkora/hades';
-import { ClampedList, StatusBadge } from '@orbit/components';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
+import { ClampedList, StatusBadge } from '@runkora/components';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
 import type { BudgetCategoryStatus, BudgetPrincipalRow, BudgetPrincipalsView } from '../../_types';
 import { TenantCapCard } from './tenant-cap-card';
 import { principalDisplay } from './principal-display';

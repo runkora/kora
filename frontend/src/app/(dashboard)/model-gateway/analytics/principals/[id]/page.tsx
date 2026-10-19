@@ -9,7 +9,7 @@
 // the URL, browser history, and server logs. See
 // docs/adr/2026-04-27-inference-analytics.md (amended 2026-07-20).
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchAnalyticsPrincipalByIdFromGateway } from '../../../_services/analytics-server';
 import { fetchUsersByIDs } from '../../../_services/tokens-server';
 import { getPreferences } from '../../../../_preferences/preferences-server';

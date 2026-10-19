@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { screen } from '@testing-library/react';
 import { Button } from '@runkora/hades';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { SidebarBrandHeader } from './sidebar-brand-header';
 
 describe('SidebarBrandHeader', () => {

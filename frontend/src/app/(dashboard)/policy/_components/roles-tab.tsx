@@ -28,16 +28,16 @@ import {
   EmptyState,
   ConfirmDialog,
 } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
-import { SmartTable } from '@orbit/components';
-import type { DataTableColumn } from '@orbit/components';
+import { useBrand } from '@runkora/theme/brand-provider';
+import { SmartTable } from '@runkora/components';
+import type { DataTableColumn } from '@runkora/components';
 import type { RoleEntry } from '../_types';
 import { upsertRoleAction, deleteRoleAction } from '../_actions/roles';
 import { usePermissions } from '../../_components/permissions-provider';
-import { hasScope } from '@orbit/lib/permissions';
-import { fmtDate, fmtUsd, fmtWindowSuffix } from '@orbit/utils';
-import { ScopeChipList, scopeColumnFilter } from '@orbit/components';
-import { ScopePicker } from '@orbit/components';
+import { hasScope } from '@runkora/lib/permissions';
+import { fmtDate, fmtUsd, fmtWindowSuffix } from '@runkora/utils';
+import { ScopeChipList, scopeColumnFilter } from '@runkora/components';
+import { ScopePicker } from '@runkora/components';
 import { ViewToggle } from './view-toggle';
 
 // ── Reserved roles (cannot be modified via UI) ───────────────────────────────

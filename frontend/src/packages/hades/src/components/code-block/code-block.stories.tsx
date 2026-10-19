@@ -36,7 +36,7 @@ export const Overview: Story = {
   render: () => (
     <div className="max-w-xl space-y-8">
       <Example title="Command">
-        <CodeBlock text="orbit agents deploy apollo-3 --env production" />
+        <CodeBlock text="kora agents deploy apollo-3 --env production" />
       </Example>
       <Example title="File with a name">
         <CodeBlock filename="~/.zshrc" text={ENV_FILE} />
@@ -50,7 +50,7 @@ export const Options: Story = {
     <div className="max-w-5xl">
       <OptionTable title="Options">
         <Option name="text" use="The code to show. The copy button copies exactly this text.">
-          <CodeBlock text="orbit login" />
+          <CodeBlock text="kora login" />
         </Option>
         <Option name="filename" use="Adds a bar with a file name above the code.">
           <CodeBlock filename="agent.env" text={ENV_FILE} />

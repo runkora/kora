@@ -19,7 +19,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { StatusBadge } from '@orbit/components';
+import { StatusBadge } from '@runkora/components';
 import { DeliveryDetail } from './delivery-detail';
 import { deliveryStatusTone, formatTimestampUtc } from '../_types';
 import type { DeliveryRow } from '../_types';

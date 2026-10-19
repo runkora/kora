@@ -17,7 +17,7 @@ import type {
   ModelObject,
   Run,
   RunWithAttribution,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import { RUNNING_ROWS } from '../_lib/spend';
 import { LIVE_RUN_STATES, indexAgentTypes, toAgentTypeRow, toRunRow } from '../_types';
 import type { AgentTypeRow, RunRow } from '../_types';

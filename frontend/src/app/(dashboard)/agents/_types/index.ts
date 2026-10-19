@@ -14,7 +14,7 @@ import type {
   RunState,
   Connectivity,
   Connector,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 export type {
   AgentEnvironment,

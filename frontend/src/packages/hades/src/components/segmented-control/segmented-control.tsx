@@ -2,7 +2,7 @@ import * as React from 'react';
 import { cva } from 'class-variance-authority';
 import { cn } from '../../utils';
 
-/** @tier 1 — Zero Orbit domain knowledge. A row of mutually exclusive filters on one track. */
+/** @tier 1 — Zero kora domain knowledge. A row of mutually exclusive filters on one track. */
 
 /** The recessed track the options sit on. */
 const segmentedControlVariants = cva([

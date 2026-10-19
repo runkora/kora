@@ -65,8 +65,8 @@ const rule = {
     messages: {
       literal:
         'Product name "{{word}}" in a literal. A theme can rename the product, so read it from ' +
-        'the brand: `useBrand().productName` (from @orbit/theme/brand-provider) in client ' +
-        'components, `getBrand()` (from @orbit/server/theme) in server code. Identifier-shaped ' +
+        'the brand: `useBrand().productName` (from @runkora/theme/brand-provider) in client ' +
+        'components, `getBrand()` (from @runkora/server/theme) in server code. Identifier-shaped ' +
         'uses such as `orbit.io` or `kora-base` are not flagged.',
     },
     schema: [],

@@ -4,7 +4,7 @@
 
 import Link from 'next/link';
 import { Button, Icon, Stack, EmptyState } from '@runkora/hades';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { usePrincipalAnalytics } from '../../../../_hooks/use-principal-analytics';
 import { AnalyticsDashboard } from '../../../../_components/analytics/analytics-dashboard';
 import type { AnalyticsResponse } from '../../../../_types';

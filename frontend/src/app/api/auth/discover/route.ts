@@ -14,7 +14,7 @@ import 'server-only';
 
 import { NextRequest, NextResponse } from 'next/server';
 
-import { config } from '@orbit/server/config';
+import { config } from '@runkora/server/config';
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const email = request.nextUrl.searchParams.get('email');
@@ -26,7 +26,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     );
   }
 
-  const upstream = `${config.orbitApiUrl}/identity/tenants/discover?email=${encodeURIComponent(email)}`;
+  const upstream = `${config.koraApiUrl}/identity/tenants/discover?email=${encodeURIComponent(email)}`;
 
   let response: Response;
   try {

@@ -15,10 +15,10 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { StatusBadge } from '@orbit/components';
-import { fmtUsd } from '@orbit/utils';
-import type { AgentTypeUsage } from '@orbit/shared/api';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { StatusBadge } from '@runkora/components';
+import { fmtUsd } from '@runkora/utils';
+import type { AgentTypeUsage } from '@runkora/shared/api';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import type { AgentTypeRow } from '../_types';
 
 const STATUS: Record<string, 'healthy' | 'degraded' | 'error'> = {

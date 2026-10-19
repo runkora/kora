@@ -2,7 +2,7 @@
 
 /** @tier 3 — mcp-gateway-scoped. Client boundary for one server's detail view. */
 
-import type { McpCatalogTool } from '@orbit/shared/api';
+import type { McpCatalogTool } from '@runkora/shared/api';
 import { McpServerDetailPage } from './mcp-server-detail-page';
 import type { McpServer } from '../_types';
 

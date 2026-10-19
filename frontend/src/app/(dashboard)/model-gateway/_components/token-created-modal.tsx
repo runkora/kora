@@ -12,7 +12,7 @@ import {
   Text,
   Button,
 } from '@runkora/hades';
-import type { CreatePATResponse } from '@orbit/shared/api';
+import type { CreatePATResponse } from '@runkora/shared/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

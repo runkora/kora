@@ -5,9 +5,9 @@ import { Geist_Mono, Inter } from 'next/font/google';
 import { connection } from 'next/server';
 import { ThemeProvider } from 'next-themes';
 import { TooltipProvider } from '@runkora/hades';
-import { getTheme } from '@orbit/server/theme';
-import { BrandProvider } from '@orbit/theme/brand-provider';
-import type { IdentityTheme } from '@orbit/theme/default';
+import { getTheme } from '@runkora/server/theme';
+import { BrandProvider } from '@runkora/theme/brand-provider';
+import type { IdentityTheme } from '@runkora/theme/default';
 import './globals.css';
 
 // Inter is a variable font; the optical size axis tightens it automatically at heading sizes.

@@ -2,8 +2,8 @@
 
 import Link from 'next/link';
 import { Alert, Button, Icon, NativeSelect, Progress, Stack, Text } from '@runkora/hades';
-import type { PAT } from '@orbit/shared/api';
-import { fmtCost } from '@orbit/utils';
+import type { PAT } from '@runkora/shared/api';
+import { fmtCost } from '@runkora/utils';
 import { useAnalyticsMeContext } from '../../_context/analytics-context';
 import { AnalyticsDashboard } from '../../_components/analytics/analytics-dashboard';
 import type { BudgetCeilingStatus, BudgetStatus } from '../../_types';

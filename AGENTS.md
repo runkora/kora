@@ -303,7 +303,7 @@ All product JSX must use Hades (`@runkora/hades`). Raw HTML primitives are banne
 | `local/no-hades-classname`          | `className` on any Hades component                                                             | Use the component's own props                                                                                     |
 | `local/no-direct-lucide-import`     | `import { X } from 'lucide-react'` in `src/app/**` or `src/components/**`                      | `<Icon name="…" />`: **no escape hatch**. Add icons to `src/packages/hades/src/components/icon/registry.ts` only. |
 | `local/no-hades-disable-comment`    | Any `eslint-disable` targeting a Hades rule                                                    | There is no escape hatch; use the correct Hades component                                                         |
-| `local/no-product-name-literal`     | The whole word `kora` or `orbit` in a string, template literal or JSX text, unless joined through `-`, `_`, `.` or `/` (`orbit.io`, `kora-base` pass) | `useBrand().productName` (client) or `getBrand()` from `@orbit/server/theme` (server). Mock data, tests and stories are excluded. |
+| `local/no-product-name-literal`     | The whole word `kora` or `orbit` in a string, template literal or JSX text, unless joined through `-`, `_`, `.` or `/` (`orbit.io`, `kora-base` pass) | `useBrand().productName` (client) or `getBrand()` from `@runkora/server/theme` (server). Mock data, tests and stories are excluded. |
 
 **Common HTML → Hades replacements:**
 
@@ -339,7 +339,7 @@ All product JSX must use Hades (`@runkora/hades`). Raw HTML primitives are banne
 | Tier  | Name             | Filesystem                                   | Import                                  | Storybook prefix                                                        |
 | ----- | ---------------- | -------------------------------------------- | --------------------------------------- | ----------------------------------------------------------------------- |
 | **1** | Hades            | `src/packages/hades/src/components/`         | `import { X } from '@runkora/hades'`    | `Hades/Atoms/`, `Hades/Molecules/`, `Hades/Layout/`, `Hades/Organisms/` |
-| **2** | App-level shared | `src/components/`                            | `import { X } from '@orbit/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
+| **2** | App-level shared | `src/components/`                            | `import { X } from '@runkora/components'` | `App/Atoms/`, `App/Molecules/`, `App/Organisms/`                        |
 | **3** | Feature-scoped   | `src/app/(dashboard)/[feature]/_components/` | relative import                         | n/a                                                                     |
 
 Apply this decision tree in order, stop at the first match, never pre-generalise:
@@ -352,9 +352,9 @@ Apply this decision tree in order, stop at the first match, never pre-generalise
 Every extracted component file must open with a `@tier` JSDoc comment:
 
 ```ts
-/** @tier 1 — Zero Orbit domain knowledge. Could be extracted to a standalone library. */
+/** @tier 1 — Zero kora domain knowledge. Could be extracted to a standalone library. */
 
-/** @tier 2 — Orbit-domain-aware: uses Orbit status tokens. Used by: dashboard overview, model-gateway. */
+/** @tier 2 — kora-domain-aware: uses kora status tokens. Used by: dashboard overview, model-gateway. */
 
 /** @tier 3 — model-gateway-scoped. Promote to src/components/ if a second feature needs this. */
 ```

@@ -12,8 +12,8 @@ import {
   Text,
 } from '@runkora/hades';
 import { updateTokenScopes } from '../_actions/tokens';
-import { ScopePicker } from '@orbit/components';
-import type { PAT } from '@orbit/shared/api';
+import { ScopePicker } from '@runkora/components';
+import type { PAT } from '@runkora/shared/api';
 
 interface EditScopesModalProps {
   pat: PAT | null;

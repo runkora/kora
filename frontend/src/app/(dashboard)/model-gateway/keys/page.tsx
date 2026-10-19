@@ -1,7 +1,7 @@
 // RSC — fetches PATs server-side so the page renders with real data.
 // The co-located loading.tsx shows a skeleton while this fetch completes.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { listPATsFromIdentity } from '../_services/tokens-server';
 import { fetchEffectiveScopes } from '../../policy/_services/policy-server';
 import { fetchUsageStats } from '../_services/usage-server';

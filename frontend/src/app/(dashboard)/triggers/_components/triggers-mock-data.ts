@@ -1,4 +1,4 @@
-import type { SchedulePreviewResponse, TriggerEventTypes, TriggerField } from '@orbit/shared/api';
+import type { SchedulePreviewResponse, TriggerEventTypes, TriggerField } from '@runkora/shared/api';
 import type { AgentOption, DeliveryRow, DeliveryRunRow, SourceRow, TriggerRow } from '../_types';
 
 /** Mock data for the Triggers page stories. Timestamps are relative to load time so "5m ago" reads right. */

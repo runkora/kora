@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 1 — Zero Orbit domain knowledge. Clipboard writing with a short-lived outcome status. */
+/** @tier 1 — Zero kora domain knowledge. Clipboard writing with a short-lived outcome status. */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 

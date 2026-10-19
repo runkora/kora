@@ -16,7 +16,7 @@ import {
   Text,
   FieldRow,
 } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import type { IconName } from '@runkora/hades';
 import {
   describeMatchCondition,

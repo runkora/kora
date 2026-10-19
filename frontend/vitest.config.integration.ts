@@ -39,16 +39,16 @@ export default defineConfig({
     alias: {
       // Prevent `server-only` from throwing inside Vitest's Node runtime.
       'server-only': path.resolve(__dirname, './src/test-utils/server-only-shim.js'),
-      // Workspace package — must come before the generic @orbit alias so that
+      // Workspace package — must come before the generic @runkora alias so that
       // Vite's first-match resolution picks the package src, not ./src/hades.
       // Subpath exports go first, or the bare alias swallows them.
       '@runkora/hades/theme': path.resolve(__dirname, './src/packages/hades/src/theme/index.ts'),
       '@runkora/hades/defaults.json': path.resolve(__dirname, './src/packages/hades/defaults.json'),
       '@runkora/hades/manifest.json': path.resolve(__dirname, './src/packages/hades/manifest.json'),
       '@runkora/hades': path.resolve(__dirname, './src/packages/hades/src/index.ts'),
-      '@orbit/test-utils': path.resolve(__dirname, './src/test-utils'),
-      // Mirror the tsconfig.json paths block so @orbit/* imports resolve.
-      '@orbit': path.resolve(__dirname, './src'),
+      '@runkora/test-utils': path.resolve(__dirname, './src/test-utils'),
+      // Mirror the tsconfig.json paths block so @runkora/* imports resolve.
+      '@runkora': path.resolve(__dirname, './src'),
     },
   },
 });

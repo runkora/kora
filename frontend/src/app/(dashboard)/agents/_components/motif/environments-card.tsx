@@ -14,9 +14,9 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
-import type { Environment } from '@orbit/shared/api';
-import { sizeLabel } from '@orbit/lib/environments';
+import { useBrand } from '@runkora/theme/brand-provider';
+import type { Environment } from '@runkora/shared/api';
+import { sizeLabel } from '@runkora/lib/environments';
 import { setDefaultEnvironment, toggleEnvironment } from '../../_types';
 import type { AgentEnvironment } from '../../_types';
 

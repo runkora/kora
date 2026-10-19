@@ -3,7 +3,7 @@
 /** @tier 3 — catalog-scoped. Promote to src/components/ if a second feature needs this. */
 
 import { Alert, Badge, Icon, Stack, Text } from '@runkora/hades';
-import { fmtDate } from '@orbit/utils';
+import { fmtDate } from '@runkora/utils';
 
 export interface SyncSummary {
   lastSyncedAt: string | null; // RFC3339 or null if no pricing data

@@ -1,7 +1,7 @@
 /** The dashboard's Active Runs card reads the server's run counts, not the recent runs it lists. */
 import { describe, it, expect, vi } from 'vitest';
 import { screen, within } from '@testing-library/react';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn() }),

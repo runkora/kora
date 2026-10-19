@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 2 — Orbit-domain-aware: reads and writes `preferences.tables.columns`
+ * @tier 2 — kora-domain-aware: reads and writes `preferences.tables.columns`
  * via `usePreferences()`. Used by: model-gateway, policy, catalog, analytics.
  *
  * USAGE SCOPE: Requires `<PreferencesProvider>` in the ancestor tree, which is
@@ -22,7 +22,7 @@
  * ├── No  → use DataTable from @runkora/hades
  * └── Yes → Does this table need column visibility persisted per user?
  *           ├── No  → use DataTable from @runkora/hades
- *           └── Yes → use SmartTable from @orbit/components  ← default choice
+ *           └── Yes → use SmartTable from @runkora/components  ← default choice
  * ```
  */
 

@@ -26,8 +26,8 @@ import {
   buildUserManager,
   TENANT_CONFIG_STORAGE_KEY,
   type TenantOidcConfig,
-} from '@orbit/lib/oidc-client';
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+} from '@runkora/lib/oidc-client';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

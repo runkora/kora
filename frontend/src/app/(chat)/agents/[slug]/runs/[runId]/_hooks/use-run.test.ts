@@ -1,7 +1,7 @@
 import { renderHook, act, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { server } from '@orbit/test-utils/msw/server';
+import { server } from '@runkora/test-utils/msw/server';
 import { useRun } from './use-run';
 
 // Minimal controllable EventSource stand-in. jsdom ships no EventSource, and we
@@ -395,7 +395,7 @@ describe('useRun — activity, delivery and stops', () => {
     });
   });
 
-  it('marks a turn the loop guard stopped as stopped by Orbit', async () => {
+  it('marks a turn the loop guard stopped as stopped by kora', async () => {
     const { result, emit } = await start();
     emit('text_delta', { delta: 'Trying again' });
     emit('message_complete', { text: 'Trying again', interrupted: true });

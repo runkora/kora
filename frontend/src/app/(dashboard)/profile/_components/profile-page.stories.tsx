@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { Heading, Stack, Text } from '@runkora/hades';
-import type { ListPATsResult } from '@orbit/server/services/identity-server';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import type { ListPATsResult } from '@runkora/server/services/identity-server';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { ApiKeysCard } from './api-keys-card';
 import { RolesPermissionsCard } from './roles-permissions-card';
 import { UserIdentityCard } from './user-identity-card';

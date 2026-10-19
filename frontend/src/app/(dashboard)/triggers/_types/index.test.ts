@@ -26,7 +26,7 @@ import {
   type DeliveryRow,
 } from './index';
 import { makeDelivery } from './fixtures';
-import type { Trigger, TriggerDelivery } from '@orbit/shared/api';
+import type { Trigger, TriggerDelivery } from '@runkora/shared/api';
 
 /** These tests want a bare arrival: verified, unnamed, at a known instant. */
 function row(overrides: Partial<DeliveryRow> = {}): DeliveryRow {

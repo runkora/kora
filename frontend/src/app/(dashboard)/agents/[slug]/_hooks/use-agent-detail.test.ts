@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { http, HttpResponse } from 'msw';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 import type { AgentTypeRow, RunRow } from '../../_types';
 import { useAgentDetail } from './use-agent-detail';
 

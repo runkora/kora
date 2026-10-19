@@ -11,7 +11,7 @@
  * returned `error` field.
  */
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   SchedulePreviewResponse,
   Trigger,
@@ -24,7 +24,7 @@ import type {
   WebhookSourceCreateRequest,
   WebhookSourceResponse,
   WebhookSourceUpdateRequest,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 async function errorMessage(res: Response): Promise<string> {
   const body = await res.json().catch(() => ({}) as { message?: string });

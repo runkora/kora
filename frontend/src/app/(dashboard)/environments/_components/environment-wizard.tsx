@@ -31,10 +31,10 @@ import type {
   EnvironmentRequest,
   EnvironmentSizes,
   SandboxImage,
-} from '@orbit/shared/api';
-import { ConnectionCards, EffectiveAccessPanel } from '@orbit/components';
-import { BASE_IMAGE_NAME, imageProblem, slugProblem } from '@orbit/lib/environments';
-import { deriveSlug, slugInput } from '@orbit/lib/slug';
+} from '@runkora/shared/api';
+import { ConnectionCards, EffectiveAccessPanel } from '@runkora/components';
+import { BASE_IMAGE_NAME, imageProblem, slugProblem } from '@runkora/lib/environments';
+import { deriveSlug, slugInput } from '@runkora/lib/slug';
 import {
   createEnvironment,
   previewEnvironmentAccess,

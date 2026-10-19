@@ -8,7 +8,7 @@
  * count), the rest behind a "+N more" overlay. Each badge truncates with its
  * full label as the tooltip.
  */
-import { ClampedList } from '@orbit/components';
+import { ClampedList } from '@runkora/components';
 import { TruncatingBadge } from '@runkora/hades';
 
 export interface BadgeListProps {

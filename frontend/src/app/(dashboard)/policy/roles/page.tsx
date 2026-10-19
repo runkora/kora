@@ -1,4 +1,4 @@
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchRoles, fetchVocabulary } from '../_services/policy-server';
 import { RolesTab } from '../_components/roles-tab';
 

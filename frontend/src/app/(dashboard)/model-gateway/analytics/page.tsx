@@ -1,7 +1,7 @@
 // RSC — fetches initial tenant-wide analytics data and model list server-side.
 // Requires platform:analytics:read scope; the policy enforces this at the API layer.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchAnalyticsFromGateway } from '../_services/analytics-server';
 import { fetchModelsFromGateway } from '../_services/models-server';
 import { getPreferences } from '../../_preferences/preferences-server';

@@ -2,7 +2,7 @@
 // page renders with real data. The co-located loading.tsx shows a skeleton
 // while this fetch completes.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchUsageFromGateway } from '../_services/usage-server';
 import { listPATsFromIdentity } from '../_services/tokens-server';
 import { LogsTabShell } from '../_components/logs-tab-shell';

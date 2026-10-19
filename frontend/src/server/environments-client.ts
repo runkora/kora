@@ -1,12 +1,12 @@
 import 'server-only';
-import { config } from '@orbit/server/config';
+import { config } from '@runkora/server/config';
 import { ApiError } from './client';
 import type {
   Environment,
   EnvironmentRequest,
   EnvironmentSizes,
   SandboxImage,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 // ---------------------------------------------------------------------------
 // Core fetch helper
@@ -24,7 +24,7 @@ async function request<T>(
   options: { method?: string; body?: unknown } = {},
 ): Promise<T | undefined> {
   const { method = 'GET', body } = options;
-  const url = `${config.orbitAgentsUrl}/${path.replace(/^\//, '')}`;
+  const url = `${config.koraAgentsUrl}/${path.replace(/^\//, '')}`;
 
   const response = await fetch(url, {
     method,

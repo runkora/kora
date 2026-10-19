@@ -13,7 +13,7 @@
  * call site that references the deleted route.
  *
  * @example
- *   import { ApiRoute } from '@orbit/lib/routing';
+ *   import { ApiRoute } from '@runkora/lib/routing';
  *
  *   // Without parameter
  *   fetch(ApiRoute.logout.POST(), { method: 'POST' });
@@ -22,7 +22,7 @@
  *   fetch(ApiRoute.session.POST(), { method: 'POST', body: JSON.stringify({ id_token }) });
  */
 
-import type { AgentInsightsPeriod } from '@orbit/shared/api';
+import type { AgentInsightsPeriod } from '@runkora/shared/api';
 
 // ── Base segments ─────────────────────────────────────────────────────────────
 

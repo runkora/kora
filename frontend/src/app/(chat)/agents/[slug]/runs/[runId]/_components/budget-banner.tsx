@@ -8,7 +8,7 @@
  */
 
 import { Stack, Text } from '@runkora/hades';
-import { fmtUsd } from '@orbit/utils';
+import { fmtUsd } from '@runkora/utils';
 import { useRunContext } from '../_context/run-context';
 
 export function BudgetBanner() {

@@ -1,4 +1,4 @@
-/** @tier 1 — Zero Orbit domain knowledge. The pure string-and-caret model behind TemplateField. */
+/** @tier 1 — Zero kora domain knowledge. The pure string-and-caret model behind TemplateField. */
 
 /**
  * Template model — the pure, DOM-adjacent core of TemplateField.

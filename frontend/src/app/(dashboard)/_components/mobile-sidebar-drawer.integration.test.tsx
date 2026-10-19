@@ -12,7 +12,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Button } from '@runkora/hades';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { SidebarStateProvider, useSidebarState } from './sidebar-state';
 import { MobileSidebarDrawer } from './mobile-sidebar-drawer';
 

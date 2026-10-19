@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import type { EffectiveAccess } from '@orbit/shared/api';
+import type { EffectiveAccess } from '@runkora/shared/api';
 import { EffectiveAccessPanel } from './effective-access-panel';
 
 const base: EffectiveAccess = {

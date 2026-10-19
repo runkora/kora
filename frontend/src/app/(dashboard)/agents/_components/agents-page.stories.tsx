@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
-import type { MockRequest, MockRoutes } from '@orbit/storybook/mock-api';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
+import type { MockRequest, MockRoutes } from '@runkora/storybook/mock-api';
 import { AgentsShell } from './agents-shell';
 import {
   AGENT_ROWS,

@@ -5,20 +5,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { NextRequest } from 'next/server';
-import { server } from '@orbit/test-utils';
+import { server } from '@runkora/test-utils';
 
-vi.mock('@orbit/server/config', () => ({
-  config: { orbitAgentsUrl: 'http://test-agents' },
+vi.mock('@runkora/server/config', () => ({
+  config: { koraAgentsUrl: 'http://test-agents' },
 }));
 
-vi.mock('@orbit/server/session', () => ({
+vi.mock('@runkora/server/session', () => ({
   getSession: vi.fn(),
   isSessionValid: vi.fn().mockReturnValue(true),
 }));
 
 import { POST } from './route';
 import { PUT } from './[id]/route';
-import { getSession } from '@orbit/server/session';
+import { getSession } from '@runkora/server/session';
 
 const session = {
   user: { sub: 'sub', email: 'test@orbit.local', name: 'Test' },

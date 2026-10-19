@@ -6,10 +6,10 @@
  */
 
 import Link from 'next/link';
-import { APP_ROUTES } from '@orbit/lib/routing';
+import { APP_ROUTES } from '@runkora/lib/routing';
 import { Stack, Text, Button, Badge, StatusDot, Toggle } from '@runkora/hades';
-import { fmtUsd, fmtTokens } from '@orbit/utils';
-import { RUN_STATE_DISPLAY, type RunStateDisplay } from '@orbit/components';
+import { fmtUsd, fmtTokens } from '@runkora/utils';
+import { RUN_STATE_DISPLAY, type RunStateDisplay } from '@runkora/components';
 import { useRunContext } from '../_context/run-context';
 
 function OrbitalMark({ size = 9 }: { size?: number }) {

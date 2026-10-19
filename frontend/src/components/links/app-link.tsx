@@ -1,6 +1,6 @@
 import NextLink from 'next/link';
 import { Anchor, type AnchorProps } from '@runkora/hades';
-import { type AppRoute } from '@orbit/lib/routing/routes';
+import { type AppRoute } from '@runkora/lib/routing/routes';
 
 type AppLinkProps = Omit<AnchorProps, 'href' | 'asChild' | 'children'> & {
   children: React.ReactNode;

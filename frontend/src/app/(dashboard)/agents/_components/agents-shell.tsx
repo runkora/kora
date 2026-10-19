@@ -4,7 +4,7 @@
 
 import { AgentsProvider } from '../_context/agents-context';
 import { AgentsPage } from './agents-page';
-import type { AgentInsightsResponse, AgentRunStats } from '@orbit/shared/api';
+import type { AgentInsightsResponse, AgentRunStats } from '@runkora/shared/api';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 interface AgentsShellProps {

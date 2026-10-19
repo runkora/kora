@@ -1,7 +1,7 @@
 'use client';
 
 import { BrandLogo, Stack } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import type { ReactNode } from 'react';
 
 /**

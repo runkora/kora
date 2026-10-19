@@ -1,4 +1,4 @@
-/** @tier 1 — Zero Orbit domain knowledge. Fluid main + fixed sidebar two-column layout. */
+/** @tier 1 — Zero kora domain knowledge. Fluid main + fixed sidebar two-column layout. */
 import * as React from 'react';
 
 import type { SpacingSize } from './spacing';

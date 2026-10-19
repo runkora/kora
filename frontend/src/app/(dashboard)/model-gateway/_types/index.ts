@@ -10,7 +10,7 @@ import type {
   Modality,
   APIDialect,
   ModelCapability,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 export type {
   ModelObject,

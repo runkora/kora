@@ -14,7 +14,7 @@ import { sealData } from 'iron-session';
 import type { BrowserContext } from '@playwright/test';
 
 const TEST_SESSION_SECRET = 'playwright-test-session-secret-32ch';
-const SESSION_COOKIE_NAME = 'orbit_session';
+const SESSION_COOKIE_NAME = 'kora_session';
 // Match the server's default maxAge (30 days). sealData takes ttl in seconds, not ms.
 const TTL_S = 30 * 24 * 60 * 60;
 

@@ -1,4 +1,4 @@
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchRoutes } from '../_services/policy-server';
 import { RoutesTab } from '../_components/routes-tab';
 

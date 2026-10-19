@@ -10,7 +10,7 @@ import {
   Stack,
   Text,
 } from '@runkora/hades';
-import { fmtUsd, fmtTokens, fmtNumCompact } from '@orbit/utils';
+import { fmtUsd, fmtTokens, fmtNumCompact } from '@runkora/utils';
 import { StatRow } from './stat-row';
 
 // ── Types ─────────────────────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 2 — App-level shared layout hook (no Orbit domain knowledge; it is a
+ * @tier 2 — App-level shared layout hook (no kora domain knowledge; it is a
  * hook, not a component, so it stays out of Hades). Used by: `ScopeChipList`,
  * connections' `UsedByList`.
  *

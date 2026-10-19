@@ -17,9 +17,9 @@ import {
   type ThemeManifest,
   type ThemeReport,
 } from '@runkora/hades/theme';
-import { instanceKoraVersion } from '@orbit/lib/kora-version';
-import { defaultTheme, type IdentityTheme } from '@orbit/theme/default';
-import { ThemeYamlTooLargeError, isMissing, readThemeDocument } from '@orbit/lib/theme-document';
+import { instanceKoraVersion } from '@runkora/lib/kora-version';
+import { defaultTheme, type IdentityTheme } from '@runkora/theme/default';
+import { ThemeYamlTooLargeError, isMissing, readThemeDocument } from '@runkora/lib/theme-document';
 
 export const DEFAULT_THEME_DIR = '/etc/orbit/theme';
 

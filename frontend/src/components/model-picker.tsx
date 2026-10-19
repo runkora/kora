@@ -1,6 +1,6 @@
 'use client';
 
-/** @tier 2 — Orbit-domain-aware: governed model selection (family groups, pricing, threshold search). Used by: agents builder, agents configuration, model-gateway routes (planned). */
+/** @tier 2 — kora-domain-aware: governed model selection (family groups, pricing, threshold search). Used by: agents builder, agents configuration, model-gateway routes (planned). */
 
 import { useMemo, useState } from 'react';
 import {
@@ -14,7 +14,7 @@ import {
   StatusDot,
   Text,
 } from '@runkora/hades';
-import type { ModelObject } from '@orbit/shared/api';
+import type { ModelObject } from '@runkora/shared/api';
 
 function formatPrice(pricing?: {
   effective_input_cost_per_1m?: number;

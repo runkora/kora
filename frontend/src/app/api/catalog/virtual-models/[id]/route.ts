@@ -1,7 +1,7 @@
 import 'server-only';
 import { NextResponse, type NextRequest } from 'next/server';
-import { getSession, isSessionValid } from '@orbit/server/session';
-import { forwardToGateway } from '@orbit/server/catalog-gateway';
+import { getSession, isSessionValid } from '@runkora/server/session';
+import { forwardToGateway } from '@runkora/server/catalog-gateway';
 
 type Params = Promise<{ id: string }>;
 

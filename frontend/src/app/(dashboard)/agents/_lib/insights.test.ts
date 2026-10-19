@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentInsightsResponse } from '@orbit/shared/api';
+import type { AgentInsightsResponse } from '@runkora/shared/api';
 import { toBudgetRows, toPeriodData, trendLabel } from './insights';
 
 const win = (cadence: 'weekly' | 'monthly', limit_usd: number, spend_usd: number) => ({

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { cn } from '../../utils';
 
-/** @tier 1 — Zero Orbit domain knowledge. Renders whatever logo a theme supplies, one image per mode. */
+/** @tier 1 — Zero kora domain knowledge. Renders whatever logo a theme supplies, one image per mode. */
 
 export interface BrandLogoProps extends Omit<React.ComponentPropsWithoutRef<'span'>, 'children'> {
   /** Image source for dark mode. */

@@ -6,7 +6,7 @@ import { AgentDetailProvider } from '../_context/agent-detail-context';
 import { AgentDetailPage } from './agent-detail-page';
 import type { DetailStatus } from '../_hooks/use-agent-detail';
 import type { AgentTypeRow, RunRow } from '../../_types';
-import type { AgentOverviewResponse } from '@orbit/shared/api';
+import type { AgentOverviewResponse } from '@runkora/shared/api';
 
 interface AgentDetailShellProps {
   initialAgent: AgentTypeRow | null;

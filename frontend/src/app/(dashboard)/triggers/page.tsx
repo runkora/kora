@@ -2,7 +2,7 @@
 // agent types (for the trigger form) server-side so the page renders with real
 // data immediately.
 
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchTriggersPage, SESSION_EXPIRED_MESSAGE } from './_services/triggers-server';
 import { TriggersShell } from './_components/triggers-shell';
 

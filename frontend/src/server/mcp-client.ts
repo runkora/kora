@@ -1,6 +1,6 @@
 import 'server-only';
-import { config } from '@orbit/server/config';
-import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
+import { config } from '@runkora/server/config';
+import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
 
 /**
  * Lists the MCP servers visible to the caller's tenant (its own + global),

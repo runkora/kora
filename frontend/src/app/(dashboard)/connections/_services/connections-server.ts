@@ -1,9 +1,9 @@
 import 'server-only';
 
-import type { AgentType } from '@orbit/shared/api';
-import { agentsClient } from '@orbit/server/agents-client';
-import { ApiError } from '@orbit/server/client';
-import { listConnections } from '@orbit/server/connections-client';
+import type { AgentType } from '@runkora/shared/api';
+import { agentsClient } from '@runkora/server/agents-client';
+import { ApiError } from '@runkora/server/client';
+import { listConnections } from '@runkora/server/connections-client';
 import { buildConnectionRows } from '../_types';
 import type { ConnectionRow } from '../_types';
 

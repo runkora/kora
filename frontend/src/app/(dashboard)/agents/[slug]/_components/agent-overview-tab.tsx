@@ -3,7 +3,7 @@
 /** @tier 3 · agents/[slug]-scoped. The Overview tab. */
 
 import { Card, CardContent, CardHeader, Grid, Stack, Text } from '@runkora/hades';
-import { fmtTokens, fmtUsd } from '@orbit/utils';
+import { fmtTokens, fmtUsd } from '@runkora/utils';
 import { StatTile } from '../../_components/agent-stat-tiles';
 import { Breakdown } from '../../_components/agents-spend-card';
 import { DEFAULT_PERIOD, PERIOD_DAYS, PERIOD_TEXT, changeText } from '../../_lib/spend';

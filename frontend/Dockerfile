@@ -97,19 +97,19 @@ FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b533
 WORKDIR /app
 
 # Non-root user matching uid/gid 65532 used by all other kora service containers.
-RUN addgroup --system --gid 65532 orbit && \
-    adduser  --system --uid 65532 --ingroup orbit orbit
+RUN addgroup --system --gid 65532 kora && \
+    adduser  --system --uid 65532 --ingroup kora kora
 
 # Standalone output: server.js, traced node_modules and validate-theme.mjs.
-COPY --from=builder --chown=orbit:orbit /app/.next/standalone ./
+COPY --from=builder --chown=kora:kora /app/.next/standalone ./
 
 # Static assets must be copied separately — standalone output does not include them.
-COPY --from=builder --chown=orbit:orbit /app/.next/static ./.next/static
+COPY --from=builder --chown=kora:kora /app/.next/static ./.next/static
 
 # Public directory (favicon, robots.txt, etc.).
-COPY --from=builder --chown=orbit:orbit /app/public ./public
+COPY --from=builder --chown=kora:kora /app/public ./public
 
-USER orbit
+USER kora
 
 EXPOSE 3000
 

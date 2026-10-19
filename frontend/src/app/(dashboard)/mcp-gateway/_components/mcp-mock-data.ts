@@ -1,4 +1,4 @@
-import type { McpCatalogTool, McpServer } from '@orbit/shared/api';
+import type { McpCatalogTool, McpServer } from '@runkora/shared/api';
 
 /** Mock MCP servers and tool catalog for the page stories. */
 

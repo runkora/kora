@@ -11,7 +11,7 @@ import { useEffect } from 'react';
 
 import { useRouter } from 'next/navigation';
 
-import { AppLink } from '@orbit/components/links';
+import { AppLink } from '@runkora/components/links';
 
 import { AuthCardShell } from './auth-card-shell';
 

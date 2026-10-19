@@ -15,7 +15,7 @@ import type {
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   RunsPage,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 
 // ---------------------------------------------------------------------------
 // Core fetch helper
@@ -29,7 +29,7 @@ async function request<T>(
   options: { method?: string; body?: unknown } = {},
 ): Promise<T | undefined> {
   const { method = 'GET', body } = options;
-  const url = `${config.orbitAgentsUrl}/${path.replace(/^\//, '')}`;
+  const url = `${config.koraAgentsUrl}/${path.replace(/^\//, '')}`;
 
   const response = await fetch(url, {
     method,

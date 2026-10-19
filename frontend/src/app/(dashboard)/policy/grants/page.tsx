@@ -1,4 +1,4 @@
-import { getSession, isSessionValid } from '@orbit/server/session';
+import { getSession, isSessionValid } from '@runkora/server/session';
 import { fetchGrants, fetchVocabulary } from '../_services/policy-server';
 import { fetchPATAttribution, fetchUsersByIDs } from '../../model-gateway/_services/tokens-server';
 import type {

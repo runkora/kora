@@ -7,7 +7,7 @@
  * Import via the utils barrel so internal restructuring never requires
  * updating call sites:
  *
- *   import { fmtDate, fmtCost } from '@orbit/utils';
+ *   import { fmtDate, fmtCost } from '@runkora/utils';
  */
 
 // ── Numbers ───────────────────────────────────────────────────────────────────

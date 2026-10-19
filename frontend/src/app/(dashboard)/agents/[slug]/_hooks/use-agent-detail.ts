@@ -13,7 +13,7 @@ import {
   deleteRun as apiDeleteRun,
 } from '../_services/agent-detail-api';
 import { fetchStartRun } from '../../_services/agents-api';
-import type { RunStateCounts } from '@orbit/shared/api';
+import type { RunStateCounts } from '@runkora/shared/api';
 import { DEFAULT_PERIOD } from '../../_lib/spend';
 import { RUNS_PAGE_SIZE } from '../../_types';
 import type { AgentTypeRow, RunRow, RunState } from '../../_types';

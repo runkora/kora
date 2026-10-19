@@ -3,9 +3,9 @@
 /** @tier 3 — mcp-gateway-scoped. One server: tools-by-domain + Connect + Trust sidebar (spec-exact). */
 
 import { useState } from 'react';
-import type { McpCatalogTool } from '@orbit/shared/api';
+import type { McpCatalogTool } from '@runkora/shared/api';
 import { Icon, SidebarLayout, Stack, Text, EmptyState } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import {
   MCP_CLIENTS,
   PLATFORM_MCP_SERVER,
@@ -13,7 +13,7 @@ import {
   isCommandClient,
   mcpServerUrl,
   type McpClient,
-} from '@orbit/lib/mcp';
+} from '@runkora/lib/mcp';
 import type { DomainGroup, McpServer } from '../_types';
 import { buildDomainGroups, relativeTime, serverRollupScope, statusColor } from '../_types';
 import { ServerAvatar } from './server-avatar';

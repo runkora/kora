@@ -42,7 +42,7 @@ Ask the user:
 3. **Consumers** — which file(s) or feature areas use (or will use) it? How many, and do they
    span more than one feature area?
 4. **kora domain knowledge** — does it reference any kora-specific vocabulary: agent/principal
-   types, model or provider names, status tokens (e.g. `OrbitStatus`), or permission/role
+   types, model or provider names, status tokens (e.g. `KoraStatus`), or permission/role
    concepts? A component that renders a plain spinner knows nothing about kora; one that renders
    an agent status badge is domain-aware.
 
@@ -111,7 +111,7 @@ Create three files:
 
 **`{name}.tsx`**
 ```tsx
-/** @tier 1 — Zero Orbit domain knowledge. {One-line description.} */
+/** @tier 1 — Zero kora domain knowledge. {One-line description.} */
 import * as React from 'react'
 import { cva, type VariantProps } from 'class-variance-authority'
 import { cn } from '../../utils'
@@ -171,10 +171,10 @@ comment (`// ─── Atoms`, `// ─── Molecules`, `// ─── Layout`, 
 ### Tier 2 — App-shared (`frontend/src/components/{name}.tsx`)
 
 ```tsx
-/** @tier 2 — Orbit-domain-aware: {note domain knowledge used}. Used by: {feature areas}. */
+/** @tier 2 — kora-domain-aware: {note domain knowledge used}. Used by: {feature areas}. */
 'use client'  // only if this file uses React hooks
 import { ... } from '@runkora/hades'
-// Import Orbit types as needed; no raw HTML
+// Import kora types as needed; no raw HTML
 
 export interface {Name}Props { ... }
 
@@ -323,7 +323,7 @@ Both must exit zero before the task is done. Do not declare success until they d
 | Tier | Path | Import | Story title prefix | Story required |
 |---|---|---|---|---|
 | 1 — Hades | `src/packages/hades/src/components/{name}/` | `@runkora/hades` | `Hades/{Category}/{Name}` | Yes (always) |
-| 2 — App-shared | `src/components/{name}.tsx` | `@orbit/components` | `App/Shared/{Name}` | Yes (always) |
+| 2 — App-shared | `src/components/{name}.tsx` | `@runkora/components` | `App/Shared/{Name}` | Yes (always) |
 | 3 — Feature-scoped | `src/app/(dashboard)/{feature}/_components/{name}.tsx` | relative | — | No |
 
 ## Hard-won gotchas

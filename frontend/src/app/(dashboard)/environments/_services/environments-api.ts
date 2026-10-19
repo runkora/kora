@@ -3,14 +3,14 @@
 // All functions call the BFF routes under /api/agents/environments. Never
 // throws — callers pattern-match on the returned `error` field.
 
-import { ApiRoute } from '@orbit/lib/routing/api-routes';
+import { ApiRoute } from '@runkora/lib/routing/api-routes';
 import type {
   Connector,
   EffectiveAccess,
   EffectiveAccessPreviewRequest,
   Environment,
   EnvironmentRequest,
-} from '@orbit/shared/api';
+} from '@runkora/shared/api';
 import { toEnvironmentRow } from '../_types';
 import type { EnvironmentRow } from '../_types';
 

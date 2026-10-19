@@ -6,7 +6,7 @@
  */
 import 'server-only';
 import { NextResponse } from 'next/server';
-import { getTheme } from '@orbit/server/theme';
+import { getTheme } from '@runkora/server/theme';
 
 export async function GET() {
   const { koraVersion, theme } = await getTheme();

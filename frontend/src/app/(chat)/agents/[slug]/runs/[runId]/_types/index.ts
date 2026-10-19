@@ -80,7 +80,7 @@ export interface ErrorTurn {
 export type AgentElement =
   | { kind: 'text'; content: string }
   | { kind: 'tool'; tool: ToolCall }
-  /** A stopped turn; byGuardrail when Orbit's loop guard paused it, not the user. */
+  /** A stopped turn; byGuardrail when kora's loop guard paused it, not the user. */
   | { kind: 'stopped'; byGuardrail?: boolean }
   /** A platform notice, such as a guardrail asking the agent to change approach. */
   | { kind: 'notice'; message: string; tone?: 'error' }

@@ -16,7 +16,7 @@ import {
   Text,
 } from '@runkora/hades';
 import type { IronSession } from 'iron-session';
-import type { SessionPayload } from '@orbit/server/auth-config';
+import type { SessionPayload } from '@runkora/server/auth-config';
 
 interface UserIdentityCardProps {
   session: IronSession<SessionPayload>;

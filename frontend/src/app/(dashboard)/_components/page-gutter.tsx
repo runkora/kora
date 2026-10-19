@@ -3,7 +3,7 @@
 /** @tier 3 — dashboard-shell-scoped. Promote to src/components/ if a second feature needs this. */
 import { usePathname } from 'next/navigation';
 import { Stack } from '@runkora/hades';
-import { APP_ROUTES } from '@orbit/lib/routing/routes';
+import { APP_ROUTES } from '@runkora/lib/routing/routes';
 
 /**
  * The one content gutter for every dashboard page. /chat fills the shell

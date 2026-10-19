@@ -12,7 +12,7 @@
 import { LogsProvider } from '../_context/logs-context';
 import { LogsTab } from './logs-tab';
 import type { InferenceUsageRecord } from '../_types';
-import type { PAT } from '@orbit/shared/api';
+import type { PAT } from '@runkora/shared/api';
 
 interface LogsTabShellProps {
   initialRecords: InferenceUsageRecord[];

@@ -2,7 +2,7 @@ import type {
   SessionUser,
   SessionPayload,
   BackendSessionResponse,
-} from '@orbit/server/auth-config';
+} from '@runkora/server/auth-config';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

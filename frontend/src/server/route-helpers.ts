@@ -19,9 +19,9 @@ import 'server-only';
 import { type NextRequest, NextResponse } from 'next/server';
 import { type IronSession } from 'iron-session';
 
-import { getSession, isSessionValid } from '@orbit/server/session';
-import { type SessionPayload } from '@orbit/server/auth-config';
-import { ApiError } from '@orbit/server/api-error';
+import { getSession, isSessionValid } from '@runkora/server/session';
+import { type SessionPayload } from '@runkora/server/auth-config';
+import { ApiError } from '@runkora/server/api-error';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

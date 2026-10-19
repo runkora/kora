@@ -9,7 +9,7 @@
 import { createContext, useContext } from 'react';
 import { useAgents } from '../_hooks/use-agents';
 import type { AgentsStateShape } from '../_hooks/use-agents';
-import type { AgentRunStats } from '@orbit/shared/api';
+import type { AgentRunStats } from '@runkora/shared/api';
 import type { AgentTypeRow, RunRow } from '../_types';
 
 const AgentsContext = createContext<AgentsStateShape | null>(null);

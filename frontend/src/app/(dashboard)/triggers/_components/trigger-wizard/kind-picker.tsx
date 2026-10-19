@@ -4,7 +4,7 @@
  * run. Rendered entirely from the kind registry. */
 
 import { Badge, Grid, RadioCard, RadioGroup, Stack, Text } from '@runkora/hades';
-import { useBrand } from '@orbit/theme/brand-provider';
+import { useBrand } from '@runkora/theme/brand-provider';
 import { KIND_ORDER, PLANNED_KINDS, TRIGGER_KINDS } from './kinds';
 import { brandedCopy, type TriggerKind } from './types';
 

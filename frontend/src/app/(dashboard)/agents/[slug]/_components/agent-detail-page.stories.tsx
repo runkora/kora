@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { userEvent, within } from 'storybook/test';
-import type { AgentOverviewResponse, AgentType } from '@orbit/shared/api';
+import type { AgentOverviewResponse, AgentType } from '@runkora/shared/api';
 import { AGENT_TYPES, CODE_REVIEWER } from '../../_components/agents-mock-data';
 import type { Period } from '../../_lib/spend';
 import { rowFor, runRowsFor, withRoutes } from './agent-detail-page-mock-data';

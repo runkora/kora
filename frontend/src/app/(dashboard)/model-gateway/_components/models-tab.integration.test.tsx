@@ -8,7 +8,7 @@
 import { describe, it, expect } from 'vitest';
 import { screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { renderWithProviders } from '@orbit/test-utils';
+import { renderWithProviders } from '@runkora/test-utils';
 import { ModelsTab } from './models-tab';
 import { ModelsProvider } from '../_context/models-context';
 import type { ModelRow, ModelObjectPricing } from '../_types';

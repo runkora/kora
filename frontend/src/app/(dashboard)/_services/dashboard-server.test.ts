@@ -6,7 +6,7 @@ const client = vi.hoisted(() => ({
   getEnvironmentSizes: vi.fn(),
 }));
 
-vi.mock('@orbit/server/environments-client', () => client);
+vi.mock('@runkora/server/environments-client', () => client);
 vi.mock('../agents/_services/agents-server', () => ({
   fetchAgentsFromBFF: vi.fn().mockResolvedValue({ ok: false }),
 }));

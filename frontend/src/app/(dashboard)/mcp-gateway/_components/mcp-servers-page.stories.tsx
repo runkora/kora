@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react';
 import { expect, userEvent, within } from 'storybook/test';
-import { dashboardPage } from '@orbit/storybook/dashboard-frame';
+import { dashboardPage } from '@runkora/storybook/dashboard-frame';
 import { McpServersShell } from './mcp-servers-shell';
 import { MANY_SERVERS, MOCK_SERVERS } from './mcp-mock-data';
 

@@ -9,7 +9,7 @@
 // the store's state + actions must satisfy the AgentsStateShape interface.
 
 import { useState, useCallback } from 'react';
-import type { AgentRunStats } from '@orbit/shared/api';
+import type { AgentRunStats } from '@runkora/shared/api';
 import { fetchAgentTypes, fetchRuns, fetchRunStats } from '../_services/agents-api';
 import { DEFAULT_PERIOD, RUNNING_ROWS } from '../_lib/spend';
 import { LIVE_RUN_STATES } from '../_types';

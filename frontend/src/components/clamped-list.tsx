@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * @tier 2 — App-level shared layout component (no Orbit domain knowledge). Used
+ * @tier 2 — App-level shared layout component (no kora domain knowledge). Used
  * by `ScopeChipList` and `BadgeList`.
  *
  * A wrapping list of items that shows a bounded number inline and collapses the
