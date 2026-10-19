@@ -89,8 +89,7 @@ type K8sProvisionerConfig struct {
 	// OTLPEndpoint is passed to the session-manager so a provisioned agent
 	// exports to the same collector as the platform. Empty disables its export.
 	OTLPEndpoint string
-	// ProductName is passed to the session-manager as ORBIT_PRODUCT_NAME. A
-	// Go-rendered pod has no other way to receive the brand.
+	// ProductName is passed to the session-manager as ORBIT_PRODUCT_NAME.
 	ProductName string
 	// SamplingRate is passed alongside it so a provisioned agent samples at the
 	// same rate as the platform. Empty keeps the image's own default.
@@ -161,8 +160,7 @@ var ErrProvisionerProductNameEmpty = errors.New("k8s provisioner: product name i
 // is true, otherwise falling back to KUBECONFIG (local development).
 // policyClient may be nil; grant creation is skipped when unset (local dev).
 func NewK8sProvisioner(inCluster bool, logger logging.Logger, cfg K8sProvisionerConfig, policyClient *policyclient.Client) (*K8sProvisioner, error) {
-	// An empty name would be dropped from the pod's environment, and the
-	// session-manager would fall back to the image default without a signal.
+	// An empty name would silently fall back to the image default in the pod.
 	if strings.TrimSpace(cfg.ProductName) == "" {
 		return nil, ErrProvisionerProductNameEmpty
 	}

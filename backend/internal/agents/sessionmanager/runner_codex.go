@@ -1037,9 +1037,7 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 	r.events <- ev
 }
 
-// codexProvider is the key Codex uses for its one model provider, the inference
-// gateway. It is a config-table key, not the product name. The provider's
-// display name comes from the brand.
+// codexProvider is Codex's config-table key for the inference gateway, not the product name.
 const codexProvider = "orbit"
 
 // writeCodexConfig creates a per-run CODEX_HOME directory under workDir and

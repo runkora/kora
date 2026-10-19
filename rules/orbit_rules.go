@@ -60,13 +60,7 @@
 //
 // See docs/adr/2026-03-19-multi-service-backend-deployment-structure.md
 //
-// # docs/adr/2026-10-12-white-labelling-theme.md: White-labelling theme
-//
-// Text that people or agents read takes the product name from
-// internal/platform/brand. A literal "kora" or "orbit" in prose in the speaking
-// packages is a leak.
-//
-// See docs/adr/2026-10-12-white-labelling-theme.md
+// Product name: prose "kora" or "orbit" literals in the speaking packages must come from internal/platform/brand.
 package gorules
 
 import "github.com/quasilyte/go-ruleguard/dsl"
@@ -316,48 +310,14 @@ func noDirectWriteHeader(m dsl.Matcher) {
 			`See docs/adr/2026-02-17-controller-based-http-routing.md`)
 }
 
-// speakingPackages and productNameWord feed both noProductNameLiteral matchers,
-// so the scope and the match cannot drift apart.
+// speakingPackages and productNameWord feed both noProductNameLiteral matchers.
 const (
 	speakingPackages = `^github\.com/clear-route/orbit/internal/(agents|orbitmcp|egressgw|platform/sandboximages)(/|$)`
 	productNameWord  = `(?i)(^|[^-_./a-z0-9])(kora|orbit)(\.[^a-z0-9]|[^-_./a-z0-9]|$)`
 )
 
-// noProductNameLiteral flags a string literal that names the product in prose
-// inside a speaking package. The name must come from internal/platform/brand,
-// so a white-labelled install never shows it.
-//
-// Enforces: docs/adr/2026-10-12-white-labelling-theme.md, Decision 5.
-//
-// A match is the whole word "kora" or "orbit" in any case. It must not touch
-// '-', '_' or '/', or a '.' followed by a letter or digit. So "orbit.io",
-// "kora-base", "orbit-system" and "ORBIT_RUN_ID" pass. Prose fails, including
-// a sentence ending "kora.". Raw strings are covered.
-//
-// Struct tags are not covered, because gogrep has no pattern for an ast.Field
-// tag. A jsonschema description must be neutral or move to code (see
-// internal/orbitmcp/tools_agents.go). scripts/check-brand-tags.go checks tags
-// with the same patterns in make check.
-//
-// ruleguard refuses a bare `$s` pattern, so the rule lists each position a
-// literal can occupy. The first matcher takes an argument of a method call
-// whose receiver is not a logging.Logger, because log lines keep the kora
-// name. The second takes plain call arguments, composite-literal elements,
-// const and var initialisers, returns, assignments and operands of +. They
-// share one rule because ruleguard stops at the first report in a group.
-//
-// Scope: internal/agents, internal/orbitmcp, internal/egressgw and
-// internal/platform/sandboximages, the packages whose strings people or agents
-// read. The remaining exceptions (an X.509 subject, a config-table key) are
-// path-scoped exclusions in .golangci.yml, never inline //nolint.
-//
-// Bad:
-//
-//	fmt.Sprintf("kora paused this run: ...", n)
-//
-// Good:
-//
-//	fmt.Sprintf("%s paused this run: ...", product, n)
+// noProductNameLiteral flags a prose "kora" or "orbit" literal in a speaking package; the name comes from internal/platform/brand.
+// Identifier-shaped literals such as "orbit.io" and "kora-base", and logging.Logger arguments, pass.
 func noProductNameLiteral(m dsl.Matcher) {
 	m.Match(`$recv.$method($*_, $s, $*_)`).
 		Where(m.File().PkgPath.Matches(speakingPackages) &&

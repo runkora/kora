@@ -13,8 +13,7 @@ import (
 // WITH the guardrails rather than against them — it won't waste turns probing
 // blocked hosts or hunting for credential tokens that are injected on its behalf.
 // Always returns a non-empty block with a leading blank line so it appends
-// cleanly after the agent's own system prompt. product is the configured
-// product name the brief calls the platform by.
+// cleanly after the agent's own system prompt.
 func renderCapabilitiesBrief(access *EffectiveAccess, workspaceDir string, sandboxFolder bool, product string) string {
 	var b strings.Builder
 	b.WriteString("\n\n# Runtime environment (" + product + ")\n")

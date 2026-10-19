@@ -926,8 +926,7 @@ func TestTriggerCoalesceForwarding(t *testing.T) {
 	}
 }
 
-// TestServerReadsTheBrand checks that the server name and the tool descriptions
-// use the given brand.
+// TestServerReadsTheBrand checks the server name and tool descriptions use the brand.
 func TestServerReadsTheBrand(t *testing.T) {
 	srv := NewServer(Backends{}, orbitjson.NewClient(logging.NewLogger()), testBrand)
 	gw := httptest.NewServer(mcpkit.NewController("/mcp", srv).Handler())
@@ -961,6 +960,5 @@ func TestServerReadsTheBrand(t *testing.T) {
 	}
 }
 
-// testBrand is a name no default produces, so a description that carries it
-// proves the brand was injected.
+// testBrand is a name no default produces, so text carrying it proves injection.
 var testBrand = brand.MustNew("Acme")

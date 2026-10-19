@@ -35,9 +35,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 #
 #   1. cmd/${SERVICE}/config          — service-owned settings.
 #   2. internal/platform/observability/config — imported by all runtime binaries.
-#      internal/platform/brand/config         — the product name; read by every
-#                                               binary that writes text people or
-#                                               agents read.
+#      internal/platform/brand/config         — the product name.
 #   3. internal/platform/storage/config       — imported by binaries that touch
 #                                               Postgres/Redis; harmless for
 #                                               those that do not.

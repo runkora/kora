@@ -122,15 +122,7 @@ linters:
     #
     #   See docs/adr/0005-controller-based-http-routing.md
     #
-    # Product name in text people or agents read
-    #   - a prose "kora" / "orbit" string literal in internal/agents,
-    #     internal/orbitmcp, internal/egressgw or internal/platform/sandboximages.
-    #     The name must come from internal/platform/brand.
-    #     Identifier-shaped literals (orbit.io, kora-base) and arguments to
-    #     logging.Logger methods are not matched.
-    #     The remaining exceptions are path-scoped exclusions in this file.
-    #
-    #   See docs/adr/2026-10-12-white-labelling-theme.md
+    # Product name: noProductNameLiteral bans a prose "kora" or "orbit" literal in the speaking packages.
     gocritic:
       enabled-checks:
         - ruleguard
@@ -361,10 +353,8 @@ linters:
         linters:
           - errcheck
           - unparam
-      # Do not exclude ruleguard's "used Run() with an empty rule set".
-      # It means rules/orbit_rules.go failed to load (the bundled ruleguard
-      # rejected a DSL construct), and it shows on every file. Excluding it
-      # would switch off every Tier 1 rule without a signal.
+      # Do not exclude ruleguard's "empty rule set" message: it means rules/orbit_rules.go
+      # failed to load, and excluding it would switch off every Tier 1 rule.
 
       # The sandbox-mount node agent's export directories are walked by NFS
       # clients as the squashed user, so they must be world-searchable (0755).
@@ -471,18 +461,13 @@ linters:
           - gocritic
         text: "calling WriteHeader directly"
 
-      # The per-tenant CA of the egress gateway puts the kora name in the X.509
-      # subject of its leaf certificates. A subject is an identifier, not prose
-      # that people or agents read, so it keeps the name.
+      # The CA's X.509 subject is an identifier, not prose, so it keeps the kora name.
       - path: "internal/egressgw/tlsca/"
         linters:
           - gocritic
         text: "product name must come from internal/platform/brand"
 
-      # codexProvider and openCodeProvider are config-table keys that the
-      # runtimes look up. They are identifiers, not prose. The provider's display
-      # name beside them reads the brand. Each rule matches the declaration line
-      # only, so prose elsewhere in these files is still checked.
+      # codexProvider and openCodeProvider are config-table keys, not prose; each rule matches the declaration line only.
       - path: "internal/agents/sessionmanager/runner_codex.go"
         linters:
           - gocritic

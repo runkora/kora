@@ -1,3 +1,2 @@
-# Product name for text that people or agents read. The chart renders the
-# theme's name over this at /etc/orbit/config/internal/platform/brand.yaml.
+# Product name for text people or agents read; the chart overrides it from the theme.
 productName: kora

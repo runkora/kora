@@ -26,8 +26,7 @@ const BaseLabel = "io.orbit.sandbox.base"
 // the base image. An environment without an image uses it.
 const BaseName = "kora-base"
 
-// BaseDescription describes the base image wherever it is listed. product is
-// the configured product name (internal/platform/brand).
+// BaseDescription describes the base image wherever it is listed.
 func BaseDescription(product string) string {
 	return "The " + product + " base image: general command-line tools, Go and Python."
 }
@@ -47,8 +46,7 @@ type BundledImage struct {
 	Extras string
 }
 
-// Description describes the image wherever it is listed. product is the
-// configured product name (internal/platform/brand).
+// Description describes the image wherever it is listed.
 func (b BundledImage) Description(product string) string {
 	return "The " + product + " base image plus " + b.Extras + "."
 }

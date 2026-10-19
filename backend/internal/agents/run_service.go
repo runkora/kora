@@ -54,8 +54,7 @@ type RunServiceConfig struct {
 	DefaultEnvironmentSize EnvironmentSize
 	// SandboxMount tells the agent, in its brief, to work in the sandbox's local folder.
 	SandboxMount bool
-	// Brand names the product in the capabilities brief and the default
-	// environment's description.
+	// Brand supplies the product name for the capabilities brief and default environment.
 	Brand brand.Brand
 }
 
@@ -122,8 +121,7 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 // ErrRunServiceProductNameEmpty is returned when the run service is built with no product name.
 var ErrRunServiceProductNameEmpty = errors.New("run service: product name is empty")
 
-// NewRunService creates a RunService with the given dependencies. It rejects an
-// empty product name, which would render blank in the capabilities brief.
+// NewRunService creates a RunService with the given dependencies. It rejects an empty product name.
 func NewRunService(
 	repo RunRepository,
 	atRepo AgentTypeRepository,

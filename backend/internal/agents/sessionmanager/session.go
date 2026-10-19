@@ -63,7 +63,7 @@ func egressCanaryCommand(host string) string {
 
 // stopNote prefixes the first message after an interrupt. Without it the
 // resumed model sees only the harness's tool-rejection text and reads the stop
-// as the user refusing its work. product is the configured product name.
+// as the user refusing its work.
 func stopNote(product string) string {
 	return "[" + product + ": the user stopped your previous turn before it finished. That was their choice, not a tool error or a refusal. Their next message follows.]\n\n"
 }
@@ -161,8 +161,7 @@ type Registry struct {
 	logger     logging.Logger
 	workspaces string // base path for workspace directories
 	notifier   Notifier
-	// brand supplies the product name for text sent to the agent: loop-guard
-	// warnings and pauses, and the note after a user stop.
+	// brand supplies the product name for text sent to the agent.
 	brand       productNamer
 	summarizer  *summarizer
 	idleTimeout time.Duration

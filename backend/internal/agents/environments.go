@@ -82,8 +82,7 @@ type Environment struct {
 }
 
 // DefaultEnvironment is the environment of an agent with none attached. It runs
-// the base image at the default size with no egress or connectors. product is
-// the configured product name its description reads.
+// the base image at the default size with no egress or connectors.
 func DefaultEnvironment(size EnvironmentSize, product string) Environment {
 	return Environment{
 		Slug:         DefaultEnvironmentName,

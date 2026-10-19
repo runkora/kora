@@ -62,8 +62,7 @@ func realMain() error {
 		metrics.Shutdown(shutdownCtx, logger)
 	}()
 
-	// The product name is the server's reported name. It also appears in the
-	// tool descriptions agents read.
+	// The product name is the server's reported name and appears in tool descriptions.
 	b, err := brand.Load()
 	if err != nil {
 		return fmt.Errorf("load brand: %w", err)

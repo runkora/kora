@@ -1,13 +1,5 @@
-// Package brand holds the product name that services put in text people or
-// agents read: guardrail messages, the capabilities brief, MCP tool
-// descriptions, egress denials and sandbox image descriptions.
-//
-// A white-labelled install sets the name in the theme document. The chart
-// renders it into this package's config module.
-//
-// Components take the narrow [Brand] value, or an interface with its one
-// method, never [Config]. Config is how the name arrives. Brand is what a
-// string needs.
+// Package brand holds the product name that services put in text people or agents read.
+// Components take [Brand] or an interface with its one method, never [Config].
 package brand
 
 import (
@@ -20,18 +12,11 @@ import (
 	"github.com/clear-route/orbit/internal/platform/config"
 )
 
-// Module is the config module path. config/base.yaml holds the default. The
-// chart renders the per-install file at /etc/orbit/config/internal/platform/brand.yaml.
+// Module is the config module path; the chart renders the per-install file for it.
 const Module = "internal/platform/brand"
 
-// EnvProductName is the environment variable that sets the product name on a
-// session-manager pod.
-//
-// orbit-agents creates session pods at runtime, so the chart cannot render a
-// config file for them. The env producer in internal/agents sets this variable
-// on each pod it builds. Env vars are otherwise for secrets only
-// (docs/adr/2026-10-06-rendered-service-config-files.md, section 6). This is
-// the one non-secret that Go-rendered pods cannot receive another way.
+// EnvProductName sets the product name on session-manager pods, which the chart does not render.
+// It is the one non-secret passed as an env var.
 const EnvProductName = "ORBIT_PRODUCT_NAME"
 
 // Sentinel errors for an unusable product name.
@@ -43,14 +28,11 @@ var (
 // Config is the brand config module: the file shape the chart renders.
 type Config struct {
 	// ProductName is the name used in every string people or agents read.
-	// The theme contract bounds its length and characters, and the frontend's
-	// init container checks them. This package only rejects a name no string
-	// can carry.
+	// Length and character bounds belong to the theme contract, not this package.
 	ProductName string `yaml:"productName"`
 }
 
-// Brand is the resolved brand a component reads. Construct it with [New] or
-// [Load]; the zero value has no product name.
+// Brand is the resolved brand a component reads. The zero value has no product name.
 type Brand struct {
 	productName string
 }
@@ -58,8 +40,7 @@ type Brand struct {
 // ProductName is the configured product name.
 func (b Brand) ProductName() string { return b.productName }
 
-// New returns a Brand for productName. The name must be non-empty and have no
-// control characters. The theme contract owns every other bound.
+// New returns a Brand for productName. It rejects an empty name or one with control characters.
 func New(productName string) (Brand, error) {
 	if strings.TrimSpace(productName) == "" {
 		return Brand{}, ErrProductNameEmpty
@@ -81,9 +62,7 @@ func MustNew(productName string) Brand {
 	return b
 }
 
-// Load reads the brand config module: base.yaml, the environment overlay, then
-// the chart-rendered file. It applies EnvProductName when set, then validates
-// the result.
+// Load reads the brand config, applies EnvProductName when set, and validates the result.
 func Load() (Brand, error) {
 	return load(os.Getenv)
 }

@@ -1,15 +1,7 @@
 //go:build ignore
 
-// check-brand-tags fails when a struct tag in a speaking package names the
-// product. It covers what the noProductNameLiteral ruleguard rule
-// (rules/orbit_rules.go) cannot match. A jsonschema description is a struct
-// tag, it becomes an MCP tool's input description, and it must stay neutral.
-// See docs/adr/2026-10-12-white-labelling-theme.md, Decision 5.
-//
-// roots and productNameWord copy the rule's speakingPackages and
-// productNameWord. Keep them in step. Run from the repository root:
-//
-//	go run scripts/check-brand-tags.go
+// check-brand-tags fails when a struct tag in a speaking package names the product (ruleguard cannot match tags).
+// Run from the repository root: go run scripts/check-brand-tags.go
 package main
 
 import (

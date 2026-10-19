@@ -38,9 +38,7 @@ type productNamer interface {
 	ProductName() string
 }
 
-// NewServer builds the platform MCP server and registers its tools onto a kit
-// server. brand supplies the server's reported name and the product name in
-// tool descriptions.
+// NewServer builds the MCP server, named after brand, and registers its tools onto a kit server.
 func NewServer(b Backends, jc *orbitjson.Client, brand productNamer) *sdk.Server {
 	product := brand.ProductName()
 	srv := mcpkit.NewServer(product, "0.1.0")

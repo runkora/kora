@@ -5,8 +5,7 @@ import (
 	"testing"
 )
 
-// New accepts any name a string can carry. The theme contract owns the length
-// and character bounds.
+// New accepts any name a string can carry.
 func TestNew(t *testing.T) {
 	cases := map[string]struct {
 		name    string
@@ -35,8 +34,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-// Load returns the base.yaml default, lets the env var replace it, and rejects
-// a bad value from either.
+// Load returns the default, lets the env var replace it, and rejects a bad value.
 func TestLoad(t *testing.T) {
 	env := func(vars map[string]string) func(string) string {
 		return func(k string) string { return vars[k] }

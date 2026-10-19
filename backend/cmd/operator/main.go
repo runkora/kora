@@ -87,8 +87,7 @@ func main() {
 func run(ctx context.Context, restCfg *rest.Config, logger logging.Logger) error {
 	install := oc.Current.Install
 
-	// The product name goes into the SandboxImage descriptions the operator
-	// writes to tenant namespaces. Agents list them.
+	// The product name goes into the SandboxImage descriptions agents list.
 	b, err := brand.Load()
 	if err != nil {
 		return fmt.Errorf("load brand: %w", err)
