@@ -1,13 +1,6 @@
 /**
- * Turns a validated theme into the one CSS string the root layout inlines in
- * the document head. The string holds:
- * - a dark block under `html:root:not([data-theme='light'])`;
- * - a light block under `html[data-theme='light']`;
- * - an `@font-face` per theme font, with the family token pointed at it.
- *
- * Each block carries only what the theme sets. Both selectors out-rank the
- * token sheet's `:root` and `[data-theme='light']`, so stylesheet order does
- * not matter.
+ * Turns a validated theme into the CSS the root layout inlines: dark and light blocks, plus an `@font-face` per font.
+ * Both selectors out-rank the token sheet, so stylesheet order does not matter.
  */
 import type { Mode } from '../tokens/surface';
 import { fontFamilyList } from './formats';
@@ -57,11 +50,7 @@ function modeDeclarations(theme: Theme, mode: Mode): [string, string][] {
     });
 }
 
-/**
- * Escapes a value for a double-quoted CSS string. It also escapes `<`, because
- * the CSS is inlined in a `<style>` element and the HTML parser ends that at
- * `</style>` whatever the CSS quoting says.
- */
+/** Escapes a value for a double-quoted CSS string, and `<` so an inlined `</style>` cannot end the element. */
 function cssString(value: string): string {
   return value
     .replace(/\\/g, '\\\\')

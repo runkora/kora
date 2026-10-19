@@ -1,13 +1,6 @@
 /**
- * Builds `theme.schema.json` (JSON Schema draft 2020-12) from the manifest.
- * Pure.
- *
- * The value patterns come from `src/theme/formats.ts`, the same ones the
- * validator compiles, so the two cannot disagree on a value syntax.
- *
- * A producer can check a document against the schema before a deploy. The
- * validator stays the authority: it also trims the product name and applies
- * the font-slot rule. Neither one fetches an asset.
+ * Builds `theme.schema.json` from the manifest, with the patterns the validator compiles.
+ * The validator stays the authority: it also trims the product name and applies the font-slot rule.
  */
 import {
   ASSET_URL_PATTERN,

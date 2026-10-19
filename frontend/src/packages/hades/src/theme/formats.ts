@@ -1,9 +1,6 @@
 /**
- * The value syntaxes a theme may supply, as regular-expression sources.
- *
- * Each source is the only definition of its format. The validator compiles it
- * with the `u` flag. `scripts/lib/schema.ts` writes the same source into
- * `theme.schema.json`, so the schema and the validator cannot disagree.
+ * The value syntaxes a theme may supply, as regex sources.
+ * The validator and `scripts/lib/schema.ts` both use them, so the schema cannot drift.
  */
 import type { TokenFormat } from '../tokens/surface';
 
@@ -31,11 +28,7 @@ const SHADOW_LENGTHS = `${SHADOW_LENGTH}(?:\\s+${SHADOW_LENGTH}){1,3}`;
 /** One shadow: optional `inset`, two to four lengths, an optional colour before or after them. */
 const SHADOW = `(?:inset\\s+)?(?:${SHADOW_COLOR}\\s+${SHADOW_LENGTHS}|${SHADOW_LENGTHS}(?:\\s+${SHADOW_COLOR})?)`;
 
-/**
- * Regular-expression source per token format. Each is anchored, so a value
- * matches in full or is rejected. Nothing a browser would read as a second
- * declaration, a block or a function call can pass.
- */
+/** Anchored regex source per token format, so a value matches in full or is rejected. */
 export const FORMAT_PATTERNS: Readonly<Record<TokenFormat, string>> = {
   'hex-or-oklch': `^(?:${HEX}|${OKLCH})$`,
   'css-shadow-list': `^${SHADOW}(?:\\s*,\\s*${SHADOW}){0,3}$`,
@@ -99,23 +92,13 @@ export function fontFamilyList(value: string, quote: (name: string) => string): 
 export const KORA_VERSION_PATTERN = '^(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)\\.(?:0|[1-9]\\d*)$';
 
 /**
- * An asset URL. It must be `https://` with:
- * - a host of letters, digits, dots and hyphens (punycode for international
- *   names), and an optional port;
- * - no credentials and no fragment;
- * - an optional path and query;
- * - nothing a CSS `url()` or an HTML attribute would have to escape;
- * - at most 2048 characters.
- *
- * The extension check depends on the slot, so `hasAssetExtension` does it.
+ * An `https://` URL of at most 2048 characters: plain host, no credentials or fragment, nothing CSS or HTML must escape.
+ * `hasAssetExtension` checks the extension, because it depends on the slot.
  */
 export const ASSET_URL_PATTERN =
   '^(?=.{1,2048}$)https://[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?(?::\\d{1,5})?(?:/[^\\s?#\\\\"\'<>()\\u0000-\\u001f]*)?(?:\\?[^\\s#\\\\"\'<>()\\u0000-\\u001f]*)?$';
 
-/**
- * Characters no token value may carry, whatever its format. Checked before the
- * format so the error names the injection attempt, not the syntax.
- */
+/** Characters no token value may carry; checked first so the error names the injection, not the syntax. */
 export const FORBIDDEN_IN_VALUES = /[;{}\\<]|url\(|var\(/;
 
 const compiled = new Map<string, RegExp>();
@@ -138,10 +121,7 @@ export function isKoraVersion(value: string): boolean {
   return pattern(KORA_VERSION_PATTERN).test(value);
 }
 
-/**
- * The major of a kora version. Accepts a leading `v` and a pre-release suffix,
- * because the instance's version is its release tag: `0.8.0-rc.2` is major 0.
- */
+/** The major of a kora version; accepts a leading `v` and a pre-release suffix, as a release tag has. */
 export function koraMajor(value: string): number | null {
   const m = /^v?(\d+)\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.exec(value);
   return m ? Number(m[1]) : null;
@@ -151,11 +131,7 @@ export function isAssetUrl(value: string): boolean {
   return pattern(ASSET_URL_PATTERN).test(value);
 }
 
-/**
- * The source of a pattern that matches a URL whose path ends in one of the
- * slot's extensions, in any case. A `/name.ext` inside the query does not
- * count, because the pattern is anchored from `https://`.
- */
+/** A pattern matching a URL whose path ends in one of the extensions, in any case; a query never counts. */
 export function assetExtensionPattern(formats: readonly string[]): string {
   const folded = formats.map((f) =>
     [...f].map((c) => (/[a-z]/i.test(c) ? `[${c.toLowerCase()}${c.toUpperCase()}]` : c)).join(''),

@@ -1,7 +1,4 @@
-/**
- * Shared fixtures for the theme module's tests: a small manifest and a full
- * theme document whose slots hold asset URLs.
- */
+/** Fixtures for the theme module's tests: a small manifest and a full theme document. */
 import type { ThemeManifest } from './manifest';
 
 export const MANIFEST: ThemeManifest = {

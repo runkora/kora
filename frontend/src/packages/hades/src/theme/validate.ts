@@ -1,11 +1,4 @@
-/**
- * Validates a theme document. Takes the document text, the manifest and the
- * instance's kora version. Returns the validated theme, or every fault found.
- *
- * It is pure: no filesystem, no network. It checks the form of a slot's URL
- * and never fetches it. That lets the init container, the server module and a
- * browser preview run the same code.
- */
+/** Validates a theme document and returns the theme or every fault found. Pure: it never fetches a URL. */
 import { parse as parseYaml } from 'yaml';
 
 import type { Mode } from '../tokens/surface';
@@ -33,13 +26,7 @@ import type {
 
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
-  /**
-   * The instance's own kora version (its release tag, without the `v`). The
-   * document's major must equal its major.
-   *
-   * Null for a build that is not from a release. The shape is still checked,
-   * the comparison is skipped, and the report says so.
-   */
+  /** The instance's kora version without the `v`. Null for a development build, which skips the major check. */
   readonly koraVersion: string | null;
 }
 
@@ -348,12 +335,8 @@ function checkUrl(
 // ─── Report ──────────────────────────────────────────────────────────────────
 
 /**
- * Lists the identity values the theme leaves to the kora default: the product
- * name and every mode of every image slot.
- *
- * `mixedIdentity` repeats that list when the theme sets some identity values
- * but not all, because a visitor would see two brands at once. A theme that
- * sets none keeps kora's identity on purpose and is not mixed.
+ * Lists the identity values left to the kora default: the product name and every mode of every image slot.
+ * `mixedIdentity` is that list when some are set and some are not, which would show two brands.
  */
 function identityReport(
   manifest: ThemeManifest,

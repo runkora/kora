@@ -1,8 +1,4 @@
-/**
- * The parts of `manifest.json` the theme module reads. It is a structural type
- * and not an import from `scripts/`, because the package does not ship the
- * scripts. A consumer passes in the manifest it imported.
- */
+/** The parts of `manifest.json` the theme module reads. Structural, because the package does not ship `scripts/`. */
 import type { Mode, ProductNameBounds, SlotKind, TokenFormat, TokenKind } from '../tokens/surface';
 
 export interface ThemeManifestToken {
@@ -28,10 +24,7 @@ export interface ThemeManifest {
   readonly productName: ProductNameBounds;
 }
 
-/**
- * The family token a font slot sets: `font.<name>` sets `--hades-raw-font-<name>`.
- * Null when the manifest has no such token.
- */
+/** The family token a font slot sets (`font.<name>` sets `--hades-raw-font-<name>`), or null if the manifest lacks it. */
 export function familyTokenForSlot(manifest: ThemeManifest, slotName: string): string | null {
   if (!slotName.startsWith('font.')) return null;
   const token = `--hades-raw-font-${slotName.slice('font.'.length)}`;

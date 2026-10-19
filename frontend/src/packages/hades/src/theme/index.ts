@@ -1,11 +1,4 @@
-/**
- * The Hades theme module: the validator, the CSS generator and the value
- * formats behind `theme.schema.json`.
- *
- * It is exported as `@runkora/hades/theme`, apart from the component entry.
- * It runs in a Node init container, a Next server module and a browser
- * preview, so it uses no React, no DOM and no Node built-ins.
- */
+/** The Hades theme module (`@runkora/hades/theme`): no React, no DOM, no Node built-ins, so it runs anywhere. */
 export { validateTheme, type ValidateOptions } from './validate';
 export { generateThemeCss, fontPreloads, DARK_SELECTOR, LIGHT_SELECTOR } from './css';
 export { familyNameForSlot, familyTokenForSlot } from './manifest';

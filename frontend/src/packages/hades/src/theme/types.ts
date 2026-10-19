@@ -36,16 +36,9 @@ export interface ThemeReport {
   readonly ignored: readonly IgnoredEntry[];
   /** Identity values the theme leaves to the kora default: `productName`, `logo.dark`, ... */
   readonly fallThrough: readonly string[];
-  /**
-   * The `fallThrough` list again, when the theme sets some identity values but
-   * not all (two brands on screen). Empty when it sets none or all.
-   * Advisory: it never affects `ok`.
-   */
+  /** The `fallThrough` list when the theme sets some identity values but not all, else empty. Never affects `ok`. */
   readonly mixedIdentity: readonly string[];
-  /**
-   * True for a development build. The theme's `koraVersion` was checked for
-   * shape but not compared with a major.
-   */
+  /** True for a development build: `koraVersion` was checked for shape only. */
   readonly versionCheckSkipped: boolean;
 }
 
