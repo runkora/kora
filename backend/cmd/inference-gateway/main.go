@@ -269,10 +269,8 @@ func inferenceRoutes() []routescopes.RouteScope {
 		// GET /v1/usage/budget is personal — any authenticated caller may check
 		// their own budget. Listed before /v1/usage so the more-specific path wins.
 		{PathPrefix: "/v1/usage/budget", Method: "GET", RequiredScope: ""},
-		// GET /v1/usage/run/{id} is the run chat usage meter — any authenticated
-		// caller in the tenant; spend is tenant-scoped in the query. The OPA
-		// layers hold it to platform:analytics:read (publishedInferenceRoutes).
-		{PathPrefix: "/v1/usage/run", Method: "GET", RequiredScope: ""},
+		// The run chat usage meter. publishedInferenceRoutes gives the OPA layers a stricter scope.
+		{PathPrefix: runUsagePath, Method: "GET", RequiredScope: ""},
 		// GET /v1/usage/stats is personal — per-PAT aggregates for the calling
 		// principal only.
 		{PathPrefix: "/v1/usage/stats", Method: "GET", RequiredScope: ""},
@@ -289,14 +287,16 @@ func inferenceRoutes() []routescopes.RouteScope {
 	}
 }
 
-// publishedInferenceRoutes is the route table registered with the policy
-// service. GET /v1/usage/run reads any run's spend in the tenant, so the edge
-// and sidecar OPA hold it to the tenant-wide analytics scope instead of
-// letting it fall under the authenticated-only /v1/usage prefix.
+// runUsagePath is the run chat usage meter. The dashboard calls it in-mesh, where only the
+// in-process check runs, so any authenticated caller in the tenant passes.
+const runUsagePath = "/v1/usage/run"
+
+// publishedInferenceRoutes is the route table registered with the policy service.
+// Callers that pass the edge or sidecar OPA need the tenant-wide analytics scope for runUsagePath.
 func publishedInferenceRoutes() []routescopes.RouteScope {
 	routes := inferenceRoutes()
 	for i := range routes {
-		if routes[i].PathPrefix == "/v1/usage/run" {
+		if routes[i].PathPrefix == runUsagePath {
 			routes[i].RequiredScope = "platform:analytics:read"
 		}
 	}
