@@ -139,10 +139,7 @@ func (c *Controller) handleUpdateRoleBudget(w http.ResponseWriter, r *http.Reque
 	if !ok {
 		return
 	}
-	if policy.DelegationFromContext(ctx) != nil {
-		platformapi.ErrorResponse(ctx, w, c.logger,
-			platformapi.ForbiddenError(platformapi.ErrCodeForbidden,
-				"a delegated run cannot change budgets", nil), nil)
+	if c.refuseDelegated(ctx, w) {
 		return
 	}
 
