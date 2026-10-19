@@ -442,7 +442,7 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 
 	scopeSet := make(map[string]struct{})
 	if grants.PrincipalType(principalType) == grants.PrincipalTypeHuman {
-		if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
+		if err = s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
 			return nil, err
 		}
 	}
