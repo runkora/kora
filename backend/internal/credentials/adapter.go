@@ -88,6 +88,8 @@ type RequestOwners struct {
 	Owners []string
 	// NodeIDs are the global node ids a GraphQL document names.
 	NodeIDs []string
+	// RepoIDs are the numeric repository ids a REST path names in place of an owner.
+	RepoIDs []string
 	// Subject is the part of the request read for owners, such as "request path".
 	Subject string
 }

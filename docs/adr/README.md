@@ -316,5 +316,6 @@ Build order: **Registration** is the foundation; the **Gateway** depends on it, 
 | 2026-10-20 | [Chat Command Triggers](2026-10-20-chat-command-triggers.md) | Accepted | — |
 | 2026-10-20 | [Non-Text Model Discovery on Compatible Providers](2026-10-20-compatible-non-text-model-discovery.md) | Accepted | — |
 | 2026-10-20 | [Per-Run Cost on the Run Record](2026-10-20-run-cost-on-run-record.md) | Proposed | — |
+| 2026-10-19 | [Repository Id Owner Selection in the Egress Gateway](2026-10-19-repository-id-owner-selection.md) | Proposed | — |
 | 2026-10-20 | [Actions Results Receiver Classification](2026-10-20-actions-results-receiver-classification.md) | Accepted | — |
 | — | [User App Preferences](2026-05-08-user-app-preferences.md) | Proposed | 0061 |

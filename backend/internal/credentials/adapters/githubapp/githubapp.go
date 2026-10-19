@@ -83,6 +83,7 @@ type API interface {
 	ListInstallationRepositories(ctx context.Context, installationToken string) ([]string, error)
 	GetInstallationPermissions(ctx context.Context, appJWT string, installationID int64) (map[string]string, error)
 	NodeOwners(ctx context.Context, installationToken string, ids []string) (map[string]string, error)
+	RepoOwners(ctx context.Context, installationToken string, ids []string) (map[string]string, error)
 }
 
 // instPermsCacheTTL is how long the installation's permission set is cached
@@ -269,11 +270,17 @@ func apiOwners(req *http.Request, segs []string) credentials.RequestOwners {
 		return graphqlOwners(req)
 	case len(segs) > 0 && segs[0] == "search":
 		return credentials.RequestOwners{Owners: searchOwners(req.URL.Query().Get("q")), Subject: subjectSearch}
+	case len(segs) >= 2 && segs[0] == "repositories" && isDigits(segs[1]):
+		return credentials.RequestOwners{RepoIDs: []string{segs[1]}, Subject: subjectPath}
 	case len(segs) >= 2 && (segs[0] == "repos" || segs[0] == "orgs" || segs[0] == "users"):
 		return pathOwner(segs[1])
 	default:
 		return credentials.RequestOwners{Subject: subjectPath}
 	}
+}
+
+func isDigits(s string) bool {
+	return s != "" && strings.Trim(s, "0123456789") == ""
 }
 
 func pathOwner(owner string) credentials.RequestOwners {
@@ -876,18 +883,45 @@ var lookupPermissions = map[string][]string{
 // token cannot see are absent. See
 // docs/adr/2026-10-15-same-host-connection-selection.md.
 func (c *connector) NodeOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
+	token, err := c.lookupToken(ctx, categories)
+	if err != nil {
+		return nil, err
+	}
+	owners, err := c.adapter.api.NodeOwners(ctx, token, ids)
+	if err != nil {
+		return nil, fmt.Errorf("node owner lookup: %w", err)
+	}
+	return owners, nil
+}
+
+// RepoOwners resolves numeric repository ids to their owners' logins with the
+// same read-only token as NodeOwners. Ids the token cannot see are absent.
+func (c *connector) RepoOwners(ctx context.Context, ids, categories []string) (map[string]string, error) {
+	token, err := c.lookupToken(ctx, categories)
+	if err != nil {
+		return nil, err
+	}
+	owners, err := c.adapter.api.RepoOwners(ctx, token, ids)
+	if err != nil {
+		return nil, fmt.Errorf("repository owner lookup: %w", err)
+	}
+	return owners, nil
+}
+
+// lookupToken returns a read-only installation token limited to categories.
+func (c *connector) lookupToken(ctx context.Context, categories []string) (string, error) {
 	a, conn, cfg := c.adapter, c.conn, c.cfg
 	pem, err := a.secrets.Resolve(ctx, conn.SecretRef)
 	if err != nil {
-		return nil, fmt.Errorf("resolve github app secret: %w", err)
+		return "", fmt.Errorf("resolve github app secret: %w", err)
 	}
 	appJWT, err := signAppJWT(cfg.AppID, pem, a.now())
 	if err != nil {
-		return nil, fmt.Errorf("sign github app jwt: %w", err)
+		return "", fmt.Errorf("sign github app jwt: %w", err)
 	}
 	installationPerms, err := a.installationPermissions(ctx, appJWT, cfg.InstallationID)
 	if err != nil {
-		return nil, fmt.Errorf("fetch installation permissions: %w", err)
+		return "", fmt.Errorf("fetch installation permissions: %w", err)
 	}
 	perms := map[string]string{}
 	for _, category := range append([]string{"metadata"}, categories...) {
@@ -899,7 +933,7 @@ func (c *connector) NodeOwners(ctx context.Context, ids, categories []string) (m
 	}
 	// An empty set would mint a token with every installation permission.
 	if len(perms) == 0 {
-		return nil, errNoLookupPermissions
+		return "", errNoLookupPermissions
 	}
 
 	// Prefixed so Mint never returns a lookup token, which carries no injected header.
@@ -910,16 +944,12 @@ func (c *connector) NodeOwners(ctx context.Context, ids, categories []string) (m
 	} else {
 		tok, mintErr := a.api.CreateInstallationToken(ctx, appJWT, cfg.InstallationID, ghclient.InstallationTokenRequest{Permissions: perms})
 		if mintErr != nil {
-			return nil, fmt.Errorf("mint lookup token: %w", mintErr)
+			return "", fmt.Errorf("mint lookup token: %w", mintErr)
 		}
 		a.store(cacheKey, credentials.Credential{Token: tok.Token, ExpiresAt: tok.ExpiresAt})
 		token = tok.Token
 	}
-	owners, err := a.api.NodeOwners(ctx, token, ids)
-	if err != nil {
-		return nil, fmt.Errorf("node owner lookup: %w", err)
-	}
-	return owners, nil
+	return token, nil
 }
 
 func (c *connector) Mint(ctx context.Context, id credentials.CallerIdentity) (credentials.Credential, error) {
