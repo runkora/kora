@@ -48,6 +48,13 @@
  */
 @source "../packages/hades/src";
 
+/* The kora fonts (Inter, Geist Mono). next/font sets the two variables on <html>. */
+:root {
+  --hades-raw-font-sans: var(--font-inter, 'Inter'), ui-sans-serif, system-ui, sans-serif;
+  --hades-raw-font-mono:
+    var(--font-geist-mono, 'Geist Mono'), ui-monospace, 'Cascadia Code', monospace;
+}
+
 [data-theme-switch='light'] {
   display: none;
 }
