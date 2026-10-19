@@ -49,6 +49,10 @@ jobs:
       - name: Format check
         run: make frontend-fmt
 
+      # Fails when manifest.json no longer matches the token sources.
+      - name: Hades manifest in sync
+        run: make hades-check
+
   # ── Unit + integration tests ──────────────────────────────────────────────
   frontend-check:
     name: Frontend Check

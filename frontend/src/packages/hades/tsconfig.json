@@ -22,8 +22,10 @@
     "paths": {
       "@orbit/hades": ["./src/index.ts"],
       "@orbit/hades/*": ["./src/*"]
-    }
+    },
+    "noEmit": true,
+    "allowImportingTsExtensions": true
   },
-  "include": ["src"],
+  "include": ["src", "scripts"],
   "exclude": ["node_modules", "dist"]
 }

@@ -1,0 +1,673 @@
+{
+  "modes": [
+    "dark",
+    "light"
+  ],
+  "tokens": [
+    {
+      "name": "--hades-raw-100",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-200",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-300",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-400",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-500",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-600",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-700",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-800",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-900",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-950",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-accent-300",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-accent-400",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-accent-500",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-accent-600",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-accent-fg",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-black",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-border",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-border-subtle",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-chart-1",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-chart-2",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-chart-3",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-chart-4",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-chart-5",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-chart-6",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-chart-7",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-chart-8",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-degraded",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-error",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-healthy",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-overlay",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-overlay-strong",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-pending",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-provider-azure",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-provider-bedrock",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-provider-vertexai",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-shadow-elevated",
+      "kind": "shadow",
+      "format": "css-shadow-list",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-shadow-sm",
+      "kind": "shadow",
+      "format": "css-shadow-list",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-strategy-weighted",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-subtle",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "--hades-raw-white",
+      "kind": "color",
+      "format": "hex-or-oklch",
+      "modes": [
+        "dark",
+        "light"
+      ]
+    }
+  ],
+  "mapping": {
+    "--color-accent": {
+      "tokens": [
+        "--hades-raw-accent-400"
+      ],
+      "derived": false
+    },
+    "--color-accent-border": {
+      "tokens": [
+        "--hades-raw-accent-400"
+      ],
+      "derived": true
+    },
+    "--color-accent-foreground": {
+      "tokens": [
+        "--hades-raw-accent-fg"
+      ],
+      "derived": false
+    },
+    "--color-accent-hover": {
+      "tokens": [
+        "--hades-raw-accent-300"
+      ],
+      "derived": false
+    },
+    "--color-accent-muted": {
+      "tokens": [
+        "--hades-raw-accent-400"
+      ],
+      "derived": true
+    },
+    "--color-accent-subtle": {
+      "tokens": [
+        "--hades-raw-accent-400"
+      ],
+      "derived": true
+    },
+    "--color-background": {
+      "tokens": [
+        "--hades-raw-black"
+      ],
+      "derived": false
+    },
+    "--color-border": {
+      "tokens": [
+        "--hades-raw-border"
+      ],
+      "derived": false
+    },
+    "--color-border-accent": {
+      "tokens": [
+        "--hades-raw-accent-600"
+      ],
+      "derived": false
+    },
+    "--color-border-subtle": {
+      "tokens": [
+        "--hades-raw-border-subtle"
+      ],
+      "derived": false
+    },
+    "--color-chart-1": {
+      "tokens": [
+        "--hades-raw-chart-1"
+      ],
+      "derived": false
+    },
+    "--color-chart-2": {
+      "tokens": [
+        "--hades-raw-chart-2"
+      ],
+      "derived": false
+    },
+    "--color-chart-3": {
+      "tokens": [
+        "--hades-raw-chart-3"
+      ],
+      "derived": false
+    },
+    "--color-chart-4": {
+      "tokens": [
+        "--hades-raw-chart-4"
+      ],
+      "derived": false
+    },
+    "--color-chart-5": {
+      "tokens": [
+        "--hades-raw-chart-5"
+      ],
+      "derived": false
+    },
+    "--color-chart-6": {
+      "tokens": [
+        "--hades-raw-chart-6"
+      ],
+      "derived": false
+    },
+    "--color-chart-7": {
+      "tokens": [
+        "--hades-raw-chart-7"
+      ],
+      "derived": false
+    },
+    "--color-chart-8": {
+      "tokens": [
+        "--hades-raw-chart-8"
+      ],
+      "derived": false
+    },
+    "--color-foreground": {
+      "tokens": [
+        "--hades-raw-white"
+      ],
+      "derived": false
+    },
+    "--color-muted": {
+      "tokens": [
+        "--hades-raw-300"
+      ],
+      "derived": false
+    },
+    "--color-overlay": {
+      "tokens": [
+        "--hades-raw-overlay"
+      ],
+      "derived": false
+    },
+    "--color-overlay-strong": {
+      "tokens": [
+        "--hades-raw-overlay-strong"
+      ],
+      "derived": false
+    },
+    "--color-provider-azure": {
+      "tokens": [
+        "--hades-raw-provider-azure"
+      ],
+      "derived": false
+    },
+    "--color-provider-bedrock": {
+      "tokens": [
+        "--hades-raw-provider-bedrock"
+      ],
+      "derived": false
+    },
+    "--color-provider-vertexai": {
+      "tokens": [
+        "--hades-raw-provider-vertexai"
+      ],
+      "derived": false
+    },
+    "--color-status-degraded": {
+      "tokens": [
+        "--hades-raw-degraded"
+      ],
+      "derived": false
+    },
+    "--color-status-error": {
+      "tokens": [
+        "--hades-raw-error"
+      ],
+      "derived": false
+    },
+    "--color-status-healthy": {
+      "tokens": [
+        "--hades-raw-healthy"
+      ],
+      "derived": false
+    },
+    "--color-status-idle": {
+      "tokens": [
+        "--hades-raw-subtle"
+      ],
+      "derived": false
+    },
+    "--color-status-pending": {
+      "tokens": [
+        "--hades-raw-pending"
+      ],
+      "derived": false
+    },
+    "--color-strategy-weighted": {
+      "tokens": [
+        "--hades-raw-strategy-weighted"
+      ],
+      "derived": false
+    },
+    "--color-subtle": {
+      "tokens": [
+        "--hades-raw-subtle"
+      ],
+      "derived": false
+    },
+    "--color-surface": {
+      "tokens": [
+        "--hades-raw-950"
+      ],
+      "derived": false
+    },
+    "--color-surface-elevated": {
+      "tokens": [
+        "--hades-raw-900"
+      ],
+      "derived": false
+    },
+    "--color-surface-overlay": {
+      "tokens": [
+        "--hades-raw-800"
+      ],
+      "derived": false
+    },
+    "--ease-standard": {
+      "tokens": [],
+      "derived": false
+    },
+    "--font-mono": {
+      "tokens": [],
+      "derived": false
+    },
+    "--font-sans": {
+      "tokens": [],
+      "derived": false
+    },
+    "--radius-2xl": {
+      "tokens": [],
+      "derived": false
+    },
+    "--radius-full": {
+      "tokens": [],
+      "derived": false
+    },
+    "--radius-lg": {
+      "tokens": [],
+      "derived": false
+    },
+    "--radius-md": {
+      "tokens": [],
+      "derived": false
+    },
+    "--radius-sm": {
+      "tokens": [],
+      "derived": false
+    },
+    "--radius-xl": {
+      "tokens": [],
+      "derived": false
+    },
+    "--shadow-elevated": {
+      "tokens": [
+        "--hades-raw-shadow-elevated"
+      ],
+      "derived": false
+    },
+    "--shadow-sm": {
+      "tokens": [
+        "--hades-raw-shadow-sm"
+      ],
+      "derived": false
+    }
+  },
+  "slots": [
+    {
+      "name": "favicon",
+      "kind": "image",
+      "formats": [
+        "svg"
+      ],
+      "modes": [
+        "dark",
+        "light"
+      ]
+    },
+    {
+      "name": "font.mono",
+      "kind": "font",
+      "formats": [
+        "woff2"
+      ],
+      "modes": []
+    },
+    {
+      "name": "font.sans",
+      "kind": "font",
+      "formats": [
+        "woff2"
+      ],
+      "modes": []
+    },
+    {
+      "name": "logo",
+      "kind": "image",
+      "formats": [
+        "svg"
+      ],
+      "modes": [
+        "dark",
+        "light"
+      ]
+    }
+  ],
+  "productName": {
+    "minLength": 1,
+    "maxLength": 40,
+    "pattern": "^[\\p{L}\\p{N} .\\-&']+$"
+  }
+}

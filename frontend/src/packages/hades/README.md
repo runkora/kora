@@ -246,13 +246,53 @@ frontend/src/packages/hades/
 │   ├── utils.ts                  # cn() utility (clsx + tailwind-merge)
 │   ├── tokens/
 │   │   ├── tokens.css            # Design token definitions (@theme block)
+│   │   ├── surface.ts            # Theme surface declaration: token kinds, slots, product-name bounds
 │   │   └── tokens.stories.tsx    # Storybook token showcase
 │   └── index.ts                  # Public API — all exports live here
+├── scripts/
+│   ├── manifest.ts               # Generates manifest.json (make hades-manifest)
+│   └── lib/                      # The pure parts of the generator, with their tests
 ├── .storybook/                   # Storybook configuration
+├── manifest.json                 # The theme surface manifest, generated, checked in
 ├── package.json
 ├── tsconfig.json
 └── README.md
 ```
+
+---
+
+## Versioning and the theme surface manifest
+
+Hades has no version of its own. It is released with kora, under the kora version, so the version of Hades in a release is that release's version. A theme records the kora release it was written against, and an instance accepts a theme of the same major. Nothing checks that a release's version reflects its Hades changes: the version is chosen by whoever cuts the release. The decision is in the [design system versioning ADR](../../../../docs/adr/2026-10-11-hades-versioning-and-theme-surface-manifest.md); this section is the working summary.
+
+### The version
+
+The version is the kora release tag, `vX.Y.Z`. `package.json` carries the placeholder `0.0.0` in the tree; the release workflow sets it from the tag before packing, so nothing here is bumped by hand and nothing can drift. There is no `version.ts` and the manifest carries no version: it ships inside a release, and the release is its version. A build that is not from a release tag identifies as `0.0.0-dev`.
+
+Nothing is promised below `1.0.0`. From the first final release at or above it, a theme written for one major is not promised to work on another.
+
+### The manifest
+
+`manifest.json` is the theme surface: every settable token, how each semantic name resolves to raw tokens, the asset slots, and the product-name bounds. It is generated, never edited:
+
+```bash
+make hades-manifest          # regenerate after changing tokens.css or surface.ts
+make hades-manifest-check    # what `make check` runs: fails on drift
+```
+
+The generator reads token names from the `:root` blocks of `src/tokens/tokens.css` (every `--hades-raw-*` property is settable, in both modes, by rule) and everything else from `src/tokens/surface.ts`: the kind of each token, the slots with their formats, and the product-name bounds. A raw token declared in one file and not the other fails generation, so adding a token means touching both.
+
+| Field         | Contents                                                                                                                                                                                                                   |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `modes`       | `["dark", "light"]`.                                                                                                                                                                                                       |
+| `tokens`      | One entry per raw token: `name`, `kind` (`color`, `shadow`, `length`, `font`), `format` (`hex-or-oklch`, `css-shadow-list`, `css-length`, `font-family-name`) and `modes`.                                                 |
+| `mapping`     | For each `@theme inline` name, the raw tokens it resolves to, transitively, and whether it is `derived` through an expression such as `color-mix()`. A theme never sets a semantic name, but components read through them. |
+| `slots`       | One entry per asset slot: `name`, `kind`, `formats` (the extensions its URL path may end in), `modes` (empty when one URL serves both modes).                                                                              |
+| `productName` | `minLength`, `maxLength` and a Unicode `pattern`, applied after trimming.                                                                                                                                                  |
+
+### No kora identity
+
+Hades contains no kora identity. The kora default is a theme like any other, owned by the app, and the kora logo is an asset of that theme, not a Hades component. Hades provides the agnostic components that render whatever a theme supplies for a slot.
 
 ---
 

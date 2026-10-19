@@ -268,7 +268,7 @@ proto-gen: ## Generate Go code from proto files (requires buf — run make insta
 	@echo "$(COLOR_GREEN)✓ Proto files generated$(COLOR_RESET)"
 
 .PHONY: check-versions
-check-versions: ## Verify GO_VERSION in versions.hcl matches the go directive in backend/go.mod
+check-versions: ## Verify GO_VERSION matches backend/go.mod
 	@GOMOD=$$(awk '$$1 == "go" { print $$2; exit }' backend/go.mod); \
 	if [ "$$GOMOD" != "$(GO_VERSION)" ]; then \
 		echo "$(COLOR_RED)✗ versions.hcl GO_VERSION=$(GO_VERSION) but backend/go.mod has go $$GOMOD$(COLOR_RESET)"; \
@@ -1107,6 +1107,23 @@ frontend-test-hades: ## Run Hades component unit tests in isolation (happy-dom)
 	@cd $(FRONTEND_DIR) && pnpm --filter @orbit/hades run test:unit
 	@echo "$(COLOR_GREEN)✓ Hades unit tests passed$(COLOR_RESET)"
 
+# ─── Hades versioning ────────────────────────────────────────────────────────
+# Scripts are TypeScript that Node runs directly.
+
+HADES_DIR := $(FRONTEND_DIR)/src/packages/hades
+HADES_NODE := node --disable-warning=ExperimentalWarning --disable-warning=MODULE_TYPELESS_PACKAGE_JSON
+
+.PHONY: hades-manifest
+hades-manifest: ## Regenerate the Hades theme surface manifest (manifest.json) from tokens.css and surface.ts
+	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts
+
+.PHONY: hades-manifest-check
+hades-manifest-check: ## Verify manifest.json is what tokens.css and surface.ts generate
+	@cd $(HADES_DIR) && $(HADES_NODE) scripts/manifest.ts --check
+
+.PHONY: hades-check
+hades-check: hades-manifest-check ## Hades manifest sync check (part of make check)
+
 .PHONY: frontend-test-e2e
 frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
 	@echo "$(COLOR_YELLOW)Running frontend E2E tests...$(COLOR_RESET)"
@@ -1267,7 +1284,7 @@ chart-deps: ## Update charts/orbit/Chart.lock from its Chart.yaml dependencies
 	@helm dependency update charts/orbit
 
 .PHONY: check
-check: check-versions tidy fmt vet fix lint deadcode secrets docs-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, migrate-lint, test, frontend-check)
+check: check-versions tidy fmt vet fix lint deadcode secrets docs-check hades-check migrate-lint test frontend-check ## Run all checks (check-versions, tidy, fmt, vet, lint, deadcode, secrets, docs-check, hades-check, migrate-lint, test, frontend-check)
 	@echo "$(COLOR_GREEN)✓ All checks passed$(COLOR_RESET)"
 
 .PHONY: all
