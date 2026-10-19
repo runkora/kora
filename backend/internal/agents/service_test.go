@@ -258,11 +258,11 @@ func TestCreateAgentType_FiresHook(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Hook fires in the background goroutine.
+	// The hook fires on create and again when background provisioning finishes.
 	waitFor(t, time.Second, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return called == 1
+		return called == 2
 	})
 }
 
