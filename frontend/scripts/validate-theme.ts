@@ -4,6 +4,7 @@
  */
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import defaults from '@runkora/hades/defaults.json';
 import manifest from '@runkora/hades/manifest.json';
 import { instanceKoraVersion } from '../src/lib/kora-version';
 import { ThemeYamlTooLargeError, isMissing, readThemeDocument } from '../src/lib/theme-document';
@@ -41,6 +42,9 @@ function reportLines(report: ThemeReport): string[] {
       `warning: this theme mixes its own identity with kora defaults; still showing kora: ${mixed.join(', ')}`,
     );
   }
+  for (const w of report.contrastWarnings) {
+    lines.push(`warning: contrast at ${w.path}: ${w.message}`);
+  }
   return lines;
 }
 
@@ -58,6 +62,7 @@ export async function validateDocument(documentFile: string): Promise<Validation
 
   const result = await validateTheme(text, {
     manifest: hadesManifest,
+    defaults,
     koraVersion: instanceKoraVersion(),
   });
 

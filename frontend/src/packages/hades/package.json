@@ -14,6 +14,7 @@
     "./theme": "./src/theme/index.ts",
     "./src/tokens/tokens.css": "./src/tokens/tokens.css",
     "./manifest.json": "./manifest.json",
+    "./defaults.json": "./defaults.json",
     "./theme.schema.json": "./theme.schema.json"
   },
   "files": [
@@ -25,6 +26,7 @@
     "!src/test-setup.ts",
     "!src/docs",
     "manifest.json",
+    "defaults.json",
     "theme.schema.json"
   ],
   "publishConfig": {

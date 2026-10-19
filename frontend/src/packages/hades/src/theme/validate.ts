@@ -2,6 +2,7 @@
 import { parse as parseYaml } from 'yaml';
 
 import type { Mode } from '../tokens/surface';
+import { contrastRatio } from './contrast';
 import {
   FORBIDDEN_IN_VALUES,
   fontFamilyFault,
@@ -15,6 +16,7 @@ import {
 import { themeHash } from './hash';
 import { familyTokenForSlot, type ThemeManifest, type ThemeManifestSlot } from './manifest';
 import type {
+  ContrastWarning,
   IgnoredEntry,
   Theme,
   ThemeError,
@@ -24,8 +26,13 @@ import type {
   ValidationResult,
 } from './types';
 
+/** Raw token to value, per mode: the colours the app ships, from `defaults.json`. */
+export type TokenDefaults = Readonly<Partial<Record<Mode, Readonly<Record<string, string>>>>>;
+
 export interface ValidateOptions {
   readonly manifest: ThemeManifest;
+  /** Raw colour defaults per mode. Without them a pair is checked only when the theme sets both sides. */
+  readonly defaults?: TokenDefaults;
   /** The instance's kora version without the `v`. Null for a development build, which skips the major check. */
   readonly koraVersion: string | null;
 }
@@ -44,6 +51,7 @@ export async function validateTheme(
     ignored,
     versionCheckSkipped,
     ...identityReport(manifest, undefined, {}),
+    contrastWarnings: [],
   });
 
   let parsed: unknown;
@@ -68,6 +76,7 @@ export async function validateTheme(
   const productName = checkProductName(parsed.productName, manifest, errors);
   const tokens = checkTokens(parsed.tokens, manifest, errors, ignored);
   const slots = checkSlots(parsed.slots, manifest, errors, ignored);
+  const contrastWarnings = checkContrast(tokens, manifest, options.defaults, errors);
 
   for (const slotName of Object.keys(slots)) {
     const token = familyTokenForSlot(manifest, slotName);
@@ -83,6 +92,7 @@ export async function validateTheme(
     ignored,
     versionCheckSkipped,
     ...identityReport(manifest, productName, slots),
+    contrastWarnings,
   };
 
   if (errors.length > 0 || koraVersion === null) {
@@ -330,6 +340,54 @@ function checkUrl(
     return undefined;
   }
   return raw;
+}
+
+// ─── Contrast ────────────────────────────────────────────────────────────────
+
+// Checks each contrast pair per mode. A failed `error` pair goes to `errors`, a `warn` pair is returned.
+// A pair is skipped when the theme sets neither side (the app's own colours are not its concern),
+// a side has no hex or oklch value, or `defaults` is missing and only one side is set.
+function checkContrast(
+  tokens: Readonly<Record<string, ThemeTokenValues>>,
+  manifest: ThemeManifest,
+  defaults: TokenDefaults | undefined,
+  errors: ThemeError[],
+): ContrastWarning[] {
+  const warnings: ContrastWarning[] = [];
+  const rawOf = (name: string): string | null => {
+    const entry = manifest.mapping?.[name];
+    return entry && !entry.derived && entry.tokens.length === 1 ? entry.tokens[0]! : null;
+  };
+  for (const pair of manifest.contrast ?? []) {
+    const text = rawOf(pair.text);
+    if (text === null) continue;
+    for (const mode of manifest.modes) {
+      const textSet = tokens[text]?.[mode];
+      const textValue = textSet ?? defaults?.[mode]?.[text];
+      if (textValue === undefined) continue;
+      for (const backdrop of pair.on) {
+        const on = rawOf(backdrop);
+        if (on === null) continue;
+        const onSet = tokens[on]?.[mode];
+        const onValue = onSet ?? defaults?.[mode]?.[on];
+        if (onValue === undefined) continue;
+        if (textSet === undefined && onSet === undefined) continue;
+        if (defaults === undefined && (textSet === undefined || onSet === undefined)) continue;
+        const ratio = contrastRatio(textValue, onValue);
+        if (ratio === null || ratio >= pair.min) continue;
+        // Floored, not rounded: 4.496 must not print as "4.50:1, below the 4.5:1 minimum".
+        const fault = {
+          path: textSet !== undefined ? `tokens.${text}.${mode}` : `tokens.${on}.${mode}`,
+          message:
+            `${pair.text} on ${backdrop} in ${mode} has contrast ${(Math.floor(ratio * 100) / 100).toFixed(2)}:1, ` +
+            `below the ${pair.min}:1 minimum (contrast pair ${pair.id}; ` +
+            `${text} ${textValue} on ${on} ${onValue})`,
+        };
+        (pair.severity === 'error' ? errors : warnings).push(fault);
+      }
+    }
+  }
+  return warnings;
 }
 
 // ─── Report ──────────────────────────────────────────────────────────────────

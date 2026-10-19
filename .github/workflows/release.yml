@@ -201,7 +201,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          # Every release attaches the tarball and manifest; only final releases publish.
+          # Every release attaches the tarball, manifest, theme schema and colour defaults; only final releases publish.
           tarball=$(ls "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz)
           checksum=$(sha256sum "$tarball" | cut -d' ' -f1)
           hades_dir=frontend/src/packages/hades
@@ -226,7 +226,7 @@ jobs:
             fi
           fi
           gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml \
-            "$tarball" "$hades_dir/manifest.json" "$hades_dir/theme.schema.json"
+            "$tarball" "$hades_dir/manifest.json" "$hades_dir/theme.schema.json" "$hades_dir/defaults.json"
 
   # Runs last: a published version cannot be removed or republished.
   # Final releases only; a failure here publishes nothing and can be re-run.

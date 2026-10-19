@@ -1,27 +1,32 @@
-/**
- * Generates `manifest.json` and `theme.schema.json` from the token files, or with `--check` verifies them.
- *
- *   node scripts/manifest.ts          # write
- *   node scripts/manifest.ts --check  # verify, exit 1 on drift
- */
+/** Writes `manifest.json`, `theme.schema.json` and `defaults.json` from the token files. `--check` exits 1 on drift. */
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { buildManifest, serializeManifest, SurfaceMismatchError } from './lib/manifest.ts';
+import {
+  buildManifest,
+  buildTokenDefaults,
+  serializeDefaults,
+  serializeManifest,
+  SurfaceMismatchError,
+} from './lib/manifest.ts';
 import { buildThemeSchema, serializeSchema } from './lib/schema.ts';
 
 const packageDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tokensPath = path.join(packageDir, 'src', 'tokens', 'tokens.css');
 const manifestPath = path.join(packageDir, 'manifest.json');
 const schemaPath = path.join(packageDir, 'theme.schema.json');
+const defaultsPath = path.join(packageDir, 'defaults.json');
 
 const check = process.argv.includes('--check');
 
 let manifestText: string;
 let schemaText: string;
+let defaultsText: string;
 try {
-  const manifest = buildManifest(fs.readFileSync(tokensPath, 'utf8'));
+  const css = fs.readFileSync(tokensPath, 'utf8');
+  const manifest = buildManifest(css);
+  defaultsText = serializeDefaults(buildTokenDefaults(css));
   manifestText = serializeManifest(manifest);
   schemaText = serializeSchema(buildThemeSchema(manifest));
 } catch (err) {
@@ -35,6 +40,7 @@ try {
 const outputs: [file: string, text: string][] = [
   [manifestPath, manifestText],
   [schemaPath, schemaText],
+  [defaultsPath, defaultsText],
 ];
 
 if (!check) {

@@ -6,6 +6,7 @@ import 'server-only';
 
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
+import defaults from '@runkora/hades/defaults.json';
 import manifest from '@runkora/hades/manifest.json';
 import {
   fontPreloads,
@@ -58,6 +59,7 @@ const EMPTY_REPORT: ThemeReport = {
   fallThrough: [],
   mixedIdentity: [],
   versionCheckSkipped: false,
+  contrastWarnings: [],
 };
 
 /** The directory `theme.yaml` is read from. */
@@ -123,6 +125,9 @@ function logLoaded(dir: string, loaded: LoadedTheme): void {
       `[theme] the theme at ${dir} mixes its own identity with kora defaults; still showing kora: ${mixed.join(', ')}`,
     );
   }
+  for (const w of report.contrastWarnings) {
+    console.warn(`[theme] contrast warning at ${w.path}: ${w.message}`);
+  }
 }
 
 /** Loads the theme document in `dir`. Exported for tests; the app uses `getTheme()`. */
@@ -163,6 +168,7 @@ export async function loadThemeFrom(dir: string): Promise<LoadedTheme> {
 
   const result = await validateTheme(text, {
     manifest: hadesManifest,
+    defaults,
     koraVersion,
   });
   if (!result.ok) {
