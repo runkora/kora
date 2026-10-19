@@ -93,7 +93,7 @@ The caller must also hold the agent's grant:
 *   Egress that a connector derives is exempt in both modes.
 *   Editing an environment is checked the same way for every attached agent and needs each agent's mode write scope.
 
-A delegated run cannot create grants, write or delete roles, change a role's budget, or create, change, or delete an autonomous agent, even when the person could.
+A delegated run cannot change grants, roles or budgets, or create, change or delete an autonomous agent, even when the person could.
 
 `agents:runs:delegated:write` starts runs of any delegated agent and does not reach autonomous agents. Messaging and interrupting a delegated run stay with its starter, and terminating another person's delegated run also needs `agents:delegated:read`. `agents:runs:write` reaches every agent in both modes. The slugs `delegated` and `autonomous` are reserved to keep per-agent scopes from colliding with the mode scopes.
 
