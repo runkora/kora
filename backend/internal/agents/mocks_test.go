@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/clear-route/orbit/internal/agents/sandbox/kubeconfig"
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/policy"
@@ -831,16 +832,20 @@ func newTestServiceWithEval(t *testing.T, eval policy.Evaluator) (*testServiceFa
 		},
 		logger,
 	)
-	runSvc := NewRunService(
+	runSvc, err := NewRunService(
 		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
 			MaxConcurrentRunsPerPod: 5,
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 			SandboxGuardrails:       SandboxGuardrails{ProvisionAttempts: 2, ProvisionBackoffSecs: 1, ProvisionBudgetSecs: 60},
+			Brand:                   brand.MustNew("kora"),
 		},
 		logger,
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	atSvc.SetEnvironmentLookup(repo)
 	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
 }

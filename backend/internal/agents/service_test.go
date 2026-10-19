@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/clear-route/orbit/internal/platform/brand"
 	"github.com/clear-route/orbit/internal/platform/clients/sessionmanager"
 	"github.com/clear-route/orbit/internal/platform/logging"
 )
@@ -1089,7 +1090,7 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 		},
 		logger,
 	)
-	runSvc := NewRunService(
+	runSvc, err := NewRunService(
 		repo, repo, sm, k8s, NewPubSub(), authz, repo, k8s, k8s, repo,
 		RunServiceConfig{
 			DefaultEnvironmentSize:  testSizes.Default,
@@ -1097,9 +1098,13 @@ func newTestServiceWithReaper(t *testing.T) (*testServiceFacade, *mockRepository
 			TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 			StaleRunTimeout:         time.Minute, // shorter than UpdatedAt back-dating in tests
 			ReaperInterval:          20 * time.Millisecond,
+			Brand:                   brand.MustNew("kora"),
 		},
 		logger,
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return &testServiceFacade{at: atSvc, run: runSvc}, repo, k8s, sm
 }
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
+	"github.com/clear-route/orbit/internal/platform/brand"
 	identityclient "github.com/clear-route/orbit/internal/platform/clients/identity"
 	"github.com/clear-route/orbit/internal/platform/logging"
 	"github.com/clear-route/orbit/internal/platform/token"
@@ -360,12 +361,16 @@ func TestReaper_RevokesDelegationOnReapedRuns(t *testing.T) {
 	repo := newMockRepository()
 	issuer := &fakeDelegationIssuer{}
 	logger := logging.NewLoggerWithOutput(io.Discard)
-	runSvc := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
+	runSvc, err := NewRunService(repo, repo, &mockSMClient{}, &mockK8s{}, NewPubSub(), NewAuthz(&allowAllEvaluator{}), repo, &mockK8s{}, &mockK8s{}, repo, RunServiceConfig{
 		MaxConcurrentRunsPerPod: 5,
 		TenantNamespaceFn:       func(tenantID string) string { return "orbit-tenant-" + tenantID },
 		StaleRunTimeout:         time.Millisecond,
 		ReaperInterval:          5 * time.Millisecond,
+		Brand:                   brand.MustNew("kora"),
 	}, logger)
+	if err != nil {
+		t.Fatal(err)
+	}
 	runSvc.SetDelegationBroker(newDelegationTestBroker(issuer))
 
 	jti := "jti-stale"

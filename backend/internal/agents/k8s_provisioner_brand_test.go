@@ -15,3 +15,10 @@ func TestNewK8sProvisioner_RejectsAnEmptyProductName(t *testing.T) {
 		}
 	}
 }
+
+func TestNewRunService_RejectsAnEmptyProductName(t *testing.T) {
+	_, err := NewRunService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, RunServiceConfig{}, logging.NewLogger())
+	if !errors.Is(err, ErrRunServiceProductNameEmpty) {
+		t.Errorf("err = %v, want ErrRunServiceProductNameEmpty", err)
+	}
+}

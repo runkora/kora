@@ -255,7 +255,7 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 	if validateErr := sizes.Validate(); validateErr != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("agents.environments: %w", validateErr)
 	}
-	runSvc := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
+	runSvc, err := agents.NewRunService(repo, repo, sm, k8s, pubsub, authz, repo, k8s, k8s, repo, agents.RunServiceConfig{
 		DefaultEnvironmentSize:  sizes.Default,
 		MaxConcurrentRunsPerPod: cfg.Agents.MaxConcurrentRunsPerPod,
 		TenantNamespaceFn:       cfg.TenantNamespace,
@@ -270,6 +270,9 @@ func initServer(ctx context.Context, logger logging.Logger, db *storage.DB, eval
 		WorkerConcurrency: cfg.Agents.Scheduling.WorkerConcurrency,
 		Brand:             b,
 	}, logger)
+	if err != nil {
+		return nil, nil, nil, nil, nil, fmt.Errorf("initialize run service: %w", err)
+	}
 
 	envSvc := agents.NewEnvironmentService(repo, repo, k8s, k8s, agents.EnvironmentServiceConfig{
 		TenantNamespaceFn: cfg.TenantNamespace,

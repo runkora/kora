@@ -1037,6 +1037,11 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 	r.events <- ev
 }
 
+// codexProvider is the key Codex uses for its one model provider, the inference
+// gateway. It is a config-table key, not the product name. The provider's
+// display name comes from the brand.
+const codexProvider = "orbit"
+
 // writeCodexConfig creates a per-run CODEX_HOME directory under workDir and
 // writes a config.toml that points Codex at the kora inference gateway.
 //
@@ -1045,12 +1050,6 @@ func (r *CodexRunner) emit(t EventType, payload any) {
 // out of process argv — which is world-readable on Linux via /proc — and relies
 // on the OS environment being scoped to the subprocess, which is the standard
 // safe approach for secrets in child processes.
-//
-// codexProvider is the key Codex uses for its one model provider, the inference
-// gateway. It is a config-table key, not the product name. The provider's
-// display name comes from the brand.
-const codexProvider = "orbit"
-
 func (r *CodexRunner) writeCodexConfig(workDir string) (string, error) {
 	if r.cfg.InferenceGatewayURL == "" {
 		return "", fmt.Errorf("InferenceGatewayURL must not be empty")

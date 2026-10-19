@@ -119,7 +119,11 @@ func (s *RunService) systemPromptWithBrief(ctx context.Context, at AgentType, ru
 	return at.SystemPrompt + renderCapabilitiesBrief(access, runWorkspaceDir(runID), s.cfg.SandboxMount, s.cfg.Brand.ProductName())
 }
 
-// NewRunService creates a RunService with the given dependencies.
+// ErrRunServiceProductNameEmpty is returned when the run service is built with no product name.
+var ErrRunServiceProductNameEmpty = errors.New("run service: product name is empty")
+
+// NewRunService creates a RunService with the given dependencies. It rejects an
+// empty product name, which would render blank in the capabilities brief.
 func NewRunService(
 	repo RunRepository,
 	atRepo AgentTypeRepository,
@@ -133,7 +137,10 @@ func NewRunService(
 	queue runQueue,
 	cfg RunServiceConfig,
 	logger logging.Logger,
-) *RunService {
+) (*RunService, error) {
+	if strings.TrimSpace(cfg.Brand.ProductName()) == "" {
+		return nil, ErrRunServiceProductNameEmpty
+	}
 	return &RunService{
 		repo:    repo,
 		atRepo:  atRepo,
@@ -147,7 +154,7 @@ func NewRunService(
 		queue:   queue,
 		cfg:     cfg,
 		logger:  logger,
-	}
+	}, nil
 }
 
 // authorizeStart resolves the target agent type and decides whether this caller

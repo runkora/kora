@@ -6,6 +6,7 @@ import (
 	"net/url"
 
 	"github.com/clear-route/orbit/internal/platform/clients/orbitjson"
+	si "github.com/clear-route/orbit/internal/platform/sandboximages/v1alpha1"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -67,7 +68,7 @@ func registerEnvironmentTools(srv *sdk.Server, b Backends, jc *orbitjson.Client,
 
 	addTool(srv, "agents.sandbox_images.list",
 		"List the sandbox images registered in the caller's tenant, with whether each is valid and why not. "+
-			"An environment names one by name; kora-base is the "+product+" base image.",
+			"An environment names one by name; "+si.BaseName+" is the "+product+" base image.",
 		func(ctx context.Context, _ noArgs) (*sdk.CallToolResult, error) {
 			return jsonResult(jc.Get(ctx, callerToken(ctx), b.Agents+"/api/v1/sandbox-images", nil))
 		})
