@@ -14,19 +14,7 @@ export interface BrandLogoProps extends Omit<React.ComponentPropsWithoutRef<'spa
   title?: string;
 }
 
-/**
- * BrandLogo
- *
- * The identity slot for the logo. The app passes in the sources.
- *
- * Both mode variants are in the markup and CSS keyed on `data-theme` shows
- * one. The first paint follows the user's mode with no client logic and no
- * flash.
- *
- * ```tsx
- * <BrandLogo dark={theme.logo.dark} light={theme.logo.light} size={30} title={theme.productName} />
- * ```
- */
+/** BrandLogo renders one image per mode and CSS on `data-theme` shows the right one, with no flash. */
 const BrandLogo = React.forwardRef<HTMLSpanElement, BrandLogoProps>(
   ({ dark, light, size = 28, title, className, ...props }, ref) => {
     const hidden = title === undefined;
