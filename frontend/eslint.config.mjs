@@ -38,7 +38,7 @@ const eslintConfig = defineConfig([
   // ---- server-only guard ---------------------------------------------------
   // Every file in src/server/ and every Route Handler must import "server-only".
   {
-    files: ['src/server/**/*.{ts,tsx}', 'src/app/api/**/route.ts'],
+    files: ['src/server/**/*.{ts,tsx}', 'src/app/**/route.ts'],
     ignores: ['**/*.test.{ts,tsx}', '**/*.integration.test.{ts,tsx}'],
     rules: {
       'local/require-server-only': 'error',
@@ -241,6 +241,22 @@ const eslintConfig = defineConfig([
     files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
     rules: {
       'local/no-hades-compound-in-server-component': 'error',
+    },
+  },
+
+  // ---- Product-name literal ban --------------------------------------------
+  // Copy reads the product name from the brand, not a literal. Mock data, tests and stories are excluded.
+  {
+    files: ['src/app/**/*.{ts,tsx}', 'src/components/**/*.{ts,tsx}'],
+    ignores: [
+      '**/*.test.{ts,tsx}',
+      '**/*.integration.test.{ts,tsx}',
+      '**/*.stories.{ts,tsx}',
+      '**/*-mock-data.ts',
+      '**/_data/mock.ts',
+    ],
+    rules: {
+      'local/no-product-name-literal': 'error',
     },
   },
 

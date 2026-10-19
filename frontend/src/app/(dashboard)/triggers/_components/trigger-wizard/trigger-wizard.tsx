@@ -6,12 +6,19 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { Card, CardContent, Heading, Icon, Stack, Text, Wizard } from '@runkora/hades';
+import { useBrand } from '@orbit/theme/brand-provider';
 import { KindPicker } from './kind-picker';
 import { SuccessPanel } from './success-panel';
 import { SHARED_STEPS } from './shared-steps';
 import { TRIGGER_KINDS } from './kinds';
 import { initialState, stepsFor, toDraft } from './wizard-state';
-import type { TriggerKind, TriggerWizardProps, WizardContext, WizardState } from './types';
+import {
+  brandedCopy,
+  type TriggerKind,
+  type TriggerWizardProps,
+  type WizardContext,
+  type WizardState,
+} from './types';
 
 interface Created {
   triggerId: string;
@@ -27,6 +34,7 @@ export function TriggerWizard({
   onCreate,
   onClose,
 }: TriggerWizardProps) {
+  const { productName } = useBrand();
   const [kind, setKind] = useState<TriggerKind | null>(initialKind ?? null);
   const [state, setState] = useState<WizardState | null>(() =>
     initialKind ? initialState(TRIGGER_KINDS[initialKind], sources) : null,
@@ -194,7 +202,7 @@ export function TriggerWizard({
           <Stack gap="snug">
             <Heading variant="subsection">{currentStep?.railTitle}</Heading>
             <Text size="supporting" color="muted">
-              {currentStep?.description}
+              {currentStep && brandedCopy(currentStep.description, productName)}
             </Text>
           </Stack>
           {StepBody && (

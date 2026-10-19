@@ -1,19 +1,23 @@
+'use client';
+
 import { BrandLogo, Stack } from '@runkora/hades';
-import { defaultTheme } from '@orbit/theme/default';
+import { useBrand } from '@orbit/theme/brand-provider';
 import type { ReactNode } from 'react';
 
 /**
  * Brand header shown in the sidebar header slot on desktop and reused inside
  * the mobile drawer. `action` renders an optional trailing control. The mobile
  * drawer passes its close button here so the brand markup lives in one place.
+ * The logo and product name come from the effective brand.
  */
 export function SidebarBrandHeader({ action }: { action?: ReactNode } = {}) {
+  const brand = useBrand();
   const lockup = (
     <BrandLogo
-      dark={defaultTheme.logo.dark}
-      light={defaultTheme.logo.light}
+      dark={brand.logo.dark}
+      light={brand.logo.light}
       size={30}
-      title={defaultTheme.productName}
+      title={brand.productName}
     />
   );
 

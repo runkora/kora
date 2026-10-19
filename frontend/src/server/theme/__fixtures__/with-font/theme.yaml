@@ -1,0 +1,8 @@
+# A theme with a sans font and a favicon for both modes.
+koraVersion: "1.0.0"
+productName: Fontic
+slots:
+  font.sans: https://fonts.acme.example/sans.woff2
+  favicon:
+    dark: https://assets.acme.example/favicon-dark.svg
+    light: https://assets.acme.example/favicon-light.svg

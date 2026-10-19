@@ -87,6 +87,9 @@ ENV NEXT_OUTPUT=standalone
 
 RUN pnpm build
 
+# Bundle the theme validator the chart's init container runs from /app/validate-theme.mjs.
+RUN node scripts/bundle-validate-theme.mjs
+
 # ── Stage 3: runner ───────────────────────────────────────────────────────────
 # Minimal production image — only the standalone output, static assets, and public dir.
 FROM node:24-alpine@sha256:ebfe2f90462722a7a4de65e91990e97fe0d401c70e0e762c5b53302f905ec1c1 AS runner
@@ -97,7 +100,7 @@ WORKDIR /app
 RUN addgroup --system --gid 65532 orbit && \
     adduser  --system --uid 65532 --ingroup orbit orbit
 
-# Standalone output — includes server.js entry point and traced node_modules.
+# Standalone output: server.js, traced node_modules and validate-theme.mjs.
 COPY --from=builder --chown=orbit:orbit /app/.next/standalone ./
 
 # Static assets must be copied separately — standalone output does not include them.

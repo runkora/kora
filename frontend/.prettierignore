@@ -3,3 +3,5 @@ pnpm-lock.yaml
 node_modules/
 src/packages/hades/manifest.json
 src/packages/hades/theme.schema.json
+# Theme fixtures keep the chart's odd formatting on purpose.
+src/server/theme/__fixtures__/

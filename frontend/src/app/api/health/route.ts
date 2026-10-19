@@ -1,13 +1,18 @@
 /**
  * BFF route: GET /api/health
  *
- * Lightweight liveness/readiness probe for Kubernetes.
- * Returns 200 immediately without calling any upstream service so that
- * the pod is considered ready as soon as Next.js is serving requests.
+ * Liveness/readiness probe. Reports the kora version and theme hash (null when absent).
+ * An invalid theme document makes it throw, so the pod does not become ready.
  */
 import 'server-only';
 import { NextResponse } from 'next/server';
+import { getTheme } from '@orbit/server/theme';
 
 export async function GET() {
-  return NextResponse.json({ status: 'ok' });
+  const { koraVersion, theme } = await getTheme();
+  return NextResponse.json({
+    status: 'ok',
+    version: koraVersion,
+    theme: theme ? { hash: theme.hash } : null,
+  });
 }

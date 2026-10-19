@@ -1,0 +1,11 @@
+# Several faults at once: unknown key, invalid colour, non-https slot URL.
+koraVersion: "1.0.0"
+productName: Broken Co
+brand: nope
+tokens:
+  --hades-raw-100:
+    dark: red
+slots:
+  logo:
+    dark: http://assets.acme.example/logo-dark.svg
+    light: https://assets.acme.example/logo-light.svg
