@@ -1,6 +1,5 @@
 {{- if include "orbit.themeEnabled" . }}
-# The theme document. The frontend pod mounts it as /etc/orbit/theme/theme.yaml.
-# The init container validates it and the frontend loads it.
+# The theme document the frontend pod mounts and its init container validates.
 apiVersion: v1
 kind: ConfigMap
 metadata:

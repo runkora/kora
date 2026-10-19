@@ -432,9 +432,7 @@ internal/platform/token:
 {{- end }}
 
 {{/*
-Brand config module: the product name, for each service that produces text
-a client's people or agents read. Used by orbit-agents, orbit-mcp, the egress
-gateway and the operator. Take the root context.
+Brand config module: the product name, for services that write text clients read. Take the root context.
 */}}
 {{- define "orbit.brandConfigModule" -}}
 internal/platform/brand:
@@ -442,28 +440,15 @@ internal/platform/brand:
 {{- end }}
 
 {{/*
-"true" when theme.document is set, empty otherwise. The document is the whole
-theme. The chart needs nothing else from the cluster. Take the root context.
+"true" when theme.document is set, empty otherwise. Take the root context.
 */}}
 {{- define "orbit.themeEnabled" -}}
 {{- if .Values.theme.document }}true{{ end -}}
 {{- end }}
 
 {{/*
-The product name the backend services render. Take the root context.
-
-It is the document's productName, trimmed as the frontend trims it. It is kora
-when no theme is set or the document omits the key.
-
-The render fails when:
-- the document is not a YAML map (fromYaml reports a parse error as an Error key)
-- productName is null, as in the frontend's validator
-- productName is not a string, or is outside the Hades product-name bounds
-
-files/hades-product-name.json holds the bounds. `make hades-chart-rules` copies
-it from the Hades manifest, so the chart and the frontend apply one rule.
-The backend reads only this value from the theme. The chart checks it here, so
-a bad name fails before any workload rolls.
+The backend product name: productName from theme.document, trimmed, or kora if unset. Take the root context.
+Fails the render on a bad name, using the bounds in files/hades-product-name.json (`make hades-chart-rules`).
 */}}
 {{- define "orbit.themeProductName" -}}
 {{- $name := "kora" -}}
@@ -496,9 +481,7 @@ a bad name fails before any workload rolls.
 {{- end }}
 
 {{/*
-Mounts the theme document from the frontend's ConfigMap at
-/etc/orbit/theme/theme.yaml. Used by the init container and the frontend
-container. Take the root context.
+Mounts the theme ConfigMap at /etc/orbit/theme. Take the root context.
 */}}
 {{- define "orbit.themeVolumeMounts" -}}
 - name: theme-document

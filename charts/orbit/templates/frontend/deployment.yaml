@@ -41,10 +41,8 @@ spec:
         {{- end }}
         {{- include "orbit.extraVolumes" (dict "root" $ "name" "frontend") | nindent 8 }}
       {{- if $theme }}
-      # Validates the document against the kora release this image is.
-      # It checks the form of each slot URL and fetches none.
-      # A fault keeps the pod from starting. The rollout stalls and the
-      # previous pods keep serving. The reason is in this container's log.
+      # Validates the document against this image's kora release. It fetches no URL.
+      # A fault stalls the rollout, the old pods keep serving, and the reason is in this log.
       initContainers:
         - name: validate-theme
           image: {{ include "orbit.image" (dict "root" $ "name" "frontend") | quote }}

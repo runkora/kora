@@ -1,5 +1,4 @@
-# A configured theme for the render matrix.
-# The slots hold URLs, so helm template fetches nothing.
+# A configured theme for the render matrix. Slots hold URLs, so nothing is fetched.
 theme:
   document: |
     koraVersion: "1.0.0"

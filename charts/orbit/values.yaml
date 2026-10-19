@@ -85,16 +85,9 @@ frontendHost: ""
 publicHosts: []
 
 # The white-labelling theme. Empty means the kora default.
-# The document is the whole theme. Its slots hold the https URLs that the
-# browser loads the logo, favicon and fonts from.
-# The frontend's init container validates the document before any page serves.
-# It never fetches a URL.
+# Slots hold https URLs the browser loads. The init container validates them but never fetches.
 theme:
-  # -- The full theme.yaml as one string. Pass it with
-  # `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`.
-  # Slot URLs must be https. A font host must send Access-Control-Allow-Origin.
-  # The chart also reads productName from it for the backend services. The
-  # render fails if the name is outside the Hades product-name bounds.
+  # -- The full theme.yaml as one string, passed with `--set-file theme.document=theme.yaml` or Argo CD `fileParameters`. Slot URLs must be https and a font host must send Access-Control-Allow-Origin. The chart also reads productName for the backend and fails the render if it is outside the Hades product-name bounds.
   document: ""
 
 # Postgres and Redis endpoints rendered into each service's storage config

@@ -50,8 +50,7 @@ jobs:
             echo '---'
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml --kube-version "${K8S_VERSION}"
             echo '---'
-            # The same release with a theme set. This adds the init container
-            # and the theme ConfigMap to the frontend pod.
+            # The same release with a theme set.
             helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml -f charts/orbit/ci/theme-values.yaml --kube-version "${K8S_VERSION}"
           } > rendered.yaml
           # Schema coverage:
@@ -76,14 +75,13 @@ jobs:
           K8S_VERSION: ${{ matrix.k8s }}
         run: |
           set -euo pipefail
-          # Each file under charts/orbit/ci/invalid/ must fail the render with
-          # the message that names its fault.
+          # Each file under charts/orbit/ci/invalid/ must fail the render with its expected message.
           while IFS='|' read -r file expected; do
             if out=$(helm template orbit charts/orbit -n orbit-system -f charts/orbit/ci/default-values.yaml -f "charts/orbit/ci/invalid/${file}" --kube-version "${K8S_VERSION}" 2>&1); then
               echo "::error::${file} rendered; expected the render to fail"
               exit 1
             fi
-            # Case-insensitive, so the match does not depend on the Helm version's capitalisation.
+            # Case-insensitive: Helm versions differ in capitalisation.
             if ! grep -qiF -- "${expected}" <<<"${out}"; then
               echo "::error::${file} failed without the expected message '${expected}':"
               echo "${out}"
