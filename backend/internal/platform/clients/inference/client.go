@@ -34,6 +34,9 @@ var (
 	// ErrForbidden is returned when the token may not invoke the model or the
 	// tenant budget is exhausted (401 or 403).
 	ErrForbidden = errors.New("forbidden: token may not invoke the decision model")
+	// ErrModelNotFound is returned when the model is not in the catalog or is
+	// disabled (404).
+	ErrModelNotFound = errors.New("decision model not found")
 	// ErrRateLimited is returned when the upstream provider is rate limiting (429).
 	ErrRateLimited = errors.New("decision model rate limited")
 	// ErrUpstreamUnavailable is returned for a 5xx, a 529 or a transport failure,
@@ -131,6 +134,8 @@ func (c *Client) SystemOne(ctx context.Context, bearer string, req SystemOneRequ
 		return out, nil
 	case code == http.StatusBadRequest || code == http.StatusUnprocessableEntity:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrInvalidRequest)
+	case code == http.StatusNotFound:
+		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrModelNotFound)
 	case code == http.StatusUnauthorized || code == http.StatusForbidden:
 		return SystemOneResponse{}, c.HandleErrorResponse(span, resp, ErrForbidden)
 	case code == http.StatusTooManyRequests:

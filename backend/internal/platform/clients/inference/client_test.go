@@ -96,7 +96,8 @@ func TestSystemOne_StatusMapping(t *testing.T) {
 		{http.StatusInternalServerError, ErrUpstreamUnavailable},
 		{http.StatusServiceUnavailable, ErrUpstreamUnavailable},
 		{529, ErrUpstreamUnavailable},
-		{http.StatusNotFound, ErrUnexpectedStatus},
+		{http.StatusNotFound, ErrModelNotFound},
+		{http.StatusTeapot, ErrUnexpectedStatus},
 	} {
 		t.Run(http.StatusText(tc.status), func(t *testing.T) {
 			srv, _ := newTestServer(t, tc.status, `{"code":"x","message":"refused"}`)
