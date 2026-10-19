@@ -426,15 +426,30 @@ func (s *Service) GetScope(ctx context.Context, scope string) (*vocabulary.Scope
 // Grants apply to every principal type (an AGENT orchestrating the platform uses
 // its own grants regardless of type).
 func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, principalID string, principalRoles []string) ([]string, error) {
-	scopeSet := make(map[string]struct{})
+	// An empty type or ID would match every grant in the tenant. The bundle grants such a principal nothing.
+	if principalType == "" || principalID == "" {
+		return []string{}, nil
+	}
+	grantList, _, err := s.grantRepo.List(ctx, tenantID, grants.PrincipalType(principalType), principalID, 0, 0)
+	if err != nil {
+		return nil, fmt.Errorf("list grants: %w", err)
+	}
+	// One delegation-marked grant makes the bundle refuse every autonomous allow
+	// path to the principal, its other grants and roles included.
+	if slices.ContainsFunc(grantList, func(g *grants.Grant) bool { return g.DelegationRequired }) {
+		return []string{}, nil
+	}
 
+	scopeSet := make(map[string]struct{})
 	if grants.PrincipalType(principalType) == grants.PrincipalTypeHuman {
 		if err := s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
 			return nil, err
 		}
 	}
-	if err := s.addGrantScopes(ctx, tenantID, grants.PrincipalType(principalType), principalID, scopeSet); err != nil {
-		return nil, err
+	for _, g := range grantList {
+		for _, sc := range g.Scopes {
+			scopeSet[sc] = struct{}{}
+		}
 	}
 
 	// Expand family-level scopes (e.g. "inference:anthropic:use") to also include
@@ -477,26 +492,6 @@ func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalR
 			continue
 		}
 		for _, sc := range entry.Scopes {
-			scopeSet[sc] = struct{}{}
-		}
-	}
-	return nil
-}
-
-// addGrantScopes populates scopeSet with scopes from explicit grants held by the
-// principal (matched by its type + id).
-func (s *Service) addGrantScopes(ctx context.Context, tenantID string, principalType grants.PrincipalType, principalID string, scopeSet map[string]struct{}) error {
-	grantList, _, err := s.grantRepo.List(ctx, tenantID, principalType, principalID, 0, 0)
-	if err != nil {
-		return fmt.Errorf("list grants: %w", err)
-	}
-	for _, g := range grantList {
-		// A delegation-marked grant is only a ceiling. The bundle grants
-		// nothing from it outside a delegation.
-		if g.DelegationRequired {
-			continue
-		}
-		for _, sc := range g.Scopes {
 			scopeSet[sc] = struct{}{}
 		}
 	}

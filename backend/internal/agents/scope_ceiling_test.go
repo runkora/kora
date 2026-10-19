@@ -415,7 +415,7 @@ func TestHandleCreateAgentType_PATCeiling(t *testing.T) {
 			req = req.WithContext(withPrincipalCtx(req.Context(), defaultTestTenant, token.PrincipalTypePAT, "user-1"))
 			w := httptest.NewRecorder()
 			c.handleCreateAgentType(w, req)
-			if w.Code != tc.want {
+			if w.Code != tc.want || (tc.want == http.StatusForbidden && !strings.Contains(w.Body.String(), "platform:grants:read")) {
 				t.Errorf("status %d body %s, want %d", w.Code, w.Body.String(), tc.want)
 			}
 		})

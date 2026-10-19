@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -24,8 +25,15 @@ type principalGrants struct {
 	byPrincipal map[string][]*grants.Grant
 }
 
+// List matches Postgres: an empty filter matches every value.
 func (p principalGrants) List(_ context.Context, _ string, pt grants.PrincipalType, id string, _, _ int) ([]*grants.Grant, int, error) {
-	gs := p.byPrincipal[string(pt)+"/"+id]
+	var gs []*grants.Grant
+	for key, held := range p.byPrincipal {
+		t, i, _ := strings.Cut(key, "/")
+		if (pt == "" || string(pt) == t) && (id == "" || id == i) {
+			gs = append(gs, held...)
+		}
+	}
 	return gs, len(gs), nil
 }
 
@@ -53,10 +61,12 @@ func (emptyVocab) List(context.Context, string) ([]*vocabulary.ScopeEntry, error
 func TestHandleEffectiveScopes_PerPrincipal(t *testing.T) {
 	svc := &Service{
 		grantRepo: principalGrants{byPrincipal: map[string][]*grants.Grant{
-			"HUMAN/user-1":  {{Scopes: []string{"agents:types:read"}}},
-			"PAT/pat-1":     {{Scopes: []string{"agents:types:autonomous:write"}}},
-			"AGENT/agent-1": {{Scopes: []string{"inference:invoke"}}},
-			"AGENT/deleg-1": {{Scopes: []string{"platform:grants:write"}, DelegationRequired: true}},
+			"HUMAN/user-1":   {{Scopes: []string{"agents:types:read"}}},
+			"PAT/pat-1":      {{Scopes: []string{"agents:types:autonomous:write"}}},
+			"AGENT/agent-1":  {{Scopes: []string{"inference:invoke"}}},
+			"AGENT/deleg-1":  {{Scopes: []string{"platform:grants:write"}, DelegationRequired: true}},
+			"AGENT/mixed-1":  {{Scopes: []string{"inference:invoke"}}, {Scopes: []string{"platform:grants:write"}, DelegationRequired: true}},
+			"HUMAN/marked-1": {{Scopes: []string{"agents:types:read"}, DelegationRequired: true}},
 		}},
 		roleRepo:  fixedRoles{scopes: map[string][]string{"builder": {"agents:types:delegated:write"}}},
 		vocabRepo: emptyVocab{},
@@ -79,6 +89,10 @@ func TestHandleEffectiveScopes_PerPrincipal(t *testing.T) {
 		{"pat gets only its own grant", claims(token.PrincipalTypePAT, "user-1", "pat-1"), []string{"agents:types:autonomous:write"}},
 		{"agent gets its grant", claims(token.PrincipalTypeAgent, "agent-1", ""), []string{"inference:invoke"}},
 		{"delegated agent gets nothing", claims(token.PrincipalTypeAgent, "deleg-1", ""), []string{}},
+		{"agent with a marked grant gets nothing from its other grants", claims(token.PrincipalTypeAgent, "mixed-1", ""), []string{}},
+		{"human with a marked grant gets nothing from roles", claims(token.PrincipalTypeHuman, "marked-1", ""), []string{}},
+		{"pat without a pat id gets nothing", claims(token.PrincipalTypePAT, "user-1", ""), []string{}},
+		{"agent without a subject gets nothing", claims(token.PrincipalTypeAgent, "", ""), []string{}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
