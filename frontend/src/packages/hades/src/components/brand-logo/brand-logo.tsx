@@ -17,12 +17,11 @@ export interface BrandLogoProps extends Omit<React.ComponentPropsWithoutRef<'spa
 /**
  * BrandLogo
  *
- * The identity slot for the logo. Both mode variants are in the markup and CSS
- * keyed on `data-theme` shows one, so the first paint follows the user's mode
- * with no client logic and no flash, and the SVG stays out of the DOM.
+ * The identity slot for the logo. The app passes in the sources.
  *
- * Hades knows nothing about which logo this is: the app feeds it from the
- * effective theme.
+ * Both mode variants are in the markup and CSS keyed on `data-theme` shows
+ * one. The first paint follows the user's mode with no client logic and no
+ * flash.
  *
  * ```tsx
  * <BrandLogo dark={theme.logo.dark} light={theme.logo.light} size={30} title={theme.productName} />

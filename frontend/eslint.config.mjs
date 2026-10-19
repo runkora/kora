@@ -27,8 +27,7 @@ const eslintConfig = defineConfig([
   { plugins: { local: localPlugin } },
 
   // ---- Hades is framework-agnostic ----------------------------------------
-  // next/image is a Next.js concern; a Hades component that renders an image
-  // the app supplies uses <img>.
+  // Hades components use <img> for app-supplied images, not next/image.
   {
     files: ['src/packages/hades/**/*.tsx'],
     rules: {

@@ -31,8 +31,7 @@ const config: StorybookConfig = {
     '../src/app/**/*.stories.@(ts|tsx)',
     './stories/**/*.stories.@(ts|tsx)',
   ],
-  // The kora default theme's logo is served from public/brand/, so stories that
-  // render it need the app's public directory.
+  // Stories that render the default theme's logo need public/brand/.
   staticDirs: ['../public'],
   addons: ['@storybook/addon-docs', '@storybook/addon-a11y'],
   framework: {

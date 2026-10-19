@@ -2,8 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react';
 import { Example, Option, OptionTable } from '../../docs/story-ui';
 import { BrandLogo } from './brand-logo';
 
-// Placeholder artwork so the story carries no product identity: a lozenge in
-// a light ink for dark mode and a dark ink for light mode.
+// Placeholder artwork, so the story carries no product identity. Light ink for
+// dark mode, dark ink for light mode.
 const svg = (fill: string) =>
   `data:image/svg+xml;utf8,${encodeURIComponent(
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 40" width="160" height="40"><rect x="2" y="2" width="36" height="36" rx="18" fill="${fill}"/><rect x="48" y="12" width="110" height="16" rx="8" fill="${fill}"/></svg>`,
@@ -12,8 +12,8 @@ const DARK = svg('#ece9e2');
 const LIGHT = svg('#0d0f11');
 
 /**
- * The identity slot for the logo. The app feeds it the effective theme's two
- * sources; the component shows the one for the current `data-theme`.
+ * The identity slot for the logo. The app passes in one source per mode, and
+ * the component shows the one for the current `data-theme`.
  */
 const meta: Meta<typeof BrandLogo> = {
   title: 'Hades/Atoms/BrandLogo',

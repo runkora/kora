@@ -1,12 +1,9 @@
 /**
  * The kora default theme's identity values.
  *
- * Hades contains no kora identity: the logo is an asset of this theme, served
- * from `public/brand/`, and the product name is a value. Every identity
- * surface reads from here, so a loaded theme replaces one object rather than
- * finding call sites. The loader that overlays a deployment's theme on these
- * defaults is the white-labelling theme ADR's decision 4; until it exists, this
- * is the effective theme.
+ * Every identity surface reads the logo and product name from here, so a
+ * deployment's theme can replace one object. Hades holds no kora identity.
+ * The logo files are served from `public/brand/`.
  */
 export interface IdentityTheme {
   readonly productName: string;
