@@ -599,6 +599,10 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 // evaluator error leaves them false and the read succeeds.
 func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType) {
 	canEdit := map[IdentityMode]bool{}
+	var callers callerScopeSource
+	if s.callers != nil {
+		callers = &onceCallerScopes{src: s.callers}
+	}
 	for i := range ats {
 		mode := ats[i].IdentityMode.OrDefault()
 		edit, seen := canEdit[mode]
@@ -617,7 +621,7 @@ func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType)
 				logging.Field{Key: "error", Value: runErr.Error()})
 		}
 		run := runErr == nil
-		editThis := edit && s.withinCeiling(ctx, ats[i])
+		editThis := edit && s.withinCeiling(ctx, ats[i], callers)
 		// Delete runs the same refusal of delegated callers on autonomous agents (D36).
 		deleteThis := edit && refuseDelegatedAutonomousWrite(ctx, ats[i]) == nil
 		ats[i].CanEdit, ats[i].CanRun, ats[i].CanDelete = &editThis, &run, &deleteThis
@@ -627,11 +631,11 @@ func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType)
 // withinCeiling reports whether the caller holds everything an autonomous agent
 // holds, the ceiling every update checks. A delegated agent's grant only caps
 // its runners, so it passes. An evaluator error reads as no.
-func (s *AgentTypeService) withinCeiling(ctx context.Context, at AgentType) bool {
+func (s *AgentTypeService) withinCeiling(ctx context.Context, at AgentType, callers callerScopeSource) bool {
 	if at.IsDelegated() {
 		return true
 	}
-	err := s.checkCeiling(ctx, at, s.scopeResolver())
+	err := s.checkCeilingWith(ctx, at, s.scopeResolver(), callers)
 	if err != nil && !errors.Is(err, ErrScopeCeiling) {
 		s.logger.Warn(ctx, "agent type ceiling check failed",
 			logging.Field{Key: "agent_type_id", Value: at.ID},

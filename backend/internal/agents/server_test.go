@@ -736,3 +736,49 @@ func TestHandleStreamEvents_DeduplicatesDurableEventFromLiveChannel(t *testing.T
 		t.Errorf("expected message_complete exactly once, got %d; body:\n%s", count, body)
 	}
 }
+
+// bearerScopes answers only for the request's bearer and counts lookups.
+type bearerScopes struct {
+	held  []string
+	calls int
+}
+
+func (b *bearerScopes) CallerEffectiveScopes(_ context.Context, bearer string) ([]string, error) {
+	b.calls++
+	if bearer != "caller-token" {
+		return nil, errors.New("no caller bearer token")
+	}
+	return b.held, nil
+}
+
+// can_edit on a list read applies the scope ceiling with the request's bearer,
+// asking for the caller's scopes once however many autonomous agents there are.
+func TestHandleListAgentTypes_CanEditUsesRequestBearer(t *testing.T) {
+	facade, repo, _, _ := newTestServiceWithEval(t, &allowAllEvaluator{})
+	scopes := &bearerScopes{held: []string{"platform:grants:write"}}
+	facade.at.SetCallerScopes(scopes)
+	c := NewController(facade.at, facade.run, nil, nil, nil, nil, &allowAllEvaluator{}, nil, "", logging.NewLoggerWithOutput(io.Discard))
+	seedAgentType(t, repo, AgentType{ID: "at-in", TenantID: "t-1", Slug: "within", IdentityMode: IdentityModeAutonomous, GrantScopes: []string{"platform:grants:write"}})
+	seedAgentType(t, repo, AgentType{ID: "at-out", TenantID: "t-1", Slug: "beyond", IdentityMode: IdentityModeAutonomous, GrantScopes: []string{"platform:roles:write"}})
+
+	req := withTenantRequest(httptest.NewRequest(http.MethodGet, "/", nil), "t-1")
+	req.Header.Set("Authorization", "Bearer caller-token")
+	w := httptest.NewRecorder()
+	c.handleListAgentTypes(w, req)
+
+	var body struct {
+		AgentTypes []AgentType `json:"agent_types"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := map[string]bool{"within": true, "beyond": false}
+	for _, at := range body.AgentTypes {
+		if at.CanEdit == nil || *at.CanEdit != want[at.Slug] {
+			t.Errorf("%s can_edit = %v, want %v", at.Slug, at.CanEdit, want[at.Slug])
+		}
+	}
+	if scopes.calls != 1 {
+		t.Errorf("caller scope lookups = %d, want 1", scopes.calls)
+	}
+}
