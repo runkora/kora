@@ -53,7 +53,7 @@ The product identity is fixed in code. The colour palette, corner radii, fonts, 
 - The first HTML response for any page already carries the effective theme, so no client-side restyle happens after load. Verified on the local instance and the `dev` deployment.
 - The `dev` deployment carries a reference theme for verification. For every value that theme sets and the instance recognises, the effective value on `dev` is the theme's value unchanged.
 - The acceptance rules are covered by tests: a theme recording a design system version in a different major fails validation; a theme in the instance's major carrying a token the instance does not recognise is accepted and the token is logged; a recognised token with a malformed value fails validation; a value the theme does not set falls through to the kora default without failing.
-- An invalid theme never reaches a running instance. The deploy fails before the instance serves a page.
+- An invalid theme document never reaches a running instance. The deploy fails before the instance serves a page. The assets a theme points to are hosted by its author and are checked for the form of their address, not for their content.
 
 ### Non-Goals
 
@@ -116,7 +116,7 @@ The product identity is fixed in code. The colour palette, corner radii, fonts, 
 
 **Acceptance Criteria:**
 - [ ] The theme records the kora release it was written against, `koraVersion`, in the form `MAJOR.MINOR.PATCH`. The targeted major is derived from it. This is the only mandatory field in a theme. The minor and patch are informational; the instance logs them.
-- [ ] The theme is in a form the deployment configuration can consume directly. The format, and whether brand assets travel inside it or beside it, are decided in the ADR. Whatever the form, applying a theme never forces brand assets into a git repository.
+- [ ] The theme is in a form the deployment configuration can consume directly. The format, and how brand assets are referenced, are decided in the ADR. Whatever the form, applying a theme never forces brand assets into a git repository.
 - [ ] A theme is accepted by any kora release in the same major. A different major is a validation failure and fails the deploy. A theme is not promised to keep working across a major. Within a major, an instance ignores and logs any token it does not recognise, because it cannot tell a later release's token from a mistake. A token it does recognise with a malformed value still fails the deploy.
 - [ ] The validation rules are published per kora release as part of the contract, so a theme can be checked before it is applied. A theme that passes the rules of release V passes validation on any instance in the same major at or below V. A later release may recognise a token the earlier rules ignored, and then holds it to the malformed-value rule.
 - [ ] For every value the theme sets and the instance recognises, the effective value is the theme's value unchanged.
@@ -163,7 +163,7 @@ The following are contract rules. They hold for every theme, whatever produced i
 
 The following are architectural decisions and are deferred to the white-labelling theme ADR. They are numbered so that other documents can cite each decision directly:
 
-1. The theme contract: schema, the recorded version, validation rules and how they are published per version, the unknown-token rule, the per-mode addressing of colours and identity assets, and the asset packaging modes, subject to the constraint that brand assets are never forced into a git repository. The accepted asset formats and sizes and the product-name bounds are fields of the Hades theme surface manifest, decided in subsection 3 of the design system versioning ADR; this decision cites them.
+1. The theme contract: schema, the recorded version, validation rules and how they are published per version, the unknown-token rule, the per-mode addressing of colours and identity assets, and how assets are referenced, subject to the constraint that brand assets are never forced into a git repository. The accepted asset formats and the product-name bounds are fields of the Hades theme surface manifest, decided in subsection 3 of the design system versioning ADR; this decision cites them.
 2. How the theme enters the deployment configuration and how brand assets reach the instance. A custom resource reconciled by the operator is a candidate, following the precedent of [CRD-driven inference providers](crd-inference-providers.md).
 3. Where validation runs and how an invalid theme fails the deploy before the instance serves a page.
 4. Startup loading, rendering the effective theme in the first HTML response, serving fonts and logos, and the agnostic Hades slot components that render the product name, logo and favicon from the effective theme, with the kora logo moved out of Hades into the default theme.
@@ -248,7 +248,7 @@ The last column is not a contract change, because kora defaults are outside the 
 ### Non-Functional Requirements
 
 **Security:**
-- Everything in a theme ends up rendered in the product, so all theme input must be validated and bounded before it is rendered. The instance validates at load, and the same rules are published so a theme can be validated before it is applied. Colours are restricted to recognised colour formats, numbers to ranges, assets to expected file types and sizes. The product name is bounded in length and character set and may contain no control characters or markup; subsection 3 of the design system versioning ADR sets the bounds. Arbitrary strings are never rendered as styling.
+- Everything in a theme ends up rendered in the product, so all theme input must be validated and bounded before it is rendered. The instance validates at load, and the same rules are published so a theme can be validated before it is applied. Colours are restricted to recognised colour formats, numbers to ranges, asset addresses to HTTPS URLs of expected file types. The product name is bounded in length and character set and may contain no control characters or markup; subsection 3 of the design system versioning ADR sets the bounds. Arbitrary strings are never rendered as styling.
 - The effective theme is public, since unauthenticated pages render it. Nothing confidential may be placed in a theme.
 
 **Performance:**
@@ -290,7 +290,7 @@ The last column is not a contract change, because kora defaults are outside the 
 | Risk | Impact | Probability | Mitigation |
 |------|--------|-------------|------------|
 | Hardcoded product-name strings are missed | Medium | High | An automated check over user-facing string literals that fails on a hardcoded occurrence, with its trees, literal classes and names defined in the ADR. |
-| Unvalidated theme input becomes a styling injection vector | High | Low | Validation of every field and asset in the instance at load, with the rules published so the same check can run before a theme is applied. |
+| Unvalidated theme input becomes a styling injection vector | High | Low | Validation of every field in the instance at load, including the form of every asset address, with the rules published so the same check can run before a theme is applied. Assets render as images and fonts, which run no script. |
 | An invalid theme blocks a deploy | Low | Medium | The validation rules are published, so a theme can be checked before it is applied; lower environments catch a mistake first. Missing values never fail. |
 | The asset contract is defined without reference to what kora renders | Medium | Medium | Derive it from the identity surfaces in code today and replace those with Hades identity slots as part of the work. |
 | A kora default change is mistaken for a contract change | Low | Medium | Defaults are stated as outside the contract here: the contract is the values a theme sets, as the Hades manifest declares them. |
@@ -332,13 +332,13 @@ None.
 ### Resolved Questions
 
 1. **What happens when a seed and runtime edits both exist?** Resolved by removing runtime edits. There is one theme per deployment, set only at deploy time.
-2. **Does a theme carry its assets?** Deferred to the ADR, under one constraint from this PRD: applying a theme never forces brand assets into a git repository. The contract may need to offer the values alone and the values with assets; the ADR decides.
+2. **Does a theme carry its assets?** No. A theme references its assets by HTTPS URL and the browser loads them from where the theme's author hosts them, so applying a theme never forces brand assets into a git repository. The instance checks the form of each URL and not what it serves, and an air-gapped installation hosts the assets internally.
 3. **Is theme authoring part of this PRD?** No. This PRD defines the theme as an artefact and the contract it conforms to, so that the instance side is built without reference to any particular producer. Anything that authors, previews or converts a theme is specified separately, against this contract.
 4. **What does a theme target?** The kora release it was written against. There is no separate contract or Hades version. A theme records one kora version and its major is derived from it. An instance accepts any theme in its own major and refuses every other. A kora change that does not change Hades never affects the contract.
 5. **Can an identity value be set to nothing?** No. A theme supplies a value or the kora default renders. A theme that wants no kora identity visible sets every identity value in both modes.
 6. **Is the asset contract defined here?** No. It is derived from the identity surfaces kora renders today and recorded in the Hades theme surface manifest, in subsection 3 of the design system versioning ADR. Those surfaces are replaced by agnostic Hades slot components, and the kora logo becomes an asset of the kora default theme at app level, so Hades contains no kora identity.
 7. **Which backend strings name the product?** Enumerated in decision 5 of the [White-labelling Theme ADR](../adr/2026-10-12-white-labelling-theme.md): guardrail messages, the capabilities brief, MCP tool descriptions and the registered MCP server name, egress denial messages, and the sandbox base image description. Identifiers, log lines and operator-facing output keep the kora name.
-8. **How is the theme wired into the deployment?** Decided in decisions 2 and 3 of the same ADR: the document as a chart value supplied from the repository file, the bundle as a digest-pinned OCI image mounted as an image volume, validation in an init container in the frontend pod, and a theme change as a rolling update triggered by the values change.
+8. **How is the theme wired into the deployment?** Decided in decisions 2 and 3 of the same ADR: the document as a chart value supplied from the repository file, with its assets referenced by URL, validation of the document in an init container in the frontend pod, and a theme change as a rolling update triggered by the values change.
 
 ---
 

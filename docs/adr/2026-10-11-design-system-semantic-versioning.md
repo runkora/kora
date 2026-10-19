@@ -1,12 +1,14 @@
 # Design System Semantic Versioning
 
-**Status:** Accepted, amended 2026-10-16
+**Status:** Accepted, amended 2026-10-19
 **Date:** 2026-10-11
 **Deciders:** Qj Stout-Spykers
 **Technical Story:** The versioning story in the [Hades Design System PRD](../prd/design-system.md#version-the-design-system-so-a-theme-contract-can-be-defined-against-it), required by the [White-labelling PRD](../prd/white-labelling.md), whose theme contract is bounded by the kora release.
 
 > **Amendment, 2026-10-15.** The first version of this ADR gave Hades its own releases: a `hades/vX.Y.Z` tag, a package Semantic Version, and a separate `MAJOR.MINOR` contract version, each bumped in the pull request that made the change. That is withdrawn. Hades is versioned and released with kora: one version, the kora release tag, applies to the images, the charts and the `@runkora/hades` package. Nothing checks that a release's version reflects its Hades changes: there is no change classifier and no contract boundary rules, and the version is chosen by whoever cuts the release. The manifest and the asset formats are unchanged. The delivery ADR, the white-labelling theme ADR and both PRDs are amended to match. The file name is kept, as the PRDs cite it.
 
+
+> **Amendment, 2026-10-19.** A theme references its assets by `https://` URL instead of carrying them (see the [white-labelling theme ADR](2026-10-12-white-labelling-theme.md)), so the validator cannot read their bytes. A slot's `maxBytes` is removed from the manifest, `formats` becomes the extensions a slot's URL path may end in, and the SVG content constraints no longer apply: nothing is scanned. Nothing else in SD-3 changes.
 ---
 
 ## Context
@@ -118,18 +120,18 @@ The Hades PRD refers to these as subsections 1 to 3.
 - `modes`: `["dark", "light"]`.
 - `tokens`: one entry per settable token, with `name` (the custom property), `kind` (`color`, `shadow`, `length`, `font`), `format` (the accepted value syntax: hex or OKLCH for `color`, a CSS shadow list for `shadow`, a CSS length for `length`, a font family name for `font`), and `modes`, which is both modes for every token.
 - `mapping`: for each semantic name in `@theme inline`, how it resolves. A direct `var()` reference records the raw token. An expression such as `color-mix()` or `calc()` records every raw token it references and is marked derived. A literal records no token. A theme never sets a semantic name, but the mapping is what existing components read through, so a change to it is a change to what those components read.
-- `slots`: one entry per asset slot with `name`, `kind`, `formats`, `maxBytes` and `modes`.
+- `slots`: one entry per asset slot with `name`, `kind`, `formats` and `modes`.
 - `productName`: the bounds on the product name.
 
 The generator is the only thing that writes the manifest; a hand edit fails the sync check. The white-labelling validation rules are generated from it, per release. The manifest is internal: its readers are the validation rule generator and any theme producer kora specifies. Its shape is bespoke, documented alongside the package, and targets no interchange format.
 
-**Asset formats and product-name bounds.** These are manifest fields, so no release can carry the contract without them, and they are decided here. The white-labelling theme ADR's contract subsection cites them rather than deciding them again.
+**Asset formats and product-name bounds.** A slot's formats are the extensions its URL path may end in. These are manifest fields, so no release can carry the contract without them, and they are decided here. The white-labelling theme ADR's contract subsection cites them rather than deciding them again.
 
-| Slot | Kind | Formats | Maximum size | Modes |
-|---|---|---|---|---|
-| `logo` | `image` | SVG only. No scripts, no event attributes, no external references; the validator rejects any of them. | 256 KiB | both |
-| `favicon` | `image` | SVG only. A raster fallback is not provided until a target browser needs one. | 64 KiB | both |
-| `font.sans`, `font.mono` | `font` | WOFF2 only, one file per slot, variable or single weight. The instance declares the font face and assigns the family name the font slot token resolves to. | 2 MiB each | not per mode |
+| Slot | Kind | Formats | Modes |
+|---|---|---|---|
+| `logo` | `image` | `.svg` only. | both |
+| `favicon` | `image` | `.svg` only. A raster fallback is not provided until a target browser needs one. | both |
+| `font.sans`, `font.mono` | `font` | `.woff2` only, one file per slot, variable or single weight. The instance declares the font face and assigns the family name the font slot token resolves to. | not per mode |
 
 Product name: one string, 1 to 40 characters after trimming surrounding whitespace, consisting of Unicode letters, digits, spaces, and the punctuation `.`, `-`, `&` and `'`; no control characters; none of `<`, `>` or `"`. Single verbatim string, as the white-labelling PRD requires.
 
@@ -239,4 +241,4 @@ Before the white-labelling theme ADR's contract subsection is finalised, because
 
 The PRDs cite this ADR by subsection number. SD-1 to SD-3 above are those subsections, in order.
 
-**Last Updated:** 2026-10-16
+**Last Updated:** 2026-10-19
