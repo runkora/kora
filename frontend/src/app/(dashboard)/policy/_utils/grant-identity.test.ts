@@ -58,6 +58,15 @@ describe('resolveGrantIdentity for humans', () => {
     });
   });
 
+  it('shows no email line when only the name is known', () => {
+    const user = { id: humanId, email: '', display_name: 'Dev' };
+    expect(resolveGrantIdentity(human, {}, { [humanId]: user })).toEqual({
+      primary: 'Dev',
+      email: undefined,
+      rawId: humanId,
+    });
+  });
+
   it('falls back to the raw ID when the user is unknown', () => {
     expect(resolveGrantIdentity(human, {}, {})).toEqual({ primary: humanId });
   });

@@ -594,7 +594,8 @@ func (s *AgentTypeService) ListAgentTypes(ctx context.Context) ([]AgentType, err
 
 // setCallerAccess fills CanRun and CanEdit on each agent type for the caller in
 // ctx. Run uses checkRun, the run-start check. Edit uses the mode-qualified check
-// update and delete use, once per mode. The flags only hide controls, so an
+// update and delete use, once per mode, plus the scope ceiling for autonomous
+// agents. The flags only drive the UI, which disables what they deny, so an
 // evaluator error leaves them false and the read succeeds.
 func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType) {
 	canEdit := map[IdentityMode]bool{}
@@ -616,8 +617,25 @@ func (s *AgentTypeService) setCallerAccess(ctx context.Context, ats []AgentType)
 				logging.Field{Key: "error", Value: runErr.Error()})
 		}
 		run := runErr == nil
-		ats[i].CanEdit, ats[i].CanRun = &edit, &run
+		editThis := edit && s.withinCeiling(ctx, ats[i])
+		ats[i].CanEdit, ats[i].CanRun = &editThis, &run
 	}
+}
+
+// withinCeiling reports whether the caller holds everything an autonomous agent
+// holds, the ceiling every update checks. A delegated agent's grant only caps
+// its runners, so it passes. An evaluator error reads as no.
+func (s *AgentTypeService) withinCeiling(ctx context.Context, at AgentType) bool {
+	if at.IsDelegated() {
+		return true
+	}
+	err := s.checkCeiling(ctx, at, s.scopeResolver())
+	if err != nil && !errors.Is(err, ErrScopeCeiling) {
+		s.logger.Warn(ctx, "agent type ceiling check failed",
+			logging.Field{Key: "agent_type_id", Value: at.ID},
+			logging.Field{Key: "error", Value: err.Error()})
+	}
+	return err == nil
 }
 
 // UpdateAgentType applies partial updates to an existing agent type. Enforces

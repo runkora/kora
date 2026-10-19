@@ -28,10 +28,12 @@ import { useHasScope } from '../../_components/permissions-provider';
 export interface DeliveryDetailPanelProps {
   delivery: DeliveryRow;
   onClose: () => void;
-  /** Replays the delivery; absent for read-only callers. */
+  /** Replays the delivery. */
   onRedeliver?: (
     delivery: DeliveryRow,
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
+  /** False when the caller lacks run authority on the trigger's agent. */
+  redeliverAllowed?: boolean;
   /**
    * Jumps to the owning trigger's configuration. Offered only when the caller
    * has somewhere to jump to: the platform page opens its drawer, the agent
@@ -49,6 +51,7 @@ export function DeliveryDetailPanel({
   delivery,
   onClose,
   onRedeliver,
+  redeliverAllowed = true,
   onOpenTrigger,
 }: DeliveryDetailPanelProps) {
   const canWrite = useHasScope('triggers:write');
@@ -69,7 +72,11 @@ export function DeliveryDetailPanel({
               {formatTimestampUtc(delivery.receivedAt)}
             </Text>
           </Stack>
-          <DeliveryDetail delivery={delivery} onRedeliver={canWrite ? onRedeliver : undefined} />
+          <DeliveryDetail
+            delivery={delivery}
+            onRedeliver={onRedeliver}
+            redeliverAllowed={canWrite && redeliverAllowed}
+          />
           {triggerId !== null && onOpenTrigger !== undefined && (
             <Stack direction="horizontal" justify="end">
               <Button variant="ghost" size="xs" onClick={() => onOpenTrigger(triggerId)}>

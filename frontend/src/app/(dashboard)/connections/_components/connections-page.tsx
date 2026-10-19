@@ -141,11 +141,7 @@ export function ConnectionsPage({ rows, error, usedByError = null }: Connections
       )}
 
       {error ? (
-        <Stack align="center" gap="snug" paddingBlock="comfortable">
-          <Text size="supporting" color="muted">
-            {error}
-          </Text>
-        </Stack>
+        <EmptyState icon="lock" title="Connections unavailable" description={error} />
       ) : rows.length === 0 ? (
         <EmptyState
           icon="network"

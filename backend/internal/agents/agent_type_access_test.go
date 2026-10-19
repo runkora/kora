@@ -78,3 +78,37 @@ func TestAgentTypeCallerAccess_EvaluatorErrorLeavesFlagsFalse(t *testing.T) {
 		t.Errorf("can_run=%v can_edit=%v, want both false", got.CanRun, got.CanEdit)
 	}
 }
+
+// can_edit includes the scope ceiling for autonomous agents, so Save is disabled instead of refused.
+func TestAgentTypeCallerAccess_Ceiling(t *testing.T) {
+	tests := []struct {
+		name     string
+		mode     IdentityMode
+		held     heldScopes
+		wantEdit bool
+	}{
+		{"autonomous agent within the caller's scopes", IdentityModeAutonomous, heldScopes{"platform:grants:write"}, true},
+		{"autonomous agent holding a scope the caller lacks", IdentityModeAutonomous, heldScopes{"inference:invoke"}, false},
+		{"delegated agent ignores the ceiling", IdentityModeDelegated, heldScopes{"inference:invoke"}, true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, repo := newModeTestService(t, "agents:types:read", "agents:types:write")
+			svc.SetCallerScopes(tc.held)
+			at := seedModeAgentType(t, repo, tc.mode)
+			at.GrantScopes = []string{"platform:grants:write"}
+			if err := repo.UpdateAgentType(context.Background(), at); err != nil {
+				t.Fatalf("update seed: %v", err)
+			}
+			ctx := withPrincipalCtx(context.Background(), "t-1", token.PrincipalTypeHuman, "user-1")
+
+			got, err := svc.GetAgentType(ctx, at.ID)
+			if err != nil {
+				t.Fatalf("get: %v", err)
+			}
+			if got.CanEdit == nil || *got.CanEdit != tc.wantEdit {
+				t.Errorf("can_edit = %v, want %v", got.CanEdit, tc.wantEdit)
+			}
+		})
+	}
+}

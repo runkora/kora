@@ -261,7 +261,8 @@ export function AgentTriggersTab() {
         <DeliveryDetailPanel
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
-          onRedeliver={agent.canRun ? redeliver : undefined}
+          onRedeliver={redeliver}
+          redeliverAllowed={agent.canRun}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);

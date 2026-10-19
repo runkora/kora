@@ -13,6 +13,7 @@ import {
   supersededRuns,
 } from '../_types';
 import type { DeliveryRow } from '../_types';
+import { PermissionHint } from '@runkora/components';
 
 /**
  * Pretty-prints a payload excerpt when it is complete JSON.
@@ -44,18 +45,25 @@ export interface DeliveryDetailProps {
   triggerId?: string;
   /**
    * Replays the delivery, resolving with the new delivery's id or an error.
-   * Absent for read-only callers, where no Redeliver is offered at all.
+   * Absent on surfaces that offer no replay.
    */
   onRedeliver?: (
     delivery: DeliveryRow,
   ) => Promise<{ deliveryId: string | null; error: string | null }>;
+  /** False when the caller may not replay it; Redeliver then shows disabled with the reason. */
+  redeliverAllowed?: boolean;
 }
 
 /**
  * The detail body for one delivery, shared by the trigger drawer's inline
  * expansion and the platform Deliveries panel so the two cannot drift.
  */
-export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDetailProps) {
+export function DeliveryDetail({
+  delivery,
+  triggerId,
+  onRedeliver,
+  redeliverAllowed = true,
+}: DeliveryDetailProps) {
   const [redelivering, setRedelivering] = useState(false);
   const [redeliverError, setRedeliverError] = useState<string | null>(null);
   const [replayId, setReplayId] = useState<string | null>(null);
@@ -229,14 +237,16 @@ export function DeliveryDetail({ delivery, triggerId, onRedeliver }: DeliveryDet
             </Text>
           )}
           {canRedeliver && (
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={redelivering || replayId !== null}
-              onClick={replay}
-            >
-              {redelivering ? 'Replaying…' : replayId !== null ? 'Replayed' : 'Redeliver'}
-            </Button>
+            <PermissionHint allowed={redeliverAllowed} action="redeliver to this trigger">
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={!redeliverAllowed || redelivering || replayId !== null}
+                onClick={replay}
+              >
+                {redelivering ? 'Replaying…' : replayId !== null ? 'Replayed' : 'Redeliver'}
+              </Button>
+            </PermissionHint>
           )}
         </Stack>
       )}

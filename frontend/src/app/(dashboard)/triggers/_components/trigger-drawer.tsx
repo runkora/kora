@@ -129,7 +129,7 @@ interface TriggerDrawerProps {
   onEdit?: (t: TriggerRow, patch: TriggerEditPatch) => Promise<string | null>;
   /**
    * Replays a delivery, resolving with the new delivery's id or an error.
-   * Absent for read-only callers, where no Redeliver is offered.
+   * Shown disabled with the reason when the caller may not replay.
    */
   onRedeliver?: (
     delivery: DeliveryRow,
@@ -326,7 +326,6 @@ export function TriggerDrawer({
   const canShapeRuns = canWrite && canRunAgent;
   const onUpdateSafety = canWrite ? updateSafetyAction : undefined;
   const onEdit = canWrite ? editAction : undefined;
-  const onRedeliver = canShapeRuns ? redeliverAction : undefined;
   const onRotateSecret = canShapeRuns ? rotateSecretAction : undefined;
   const canFire = !!trigger?.canFire;
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -818,7 +817,7 @@ export function TriggerDrawer({
                     rows={filters.value.filters}
                     fields={webhookFields}
                     onChange={setFilterRows}
-                    canAdd={runEditable}
+                    disabled={!runEditable}
                   />
 
                   <Text size="caption" color="subtle">
@@ -975,7 +974,8 @@ export function TriggerDrawer({
                     triggerId={trigger.id}
                     expandedId={expanded}
                     onToggleExpanded={setExpanded}
-                    onRedeliver={onRedeliver}
+                    onRedeliver={redeliverAction}
+                    redeliverAllowed={canShapeRuns}
                   />
                 </>
               )}

@@ -30,7 +30,8 @@ export type ConnectionsResult =
  * gateway is unreachable (mirroring the picker route, which tolerates the same
  * gateway being down). The agent-type list is best-effort — if it fails, rows
  * are still returned with empty `usedBy` rather than failing the whole page.
- * Only an unexpected (non-ApiError) failure surfaces `ok: false`.
+ * A refused catalog read surfaces `ok: false` with a no-access sentence, as does
+ * an unexpected (non-ApiError) failure.
  */
 export async function fetchConnections(
   accessToken: string,
@@ -44,18 +45,23 @@ export async function fetchConnections(
       rows: buildConnectionRows(catalog, agentTypes.ok ? agentTypes.data : []),
       usedByError: agentTypes.ok ? null : agentTypes.message,
     };
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError) {
+      return { ok: false, message: loadErrorMessage(err.status, 'connections') };
+    }
     return { ok: false, message: 'Failed to load connections' };
   }
 }
 
 // The gateway owning connections may be unreachable in a partial deployment; the
 // picker route already treats that as "no connections", so we mirror it here and
-// degrade to an empty catalog instead of failing the page.
+// degrade to an empty catalog instead of failing the page. A refusal is not an
+// outage: it propagates so the page says the caller has no access.
 async function loadCatalog(accessToken: string) {
   try {
     return await listConnections(accessToken);
-  } catch {
+  } catch (err) {
+    if (err instanceof ApiError && (err.status === 401 || err.status === 403)) throw err;
     return [];
   }
 }

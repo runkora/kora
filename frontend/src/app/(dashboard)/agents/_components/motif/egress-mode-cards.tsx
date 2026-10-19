@@ -32,11 +32,14 @@ export function EgressModeCards({
   hosts,
   onModeChange,
   onHostsChange,
+  disabled = false,
 }: {
   mode: ConnectivityMode;
   hosts: string;
   onModeChange: (m: ConnectivityMode) => void;
   onHostsChange: (h: string) => void;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
 }) {
   return (
     <Stack gap="cozy">
@@ -55,6 +58,7 @@ export function EgressModeCards({
               icon={m.icon}
               title={m.name}
               description={m.desc}
+              disabled={disabled}
             />
           ))}
         </Grid>
@@ -65,6 +69,7 @@ export function EgressModeCards({
             value={hosts}
             onChange={(e) => onHostsChange(e.target.value)}
             rows={3}
+            disabled={disabled}
             placeholder={'api.github.com\n*.internal.example.com'}
             aria-label="Allowed hosts"
           />

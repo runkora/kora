@@ -26,6 +26,7 @@ export function EnvironmentsCard({
   onChange,
   loading = false,
   error,
+  disabled = false,
 }: {
   /** Every environment in the tenant. */
   environments: Environment[];
@@ -36,6 +37,8 @@ export function EnvironmentsCard({
   loading?: boolean;
   /** Set when the tenant's environments failed to load. */
   error?: string | null;
+  /** Read-only, for callers who may not change the agent. */
+  disabled?: boolean;
 }) {
   const { productName } = useBrand();
   const attached = new Map(value.map((e) => [e.environment_id, e.is_default]));
@@ -91,6 +94,7 @@ export function EnvironmentsCard({
                     <Stack grow gap="none">
                       <Checkbox
                         checked={isAttached}
+                        disabled={disabled}
                         onChange={() => onChange(toggleEnvironment(value, env.id))}
                       >
                         {env.name}
@@ -108,6 +112,7 @@ export function EnvironmentsCard({
                       <Button
                         variant="ghost"
                         size="xs"
+                        disabled={disabled}
                         onClick={() => onChange(setDefaultEnvironment(value, env.id))}
                         aria-label={`Make ${env.name} the default`}
                       >
@@ -121,6 +126,7 @@ export function EnvironmentsCard({
                 <Stack key={m.environment_id} gap="none">
                   <Checkbox
                     checked
+                    disabled={disabled}
                     onChange={() => onChange(toggleEnvironment(value, m.environment_id))}
                   >
                     Deleted environment

@@ -35,7 +35,7 @@ import { EnvironmentsCard } from '../../_components/motif/environments-card';
 import { GuardrailsFields } from '../../_components/motif/guardrail-rows';
 import type { GuardrailValues } from '../../_components/motif/guardrail-rows';
 import { PlannedLimits } from '../../_components/motif/planned-limits';
-import { EffectiveAccessPanel, PermissionHint } from '@runkora/components';
+import { EffectiveAccessPanel, PermissionHint, permissionHintText } from '@runkora/components';
 import { ConfigurationRail } from './configuration-rail';
 import { useAgentConfiguration } from '../_hooks/use-agent-configuration';
 
@@ -67,6 +67,8 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
 
   if (!cfg.agent) return null;
   const agent = cfg.agent;
+  // Without edit access every field is read only; the notice above the form says why.
+  const readOnly = !agent.canEdit;
 
   const guardrailValues: GuardrailValues = {
     agentBudgetOn: cfg.budgetLimitUSD !== '',
@@ -123,11 +125,12 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
       <ConfigurationRail active={active} onSelect={setActive} updatedAt={agent.updatedAt} />
 
       <Stack grow gap="relaxed">
-        {!agent.canEdit && (
+        {readOnly && (
           <Alert variant="info">
             <Text size="caption">
-              You can view this agent but not change it. Changes need the agents:types:
-              {agent.identityMode}:write scope.
+              {permissionHintText('change this agent')} Changing it needs the agents:types:
+              {agent.identityMode}:write scope
+              {agent.identityMode === 'autonomous' ? ' and every scope the agent holds.' : '.'}
             </Text>
           </Alert>
         )}
@@ -142,6 +145,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
             <Grid cols={2} gap="comfortable">
               <FormField label="Display name" required>
                 <Input
+                  disabled={readOnly}
                   value={cfg.name}
                   onChange={(e) => cfg.setName(e.target.value)}
                   maxLength={128}
@@ -156,6 +160,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
               hint="Optional. Shown in the catalogue and on its identity card."
             >
               <Textarea
+                disabled={readOnly}
                 value={cfg.description}
                 onChange={(e) => cfg.setDescription(e.target.value)}
                 rows={2}
@@ -185,6 +190,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
             />
             <FormField label="System instructions" required>
               <Textarea
+                disabled={readOnly}
                 value={cfg.systemPrompt}
                 onChange={(e) => cfg.setSystemPrompt(e.target.value)}
                 rows={5}
@@ -197,6 +203,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                 Framework
               </Text>
               <FrameworkCards
+                disabled={readOnly}
                 value={cfg.framework}
                 onChange={(v: AgentFramework) => cfg.setFramework(v)}
               />
@@ -214,7 +221,9 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
               {cfg.modelsError && (
                 <Alert variant="error">Models failed to load: {cfg.modelsError}</Alert>
               )}
-              <ModelPicker models={cfg.models} value={cfg.modelId} onChange={cfg.setModelId} />
+              <Stack disabled={readOnly}>
+                <ModelPicker models={cfg.models} value={cfg.modelId} onChange={cfg.setModelId} />
+              </Stack>
             </Stack>
           </Stack>
         )}
@@ -241,6 +250,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
               <Alert variant="error">MCP servers failed to load: {cfg.mcpError}</Alert>
             )}
             <McpToolTree
+              disabled={readOnly}
               servers={cfg.mcpServers}
               catalog={cfg.mcpCatalog}
               granted={cfg.mcpTools}
@@ -252,11 +262,13 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                 title="Connections"
                 desc="Credentialed connections the agent may call. Credentials are injected just-in-time. The agent never sees them."
               />
-              <ConnectionCards
-                available={cfg.availableConnections}
-                value={cfg.connectors}
-                onChange={cfg.setConnectors}
-              />
+              <Stack disabled={readOnly}>
+                <ConnectionCards
+                  available={cfg.availableConnections}
+                  value={cfg.connectors}
+                  onChange={cfg.setConnectors}
+                />
+              </Stack>
             </Stack>
           </Stack>
         )}
@@ -272,6 +284,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
             <Stack gap="cozy">
               <SectionLabel title="Network egress" desc="The hosts the agent may reach directly." />
               <EgressModeCards
+                disabled={readOnly}
                 mode={cfg.connectivityMode}
                 hosts={cfg.connectivityHosts}
                 onModeChange={cfg.setConnectivityMode}
@@ -284,6 +297,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                 desc="The sandboxes this agent can run in. Their egress hosts and connections join the agent's effective access."
               />
               <EnvironmentsCard
+                disabled={readOnly}
                 environments={cfg.environmentCatalogue.data}
                 value={cfg.environments}
                 onChange={cfg.setEnvironments}
@@ -313,7 +327,9 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
                 Every limit is optional. Switch on the ones you want {productName} to enforce.
               </Text>
             </Stack>
-            <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />
+            <Stack disabled={readOnly}>
+              <GuardrailsFields values={guardrailValues} onChange={onGuardrailChange} />
+            </Stack>
             <PlannedLimits />
           </Stack>
         )}
@@ -355,7 +371,7 @@ export function AgentConfigurationTab({ initialSection = 'identity' }: AgentConf
       </Stack>
 
       <SaveBar
-        visible={agent.canEdit && cfg.isDirty}
+        visible={!readOnly && cfg.isDirty}
         saving={cfg.saving}
         success={cfg.saveSuccess}
         error={cfg.saveError}

@@ -284,7 +284,8 @@ export function TriggersPage({
         <DeliveryDetailPanel
           delivery={detailDelivery}
           onClose={() => setDetailDelivery(null)}
-          onRedeliver={canRunOwner(detailDelivery.triggerId) ? redeliver : undefined}
+          onRedeliver={redeliver}
+          redeliverAllowed={canRunOwner(detailDelivery.triggerId)}
           onOpenTrigger={(triggerId) => {
             const owner = triggers.find((t) => t.id === triggerId);
             setDetailDelivery(null);

@@ -35,6 +35,7 @@ export interface DashboardData {
   agentsError: string | null;
   runsError: string | null;
   environmentsError: string | null;
+  connectionsError: string | null;
   budgetError: string | null;
 }
 
@@ -50,6 +51,7 @@ export const EMPTY_DASHBOARD_DATA: DashboardData = {
   agentsError: null,
   runsError: null,
   environmentsError: null,
+  connectionsError: null,
   budgetError: null,
 };
 
@@ -92,6 +94,7 @@ export async function fetchDashboardData(
     agentsError: agentTypes.ok ? null : agentTypes.message,
     runsError: runs.ok ? null : runs.message,
     environmentsError: environments.ok ? null : environments.message,
+    connectionsError: connectionsResult.ok ? null : connectionsResult.message,
     budgetError: budgetResult.ok ? null : budgetResult.message,
   };
 }

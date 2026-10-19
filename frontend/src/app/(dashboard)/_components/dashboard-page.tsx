@@ -151,6 +151,7 @@ export interface DashboardPageProps {
   agentsError?: string | null;
   runsError?: string | null;
   environmentsError?: string | null;
+  connectionsError?: string | null;
   budgetError?: string | null;
   windowDays?: number;
 }
@@ -168,6 +169,7 @@ export function DashboardPage({
   agentsError = null,
   runsError = null,
   environmentsError = null,
+  connectionsError = null,
   budgetError = null,
   windowDays = 7,
 }: DashboardPageProps) {
@@ -203,8 +205,11 @@ export function DashboardPage({
         <StatCard
           icon={<Icon name="network" size="xs" aria-hidden />}
           label="Connections"
-          value={String(connections.length)}
-          delta={{ text: 'configured', positive: true }}
+          value={connectionsError ? '–' : String(connections.length)}
+          delta={{
+            text: connectionsError ? 'unavailable' : 'configured',
+            positive: !connectionsError,
+          }}
           footer={<Link href={APP_ROUTES.connections}>View all →</Link>}
         />
         <StatCard

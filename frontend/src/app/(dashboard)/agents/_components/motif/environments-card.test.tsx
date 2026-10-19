@@ -34,6 +34,14 @@ describe('EnvironmentsCard', () => {
     expect(onChange).toHaveBeenCalledWith([{ environment_id: 'go', is_default: true }]);
   });
 
+  it('changes nothing when read only', () => {
+    const onChange = vi.fn();
+    render(
+      <EnvironmentsCard environments={ENVIRONMENTS} value={[]} onChange={onChange} disabled />,
+    );
+    for (const box of screen.getAllByRole('checkbox')) expect(box).toBeDisabled();
+  });
+
   it('marks the default', () => {
     render(
       <EnvironmentsCard

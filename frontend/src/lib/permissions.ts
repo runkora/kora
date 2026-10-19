@@ -4,7 +4,7 @@
  * `scopeCovers` / `hasScopeCovering` apply the platform's prefix-covers
  * hierarchy, mirroring the backend `scope_covers` rego rule and Go
  * `policy.ScopeCovers`: `agents:types:write` covers `agents:types:delegated:write`.
- * There is no exact-match helper. An exact match hides controls from a principal
+ * There is no exact-match helper. An exact match denies controls to a principal
  * holding a broader scope that the backend accepts. None of these evaluate
  * policy rules; per-resource answers come from the API (`can_run`, `can_fire`).
  */

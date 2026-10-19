@@ -27,8 +27,7 @@ interface BudgetRolesTabProps {
 
 export function BudgetRolesTab({ roles }: BudgetRolesTabProps) {
   const router = useRouter();
-  // Role budgets save through the role upsert, which the backend binds to platform:roles:write.
-  const canWrite = useHasScope('platform:roles:write');
+  const canWrite = useHasScope('platform:budgets:write');
   const [editing, setEditing] = useState<RoleEntry | null>(null);
 
   const columns = useMemo<DataTableColumn<RoleEntry>[]>(
