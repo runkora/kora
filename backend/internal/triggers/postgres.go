@@ -1176,7 +1176,7 @@ func (r *postgresRepository) ClaimPending(ctx context.Context, limit int) ([]Pen
 		SET    claimed_at = now()
 		FROM   claimable c
 		WHERE  p.id = c.id AND p.claimed_at IS NULL
-		RETURNING p.id, p.tenant_id, p.trigger_id, p.delivery_id, p.fields, p.enqueued_at
+		RETURNING p.id, p.tenant_id, p.trigger_id, p.delivery_id, p.fields, p.enqueued_at, p.hold_count
 	`, limit, StaleClaimWindow.Seconds())
 	if err != nil {
 		return nil, fmt.Errorf("claim pending deliveries: %w", err)
@@ -1311,7 +1311,7 @@ func (r *postgresRepository) SupersedeAndEnqueue(ctx context.Context, p *Pending
 		rows, err := tx.Query(ctx, `
 			DELETE FROM trigger_pending_deliveries
 			WHERE  trigger_id = $1 AND claimed_at IS NULL
-			RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
+			RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count
 		`, p.TriggerID)
 		if err != nil {
 			return fmt.Errorf("supersede pending deliveries: %w", err)
@@ -1433,7 +1433,7 @@ func (r *postgresRepository) TrimPending(ctx context.Context, triggerID string, 
 		    ORDER  BY enqueued_at DESC
 		    OFFSET $2
 		)
-		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
+		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count
 	`, triggerID, offset)
 	if err != nil {
 		return nil, fmt.Errorf("trim pending deliveries: %w", err)
@@ -1462,7 +1462,7 @@ func (r *postgresRepository) deleteUnclaimedPending(ctx context.Context, trigger
 	rows, err := r.pool.Query(ctx, `
 		DELETE FROM trigger_pending_deliveries
 		WHERE  trigger_id = $1 AND claimed_at IS NULL
-		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at
+		RETURNING id, tenant_id, trigger_id, delivery_id, fields, enqueued_at, hold_count
 	`, triggerID)
 	if err != nil {
 		return nil, fmt.Errorf("%s pending deliveries: %w", what, err)
@@ -1571,7 +1571,7 @@ func scanPending(rows pgx.Rows) ([]PendingDelivery, error) {
 	for rows.Next() {
 		var p PendingDelivery
 		var fieldsJSON []byte
-		if err := rows.Scan(&p.ID, &p.TenantID, &p.TriggerID, &p.DeliveryID, &fieldsJSON, &p.EnqueuedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.TenantID, &p.TriggerID, &p.DeliveryID, &fieldsJSON, &p.EnqueuedAt, &p.HoldCount); err != nil {
 			return nil, fmt.Errorf("scan pending delivery: %w", err)
 		}
 		if len(fieldsJSON) > 0 {
@@ -1774,4 +1774,26 @@ func (r *postgresRepository) InsertRoutingDecision(ctx context.Context, d *Routi
 		return fmt.Errorf("insert routing decision: %w", err)
 	}
 	return nil
+}
+
+// HoldPending returns a claimed fire to the queue until delay has passed and
+// counts the hold, and records reason on the delivery, in one transaction.
+func (r *postgresRepository) HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error {
+	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
+		tag, err := tx.Exec(ctx, `
+			UPDATE trigger_pending_deliveries
+			SET    claimed_at = NULL, dispatch_after = now() + make_interval(secs => $2), hold_count = hold_count + 1
+			WHERE  id = $1 AND claimed_at IS NOT NULL
+		`, pendingID, delay.Seconds())
+		if err != nil {
+			return fmt.Errorf("hold pending delivery: %w", err)
+		}
+		if tag.RowsAffected() == 0 {
+			return ErrPendingNotClaimed
+		}
+		if _, err := tx.Exec(ctx, `UPDATE trigger_deliveries SET reason = $2 WHERE id = $1`, deliveryID, reason); err != nil {
+			return fmt.Errorf("record hold reason: %w", err)
+		}
+		return nil
+	})
 }

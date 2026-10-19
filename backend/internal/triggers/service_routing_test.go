@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
@@ -375,7 +376,7 @@ func TestDispatchRouted_OutcomeOrder(t *testing.T) {
 		{name: "below threshold with fallback", fallback: new("at-c"), resp: decisionAnswers(0.5, "", 0), wantStatus: RunStatusDispatched, wantOutcome: RouteOutcomeFallbackRun, wantStarted: "at-c", wantReason: FallbackBelowThreshold},
 		{name: "below threshold without fallback", resp: decisionAnswers(0.5, "", 0), wantStatus: RunStatusUnrouted, wantOutcome: RouteOutcomeNoRun, wantReason: FallbackBelowThreshold},
 		{name: "failed call with fallback", fallback: new("at-c"), err: inferenceclient.ErrUpstreamUnavailable, wantStatus: RunStatusDispatched, wantOutcome: RouteOutcomeFallbackRun, wantStarted: "at-c", wantReason: FallbackDecisionFailed},
-		{name: "failed call without fallback", err: inferenceclient.ErrUpstreamUnavailable, wantStatus: RunStatusUnrouted, wantOutcome: RouteOutcomeNoRun, wantReason: FallbackDecisionFailed, wantFailure: true},
+		{name: "failed call without fallback", err: inferenceclient.ErrInvalidRequest, wantStatus: RunStatusUnrouted, wantOutcome: RouteOutcomeNoRun, wantReason: FallbackDecisionFailed, wantFailure: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -630,5 +631,154 @@ func TestReferencedKeys_IncludeJoinKey(t *testing.T) {
 	tr := Trigger{PromptTemplate: "p", Routing: &RoutingConfig{JoinKey: "{{ issue.number }}"}}
 	if !slices.Contains(referencedKeys(tr), "issue.number") {
 		t.Errorf("referencedKeys = %v, want the join key's field", referencedKeys(tr))
+	}
+}
+
+// ADR Decision 11: only a configuration error from the gateway counts toward
+// auto-pause, and only without a fallback agent.
+func TestDispatchRouted_FailureAccounting(t *testing.T) {
+	tests := []struct {
+		name   string
+		err    error
+		counts bool
+	}{
+		{name: "missing scope or budget", err: inferenceclient.ErrForbidden, counts: true},
+		{name: "rejected request", err: inferenceclient.ErrInvalidRequest, counts: true},
+		{name: "unknown or disabled model", err: inferenceclient.ErrModelNotFound, counts: true},
+		{name: "gateway fault", err: inferenceclient.ErrUpstreamUnavailable},
+		{name: "rate limited", err: inferenceclient.ErrRateLimited},
+		{name: "timeout", err: context.DeadlineExceeded},
+	}
+	for _, tt := range tests {
+		for _, withFallback := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s fallback=%v", tt.name, withFallback), func(t *testing.T) {
+				svc, deps, decisions, src := routedHarness(t)
+				decisions.err = tt.err
+				tr := mustRouted(t, deps, src.ID, func(r *CreateTriggerRequest) {
+					if withFallback {
+						r.Routing.FallbackAgentTypeID = new("at-c")
+					}
+				})
+				// Old enough that a refusal is not retried as grant propagation.
+				deps.repo.triggers[tr.ID].CreatedAt = time.Now().Add(-time.Hour)
+
+				id := fireRouted(t, svc, deps, tr, "d-1", routedFields)
+
+				d := deps.repo.decisionFor(id)
+				if d.Error == nil || deref(d.FallbackReason) != FallbackDecisionFailed {
+					t.Fatalf("decision = %+v, want the error recorded", d)
+				}
+				wantStatus := RunStatusUnrouted
+				if withFallback {
+					wantStatus = RunStatusDispatched
+				}
+				if run := onlyRun(t, deps, id); run.Status != wantStatus {
+					t.Errorf("status = %s, want %s", run.Status, wantStatus)
+				}
+				failures := deps.repo.triggers[tr.ID].ConsecutiveFailures
+				if want := tt.counts && !withFallback; (failures > 0) != want {
+					t.Errorf("consecutive failures = %d, want counted=%v", failures, want)
+				}
+			})
+		}
+	}
+}
+
+// ADR Decision 7: a join key naming a starting run holds the fire in the queue
+// instead of asking the model, until the run opens or the holds run out.
+func TestDispatchRouted_HoldsForStartingRun(t *testing.T) {
+	withKey := func(r *CreateTriggerRequest) { r.Routing.JoinKey = "{{ repository.full_name }}#{{ issue.number }}" }
+	setup := func(t *testing.T) (*Service, *testDeps, *fakeDecisions, *Trigger) {
+		t.Helper()
+		svc, deps, decisions, src := routedHarness(t)
+		decisions.resp = decisionAnswers(0.9, "", 0)
+		tr := mustRouted(t, deps, src.ID, withKey)
+		fireRouted(t, svc, deps, tr, "d-1", routedFields) // starts run-1 under the key
+		deps.agents.startingRuns = map[string]bool{"run-1": true}
+		return svc, deps, decisions, tr
+	}
+	dispatch := func(t *testing.T, svc *Service, deps *testDeps, tr *Trigger, id string, holds int16) bool {
+		t.Helper()
+		tid := tr.ID
+		_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{ID: id, TenantID: testTenant, TriggerID: &tid, Kind: KindWebhook, Status: StatusVerified})
+		return svc.DispatchPending(context.Background(), PendingDelivery{
+			ID: "p-" + id, TenantID: testTenant, TriggerID: tr.ID, DeliveryID: id, Fields: routedFields, HoldCount: holds,
+		})
+	}
+
+	t.Run("a starting run holds the fire", func(t *testing.T) {
+		svc, deps, decisions, tr := setup(t)
+		if held := dispatch(t, svc, deps, tr, "d-2", 0); !held {
+			t.Fatal("want the fire held")
+		}
+		if len(deps.repo.holds) != 1 || deps.repo.holds[0].delay != startingRunHoldDelay ||
+			!strings.Contains(deps.repo.holds[0].reason, "run-1") || !strings.Contains(deps.repo.holds[0].reason, "hold 1 of 6") {
+			t.Errorf("holds = %+v", deps.repo.holds)
+		}
+		if decisions.callCount() != 1 || deps.repo.decisionFor("d-2") != nil || len(deps.repo.deliveryRunsFor("d-2")) != 0 {
+			t.Error("a held fire asks no model and records no outcome")
+		}
+		if d := deps.repo.deliveryByID("d-2"); d.Reason == nil || !strings.Contains(*d.Reason, "waiting for run run-1") {
+			t.Errorf("delivery reason = %v, want the hold recorded", d.Reason)
+		}
+	})
+
+	t.Run("an open run is joined after a hold", func(t *testing.T) {
+		svc, deps, decisions, tr := setup(t)
+		deps.agents.startingRuns = nil
+		if held := dispatch(t, svc, deps, tr, "d-2", 3); held {
+			t.Fatal("an open run is joined, not held")
+		}
+		if d := deps.repo.decisionFor("d-2"); d.Outcome != RouteOutcomeJoinedRun || !d.KeyMatched || decisions.callCount() != 1 {
+			t.Errorf("decision = %+v", d)
+		}
+	})
+
+	t.Run("the holds run out and the model decides", func(t *testing.T) {
+		svc, deps, decisions, tr := setup(t)
+		if held := dispatch(t, svc, deps, tr, "d-2", startingRunHolds); held {
+			t.Fatal("no holds remain")
+		}
+		if decisions.callCount() != 2 || len(deps.repo.holds) != 0 {
+			t.Errorf("calls = %d, holds = %d; want the model to decide", decisions.callCount(), len(deps.repo.holds))
+		}
+		if d := deps.repo.decisionFor("d-2"); d.KeyMatched || d.Outcome != RouteOutcomeNewRun {
+			t.Errorf("decision = %+v", d)
+		}
+	})
+
+	t.Run("a failed hold is a dispatch failure", func(t *testing.T) {
+		svc, deps, _, tr := setup(t)
+		deps.repo.holdErr = errors.New("database down")
+		if held := dispatch(t, svc, deps, tr, "d-2", 0); held {
+			t.Fatal("a hold that failed is not held")
+		}
+		if run := onlyRun(t, deps, "d-2"); run.Status != RunStatusFailed {
+			t.Errorf("delivery run = %+v, want failed", run)
+		}
+	})
+}
+
+// The worker leaves a held fire in the queue, claimable once its delay passes.
+func TestWorker_KeepsAHeldFire(t *testing.T) {
+	svc, deps, decisions, src := routedHarness(t)
+	decisions.resp = decisionAnswers(0.9, "", 0)
+	tr := mustRouted(t, deps, src.ID, func(r *CreateTriggerRequest) { r.Routing.JoinKey = "{{ issue.number }}" })
+	fireRouted(t, svc, deps, tr, "d-1", routedFields)
+	deps.agents.startingRuns = map[string]bool{"run-1": true}
+
+	tid := tr.ID
+	_, _ = deps.repo.InsertDelivery(context.Background(), &Delivery{ID: "d-2", TenantID: testTenant, TriggerID: &tid, Kind: KindWebhook, Status: StatusVerified})
+	if err := deps.repo.EnqueuePending(context.Background(), &PendingDelivery{ID: "p-2", TenantID: testTenant, TriggerID: tr.ID, DeliveryID: "d-2", Fields: routedFields}); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+	NewWorker(svc, deps.repo, silentLogger()).drain(context.Background())
+
+	pending := deps.repo.pendingFor(tr.ID)
+	if len(pending) != 1 || pending[0].HoldCount != 1 {
+		t.Fatalf("pending = %+v, want the fire held once and still queued", pending)
+	}
+	if again, _ := deps.repo.ClaimPending(context.Background(), 10); len(again) != 0 {
+		t.Error("a held fire must not be claimable before its delay")
 	}
 }

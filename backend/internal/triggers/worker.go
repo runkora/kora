@@ -191,7 +191,10 @@ func (w *Worker) drain(ctx context.Context) {
 				logging.Field{Key: "pending_id", Value: p.ID},
 				logging.Field{Key: "error", Value: err.Error()})
 		}
-		w.svc.DispatchPending(dctx, p)
+		if held := w.svc.DispatchPending(dctx, p); held {
+			// Back in the queue to wait for a starting run; it is not released.
+			continue
+		}
 		if err := w.repo.ReleasePending(dctx, p.ID); err != nil {
 			w.logger.Error(dctx, "failed to release claimed delivery",
 				logging.Field{Key: "pending_id", Value: p.ID},

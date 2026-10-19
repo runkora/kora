@@ -220,6 +220,9 @@ type PendingQueue interface {
 	// transaction under a lock on the trigger, so concurrent fires with one key
 	// leave one row.
 	EnqueueCoalescing(ctx context.Context, p *PendingDelivery, window time.Duration) (replacedDeliveryID string, err error)
+	// HoldPending returns a claimed fire to the queue, claimable again after
+	// delay, counts the hold and records reason on the delivery.
+	HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error
 	// TrimPending evicts the oldest waiting rows beyond depth, returning them.
 	TrimPending(ctx context.Context, triggerID string, depth int) ([]PendingDelivery, error)
 	// DrainPending removes everything still WAITING for a trigger, returning it.

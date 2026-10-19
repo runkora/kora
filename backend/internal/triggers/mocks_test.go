@@ -65,6 +65,9 @@ type mockRepository struct {
 	listTriggersErr   error
 
 	decisions []*RoutingDecision
+	// holds records HoldPending calls; holdErr fails them.
+	holds   []holdCall
+	holdErr error
 	// beforeGrantUpdate and beforeUpdate run at the start of UpdateTriggerGrant
 	// and UpdateTrigger, so a test can land a concurrent update in between.
 	beforeGrantUpdate func()
@@ -688,6 +691,8 @@ type agentsStub struct {
 	// it per run id (0 → 202).
 	messages      []messageCall
 	messageStatus map[string]int
+	// startingRuns answer a message with the 409 of a run that has not started.
+	startingRuns map[string]bool
 }
 
 type messageCall struct {
@@ -774,13 +779,19 @@ func newAgentsStub() *agentsStub {
 			content: req.Content, triggerID: req.TriggerID, deliveryID: req.DeliveryID,
 		})
 		status := as.messageStatus[r.PathValue("id")]
+		starting := as.startingRuns[r.PathValue("id")]
 		as.mu.Unlock()
-		if status == 0 {
-			status = http.StatusAccepted
-		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(status)
-		_, _ = w.Write([]byte(`{}`))
+		switch {
+		case starting:
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte(`{"code":"conflict","message":"run is starting","details":{"reason":"run_starting"}}`))
+		case status != 0:
+			w.WriteHeader(status)
+			_, _ = w.Write([]byte(`{}`))
+		default:
+			w.WriteHeader(http.StatusAccepted)
+		}
 	})
 	mux.HandleFunc("POST /api/v1/runs", func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -1486,4 +1497,32 @@ func drainPending(t *testing.T, svc *Service, repo *mockRepository) {
 			t.Fatalf("release pending: %v", err)
 		}
 	}
+}
+
+type holdCall struct {
+	pendingID, deliveryID, reason string
+	delay                         time.Duration
+}
+
+// HoldPending records the hold, sets the delivery's reason, and puts a known
+// pending row back with its dispatch delayed.
+func (m *mockRepository) HoldPending(_ context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error {
+	if m.holdErr != nil {
+		return m.holdErr
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.holds = append(m.holds, holdCall{pendingID: pendingID, deliveryID: deliveryID, reason: reason, delay: delay})
+	for _, p := range m.pending {
+		if p.ID == pendingID {
+			p.claimed, p.dispatchAfter = false, time.Now().Add(delay)
+			p.HoldCount++
+		}
+	}
+	for _, d := range m.deliveries {
+		if d.ID == deliveryID {
+			d.Reason = &reason
+		}
+	}
+	return nil
 }

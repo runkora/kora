@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	agentsclient "github.com/runkora/kora/backend/internal/platform/clients/agents"
 	inferenceclient "github.com/runkora/kora/backend/internal/platform/clients/inference"
@@ -22,10 +23,36 @@ var (
 	errNoCandidateAgents = errors.New("none of the candidate agents could be read")
 )
 
+// Holding a fire whose join key names a starting run (ADR Decision 7).
+const (
+	startingRunHolds     = 6
+	startingRunHoldDelay = 10 * time.Second
+)
+
+// holdForStartingRun is returned by route when the fire should wait for runID to start.
+type holdForStartingRun struct{ runID string }
+
+func (h *holdForStartingRun) Error() string { return "run " + h.runID + " is starting" }
+
 // dispatchRouted routes one fire of a routed trigger and records the decision
 // and the outcome (ADR Decision 2). ctx records; dispatchCtx bounds the calls.
-func (s *Service) dispatchRouted(ctx, dispatchCtx context.Context, t Trigger, p PendingDelivery) {
+// held reports a fire returned to the queue to wait for a starting run.
+func (s *Service) dispatchRouted(ctx, dispatchCtx context.Context, t Trigger, p PendingDelivery) (held bool) {
 	d, runID, err := s.route(dispatchCtx, t, p)
+	var hold *holdForStartingRun
+	if errors.As(err, &hold) {
+		reason := fmt.Sprintf("waiting for run %s to start before joining it (hold %d of %d)", hold.runID, p.HoldCount+1, startingRunHolds)
+		holdErr := s.repo.HoldPending(ctx, p.ID, p.DeliveryID, startingRunHoldDelay, reason)
+		if holdErr == nil {
+			return true
+		}
+		s.logger.Error(ctx, "failed to hold a fire for a starting run",
+			logging.Field{Key: "trigger_id", Value: t.ID},
+			logging.Field{Key: "delivery_id", Value: p.DeliveryID},
+			logging.Field{Key: "error", Value: holdErr.Error()},
+		)
+		err = fmt.Errorf("hold for starting run: %w", holdErr)
+	}
 	if d != nil {
 		if insertErr := s.repo.InsertRoutingDecision(ctx, d); insertErr != nil {
 			s.logger.Error(ctx, "failed to record routing decision",
@@ -45,11 +72,13 @@ func (s *Service) dispatchRouted(ctx, dispatchCtx context.Context, t Trigger, p 
 	default:
 		s.recordStarted(ctx, t, p.DeliveryID, RunStatusDispatched, runID)
 	}
+	return false
 }
 
 // recordUnrouted records a delivery that started nothing under the no-run
 // fallback. Only a failed decision counts toward auto-pause, because with no
-// fallback agent nothing else handles the deliveries it drops (ADR Decision 11).
+// fallback agent nothing else handles the deliveries it drops, and only when
+// the failure is a configuration error (ADR Decision 11).
 func (s *Service) recordUnrouted(ctx context.Context, t Trigger, deliveryID string, d *RoutingDecision) {
 	reason := "kora was not sure which agent fits, and the trigger has no fallback agent"
 	if d.Error != nil {
@@ -60,10 +89,20 @@ func (s *Service) recordUnrouted(ctx context.Context, t Trigger, deliveryID stri
 		TriggerID: t.ID, TriggerName: t.Name,
 		Status: RunStatusUnrouted, Error: &reason,
 	})
-	if d.Error != nil {
+	if decisionErrorCounts(d.decideErr) {
 		s.countFailure(ctx, t)
 	}
 	s.outcomes.derive(ctx, deliveryID)
+}
+
+// decisionErrorCounts reports whether a failed decision is a configuration error
+// that will not fix itself: a missing scope or exhausted budget, a rejected
+// request, or an unknown or disabled model. Gateway faults, rate limits and
+// timeouts never count (ADR Decision 11).
+func decisionErrorCounts(err error) bool {
+	return errors.Is(err, inferenceclient.ErrForbidden) ||
+		errors.Is(err, inferenceclient.ErrInvalidRequest) ||
+		errors.Is(err, inferenceclient.ErrModelNotFound)
 }
 
 // route decides where a delivery goes and starts or joins the run. It returns
@@ -84,7 +123,11 @@ func (s *Service) route(ctx context.Context, t Trigger, p PendingDelivery) (*Rou
 	if key, ok := renderJoinKey(r, p.Fields); ok {
 		d.JoinKey = &key
 		if r.joins() {
-			joined, joinErr := s.joinByKey(ctx, t, tok, prompt, key, d)
+			joined, joinErr := s.joinByKey(ctx, t, tok, prompt, key, p.HoldCount, d)
+			var hold *holdForStartingRun
+			if errors.As(joinErr, &hold) {
+				return nil, "", joinErr
+			}
 			if joined || joinErr != nil {
 				return d, deref(d.RunID), joinErr
 			}
@@ -94,7 +137,7 @@ func (s *Service) route(ctx context.Context, t Trigger, p PendingDelivery) (*Rou
 	choice, decideErr := s.decide(ctx, t, tok, prompt)
 	if decideErr != nil {
 		choice = fallbackChoice(r.FallbackAgentTypeID, FallbackDecisionFailed)
-		d.Error = new(decideErr.Error())
+		d.Error, d.decideErr = new(decideErr.Error()), decideErr
 	}
 	applyChoice(d, r, choice)
 
@@ -124,9 +167,10 @@ func (s *Service) route(ctx context.Context, t Trigger, p PendingDelivery) (*Rou
 }
 
 // joinByKey joins the run the delivery's join key names, without a model call
-// (ADR Decision 7). joined is false when no open run matched, and the model
-// decides; an error is a join that failed for another reason.
-func (s *Service) joinByKey(ctx context.Context, t Trigger, tok, prompt, key string, d *RoutingDecision) (joined bool, err error) {
+// (ADR Decision 7). A run that is still starting returns holdForStartingRun
+// while holds remain. joined is false when no open run matched, and the model
+// decides; any other error is a join that failed.
+func (s *Service) joinByKey(ctx context.Context, t Trigger, tok, prompt, key string, holds int16, d *RoutingDecision) (joined bool, err error) {
 	runID, agentID, ok := s.keyMatch(ctx, t, key)
 	if !ok {
 		return false, nil
@@ -136,7 +180,9 @@ func (s *Service) joinByKey(ctx context.Context, t Trigger, tok, prompt, key str
 	case err == nil:
 		d.Outcome, d.KeyMatched, d.AgentTypeID, d.RunID = RouteOutcomeJoinedRun, true, &agentID, &runID
 		return true, nil
-	case runClosed(err):
+	case errors.Is(err, agentsclient.ErrRunStarting) && holds < startingRunHolds:
+		return false, &holdForStartingRun{runID: runID}
+	case runClosed(err), errors.Is(err, agentsclient.ErrRunStarting):
 		return false, nil
 	default:
 		d.Outcome, d.KeyMatched, d.AgentTypeID = RouteOutcomeJoinedRun, true, &agentID

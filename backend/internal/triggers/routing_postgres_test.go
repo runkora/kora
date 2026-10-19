@@ -5,6 +5,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -248,4 +249,65 @@ func TestPostgres_UpdateTriggerKeepsAConcurrentGrant(t *testing.T) {
 	if deref(got.GrantID) != "grant-swapped-in" || got.Name != "renamed" {
 		t.Errorf("after the stale edit: grant %s, name %q", deref(got.GrantID), got.Name)
 	}
+}
+
+// A held fire is back in the queue, not claimable until its delay passes, counts
+// the hold, and its delivery says why it waits.
+func TestPostgres_HoldPending(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	src := seedSource(t, r, tenant)
+	tr := seedPendingTrigger(t, r, tenant, src.ID, "held-for-run", 4)
+	p := newPending(tenant, tr.ID)
+	p.DeliveryID = seedRoutedDelivery(t, r, tenant, src.ID)
+	if err := r.EnqueuePending(ctx, p); err != nil {
+		t.Fatalf("EnqueuePending: %v", err)
+	}
+	if err := r.HoldPending(ctx, p.ID, p.DeliveryID, time.Minute, "waiting"); !errors.Is(err, ErrPendingNotClaimed) {
+		t.Fatalf("hold of an unclaimed fire = %v, want ErrPendingNotClaimed", err)
+	}
+
+	claimed := claimOwn(t, r, p.ID)
+	if claimed.HoldCount != 0 {
+		t.Fatalf("hold count = %d, want 0", claimed.HoldCount)
+	}
+	if err := r.HoldPending(ctx, p.ID, p.DeliveryID, time.Minute, "waiting for run run-1 to start"); err != nil {
+		t.Fatalf("HoldPending: %v", err)
+	}
+	var holdCount int16
+	var claimedAt, dispatchAfter *time.Time
+	if err := r.pool.QueryRow(ctx, `SELECT hold_count, claimed_at, dispatch_after FROM trigger_pending_deliveries WHERE id = $1`, p.ID).
+		Scan(&holdCount, &claimedAt, &dispatchAfter); err != nil {
+		t.Fatalf("read held row: %v", err)
+	}
+	if holdCount != 1 || claimedAt != nil || dispatchAfter == nil || time.Until(*dispatchAfter) < 50*time.Second {
+		t.Errorf("held row: hold_count %d, claimed_at %v, dispatch_after %v", holdCount, claimedAt, dispatchAfter)
+	}
+	if del, _ := r.GetDelivery(ctx, tenant, p.DeliveryID); deref(del.Reason) != "waiting for run run-1 to start" {
+		t.Errorf("delivery reason = %q", deref(del.Reason))
+	}
+
+	// Once the delay has passed it is claimable again and carries its count.
+	if _, err := r.pool.Exec(ctx, `UPDATE trigger_pending_deliveries SET dispatch_after = now() - interval '1 second' WHERE id = $1`, p.ID); err != nil {
+		t.Fatalf("expire hold: %v", err)
+	}
+	if again := claimOwn(t, r, p.ID); again.HoldCount != 1 {
+		t.Errorf("reclaimed hold count = %d, want 1", again.HoldCount)
+	}
+}
+
+// claimOwn claims pending rows until it finds pendingID, failing if it is not claimable.
+func claimOwn(t *testing.T, r *postgresRepository, pendingID string) PendingDelivery {
+	t.Helper()
+	claimed, err := r.ClaimPending(context.Background(), 100)
+	if err != nil {
+		t.Fatalf("ClaimPending: %v", err)
+	}
+	for _, c := range claimed {
+		if c.ID == pendingID {
+			return c
+		}
+	}
+	t.Fatalf("pending %s was not claimable", pendingID)
+	return PendingDelivery{}
 }

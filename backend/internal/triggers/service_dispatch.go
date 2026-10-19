@@ -72,7 +72,10 @@ func admissionReason(r AdmissionResult) string {
 // disabled, retargeted or auto-paused while this fire waited, and acting on
 // stale configuration is exactly what an admin turning something off is trying
 // to prevent.
-func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
+//
+// held reports a fire put back in the queue to wait for a starting run; the
+// worker leaves it claimable rather than releasing it.
+func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) (held bool) {
 	t, err := s.repo.GetTrigger(ctx, p.TenantID, p.TriggerID)
 	if err != nil {
 		s.logger.Error(ctx, "pending dispatch: trigger no longer readable",
@@ -85,7 +88,7 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 			TenantID: p.TenantID, DeliveryID: p.DeliveryID, TriggerID: p.TriggerID,
 			Status: RunStatusDropped, Error: new("trigger no longer available"),
 		})
-		return
+		return false
 	}
 	if !t.Enabled {
 		s.outcomes.record(ctx, &DeliveryRun{
@@ -94,7 +97,7 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 			Status: RunStatusDropped,
 			Error:  new("trigger was disabled while this fire was waiting"),
 		})
-		return
+		return false
 	}
 
 	// The timeout bounds the start request, which returns once orbit-agents has
@@ -103,15 +106,15 @@ func (s *Service) DispatchPending(ctx context.Context, p PendingDelivery) {
 	defer cancel()
 
 	if t.TargetKind == TargetKindRouted {
-		s.dispatchRouted(ctx, dispatchCtx, *t, p)
-		return
+		return s.dispatchRouted(ctx, dispatchCtx, *t, p)
 	}
 	runID, err := s.startRunForTriggerWithFields(dispatchCtx, *t, p.DeliveryID, p.Fields)
 	if err != nil {
 		s.recordDispatchFailure(ctx, *t, p.DeliveryID, err)
-		return
+		return false
 	}
 	s.recordStarted(ctx, *t, p.DeliveryID, RunStatusDispatched, runID)
+	return false
 }
 
 // recordDispatchFailure records a start or join that failed, and counts it

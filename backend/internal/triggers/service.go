@@ -73,6 +73,7 @@ type pipelineStore interface {
 	RoutingStore
 
 	AutoPause(ctx context.Context, triggerID string) error
+	HoldPending(ctx context.Context, pendingID, deliveryID string, delay time.Duration, reason string) error
 	BumpConsecutiveFailures(ctx context.Context, triggerID string) (int, error)
 	ClaimReplayKey(ctx context.Context, sourceID string, bodyHash []byte, providerDeliveryID string, window time.Duration) (fresh bool, err error)
 	CountRedeliveries(ctx context.Context, originalID string) (int, error)

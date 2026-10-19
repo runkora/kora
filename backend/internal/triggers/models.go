@@ -137,6 +137,8 @@ var (
 	// update stored a routed trigger's new grant but could not revoke the grant
 	// it replaced.
 	ErrGrantRevokeFailed = errors.New("the replaced trigger grant could not be revoked")
+	// ErrPendingNotClaimed is returned when a fire to hold is no longer claimed.
+	ErrPendingNotClaimed = errors.New("pending delivery is not claimed")
 	// ErrWrongKind is returned when an operation is not valid for the trigger's kind.
 	ErrWrongKind = errors.New("operation not valid for trigger kind")
 

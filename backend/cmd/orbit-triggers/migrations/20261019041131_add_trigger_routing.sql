@@ -72,6 +72,11 @@ CREATE INDEX trigger_routing_decisions_join_key_idx
     WHERE join_key IS NOT NULL AND run_id IS NOT NULL;
 -- +goose StatementEnd
 
+-- hold_count counts the times a fire returned to the queue to wait for a starting run.
+-- +goose StatementBegin
+ALTER TABLE trigger_pending_deliveries ADD COLUMN hold_count SMALLINT DEFAULT 0 NOT NULL;
+-- +goose StatementEnd
+
 -- joined records a delivery that joined a run, unrouted one that started nothing under the no-run fallback.
 -- +goose StatementBegin
 ALTER TABLE trigger_delivery_runs DROP CONSTRAINT trigger_delivery_runs_status_check;
@@ -84,6 +89,10 @@ ALTER TABLE trigger_delivery_runs ADD CONSTRAINT trigger_delivery_runs_status_ch
 ALTER TABLE trigger_delivery_runs DROP CONSTRAINT trigger_delivery_runs_status_check;
 ALTER TABLE trigger_delivery_runs ADD CONSTRAINT trigger_delivery_runs_status_check
     CHECK (status IN ('dispatched', 'failed', 'filtered', 'denied', 'superseded', 'dropped', 'paused'));
+-- +goose StatementEnd
+
+-- +goose StatementBegin
+ALTER TABLE trigger_pending_deliveries DROP COLUMN IF EXISTS hold_count;
 -- +goose StatementEnd
 
 -- +goose StatementBegin

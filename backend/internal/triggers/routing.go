@@ -120,6 +120,9 @@ type RoutingDecision struct {
 	FallbackReason *string       `json:"fallback_reason"`
 	Error          *string       `json:"error"`
 	CreatedAt      time.Time     `json:"-"`
+
+	// decideErr is the failed decision behind Error, for failure accounting.
+	decideErr error
 }
 
 // RoutingScores holds the probability of every option, keyed by agent type id
