@@ -287,7 +287,7 @@ function checkSlots(
       continue;
     }
     const path = `slots.${name}`;
-    if (slot.modes.length === 0) {
+    if (slot.kind === 'font') {
       const checked = checkUrl(entry, path, slot, errors);
       if (checked !== undefined) out[name] = { kind: 'font', url: checked };
       continue;

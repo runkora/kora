@@ -17,9 +17,9 @@ import {
 } from '../../src/theme/formats.ts';
 import type { Manifest } from './manifest.ts';
 
-export const SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema';
+const SCHEMA_DIALECT = 'https://json-schema.org/draft/2020-12/schema';
 
-export interface SchemaProperty {
+interface SchemaProperty {
   readonly type?: string;
   readonly [key: string]: unknown;
 }
@@ -37,7 +37,7 @@ export interface ThemeSchema {
 }
 
 /** The `$defs` name for an asset URL. */
-export const ASSET_URL_DEF = 'asset-url';
+const ASSET_URL_DEF = 'asset-url';
 
 export function buildThemeSchema(manifest: Manifest): ThemeSchema {
   const ref = (def: string): SchemaProperty => ({ $ref: `#/$defs/${def}` });

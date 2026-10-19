@@ -71,7 +71,7 @@ const RESERVED_FAMILIES: ReadonlySet<string> = new Set([
 ]);
 
 /** The trimmed entries of a comma-separated family list; empty entries are kept so callers can reject them. */
-export function familyEntries(value: string): string[] {
+function familyEntries(value: string): string[] {
   return value.split(',').map((entry) => entry.trim());
 }
 
