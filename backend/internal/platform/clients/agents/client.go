@@ -74,11 +74,14 @@ func NewClient(baseURL string, logger logging.Logger) *Client {
 
 // AgentType is the subset of an orbit-agents agent type that callers need to
 // validate a binding before granting run scopes: its canonical slug, owning
-// tenant, and identity model.
+// tenant, and identity model. Name and Description are the text trigger
+// routing asks the decision model about.
 type AgentType struct {
-	ID       string `json:"id"`
-	TenantID string `json:"tenant_id"`
-	Slug     string `json:"slug"`
+	ID          string `json:"id"`
+	TenantID    string `json:"tenant_id"`
+	Slug        string `json:"slug"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
 	// IdentityMode is the agent's identity model — "autonomous" or "delegated"
 	// (docs/adr/2026-07-23-delegated-agent-identity.md). Empty (an older
 	// server) reads as autonomous. Triggers refuse to bind delegated agents:
@@ -137,6 +140,40 @@ func (c *Client) GetAgentType(ctx context.Context, caller Caller, id string) (Ag
 		return AgentType{}, c.HandleErrorResponse(span, resp, ErrAgentTypeNotFound)
 	default:
 		return AgentType{}, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
+	}
+}
+
+// ListAgentTypes returns the agent types the bearer may read in its tenant.
+func (c *Client) ListAgentTypes(ctx context.Context, bearer string) ([]AgentType, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v1/agent-types", nil)
+	if err != nil {
+		return nil, fmt.Errorf("build list agent types request: %w", err)
+	}
+	httpReq.Header.Set("Authorization", "Bearer "+bearer)
+
+	_, span, resp, err := c.Do(ctx, "agents.Client.ListAgentTypes", httpReq)
+	defer span.End()
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	switch resp.StatusCode {
+	case http.StatusOK:
+		var out struct {
+			AgentTypes []AgentType `json:"agent_types"`
+		}
+		if err := c.DecodeJSON(span, resp, &out); err != nil {
+			return nil, fmt.Errorf("decode list agent types response: %w", err)
+		}
+		return out.AgentTypes, nil
+	case http.StatusUnauthorized, http.StatusForbidden:
+		return nil, c.HandleErrorResponse(span, resp, ErrForbidden)
+	default:
+		if resp.StatusCode >= http.StatusInternalServerError {
+			return nil, c.HandleErrorResponse(span, resp, ErrUpstreamUnavailable)
+		}
+		return nil, c.HandleErrorResponse(span, resp, ErrUnexpectedStatus)
 	}
 }
 

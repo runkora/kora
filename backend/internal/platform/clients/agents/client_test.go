@@ -322,6 +322,36 @@ func TestSendRunMessage_ConflictReason(t *testing.T) {
 		err := c.SendRunMessage(context.Background(), "tok", "run-1", SendRunMessageRequest{Content: "hi"})
 		if !errors.Is(err, want) || !strings.Contains(err.Error(), "status 409") {
 			t.Errorf("body %s: got %v, want %v", body, err, want)
+||||||| parent of aa441ea2 (feat(platform): list agent types with their name and description)
+
+func TestListAgentTypes(t *testing.T) {
+	c, cap := newTestClient(t, http.StatusOK, `{"agent_types":[{"id":"at-1","tenant_id":"t1","slug":"coder","name":"Coder","description":"Implements changes.","identity_mode":"autonomous"}]}`)
+	types, err := c.ListAgentTypes(context.Background(), "tok-123")
+	if err != nil {
+		t.Fatalf("ListAgentTypes: %v", err)
+	}
+	if cap.method != http.MethodGet || cap.path != "/api/v1/agent-types" || cap.auth != "Bearer tok-123" {
+		t.Errorf("request = %s %s (auth %q)", cap.method, cap.path, cap.auth)
+	}
+	if len(types) != 1 || types[0].Name != "Coder" || types[0].Description != "Implements changes." || types[0].Slug != "coder" {
+		t.Errorf("types = %+v", types)
+	}
+}
+
+func TestListAgentTypes_StatusMapping(t *testing.T) {
+	tests := []struct {
+		status int
+		want   error
+	}{
+		{http.StatusForbidden, ErrForbidden},
+		{http.StatusUnauthorized, ErrForbidden},
+		{http.StatusBadRequest, ErrUnexpectedStatus},
+		{http.StatusServiceUnavailable, ErrUpstreamUnavailable},
+	}
+	for _, tt := range tests {
+		c, _ := newTestClient(t, tt.status, `{"error":"x"}`)
+		if _, err := c.ListAgentTypes(context.Background(), "tok"); !errors.Is(err, tt.want) {
+			t.Errorf("status %d: got %v, want %v", tt.status, err, tt.want)
 		}
 	}
 }
