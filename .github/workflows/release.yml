@@ -8,6 +8,8 @@ permissions:
   contents: read
 
 env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10'
   REGISTRY: ghcr.io
   IMAGE_NAMESPACE: ${{ github.repository_owner }}
   CHART_REPO: oci://ghcr.io/${{ github.repository_owner }}/charts
@@ -22,9 +24,6 @@ jobs:
   hades-verify:
     name: Verify the Hades manifest
     runs-on: ubuntu-latest
-    env:
-      NODE_VERSION: '24'
-      PNPM_VERSION: '10'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -44,25 +43,73 @@ jobs:
       - name: The manifest is in sync
         run: make hades-check
 
-  # Deletes the tag so the release can be cut again after the fix.
-  hades-unwind:
-    name: Delete the tag after a failed Hades check
+  hades-test:
+    name: Hades tests
     needs: hades-verify
-    if: failure()
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Delete the tag
-        env:
-          TAG: ${{ github.ref_name }}
-        run: git push --delete origin "refs/tags/$TAG"
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      - name: Hades unit tests
+        run: make frontend-test-hades
+
+  # Packs once; later jobs reuse the same tarball as an artifact.
+  hades-pack-and-smoke:
+    name: Pack Hades and smoke build
+    needs: [hades-verify, hades-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: cd frontend && pnpm install --frozen-lockfile
+
+      # The tree stays at 0.0.0. The release tag sets the version.
+      - name: Stamp the release version and pack
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          (cd frontend/src/packages/hades && npm pkg set version="$VERSION")
+          (cd frontend && pnpm --filter @runkora/hades pack --pack-destination "$RUNNER_TEMP/hades-pack")
+          test -f "$RUNNER_TEMP/hades-pack/runkora-hades-$VERSION.tgz"
+
+      - name: Upload the tarball
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hades-tarball
+          path: ${{ runner.temp }}/hades-pack/*.tgz
+          if-no-files-found: error
+
+      # Builds a throwaway Vite app from the tarball, outside Next.js.
+      - name: Smoke build
+        run: bash .github/scripts/hades-smoke-build.sh "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz
 
   images:
     name: Build images
-    needs: hades-verify
+    needs: [hades-verify, hades-test, hades-pack-and-smoke]
     permissions:
       contents: read
       packages: write
@@ -75,7 +122,7 @@ jobs:
 
   publish:
     name: Publish charts
-    needs: images
+    needs: [images, hades-pack-and-smoke]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -139,15 +186,31 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: .github/scripts/write-compatibility.sh
 
+      - name: Download the Hades tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hades-tarball
+          path: ${{ runner.temp }}/hades-pack
+
       - name: Create the GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
+          # Every release attaches the tarball and manifest; only final releases publish.
+          tarball=$(ls "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz)
+          checksum=$(sha256sum "$tarball" | cut -d' ' -f1)
+          hades_dir=frontend/src/packages/hades
+          hades_note="Hades \`@runkora/hades@${TAG#v}\`, SHA-256 \`${checksum}\`"
+          if [[ "${TAG}" == *-* ]]; then
+            hades_note="${hades_note}. Release candidate: the package is not published."
+          else
+            hades_note="${hades_note}. Published to GitHub Packages."
+          fi
           # A semver pre-release tag (v0.2.0-rc.1) carries a hyphen; publish it
           # as a prerelease and never as latest.
-          flags=(--title "${TAG}" --generate-notes)
+          flags=(--title "${TAG}" --generate-notes --notes "${hades_note}")
           if [[ "${TAG}" == *-* ]]; then
             flags+=(--prerelease --latest=false)
           else
@@ -159,4 +222,35 @@ jobs:
               flags+=(--notes-start-tag "${previous}")
             fi
           fi
-          gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml
+          gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml \
+            "$tarball" "$hades_dir/manifest.json"
+
+  # Runs last: a published version cannot be removed or republished.
+  # Final releases only; a failure here publishes nothing and can be re-run.
+  hades-publish:
+    name: Publish Hades to GitHub Packages
+    needs: [hades-pack-and-smoke, publish]
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      # registry-url and scope write .npmrc. The workflow token can publish
+      # because package.json's repository field links the package to this repo.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://npm.pkg.github.com
+          scope: '@runkora'
+
+      - name: Download the tarball
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: hades-tarball
+          path: ${{ runner.temp }}/hades-pack
+
+      - name: Publish the tarball
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm publish "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz

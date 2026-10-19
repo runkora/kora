@@ -1124,6 +1124,15 @@ hades-manifest-check: ## Verify manifest.json is what tokens.css and surface.ts 
 .PHONY: hades-check
 hades-check: hades-manifest-check ## Hades manifest sync check (part of make check)
 
+.PHONY: hades-smoke
+hades-smoke: ## Pack Hades and build a throwaway Vite consumer from the tarball: the release workflow's smoke build, run locally (needs network)
+	@echo "$(COLOR_YELLOW)Packing @runkora/hades...$(COLOR_RESET)"
+	@dest=$$(mktemp -d "$${TMPDIR:-/tmp}/hades-pack.XXXXXX") && \
+	trap 'rm -rf "$$dest"' EXIT && \
+	cd $(FRONTEND_DIR) && pnpm --filter @runkora/hades pack --pack-destination "$$dest" >/dev/null && \
+	cd $(CURDIR) && bash .github/scripts/hades-smoke-build.sh "$$dest/runkora-hades-$$(jq -r .version $(HADES_DIR)/package.json).tgz"
+	@echo "$(COLOR_GREEN)✓ Hades smoke build passed$(COLOR_RESET)"
+
 .PHONY: frontend-test-e2e
 frontend-test-e2e: ## Run frontend E2E tests (Playwright + Chromium, spins up Next.js dev server)
 	@echo "$(COLOR_YELLOW)Running frontend E2E tests...$(COLOR_RESET)"
