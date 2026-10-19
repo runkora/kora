@@ -491,6 +491,11 @@ func (s *Service) addGrantScopes(ctx context.Context, tenantID string, principal
 		return fmt.Errorf("list grants: %w", err)
 	}
 	for _, g := range grantList {
+		// A delegation-marked grant is only a ceiling. The bundle grants
+		// nothing from it outside a delegation.
+		if g.DelegationRequired {
+			continue
+		}
 		for _, sc := range g.Scopes {
 			scopeSet[sc] = struct{}{}
 		}

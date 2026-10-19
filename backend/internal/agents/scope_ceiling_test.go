@@ -1,7 +1,9 @@
 package agents
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	policyclient "github.com/runkora/kora/backend/internal/platform/clients/policy"
 	"github.com/runkora/kora/backend/internal/platform/logging"
 	"github.com/runkora/kora/backend/internal/platform/policy"
 	si "github.com/runkora/kora/backend/internal/platform/sandboximages/v1alpha1"
@@ -377,4 +380,44 @@ func TestDelegatedCaller_AutonomousWritesRefused(t *testing.T) {
 			t.Fatalf("err = %v, want nil", err)
 		}
 	})
+}
+
+// A PAT caller's ceiling is read with its own bearer through the policy client.
+// Holding every scope creates the agent. Lacking one is a 403, never a 500.
+func TestHandleCreateAgentType_PATCeiling(t *testing.T) {
+	const pat = "pat-jwt"
+	tests := []struct {
+		name string
+		held []string
+		want int
+	}{
+		{"pat holding the agent's scopes", []string{"inference:invoke", "inference:anthropic:claude:use", "platform:grants:read"}, http.StatusCreated},
+		{"pat lacking one of the agent's scopes", []string{"inference:invoke", "inference:anthropic:claude:use"}, http.StatusForbidden},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != "/api/v1/policy/effective-scopes" || r.Header.Get("Authorization") != "Bearer "+pat {
+					w.WriteHeader(http.StatusForbidden)
+					return
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"scopes": tc.held})
+			}))
+			defer srv.Close()
+			c, _, _, _ := newTestController(t)
+			c.agentTypes.SetCallerScopes(policyclient.NewClient(srv.URL, nil, logging.NewLoggerWithOutput(io.Discard)))
+
+			raw, _ := json.Marshal(map[string]any{
+				"name": "Bot", "slug": "bot", "model_id": "anthropic/claude", "grant_scopes": []string{"platform:grants:read"},
+			})
+			req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(raw))
+			req.Header.Set("Authorization", "Bearer "+pat)
+			req = req.WithContext(withPrincipalCtx(req.Context(), defaultTestTenant, token.PrincipalTypePAT, "user-1"))
+			w := httptest.NewRecorder()
+			c.handleCreateAgentType(w, req)
+			if w.Code != tc.want {
+				t.Errorf("status %d body %s, want %d", w.Code, w.Body.String(), tc.want)
+			}
+		})
+	}
 }
