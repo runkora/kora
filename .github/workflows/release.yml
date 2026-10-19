@@ -66,8 +66,7 @@ jobs:
       - name: Hades unit tests
         run: make frontend-test-hades
 
-  # Packs the tarball once and shares it as a workflow artifact. The smoke
-  # build, the release and the publish all use that same file.
+  # Packs once; later jobs reuse the same tarball as an artifact.
   hades-pack-and-smoke:
     name: Pack Hades and smoke build
     needs: [hades-verify, hades-test]
@@ -104,8 +103,7 @@ jobs:
           path: ${{ runner.temp }}/hades-pack/*.tgz
           if-no-files-found: error
 
-      # Builds a throwaway Vite app from the tarball. It checks that the
-      # package builds without the Next.js application.
+      # Builds a throwaway Vite app from the tarball, outside Next.js.
       - name: Smoke build
         run: bash .github/scripts/hades-smoke-build.sh "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz
 
@@ -200,8 +198,7 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
-          # Every release attaches the Hades tarball and manifest. Only a final
-          # release publishes the package.
+          # Every release attaches the tarball and manifest; only final releases publish.
           tarball=$(ls "$RUNNER_TEMP"/hades-pack/runkora-hades-*.tgz)
           checksum=$(sha256sum "$tarball" | cut -d' ' -f1)
           hades_dir=frontend/src/packages/hades
@@ -228,9 +225,8 @@ jobs:
           gh release create "${TAG}" "${flags[@]}" dist/*.tgz images.txt compatibility.yaml \
             "$tarball" "$hades_dir/manifest.json"
 
-  # Runs last, because a published version cannot be removed or republished.
-  # A failure here publishes nothing and can be re-run on its own.
-  # Final releases only. A release candidate is never published.
+  # Runs last: a published version cannot be removed or republished.
+  # Final releases only; a failure here publishes nothing and can be re-run.
   hades-publish:
     name: Publish Hades to GitHub Packages
     needs: [hades-pack-and-smoke, publish]
@@ -240,9 +236,8 @@ jobs:
       contents: read
       packages: write
     steps:
-      # registry-url and scope write the job's .npmrc. The workflow token can
-      # publish because package.json's repository field links the package to
-      # this repository.
+      # registry-url and scope write .npmrc. The workflow token can publish
+      # because package.json's repository field links the package to this repo.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: ${{ env.NODE_VERSION }}

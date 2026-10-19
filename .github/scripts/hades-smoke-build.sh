@@ -1,17 +1,6 @@
 #!/usr/bin/env bash
-# Smoke build for a packed Hades tarball. It checks that the package builds
-# outside the kora frontend.
-#
-# It scaffolds a minimal Vite, React and Tailwind v4 app in a temporary
-# directory and installs the tarball and its declared peer dependencies. The
-# page imports tokens.css and Button. The script type-checks it and runs the
-# production build.
-#
+# Smoke build: proves a packed Hades tarball builds in a minimal Vite app outside kora.
 # Usage: .github/scripts/hades-smoke-build.sh <path/to/runkora-hades-X.Y.Z.tgz>
-#
-# The release workflow runs this on every release tag. `make hades-smoke` packs
-# and runs it locally. It needs the public npm registry. The temporary
-# directory is removed on success. On failure it is kept and its path printed.
 set -euo pipefail
 
 if [ $# -ne 1 ]; then
@@ -153,8 +142,7 @@ fi
 echo "type-checking and building"
 npm run build --silent
 
-# Check that Hades reached the output: the page text in the JS and a token in
-# the CSS.
+# Check that Hades reached the output: the page text in the JS, a token in the CSS.
 js=$(find dist/assets -name '*.js' | head -1)
 css=$(find dist/assets -name '*.css' | head -1)
 if [ -z "$js" ] || [ -z "$css" ]; then
