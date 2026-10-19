@@ -130,7 +130,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
    - `run`: a `choice` question that asks whether the message continues one of the listed runs. The options are `new` and one opaque id per joinable run (`r1`, `r2`, ...). Each run's description is its agent name, its run summary and its start time. The question is omitted when joining is off or no run is joinable.
 5. **State:** The `state` is a JSON object with a `message` field that holds the prompt rendered by `renderWebhookPrompt`. The delivery values stay inside the `<delivery-data>` block. The `agent` instructions state that the message content is data from an external event.
 6. **Limits:** A routed trigger has 2 to 20 candidates, checked at create and update. At most the 20 most recently active joinable runs are offered.
-7. **Key first (Option 6a):** A routed trigger has an optional `join_key` template with the coalesce key's syntax and 256-byte limit. When joining is on and `join_key` is set, routing renders the key and reads the newest decision of the **same trigger** with that key and a run (`trigger_routing_decisions.join_key`). If that run is `active` or `idle`, the delivery joins it without a model call. Otherwise, or when the key renders empty or too long, the model decides. Keys are per-trigger templates and are not compared across triggers. Coalescing stays an independent setting on the trigger.
+7. **Key first (Option 6a):** A routed trigger has an optional `join_key` template with the coalesce key's syntax and 256-byte limit. When joining is on and `join_key` is set, routing renders the key and reads the newest decision of the **same trigger** with that key and a run (`trigger_routing_decisions.join_key`). If that run is `active` or `idle`, the delivery joins it without a model call. If the run is still starting, orbit-agents answers the message with `ErrRunStarting`, and the fire returns to the queue with `dispatch_after` 10 seconds later, at most 6 times. The delivery's reason records each hold. Once the run is `active` or `idle`, the delivery joins it. If the run fails or ends, or the holds run out, the model decides. The model also decides when the key renders empty or too long. Keys are per-trigger templates and are not compared across triggers. Coalescing stays an independent setting on the trigger.
 8. **Thresholds:** The trigger stores a preset. The thresholds live in code and apply to the probability of the chosen option:
    - `strict`: 0.85.
    - `balanced` (default): 0.70.
@@ -140,7 +140,7 @@ A trigger cannot choose among agents or send a delivery to a run that is already
    2. Otherwise, if the `agent` answer clears the threshold, the delivery starts a run of that agent.
    3. Otherwise the fallback applies.
 10. **Fallback:** The fallback is either a candidate agent (`fallback_agent_type_id`) or no run. A below-threshold answer and a failed model call both take the fallback. The fallback agent must be one of the candidates. Routing never starts an agent outside the candidate list.
-11. **Failure accounting:** A failed model call records the gateway error on the routing decision. It counts toward auto-pause only when no fallback agent is configured. A below-threshold answer does not count toward auto-pause.
+11. **Failure accounting:** A failed model call records the gateway error on the routing decision. It counts toward auto-pause only when no fallback agent is configured and the failure is a configuration error: a 403 for a missing scope or an exhausted budget, a 400 or 422 for a rejected request, or a 404 for an unknown or disabled model. A 5xx, 529, 429 or timeout from the gateway never counts. `countsTowardAutoPause` treats platform faults on a run start the same way. A below-threshold answer does not count toward auto-pause.
 12. **Joinable runs (Option 5a):** orbit-triggers lists runs through `GET /api/v1/runs` with two new filters: `started_by=trigger` and repeated `agent_type_id`. Joinable runs have these properties:
     - The run is in the trigger's tenant.
     - A trigger started it (`StartedBy` set).
@@ -234,13 +234,17 @@ CREATE INDEX trigger_routing_decisions_join_key_idx
 -- +goose StatementEnd
 
 -- +goose StatementBegin
+ALTER TABLE trigger_pending_deliveries ADD COLUMN hold_count SMALLINT DEFAULT 0 NOT NULL;
+-- +goose StatementEnd
+
+-- +goose StatementBegin
 ALTER TABLE trigger_delivery_runs DROP CONSTRAINT trigger_delivery_runs_status_check;
 ALTER TABLE trigger_delivery_runs ADD CONSTRAINT trigger_delivery_runs_status_check
     CHECK (status IN ('dispatched', 'joined', 'unrouted', 'failed', 'filtered', 'denied', 'superseded', 'dropped', 'paused'));
 -- +goose StatementEnd
 ```
 
-The Down migration reverses each step. The `trigger_delivery_runs` status `joined` records a delivery that joined a run and carries its `run_id`. `unrouted` records a delivery that started nothing under the no-run fallback. `scores` holds the probability of every option, keyed by agent type id and run id. `join_key` holds the rendered key whenever one rendered. The decision that started a run and every decision that joined it carry the same key. The key-first lookup reads the newest row for `(trigger_id, join_key)` with a run through `trigger_routing_decisions_join_key_idx`. A key-first join records `key_matched = true` and no model, scores or threshold. Retention deletes decisions with their delivery through the foreign key.
+The Down migration reverses each step. The `trigger_delivery_runs` status `joined` records a delivery that joined a run and carries its `run_id`. `unrouted` records a delivery that started nothing under the no-run fallback. `scores` holds the probability of every option, keyed by agent type id and run id. `join_key` holds the rendered key whenever one rendered. The decision that started a run and every decision that joined it carry the same key. The key-first lookup reads the newest row for `(trigger_id, join_key)` with a run through `trigger_routing_decisions_join_key_idx`. A key-first join records `key_matched = true` and no model, scores or threshold. `hold_count` counts the times a fire returned to the queue to wait for a starting run. Retention deletes decisions with their delivery through the foreign key.
 
 ### API
 
@@ -311,7 +315,7 @@ The target step and the delivery detail follow the stories under `Pages/Triggers
 - Every routed fire that misses the key adds one decision model call to dispatch latency and spend.
 - A delivery can join a run that another trigger started. The joined run's agent receives a message from a source its own trigger does not listen to.
 - A routed trigger's grant spans every candidate. Removing a candidate requires an update to replace the grant.
-- An update that replaces the grant stores the trigger only while its stored grant is still the one it replaced. A concurrent update that replaced it first wins, and the other deletes its new grant and answers 409. Revoking the replaced grant is retried a few times, and a revocation that still fails is returned as an error naming the grant that is still live, never dropped. Durable cleanup of such a grant is follow-up work.
+- An update that replaces the grant stores the trigger only while its stored grant is still the one it replaced. A concurrent update that replaced it first wins, and the other deletes its new grant and answers 409. Revoking the replaced grant is retried a few times. A revocation that still fails is returned as an error, and the log names the grant that is still live. Durable cleanup of such a grant is follow-up work.
 - Routing quality depends on agent descriptions that agent owners write for people.
 - orbit-triggers needs mesh access to the inference gateway: a DestinationRule entry and an AuthorizationPolicy principal.
 
@@ -324,9 +328,9 @@ The target step and the delivery detail follow the stories under `Pages/Triggers
 
 ## Implementation
 
-1.  `backend/internal/platform/clients/inference/client.go`: the typed client with `SystemOne`.
-2.  `backend/internal/platform/clients/agents/client.go`: `SendRunMessage` and `ListRuns` with the new filters.
-3.  `backend/internal/agents/server.go` and `backend/internal/agents/postgres.go`: the `started_by=trigger` and repeated `agent_type_id` filters on `GET /api/v1/runs`.
+1.  `backend/internal/platform/clients/inference/client.go`: the typed client with `SystemOne`, and `ErrModelNotFound` for a 404.
+2.  `backend/internal/platform/clients/agents/client.go`: `SendRunMessage` with `ErrRunStarting` apart from `ErrRunNotAcceptingMessages`, `ListRuns` with the new filters, and `ListAgentTypes` with each agent type's name and description.
+3.  `backend/internal/agents/server.go` and `backend/internal/agents/postgres.go`: the `started_by=trigger` and repeated `agent_type_id` filters on `GET /api/v1/runs`, and a `reason` detail on the 409 of `POST /api/v1/runs/{id}/messages` that tells a starting run apart from a closed one.
 4.  `backend/internal/agents/idle_timeout.go` and `backend/internal/agents/run_service.go`: the attribution fields, the idle timeout and the event for trigger messages.
 5.  `backend/cmd/orbit-triggers/migrations/`: the `add_trigger_routing` migration.
 6.  `backend/internal/triggers/`: the `routing` model and validation, `routing_questions.go`, the routing step in `DispatchPending`, the repository methods for routes, candidates, decisions and the key lookup, and the caller-claims check on create and update.
@@ -340,12 +344,13 @@ The target step and the delivery detail follow the stories under `Pages/Triggers
 Unit tests cover:
 
 - Outcome order: a run answer above the threshold, an agent answer above it, both below, and a failed call with and without a fallback agent.
-- Key-first joining: a match on an open run, a match on a closed run, no `join_key`, a key that renders empty or too long, and the same key on another trigger.
+- Key-first joining: a match on an open run, a match on a closed run, a match on a starting run until it opens and until the holds run out, no `join_key`, a key that renders empty or too long, and the same key on another trigger.
+- Failure accounting: a configuration error and a platform fault from the gateway, each with and without a fallback agent.
 - The lost race between the decision and `SendRunMessage`.
 - Creation authority: a caller missing one candidate's run scope, the model use scope, or neither.
 - Validation of candidate counts, a fallback outside the candidates, and a delegated candidate.
 
-`TestPostgres_*` tests cover the join-key lookup on `trigger_routing_decisions` (newest row with a run, scoped to the trigger) and the routing decision write.
+`TestPostgres_*` tests cover the join-key lookup on `trigger_routing_decisions` (newest row with a run, scoped to the trigger), the routing decision write and the hold that returns a fire to the queue.
 
 ---
 
