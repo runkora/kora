@@ -1,7 +1,4 @@
-/**
- * Reads the custom properties declared in the `:root` and `@theme inline`
- * blocks of `tokens.css`. It is not a general CSS parser.
- */
+/** Reads custom properties from the `:root` and `@theme inline` blocks of `tokens.css`. */
 
 export interface Declaration {
   readonly name: string;

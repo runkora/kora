@@ -1,10 +1,6 @@
 /**
- * Generates `manifest.json` from `src/tokens/tokens.css` and
- * `src/tokens/surface.ts`, or with `--check` verifies the checked-in file is
- * what generation would produce. The only thing that writes the manifest.
- *
- *   node scripts/manifest.ts          # write
- *   node scripts/manifest.ts --check  # verify, exit 1 on drift
+ * Writes `manifest.json` from `tokens.css` and `surface.ts`.
+ * With `--check`, exits 1 if the checked-in file differs.
  */
 import fs from 'node:fs';
 import path from 'node:path';

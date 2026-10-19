@@ -1,13 +1,6 @@
 /**
- * What a theme can set that `tokens.css` does not say: the kind of each raw
- * token, the asset slots and the product-name bounds.
- *
- * `scripts/manifest.ts` takes token names from the `:root` blocks of
- * `tokens.css` and everything else from here. It fails when a raw token is in
- * one file and not the other.
- *
- * Every `--hades-raw-*` property in `:root` is settable in both modes.
- * Semantic names in `@theme inline` are never settable.
+ * What a theme can set that `tokens.css` does not say: token kinds, slots and name bounds.
+ * Every `--hades-raw-*` property is settable in both modes. Semantic names never are.
  */
 
 export const MODES = ['dark', 'light'] as const;
@@ -95,10 +88,7 @@ export interface SlotDeclaration {
   readonly modes: readonly Mode[];
 }
 
-/**
- * Asset slots. The identity slots are the logo and the favicon. Add a
- * mark-only slot when a surface needs one.
- */
+/** Asset slots: the logo, the favicon and the two fonts. */
 export const SLOTS: readonly SlotDeclaration[] = [
   { name: 'logo', kind: 'image', formats: ['svg'], modes: MODES },
   { name: 'favicon', kind: 'image', formats: ['svg'], modes: MODES },
@@ -114,10 +104,7 @@ export interface ProductNameBounds {
   readonly pattern: string;
 }
 
-/**
- * 1 to 40 characters after trimming: Unicode letters, digits, spaces and
- * `.`, `-`, `&` and `'`. Control characters, `<`, `>` and `"` never match.
- */
+/** 1 to 40 characters after trimming: letters, digits, spaces and `.-&'`. */
 export const PRODUCT_NAME: ProductNameBounds = {
   minLength: 1,
   maxLength: 40,

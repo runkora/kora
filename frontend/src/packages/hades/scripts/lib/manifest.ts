@@ -1,7 +1,4 @@
-/**
- * Builds the theme surface manifest from the CSS text and the surface
- * declaration. Pure. Throws when a raw token is missing from either side.
- */
+/** Builds the manifest from the CSS text and the surface declaration. Pure. */
 import {
   FORMAT_FOR_KIND,
   MODES,
@@ -26,7 +23,7 @@ export interface ManifestToken {
 export interface ManifestMapping {
   /** Raw tokens the semantic name resolves to, transitively, sorted. */
   readonly tokens: readonly string[];
-  /** True for an expression such as `color-mix()` or `calc()`; false for a direct `var()` or a literal. */
+  /** True for an expression such as `color-mix()`; false for a plain `var()` or a literal. */
   readonly derived: boolean;
 }
 
@@ -37,10 +34,7 @@ export interface ManifestSlot {
   readonly modes: readonly Mode[];
 }
 
-/**
- * The surface a theme can set. It has no version field. It ships in a kora
- * release, which is its version.
- */
+/** The surface a theme can set. It has no version field; the kora release is its version. */
 export interface Manifest {
   readonly modes: readonly Mode[];
   readonly tokens: readonly ManifestToken[];
