@@ -233,6 +233,22 @@ func TestUpdateRoutedTrigger(t *testing.T) {
 		}
 	})
 
+	t.Run("an edit that keeps the grant cannot overwrite a concurrent replacement", func(t *testing.T) {
+		_, deps, _, src := routedHarness(t)
+		tr := mustRouted(t, deps, src.ID, nil)
+		deps.repo.beforeUpdate = func() {
+			deps.repo.mu.Lock()
+			deps.repo.triggers[tr.ID].GrantID = new("grant-swapped-in")
+			deps.repo.mu.Unlock()
+		}
+		if _, err := deps.triggers.UpdateTrigger(ctx, testTenant, tr.ID, routingClaims, UpdateTriggerRequest{Name: new("renamed")}); err != nil {
+			t.Fatalf("UpdateTrigger: %v", err)
+		}
+		if got := deref(deps.repo.triggers[tr.ID].GrantID); got != "grant-swapped-in" {
+			t.Errorf("stored grant = %s, want the concurrently swapped-in grant to survive", got)
+		}
+	})
+
 	t.Run("a failed revocation of the old grant is an error", func(t *testing.T) {
 		_, deps, _, src := routedHarness(t)
 		tr := mustRouted(t, deps, src.ID, nil)

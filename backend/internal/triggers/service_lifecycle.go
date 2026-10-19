@@ -523,11 +523,22 @@ func (s *TriggerService) storeUpdate(ctx context.Context, t *Trigger, writeEnabl
 			logging.Field{Key: "grant_id", Value: *oldGrant},
 			logging.Field{Key: "error", Value: err.Error()},
 		)
-		return fmt.Errorf("%w: trigger %s is stored with grant %s, but its previous grant %s is still live: %w",
-			ErrGrantRevokeFailed, t.ID, *t.GrantID, *oldGrant, err)
+		return &GrantRevokeError{TriggerID: t.ID, err: fmt.Errorf("%w: trigger %s is stored with grant %s, but its previous grant %s is still live: %w",
+			ErrGrantRevokeFailed, t.ID, *t.GrantID, *oldGrant, err)}
 	}
 	return nil
 }
+
+// GrantRevokeError carries the trigger whose replaced grant is still live. The
+// wrapped error names the grants and is for logs only.
+type GrantRevokeError struct {
+	TriggerID string
+	err       error
+}
+
+func (e *GrantRevokeError) Error() string { return e.err.Error() }
+
+func (e *GrantRevokeError) Unwrap() error { return e.err }
 
 // Revoking a replaced grant is retried this many times, backing off from revokeBackoff.
 const (

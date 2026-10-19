@@ -478,8 +478,9 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 	// CASE keeps the write conditional inside one static statement rather than
 	// building two.
 	//
-	// grant_id moves when a routed trigger's candidates or model change and its
-	// grant is replaced; the routing rows are replaced in the same transaction.
+	// grant_id is written only by the grant-guarded update, so an edit that did
+	// not replace the grant cannot overwrite one a concurrent update swapped in.
+	// The routing rows are replaced in the same transaction.
 	return storage.WithTransaction(ctx, r.pool, func(tx pgx.Tx) error {
 		tag, err := tx.Exec(ctx, `
 			UPDATE triggers
@@ -488,7 +489,7 @@ func (r *postgresRepository) updateTrigger(ctx context.Context, t *Trigger, writ
 			       max_parallel = $9, overflow = $10, max_queue_depth = $11, timeout_seconds = $12,
 			       enabled = CASE WHEN $16 THEN $6 ELSE enabled END,
 			       auto_paused_at = CASE WHEN $16 THEN $13 ELSE auto_paused_at END,
-			       grant_id = $17,
+			       grant_id = CASE WHEN $18 THEN $17 ELSE grant_id END,
 			       updated_at = now()
 			WHERE  id = $14 AND tenant_id = $15
 			  AND  (NOT $18 OR grant_id IS NOT DISTINCT FROM $19::text)

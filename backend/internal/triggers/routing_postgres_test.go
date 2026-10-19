@@ -75,8 +75,8 @@ func TestPostgres_RoutedTriggerRoundTrip(t *testing.T) {
 		Candidates: []string{"at-c", "at-a"}, Model: "liquid/d1-ultra", Confidence: ConfidenceLoose, JoinRuns: new(false),
 		candidateSlugs: map[string]string{"at-a": "coder", "at-c": "security"},
 	}
-	if err := r.UpdateTrigger(ctx, got, false); err != nil {
-		t.Fatalf("UpdateTrigger: %v", err)
+	if err := r.UpdateTriggerGrant(ctx, got, false, tr.GrantID); err != nil {
+		t.Fatalf("UpdateTriggerGrant: %v", err)
 	}
 	after, _ := r.GetTrigger(ctx, tenant, tr.ID)
 	if deref(after.GrantID) != newGrant || !slices.Equal(after.Routing.Candidates, []string{"at-a", "at-c"}) ||
@@ -223,5 +223,29 @@ func TestPostgres_UpdateTriggerGrantIsConditional(t *testing.T) {
 	}
 	if got, _ := r.GetTrigger(ctx, tenant, tr.ID); deref(got.GrantID) != "grant-winner" {
 		t.Errorf("stored grant = %s, want grant-winner", deref(got.GrantID))
+	}
+}
+
+// An update that did not replace the grant never writes grant_id, so a
+// replacement that landed after its read survives.
+func TestPostgres_UpdateTriggerKeepsAConcurrentGrant(t *testing.T) {
+	r, tenant := testRepo(t)
+	ctx := context.Background()
+	src := seedSource(t, r, tenant)
+	tr := seedRoutedTrigger(t, r, tenant, src.ID)
+
+	stale, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	swapped, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	swapped.GrantID = new("grant-swapped-in")
+	if err := r.UpdateTriggerGrant(ctx, swapped, false, tr.GrantID); err != nil {
+		t.Fatalf("UpdateTriggerGrant: %v", err)
+	}
+	stale.Name = "renamed"
+	if err := r.UpdateTrigger(ctx, stale, false); err != nil {
+		t.Fatalf("UpdateTrigger: %v", err)
+	}
+	got, _ := r.GetTrigger(ctx, tenant, tr.ID)
+	if deref(got.GrantID) != "grant-swapped-in" || got.Name != "renamed" {
+		t.Errorf("after the stale edit: grant %s, name %q", deref(got.GrantID), got.Name)
 	}
 }

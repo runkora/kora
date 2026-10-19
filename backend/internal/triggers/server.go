@@ -550,6 +550,7 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 	ctx := r.Context()
 	var ive *InputValidationError
 	var mse *MissingScopesError
+	var gre *GrantRevokeError
 	switch {
 	case errors.As(err, &mse):
 		// 403 with the scopes, so the caller knows what to ask for.
@@ -564,9 +565,11 @@ func (c *Controller) writeServiceError(w http.ResponseWriter, r *http.Request, e
 		api.ErrorResponse(ctx, w, c.logger, api.TooManyRequestsError(api.ErrCodeTooManyRequests, err.Error(), nil), nil)
 	case errors.Is(err, ErrTriggerConflict):
 		api.ErrorResponse(ctx, w, c.logger, api.ConflictError(api.ErrCodeConflict, err.Error(), nil), nil)
-	case errors.Is(err, ErrGrantRevokeFailed):
-		// The update is stored; the message names the grant still live.
-		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError, err.Error(), nil), err)
+	case errors.As(err, &gre):
+		// The update is stored. Grant ids stay in the log.
+		api.ErrorResponse(ctx, w, c.logger, api.InternalError(api.ErrCodeInternalError,
+			"trigger updated, but revoking the previous grant failed; retry the update or contact your platform team",
+			map[string]any{"trigger_id": gre.TriggerID}), err)
 	case errors.Is(err, ErrTriggerDisabled), errors.Is(err, ErrTriggerAutoPaused):
 		// 409 for both: the trigger is not accepting fires until someone acts.
 		// Which one it is decides what that action is, so the two keep separate

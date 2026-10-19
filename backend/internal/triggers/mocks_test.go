@@ -65,8 +65,10 @@ type mockRepository struct {
 	listTriggersErr   error
 
 	decisions []*RoutingDecision
-	// beforeGrantUpdate runs at the start of UpdateTriggerGrant.
+	// beforeGrantUpdate and beforeUpdate run at the start of UpdateTriggerGrant
+	// and UpdateTrigger, so a test can land a concurrent update in between.
 	beforeGrantUpdate func()
+	beforeUpdate      func()
 }
 
 // LatestJoinKeyRun mirrors the SQL: the newest decision of the trigger with the
@@ -289,7 +291,7 @@ func matchable(t *Trigger) bool { return t.Enabled || t.AutoPausedAt != nil }
 // UpdateTriggerGrant mirrors the conditional UPDATE: it writes only while the
 // stored grant is still oldGrantID. beforeGrantUpdate runs first, so a test can
 // land a concurrent update in between.
-func (m *mockRepository) UpdateTriggerGrant(ctx context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error {
+func (m *mockRepository) UpdateTriggerGrant(_ context.Context, t *Trigger, writeEnablement bool, oldGrantID *string) error {
 	if m.beforeGrantUpdate != nil {
 		m.beforeGrantUpdate()
 	}
@@ -299,18 +301,29 @@ func (m *mockRepository) UpdateTriggerGrant(ctx context.Context, t *Trigger, wri
 		m.mu.Unlock()
 		return ErrTriggerConflict
 	}
-	m.mu.Unlock()
-	return m.UpdateTrigger(ctx, t, writeEnablement)
+	defer m.mu.Unlock()
+	return m.updateLocked(t, writeEnablement, true)
 }
 
 func (m *mockRepository) UpdateTrigger(_ context.Context, t *Trigger, writeEnablement bool) error {
+	if m.beforeUpdate != nil {
+		m.beforeUpdate()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.updateLocked(t, writeEnablement, false)
+}
+
+// updateLocked mirrors the SQL: grant_id moves only on the grant-guarded update.
+func (m *mockRepository) updateLocked(t *Trigger, writeEnablement, writeGrant bool) error {
 	stored, ok := m.triggers[t.ID]
 	if !ok {
 		return ErrTriggerNotFound
 	}
 	cp := *t
+	if !writeGrant {
+		cp.GrantID = stored.GrantID
+	}
 	if !writeEnablement {
 		// Mirror the SQL: an edit that did not touch enablement leaves the
 		// stored enabled/auto_paused_at alone rather than writing back the

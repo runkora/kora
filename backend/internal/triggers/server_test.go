@@ -829,3 +829,23 @@ func TestHandleRoutingCandidates(t *testing.T) {
 		t.Errorf("candidates = %+v", got.AgentTypes)
 	}
 }
+
+// A failed revocation answers with a fixed message and the trigger id, never the grant ids.
+func TestHandleUpdateTrigger_RevokeFailureHidesGrants(t *testing.T) {
+	c, deps, _ := newTestController(t)
+	deps.agents.atSlugs = map[string]string{"at-a": "coder", "at-b": "reviewer", "at-c": "security"}
+	src := mustSource(t, deps.sources)
+	tr := mustRouted(t, deps, src.ID, nil)
+	deps.policy.failDelete = true
+
+	w := call(t, c.handleUpdateTrigger, http.MethodPatch, "/triggers/"+tr.ID, map[string]string{"id": tr.ID}, UpdateTriggerRequest{
+		Routing: routingReq(func(r *RoutingConfig) { r.Candidates = []string{"at-a", "at-b"} }),
+	})
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d (body: %s)", w.Code, w.Body.String())
+	}
+	body := w.Body.String()
+	if !strings.Contains(body, "revoking the previous grant failed") || !strings.Contains(body, tr.ID) || strings.Contains(body, "grant-") {
+		t.Errorf("body = %s, want the fixed message and trigger id only", body)
+	}
+}
