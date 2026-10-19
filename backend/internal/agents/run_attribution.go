@@ -150,21 +150,32 @@ func triggerPrincipalMayClaim(principal, triggerID string) error {
 	}
 }
 
-// messageTrigger reports the trigger a message comes from, or nil for a
-// person's message. A SERVICE principal is a trigger (trigger routing ADR,
-// Decision 14), and the trigger it names passes the same check as a run start.
-// Any other principal that names a trigger is refused.
+// messageTrigger reports the trigger a message comes from, or nil for any other
+// sender (trigger routing ADR, Decision 14). Only a trigger's or a webhook
+// source's SERVICE principal is a trigger, and the trigger it names passes the
+// same check as a run start. Any other caller that names a trigger is refused.
 func messageTrigger(ctx context.Context, req SendMessageRequest) (*StartedByTrigger, error) {
 	claims, ok := token.ClaimsFromContext(ctx)
-	if !ok || claims == nil || claims.Kora.PrincipalType != token.PrincipalTypeService {
+	if !ok || claims == nil || !isTriggerPrincipal(claims) {
 		if req.TriggerID != "" || req.TriggerName != "" || req.DeliveryID != "" {
 			return nil, ErrTriggerAttributionRefused
 		}
 		return nil, nil
 	}
-	from, err := authorizeTriggerClaim(ctx, req.TriggerID, req.TriggerName, req.DeliveryID)
+	triggerID := req.TriggerID
+	if own, isTrigger := strings.CutPrefix(claims.Subject, triggerPrincipalPrefix); triggerID == "" && isTrigger {
+		// A trigger's own principal names its trigger.
+		triggerID = own
+	}
+	from, err := authorizeTriggerClaim(ctx, triggerID, req.TriggerName, req.DeliveryID)
 	if err != nil || from != nil {
 		return from, err
 	}
 	return &StartedByTrigger{}, nil
+}
+
+// isTriggerPrincipal reports whether the caller is a trigger's or a webhook source's SERVICE principal.
+func isTriggerPrincipal(claims *token.PlatformClaims) bool {
+	return claims.Kora.PrincipalType == token.PrincipalTypeService &&
+		(strings.HasPrefix(claims.Subject, triggerPrincipalPrefix) || strings.HasPrefix(claims.Subject, triggerSourcePrincipalPrefix))
 }

@@ -107,9 +107,25 @@ func TestSendMessage_IdleTimeoutAndEventBySender(t *testing.T) {
 			wantPayload: `{"content":"new comment","trigger_id":"trig-2","trigger_name":"PR comments","delivery_id":"del-9"}`,
 		},
 		{
-			name: "a service without attribution is still a trigger", principal: token.PrincipalTypeService, subject: "trigger:trig-1",
+			name: "a trigger principal naming its trigger", principal: token.PrincipalTypeService, subject: "trigger:trig-1",
+			startedBy: trig, req: SendMessageRequest{Content: "new comment", TriggerID: "trig-1", TriggerName: "Nightly"},
+			wantTimeout: 0, wantFromPerson: false, wantEvent: "trigger_message",
+			wantPayload: `{"content":"new comment","trigger_id":"trig-1","trigger_name":"Nightly"}`,
+		},
+		{
+			name: "a trigger principal without a trigger id is attributed to itself", principal: token.PrincipalTypeService, subject: "trigger:trig-1",
+			startedBy: trig, req: SendMessageRequest{Content: "new comment"},
+			wantTimeout: 0, wantFromPerson: false, wantEvent: "trigger_message", wantPayload: `{"content":"new comment","trigger_id":"trig-1"}`,
+		},
+		{
+			name: "a source principal without attribution is a trigger", principal: token.PrincipalTypeService, subject: "trigger-source:github",
 			startedBy: trig, req: SendMessageRequest{Content: "new comment"},
 			wantTimeout: 0, wantFromPerson: false, wantEvent: "trigger_message", wantPayload: `{"content":"new comment"}`,
+		},
+		{
+			name: "another service principal keeps the pre-routing behaviour", principal: token.PrincipalTypeService, subject: "session-manager",
+			startedBy: trig, req: SendMessageRequest{Content: "keep going"},
+			wantTimeout: 1200, wantFromPerson: true, wantEvent: "human_message", wantPayload: `{"content":"keep going"}`,
 		},
 	}
 	for _, tt := range tests {
@@ -157,11 +173,19 @@ func TestSendMessage_RefusesTriggerAttribution(t *testing.T) {
 			req: SendMessageRequest{Content: "hi", TriggerID: "trig-1"}, wantErr: ErrTriggerAttributionRefused,
 		},
 		{
+			name: "another service principal may not send as a trigger", principal: token.PrincipalTypeService, subject: "session-manager",
+			req: SendMessageRequest{Content: "hi", TriggerID: "trig-1"}, wantErr: ErrTriggerAttributionRefused,
+		},
+		{
+			name: "a PAT may not send as a trigger", principal: token.PrincipalTypePAT, subject: "pat:1",
+			req: SendMessageRequest{Content: "hi", TriggerName: "Nightly"}, wantErr: ErrTriggerAttributionRefused,
+		},
+		{
 			name: "a trigger may not send as another trigger", principal: token.PrincipalTypeService, subject: "trigger:trig-1",
 			req: SendMessageRequest{Content: "hi", TriggerID: "trig-2"}, wantErr: ErrTriggerAttributionRefused,
 		},
 		{
-			name: "a delivery without a trigger is incomplete", principal: token.PrincipalTypeService, subject: "trigger:trig-1",
+			name: "a delivery without a trigger is incomplete", principal: token.PrincipalTypeService, subject: "trigger-source:github",
 			req: SendMessageRequest{Content: "hi", DeliveryID: "del-1"}, wantErr: ErrTriggerAttributionIncomplete,
 		},
 	}

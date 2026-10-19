@@ -390,7 +390,7 @@ func TestHandleSendMessage_TriggerAttribution(t *testing.T) {
 	}{
 		{"a trigger names itself", token.PrincipalTypeService, "trigger:trig-1", `{"content":"hi","trigger_id":"trig-1","trigger_name":"PR comments"}`, http.StatusAccepted},
 		{"a person may not name a trigger", token.PrincipalTypeHuman, "user:1", `{"content":"hi","trigger_id":"trig-1"}`, http.StatusForbidden},
-		{"a delivery needs a trigger", token.PrincipalTypeService, "trigger:trig-1", `{"content":"hi","delivery_id":"del-1"}`, http.StatusBadRequest},
+		{"a delivery needs a trigger", token.PrincipalTypeService, "trigger-source:github", `{"content":"hi","delivery_id":"del-1"}`, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			c, repo, _, _ := newTestController(t)

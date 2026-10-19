@@ -607,8 +607,8 @@ func (s *RunService) SubscribeRun(runID string) (<-chan PushedEvent, func()) {
 
 // SendMessage relays a message to the active session-manager for this run.
 // Enforces tenant scoping and authz write on the run's agent type. A message
-// from a SERVICE principal is a trigger's: it leaves the run's idle timeout and
-// is recorded as a trigger_message (trigger routing ADR, Decision 14).
+// from a trigger's SERVICE principal leaves the run's idle timeout and is
+// recorded as a trigger_message (trigger routing ADR, Decision 14).
 func (s *RunService) SendMessage(ctx context.Context, runID string, req SendMessageRequest) error {
 	ctx, span := agentsTracer.Start(ctx, "agents.SendMessage",
 		trace.WithAttributes(attribute.String("run_id", runID)),
