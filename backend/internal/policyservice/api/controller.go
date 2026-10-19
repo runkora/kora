@@ -19,8 +19,8 @@ import (
 	"github.com/runkora/kora/backend/internal/policyservice/vocabulary"
 )
 
-// ReservedRoleError is returned when a request attempts to modify the
-// reserved platform-admin role.
+// ReservedRoleError is returned when a request attempts to modify a reserved
+// role: platform-admin or a built-in kora-* role.
 type ReservedRoleError struct {
 	Role string
 }

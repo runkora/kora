@@ -1,323 +1,215 @@
 # Policy, Roles, and Access Control
 
-This guide explains how kora's authorisation model works and how to configure access for principals on your tenant. It covers the scope vocabulary, grants, roles, and the relationship between them.
+kora denies every request unless a grant or a role held by the caller covers the scope the request needs. This guide covers the scope format, the built-in roles, per-agent access, delegated runs, triggers, and the APIs that manage grants and roles.
 
----
+## Scopes
 
-## Overview
-
-kora uses a **default-deny whitelist model**. No principal can access any resource unless an explicit grant or role assignment says they can. Every request (agent, human, service account) passes through policy evaluation before the resource is reached.
-
-There are two complementary ways to give a principal access to something:
-
-| Mechanism | Best for |
-|---|---|
-| **Roles** | Groups of users that share the same access surface, e.g. all `engineer` users get inference access |
-| **Grants** | One-off or fine-grained per-principal assignments, e.g. a single agent gets access to one specific MCP tool |
-
-Both compile into the same OPA bundle and are evaluated by the same Rego rules. They are not mutually exclusive.
-
----
-
-## Concepts
-
-### Scopes
-
-Permissions use a colon-separated format: `{resource_type}:{path*}:{action}`.
+A scope has the form `{resource_type}:{path...}:{action}`:
 
 ```
-inference:invoke                    call the inference endpoints
-inference:use                       use every model
-inference:anthropic:use             Anthropic models only
-mcp:invoke                          call the tool-gateway
-mcp:gmail:use                       all Gmail MCP tools
-mcp:gmail:send_email:use            one specific tool
-platform:grants:write               manage grants
-platform:roles:write                manage role→scope mappings
+inference:invoke                       reach the LLM endpoints
+inference:anthropic:use                every Anthropic model
+agents:runs:coder:write                start and steer runs of the coder agent
+connection:github:issues:write         write GitHub issues through the github connection
+mcp:invoke                             reach the MCP tool gateway
+mcp:gmail:send_email:use               call one Gmail MCP tool
+platform:grants:write                  manage grants
 ```
 
-Parent scopes implicitly cover narrower child scopes with the same action. A grant of `inference:use` covers `inference:anthropic:use`. There is no need to enumerate every child scope.
+A scope covers another scope when both have the same resource type and action and its path is a prefix of the other's path. `agents:runs:write` covers `agents:runs:coder:write`. A two-part scope such as `inference:invoke` covers every `inference:...:invoke` scope. There are no wildcards.
 
-### Scope Vocabulary
+The vocabulary is the global set of valid scopes, and every tenant validates against it. Services declare their scopes when they register their routes (see [Route Registration](#route-registration)), and the policy service self-registers the `platform:*` scopes. Grant and role writes are validated against the vocabulary. Read it with `GET /api/v1/policy/vocabulary`.
 
-The vocabulary is the finite registered set of valid scopes. It is global: every tenant validates against the same set. Grants and role assignments are validated against it at write time: a grant referencing an unregistered scope is rejected. This prevents privilege escalation through arbitrary scope strings.
+A vocabulary entry can declare `requires`: the scopes the holder also needs for the scope to work. The bundle compiler adds every required scope to each grant and tenant role that covers the entry. The built-in roles take no `requires` expansion. An MCP tool scope on the orbit server requires the platform scope its upstream call needs.
 
-The vocabulary is populated as a side effect of route registration: a service declares its `required_scope`s when it registers its routes (see [Route Registration](#route-registration)), and those scope declarations are upserted into the vocabulary. There is no standalone write API: the vocabulary is read-only over HTTP (`GET /policy/vocabulary`). Platform-level scopes (`platform:grants:write`, `platform:roles:write`, …) are self-registered by the policy service at startup.
+A grant or role write returns `warnings` for scopes that do nothing without a companion scope the write does not include. Examples are a model scope without `inference:invoke`, an MCP tool scope without `mcp:invoke`, a GitHub category scope without the connection's `metadata:read`, a per-agent run scope without read on that agent, an agent-type write without `agents:types:read`, and `triggers:write` without `triggers:read`. A warning never blocks the write. The principal may hold the companion through another grant or role.
 
-A grant or role write also returns `warnings` for scopes that do nothing without a companion scope the write does not include. Examples are a model scope without `inference:invoke`, an MCP tool scope without `mcp:invoke`, a GitHub category scope without the connection's `metadata:read`, a per-agent run scope without read on that agent (`agents:types:<slug>:read` or `agents:types:read`), an agent-type write without `agents:types:read`, and `triggers:write` without `triggers:read`. A warning never blocks the write. The principal may hold the companion through another grant or role.
+## Grants and Roles
 
-### Agent Scopes
+*   **Grant:** A grant gives one principal (`AGENT`, `HUMAN`, or `SERVICE`) a set of scopes. Agents, PATs, and service accounts get access only through grants.
+*   **Role:** A role maps a role name to a set of scopes. Roles reach `HUMAN` principals only.
 
-Access to agents, runs and agent usage is granted per agent. orbit-agents registers these scopes for every agent slug:
+A role name matches an IdP role or group of the same name literally. Your identity provider decides who holds a role. Adding a person to the `kora-user` group in the IdP gives them the `kora-user` scopes with no policy change.
 
-| Scope | Grants |
-|---|---|
-| `agents:types:<slug>:read` | View the agent's definition |
-| `agents:runs:<slug>:read` | View the agent's runs and events |
-| `agents:runs:<slug>:write` | Start, message, interrupt and terminate the agent's runs |
-| `agents:usage:<slug>:read` | View the agent's usage, spend and budget |
+### How IdP Groups Reach the Token
 
-The parents `agents:types:read`, `agents:runs:read`, `agents:runs:write` and `agents:usage:read` cover every agent. `agents:runs:delegated:write` starts runs of any delegated agent. Messaging and interrupting a delegated run stay with its starter. Terminating another person's delegated run also needs `agents:delegated:read`. It does not cover autonomous agents. Lists return only the agents and runs the caller may read.
+1.  At sign-in the identity service reads the `roles` and `groups` claims of the IdP's ID token (`internal/identity/service.go`). Entra and Auth0 typically send `roles`, and Dex and Okta typically send `groups`.
+2.  The identity service merges both lists into the comma-separated `roles` claim of the platform token.
+3.  Each policy decision resolves the caller's role names to scopes from the compiled bundle. The bundle also carries a snapshot of each user's role names to resolve the person behind a delegated run.
 
-Three rules apply without a per-agent scope:
+Locally, Dex reads groups from glauth over LDAP. Group membership is set in `config/glauth/config.cfg`.
 
-- A person in an interactive session sees the runs they started. A PAT, agent or service needs a read scope.
-- The creator of an agent sees it and can view, start and act on its runs while they hold `agents:types:<mode>:write` for the agent's identity mode. An agent created under delegation belongs to the person behind the delegation.
-- A delegated run is visible only to its starter, unless the caller holds `agents:delegated:read`. Only the starter can message or interrupt it.
+## Built-in Roles
 
-The agent slugs `delegated` and `autonomous` are reserved.
+kora ships five reserved roles. Built-in roles cannot be created, edited, or deleted by a tenant. `PUT` and `DELETE` on a reserved role return `400` with `role "<name>" is reserved and cannot be modified`. Tenants add their own roles alongside them, and a person holds the union of every role and grant they have.
 
-### Grants
+`platform-admin` holds the covering set of the whole vocabulary. The four `kora-*` roles hold a fixed scope list defined in `internal/policyservice/bundle/builtin_roles.go`. Each tier holds every scope of the tier above it in the table.
 
-A grant asserts that a named principal within a tenant holds a set of scopes.
+| Role | Adds | What a person with the role can see and do |
+|---|---|---|
+| `kora-viewer` | `agents:types:read`, `agents:environments:read`, `triggers:read`, `inference:list`, `platform:connections:read` | See every agent definition, environment, trigger, and connection, and the models they can use. See their own runs and the runs of agents they hold per-agent read on. Start nothing. |
+| `kora-user` | `inference:invoke`, `agents:runs:delegated:write`, `mcp:invoke` | Start runs of any delegated agent, and message and stop their own. Each run acts with the person's own access and can reach the MCP tool gateway. |
+| `kora-builder` | `agents:types:delegated:write` | Create and change delegated agents. |
+| `kora-operator` | `agents:types:autonomous:write`, `egress:connect`, `triggers:write`, `trigger:fire`, `agents:usage:read`, `platform:analytics:read`, `platform:budgets:read`, `identity:users:read` | Create autonomous agents within their own access, run them, and put triggers on them. Give those agents general internet access. Fire triggers. Read every agent's usage, tenant analytics, budgets, and the user directory. |
+| `platform-admin` | Every scope in the vocabulary | Administer the tenant: grants, roles, budgets, the model catalog, every agent and run. |
 
-```json
-{
-  "principal_type": "AGENT",
-  "principal_id":   "agent-abc123",
-  "scopes":         ["inference:invoke", "inference:anthropic:use", "mcp:invoke", "mcp:gmail:search_emails:use"]
-}
-```
+The built-in roles carry no model, connection, or MCP tool scopes. Add a tenant role for each model family a group may use (e.g. `inference:anthropic:use`) and for the connections and tools they may act through. A `kora-user` with no model scope cannot run a model.
 
-`principal_type` is one of `AGENT`, `HUMAN`, or `SERVICE`.
+The bundle compiles only the declared scopes that the vocabulary holds. `GET /api/v1/policy/roles` marks each reserved role with `"reserved": true` and lists a built-in role's declared scopes that no service has registered under `unregistered_scopes`.
 
-The `tenant_id` is derived from your platform token. You cannot create grants in another tenant. SYSTEM principals may supply an explicit `tenant_id` in the request body for cross-tenant administration.
+## Per-Agent Access
 
-Grants are per-principal. If you have 50 engineers who all need the same access, you would need 50 grants: one per user sub. **This is what roles solve.**
+Each agent publishes its own scopes under its slug:
 
-### Roles
+*   `agents:types:<slug>:read` shows the agent's definition.
+*   `agents:runs:<slug>:read` shows the agent's runs, with their messages, events, and outputs.
+*   `agents:runs:<slug>:write` starts, messages, interrupts, and terminates the agent's runs.
+*   `agents:usage:<slug>:read` shows the agent's spend and usage.
 
-A role maps an OIDC role name to a set of scopes. When a user's JWT carries a role claim, they are granted all scopes associated with that role, without any per-user grant record.
+The tenant-wide parents `agents:types:read`, `agents:runs:read`, `agents:runs:write`, and `agents:usage:read` cover these for every agent. Lists return only the agents and runs the caller may read.
 
-```json
-{
-  "role":   "engineer",
-  "scopes": ["inference:invoke", "inference:anthropic:use", "mcp:invoke", "mcp:gmail:search_emails:use"]
-}
-```
+These rules apply without a per-agent scope:
 
-Any user whose OIDC token contains `"roles": ["engineer"]` automatically receives those four scopes within the tenant. Adding a new engineer requires no policy change: just assigning the OIDC role in your identity provider.
+*   A person in an interactive session sees the runs they started. A PAT, agent, or service needs a read scope.
+*   The creator of an agent sees it and can view, start, and act on its runs while they hold `agents:types:<mode>:write` for the agent's identity mode. An agent created under delegation belongs to the person behind the delegation.
+*   A delegated run is visible only to its starter unless the caller holds `agents:delegated:read`. Only the starter can message or interrupt it.
 
-The `tenant_id` is derived from your platform token. SYSTEM principals may supply it explicitly.
+## Delegated and Autonomous Agents
 
-### Reserved Roles
+An agent runs in one of two identity modes:
 
-`platform-admin` is the one reserved role. It cannot be created, modified, or deleted via the API. At every bundle compile the policy service derives them from the registered vocabulary. 
+*   **Delegated:** The agent acts on behalf of the person who starts the run. Its own grant is a ceiling on that person's access.
+*   **Autonomous:** The agent acts under its own standing grant.
 
-Any user with the `platform-admin` OIDC role can manage grants and roles without a prior grant record existing.
+Creating or changing an agent needs `agents:types:delegated:write` or `agents:types:autonomous:write` for its mode. `agents:types:write` covers both.
 
----
+The caller must also hold the agent's grant:
 
-## Authentication and Authorisation
+*   An autonomous agent's grant cannot hold a scope the caller does not hold.
+*   A delegated agent's grant is exempt apart from its own egress. The caller must hold that egress.
+*   Egress that a connector derives is exempt in both modes.
+*   Editing an environment is checked the same way for every attached agent and needs each agent's mode write scope.
 
-All policy service endpoints require a valid platform JWT, enforced at the controller level. The token's principal type determines what operations are permitted:
+`agents:runs:delegated:write` starts runs of any delegated agent and does not reach autonomous agents. Messaging and interrupting a delegated run stay with its starter, and terminating another person's delegated run also needs `agents:delegated:read`. `agents:runs:write` reaches every agent in both modes. The slugs `delegated` and `autonomous` are reserved to keep per-agent scopes from colliding with the mode scopes.
 
-| Principal type | Can operate on |
-|---|---|
-| `SYSTEM` | Any tenant: supply `tenant_id` explicitly in the request |
-| `HUMAN` / `AGENT` / `SERVICE` | Their own tenant only: `tenant_id` is derived from the token |
+### How Delegated Runs Use the Person's Access
 
-Attempting to supply a `tenant_id` that does not match your token returns `403 Forbidden`. There is no way for a non-SYSTEM principal to read or write another tenant's data.
+Each call a delegated run makes must be covered by three sets: the delegation token's scopes, the agent's grant, and the person's own grants and roles. The person's access is resolved live from the bundle. A role change reaches in-flight runs on the next bundle propagation.
 
----
+A delegated run needs the person to hold these scopes:
 
-## Access Hierarchy
+*   A model scope for each model the run calls.
+*   A connection scope for each connection action the run takes.
+*   `mcp:invoke` to reach the tool gateway, and each MCP tool's scope or every scope in that tool's `requires`.
 
-When a request arrives, OPA evaluates it in this order:
+Egress is the agent's own connectivity posture. At run time a delegated run's egress is checked against the agent's grant and environment alone. The person's control over it comes from the creation check above.
 
-1. **Is the principal's JWT valid?** (signature, expiry, issuer, audience)
-2. **Does the principal carry a role** that covers the required scope?
-3. **Does the principal have a grant** that covers the required scope?
-4. **If a delegation token is present**, enforce the intersection: `delegation_scopes ∩ delegator_grants ∩ agent_grants`. All three sets must cover the required scope.
+## Triggers
 
-If any of steps 2, 3, or 4 allows access, the request proceeds. If none do, it is denied.
+*   `triggers:read` shows trigger sources, triggers, prompt templates, and delivery payloads.
+*   `triggers:write` creates, edits, and deletes triggers and sources, and replays deliveries.
 
----
+Binding a trigger to an agent needs authority to start that agent's runs: `agents:runs:<slug>:write`, or creator access to the agent. The trigger's principal receives that agent's run scopes. Editing what a trigger runs (its prompt, inputs, schedule, filters, sender restriction, or enablement) and replaying a delivery need the same authority. A trigger cannot bind a delegated agent.
 
-## Reading the Scope Vocabulary
+Firing a manual trigger (`POST /api/v1/trigger-fires/{id}`) needs `trigger:<trigger-id>:fire` for that trigger or `trigger:fire` for every trigger. `triggers:write` does not fire a trigger. The per-trigger scope can be held in a grant and cannot be held in a role.
 
-Before creating grants or roles, the scopes you reference must exist in the vocabulary. The vocabulary is populated by services registering their scope declarations (see [Route Registration](#route-registration)). There is no HTTP endpoint to add or remove a scope directly. Any authenticated principal can read it.
+## User Directory
 
-**Get a single scope:**
+`identity:users:read` lists the tenant's users and reads any user's full profile. The analytics and policy pages use it. Any signed-in caller can read their own profile and resolve user names by id with no scope.
 
-```
-GET /api/v1/policy/vocabulary/mcp:jira:issues:write
-```
+## Scopes to Keep Out of Non-Admin Roles
 
-**List registered scopes:**
+These scopes administer the tenant or confer authority beyond the holder. Keep them in `platform-admin` and in narrow, reviewed grants:
 
-```
-GET /api/v1/policy/vocabulary
-GET /api/v1/policy/vocabulary?resource_type=mcp
-```
-
-Passing `?tenant_id=` additionally returns `grant_count` and `role_count` per scope: how many grants and roles in that tenant reference it.
-
----
+*   `platform:grants:write`, `platform:roles:write`, `platform:budgets:write`, and `platform:catalog:write`.
+*   `agents:types:write`, `agents:runs:write`, and `agents:environments:write`.
+*   Any `connection:<name>:write` parent, GitHub `admin:write` and `repo:write`, and Kubernetes `secrets` and `rbac:write`.
+*   `mcp:<server>:use` on a server with write tools.
+*   `mcp:orbit:use` and the orbit rollups for policy, agents, runs, triggers, and budgets. They confer platform scopes through `requires`.
 
 ## Managing Roles
 
-Roles are the preferred way to give groups of users platform access. Define the access surface once, then assign the OIDC role in your identity provider.
+Role management needs `platform:roles:write`. A caller can only put scopes it holds into a role.
 
-**Create or replace a role:**
+**Create or Replace a Role:**
 
 ```
 PUT /api/v1/policy/roles
-Authorization: Bearer <platform-token>
 
 {
-  "role":   "engineer",
-  "scopes": ["inference:invoke", "inference:anthropic:use", "mcp:invoke", "mcp:gmail:search_emails:use"]
+  "role":   "anthropic-users",
+  "scopes": ["inference:anthropic:use"]
 }
 ```
 
-The operation is a full replace: the `scopes` list provided becomes the complete set for that role. If the role does not exist it is created; if it exists its scopes are replaced.
+The `scopes` list replaces the role's scopes in full. Every scope must be in the vocabulary. A repository-qualified connection scope such as `connection:github:issues:orbit:write` is accepted when its unqualified base is registered. A role accepts `egress:connect` and rejects per-host (`egress:<host>:connect`) and connector egress scopes. Those scopes belong in agent grants.
 
-All scopes must be registered in the vocabulary, or the request is rejected. A repository-qualified connection scope such as `connection:github:issues:orbit:write` is accepted when its unqualified base is registered, as it is for grants. A role accepts `egress:connect`, which lets a person give agents general internet access. Per-host (`egress:<host>:connect`) and connector egress scopes stay agent grants and are rejected in roles. SYSTEM principals must include `tenant_id` in the body.
+**Change a Role's Budget:**
 
-A role's budget changes with `platform:budgets:write`. A `PUT` that keeps the stored budget needs only `platform:roles:write`; one that sets, changes or clears it also needs `platform:budgets:write`. To change only the budget:
+A `PUT` that keeps the stored budget needs only `platform:roles:write`. A `PUT` that sets, changes, or clears it also needs `platform:budgets:write`. To change only the budget, use the budget endpoint:
 
 ```
 PATCH /api/v1/policy/roles/engineer/budget
-Authorization: Bearer <platform-token>
 
 { "budget": { "limit_usd": 50, "reset_cadence": "monthly" } }
 ```
 
-A `null` budget clears it. The reserved role carries no budget. A delegated run cannot make any policy write: grants, roles and budgets all refuse it.
+A `null` budget clears it. Reserved roles carry no budget. A delegated run cannot make any policy write: grants, roles and budgets all refuse it.
 
-**Get a specific role:**
-
-```
-GET /api/v1/policy/roles/engineer
-```
-
-SYSTEM principals must include `?tenant_id=acme-corp`.
-
-**List roles for a tenant:**
+**Read and Delete Roles:**
 
 ```
-GET /api/v1/policy/roles
+GET    /api/v1/policy/roles
+GET    /api/v1/policy/roles/{role}
+DELETE /api/v1/policy/roles/{role}
 ```
 
-Response:
+The list starts with the five reserved roles on the first page.
 
-```json
-{
-  "roles": [
-    {
-      "id":         "01jre...",
-      "tenant_id":  "acme-corp",
-      "role":       "engineer",
-      "scopes":     ["inference:invoke", "inference:anthropic:use", "mcp:invoke", "mcp:gmail:search_emails:use"],
-      "created_at": "2026-04-13T12:00:00Z"
-    }
-  ]
-}
-```
-
-**Delete a role:**
-
-```
-DELETE /api/v1/policy/roles/engineer
-```
-
-Deleting a role removes the scope mapping. Users who previously received access via this role lose it on the next bundle polling cycle (default: ≤ 30 seconds). The reserved `platform-admin` role cannot be deleted.
-
-> Role management requires `platform:roles:write`.
-
----
+The `tenant_id` comes from your platform token. SYSTEM principals supply `tenant_id` in the body or the query string.
 
 ## Managing Grants
 
-Use grants for per-principal access that does not fit a role: a specific agent that needs access to a narrow resource, or a service account with a custom scope set.
+Creating and deleting grants needs `platform:grants:write`, and a caller can only grant scopes it holds.
 
-**Create a grant:**
+**Create a Grant:**
 
 ```
 POST /api/v1/policy/grants
-Authorization: Bearer <platform-token>
 
 {
   "principal_type": "AGENT",
   "principal_id":   "agent-abc123",
-  "scopes":         ["mcp:jira:issues:write"]
+  "scopes":         ["mcp:jira:create_issue:use"]
 }
 ```
 
-`principal_type` must be one of:
-- `AGENT`: a registered agent identity
-- `HUMAN`: a user identified by their OIDC `sub`
-- `SERVICE`: a service account identified by its SPIFFE ID
+Grants accept vocabulary scopes, egress host scopes, repository-qualified connection scopes, and `trigger:<trigger-id>:fire`.
 
-SYSTEM principals must include `"tenant_id": "acme-corp"` in the body.
-
-**Get a grant by ID:**
+**Read and Delete Grants:**
 
 ```
-GET /api/v1/policy/grants/{id}
-```
-
-**List grants for a tenant or principal:**
-
-```
-GET /api/v1/policy/grants
-GET /api/v1/policy/grants?principal_type=AGENT&principal_id=agent-abc123
-```
-
-SYSTEM principals must include `?tenant_id=acme-corp`.
-
-**Delete a grant:**
-
-```
+GET    /api/v1/policy/grants?principal_type=AGENT&principal_id=agent-abc123
+GET    /api/v1/policy/grants/{id}
 DELETE /api/v1/policy/grants/{id}
 ```
 
-Grant deletion takes effect within the bundle polling interval (default: ≤ 30 seconds). There is no update operation: to change a grant's scopes, delete and recreate it.
-
-> Grant management requires `platform:grants:write`.
-
----
-
-## Roles vs Grants: When to Use Which
-
-| Situation | Use |
-|---|---|
-| All engineers in my org need inference access | Role (`engineer` → `inference:invoke`) |
-| One agent needs access to one specific MCP tool | Grant (agent → `mcp:jira:issues:write`) |
-| A service account needs a specific narrow scope | Grant (SERVICE → target scope) |
-| A delegating human authorises an agent | Delegation token (intersection enforced automatically) |
-| A new team member joins the engineering team | Add OIDC role in IdP: no policy change needed |
-| An agent is decommissioned | Delete the agent's grants |
-
-**Prefer roles for humans.** Per-user grants (`HUMAN` principal type with a `sub`) create maintenance sprawl: every new user needs a grant record, and every access change requires editing individual records. OIDC role assignments are managed in your identity provider and propagate automatically into policy bundles without any API calls.
-
-**Prefer grants for agents.** Agents have specific, narrow purposes. Granting them exactly the scopes they need (principle of least privilege) is easier to audit and review than broad role assignments.
-
----
+Grants have no update operation for scopes. Delete the grant and create a new one.
 
 ## Route Registration
 
-Services declare which scopes protect their routes by registering at startup with the policy service. This is how Layer 1 (OPA Envoy sidecar) knows which scope a request needs before it reaches the service handler.
+Services declare which scope protects each route by registering with the policy service at startup. The edge gateway and each pod's OPA sidecar read these routes from the bundle. Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally. Identity registers its scope vocabulary and no routes, and its callers reach it east-west. Tenant-published services such as MCP servers register per-tenant routes.
 
-Platform services (inference gateway, egress gateway, tool gateway, orbit-agents, orbit-triggers) register globally: their routes are included in every tenant's bundle. Identity registers its scope vocabulary and no routes; its callers reach it east-west. Tenant-published services (MCP servers, tenant APIs) can register per-tenant routes. They cannot declare scopes, and every `required_scope` must already exist in the vocabulary.
+A platform service registers with its own platform token. `SelfTokenSource` exchanges the pod's SPIFFE SVID for that token, and the `routescopes` client sends it on the registration call:
 
-### How It Works
-
-A platform service registers with its own platform token. The identity client's `SelfTokenSource` exchanges the pod's SPIFFE SVID for that token in-process, and the `routescopes` client sends it as the bearer on the registration call only. The policy service derives the registration scope (global vs tenant) from the token's principal type:
-
-- `SYSTEM` principal → global registration, compiled into every tenant bundle. The `service` field must equal the token's `display_name`, which is the pod's SPIFFE component (`/system/<name>`).
-- `SERVICE` principal → tenant-scoped, compiled into that tenant's bundle only. The `service` field must equal the token's subject.
+*   A `SYSTEM` principal registers globally. The `service` field must equal the pod's SPIFFE component.
+*   A `SERVICE` principal registers for its tenant only. The `service` field must equal the token's subject, and every `required_scope` must already be in the vocabulary.
 
 A registration for any other service is rejected with 403.
 
-Scope declarations write the global vocabulary, which every tenant's bundle reads. Only a `SYSTEM` registration may declare scopes; a `SERVICE` registration that declares any is rejected with 403. The first service to declare a scope owns it (`registered_by`). Only the owner can change its description or `requires`. A declaration of a scope another service owns is skipped and logged as a warning; the rest of the registration proceeds.
+Scope declarations write the global vocabulary. Only a `SYSTEM` registration may declare scopes, and a `SERVICE` registration that declares any is rejected with 403. The first service to declare a scope owns it (`registered_by`), and only the owner can change its description or `requires`. A declaration of a scope another service owns is skipped and logged as a warning, and the rest of the registration proceeds.
 
-A declaration's `requires` has three states. Absent or `null` means unknown and keeps the stored set. `[]` clears it. A non-empty list replaces it. A service whose view of a scope is partial, such as the tool gateway while an MCP server is degraded, sends `null`.
-
-### Adding Route Registration to a Service
-
-Use the `internal/platform/clients/routescopes` client with a token source, and hand the register function to `KeepRegistered`, which retries until the first success and then re-registers periodically:
+A declaration's `requires` has three states. Absent or `null` keeps the stored set, `[]` clears it, and a non-empty list replaces it. A service with a partial view of a scope, such as the tool gateway while an MCP server is degraded, sends `null`.
 
 ```go
 selfToken := identityclient.NewClient(cfg.Identity.InternalURL, logger).SelfTokenSource()
@@ -335,83 +227,37 @@ The service name must match the pod's `spiffe.io/component` label.
 
 ### Authenticated-Only Routes
 
-A route with an empty `required_scope` needs a valid token and no scope. The service behind it holds the real check, typically because the governing scope depends on the request body or a stored row. Register these routes with the rest of the table. The policy service marks them `authenticated_only`, and the edge and sidecar OPA admit any valid token on them. Only global (platform) registrations can carry them: the policy service refuses a tenant route with an empty scope or an empty path prefix, and an empty scope declaration from any service. A path that matches no registered route is denied. A route that must stay closed to agents and north-south callers is left out of the registration: identity registers no routes, and the policy service publishes only its scoped routes.
+A route with an empty `required_scope` needs a valid token and no scope. The service behind it holds the real check. Use one when the governing scope depends on the request body or a stored row. Register these routes with the rest of the table. The policy service marks them `authenticated_only`, and the edge and sidecar OPA admit any valid token on them.
+
+Only global registrations can carry authenticated-only routes. The policy service refuses a tenant route with an empty scope or an empty path prefix, and an empty scope declaration from any service. A path that matches no registered route is denied. A route that must stay closed to agents and north-south callers is left out of the registration: identity publishes no routes, and the policy service publishes only its scoped routes.
 
 ### Route Matching
 
-The edge OPA, the sidecar OPA and the in-process `ScopeEnforcementMiddleware` resolve a request to a route the same way. An exact-method route beats a `"*"` route, then the longest matching prefix wins. A prefix matches on a path segment boundary: `/api/v1/runs` covers `/api/v1/runs/r1` but not `/api/v1/runs-export`. Global routes take precedence over a tenant's own routes, so a tenant service cannot shadow a platform route with a longer prefix on a path and method that route covers. In the OPA layers, two equally specific routes that disagree match nothing, and the request is denied.
+The edge OPA, the sidecar OPA, and the in-process `ScopeEnforcementMiddleware` resolve a request to a route the same way. An exact-method route beats a `"*"` route, and then the longest matching prefix wins. A prefix matches on a path segment boundary: `/api/v1/runs` covers `/api/v1/runs/r1` and does not cover `/api/v1/runs-export`. Global routes take precedence over a tenant's own routes, and a tenant service cannot shadow a platform route with a longer prefix. In the OPA layers, two equally specific routes that disagree match nothing, and the request is denied.
 
-### Inspecting Registered Routes
+### Route Storage
 
-SYSTEM principals can see all currently registered route→scope mappings:
+Route registrations live in the policy service's memory. After a restart, bundles hold no routes until services re-register. The policy service must run as a single replica.
 
-```
-GET /api/v1/policy/routes
-Authorization: Bearer <system-token>
-```
-
-Route registrations are in-memory in the policy service. On a policy service restart, services re-register as they come back up. During the brief window after restart, bundles have no routes and Layer 1 will deny all requests until services re-register.
-
-> **Operational constraint:** Because the route store is in-memory, the policy service must currently run as a single replica. With multiple replicas, a service registering with replica-1 would not have its routes visible in bundles compiled by replica-2.
-
-> **Security prerequisite:** The bundle endpoint (`GET /bundles/{tenant_id}`) is unauthenticated: access is restricted by Istio `PeerAuthentication` STRICT mTLS. If STRICT mode is disabled, per-tenant bundles (containing grants) are exposed. Ensure `PeerAuthentication` STRICT mode is enabled for `orbit-system` in all environments.
-
----
+The bundle endpoint `GET /api/v1/policy/bundles/{tenant_id}` is unauthenticated and restricted by Istio `PeerAuthentication` STRICT mTLS. Keep STRICT mode enabled for `orbit-system` in every environment.
 
 ## Propagation Timing
 
-Policy changes (grant writes, role updates, route registrations) trigger an immediate bundle recompile for the affected tenant. Enforcement points (OPA sidecars, embedded evaluators) poll for new bundles on a configurable interval (default: 30–60 seconds). Access changes are effective within one polling cycle.
-
-Grant and role deletions follow the same timing: the access is revoked at the next polling cycle, not instantly at the API call.
-
----
+Grant writes, role writes, and route registrations trigger a bundle recompile. Enforcement points poll for new bundles every 30 to 60 seconds. A grant or role change, including a revocation, takes effect within one polling cycle.
 
 ## API Reference
 
-All endpoints are under `/api/v1/policy/` and require a valid platform JWT.
+All endpoints are under `/api/v1/policy/` and need a valid platform token:
 
-### Vocabulary
-
-| Method | Path | Principal | Description |
-|---|---|---|---|
-| `GET` | `/policy/vocabulary` | Any | List all registered scopes |
-| `GET` | `/policy/vocabulary/{scope}` | Any | Get a single scope entry |
-
-### Grants
-
-| Method | Path | Required Scope | Description |
-|---|---|---|---|
-| `POST` | `/policy/grants` | `platform:grants:write` | Create a grant |
-| `GET` | `/policy/grants/{id}` | `platform:grants:read` | Get a grant |
-| `GET` | `/policy/grants` | `platform:grants:read` | List grants |
-| `DELETE` | `/policy/grants/{id}` | `platform:grants:write` | Delete a grant |
-
-### Roles
-
-| Method | Path | Required Scope | Description |
-|---|---|---|---|
-| `PUT` | `/policy/roles` | `platform:roles:write` | Create or replace a role |
-| `GET` | `/policy/roles/{role}` | `platform:roles:read` | Get a single role |
-| `GET` | `/policy/roles` | `platform:roles:read` | List roles |
-| `DELETE` | `/policy/roles/{role}` | `platform:roles:write` | Delete a role |
-| `PATCH` | `/policy/roles/{role}/budget` | `platform:budgets:write` | Set or clear a role's budget |
-
-### Routes
-
-| Method | Path | Principal | Description |
-|---|---|---|---|
-| `GET` | `/policy/routes` | SYSTEM only | List all registered route→scope mappings |
-| `POST` | `/policy/routes/register` | SYSTEM or SERVICE | Register a service's route→scope mappings |
-
-### Bundles
-
-| Method | Path | Description |
-|---|---|---|
-| `GET` | `/policy/bundles/{tenant_id}` | OPA bundle polling endpoint (internal) |
-
----
+*   `GET /policy/vocabulary` and `GET /policy/vocabulary/{scope}` need `platform:grants:read`.
+*   `GET /policy/grants` needs `platform:grants:read`, and `POST` and `DELETE` on it need `platform:grants:write`.
+*   `GET /policy/roles` needs `platform:roles:read`, and `PUT` and `DELETE` on it need `platform:roles:write`.
+*   `PATCH /policy/roles/{role}/budget` needs `platform:budgets:write`.
+*   `GET /policy/routes` is open to any authenticated principal.
+*   `POST /policy/routes/register` is open to SYSTEM and SERVICE principals.
 
 ## Related
 
-- [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)
-- [dynamic-route-scope-registration](../adr/2026-04-14-dynamic-route-scope-registration.md)
+*   [policy-gateway-and-authorisation-model](../adr/2026-04-14-policy-gateway-and-authorisation-model.md)
+*   [dynamic-route-scope-registration](../adr/2026-04-14-dynamic-route-scope-registration.md)
+*   [delegated-agent-identity](../adr/2026-07-23-delegated-agent-identity.md)

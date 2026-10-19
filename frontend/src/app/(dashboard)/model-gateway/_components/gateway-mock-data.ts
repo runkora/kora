@@ -879,6 +879,7 @@ export const BUDGET_ROLES: RoleEntry[] = [
     scopes: ['platform:budgets:read', 'platform:budgets:write', 'platform:grants:read'],
     budget: null,
     created_at: ago(120 * DAY),
+    reserved: true,
   },
 ];
 

@@ -331,32 +331,34 @@ func (s *Service) ListVocabulary(ctx context.Context, resourceType string) ([]*v
 }
 
 // ListVocabularyWithUsage returns all scopes with grant and role usage counts
-// scoped to a specific tenant. The admin role's scopes are derived, not
-// stored, so role_count is raised here for each scope the admin holds.
+// scoped to a specific tenant. Reserved roles are derived and never stored:
+// role_count is raised here for each reserved role holding the scope.
 func (s *Service) ListVocabularyWithUsage(ctx context.Context, resourceType, tenantID string) ([]*vocabulary.ScopeEntryWithUsage, error) {
 	entries, err := s.vocabRepo.ListWithUsage(ctx, resourceType, tenantID)
 	if err != nil {
 		return nil, err
 	}
-	admin, err := s.adminScopes(ctx)
+	reserved, err := s.reservedRoles(ctx)
 	if err != nil {
 		return nil, err
 	}
 	for _, e := range entries {
-		if slices.Contains(admin, e.Scope) {
-			e.RoleCount++
+		for _, scopes := range reserved {
+			if slices.Contains(scopes, e.Scope) {
+				e.RoleCount++
+			}
 		}
 	}
 	return entries, nil
 }
 
-// adminScopes derives the platform-admin scopes from the current vocabulary.
-func (s *Service) adminScopes(ctx context.Context) ([]string, error) {
+// reservedRoles derives the reserved roles' scopes from the current vocabulary.
+func (s *Service) reservedRoles(ctx context.Context) (map[string][]string, error) {
 	vocab, err := s.vocabRepo.List(ctx, "")
 	if err != nil {
 		return nil, fmt.Errorf("list vocabulary: %w", err)
 	}
-	return bundle.AdminScopes(vocab), nil
+	return bundle.ReservedRoles(vocab), nil
 }
 
 // Stats returns aggregate counts across grants, roles, vocabulary, routes,
@@ -411,8 +413,8 @@ func (s *Service) Stats(ctx context.Context, tenantID string) (*statsResponse, e
 			ByPrincipalType: grantByType,
 		},
 		Roles: roleStats{
-			Total:    1 + customRoleCount,
-			Reserved: 1,
+			Total:    len(bundle.ReservedRoleNames) + customRoleCount,
+			Reserved: len(bundle.ReservedRoleNames),
 			Custom:   customRoleCount,
 		},
 		Vocabulary: vocabStats{
@@ -458,8 +460,9 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 	}
 
 	scopeSet := make(map[string]struct{})
+	builtinSet := make(map[string]struct{})
 	if grants.PrincipalType(principalType) == grants.PrincipalTypeHuman {
-		if err = s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet); err != nil {
+		if err = s.addRoleScopes(ctx, tenantID, principalRoles, scopeSet, builtinSet); err != nil {
 			return nil, err
 		}
 	}
@@ -480,24 +483,39 @@ func (s *Service) EffectiveScopes(ctx context.Context, tenantID, principalType, 
 	}
 	expandScopeFamily(allVocab, scopeSet)
 	result := bundle.ExpandRequires(slices.Collect(maps.Keys(scopeSet)), allVocab)
+	// Built-in role scopes take no requires expansion, as in the bundle.
+	expandScopeFamily(allVocab, builtinSet)
+	for sc := range builtinSet {
+		if !slices.Contains(result, sc) {
+			result = append(result, sc)
+		}
+	}
 	sort.Strings(result)
 	return result, nil
 }
 
-// addRoleScopes populates scopeSet with scopes derived from the principal's OIDC roles.
-func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalRoles []string, scopeSet map[string]struct{}) error {
+// addRoleScopes populates scopeSet with scopes derived from the principal's OIDC
+// roles, and builtinSet with the scopes of its built-in kora-* roles.
+func (s *Service) addRoleScopes(ctx context.Context, tenantID string, principalRoles []string, scopeSet, builtinSet map[string]struct{}) error {
+	var reserved map[string][]string
 	for _, role := range principalRoles {
 		role = strings.TrimSpace(role)
 		if role == "" {
 			continue
 		}
-		if role == bundle.PlatformAdminRole {
-			admin, err := s.adminScopes(ctx)
-			if err != nil {
-				return err
+		if bundle.IsReservedRole(role) {
+			if reserved == nil {
+				var err error
+				if reserved, err = s.reservedRoles(ctx); err != nil {
+					return err
+				}
 			}
-			for _, sc := range admin {
-				scopeSet[sc] = struct{}{}
+			target := scopeSet
+			if bundle.IsBuiltinRole(role) {
+				target = builtinSet
+			}
+			for _, sc := range reserved[role] {
+				target[sc] = struct{}{}
 			}
 			continue
 		}
@@ -563,9 +581,9 @@ func scopeCovers(a, b string) bool {
 // UpsertRole creates or replaces the scope mapping for a role within a tenant.
 // Scopes are validated as for grants, except that per-host and connector egress
 // scopes stay agent grants: a role holds only egress scopes registered in the
-// vocabulary. Reserved platform admin roles cannot be modified.
+// vocabulary. Reserved roles cannot be modified.
 func (s *Service) UpsertRole(ctx context.Context, tenantID, role string, scopes []string, budget *roles.BudgetAssignment) (*roles.RoleEntry, error) {
-	if role == bundle.PlatformAdminRole {
+	if bundle.IsReservedRole(role) {
 		return nil, &ReservedRoleError{Role: role}
 	}
 	if err := validateScopes(ctx, s.vocabRepo.Exists, scopes, false); err != nil {
@@ -598,39 +616,59 @@ func (s *Service) UpdateRoleBudget(ctx context.Context, tenantID, role string, b
 }
 
 // GetRole returns the scope mapping for a specific role within a tenant.
+// A reserved role is derived from the vocabulary.
 func (s *Service) GetRole(ctx context.Context, tenantID, role string) (*roles.RoleEntry, error) {
-	return s.roleRepo.GetByRole(ctx, tenantID, role)
+	if !bundle.IsReservedRole(role) {
+		return s.roleRepo.GetByRole(ctx, tenantID, role)
+	}
+	vocab, err := s.vocabRepo.List(ctx, "")
+	if err != nil {
+		return nil, fmt.Errorf("list vocabulary: %w", err)
+	}
+	return reservedRoleEntry(tenantID, role, vocab), nil
 }
 
 // ListRoles returns all role→scope mappings for a tenant, with the derived
-// admin role prepended on the first page so the dashboard can display it.
+// reserved roles prepended on the first page so the dashboard can display them.
 func (s *Service) ListRoles(ctx context.Context, tenantID string, limit, offset int) ([]*roles.RoleEntry, error) {
-	custom, err := s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
+	stored, err := s.roleRepo.ListByTenant(ctx, tenantID, limit, offset)
 	if err != nil {
 		return nil, err
 	}
+	// A stored row under a reserved name is never compiled, so it is not listed.
+	custom := slices.DeleteFunc(stored, func(e *roles.RoleEntry) bool { return bundle.IsReservedRole(e.Role) })
 
 	// Only prepend reserved roles on the first page.
 	if offset > 0 {
 		return custom, nil
 	}
 
-	admin, err := s.adminScopes(ctx)
+	vocab, err := s.vocabRepo.List(ctx, "")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list vocabulary: %w", err)
 	}
-	reserved := &roles.RoleEntry{
-		ID:       "reserved-" + bundle.PlatformAdminRole,
-		TenantID: tenantID,
-		Role:     bundle.PlatformAdminRole,
-		Scopes:   admin,
+	out := make([]*roles.RoleEntry, 0, len(bundle.ReservedRoleNames)+len(custom))
+	for _, role := range bundle.ReservedRoleNames {
+		out = append(out, reservedRoleEntry(tenantID, role, vocab))
 	}
-	return append([]*roles.RoleEntry{reserved}, custom...), nil
+	return append(out, custom...), nil
+}
+
+// reservedRoleEntry builds the API view of a reserved role. A built-in role
+// lists the declared scopes the vocabulary does not hold yet as unregistered.
+func reservedRoleEntry(tenantID, role string, vocab []*vocabulary.ScopeEntry) *roles.RoleEntry {
+	entry := &roles.RoleEntry{ID: "reserved-" + role, TenantID: tenantID, Role: role, Reserved: true}
+	if role == bundle.PlatformAdminRole {
+		entry.Scopes = bundle.AdminScopes(vocab)
+	} else {
+		entry.Scopes, entry.UnregisteredScopes = bundle.BuiltinRoleScopes(role, vocab)
+	}
+	return entry
 }
 
 // DeleteRole removes the scope mapping for a role within a tenant.
 func (s *Service) DeleteRole(ctx context.Context, tenantID, role string) error {
-	if role == bundle.PlatformAdminRole {
+	if bundle.IsReservedRole(role) {
 		return &ReservedRoleError{Role: role}
 	}
 	if err := s.roleRepo.Delete(ctx, tenantID, role); err != nil {

@@ -3,8 +3,8 @@
 // of platform scopes. Users carrying that role in their JWT are granted those
 // scopes without a per-user grant.
 //
-// The platform-admin role is derived from the vocabulary in the
-// bundle compiler and is not managed here.
+// Reserved roles (platform-admin and the built-in kora-* roles) are derived from
+// the vocabulary in the bundle compiler and are not managed here.
 package roles
 
 import (
@@ -38,6 +38,12 @@ type RoleEntry struct {
 	Scopes    []string          `json:"scopes"`
 	Budget    *BudgetAssignment `json:"budget,omitempty"`
 	CreatedAt time.Time         `json:"created_at"`
+
+	// Reserved and UnregisteredScopes are set only on derived reserved roles
+	// and are never stored. UnregisteredScopes lists a built-in role's declared
+	// scopes the vocabulary does not hold yet.
+	Reserved           bool     `json:"reserved,omitempty"`
+	UnregisteredScopes []string `json:"unregistered_scopes,omitempty"`
 }
 
 // ErrRoleNotFound is returned when no mapping exists for the given role.
